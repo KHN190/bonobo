@@ -379,12 +379,23 @@ def target_of(needs):
 # ------------------------------------------------------------------------------------------------- execution
 
 def to_step(action, times):
-    """A solver column, as the Step the executor already understands.
+    """A solver column, as the Step the executor already understands, carrying the seconds the column was priced at.
 
     The executor's interface is `Step(kind, token, count, detail)` and it stays that way: which skill carries out a
     piece of work is not the planner's business, and keeping the boundary meant replacing the planner without
     touching a single skill. `tag` is what each column carries for exactly this translation.
+
+    `est` matters as much as the rest of it. A Step built without one defaults to zero ticks, and a step that
+    costs nothing is promised the body for nothing: every commitment collapsed to its floor and a fifteen-second
+    mine was interrupted every six seconds, round after round, "mine_many outlived the 6.0s commitment". The
+    column already knows what it costs — this is the one place that was throwing the number away.
     """
+    step = _shape(action, times)
+    step.est = int(round(action.cost_s * times * TICKS_PER_S))
+    return step
+
+
+def _shape(action, times):
     from .planner import Step
     tag = action.tag or ()
     kind = tag[0] if tag else "craft"

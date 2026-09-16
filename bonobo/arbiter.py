@@ -99,6 +99,7 @@ class Motion:
         self.preempted_at = 0.0          # when a fast layer last overrode; plans older than this are stale
         self.preempted_by = None
         self.violations = []
+        self.driving = None       # the preemption currently executing, if any
         self._log = log or (lambda *_: None)
 
     # -- engagement ------------------------------------------------------------------------------------------------
@@ -121,11 +122,14 @@ class Motion:
     def _run(self, intent):
         """Execute an intent with this thread marked as its owner for the duration."""
         prev = getattr(self._local, "current", None)
+        was_driving = self.driving
         self._local.current = intent
+        self.driving = intent
         try:
             intent.action()
         finally:
             self._local.current = prev
+            self.driving = was_driving
         self.last = intent
 
     def current(self):
@@ -158,6 +162,13 @@ class Motion:
         two-second reposition could abandon a minute of work worth far more than it.
         """
         intent = Intent(layer, action, reason)
+        # Subsumption applies to what is RUNNING, not only to what is pending: an answer that is half carried out
+        # may be cut off by a faster layer and by nothing else. Without this the threat layer stopped its own
+        # answer 0.05 s after starting it, every tick, and the log filled with contested tasks.
+        driving = self.driving
+        if driving is not None and driving.scale <= intent.scale:
+            self._log(f"   motion: {layer} '{reason}' waits: {driving.layer} '{driving.reason}' is driving")
+            return None
         if intent.scale > SAFETY and worth_s is not None:
             running = self.last if self.last is not None and self.last is self.current() else None
             defended = running or arbitrate(self.pending, now)

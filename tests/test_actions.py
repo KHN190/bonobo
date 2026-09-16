@@ -119,6 +119,37 @@ class Weapons(unittest.TestCase):
         self.assertTrue(any("sword" in n for n in p.counts), p.counts)
 
 
+class StepsCarryTheirSeconds(unittest.TestCase):
+    """A column knows what it costs; the Step handed to the executor must say so.
+
+    `to_step` was building Steps without `est`, which defaults to 0 — so every step in the log read "(~0s)", every
+    commitment collapsed to its floor, and the body was interrupted every six seconds in the middle of a mine that
+    takes fifteen ("mine_many outlived the 6.0s commitment: re-planning", over and over). The seconds exist; they
+    were being dropped in translation.
+    """
+
+    def test_every_step_is_worth_the_seconds_of_the_column_it_came_from(self):
+        for a in table():
+            for times in (1, 3):
+                step = actions.to_step(a, times)
+                self.assertAlmostEqual(step.est / 20.0, a.cost_s * times, places=1,
+                                       msg=f"{a.name} ×{times} became {step}")
+
+    def test_no_planned_step_is_free(self):
+        tbl = table()
+        plan = solve(tbl, {}, {"bed": 1})
+        for a, n in plan.steps():
+            self.assertGreater(actions.to_step(a, n).est, 0, f"{a.name} planned as a free step")
+
+    def test_a_long_step_is_promised_more_of_the_body_than_a_short_one(self):
+        from bonobo import priority
+        tbl = table()
+        quick = next(a for a in tbl if a.name.startswith("craft:"))
+        walk = next(a for a in tbl if a.name.startswith("seek:"))
+        self.assertGreater(priority.step_commitment(actions.to_step(walk, 1).est, 1),
+                           priority.step_commitment(actions.to_step(quick, 1).est, 1))
+
+
 class Costs(unittest.TestCase):
     def test_a_walk_costs_more_the_further_it_is(self):
         near = actions.Costs(lambda kinds: 10.0).walk_s(["x"])

@@ -234,11 +234,20 @@ def wait_for_handback(poll=3):
 REPLACED = "replaced by a new task"      # the jar's message when a POST /task cancels what was running
 
 
-def _raise_if_released(results):
+def _raise_if_released(results, since=None):
+    """Raise for whoever took the body from us: the player, our own faster layer, or an outsider.
+
+    A replaced task used to mean an intruder, always. But a tactic preemption replaces it on purpose — that is
+    what taking the body IS — so the waiting thread reported "another commander" every time the threat layer
+    answered, and the answer looked like a fault. `since` is when this wait began: a preemption recorded after it
+    is ours, and the right response is to go and re-plan.
+    """
     if any("released by player" in (t.get("message") or "") for t in results):
         raise PlayerTookControl()
-    # We only post after our own await returns, so a task of ours replaced mid-wait was replaced by someone else.
     if any(REPLACED in (t.get("message") or "") for t in results):
+        from . import arbiter
+        if since is not None and arbiter.BODY.preempted_at > since:
+            raise CommitmentExpired(f"a faster layer took the body ({arbiter.BODY.preempted_by}): re-planning")
         raise BodyContested("another commander posted a task while ours ran")
 
 
@@ -318,6 +327,7 @@ def run(task, wait=900):
     why = vet_aim(task)
     if why:
         log(f"  !! {why}")
+    began = time.time()
     r = post("/task?wait=0", task)
     if r["status"] == "running":
         r = await_task(r["id"], wait)
@@ -327,13 +337,39 @@ def run(task, wait=900):
     if r["status"] != "succeeded" and failures and failures[0].get("reason"):
         r["message"] = f"{r['message']}: {failures[0]['reason']}"
     detail(f"  {r['type']:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
-    _raise_if_released([r])
+    _raise_if_released([r], since=began)
     return r
 
 
 # How long the last chain segment took. A segment is where an atomic action ends and the planner gets the body
 # back, so this is how far ahead anything watching has to look. Measured, not configured.
 LAST_SEGMENT_S = 2.0
+
+
+# What was last posted: (chain signature, id of its last task). Re-deciding must not restart work already under
+# way — see `resume_id`.
+LAST_POSTED = None
+
+
+def chain_signature(tasks):
+    """What makes two chains the same work: the task list, verbatim and in order."""
+    return json.dumps(tasks, sort_keys=True, default=str)
+
+
+def resume_id(tasks, running, last_posted):
+    """The id of the running task to attach to instead of posting `tasks`, or None to post them.
+
+    A commitment expiring means the planner owes the world a fresh decision, not that the body must drop what it
+    is doing. When the fresh decision is the SAME work — which it usually is, because the plan was right — posting
+    it again replaces the running task in the mod and the walk starts from the beginning. The body then left every
+    seven seconds and never arrived.
+    """
+    if not last_posted or not running or running.get("status") != "running":
+        return None
+    signature, task_id = last_posted
+    if signature != chain_signature(tasks) or running.get("id") != task_id:
+        return None
+    return task_id
 
 
 def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segment=None):
@@ -346,15 +382,23 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
         began = time.time()
         if before_segment:
             before_segment(part)
-        r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
-        await_task(r["tasks"][-1]["id"], wait)
-        done = [get(f"/task?id={t['id']}") for t in r["tasks"]]
+        global LAST_POSTED
+        resume = resume_id(part, (get("/state").get("control") or {}).get("task"), LAST_POSTED)
+        if resume is not None:
+            # The same work is already running: wait for it rather than starting it again.
+            await_task(resume, wait)
+            done = [get(f"/task?id={resume}")]
+        else:
+            r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
+            LAST_POSTED = (chain_signature(part), r["tasks"][-1]["id"])
+            await_task(r["tasks"][-1]["id"], wait)
+            done = [get(f"/task?id={t['id']}") for t in r["tasks"]]
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
         results += done
         LAST_SEGMENT_S = max(0.2, min(30.0, time.time() - began))
-        _raise_if_released(done)
+        _raise_if_released(done, since=began)
         if stop_on_failure and any(t["status"] != "succeeded" for t in done):
             break
     if tasks:

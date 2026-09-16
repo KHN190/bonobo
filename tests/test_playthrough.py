@@ -89,17 +89,25 @@ class ARefusalIsHeard(unittest.TestCase):
     Over every candidate the pool offers, not over one named skill: any new way to spin must fail here.
     """
 
-    def test_nothing_that_refused_is_immediately_retried(self):
+    def test_nothing_that_refused_is_retried_before_its_cooldown(self):
+        """By KEY, not by name. Three furnaces being collected are three jobs with three cooldowns, and one name
+        appearing eight times is correct; the same key coming back before its backstop has expired is not."""
+        from bonobo import retry
         row = replayable()
-        refused = {}
-
-        def outcome(name, i):
-            refused[name] = refused.get(name, 0) + 1
-            return NotAvailable("scripted refusal")
-
-        picks = decide.simulate(row, outcome, rounds=40)
-        for name, times in refused.items():
-            self.assertLessEqual(times, 6, f"{name} refused {times}× in {len(picks)} rounds: nobody listened")
+        picks = decide.simulate(row, lambda name, i: NotAvailable("scripted refusal"), rounds=40)
+        when, idled_since = {}, {}
+        for t, _name, key in picks:
+            if key is None:
+                # Nothing was runnable. The idle rule (brain.IDLE_LIMIT, the user's "never idle past ~15 s") then
+                # forces cooling work back in, and a refusal returning early is that rule working, not a deaf pool.
+                idled_since = dict.fromkeys(when, True)
+                continue
+            last = when.get(key)
+            if last is not None and not idled_since.get(key):
+                self.assertGreaterEqual(t - last, retry.BACKSTOP["unavailable"],
+                                        f"{key} refused and was back after {t - last:.0f}s with other work available")
+            when[key] = t
+            idled_since[key] = False
 
     def test_a_refusal_is_never_answered_by_trying_the_same_thing_again(self):
         """Idling is an acceptable answer when everything refuses; retrying the refusal immediately is not."""

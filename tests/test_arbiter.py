@@ -208,3 +208,35 @@ class TheWatcherSurvivesItsAnswers(unittest.TestCase):
                 one_pass({"health": 20})
             self.assertEqual(len(ticks), 3)
             self.assertTrue(log.called)
+
+
+class APreemptionIsNotAnIntruder(unittest.TestCase):
+    """When a fast layer takes the body, the slow layer's task really is replaced — by us. The waiting thread must
+    read that as "go and re-plan", not as an outsider fighting over the player."""
+
+    def setUp(self):
+        from bonobo import api, arbiter as arb
+        self.api, self.arb = api, arb
+        arb.BODY.preempted_at, arb.BODY.preempted_by = 0.0, None
+
+    def replaced(self):
+        return [{"message": self.api.REPLACED}]
+
+    def test_an_outsider_still_contests_the_body(self):
+        with self.assertRaises(self.api.BodyContested):
+            self.api._raise_if_released(self.replaced(), since=100.0)
+
+    def test_our_own_preemption_asks_for_a_re_plan(self):
+        self.arb.BODY.preempted_at = 105.0
+        with self.assertRaises(self.api.CommitmentExpired):
+            self.api._raise_if_released(self.replaced(), since=100.0)
+
+    def test_an_older_preemption_is_not_this_one(self):
+        self.arb.BODY.preempted_at = 90.0
+        with self.assertRaises(self.api.BodyContested):
+            self.api._raise_if_released(self.replaced(), since=100.0)
+
+    def test_the_player_always_wins(self):
+        self.arb.BODY.preempted_at = 105.0
+        with self.assertRaises(self.api.PlayerTookControl):
+            self.api._raise_if_released([{"message": "released by player"}], since=100.0)
