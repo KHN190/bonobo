@@ -18,6 +18,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -783,7 +784,11 @@ def slice_report(lines, positions, target, idle_s):
 
 def _slice(done, minutes, target=None, route_name="speedrun", max_idle=15):
     """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private route file. Stops at once on a
-    loop (the same decision line 4×) or an idle hold longer than `max_idle` — a report, not a timeout."""
+    loop (the same decision line 4×) or an idle hold longer than `max_idle` — a report, not a timeout.
+
+    `done=None` means the window itself is the test: run the full `minutes` and let the scenario's own check say
+    whether it went well. That is what the e2e markers need — surviving a night has no completion, only an end.
+    """
     def run(ctx):
         from . import api, priority, route
         from .world import Snapshot
@@ -805,7 +810,7 @@ def _slice(done, minutes, target=None, route_name="speedrun", max_idle=15):
         stopped = None
         try:
             while time.time() - t0 < minutes * 60:
-                if done():
+                if done is not None and done():
                     break
                 try:
                     BRAIN.round()
@@ -827,7 +832,7 @@ def _slice(done, minutes, target=None, route_name="speedrun", max_idle=15):
         if stopped:
             raise api.McError(f"slice stopped early — {stopped}")
         SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target)
-        if not done():
+        if done is not None and not done():
             raise api.McError(f"slice not done after {minutes} min")
         return True
     return run
@@ -846,7 +851,7 @@ LAST_LINES = []
 
 def _slice_check(done, max_idle=15, max_loops=0):
     def check(api, inv):
-        if not SLICE or not done():
+        if not SLICE or (done is not None and not done()):
             return False
         rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"])
         return rep["idle_s"] <= max_idle and len(rep["loops"]) <= max_loops
@@ -1053,6 +1058,16 @@ SCENARIOS["bed_bomb_kill"] = {
     "check": lambda api, inv: _dragon_health() is None and not api.get("/state")["dead"],
     "budget": 300,
 }
+def _target(name):
+    """An acceptance number from fight.toml's [targets].
+
+    Read rather than copied: the config lists the numbers that decide whether a change helped, and the scenarios
+    each carried their own literal, so tuning a target edited code while the config said something else.
+    """
+    from . import fight_plan
+    return fight_plan.CONFIG["targets"][name]
+
+
 def _fill_bunker(ctx):
     """Setup hook: build the bunker with /fill instead of digging it, and stand the player in it.
 
@@ -1104,6 +1119,8 @@ def _hp_lost_over(seconds):
         return True
     return run
 
+
+from . import fight_plan          # acceptance targets and the fight config
 
 LAST_HOLD = [None]
 
@@ -1218,17 +1235,18 @@ SCENARIOS["bunker_hold_60s"] = {
     # it wandering the open island at y 64 for the whole "bunker" test, and dying there.
     "before": lambda ctx: (_summon_perched_dragon(6)(ctx), _fill_bunker(ctx)),
     "run": _hp_lost_over(60),
-    "check": lambda api, inv: (LAST_HOLD[0] or 0) < 4 and not api.get("/state")["dead"],
+    "check": lambda api, inv: (LAST_HOLD[0] or 0) < _target("hold_60s_hp_lost") and not api.get("/state")["dead"],
     "detail": lambda inv: f"hp lost {LAST_HOLD[0]}",
     "budget": 80,
 }
 SCENARIOS["bunker_window"] = {
-    "doc": "Bunker pre-built, dragon perched → one window from inside cover takes >= 20 hp off the dragon.",
+    "doc": "Bunker pre-built, dragon perched → one window from cover meets the damage target in fight.toml.",
     "module": "end", "raw": True, "combat": True, "dimension": "minecraft:the_end",
     "setup": ["spreadplayers 0 0 10 14 false @p", *SPEEDRUN_END_KIT],
     "before": lambda ctx: (_summon_perched_dragon(6)(ctx), _fill_bunker(ctx)),
     "run": _end_skill_for("bed_bomb_window"),
-    "check": lambda api, inv: (_dragon_health() or 200) <= 180 and not api.get("/state")["dead"],
+    "check": lambda api, inv: ((_dragon_health() or 200) <= fight_plan.CONFIG["combat"]["dragon_hp"]
+                                        - _target("window_dragon_hp") and not api.get("/state")["dead"]),
     "detail": lambda inv: f"dragon hp {_dragon_health()}, beds left {inv.count('bed')}",
     "budget": 40,
 }
@@ -1624,23 +1642,43 @@ def silent_failure(lines, result):
     return McError(last or f"skill returned {result!r} without the outcome")
 
 
+_IMPORTS = {}
+
+
+def _imports_of(module, pkg_dir):
+    """What one module imports from the package. Cached by path and mtime: this is asked once per module per
+    scenario, and re-parsing the package for each answer was most of the offline suite's time."""
+    path = os.path.join(pkg_dir, module + ".py")
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        return ()
+    key = (path, stamp)
+    hit = _IMPORTS.get(key)
+    if hit is not None:
+        return hit
+    with open(path) as f:
+        tree = ast.parse(f.read())
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 1:
+            if node.module:
+                out.append(node.module.split(".")[0])
+            else:
+                out.extend(a.name for a in node.names)
+    _IMPORTS[key] = tuple(out)
+    return _IMPORTS[key]
+
+
 def module_deps(module, pkg_dir=PKG):
     """Pure-ish (reads source files): the module and every bonobo module it imports, transitively."""
     seen, todo = set(), [module]
     while todo:
         m = todo.pop()
-        path = os.path.join(pkg_dir, m + ".py")
-        if m in seen or not os.path.exists(path):
+        if m in seen or not os.path.exists(os.path.join(pkg_dir, m + ".py")):
             continue
         seen.add(m)
-        with open(path) as f:
-            tree = ast.parse(f.read())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level == 1:
-                if node.module:
-                    todo.append(node.module.split(".")[0])
-                else:
-                    todo.extend(a.name for a in node.names)
+        todo.extend(_imports_of(m, pkg_dir))
     return sorted(seen)
 
 
@@ -2040,6 +2078,18 @@ def _report(name, data):
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "report.json"), "w") as f:
         json.dump(data, f, indent=1, default=str)
+    if SCENARIOS.get(name, {}).get("combat"):
+        # A dead fight becomes an incident: the planner's own last input, replayable offline, adoptable into
+        # tests/incidents/. Nothing learned from a live failure stays in a log.
+        try:
+            from . import end
+            from .tools import incidents
+            state, intent = end.LAST_ROUND
+            path = incidents.capture(name, str(data.get("note", "")), state, intent)
+            if path:
+                print(f"incident captured → {path}")
+        except Exception as e:                 # capture must never mask the failure it records
+            print(f"incident not captured: {e}")
     return folder
 
 
@@ -2132,3 +2182,136 @@ def run(name, make_ctx):
                                 "feedback": feedback, "trace": trace, "log": console.lines[-200:]})
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
+
+
+# -- the markers -------------------------------------------------------------------------------------------------
+# Four, and they are the acceptance criteria themselves, not a proxy for them:
+#
+#     never idles · knows how to sleep, eat, build, fight and run · does several things · plans far ahead
+#
+# Nothing inside a run is asserted. A unit test can only say that a formula still computes what it computed, and
+# every formula here has been replaced on purpose at least once; what must survive a rewrite is not a number but
+# that the agent still gets through a night on its own. How well it does any of it is a separate question — see
+# the route slices, which measure the same run.
+
+
+def _rounds_since(t0):
+    """Every decision the brain recorded since `t0`: {"pick", "top", "filtered"} per round. The brain already
+    writes this for the ranking log, so a marker reads what really happened instead of instrumenting the loop."""
+    from . import brain
+    out = []
+    try:
+        with open(brain.RANKING_FILE) as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get("t", 0) >= t0:
+                    out.append(row)
+    except OSError:
+        pass
+    return out
+
+
+def _marker(minutes, check, max_idle=30, setup_time=None):
+    """Run the cerebellum for `minutes` and judge the whole window by `check(rounds)`. The window IS the test:
+    surviving a night has no completion, only an end."""
+    start = {}
+
+    def run(ctx):
+        start["t"] = time.time()
+        return _slice(None, minutes, max_idle=max_idle)(ctx)
+
+    def verdict(api, inv):
+        rounds = _rounds_since(start.get("t", 0))
+        ok, why = check(rounds)
+        MARKER.clear()
+        MARKER.update(rounds=len(rounds), why=why)
+        return ok
+
+    return run, verdict
+
+
+MARKER = {}
+
+
+def _marker_detail(inv):
+    if not MARKER:
+        return _slice_detail(inv)
+    return f"{MARKER['rounds']} rounds — {MARKER['why']} | {_slice_detail(inv)}"
+
+
+def _picked(rounds, *words):
+    """Rounds whose pick names any of these words. What the agent DID, not what it could have done.
+
+    Whole words: "threat:fight" contains "eat", so a substring test said the agent had eaten every time it fought,
+    and the eating half of the marker could never fail.
+    """
+    pattern = re.compile(r"(?<![a-z])(" + "|".join(re.escape(w) for w in words) + r")(?![a-z])")
+    return [r for r in rounds if pattern.search((r.get("pick") or "").lower())]
+
+
+# What each of the five abilities looks like in a decision log. Names, not skills: a marker must not know how the
+# agent sleeps, only that it decided to.
+ABILITIES = {
+    "sleep": ("sleep", "shelter", "dig in", "wall in"),
+    "eat": ("eat", "food", "hunt", "forage", "heal"),
+    "build": ("craft", "pickaxe", "torch", "bed", "blocks", "furnace", "table"),
+    "fight": ("threat:fight", "attack", "kill"),
+    "run": ("threat:evade", "retreat", "flee", "leave"),
+}
+
+
+def _never_idle(rounds):
+    idle = [r for r in rounds if not r.get("pick")]
+    return (not idle and len(rounds) > 20,
+            f"{len(idle)} idle of {len(rounds)}" if rounds else "no rounds recorded")
+
+
+def _knows_how(rounds):
+    missing = [name for name, words in ABILITIES.items() if not _picked(rounds, *words)]
+    return not missing, ("did all five" if not missing else "never: " + ", ".join(missing))
+
+
+def _multitasks(rounds):
+    """Several things, not a queue: distinct picks, and a pool that had alternatives to reject."""
+    picks = {r.get("pick") for r in rounds if r.get("pick")}
+    thin = [r for r in rounds if len(r.get("top", [])) < 2]
+    return (len(picks) >= 4 and len(thin) <= len(rounds) // 4,
+            f"{len(picks)} distinct picks, {len(thin)}/{len(rounds)} rounds with no alternative")
+
+
+def _plans_far(rounds):
+    """Far-sighted means committing to something that pays much later. The nether kit and the eyes of ender are
+    worth nothing at all until the End, so choosing them is the whole evidence."""
+    far = _picked(rounds, "nether", "blaze", "pearl", "eye", "stronghold", "portal", "fortress", "barter")
+    return bool(far), f"{len(far)} far-goal rounds of {len(rounds)}"
+
+
+def _marker_scenario(doc, minutes, check, **extra):
+    run, verdict = _marker(minutes, check)
+    return dict({"doc": doc, "module": "marker", "raw": True, "dimension": "minecraft:overworld",
+                 "setup": ["gamemode survival @p", "difficulty normal"],
+                 "run": run, "check": verdict, "detail": _marker_detail,
+                 "budget": int(minutes * 60 + 120)}, **extra)
+
+
+SCENARIOS["marker_never_idle"] = _marker_scenario(
+    "MARKER: empty hands, ordinary daylight, 10 minutes → every round had something to do.",
+    10, _never_idle, setup=["gamemode survival @p", "difficulty normal", "clear @p", "time set day"])
+
+SCENARIOS["marker_knows_how"] = _marker_scenario(
+    "MARKER: dusk, empty hands, 20 minutes → it slept (or sheltered), ate, made something, fought and ran away. "
+    "Five abilities, each chosen by itself because the situation called for it.",
+    20, _knows_how, setup=["gamemode survival @p", "difficulty normal", "clear @p", "time set 11000"])
+
+SCENARIOS["marker_multitasks"] = _marker_scenario(
+    "MARKER: 10 minutes → four or more different things done, and a pool with alternatives nearly every round. "
+    "One candidate per round is a queue, not a planner.",
+    10, _multitasks, setup=["gamemode survival @p", "difficulty normal", "clear @p", "time set day"])
+
+SCENARIOS["marker_plans_far"] = _marker_scenario(
+    "MARKER: 20 minutes from nothing → it commits to something that only pays off in the End (the Nether kit, "
+    "blaze rods, pearls, the stronghold). Near-term value alone never reaches any of them.",
+    20, _plans_far, setup=["gamemode survival @p", "difficulty normal", "clear @p", "time set day"])

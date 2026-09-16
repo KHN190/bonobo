@@ -28,8 +28,61 @@ def tapes(prefix=None):
     return [os.path.join(ct.DIR, n) for n in names]
 
 
+def fit(paths):
+    """Fit the objective's parameters from recorded windows. Returns {name: value} for what the tapes can support.
+
+    Only what is actually observable: damage per window needs windows where the dragon lost health, exposure needs
+    windows recorded in and out of cover. Anything the tapes cannot answer is left alone — a fitted-looking number
+    with no evidence behind it is worse than an admitted guess.
+    """
+    windows, covered, open_ = [], [], []
+    for path in paths:
+        frames = ct.load(path)["frames"]
+        for w in cm.windows(frames):
+            windows.append(w)
+            (covered if w["exposure_s"] <= 1.5 else open_).append(w)
+    out = {}
+    hits = [w["dragon_hp_lost"] for w in windows if w["dragon_hp_lost"] > 0]
+    if hits:
+        out["bed_damage"] = round(sum(hits) / len(hits), 1)
+    if covered:
+        out["exposure_in_cover_s"] = round(sum(w["exposure_s"] for w in covered) / len(covered), 2)
+    if open_:
+        out["exposure_in_open_s"] = round(sum(w["exposure_s"] for w in open_) / len(open_), 2)
+    # Death risk needs deaths. Without any, the slope stays a guess and stays declared as one.
+    deaths = sum(len(cm.deaths(ct.load(p)["frames"])) for p in paths)
+    exposed = sum(w["exposure_s"] for w in windows)
+    if deaths and exposed:
+        out["death_risk_per_exposed_s"] = round(deaths / exposed, 3)
+    return out
+
+
+def write_fit(values, path=None):
+    """Write fitted values into fight.toml and drop their names from `unmeasured`. Returns what changed."""
+    import re
+    from .. import fight_plan
+    path = path or fight_plan.CONFIG_PATH
+    text = open(path).read()
+    changed = {}
+    for name, value in values.items():
+        pattern = rf"^({re.escape(name)}\s*=\s*)([0-9.]+)"
+        new, n = re.subn(pattern, lambda m: f"{m.group(1)}{value}", text, count=1, flags=re.M)
+        if n:
+            changed[name] = value
+            text = new
+    if changed:
+        m = re.search(r"^unmeasured = \[([^\]]*)\]", text, flags=re.M | re.S)
+        listed = re.findall(r'"([^"]+)"', m.group(1)) if m else []
+        still = [n for n in listed if n not in changed]
+        text = re.sub(r"^unmeasured = \[[^\]]*\]",
+                      "unmeasured = [" + ", ".join(f'"{n}"' for n in still) + "]", text, count=1, flags=re.M | re.S)
+        open(path, "w").write(text)
+    return changed
+
+
 def main():
-    prefix = sys.argv[1] if len(sys.argv) > 1 else None
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    prefix = args[0] if args else None
     paths = tapes(prefix)
     if not paths:
         raise SystemExit(f"no tapes in {ct.DIR}")
@@ -62,6 +115,17 @@ def main():
             d["max"] = max(d["max"], e["max"])
 
     print(f"{len(paths)} tapes, {total_frames} frames ({total_frames * cm.TICK / 60:.1f} min of game)\n")
+
+    if "--fit" in sys.argv:
+        values = fit(paths)
+        if not values:
+            print("nothing fittable yet: no recorded attack window shows damage or exposure\n")
+        else:
+            changed = write_fit(values)
+            print("fitted from the tapes:")
+            for k, v in sorted(values.items()):
+                print(f"  {k:28} {v}" + ("" if k in changed else "   (no such key in fight.toml)"))
+            print()
 
     print("phase durations (seconds)")
     for phase in sorted(durations, key=lambda p: (p is None, p)):

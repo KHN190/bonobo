@@ -191,26 +191,119 @@ def step_options(frame, reach=4.0, step=1.0):
     return out
 
 
-def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None):
-    """Pure: (position, earliest_tti) of the option that keeps us untouched longest, assuming we walk straight there.
+def hypotheses(hazard, here=None, closing=4.3):
+    """Pure: plausible futures for one hazard, each a (centre, radius, velocity) row.
 
-    `speed` is sprinting on flat ground. A position we cannot reach before the hazard arrives is not safe, so each
-    option is scored at the time we would get there, not at time zero.
+    continue   keeps its differenced velocity
+    stop       stays where it is (a cloud settling, a mob hesitating)
+    pursue     turns toward us at a pursuit speed — the case that matters for anything that hunts
+    A hazard with no observed motion still gets `pursue`, because "it has not moved yet" is not "it cannot".
+    """
+    centre, radius = hazard[0], hazard[1]
+    vel = hazard[2] if len(hazard) > 2 else (0.0, 0.0, 0.0)
+    kind = hazard[3] if len(hazard) > 3 else None
+    out = [(centre, radius, vel, kind), (centre, radius, (0.0, 0.0, 0.0), kind)]
+    if here is not None and kind not in STATIC_KINDS:
+        d = math.dist(here, centre)
+        if d > 1e-9:
+            out.append((centre, radius, tuple((here[i] - centre[i]) / d * closing for i in range(3)), kind))
+    return out
+
+
+# Hazards that do not chase: clouds and the perched head sit where they are. Everything else may come for us.
+STATIC_KINDS = {"minecraft:area_effect_cloud", "dragon_head", "minecraft:ender_dragon"}
+
+
+def expand(hazards, here=None):
+    """Pure: every hypothesis of every hazard, flattened. Safety is computed over this, never over the raw list."""
+    return [h for hz in hazards for h in hypotheses(hz, here)]
+
+
+def min_tti(spot, hazards, horizon=HORIZON, speed=4.3, here=None):
+    """Pure: seconds until the FIRST of these hazards covers `spot`, or inf when none does within `horizon`.
+
+    The union, not the worst one: reasoning about the most dangerous threat is what hides a pincer, since two
+    threats each leave an escape and the escapes need not overlap.
+
+    Both directions count. A hazard may travel to the spot (closed-form root on its velocity), and we may travel
+    into one on the way there — a static cloud never "arrives" anywhere, yet walking through it is exactly how a
+    retreat died. With `here` given, the walk is included.
+    """
+    soonest = float("inf")
+    for h in hazards:
+        centre, radius = h[0], h[1]
+        vel = h[2] if len(h) > 2 else (0.0, 0.0, 0.0)
+        if math.dist(spot, centre) <= radius:
+            return 0.0                       # already covered: no time at all
+        if any(vel):
+            soonest = min(soonest, tti(centre, vel, spot, radius, horizon))
+        # Do we cross it on the way? Only meaningful for a hazard we are currently outside: when one already
+        # covers the starting point every outbound path begins inside it, and charging that as an entry made
+        # every escape score as instantly fatal — so standing still won, which is the paralysis this prevents.
+        if here is not None and math.dist(here, centre) > radius:
+            d = math.dist(here, spot)
+            if d > 1e-9:
+                direction = tuple((spot[i] - here[i]) / d * speed for i in range(3))
+                soonest = min(soonest, tti(here, direction, centre, radius, min(horizon, d / speed)))
+    return soonest
+
+
+def slack_at(spot, hazards, here, speed=4.3, horizon=HORIZON, margin=0.3):
+    """Pure: how much time to spare standing at `spot` — first arrival minus the walk minus a margin.
+
+    Unbounded above on purpose. Clamping it at the horizon made "safe for four seconds" and "safe indefinitely"
+    the same number, and a threat two seconds out indistinguishable from no threat.
+    """
+    travel = math.dist(here, spot) / speed
+    first = min_tti(spot, hazards, horizon=horizon, speed=speed, here=here)
+    if first == float("inf"):
+        return float("inf")
+    return round(first - travel - margin, 3)
+
+
+def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3):
+    """Pure: (position, slack) — where to stand, by the rule "first arrival must be later than getting there".
+
+    Ten candidates against a closed-form root: no search, no grid, no simulation. For each option the slack is
+    `min_tti - travel_time - margin`; the best positive one wins, and with none positive the least bad direction is
+    still an answer, because standing still is what killed the runs.
+
+    This replaces a version that scored every reachable option identically unless it was already inside a hazard —
+    which made it blind to anything arriving, and therefore to every moving threat.
     """
     p = _xyz(frame["player"]["pos"])
-    best = None
+    hazards = [(t[2][:3], t[2][3], (0.0, 0.0, 0.0)) for t in threats(frame, None, dps, horizon)]
+    best, best_key = None, None
     for opt in options or step_options(frame):
-        travel = math.dist(p, opt) / speed
-        worst = horizon
-        for kind, _, region, _, _ in threats(frame, None, dps, horizon):
-            cx, cy, cz, r = region
-            if math.dist(opt, (cx, cy, cz)) <= r:
-                worst = 0.0      # standing in it on arrival: not an option at all
-                break
-            worst = min(worst, horizon)
-        score = worst - travel
-        if best is None or score > best[1]:
-            best = (opt, round(score, 3))
+        slack = slack_at(opt, hazards, p, speed, horizon, margin)
+        nearest = min((math.dist(opt, h[0]) - h[1] for h in hazards), default=float("inf"))
+        key = (slack, round(nearest, 2))
+        if best_key is None or key > best_key:
+            best, best_key = (opt, slack), key
+    return best
+
+
+def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None):
+    """Pure: (spot, slack) — the same rule against a plain hazard list, for callers that have no tape frame.
+
+    `cover` is offered as an extra candidate: a bunker mouth is worth considering even when it is further than a
+    sidestep, because arriving there ends the problem rather than postponing it.
+    """
+    frame = {"player": {"pos": {"x": here[0], "y": here[1], "z": here[2]},
+                        "vel": {"x": 0, "y": 0, "z": 0}, "hp": 20}}
+    options = step_options(frame)
+    if cover is not None:
+        options = list(options) + [tuple(cover)]
+    hazards = expand(hazards, here)          # safe against every future, not the single differenced one
+    best, best_key = None, None
+    for opt in options:
+        slack = slack_at(opt, hazards, here, speed, horizon, margin)
+        # Time first; distance from the nearest hazard breaks ties. Without the tie-break every candidate outside
+        # a static threat scores `inf`, the first one wins, and the first one is where we already stand.
+        nearest = min((math.dist(opt, h[0]) - h[1] for h in hazards), default=float("inf"))
+        key = (slack, round(nearest, 2))
+        if best_key is None or key > best_key:
+            best, best_key = (opt, slack), key
     return best
 
 
@@ -285,3 +378,54 @@ def window_summary(frames):
         "mean_dragon_hp_lost": round(per_window, 2),
         "windows_for_200hp": round(200 / per_window, 1) if per_window > 0 else None,
     }
+
+
+# -- enderman geometry. A fact about a mob and a line of sight, not a tactic: `api.run` consults it before every
+# aimed task, and the fight skills consult it too.
+
+ENDERMAN = "minecraft:enderman"
+EYE_HEIGHT = 1.62
+ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
+HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
+
+
+def aim_hits_enderman(aim_at, here, near, half_angle=12.0, radius=24.0, head_band=HEAD_BAND):
+    """Pure: would looking at `aim_at` put the crosshair on an enderman's HEAD? Only the head provokes them (zh wiki:
+    看向较高的地方以免看到它们的头部), so an aim that passes the same direction but well below or above the head is fine —
+    which is what makes shooting crystals and placing beds possible at all in a crowd of them."""
+    ax, az = aim_at[0] - here[0], aim_at[2] - here[2]
+    span = math.hypot(ax, az)
+    if not span:
+        return False
+    base = math.atan2(az, ax)
+    eye = here[1] + EYE_HEIGHT
+    for e in near:
+        if e["type"] != ENDERMAN:
+            continue
+        ex, ez = e["x"] - here[0], e["z"] - here[2]
+        d = math.hypot(ex, ez)
+        if d > radius:
+            continue
+        diff = abs(math.degrees(math.atan2(ez, ex) - base))
+        diff = min(diff, 360 - diff)
+        if diff > half_angle:
+            continue
+        # Height of the aim line where that enderman stands, against its head.
+        y_at = eye + (aim_at[1] - eye) * (d / span)
+        if abs(y_at - (e["y"] + ENDERMAN_HEAD)) <= head_band:
+            return True
+    return False
+
+
+from . import beliefs
+
+# How close movement may plan to stand to each thing that can hurt us. A view of the belief table, not a copy:
+# this table and play.toml's said different things about the same skeleton for months.
+HAZARD_R = beliefs.keep_out()
+
+
+def hazard_points(near, radii=None):
+    """Pure: [(point, radius)] for everything that can hurt us here. Every ender dragon entry counts, body parts
+    included (they carry no health field)."""
+    radii = radii or HAZARD_R
+    return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near if e["type"] in radii]

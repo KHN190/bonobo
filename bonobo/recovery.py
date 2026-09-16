@@ -11,6 +11,7 @@ not something to do while it arrives.
 
 # Triggers, most specific first. Each is (substring of the interrupt reason, action name, why).
 # The order matters: an interrupt can mention more than one thing, and the first match wins.
+# Keyed on perception's danger KIND, matched exactly. (kind, action, why)
 TABLE = [
     ("enderman", "shake_enderman",
      "never trade hits: water or distance breaks the aggro, swinging back starts a second fight"),
@@ -18,9 +19,9 @@ TABLE = [
      "clouds pool at the mouth and spread along the floor; the corridor is the only place they do not reach"),
     ("airborne", "water_clutch",
      "flung by a take-off: pathing does nothing in mid-air, and the fall is what kills, not the hit"),
-    ("critical health", "retreat_and_eat",
+    ("critical_health", "retreat_and_eat",
      "below the floor nothing sprints or regenerates, so the next hit is the last one"),
-    ("hostile", "retreat_to_cover", "anything hostile within reach is answered from inside cover"),
+    ("hostiles", "retreat_to_cover", "anything hostile within reach is answered from inside cover"),
     ("stale", "retreat_to_cover",
      "perception older than the reaction window is not perception; treat blindness as danger"),
 ]
@@ -30,20 +31,26 @@ TABLE = [
 DEFAULT = "retreat_to_cover"
 
 
+def _kind(reason):
+    """The danger kind in a message: exact kind, or the kind a prefixed message ("claude: breath") ends with."""
+    text = (reason or "").strip().lower()
+    return text.split(":")[-1].strip() if ":" in text else text
+
+
 def recovery_for(reason):
-    """Pure: the action name for an interrupt reason. Always returns something."""
-    text = (reason or "").lower()
-    for needle, act, _ in TABLE:
-        if needle in text:
+    """Pure: the action name for a danger kind. Always returns something."""
+    k = _kind(reason)
+    for kind, act, _ in TABLE:
+        if kind == k:
             return act
     return DEFAULT
 
 
 def explain(reason):
     """Pure: (action, why) — the reason is logged so a wrong table entry is visible in the run, not just its effect."""
-    text = (reason or "").lower()
-    for needle, act, why in TABLE:
-        if needle in text:
+    k = _kind(reason)
+    for kind, act, why in TABLE:
+        if kind == k:
             return act, why
     return DEFAULT, "unrecognised danger: cover first, diagnose afterwards"
 

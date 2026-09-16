@@ -394,6 +394,16 @@ def too_wet(region, p, margin=1):
     return False
 
 
+REACH_BUDGET = 3         # ways of not getting there, per call, before the place itself is the problem
+
+
+def _reach_budget(spent, blocks, why=None):
+    """Raise once the budget is gone. NavFailed is deliberate: retry.py keys on the position bin, so the goal waits
+    for the agent to be somewhere else instead of paying for the same search from the same spot."""
+    if spent >= REACH_BUDGET:
+        raise api.NavFailed(why or f"{blocks[0]}: {spent} unreachable in a row — not from this spot")
+
+
 @skill(pre=[lambda c: require_pickaxe(c.args[4])], start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
        per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}")
@@ -402,7 +412,12 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     drop = token
     target = Inventory().count(drop) + count
     radius = 24
-    unreachable = 0      # veins skipped because travel could not get there; a few in a row means "not from here"
+    # Unreachable is a property of where we STAND, not of the block: on a hillside the mod answered "cannot reach"
+    # for block after block of the same seam, each answer costing a 6000-node search (5.8 s), and banning them one
+    # at a time meant the next round picked the neighbour and paid again. One budget for every way of not getting
+    # there — travel refusing, the mod refusing, nothing within reach — and when it runs out the whole step fails
+    # as a nav failure, which is the one thing that makes the retry policy wait for a CHANGE OF PLACE.
+    unreachable = 0
     empty_batches = 0    # batches the mod could not break at all; a few in a row means the seam really is dead
     for _ in range(10):
         have = Inventory().count(drop)
@@ -418,7 +433,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if not hits and raw:
             # Found but filtered out: say by what (bench iron_ingots failed in 0 s with 6 ore in plain sight).
             banned = sum(1 for h in raw if ctx.blocked((h["x"], h["y"], h["z"])))
-            log(f"   {len(raw)} {blocks[0]} in range but {banned} banned, {len(raw) - banned} protected")
+            api.detail(f"   {len(raw)} {blocks[0]} in range but {banned} banned, {len(raw) - banned} protected")
         if not hits:
             if radius >= 48 and drop == "minecraft:obsidian":
                 # Obsidian rarely exists: make it from a lava pool (water bucket), then mine what was cast.
@@ -448,7 +463,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed} not reachable")
             continue
-        vein = connected(region, seed, blocks)
+        vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)}
+        if not vein:
+            continue      # the whole connected vein is already proven unreachable: next seed
         # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
         # Surface blocks (dirt, sand, gravel, stone) keep 2 blocks from any fluid: a dirt pit dug beside a pond filled
         # with water and the agent kept digging inside it, nearly drowning.
@@ -472,8 +489,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 # Failing the whole step over one unreachable vein cooled the goal for two minutes, and on a hilltop
                 # landing that happened to every vein in turn ("nether kit/mine:stone: … not reachable", ×3).
                 unreachable += 1
-                if unreachable >= 4:
-                    raise api.NavFailed(f"{blocks[0]}: {unreachable} veins in a row not reachable from here")
+                _reach_budget(unreachable, blocks)
                 continue
         else:
             digs = nav.plan_tunnel(region, start, vein, ctx.policy)
@@ -492,13 +508,17 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if not nav.go_to(near_cell, ctx.policy, range_=2.0, attempts=1):
                 for p in vein:
                     ctx.ban(p)
-                raise api.NavFailed(f"{blocks[0]} at {near_cell} not reachable")
+                unreachable += 1
+                _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell} not reachable")
+                continue
             here_now = feet()
             in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
             if not in_reach:
                 for p in vein:
                     ctx.ban(p)
-                raise api.NavFailed(f"got near {near_cell} but no {blocks[0]} within reach")
+                unreachable += 1
+                _reach_budget(unreachable, blocks, f"got near {near_cell} but no {blocks[0]} within reach")
+                continue
         # Distance is not reachability: on a hillside the mod answered "cannot reach … no path found" for 6 of 7
         # blocks that were all within 4.5. Only hand over blocks with an open face, judged from the region already
         # read (no extra world query here).
@@ -524,6 +544,11 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                        for m in _re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", r.get("message") or "")}
                 for p in bad or ():
                     ctx.ban(p)      # only the blocks the mod named as unreachable
+                if bad:
+                    # The mod's refusal costs a full path search each time, so it counts against the same budget as
+                    # a refusal by travel. Without this the batch shrank by one block per 6 s for a whole minute.
+                    unreachable += 1
+                    _reach_budget(unreachable, blocks)
                 continue
             for p in vein:
                 ctx.ban(p)
@@ -551,7 +576,8 @@ def _not_in_water(c):
         raise NotAvailable("standing in water: no strip mining here")
 
 
-@skill(pre=[lambda c: require_pickaxe(0), _not_in_water], start=lambda c: world_signature(),
+@skill(pre=[lambda c: require_pickaxe(0), _not_in_water], needs={"tool:pickaxe:0": 1},
+       start=lambda c: world_signature(),
        verify=lambda c: world_signature() != c.base, budget=300, stall=60)
 def strip_mine_step(ctx, length=16):
     """Always-available work: descend toward iron depth (diamond depth once an iron pickaxe exists), then drive a
@@ -719,6 +745,15 @@ def place_torch_if_dark(ctx):
     return r["status"] == "succeeded"
 
 
+RAW_MEAT = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken"]
+
+
+def edible_carried(inv):
+    """Anything edible at all, cooked or raw. `food_count` counts MEALS (cooked only); this counts food."""
+    from .knowledge import ALL_FOOD
+    return any(inv.count(f) for f in ALL_FOOD + RAW_MEAT)
+
+
 @skill(start=lambda c: api.get("/state")["food"],
        verify=lambda c: not c.result or api.get("/state")["food"] > c.base, budget=30, stall=30)
 def eat(raw_ok=False):
@@ -869,6 +904,13 @@ def bed_spot():
     return None
 
 
+def _night_with_a_bed(c):
+    """Sleeping needs night and a bed. Both are known without reading the world — the bed from the bag, the hour
+    from the last snapshot — so the pool can refuse this before it prices walking to a bedroom."""
+    if Inventory().count("bed") <= 0 and not api.get("/state").get("dead"):
+        pass      # a bed may still be nearby; that half needs the world and stays in the body
+
+
 @skill(verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60)
 def sleep(ctx, night_policy):
     """Sleep through the night: carried bed first (placed next to us, picked up after), then a nearby site bed."""
@@ -909,10 +951,16 @@ def sleep(ctx, night_policy):
 
 @skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1], budget=60, stall=30)
 def dig_in(ctx):
-    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead."""
+    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead.
+
+    Records how deep it got. The hole is in the world whether or not this call finished, so the planner can price
+    finishing it (actions._resume) instead of starting a new one somewhere else — which is what it did when the
+    only record of the work was the fact that this function had been called.
+    """
     x, y, z = feet()
     nav.dig_down(3, ctx.policy, use_ladders=False)
     fx, fy, fz = feet()
+    ctx.mem.note_progress("dig_in", (x, y, z), ctx.dimension, done=max(0, y - fy), of=3)
     block = next((b for b in GROUPS["building"] if Inventory().count(b)), None)
     if block and fy < y:
         place(block, (x, fy + 2, z))
@@ -993,19 +1041,34 @@ def pod(ctx):
             log(f"pod: could not place at {c}: {e}")
     region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
     open_cells = [c for c in cells if not region.solid(c)]
+    # Either way the walls that went up are still there: record them, so finishing this pod is cheaper than
+    # starting another one two blocks away.
+    ctx.mem.note_progress("pod", (x, y, z), ctx.dimension, done=len(cells) - len(open_cells), of=len(cells))
     if open_cells:
         raise McError(f"pod left {len(open_cells)} openings")
+    ctx.mem.clear_progress("pod", (x, y, z))
     log("walled in for the night")
 
 
 # ---------------------------------------------------------------- machines (blueprints.py)
 
 
-@skill(budget=180, stall=60)
-def light_area(ctx, radius=10, limit=6):
-    """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2."""
+def _has_torches_to_spare(c):
     if Inventory().usable("minecraft:torch") <= 2:
         raise NotAvailable("no torches to spare")
+
+
+@skill(pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, budget=180, stall=60)
+def light_area(ctx, radius=10, limit=6):
+    """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2.
+
+    The torch check is a declared precondition, not a line in the body: the pool asks it (skill.can_run) before it
+    prices this work. As a line it could only be discovered by failing, and the idle rule kept thawing the
+    candidate, so "no torches to spare" was logged ninety times in four minutes. The `enclosed()` check stays in
+    the body — it reads the world, and an estimate that reads the world cannot be replayed.
+    """
+    if enclosed():
+        raise NotAvailable("sealed in: nothing outside to light")
     spots = [p for p in dark_spots(radius=radius, max_light=0, limit=40) if not ctx.blocked((p["x"], p["y"], p["z"]))]
     if not spots:
         raise NotAvailable("nothing dark nearby")
@@ -1175,7 +1238,13 @@ def _place_cache_chest(ctx):
     raise NotAvailable("no room for a cache chest")
 
 
-@skill(start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
+def _has_something_to_store(c):
+    """Pure inventory: no world read, so the pool can ask it before pricing the trip."""
+    if not store_plan(Inventory().slots):
+        raise NotAvailable("nothing worth storing")
+
+
+@skill(pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=600, stall=90, per_unit=60)
 def deposit(ctx, local_only=False):
     """Store everything beyond the keep list: in a chest at the nearest reachable site within 96 blocks (skipped

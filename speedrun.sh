@@ -7,6 +7,8 @@
 cd "$(dirname "$0")" || exit 1
 # Where the mod writes config/agent-bridge.json. Override by exporting MC_INSTANCE before running.
 export MC_INSTANCE="${MC_INSTANCE:-$HOME/Library/Application Support/ModrinthApp/profiles/Fabric API}"
+# The mod's Java package, when checked out. Optional: without it readiness keys on the jar version.
+export MC_MOD_SRC="${MC_MOD_SRC:-$HOME/minecraft-claude-bridge/anaka/src/main/java/dev/anaka}"
 # The runtime data directory, same default as bonobo.paths (override with MC_DATA).
 DIR="${MC_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/bonobo}"
 RUNS="$DIR/runs"

@@ -11,7 +11,7 @@ Invariants checked along the simulated timeline:
 """
 import math
 
-from .data import DAY_END, NIGHT_END, RECIPES, TIER_OF_MATERIAL, bare, mid
+from .data import DAY_END, GROUPS, NIGHT_END, RECIPES, TIER_OF_MATERIAL, bare, mid
 
 MOVING = {"mine", "gather", "hunt"}
 TUNNEL_ALLOWANCE = 2.0          # blocks dug to reach each planned block, plus a flat 16
@@ -53,6 +53,9 @@ def prepare(plan, inv, time_of_day, has_bed, kit, site_eta=None):
     kit          {token: count} a shelter needs (blueprints.materials(SHELTER))
     site_eta     ticks to the nearest home/shelter from here, or None when there is none
     """
+    # Bed crafting is exempt: once crafted it solves night sleeping; no shelter kit or extra blocks needed.
+    if any(s.token in ("bed", "minecraft:white_bed") or s.token in GROUPS.get("bed", ()) for s in plan):
+        return []
     extra = {}
 
     def want(token, total):

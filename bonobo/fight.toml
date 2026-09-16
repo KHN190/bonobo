@@ -23,20 +23,45 @@ sitting_s = 4.95       # 139 of 149 sitting phases, to the tick; the other 10 we
 
 [combat]
 dragon_hp = 200.0
-bed_damage = 40.0      # NOT yet measured in a real fight. Pessimistic until one reports otherwise.
-death_cost_s = 120.0   # respawn, re-equip, cross the island, dig again — what makes the veto rules bite
+bed_damage = 40.0      # multiplies every benefit through windows_left
 sprint_speed = 4.3
 hp_floor = 6.0         # health never to be spent: below it nothing sprints and nothing regenerates
+death_risk_per_exposed_s = 0.10    # slope of p(death) against seconds in the open
+exposure_in_cover_s = 1.0          # seconds exposed per window when there is a bunker
+exposure_in_open_s = 3.0           # and when there is not
+crystal_heal_hp = 10.0             # work a crystal adds back per lap while it stands
+melee_per_window = 8.0             # work removed per window with no beds left
+cover_windows_unreinforced = 2     # blasts an end-stone bunker survives before it is open ground again
+reaction_s = 2.0                   # seconds of damage taken before anything we do takes effect
+
+# Which of the numbers above are guesses. Every one of these is a multiplier on the objective, so a plan built on
+# them is a plan built on my typing: `mc.py report --fit` fits what the tapes can support and rewrites this list.
+# Every plan carries the list as `assumptions`, so nobody mistakes the ranking for a measurement.
+unmeasured = ["bed_damage", "death_risk_per_exposed_s", "exposure_in_cover_s", "exposure_in_open_s",
+              "crystal_heal_hp", "melee_per_window", "cover_windows_unreinforced", "reaction_s"]
+
+[dps]
+# Health per second while inside each threat's reach. A new enemy is a row here and a radius in combat_model.HAZARD_R —
+# nothing in the planner. Unmeasured too, until a fight is recorded with damage sources.
+"minecraft:ender_dragon" = 10.0
+"minecraft:area_effect_cloud" = 6.0
+"minecraft:dragon_fireball" = 6.0
+"minecraft:fireball" = 5.0
+"minecraft:small_fireball" = 3.0
+"minecraft:creeper" = 20.0
+"minecraft:enderman" = 7.0
 
 [actions]
 # duration, time to get back into cover, and the size of one indivisible piece for interruptible work.
 # An action with no segment is atomic: half of it is worse than none of it.
+# in_cycle marks work done inside a window the fight spends anyway: its seconds are already in the objective's
+# cycles, so the planner must not charge them again. Everything else is time the fight would not otherwise spend.
 dig_tunnel = { duration_s = 6.0, return_s = 0.0, segment_s = 0.8 }
-place_bed = { duration_s = 2.0, return_s = 1.0, segment_s = 0.5 }
+place_bed = { duration_s = 2.0, return_s = 1.0, segment_s = 0.5, in_cycle = true }
 reinforce = { duration_s = 3.0, return_s = 0.0, segment_s = 0.6 }
 shoot_crystal = { duration_s = 2.0, return_s = 0.0 }
 water_bucket = { duration_s = 1.0, return_s = 0.0 }
-fire_window = { duration_s = 0.4, return_s = 0.4 }
+fire_window = { duration_s = 0.4, return_s = 0.4, in_cycle = true }
 # The default. It is listed like any other action so nothing is hidden in code, but the veto exempts it: a rule that
 # can refuse "get back into cover" leaves the planner with no answer at all, and an agent with no answer stands still.
 retreat = { duration_s = 0.4, return_s = 0.0 }

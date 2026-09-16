@@ -36,10 +36,23 @@ def recorded(method, path, response):
         _calls.setdefault(path, response)
 
 
+# A playthrough walks the world forward, so it asks questions the recording never asked (a region three blocks
+# further on, a chest that now matters). Strictness is right for replaying ONE round — the answer must be the one
+# the agent really got — and wrong for playing a life forward, where an unknown corner is simply unknown. When this
+# is on, a miss answers "nothing there" instead of aborting the round.
+LENIENT = False
+# Shaped like the real answers, because callers read their fields directly: a region has a palette and a grid, an
+# entity query has a list. "Nothing there" must still be a well-formed nothing.
+_EMPTY = {"blocks": [], "entities": [], "slots": [], "tasks": [], "palette": ["minecraft:air"],
+          "data": [], "size": [0, 0, 0], "items": [], "notes": [], "count": 0}
+
+
 def replayed(method, path):
     if method != "GET":
         raise ReplayMiss(f"{method} {path}: a decision must not act")
     if path not in REPLAY:
+        if LENIENT:
+            return dict(_EMPTY)
         raise ReplayMiss(path)
     return REPLAY[path]
 
@@ -86,23 +99,51 @@ def load_mem(h):
         return json.load(f)
 
 
+# What else belongs on a decision line, registered by whoever owns it. The recorder used to import the four
+# modules whose state it wanted — a file that exists to WATCH the others reached upward into them, which put loot,
+# and through it nav and perception, into the dependency closure of everything that records anything. Now the top
+# wires it (`brain` calls `register` at start-up) and this module imports nothing above `paths`.
+SOURCES = {}
+FILES = {}
+
+
+def register(name, snapshot=None, file_path=None):
+    """`snapshot()` → JSON-able extra for each row, or `file_path()` → a path whose text is recorded."""
+    if snapshot is not None:
+        SOURCES[name] = snapshot
+    if file_path is not None:
+        FILES[name] = file_path
+
+
+def _extras():
+    out = {}
+    for name, fn in SOURCES.items():
+        try:
+            out[name] = fn()
+        except Exception:
+            out[name] = None
+    return out
+
+
+def _files():
+    out = {}
+    for name, path in FILES.items():
+        try:
+            with open(path() if callable(path) else path) as f:
+                out[name] = f.read()
+        except OSError:
+            out[name] = None
+    return out
+
+
 def row_for(brain, pick, pool, filtered, force, now=None):
     """The decision line (pure apart from reading the files the pool reads)."""
-    from . import directives, priority, route
-    files = {}
-    for mod in (priority, route, directives):
-        try:
-            with open(mod.FILE) as f:
-                files[mod.__name__.split(".")[-1]] = f.read()
-        except OSError:
-            files[mod.__name__.split(".")[-1]] = None
-    from . import loot
+    files = _files()
     return {
         "t": now or time.time(), "calls": dict(_calls or {}), "mem": store_mem(brain.mem.data), "files": files,
         # Cached world reads the round didn't re-query (chest scan once a minute): without them 33 of 36 replays
         # missed "/find?blocks=minecraft:chest…". The replay restores the cache instead of querying.
-        "loot_cache": {"pos": list(loot._CACHE["pos"]) if loot._CACHE["pos"] else None,
-                       "hits": [list(h) for h in loot._CACHE["hits"]], "age": time.time() - loot._CACHE["t"]},
+        **_extras(),
         "retry": encode_retry(brain.retry), "committed": brain.committed, "idle_since": brain.idle_since,
         "stalled": brain.stalled_seconds(), "force": force,
         "recent_fail": list(brain.recent_fail) if brain.recent_fail else None,

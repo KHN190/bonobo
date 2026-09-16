@@ -79,11 +79,43 @@ def expected(fn, *args, **kwargs):
     return (per if per is not None else contract.per_unit) * units
 
 
-def skill(name=None, *, pre=(), start=None, done=None, verify=None, budget=300, stall=45, per_unit=None, units=None,
-          key=None, soft=False):
+def needs_of(fn):
+    """{dimension: minimum} this skill requires, for the planner to price. Empty when it declares none."""
+    contract = getattr(fn, "contract", None)
+    return dict(getattr(contract, "needs", {}) or {})
+
+
+def can_run(fn, *args, **kwargs):
+    """Would this skill's preconditions pass right now? (ok, why not).
+
+    The same `pre` the runner checks, asked BEFORE the planner offers the work rather than after it fails. A skill
+    that says "no torches to spare" already knew it could not run; nobody asked, so the pool priced it, chose it,
+    and learned by failing — ninety times in four minutes, because the idle rule kept thawing it.
+    """
+    contract = getattr(fn, "contract", None)
+    if contract is None or not contract.pre:
+        return True, None
+    c = Call(args, kwargs)
+    for check in contract.pre:
+        try:
+            check(c)
+        except Exception as e:
+            return False, str(e) or type(e).__name__
+    return True, None
+
+
+def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, budget=300, stall=45,
+          per_unit=None, units=None, key=None, soft=False):
+    """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
+
+    A check can only answer "no". A dimension can be priced: `solve.reach_cost` walks the requirement graph and
+    says what it costs to get there, so "no torches" stops being a refusal and becomes "three torches first, about
+    forty seconds". The checks in `pre` stay as the runtime guard; `needs` is what the planner reads.
+    """
     def wrap(fn):
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft)
+        contract.needs = dict(needs or {})
         REGISTRY[contract.name] = contract
 
         @functools.wraps(fn)
@@ -116,6 +148,7 @@ def skill(name=None, *, pre=(), start=None, done=None, verify=None, budget=300, 
 
         runner.contract = contract
         contract.runner = runner     # directives call any registered skill by name, whatever module it lives in
+        runner.contract = contract      # so the planner can ask `can_run` before it offers the work
         return runner
 
     return wrap

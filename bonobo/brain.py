@@ -8,12 +8,13 @@ import traceback
 import json
 import os
 
-from . import (api, bag, blueprints, brewing, combat, directives, end, farming, fluids, jobs, lookahead, loot,
-               nav, nether, paths, priority, retry, route, skills, tape, ui, upkeep, world)
+from . import (api, arbiter, bag, blueprints, brewing, combat, directives, end, farming, fluids, intent, jobs,
+               lookahead, loot, nav, nether, paths, priority, retry, route, skills, tape, ui, upkeep, world)
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, TaskStuck, log
 from .data import BASE_MARKERS, GROUPS, HAND_MINEABLE_SUFFIX, bare, mid
 from .knowledge import UNDERGROUND_KINDS
+from .planner import tool_ok  # noqa: F401  (one definition, shared)
 from .memory import Memory
 from .planner import Planner, Unplannable, runnable
 from .world import Inventory, Snapshot, entities, find, travel_ticks
@@ -28,7 +29,11 @@ class Goal:
     pointless whenever that goal can be planned (stone pickaxe when an iron one is craftable)."""
 
     def __init__(self, name, value, done, needs=(), after=None, phase=0, superseded_by=None, build=None,
-                 background=False, action=None, unlocks=(), feasible=None, dimension="minecraft:overworld"):
+                 background=False, action=None, unlocks=(), feasible=None, dimension="minecraft:overworld",
+                 effect=None):
+        # What the survival state looks like once this goal is done (survival.py). A goal with an effect is worth
+        # exactly the seconds that effect saves; `value` then only breaks ties among the unmigrated.
+        self.effect = effect
         # Where the goal's work happens; in another dimension the pool offers "use the portal" for it instead.
         self.dimension = dimension
         # feasible() → None when the goal can work here, else the reason it can't (checked before it enters the pool)
@@ -42,10 +47,6 @@ class Goal:
         # Background goals (stockpiles) have low value and no phase: they fill the gaps between main goals so the
         # agent is never idle, and always lose to a plannable main goal.
         self.background = background
-
-
-def tool_ok(inv, kind, tier, min_left=10):
-    return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
 
 
 def wearing_at_least(inv, material):
@@ -82,7 +83,7 @@ PLAN_CACHE_S = 20
 # at 15 s each, a slice declared "idle 17s" in the same moment the force rule would have produced work (the only
 # runnable fallback was explore, cooling for 20 s after a successful leg).
 IDLE_LIMIT = 8       # seconds without work before a fallback is forced (user rule: never idle past ~15 s)
-COVERED_SKY = 4      # sky light at or below this = under rock (a cave with a distant opening reads 1–3)
+from .data import COVERED_SKY  # noqa: E402,F401  (one definition, shared with the action table)
 STALL_LIMIT = 45 * 60  # no main goal completed for this long → macro stall, escalated to Claude
 TRACK_FILE = paths.data("track.jsonl")
 FAR_SITE_TICKS = 1200  # a site within 60 s is always worth the trek; beyond that it's compared to building a hut
@@ -102,16 +103,10 @@ def progress_signature():
             tuple(sorted((k, v.get("id")) for k, v in inv.equipment.items())))
 
 
-NEUTRAL_MOBS = {"minecraft:zombified_piglin", "minecraft:piglin", "minecraft:enderman", "minecraft:wolf",
-                "minecraft:bee", "minecraft:iron_golem", "minecraft:polar_bear", "minecraft:llama", "minecraft:panda",
-                "minecraft:dolphin", "minecraft:spider", "minecraft:cave_spider"}
-
-
-def is_threat(e):
-    """Hostile and worth fighting on sight. The mod flags every Monster subclass hostile, but hitting a zombified
-    piglin brings the whole group, a piglin ruins bartering and an enderman chases you — neutral mobs are left
-    alone (spiders are neutral in daylight but ignoring them costs little)."""
-    return bool(e.get("hostile")) and e.get("type") not in NEUTRAL_MOBS
+# Which mobs count as a threat is a fact about mobs, not a decision, so it lives with the rest of them in
+# threat.py. It used to live here, and perception imported the brain to ask — which put brain, and through it
+# scenarios, into the dependency closure of every module below. `module_deps` is the bench's re-run key, so the
+# closure collapsing to "everything" did not fail: it silently re-ran every scenario for every change.
 
 
 from .route import kit_needs, nether_kit_missing  # noqa: E402  (one definition, shared with the route)
@@ -163,20 +158,64 @@ def _enchant_best_pickaxe(ctx, inv, mem):
 from .route import food_count  # noqa: E402,F811  (one definition of "food carried" for every module)
 
 
+def _needed_by(plan, better):
+    """Is this goal's own product a step of the better goal's plan? Then it is that plan's cheap prefix, not its
+    rival: iron ore cannot be mined without a stone pickaxe, so "superseded by iron pickaxe" removed the only way
+    to ever reach an iron pickaxe, and the agent carried a wooden one for a session."""
+    if not plan or not better:
+        return False
+    product = plan[-1].token
+    return any(s.token == product for s in better)
+
+
+SHELTER_RANGE = 64.0
+
+
+def _shelter_near(snap, mem):
+    site = mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
+    return bool(site) and math.dist(site["pos"], snap.feet) <= SHELTER_RANGE
+
+
+def survival_state(snap, mem):
+    """The survival model's view of now (survival.py), from the snapshot and memory only — no world reads."""
+    from . import survival
+    inv = snap.inv
+    tier = lambda kind: max([t for _, _, t in [(k, d, tier_of(item)) for k, d, item in inv.tools(kind) if d >= 3]]
+                            or [0])
+    return survival.make_state(
+        night=snap.night, ticks_until_dusk=snap.ticks_until_dusk, hp=snap.get("health", 20), food=snap.get("food", 20),
+        # Sheltered = there is a roof to sleep under within reach, from memory alone. Hardcoding False made every
+        # shelter worth nothing to the model, so the one place that ever built one was the dusk branch of safety().
+        bed=inv.count("bed") > 0, sheltered=_shelter_near(snap, mem), torches=inv.usable("minecraft:torch") >= 8,
+        sword=tier("sword"), pickaxe=tier("pickaxe"), food_items=food_count(inv), nights_missed=mem.nights_missed,
+        # Armour POINTS, as /state reports them: the belief table prices protection per point, in one place.
+        armor=snap.get("armor", 0),
+        shield=inv.offhand() == "minecraft:shield" or inv.count("minecraft:shield") > 0)
+
+
+def tier_of(item):
+    name = bare(item).split("_")[0]
+    return {"wooden": 1, "golden": 1, "stone": 1, "iron": 2, "diamond": 3, "netherite": 3}.get(name, 0)
+
+
 def goals(snap, mem):
     inv = snap.inv
     home = mem.home()
     g = [
         # Phase 0 — survive and tool up (route: ~20 logs, stone tools, food, bed, light).
         Goal("stone pickaxe", 10, lambda: tool_ok(inv, "pickaxe", 1), [("tool", "pickaxe", 1)],
-             superseded_by="iron pickaxe"),
+             superseded_by="iron pickaxe", effect={"pickaxe": 1}),
         # Phantoms come after 3 sleepless nights: the bed grows more urgent with every missed night.
-        Goal("bed to carry", 9, lambda: inv.count("bed") > 0, [("bed", 1)]),   # urgency grows per missed night
+        Goal("bed to carry", 9, lambda: inv.count("bed") > 0, [("bed", 1)], effect={"bed": True}),
         # Same bed through string (spiders) — the pool takes whichever source is cheaper right now.
-        Goal("bed from string", 8, lambda: inv.count("bed") > 0, [("minecraft:white_bed", 1)]),
-        Goal("food (≥8)", 8, lambda: food_count(inv) >= 8, [("food", 16)]),
-        Goal("stone sword", 6, lambda: tool_ok(inv, "sword", 1), [("tool", "sword", 1)], superseded_by="iron sword"),
-        Goal("torches (≥8)", 6, lambda: inv.usable("minecraft:torch") >= 8, [("minecraft:torch", 24)]),
+        Goal("bed from string", 8, lambda: inv.count("bed") > 0, [("minecraft:white_bed", 1)], effect={"bed": True}),
+        # The plan asks for exactly what `done` needs: planning 16 when 8 finishes it doubled the cost the pool
+        # divides by, and cooking lost to everything for a whole session while raw meat was eaten instead.
+        Goal("food (≥8)", 8, lambda: food_count(inv) >= 8, [("food", 8)], effect={"food_items": 8}),
+        Goal("stone sword", 6, lambda: tool_ok(inv, "sword", 1), [("tool", "sword", 1)], superseded_by="iron sword",
+             effect={"sword": 1}),
+        Goal("torches (≥8)", 6, lambda: inv.usable("minecraft:torch") >= 8, [("minecraft:torch", 24)],
+             effect={"torches": True}),
         Goal("carried crafting table", 5, lambda: inv.count("minecraft:crafting_table") > 0,
              [("minecraft:crafting_table", 1)]),
         Goal("carried furnace", 4, lambda: inv.count("minecraft:furnace") > 0, [("minecraft:furnace", 1)]),
@@ -184,19 +223,20 @@ def goals(snap, mem):
         Goal("building blocks (≥32)", 3, lambda: inv.count("building") >= 32, [("stone", 64)]),
         Goal("ladders (≥4)", 2, lambda: inv.count("minecraft:ladder") >= 4, [("minecraft:ladder", 12)]),
         # Phase 1 — iron: what the route actually needs (bucket, pickaxe, shield, flint & steel) + armor.
-        Goal("iron pickaxe", 9, lambda: tool_ok(inv, "pickaxe", 2), [("tool", "pickaxe", 2)], phase=1),
+        Goal("iron pickaxe", 9, lambda: tool_ok(inv, "pickaxe", 2), [("tool", "pickaxe", 2)], phase=1,
+             effect={"pickaxe": 2}),
         Goal("bucket", 9, lambda: inv.count("minecraft:bucket") + inv.count("minecraft:water_bucket") > 0,
              [("minecraft:bucket", 1)], phase=1),
         Goal("shield", 7, lambda: inv.count("minecraft:shield") > 0, [("minecraft:shield", 1)],
-             after=skills.equip_armor, phase=1),
+             after=skills.equip_armor, phase=1, effect={"shield": True}),
         Goal("flint and steel", 6, lambda: inv.count("minecraft:flint_and_steel") > 0,
              [("minecraft:flint_and_steel", 1)], phase=1),
-        Goal("iron sword", 5, lambda: tool_ok(inv, "sword", 2), [("tool", "sword", 2)], phase=1),
+        Goal("iron sword", 5, lambda: tool_ok(inv, "sword", 2), [("tool", "sword", 2)], phase=1, effect={"sword": 2}),
         Goal("iron armor", 8, lambda: wearing_at_least(inv, "iron"),
              [(f"minecraft:iron_{p}", 1) for p in ("helmet", "chestplate", "leggings", "boots")
               if not bare(inv.worn({"helmet": "head", "chestplate": "chest", "leggings": "legs", "boots": "feet"}[p]))
               .startswith(("iron_", "diamond_", "netherite_"))],
-             after=skills.equip_armor, phase=1),
+             after=skills.equip_armor, phase=1, effect={"armor": 2}),
         # Phase 1→2 — the Nether: a water bucket casts obsidian on a lava pool, the frame is built and lit.
         Goal("water bucket", 7, lambda: inv.count("minecraft:water_bucket") > 0, [("minecraft:bucket", 1)],
              action=fluids.fill_water_bucket, phase=1, unlocks=("nether portal",),
@@ -207,6 +247,12 @@ def goals(snap, mem):
              else "no water within 48 blocks" if not route.current()
              else "no water seen yet (the travel scan notes lakes)"),
         # Renewable food: a wheat plot (a crop job harvests it) and breeding with that wheat.
+        # A place to sleep and store, valued by the model (a bed in the open is interrupted; a shelter is not).
+        # Its materials are needs, not a feasibility test: "missing stone and a torch" is a plan, not a refusal —
+        # written as a test, the goal was refused every round of a session and no shelter was ever built.
+        Goal("shelter nearby", 7, lambda: _shelter_near(snap, mem),
+             [(item, n) for item, n in blueprints.materials(blueprints.SHELTER).items()],
+             action=skills.build_shelter, effect={"sheltered": True}),
         Goal("wheat farm", 4, lambda: bool(mem.sites(snap.dimension, kinds=["farm"])),
              [("minecraft:stone_hoe", 1), ("minecraft:wheat_seeds", 8), ("minecraft:water_bucket", 1)],
              action=farming.plant_farm, phase=1),
@@ -250,7 +296,10 @@ def goals(snap, mem):
         Goal("repair worn pickaxe", 3, lambda: False, [], action=lambda ctx: upkeep.repair_tool(ctx, "pickaxe"),
              feasible=lambda: None if upkeep.repair_pair(inv.slots, "pickaxe") and all(
                  d < 60 for _, d, _ in inv.tools("pickaxe")) else "no worn pair of pickaxes to combine"),
+        # Worth what the gear costs to make again — which is what dying costs, by definition — and due NOW: the
+        # drops despawn. Left at twelve legacy points it was worth 120 s and lost to crafting a sword.
         Goal("recover items after death", 12, lambda: False, [], action=upkeep.recover_items,
+             effect={},
              feasible=lambda: None if mem.recent_death(snap.dimension) else "no recent death"),
         Goal("portal room found", 10, lambda: bool(mem.sites("minecraft:overworld", kinds=["portal_room"]))
              or snap.dimension == "minecraft:the_end", [], action=end.find_portal_room, phase=5,
@@ -396,6 +445,33 @@ class LiveCost:
         # Success rates apply once, at the candidate (priority.effective_success), not inside step costs.
         return learned if learned is not None else self._estimate(step)
 
+    def risk_s(self, step, ticks=None):
+        """Seconds this step is expected to cost in BLOOD, priced by the survival model.
+
+        The rate and the shape both come from elsewhere: perception says what is around (one authority, no world
+        read here), and the ACTION says how it is exposed — standing work takes the pressure for its duration,
+        leaving takes it only until it is out of reach. A flat rate applied to everything is what made walking
+        away from a zombie look as expensive as standing in front of it.
+        """
+        from . import perception, survival, threat
+        from .solve import Action
+        rows, _ids = perception.threats_seen()
+        if not rows or self.snap is None:
+            return 0.0
+        seconds = (self.estimate(step) if ticks is None else ticks) / priority.TICKS_PER_S
+        inv = self.snap.inv
+        state = {"here": (self.snap.state["x"], self.snap.state["y"], self.snap.state["z"]),
+                 "hp": self.snap.state.get("health", 20),
+                 "protection": threat.protection(self.snap.get("armor", 0),
+                                                 inv.offhand() == "minecraft:shield"),
+                 "hazards": rows}
+        shape = Action(step.kind, {}, max(0.1, seconds), tag=(step.kind, step.token))
+        dhp = shape.exposure(state)
+        if dhp <= 0:
+            return 0.0
+        sstate = survival_state(self.snap, self.mem) if self.mem is not None else None
+        return survival.hp_seconds(sstate, dhp) if sstate else dhp
+
     def _estimate(self, step):
         walk = lambda d: int(d * 1.5 / 0.12)  # noqa: E731
         if step.kind == "craft":
@@ -436,6 +512,38 @@ class LiveCost:
 
 
 SEG_MISSES = 3      # "nothing of this kind" answers per route segment before the goal waits for the next segment
+# Planning is the expensive half, so it stops once there is enough to choose between — but "enough" is a count of
+# usable candidates, not a quota of attempts: on a night when everything answers "waits for day", a quota leaves
+# the pool with one entry. MAX_EXPAND is the ceiling for a world where nothing plans at all.
+MIN_CHOICES = 5
+# No ceiling worth the name: layered descent solves a goal in a few milliseconds, so trying every goal costs less
+# than a tenth of a second, and a cap only ever meant "the pool is thin for a reason nobody can see". It stops
+# early at MIN_CHOICES because that is enough to choose between, not because planning is dear.
+MAX_EXPAND = 200
+_EAT_REFLEX_FOOD = 4      # the floor: below this eat anything at once, without waiting for a round
+
+
+# The recorder is wired from here, the top, so tape itself imports nothing above `paths`. Each entry says what
+# part of a decision belongs on the tape and who owns it.
+def _wire_threats(brain):
+    from . import perception, skills
+    def answer(option):
+        snap = Snapshot()
+        ctx = skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist)
+        brain.engage(option, snap.state, ctx)
+    perception.wire_answer(answer)
+
+
+def _wire_tape():
+    from . import directives, loot, priority, route
+    for mod in (priority, route, directives):
+        tape.register(mod.__name__.split(".")[-1], file_path=lambda m=mod: m.FILE)
+    tape.register("loot_cache", snapshot=lambda: {
+        "pos": list(loot._CACHE["pos"]) if loot._CACHE["pos"] else None,
+        "hits": [list(h) for h in loot._CACHE["hits"]], "age": time.time() - loot._CACHE["t"]})
+
+
+_wire_tape()
 
 
 class Brain:
@@ -449,24 +557,31 @@ class Brain:
         self.blacklist = {}     # unreachable targets, shared by every round's Context and the cost model
         self.last_light = 0
         self.last_offhand = 0
+        self._seen = {}              # entity id -> (pos, when): the threat layer differences velocity between rounds
         self.idle_since = None
         self.history = []       # (time, feet, progress signature) per round, for "stuck in place" detection
         self.last_quick = None
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.retry = retry.Retry()   # state-aware failure policy (retry.py)
         self.sig = None              # world state of this round (retry decisions)
+        self.place = None            # coarse location for failure counting
+        self.snap_cache = None       # this round's snapshot, so the segment hook can re-price without a world read
+        self._prices_key, self._prices = None, ({}, {})
         # Three "found nothing" answers for the same goal inside one route segment: that resource isn't here.
         self.prep_tokens = {}        # goal → tokens that only its look-ahead preparation needs (not the goal itself)
         self.seg_name = None         # active route segment; per-segment search misses reset when it changes
         self.seg_misses = {}         # (segment, goal) → how often it found nothing of its kind here
         self.coarse = None           # coarser state (success-rate resets)
-        self.committed = None        # goal name kept until done, failed or clearly beaten
+        self.committed = None        # goal name kept until its assumptions fail or it is clearly beaten
+        self.committed_assumptions = []
+        self.committed_pos = None    # where the committed plan is headed: errands are judged against that path
         self.last_choice = (None, 0)
         self.last_hold_log = 0
         self.escalated = {}
         self.done_seen = set()
         self.last_milestone = time.time()
         self.last_track = 0
+        _wire_threats(self)
 
     # -- policies
     def policy(self, snap, night):
@@ -484,7 +599,9 @@ class Brain:
             api.wait_for_handback()
             s = api.get("/state")
         if s["dead"]:
-            self.mem.log_death((s["blockX"], s["blockY"], s["blockZ"]), s["dimension"])
+            # What was on us is what makes the walk back worth anything; after the respawn it is unknowable.
+            self.mem.log_death((s["blockX"], s["blockY"], s["blockZ"]), s["dimension"],
+                               carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
             log("died → respawning")
             api.post("/respawn")
             time.sleep(2)
@@ -492,8 +609,10 @@ class Brain:
         if s["screen"] == "class_433":
             api.post("/resume")
         # Self-preservation outranks everything (Mindcraft's first mode): drowning or burning → get out now.
-        if s["inWater"] and s["air"] < 150:
-            log(f"reflex: low air ({s['air']}) → swimming up")
+        from . import perception as _pc
+        if _pc.drowning(s) or _pc.drowning_in(s) <= _pc.REFLEX_SLACK_S:
+            # The same clock perception watches, with more slack: between tasks there is room to surface early.
+            log(f"reflex: {_pc.drowning_in(s):.1f}s of air slack → swimming up")
             api.post("/stop")
             api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 6, "z": s["blockZ"], "range": 2,
                      "partial": True, "useBoat": False}, wait=20)
@@ -504,10 +623,11 @@ class Brain:
             api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 3, "z": s["blockZ"], "range": 3,
                      "partial": True}, wait=20)
             raise McError("escaped lava")
-        threats = [e for e in entities(8) if is_threat(e) and e["distance"] <= 5]
-        if threats and s["health"] > 10:   # hurt: survival mode flees instead of trading hits
-            log(f"reflex: fighting {bare(threats[0]['type'])}")
-            api.run({"type": "attack", "entity": threats[0]["id"]}, wait=45)
+        # No threat decision here. `reflexes` runs first in every round and may not fail: a NotAvailable raised
+        # from it (an evade with nowhere to go) aborted the whole round, so the agent never reached safety(), never
+        # reached the pool, and therefore never fought back, never fled, never slept and never built. Answering a
+        # threat is a choice with a price, and choices belong in the pool (_threat_candidates) — or, when there is
+        # no time for a round, in survival() below.
         if s["dimension"] == "minecraft:the_nether":
             # Ghast fireballs: hit one that comes within reach and it flies back (a portal or bridge survives, and
             # so do we). Punching is instant; dodging needs cover we may not have.
@@ -518,8 +638,8 @@ class Brain:
                         api.run({"type": "attack", "entity": fb["id"]}, wait=2)
                     except McError:
                         pass
-        if s["food"] <= 14:
-            skills.eat()
+        if s["food"] <= _EAT_REFLEX_FOOD:
+            skills.eat(raw_ok=True)   # the floor only; eating well is a candidate, priced against the work
         # Invariant, not a goal step: better armor in the bag is worn at once (a goal's `after` only ran when the
         # whole goal finished, so single pieces sat unused).
         head = bare((Inventory().equipment.get("head") or {}).get("id") or "")
@@ -542,12 +662,30 @@ class Brain:
 
     def hand_segment_reflexes(self, tasks):
         """Segment hook for hand-digging routes (no pickaxe): bookkeeping and reflexes, no pickaxe precondition."""
+        self.yield_if_stale()
+        self.yield_if_stale()
         dug = [(t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "mine" and "x" in t]
         if dug:
             self.mem.mark_dirty_near(dug, api.get("/state")["dimension"])
         self.reflexes()
 
+    def yield_if_stale(self):
+        """Hand the body back if the plan's premise has changed. Called at every chain segment — which is where an
+        atomic action ends, about one block apart.
+
+        This is what makes a commitment a commitment. A skill used to keep the body until it finished, so nothing
+        below "dead in four seconds" could get a word in; a zombie could beat on the agent for a whole mining task.
+        The planner does not seize the body back — PLAN yields at its own boundaries, and only SAFETY and faster
+        pre-empt. Seizing would leave half-walked paths and half-opened containers to clean up.
+        """
+        if not self.committed_assumptions or self.snap_cache is None:
+            return
+        for kind, value in self.committed_assumptions:
+            if kind == "premise" and self.premise(self.snap_cache) != value:
+                raise api.CommitmentExpired(f"{self.committed}: the world changed while working")
+
     def segment_reflexes(self, tasks):
+        self.yield_if_stale()
         dug = [(t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "mine" and "x" in t]
         if dug:
             s = api.get("/state")
@@ -573,7 +711,7 @@ class Brain:
             # minutes looking for water and sheep that were not in that biome at all.
             key = (self.seg_name, name)
             self.seg_misses[key] = self.seg_misses.get(key, 0) + 1
-        n, wait, worth_logging = self.retry.failed(name, cause, str(err), self.sig, now)
+        n, wait, worth_logging = self.retry.failed(name, cause, str(err), self.sig, now, self.place)
         if cause == "tool" and n < 3:
             self.retry.cap(name, 0, now)   # the tool goal runs next round; retry right after it
             wait = 0
@@ -582,7 +720,7 @@ class Brain:
                 f"({cause}, ×{n} here; retry on change or in {wait}s)")
 
     def ready(self, name):
-        return self.retry.ready(name, self.sig, time.time())
+        return self.retry.ready(name, self.sig, time.time(), self.place)
 
     def escalate(self, kind, what):
         """A macro problem (stalled progress, every rescue exhausted), not a single failure: one `?? STALL` line per
@@ -628,6 +766,20 @@ class Brain:
             # Group tokens (stone, coal) are counted as groups, so any variant mined counts toward the step.
             skills.mine(ctx, step.token, step.count, step.detail["blocks"], step.detail["tier"],
                         step.detail.get("breaks"))
+        elif step.kind == "room":
+            {"tidy": skills.tidy_inventory, "deposit": skills.deposit}[step.token](ctx)
+        elif step.kind == "seek":
+            # Go to where one of these is: the nearest known, else look for one. Ore, animals, water and trees all
+            # take this path — finding is one action, and not knowing where is what it costs, not a special case.
+            kinds = step.detail["kinds"]
+            if not self.go_find(ctx, snap_kinds=kinds):
+                raise NotAvailable(f"could not find {bare(kinds[0])}")
+        elif step.kind == "resume":
+            # Finish what is already half done, where it is. The skill is the same one; only the place is given.
+            pos = tuple(step.detail["pos"])
+            if not nav.go_to(pos, self.policy_cache, range_=2, attempts=2):
+                raise NotAvailable(f"can't get back to the unfinished {step.token} at {pos}")
+            {"dig_in": skills.dig_in, "pod": skills.pod, "hut": skills.build_shelter}[step.token](ctx)
         elif step.kind == "gather":
             skills.chop(ctx, step.count)
         elif step.kind == "fill":
@@ -647,6 +799,15 @@ class Brain:
 
     # -- one round
     def round(self):
+        """One decision round. The intention stack is rebuilt from what acts and published at the end, whichever
+        layer took the round — the screen shows the reason for the task, not only the task."""
+        intent.clear()
+        try:
+            self._round()
+        finally:
+            intent.publish()
+
+    def _round(self):
         self.reflexes()
         tape.begin()          # the world queries this round reads (decisions.jsonl, replayed offline by decide.py)
         snap = Snapshot()
@@ -659,12 +820,17 @@ class Brain:
         self.sig = retry.signature(snap.feet, (s["id"] for s in snap.inv.slots), night, bans)
         # Success statistics reset only on a real change of scene (16-block area, new item kinds), not a few steps.
         self.coarse = retry.signature(snap.feet, (s["id"] for s in snap.inv.slots), night, 0, bin_size=16)
+        # Where we are, coarsely: what "this cannot be done here" is counted against.
+        self.place = retry.place_signature(snap.feet, night)
+        self.snap_cache = snap
 
         self.track(snap)
         self.scan_resources(snap)
+        # The only early return left: what kills inside one round (suffocation, drowning, a threat that arrives
+        # before the next decision). Everything else about staying alive is a candidate in the pool below, priced
+        # in the same seconds as mining and crafting — which is the only way "go home before dark" and "finish
+        # this vein" can be compared at all.
         if self.survival(snap, ctx):
-            return
-        if self.safety(snap, ctx):
             return
 
         # Claude's override directives: above the pool (they can break any loop), below the life-saving layers.
@@ -678,25 +844,36 @@ class Brain:
         force = self.idle_since is not None and now - self.idle_since >= IDLE_LIMIT and \
             not (night and self.sheltered(snap))
         pool, filtered = self.candidates(ctx, snap, night, force=force)
-        pick = priority.choose(pool, self.committed, self.stalled_seconds())
+        pick = priority.choose(pool, self.committed, held=self.assumptions_hold(snap, night),
+                               here=(snap.state["x"], snap.state["y"], snap.state["z"]))
         tape.end(self, pick, pool, filtered, force)
         if pick is None:
             if night and self.sheltered(snap):
                 # Waiting out the night sealed in / underground is the survival action itself, like sleeping.
                 self.idle_since = None
                 self.hold_log("night: sheltered, nothing safe to do; holding")
+                intent.set("goal", "holding: sheltered for the night")
             else:
                 self.idle_since = self.idle_since or now
                 self.hold_log("nothing runnable; holding")
+                intent.set("goal", "holding: nothing runnable")
             api.run({"type": "wait", "ticks": 100}, wait=15)
             return
         self.idle_since = None
         self.explain(pick, pool, filtered)
+        intent.goal(pick, pool)
         self.committed = pick.name
+        self.committed_assumptions = list(getattr(pick, "assumptions", ()))
+        self.committed_pos = getattr(pick, "goes_to", None)
         bag.RESERVED = bag.RESERVED | pick.reserve   # the running plan's items too (a food-stock hunt threw its meat)
         # Failures cool down this candidate's key only (a goal's current step); everything else stays available.
         before = self.retry.entries.get(pick.key, {}).get("since")
-        self.attempt(pick.key, pick.run, cooldown=pick.cap)
+        arbiter.BODY.submit("plan", lambda: self.attempt(pick.key, pick.run, cooldown=pick.cap), pick.name,
+                            commit_s=pick.commitment_s, cost_rate=1.0, cost_s=pick.cost_s)
+        try:
+            arbiter.BODY.step()
+        except api.CommitmentExpired as e:
+            log(f"   {e}")
         after = self.retry.entries.get(pick.key, {}).get("since")
         if after is not None and after != before:
             self.recent_fail = (pick.name, time.time())
@@ -730,210 +907,316 @@ class Brain:
 
     # -- the priority pool
     def candidates(self, ctx, snap, night, force=False):
-        """Everything the pool may do now as priority.Candidates — only what can actually succeed here (cheap
-        feasibility checks first) — and {name: why} for what was filtered out. `force` lets cooling fallbacks in
-        (the 15 s idle rule)."""
-        weights = priority.load()
-        pool, filtered = [], {}
+        """Everything the pool may do now as priority.Candidates, and {name: why} for what was kept out. `force`
+        lets cooling fallbacks in (the 15 s idle rule).
 
-        # The committed goal just failed and is in its retry window: errands that walk away (storing, open space,
-        # exploring, strip mining) wait, so the retry happens on the spot instead of after a 20–50 s round trip.
+        Orchestration only. Refusing lives in pool.py (pure), scoring in priority.Candidate; each stage below
+        collects one kind of candidate. Refusal texts are unchanged — the tape and the goldens compare them.
+        """
+        from . import pool as _pool, survival
+        from . import skill as skill_kit
+        pctx = self._pool_context(snap, night, force)
+        out, filtered = [], {}
+        self.last_refusals = []
+
+        def offer(c):
+            # Every candidate that names a skill gets that skill's own preconditions attached here, once, rather
+            # than at each of the five places candidates are built. `light up` was offered with no torches
+            # seventy times in twenty seconds because its check lived at one of those places and was cleared at
+            # another; a rescue or a maintenance errand could have done the same and nobody would have noticed.
+            if getattr(c, "precheck", None) is None and getattr(c, "runs", None):
+                target, args = c.runs
+                c.precheck = lambda t=target, a=args: skill_kit.can_run(t, *a)
+            r = _pool.admit(c, pctx, priority.weight_for, route.allowed, retry.EXHAUSTED_AFTER)
+            if r is None:
+                out.append(c)
+                return
+            filtered[c.name] = str(r)
+            self.last_refusals.append((c.name, r))
+
+        self._rescue_candidates(ctx, snap, night, offer, filtered)
+        self._maintenance_candidates(ctx, snap, night, offer, filtered)
+        eligible = self._goal_candidates(ctx, snap, night, pctx, offer, filtered)
+        self._directive_candidates(ctx, snap, night, offer, filtered)
+        # Reservations cover every open main goal that can plan, not only the one picked: a down-weighted wheat
+        # farm's seeds were thrown away three times in a minute.
+        bag.RESERVED = set().union(*(bag.reserved_ids(plan, g.needs) for g, plan, _, _ in eligible
+                                     if not g.background)) if eligible else set()
+        self._fallback_candidates(ctx, snap, night, pctx, offer, out, filtered)
+        return out, filtered
+
+    def _pool_context(self, snap, night, force):
+        from . import pool as _pool, scenarios
         recent = self.recent_fail
-        staying = recent and recent[0] == self.committed and time.time() - recent[1] < 90
-        WANDERING = {"deposit", "open space", "explore", "strip mine", "light up"}
-
+        staying = bool(recent and recent[0] == self.committed and time.time() - recent[1] < 90)
         segment = self.route_segment(snap) if route.current() else None
         if (segment["name"] if segment else None) != self.seg_name:
             self.seg_name = segment["name"] if segment else None
             self.seg_misses.clear()      # a new segment is a new place: everything is worth one more look
-        # The route only relies on skills the bench proved: a goal whose scenario fails for this code waits while
-        # other goals of the segment can run (it stays offered when it is the segment's only way forward).
-        from . import scenarios
-        bench_failing = scenarios.failing_goals() if segment is not None else set()
-        seg_goals = set(segment["goals"]) if segment is not None else set()
+        return _pool.Context(
+            segment=segment, seg_name=self.seg_name,
+            seg_goals=set(segment["goals"]) if segment is not None else set(),
+            bench_failing=scenarios.failing_goals() if segment is not None else set(),
+            staying=staying, committed=self.committed, weights=priority.load(), ready=self.ready, force=force,
+            seg_misses=self.seg_misses, seg_misses_limit=SEG_MISSES, retry=self.retry, sig=self.sig,
+            night=night, night_capable=self.has_pickaxe(snap) and wearing_at_least(snap.inv, "iron"),
+            snap=snap, has_pickaxe=self.has_pickaxe(snap), sightings=self.mem.sightings,
+            way_into=self.way_into(snap), no_go=self.no_go(snap), sheltered=_shelter_near(snap, self.mem),
+            place=self.place)
 
-        def offer(c):
-            w, banned = priority.weight_for(c.name, weights)
-            # Craft-only goals skip the segment filter: a gold helmet from 5 carried ingots is a click, not a detour
-            # (it waited a whole slice for its segment).
-            if segment is not None and c.kind == "goal" and not route.allowed(segment, c.name) \
-                    and not getattr(c, "craft_only", False):
-                filtered[c.name] = f"route segment '{segment['name']}' doesn't need it"
-            elif c.name in bench_failing and seg_goals - bench_failing - {c.name}:
-                filtered[c.name] = "its bench scenario fails for this code; another segment goal first"
-            elif staying and c.name in WANDERING:
-                filtered[c.name] = f"staying at {self.committed} while it retries"
-            elif banned:
-                filtered[c.name] = "banned by Claude"
-            elif not self.ready(c.key) and not (force and c.kind == "fallback"):
-                filtered[c.name] = "cooling after a failure"
-            elif c.kind == "goal" and "/" in c.key and not self.ready("step:" + c.key.split("/", 1)[1]):
-                filtered[c.name] = f"its step {c.key.split('/', 1)[1]} just failed for another goal"
-            elif c.kind == "goal" and self.seg_misses.get((self.seg_name, c.name), 0) >= SEG_MISSES:
-                filtered[c.name] = f"nothing of this kind found in segment '{self.seg_name}' ({SEG_MISSES}×)"
-            elif c.kind != "fallback" and self.retry.exhausted(c.key, self.sig):
-                # Failed EXHAUSTED_AFTER times in this very state: a longer wait is not a new method. The simulation
-                # picked "food (≥8)/hunt:porkchop" 60 times in a row while every try failed. Something else runs
-                # (another source, another goal) until the state changes; Claude hears about it once.
-                filtered[c.name] = f"exhausted here ({c.key}); needs another method or a changed state"
-                self.escalate(f"exhausted:{c.key}", f"{c.key} failed {retry.EXHAUSTED_AFTER}× in the same state")
-            else:
-                c.weight = w
-                pool.append(c)
+    def no_go(self, snap):
+        """Circles no step may be planned into: what perception can see, at the reach it can hurt from.
 
-        # Maintenance: urgency curves decide how much it matters right now.
+        The complement of the blood tax. Walking past a skeleton costs health and that is a price the pool can pay;
+        planning to stand in front of one is not a price, and no benefit should be able to buy it.
+        """
+        from . import perception, threat
+        rows, _ids = perception.threats_seen()
+        margin = float(threat.PLAYER["melee_reach"])
+        return [(h[0], float(h[1]) + margin) for h in rows if h[3] in threat.MOBS]
+
+    def way_into(self, snap):
+        """Whether a route into another dimension is known, from memory alone (no world call: replays stay exact).
+        The Nether can always be built into; the End needs the portal room remembered first."""
+        def known(dim):
+            if dim in (snap.dimension, nether.NETHER, "minecraft:overworld"):
+                return None
+            if dim == "minecraft:the_end" and not self.mem.sites("minecraft:overworld", kinds=["portal_room"]):
+                return "no way into the End yet: the portal room comes first"
+            return None
+        return known
+
+    def _maintenance_candidates(self, ctx, snap, night, offer, filtered):
+        """Urgency curves decide how much each upkeep item matters right now."""
+        from . import survival
         C = priority.Candidate
+        # Health is the margin every future fight starts from (survival.fight_loss), so healing is worth whatever
+        # that margin is worth. Regeneration needs food above 17 and a few quiet seconds; both are cheap, which is
+        # why nothing ever chose to do it while the value was zero.
+        hp = snap.get("health", 20)
+        if hp < 20 and food_count(snap.inv):
+            sstate = survival_state(snap, self.mem)
+            saves = survival.benefit(sstate, {"hp": 20})
+            if saves > 0:
+                offer(C("heal up", 8, 20 * (20 - hp), lambda: self.heal(ctx, snap), kind="maintenance",
+                        seconds=saves, cap=20, detail=f"regenerate {20 - hp:.0f} hp"))
         if not self.has_pickaxe(snap):
-            offer(C("replace pickaxe", 12, 2000, lambda: self.replace_tool(ctx, "pickaxe"), urgency=10,
-                    kind="maintenance", cap=30))
-        bag_urg = priority.bag_urgency(snap.inv.used_slots())
-        if bag_urg:
+            offer(C("replace pickaxe", 12, 2000, lambda: self.replace_tool(ctx, "pickaxe"),
+                    kind="maintenance", cap=30))     # no pickaxe: the benefit is due now, so no discount
+        bag_delay = priority.bag_delay(snap.inv.used_slots())
+        # What a full bag costs: the next stretch of mining produces nothing that can be kept.
+        bag_worth = survival.bag_loss(survival_state(snap, self.mem))
+        if bag_delay < priority.DISCOUNT_HORIZON_S:
             if not skills.store_plan(snap.inv.slots):
                 filtered["deposit"] = "nothing worth storing"
             elif skills.can_store_here(ctx, local_only=night):
-                offer(C("deposit", 3, 1200, lambda: skills.deposit(ctx, local_only=night), urgency=bag_urg,
-                        kind="maintenance"))
-            # Feasibility first: throwing needs open room here; in a shaft the candidate is moving to room instead
-            # (tidy used to be picked, fail "no open side", cool down and be picked again — 23 times in 30 min).
+                _c = C("deposit", 3, 1200, lambda: skills.deposit(ctx, local_only=night), delay_s=bag_delay,
+                        kind="maintenance", seconds=bag_worth)
+                _c.runs = (skills.deposit, (ctx,))
+                offer(_c)
             x, y, z = snap.feet
             throwable = skills.free_slots_plan(snap.inv.slots,
                                                need=max(0, snap.inv.used_slots() - (36 - skills.FREE_SLOTS_TARGET)))
             if not throwable:
                 filtered["tidy"] = "nothing worth throwing away"
             elif skills.throw_direction(world.Region((x - 3, y - 1, z - 3), (x + 3, y + 2, z + 3)), snap.feet):
-                offer(C("tidy", 3, 300, lambda: skills.tidy_inventory(ctx), urgency=bag_urg, kind="maintenance", cap=20))
+                _c = C("tidy", 3, 300, lambda: skills.tidy_inventory(ctx), delay_s=bag_delay,
+                        kind="maintenance", cap=20, seconds=bag_worth)
+                _c.runs = (skills.tidy_inventory, (ctx,))
+                offer(_c)
             elif not (night and self.sheltered(snap)):   # never leave a night shelter just for the bag
-                offer(C("open space", 3, 400, lambda: skills.move_to_open_space(ctx), urgency=bag_urg,
-                        kind="maintenance", cap=30))
+                _c = C("open space", 3, 400, lambda: skills.move_to_open_space(ctx), delay_s=bag_delay,
+                        kind="maintenance", cap=30, seconds=bag_worth)
+                _c.runs = (skills.move_to_open_space, (ctx,))
+                offer(_c)
             else:
                 filtered["tidy"] = "no room to throw in this shelter; waits for day"
-        if not night:
-            dirty = [s for s in self.mem.sites(snap.dimension) if s.get("dirty")]
-            if dirty:
-                offer(C("repair", 2, 2000, lambda: skills.repair_site(ctx, dirty[0]), kind="maintenance"))
-            # Every background job (furnace, crop, sapling, breeding cooldown) is one candidate; nearby ones get a
-            # proximity bonus so errands are merged into the route instead of separate trips.
-            ready_jobs = sorted((j for j in self.mem.jobs(snap.dimension)
-                                 if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= 96),
-                                key=lambda j: math.dist(j["pos"], snap.feet))[:3]
-            for job in ready_jobs:
-                d = math.dist(job["pos"], snap.feet)
-                offer(C(f"collect {job['kind']} job", jobs.JOB_VALUE.get(job["kind"], 3),
-                        travel_ticks(snap.feet, job["pos"]) + 200, lambda job=job: jobs.collect(ctx, job),
-                        key=f"job {job['id']}", urgency=priority.proximity(d), kind="maintenance", cap=30,
-                        detail=f"{job['kind']} at {tuple(job['pos'])}"))
-            ready = [m for m in self.mem.machines(snap.dimension) if skills.pending_ready(m)]
-            if ready:
-                offer(C("collect machine", 4, 1200, lambda: skills.collect_machine(ctx, ready[0]), kind="maintenance"))
+        if night:
+            return
+        dirty = [s for s in self.mem.sites(snap.dimension) if s.get("dirty")]
+        if dirty:
+            offer(C("repair", 2, 2000, lambda: skills.repair_site(ctx, dirty[0]), kind="maintenance"))
+        ready_jobs = sorted((j for j in self.mem.jobs(snap.dimension)
+                             if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= 96),
+                            key=lambda j: math.dist(j["pos"], snap.feet))[:3]
+        for job in ready_jobs:
+            d = math.dist(job["pos"], snap.feet)
+            # Being close does not make a job worth more; it makes it cheaper — and "close" means close to where
+            # we are already going, not to where we stand.
+            detour = priority.detour_s(d, here=snap.feet, there=tuple(job["pos"]), via=self.committed_pos)
+            offer(C(f"collect {job['kind']} job", jobs.JOB_VALUE.get(job["kind"], 3),
+                    int(detour * priority.TICKS_PER_S) + 200,
+                    lambda job=job: jobs.collect(ctx, job),
+                    key=f"job {job['id']}", kind="maintenance", cap=30,
+                    detail=f"{job['kind']} at {tuple(job['pos'])}"))
+        ready = [m for m in self.mem.machines(snap.dimension) if skills.pending_ready(m)]
+        if ready:
+            offer(C("collect machine", 4, 1200, lambda: skills.collect_machine(ctx, ready[0]), kind="maintenance"))
 
-        # Goals.
+    def _goal_candidates(self, ctx, snap, night, pctx, offer, filtered):
+        """Plan every open goal, gate its steps, refuse with a reason or offer one candidate. Returns the eligible
+        (goal, plan, step, run) tuples for reservations."""
+        from . import pool as _pool
+        C = priority.Candidate
         open_goals = [g for g in goals(snap, self.mem) if not g.done()]
         cost_model = LiveCost(snap, self.blacklist, self.mem)
-        # With a pickaxe (tunnel down for the night) and iron armor, dark surface work is an acceptable risk.
-        night_capable = self.has_pickaxe(snap) and wearing_at_least(snap.inv, "iron")
-        plans = {}
+        # Two passes. Pricing every goal used to mean solving every goal — thirty layered descents a round, and
+        # once "not knowing where" stopped being a dead end (seek columns) every goal became solvable, so the round
+        # went from 57 s to 187 s. But `reach_cost` already prices every dimension in one sweep of the graph, and a
+        # goal's cost is just its shortfall read off that table. So: price all of them from the table, then expand
+        # only the few that could plausibly win. The rest never needed a plan — they were never going to be chosen.
+        prices, vector = self.prices(snap, cost_model)
+        ready_goals = []
         for g in open_goals:
             if not self.ready(g.name):
                 filtered[g.name] = "cooling after a failure"
+                continue
+            # Feasibility before ranking. It is a cheap, pure check (the bag, memory), and a goal that cannot start
+            # has no business taking a place in the shortlist — goals with no `needs` price at zero, so "defeat the
+            # ender dragon" sat at the top of the list for free while the stone pickaxe that could actually be made
+            # was pushed out of the six that get planned.
+            why = g.feasible() if g.feasible else None
+            if why:
+                filtered[g.name] = why
+                continue
+            ready_goals.append(g)
+        # Ranked by what they are WORTH, not by what they cost: a bed is dear and still the best thing to do. Both
+        # halves come from tables (survival.benefit, reach_cost), so ranking thirty goals costs nothing; only the
+        # few that could plausibly win are then solved for a plan.
+        from . import survival as _sv
+        from .survival import CONFIG as _PLAY
+        sstate = survival_state(snap, self.mem)
+
+        def rough_score(g):
+            worth = _sv.benefit(sstate, g.effect) if g.effect else g.value * priority.SECONDS_PER_VALUE
+            price = self.rough_cost(g, prices, vector)
+            if not g.needs:
+                # No requirement list means the price cannot be read off the graph — the work is in a skill. Rank
+                # it by worth alone rather than as if it were free, or every action-shaped goal outranks every
+                # goal that has to be built.
+                price = 0.0 if g.dimension == snap.dimension else float(_PLAY["pool"]["portal_trip_s"])
+            return float(worth) - price
+        # Expand until there are enough choices, not a fixed number of them. A quota of six looked like a saving
+        # until a night filtered all six ("gather waits for day") and the pool came down to one maintenance errand
+        # — which is a queue, not a decision. Planning stops as soon as there is something to compare.
+        # One pass: plan a goal, then immediately ask whether it can actually be used. Counting PLANS instead of
+        # usable candidates was the trap — on a night when five goals plan fine and every one of them answers
+        # "gather waits for day", the quota is spent and the pool comes down to a single maintenance errand.
+        ranked_goals = sorted(ready_goals, key=rough_score, reverse=True)
+        open_names = {g.name for g in open_goals}
+        plans, eligible = {}, []
+        for n, g in enumerate(ranked_goals):
+            if len(eligible) >= MIN_CHOICES or n >= MAX_EXPAND:
+                filtered[g.name] = "outranked before planning (there were already better things to compare)"
                 continue
             try:
                 plans[g.name] = self.plan_for(g, snap, cost_model)
             except Unplannable as e:
                 filtered[g.name] = f"unplannable: {e}"
-        unlocks = priority.unlock_values({n: (p[-1].token if p else None) for n, p in plans.items()}, plans)
-        open_names = {g.name for g in open_goals}
-        eligible = []
-        for g in open_goals:
-            if g.name not in plans:
-                # No goal may vanish without a reason. "nether kit" was neither in the pool nor in `filtered` for a
-                # whole 8-minute slice, so its absence could only be guessed at; a missing plan now says so itself.
-                filtered.setdefault(g.name, "no plan built (and no reason recorded)")
-                continue
-            if g.superseded_by and g.superseded_by in plans:
-                filtered.setdefault(g.name, f"superseded by {g.superseded_by}")
                 continue
             plan = self.with_preparation(g, plans[g.name], snap, cost_model)
-
-            def gate(s, plan=plan, g=g):
-                """Why this STEP can't run now, or None. A gate rejects the step, never the whole goal: "nether kit"
-                was dropped entire because its first runnable step was a hunt ("no pig seen yet"), so the 32 blocks
-                of stone it also needed were never mined in an 8-minute slice."""
-                if night and s.kind not in UNDERGROUND_KINDS and not night_capable:
-                    return f"{s.kind} waits for day"
-                if g.background and s.kind == "mine" and not lookahead.escape_ready(snap.inv):
-                    return "no escape kit for digging"
-                if not night and s.kind in ("gather", "hunt") and not snap.inv.count("bed") \
-                        and not self.has_pickaxe(snap) and sum(x.est for x in plan) > snap.ticks_until_dusk + 3000:
-                    return "surface trip would run into the night without a pickaxe to dig in"
-                if s.kind == "hunt" and snap.dimension == "minecraft:overworld" and segment is not None:
-                    # Speedrun route only: no searching for animals nobody has seen ("no sheep found" ×10). Memory
-                    # only (scan_resources notes animals every 20 s) — an entity query here made every recorded round
-                    # unreplayable and cost a request per goal per round.
-                    kinds = s.detail.get("types", [])
-                    if kinds and not any(self.mem.sightings(k, snap.dimension) for k in kinds):
-                        return f"no {bare(kinds[0])} seen yet"
-                return None
-
-            # The first runnable step that also passes the gates; jumping past a *failed* step is still forbidden,
-            # but a gated step must not hide the other work the same goal can do right now.
+            gate = lambda s, plan=plan, g=g: _pool.gate_step(s, g, plan, pctx, UNDERGROUND_KINDS,
+                                                             lookahead.escape_ready, bare)
             runnables = [s for s in plan if runnable(s, snap.inv)]
-            # Only steps that move the goal itself count. The look-ahead's extras (torches, a spare pickaxe) may run,
-            # but they are not progress: a food goal whose hunt was gated kept crafting torches while the kit sat at
-            # food 0/6 for a whole slice.
-            prep = self.prep_tokens.get(g.name, ())
-            own = [s for s in runnables if s.token not in prep]
-            step, reason = None, None
-            for cand_step in own:
-                why = gate(cand_step)
-                if why is None:
-                    step, reason = cand_step, None
-                    break
-                if step is None:
-                    step, reason = cand_step, why      # keep the first one's reason for the log
-            if plan and not runnables:
-                reason = "no runnable step"
-            elif runnables and not own:
-                step, reason = runnables[0], "only look-ahead preparation can run"
-            if reason is None and g.feasible:
-                reason = g.feasible()
-            if reason is None and g.dimension == "minecraft:the_nether" and snap.dimension != g.dimension:
-                kit = nether_kit_missing(snap.inv)
-                if kit:
-                    reason = "Nether kit not ready: " + ", ".join(kit)
-            if reason is None and snap.dimension != nether.NETHER and g.dimension != nether.NETHER and any(
-                    s.kind == "hunt" and set(s.detail.get("types", [])) & NETHER_MOBS for s in plan):
-                # Dependency chain: eyes of ender need blaze powder, i.e. blazes — in the Nether, behind the portal.
-                reason = "its plan needs Nether mobs (blaze rods): the blaze-rod goal comes first"
+            step, reason = _pool.pick_step(plan, runnables, self.prep_tokens.get(g.name, ()), gate)
+            if reason is None:
+                reason = _pool.goal_reason(g, plan, pctx, nether_kit_missing, nether.NETHER, NETHER_MOBS)
             run = self.goal_runner(ctx, g, plan, step, night)
+            portal_s = 0.0
             if reason is None and g.dimension != snap.dimension:
-                # The work is in another dimension: going through the portal is this goal's next step.
+                # The work is in another dimension: going through the portal is this goal's next step, and the
+                # round trip is part of what this goal costs. It used to be free, so anything on the far side
+                # looked as cheap as the thing under our feet.
                 run = (lambda dim=g.dimension: nether.use_portal(ctx, dim))
                 step = None
-                plan = [] if not plan else plan
+                from .survival import CONFIG as _PLAY
+                portal_s = float(_PLAY["pool"]["portal_trip_s"])
             if run is None:
                 reason = reason or "nothing to do"
             if reason:
                 filtered[g.name] = reason
                 continue
             eligible.append((g, plan, step, run))
+        # Supersession, decided on what is actually runnable this round. Deciding it on "the better goal has a plan"
+        # kept stone tools out for a whole session while the iron ones were refused every round.
+        plans_by_name = {g.name: plan for g, plan, _, _ in eligible}
+        kept = []
+        for item in eligible:
+            g, plan = item[0], item[1]
+            better = plans_by_name.get(g.superseded_by) if g.superseded_by else None
+            if better is not None and not _needed_by(plan, better):
+                filtered.setdefault(g.name, f"superseded by {g.superseded_by}")
+            else:
+                kept.append(item)
+        eligible = kept
+        from . import survival
+        sstate = survival_state(snap, self.mem)
+        # Every goal's worth in seconds first, so "what this one unlocks" can be counted in the same unit as
+        # "what this one saves" instead of as a multiplier nobody could price.
+        worth = {}
+        for g, _plan, _step, _run in eligible:
+            saves = survival.benefit(sstate, g.effect) if g.effect else None
+            if g.name == "recover items after death":
+                # Worth what is lying there, priced like anything else: an empty corpse is worth nothing and a
+                # full one is worth the hours in it. A flat death cost said both were 240 seconds, so the pile
+                # lost to a stone sword and despawned.
+                from .memory import worth_of
+                dead = self.mem.recent_death(snap.dimension)
+                saves = worth_of(dead.get("carried") if dead else [], prices)
+            worth[g.name] = float(saves if saves is not None else g.value * priority.SECONDS_PER_VALUE)
+
+        # How many eligible goals need each piece of work: the denominator of the sharing above.
+        shared = {}
+        for _g, _plan, _s, _r in eligible:
+            for st in _plan:
+                shared[(st.kind, st.token)] = shared.get((st.kind, st.token), 0) + 1
+        # What the world's TERMINAL goods are worth right now, per unit: shelter, a bed, food, light, a sword, a
+        # pickaxe (survival.END_DIMS). Value is computed from these downward, so a saving on a shared intermediate
+        # is counted once instead of once per link of the chain that wants it.
+        ends = survival.end_worths(sstate)
+        from .solve import credits
+        # The cheapest route to each of those goods, once for the whole round. Every candidate's future value is
+        # then a walk down routes already computed instead of a solve and a relaxation of its own — a round is a
+        # tenth of a second, and a second search per candidate does not fit in it.
+        table, _vec = self.action_table(snap, cost_model)
+        credit = credits(table, vector, [d for d, w in ends.items() if w > 0])
         for g, plan, step, run in eligible:
             stat = f"{step.kind}:{step.token}" if step else None
             changed = stat in self.fail_sig and self.fail_sig[stat] != self.coarse
-            unlock = unlocks.get(g.name, 1.0) + 0.5 * sum(1 for u in g.unlocks if u in open_names)
-            # No phase multiplier any more: value, unlock and cost carry progression. A ×0.25 phase factor kept the
-            # portal (value 10) below cheap phase-0 crafts even after every phase-0 goal that mattered was done.
-            cand = C(g.name, g.value * (priority.BACKGROUND if g.background else 1.0),
-                     sum(s.est for s in plan) + 200, run, key=step_key(g, step) if step else g.name,
-                     urgency=self.goal_urgency(g, snap), unlock=min(3.0, unlock),
+            share = priority.BACKGROUND if g.background else 1.0
+            # What this goal is worth to everything after it: how much cheaper the terminal goods are once its
+            # plan has run. Product, facility placed, room made, tool crafted — all of it is the same price
+            # difference, so none of it has to be classified (and none can be classified wrongly, which is what
+            # the two earlier functions kept doing to each other).
+            unlocks_s = [(self.future_worth(plan, prices, ends, credit), 1.0)]
+            unlocks_s = [(v, p) for v, p in unlocks_s if v > 0]
+            # Shared work is paid for once. A step another eligible goal also needs (the same iron, the same
+            # trip) is split between them, so "mine iron" does not look twice as expensive as it is just because
+            # two goals want it. This is the横向 saving the pool could never see.
+            own = sum(s.est / max(1, shared.get((s.kind, s.token), 1)) for s in plan)
+            cand = C(g.name, g.value * share, int(own) + 200, run,
+                     key=step_key(g, step) if step else g.name,
+                     seconds=worth[g.name], share=share,
+                     risk_s=sum(cost_model.risk_s(s, s.est) for s in plan),
+                     delay_s=self.goal_delay(g, snap, sstate),
+                     unlocks=unlocks_s,
                      success=priority.effective_success(self.mem.success_rate(stat), changed) if stat else 1.0,
-                     detail=str(step) if step else "finish", reserve=bag.reserved_ids(plan, g.needs))
-            # Everything it needs is in the bag and only crafting is left: no travel, so no reason to wait for a later
-            # route segment (5 gold ingots carried, the helmet never made).
+                     detail=str(step) if step else "finish", reserve=bag.reserved_ids(plan, g.needs),
+                     commitment_s=priority.step_commitment(step.est, step.count) if step else None,
+                     assumptions=self.assumptions_for(g, plan, step, snap))
+            cand.goes_to = next((tuple(s.detail["pos"]) for s in plan if s.detail.get("pos")), None)
+            cand.dimension_s = portal_s
+            cand.off_route_s = getattr(cand, "off_route_s", 0.0)
+            # Only crafting left, everything in the bag: no travel, so no waiting for a later route segment.
             cand.craft_only = bool(plan) and all(s.kind == "craft" for s in plan) and \
                 g.dimension in (None, snap.dimension)
             offer(cand)
+        return eligible
 
-        # Claude's boost / background directives (override ones ran before the pool).
+    def _directive_candidates(self, ctx, snap, night, offer, filtered):
+        """Claude's boost / background directives (override ones ran before the pool)."""
+        C = priority.Candidate
+        cost_model = LiveCost(snap, self.blacklist, self.mem)
         for d in directives.runnable(directives.load()):
             mode = d.get("mode", "override")
             if mode == "override" or d["kind"] != "goal":
@@ -956,33 +1239,91 @@ class Brain:
             offer(C(name, base, sum(s.est for s in plan) + 200, lambda step=step: self.execute(ctx, step, night),
                     key=f"{name}/{step.kind}:{step.token}", kind="directive", detail=str(step)))
 
-        # Reservations cover every open main goal that can plan, not only the one picked: a down-weighted wheat farm's
-        # seeds were thrown away three times in a minute.
-        bag.RESERVED = set().union(*(bag.reserved_ids(plan, g.needs) for g, plan, _, _ in eligible
-                                     if not g.background)) if eligible else set()
-
-        # Fallbacks: always-available low-value work, so the pool is rarely empty.
+    def _fallback_candidates(self, ctx, snap, night, pctx, offer, pool_out, filtered):
+        """Always-available low-value work, so the pool is rarely empty; wandering fallbacks held back while a goal
+        retries on the spot come back when nothing else can run here."""
+        from . import pool as _pool
+        C = priority.Candidate
+        from . import skill as skillkit_
         held_back = []
-        for fname, fn, allowed in self.fallbacks(ctx, snap, night):
+        for fname, fn, allowed, runs in self.fallbacks(ctx, snap, night):
             if allowed:
                 base, cost = FALLBACK_BASE[fname]
                 c = C(fname, base, cost, fn, kind="fallback", cap=20)
+                c.runs = runs
+                if runs:
+                    target, args = runs
+                    # A veto, not a price. Pricing an unmet precondition only makes sense when the plan will go
+                    # and satisfy it — which is true of goals (the solver puts the step in the plan) and false of
+                    # fallbacks, whose `run` calls one skill and nothing else. Charging `light up` thirty-three
+                    # seconds for torches it would never make put it in the pool at −47.8 s, where it was chosen
+                    # and failed "no torches to spare" seventy times in twenty seconds. Making the torches is
+                    # `torches (≥8)`; it is in the pool on its own, and it can win on its own.
+                    c.precheck = lambda t=target, a=args: skillkit_.can_run(t, *a)
                 offer(c)
-                if staying and fname in WANDERING and fname in filtered:
+                if pctx.staying and fname in _pool.WANDERING and fname in filtered:
                     held_back.append(c)
-        if not pool and held_back:
-            # "Stay while it retries" only makes sense when something else can run here. With the portal cooling,
-            # food waiting for a seen pig and the bed for seen sheep, it left nothing and the agent idled; exploring
-            # is how pigs, sheep and water get seen (recorded 07:32).
+        if not pool_out and held_back:
             for c in held_back:
-                if priority.weight_for(c.name, weights)[1]:
-                    # Ask the ban itself, not the filter reason: these were filtered by the "staying while it
-                    # retries" branch, which runs before the ban branch, so a banned "light up" read as merely
-                    # held back and was resurrected 170× in one 8-minute slice ("no torches to spare").
-                    continue
+                if priority.weight_for(c.name, pctx.weights)[1]:
+                    continue        # ask the ban itself, not the filter reason (a banned fallback came back 170×)
                 filtered.pop(c.name, None)
-                pool.append(c)
-        return pool, filtered
+                pool_out.append(c)
+
+    def go_find(self, ctx, snap_kinds):
+        """Walk to the nearest one of these; if none is in sight, go look. Records how far it turned out to be, so
+        the next estimate is measured rather than assumed (memory.search_distance)."""
+        from .world import entities, find
+        here = nav.feet_now()
+        blocks = [k for k in snap_kinds if not k.startswith("minecraft:") or "_" in k.split(":")[-1]]
+        hits = find(snap_kinds, radius=48, limit=1) or (find(blocks, radius=48, limit=1) if blocks else [])
+        from . import actions as act
+        note_kind = next((k for k, marker in act.LiveCosts.MAPPED.items()
+                          if any(marker in x for x in snap_kinds)), None)
+        if hits:
+            spot = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
+        else:
+            mobs = entities(64, list(snap_kinds))
+            if mobs:
+                spot = (round(mobs[0]["x"]), round(mobs[0]["y"]), round(mobs[0]["z"]))
+            else:
+                # Nothing in sight where the map said there would be something: the note is wrong, and saying so
+                # now is what stops the same walk being priced again next round.
+                if note_kind:
+                    for stale in list(self.mem.resources(note_kind, ctx.dimension)):
+                        if math.dist(stale, here) <= 48:
+                            self.mem.confirm(note_kind, stale, ctx.dimension, found=False)
+                return self.explore(ctx) or False
+        if not nav.go_to(spot, self.policy_cache, range_=3, attempts=2):
+            return False      # could not get there: the note may still be true, so it stands
+        if note_kind:
+            self.mem.confirm(note_kind, spot, ctx.dimension, found=True)
+        self.mem.note_search(snap_kinds[0], math.dist(spot, here))
+        return True
+
+    def unmet_cost(self, needs, snap, ctx):
+        """Seconds to satisfy what this work requires but the world does not yet provide. Zero when it is all there.
+
+        The same requirement graph the goals are planned with (`solve.reach_cost`), asked about a skill's `needs`.
+        This is what turns "cannot run" into a price: the pool sees the torches as part of the cost of lighting up,
+        compares it with everything else, and picks.
+        """
+        if not needs:
+            return 0.0
+        from . import actions as act
+        from .solve import reach_cost
+        table, vector = self.action_table(snap, LiveCost(snap, self.blacklist, self.mem))
+        price = reach_cost(table, vector)
+        total = 0.0
+        for dim, want in needs.items():
+            short = float(want) - float(vector.get(dim, 0))
+            if short <= 0:
+                continue
+            per = price.get(dim)
+            if per is None or per == float("inf"):
+                return float("inf")       # nothing in this world provides it: the candidate prices itself out
+            total += per * short
+        return total
 
     def route_segment(self, snap):
         """The active route segment; logs splits when a segment completes and escalates one over its budget."""
@@ -1005,6 +1346,72 @@ class Brain:
             self.escalate("route", f"segment '{name}' over its {seg['budget'] // 60} min budget")
         return seg
 
+    def prices(self, snap, cost_model):
+        """({dimension: seconds per unit}, world vector) for this round, computed once and shared by every goal.
+
+        One sweep of the requirement graph prices everything in it, so a goal's cost is a lookup, not a search. The
+        table updates itself: its inputs are the action costs, and those already carry what has been measured
+        (walk distances, learned durations, search distances).
+        """
+        key = (id(snap), id(cost_model))
+        if getattr(self, "_prices_key", None) != key:
+            from .solve import reach_cost
+            table, vector = self.action_table(snap, cost_model)
+            self._prices_key = key
+            self._prices = (reach_cost(table, vector), vector)
+        return self._prices
+
+    def rough_cost(self, g, prices, vector):
+        """Seconds to finish this goal, read off the price table. No search: this is the ordering, not the plan."""
+        from . import actions as act
+        total = 0.0
+        for dim, want in act.target_of(g.needs).items():
+            short = float(want) - float(vector.get(dim, 0))
+            if short <= 0:
+                continue
+            per = prices.get(dim)
+            if per is None or per == float("inf"):
+                return float("inf")
+            total += per * short
+        return total
+
+    def future_worth(self, plan, prices, ends, credit):
+        """Seconds this plan saves everything after it (priority.future_value), read off the round's credit table.
+
+        The honest question — what do the terminal goods cost once this plan has run — needs a second solve and a
+        second relaxation per candidate. `credits` answers it from the route tree the round already built: for each
+        end, how many of its seconds pass through something this plan makes. What the plan makes is read off its
+        steps, which exist because the plan was solved to be RUN; nothing is solved in order to be priced.
+
+        Per end the biggest single credit is taken, not the sum: the things a plan makes sit on top of one another
+        along the same route (logs, then planks, then a bed), and adding them charges one saving once per link —
+        the mistake that put an enchanting table at two hundred thousand seconds. The biggest is a lower bound,
+        and shy is the safe direction.
+        """
+        if not plan or not ends:
+            return 0.0
+        made = {s.token for s in plan if s.token}
+        after = dict(prices)
+        for dim, rows in credit.items():
+            saved = max([v for d, v in rows.items() if d in made] or [0.0])
+            if saved:
+                after[dim] = max(0.0, prices.get(dim, float("inf")) - saved)
+        return priority.future_value(prices, after, ends)
+
+    def solve_steps(self, needs, snap, cost_model):
+        """`needs` → executable steps, through the one solver. Raises Unplannable when nothing reaches them."""
+        from . import actions as act
+        from .solve import Unsolvable, solve
+        target = act.target_of(needs)
+        if not target:
+            return []
+        table, vector = self.action_table(snap, cost_model)
+        try:
+            found = solve(table, vector, target)
+        except Unsolvable as e:
+            raise Unplannable(str(e))
+        return [act.to_step(a, n) for a, n in found.steps()]
+
     def plan_for(self, g, snap, cost_model):
         """Plans are reused for PLAN_CACHE_S while the bag is unchanged: 27 goals × world queries every round was
         most of a round's HTTP traffic."""
@@ -1012,9 +1419,21 @@ class Brain:
         hit = self.plan_cache.get(g.name)
         if hit and hit[1] == contents and time.time() - hit[0] < PLAN_CACHE_S:
             return hit[2]
-        plan = Planner.from_inventory(snap.inv, cost_model, self.mem.pending_outputs(snap.dimension)).plan(g.needs)
+        plan = self.solve_steps(g.needs, snap, cost_model)
         self.plan_cache[g.name] = (time.time(), contents, plan)
         return plan
+
+    def action_table(self, snap, cost_model):
+        """(columns, state vector) for this round, built once. The table depends on where we are — a place the
+        world does not offer has no travel column — so it is rebuilt when the round is, and not more often."""
+        from . import actions as act
+        key = (id(snap), id(cost_model))
+        if getattr(self, "_table_key", None) != key:
+            costs = act.LiveCosts(cost_model)
+            vector = act.state_of(snap, self.mem)
+            self._table_key = key
+            self._table = (act.table(costs, vector), vector)
+        return self._table
 
     def goal_runner(self, ctx, goal, plan, step, night):
         if plan:
@@ -1027,14 +1446,33 @@ class Brain:
             return lambda: skills.build_blueprint(ctx, goal.build, near)
         return goal.after
 
-    def goal_urgency(self, g, snap):
-        if g.name == "bed to carry":
-            return priority.bed_urgency(self.mem.nights_missed)
-        if g.name in ("food (≥8)", "stock food"):
-            return priority.food_urgency(snap.get("food", 20), food_count(snap.inv))
-        if "pickaxe" in g.name:
-            return priority.pickaxe_urgency(self.pickaxe_left(snap))
-        return 1.0
+    def goal_delay(self, g, snap, sstate):
+        """Seconds until this goal's benefit falls due. The discount replaces the urgency multiplier: a bed is not
+        "worth more at dusk", it is worth the same and paid sooner, which is a thing the score can express."""
+        if g.effect and ("bed" in g.effect or "sheltered" in g.effect):
+            return priority.dusk_delay(snap.ticks_until_dusk, snap.night)
+        if g.effect and "food_items" in g.effect:
+            return priority.food_delay(snap.get("food", 20), food_count(snap.inv))
+        if g.effect and "pickaxe" in g.effect:
+            return priority.tool_delay(self.pickaxe_left(snap))
+        if g.effect and ("sword" in g.effect or "armor" in g.effect or "shield" in g.effect):
+            return 0.0      # a fight can happen at any moment: combat gear pays the moment it is carried
+        return priority.dusk_delay(snap.ticks_until_dusk, snap.night) if g.effect else 0.0
+
+    def assumptions_for(self, g, plan, step, snap):
+        """What the world must still look like for this plan to remain the right one. Checked every round; when one
+        stops holding, the commitment is released and the goal re-planned (priority.choose's `held`).
+
+        The fight planner has had this since it existed — a plan is a function of a state, so it is only valid while
+        that state holds. Ordinary play had a 60-second timer instead, which meant the ore could be gone and the sun
+        could set and the agent would keep walking toward both.
+        """
+        out = [("day", snap.night), ("premise", self.premise(snap))]
+        if step is not None:
+            out.append(("step", f"{step.kind}:{step.token}"))
+            if step.kind in ("mine", "gather", "hunt", "seek"):
+                out.append(("segment", self.seg_name))
+        return out
 
     def pickaxe_left(self, snap):
         """Remaining durability fraction of the best pickaxe (0 without one)."""
@@ -1043,6 +1481,65 @@ class Brain:
             full = PICK_MAX.get(bare(item).split("_")[0], 250)
             best = max(best, d / full)
         return best
+
+    def hp_tax_rate(self, snap):
+        """Health per second the surroundings are charging us right now. The one number a plan's premise rests on."""
+        from . import perception, threat
+        rows, _ids = perception.threats_seen()
+        if not rows and perception.hurt_rate() <= 0:
+            return 0.0
+        inv = snap.inv
+        prot = threat.protection(snap.get("armor", 0), inv.offhand() == "minecraft:shield")
+        here = (snap.state["x"], snap.state["y"], snap.state["z"])
+        # The larger of what the model expects and what the health bar is actually doing. The model prices a
+        # skeleton by reach and dps; a skeleton that aims well outdoes it, and the difference was a death.
+        return max(threat.pressure(here, rows, prot), perception.hurt_rate())
+
+    def premise(self, snap):
+        """What the world charges us, coarsely. A plan stays valid while this holds.
+
+        Three facts, all binned: the tax rate, how many threats can actually reach us, and how much health we have
+        left. Health belongs here because taking an arrow IS a change in the price — without it a plan made at full
+        health stayed "valid" all the way down to zero, and the agent was shot dead mid-task.
+
+        Binned, and only over what can arrive. Comparing the SET of threats releases the commitment every time
+        anything crosses the edge of perception, and still calls a mob two blocks closer "the same".
+        """
+        from . import perception, threat
+        rows, _ids = perception.threats_seen()
+        here = (snap.state["x"], snap.state["y"], snap.state["z"])
+        from .survival import CONFIG as _PLAY
+        tax_bin, health_bin = _PLAY["pool"]["tax_bin"], _PLAY["pool"]["health_bin"]
+        tax = round(self.hp_tax_rate(snap) / tax_bin) * tax_bin
+        coming = [h for h in rows if h[3] in threat.MOBS and threat.arrival(here, h) != float("inf")]
+        health = int(float(snap.get("health", 20)) // health_bin)
+        return (tax, len(coming), health)
+
+    def assumptions_hold(self, snap, night):
+        """Do the premises of the committed plan still hold? Kept here because it needs the round's snapshot, and
+        checked before `choose` so a stale commitment cannot win on hysteresis.
+
+        Facts, not timers. A goal committed to in daylight is released by nightfall; one committed to in a segment
+        is released when the route moves on; one whose step has since failed in this state is released at once.
+        """
+        if not self.committed or not self.committed_assumptions:
+            return True
+        for kind, value in self.committed_assumptions:
+            if kind == "day" and value != night:
+                self.hold_log(f"commitment released: {'night fell' if night else 'day broke'}")
+                return False
+            if kind == "segment" and value != self.seg_name:
+                self.hold_log(f"commitment released: route moved to {self.seg_name}")
+                return False
+            if kind == "step" and self.fail_sig.get(value) == self.coarse:
+                self.hold_log(f"commitment released: {value} just failed here")
+                return False
+            if kind == "premise":
+                now_premise = self.premise(snap)
+                if now_premise != value:
+                    self.hold_log(f"commitment released: the world charges differently now {value} → {now_premise}")
+                    return False
+        return True
 
     def stalled_seconds(self):
         """Seconds since the bag/equipment last changed (the committed task's persistence decays with it)."""
@@ -1064,14 +1561,14 @@ class Brain:
         ranked = sorted(pool, key=lambda c: c.score, reverse=True)
         log(f"=== {pick.name} | {pick.kind} | next: {pick.detail or pick.key} | score {pick.score:.5f}")
         for c in ranked[:5]:
-            log("   rank " + c.explain())
+            api.detail("   rank " + c.explain())
         if filtered:
             # Say how many were cut, or the line lies: "nether kit" sat at position 11 and looked like it had
             # vanished from the pool entirely, which sent a whole debugging session down the wrong path.
             # 40, not 10: a round filtered 43 goals and the ten shown never included the one being debugged.
             shown = list(filtered.items())[:40]
             more = len(filtered) - len(shown)
-            log("   filtered: " + "; ".join(f"{n} ({r})" for n, r in shown)
+            api.detail("   filtered: " + "; ".join(f"{n} ({r})" for n, r in shown)
                 + (f"; … and {more} more" if more > 0 else ""))
         try:
             with open(RANKING_FILE, "a") as f:
@@ -1099,12 +1596,14 @@ class Brain:
         if not extra:
             return plan
         try:
-            prepared = Planner.from_inventory(snap.inv, cost_model, self.mem.pending_outputs(snap.dimension)) \
-                .plan(goal.needs + extra)
+            # The same solver the goal was planned with. There used to be two planners here — the solver for the
+            # goal, the old recursive descent for its preparation — so a goal could plan and its preparation
+            # could not, and the round died inside `planner.need` on a requirement the solver had introduced.
+            prepared = self.solve_steps(goal.needs + extra, snap, cost_model)
         except Unplannable:
             return plan
         if prepared and prepared[0].key() != plan[0].key():
-            log(f"   look-ahead for {goal.name}: bring {lookahead.describe(extra)} first")
+            api.detail(f"   look-ahead for {goal.name}: bring {lookahead.describe(extra)} first")
         # Remember which tokens are only here because of the look-ahead. A gated goal must not look runnable just
         # because its preparation can run: a food goal whose hunt was gated kept crafting torches instead, and the
         # kit sat at food 0/6 for a whole slice while "making progress".
@@ -1143,7 +1642,7 @@ class Brain:
                 build_ticks = skillkit.expected(skills.build_shelter, ctx) * 20 if can_build else math.inf
                 worth_trek = eta <= max(FAR_SITE_TICKS, 1.5 * build_ticks)
                 if dusk >= eta + 200 and worth_trek and self.ready("return to shelter"):
-                    log(f"dusk in {dusk // 20}s, {site['name']} ~{eta // 20}s away → heading back")
+                    intent.say("safety", f"dusk in {dusk // 20}s, {site['name']} ~{eta // 20}s away → heading back")
 
                     def go_back():
                         if not nav.go_to(tuple(site["pos"]), self.policy(snap, False), range_=4):
@@ -1156,7 +1655,7 @@ class Brain:
             if self.has_pickaxe(snap):
                 return False   # with a pickaxe the night shelter is a tunnel down (see below): no hut hunting at dusk
             if dusk < 3000 and self.ready("build shelter"):
-                log(f"dusk in {dusk // 20}s and no shelter within {FAR_SITE_TICKS // 20}s → building a forward base here")
+                intent.say("safety", f"dusk in {dusk // 20}s and no shelter within {FAR_SITE_TICKS // 20}s → building a forward base here")
                 self.attempt("build shelter", lambda: skills.build_shelter(ctx))
                 return True
             return False
@@ -1177,7 +1676,7 @@ class Brain:
                 if not nav.go_to(cell, self.policy(snap, True), range_=0.5, attempts=2):
                     raise NotAvailable(f"{hut['name']} not reachable")
 
-            log(f"night: going into {hut['name']}")
+            intent.say("safety", f"night: going into {hut['name']}")
             self.attempt("enter shelter", enter)
             return True
         # Standing on the shore with the body box overlapping a water block reads inWater too: only swimming counts
@@ -1198,7 +1697,7 @@ class Brain:
             def descend():
                 if target is None:
                     raise NotAvailable("no solid ground to tunnel into here")
-                log(f"night: exposed → tunnelling underground to {target}")
+                intent.say("safety", f"night: exposed → tunnelling underground to {target}")
                 nav.go_to(target, self.policy(snap, True), range_=0.8, attempts=1)
                 # Done = the same test that triggers sheltering (trigger and done must agree, or it re-digs all night).
                 if not self.sheltered(Snapshot()):
@@ -1217,7 +1716,7 @@ class Brain:
         spot = skills.find_shelter_spot(world.Region((x - 10, y - 5, z - 10), (x + 10, y + 4, z + 10)), snap.feet,
                                         protected=self.policy_cache.protected)
         if spot is not None and spot[0] != snap.feet:
-            log(f"night: sheltering by {spot[1]} at {spot[0]} (from {snap.feet})")
+            intent.say("safety", f"night: sheltering by {spot[1]} at {spot[0]} (from {snap.feet})")
             nav.go_to(spot[0], self.policy(snap, True), range_=0.5, attempts=2)
         try:
             skills.dig_in(ctx)
@@ -1321,41 +1820,33 @@ class Brain:
         ref = old[-1]
         return all(math.dist(h[1], ref[1]) < 2 and h[2] == ref[2] for h in self.history if h[0] >= ref[0])
 
+    # What is lethal inside one round, and therefore cannot wait for the pool to choose. Everything else about
+    # staying alive is a candidate priced in seconds like any other work — see `_rescue_candidates`.
+    LETHAL_NOW = ("unbury", "find air")
+
     def survival(self, snap, ctx):
-        """Survival mode. Emergencies map to fixed rescues, most urgent first; each rescue is a contracted skill and
-        retries within 10 s. Lava and burning are handled faster by the mod (LavaGuard)."""
+        """The hard floor: only what kills inside one decision round. Suffocation and drowning have no deliberation
+        time — by the time a pool round has scored thirty candidates the air is gone.
+
+        Everything else that used to live here (eat to heal, wall in, dig out, unstuck, leave the Nether) is now a
+        candidate. It was never true that they must pre-empt: "walk out of the Nether" is worth a few hundred
+        seconds and takes a few hundred, which is exactly the comparison the pool exists to make. As an if-chain
+        above the pool their order was their priority, and nobody could say what any of them was worth.
+        """
         s = snap.state
         rescues = []
         if skills.head_buried(s):
-            # Sand/gravel fell on us or we walked into a wall: suffocation outranks everything.
             rescues.append(("unbury", lambda: skills.unbury(ctx)))
-        # Really under water (eyes in a water block) and running low — not just bobbing at the surface.
         if s["inWater"] and s["air"] < 150 and skills.head_underwater(s):
             rescues.append(("find air", lambda: skills.find_air(ctx)))
-        threats = [e for e in entities(12) if is_threat(e)]
-        if s["health"] <= 10 and any(e["distance"] <= 6 for e in threats):
-            rescues.append(("flee", lambda: self.flee(ctx, snap, threats)))
-        # Leaving the Nether outranks eating there: the offline scheduling check found "eat to heal" picked first at
-        # 6 hp in the Nether (standing still in lava and ghast country); reflexes still eat on the way to the portal.
-        retreat = must_retreat(snap)
-        if retreat:
-            rescues.append((f"retreat from the Nether ({retreat})",
-                            lambda: nether.use_portal(ctx, "minecraft:overworld")))
-        if s["health"] <= 6:
-            if s["food"] < 20:
-                rescues.append(("eat to heal", skills.eat))
-            if any(is_threat(e) for e in entities(10)):
-                rescues.append(("wall in to heal", lambda: skills.pod(ctx)))
-        if not snap.night and skills.enclosed():
-            # Walled in from last night: nothing else can run until we're out (hand-digging works without a pick).
-            rescues.append(("dig out", lambda: skills.dig_out(ctx)))
-        if s["food"] <= 6 and not food_count(snap.inv):
-            rescues.append(("eat anything", lambda: skills.eat(raw_ok=True) or self.forage(ctx, snap)))
-        if self.stuck_in_place(snap):
-            rescues.append(("unstuck", lambda: self.unstuck(ctx, snap)))
+        urgent = self.threat_now(snap)
+        if urgent is not None:
+            # Dead before the next round: no time to price anything.
+            intent.say("threat", f"threat: {urgent.kind} — {urgent.why}")
+            rescues.append((f"threat:{urgent.kind}", lambda: self.engage(urgent, s, ctx)))
         for name, fn in rescues:
             if self.ready(name):
-                log(f"survival: {name}")
+                intent.say("survival", f"survival: {name}")
                 api.INTERRUPT = None
                 api.MODE = "survival"      # the perception thread doesn't interrupt the rescue itself
                 try:
@@ -1364,6 +1855,91 @@ class Brain:
                     api.MODE = "normal"
                 return True
         return False
+
+    def _rescue_candidates(self, ctx, snap, night, offer, filtered):
+        """Staying alive, priced in seconds and offered to the pool: healing, food, shelter, sleep, getting unstuck,
+        leaving the Nether. They win when they are worth winning, and they say what they are worth."""
+        from . import survival
+        C = priority.Candidate
+        s = snap.state
+        sstate = survival_state(snap, self.mem)
+
+        def worth(effect):
+            return max(0.0, survival.benefit(sstate, effect))
+
+        retreat = must_retreat(snap)
+        if retreat:
+            # Everything the Nether costs is ahead of us until we are out: price it as a day of the risk we carry.
+            offer(C(f"retreat from the Nether ({retreat})", 0, 4000,
+                    lambda: nether.use_portal(ctx, "minecraft:overworld"), kind="maintenance", cap=30,
+                    seconds=survival.expected_loss(sstate), detail=retreat))
+        if s["health"] < 20 and food_count(snap.inv):
+            offer(C("heal up", 0, 20 * max(1, 20 - int(s["health"])), lambda: self.heal(ctx, snap),
+                    kind="maintenance", cap=20, seconds=worth({"hp": 20}),
+                    detail=f"regenerate {20 - s['health']:.0f} hp"))
+        # Eating is worth what the hunger is costing now (survival.hunger_loss) — a different thing from having
+        # meals in the bag. As a line in `reflexes` it fired at a fixed level and only ate COOKED food, so a full
+        # bag of raw pork and an empty stomach was a stable state.
+        if s["food"] < 20 and (food_count(snap.inv) or skills.edible_carried(snap.inv)):
+            cooked = food_count(snap.inv) > 0
+            eat_c = C("eat", 0, 40, lambda: skills.eat(raw_ok=not cooked), kind="maintenance", cap=5,
+                      seconds=worth({"food": 20}), detail="until full")
+            eat_c.runs = (skills.eat, ())
+            offer(eat_c)
+        if s["food"] <= 6 and not food_count(snap.inv):
+            offer(C("eat anything", 0, 600, lambda: skills.eat(raw_ok=True) or self.forage(ctx, snap),
+                    kind="maintenance", cap=10, seconds=worth({"food_items": 8})))
+        if not night and skills.enclosed():
+            # Walled in from last night: nothing else can run at all until we are out, so it is worth whatever the
+            # rest of the day is worth.
+            _c = C("dig out", 0, 600, lambda: skills.dig_out(ctx), kind="maintenance", cap=10,
+                    seconds=float(survival.CONFIG["time"]["day_s"]))
+            _c.runs = (skills.dig_out, (ctx,))
+            offer(_c)
+        if self.stuck_in_place(snap):
+            offer(C("unstuck", 0, 600, lambda: self.unstuck(ctx, snap), kind="maintenance", cap=10,
+                    seconds=float(survival.CONFIG["time"]["day_s"])))
+        self._night_candidates(ctx, snap, night, offer, filtered, sstate, worth)
+
+    def _night_candidates(self, ctx, snap, night, offer, filtered, sstate, worth):
+        """Sleeping, sheltering and heading home, priced by what the night costs without them (survival.night_loss).
+
+        This was `safety()`: an if-chain that returned before the pool, so "go home before dark" always beat "finish
+        the ore you are standing on", whatever either was worth. The bed and the shelter already had a price in
+        seconds; they just had no way to say it.
+        """
+        from . import survival
+        C = priority.Candidate
+        if snap.dimension != "minecraft:overworld":
+            return          # no day, no night, and beds explode
+        carried_bed = snap.inv.count("bed") > 0
+        delay = priority.dusk_delay(snap.ticks_until_dusk, night)
+        if night and (carried_bed or find(BASE_MARKERS["bed"], radius=48, limit=1)):
+            offer(C("sleep", 0, 400, lambda: skills.sleep(ctx, self.policy(snap, True)), kind="maintenance",
+                    cap=20, seconds=worth({"bed": True, "sheltered": True}), detail="skip the night"))
+        if not self.sheltered(snap):
+            site = self.mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
+            if site is not None:
+                eta = travel_ticks(snap.feet, site["pos"])
+                offer(C("return to shelter", 0, eta + 200,
+                        lambda: self._go_to_site(site, snap), kind="maintenance", cap=60,
+                        seconds=worth({"sheltered": True}), delay_s=delay,
+                        detail=f"{site['name']} ~{eta // 20}s away"))
+            if not skills.materials_missing(blueprints.SHELTER):
+                offer(C("build shelter", 0, int(skillkit.expected(skills.build_shelter, ctx) * 20) or 2400,
+                        lambda: skills.build_shelter(ctx), kind="maintenance", cap=120,
+                        seconds=worth({"sheltered": True}), delay_s=delay))
+            if night:
+                _c = C("dig in", 0, 600, lambda: skills.dig_in(ctx), kind="maintenance", cap=30,
+                        seconds=worth({"sheltered": True}))
+                _c.runs = (skills.dig_in, (ctx,))
+                offer(_c)
+                offer(C("wall in", 0, 800, lambda: skills.pod(ctx), kind="maintenance", cap=30,
+                        seconds=worth({"sheltered": True})))
+
+    def _go_to_site(self, site, snap):
+        if not nav.go_to(tuple(site["pos"]), self.policy(snap, snap.night), range_=4):
+            raise NotAvailable(f"{site['name']} not reachable")
 
     def forage(self, ctx, snap):
         from .knowledge import HUNT
@@ -1374,16 +1950,80 @@ class Brain:
                 return skills.hunt(ctx, token, 2, HUNT[token], snap.night)
         raise NotAvailable("no animals to forage")
 
-    def flee(self, ctx, snap, threats):
-        """Hurt and outmatched: run 16 blocks directly away from the hostiles (digging/bridging if needed)."""
-        x, y, z = snap.feet
-        cx = sum(e["x"] for e in threats) / len(threats)
-        cz = sum(e["z"] for e in threats) / len(threats)
-        dx, dz = x - cx, z - cz
-        norm = math.hypot(dx, dz) or 1.0
-        target = (round(x + 16 * dx / norm), y, round(z + 16 * dz / norm))
-        if not nav.go_to(target, self.policy(snap, True), range_=4, attempts=1):
-            raise NotAvailable("could not get away")
+    def threat_state(self, s):
+        """The threat model's view of now, from the perception authority. No world read here on purpose: the pool
+        must be a pure function of the snapshot plus what perception already saw, or recorded rounds stop replaying
+        and every decision costs an extra request."""
+        from . import perception, threat
+        hazards, ids = perception.threats_seen()
+        inv = Inventory()
+        sword = max((t for t, d, _ in inv.tools("sword") if d >= 1), default=0)
+        blocks = sum(inv.count(b) for b in skills.GROUPS["building"] + skills.GROUPS["planks"])
+        tod = s.get("timeOfDay", 0) % 24000
+        return {"here": (s["x"], s["y"], s["z"]), "hp": s["health"], "sword": sword,
+                "protection": threat.protection(s.get("armor", 0), inv.offhand() == "minecraft:shield"),
+                "night": 13000 <= tod < 23000, "blocks": blocks, "hazards": hazards, "ids": ids}
+
+    def threat_price(self, snap):
+        """How this agent, right now, converts health into seconds — the survival model, as a function."""
+        from . import survival
+        sstate = survival_state(snap, self.mem)
+        return lambda dhp: survival.hp_seconds(sstate, dhp)
+
+    def threat_now(self, snap):
+        """The emergency answer, or None. Emergency means: dead before the pool gets another turn — anything slower
+        than that is a choice, and choices are priced against mining and crafting in the pool."""
+        from . import threat
+        try:
+            tstate = self.threat_state(snap.state)
+        except McError:
+            return None
+        if not tstate["hazards"]:
+            return None
+        press = threat.pressure(tstate["here"], tstate["hazards"], tstate["protection"])
+        if threat.time_to_die(tstate["hp"], press) > threat.ENGAGE["interrupt_ttd_s"]:
+            return None
+        return threat.decide(tstate, self.threat_price(snap))
+
+    def engage(self, decision, s, ctx=None):
+        """Carry out one threat answer — an Option from the pool or a Decision from the emergency; both name a
+        `kind` and a `target`. May fail: it is called through `attempt`, never from `reflexes`."""
+        if decision.kind == "fight":
+            api.run({"type": "attack", "entity": decision.target}, wait=45)
+        elif decision.kind == "evade":
+            if not nav.go_to(decision.target, self.policy_cache, range_=3, attempts=1, min_hp=0):
+                raise NotAvailable(f"could not get away to {decision.target}")
+        elif decision.kind == "wall_in":
+            ctx = ctx or skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist)
+            skills.pod(ctx)
+        elif decision.kind == "eat":
+            skills.eat(raw_ok=True)
+        elif decision.kind == "shield":
+            skills.shield_to_offhand()
+            api.run({"type": "use_item", "hand": "offhand", "hold_ms": 1500}, wait=5)
+        elif decision.kind == "reshape":
+            self.reshape(decision, s)
+
+    def reshape(self, decision, s):
+        """Change the ground: block the way, stand a block up, or dig down. One answer, three places to put it."""
+        where, n = decision.target
+        feet = tuple(int(math.floor(s[k])) for k in ("x", "y", "z"))
+        if where == "down":
+            for i in range(n):
+                api.run({"type": "mine", "x": feet[0], "y": feet[1] - 1 - i, "z": feet[2]}, wait=20)
+            return
+        item = next((b for b in skills.GROUPS["building"] if Inventory().count(b)), None)
+        if item is None:
+            raise NotAvailable("nothing to shape the ground with")
+        if where == "under":
+            for _ in range(n):
+                api.run({"type": "pillar", "item": item}, wait=20)
+            return
+        near = perception.threats_seen()[0]
+        toward = min(near, key=lambda h: math.dist(feet, h[0]))[0] if near else (feet[0] + 1, feet[1], feet[2])
+        step = [1 if toward[i] > feet[i] else (-1 if toward[i] < feet[i] else 0) for i in (0, 2)]
+        for i in range(n):
+            skills.place(item, (feet[0] + step[0], feet[1] + i, feet[2] + step[1]))
 
     def unstuck(self, ctx, snap):
         """No progress for a minute. One method per call, each skipped once it has failed in this state (retry.py):
@@ -1426,10 +2066,14 @@ class Brain:
         # Preconditions up front: a fallback that can't run must not be tried (and spin on ToolMissing). All three
         # are Overworld work: strip mining toward y=16 in the Nether digs into the lava sea at y≈31.
         return [
-            ("light up", lambda: skills.light_area(ctx), overworld and not skills.enclosed()),
+            # Each names the skill it runs, so the pool can ask that skill's own preconditions before pricing it
+            # (pool.admit). Asking the world directly here cost a /blocks read per round and left 63 recorded
+            # rounds unreplayable; asking the skill costs nothing and is the same answer.
+            ("light up", lambda: skills.light_area(ctx), overworld, (skills.light_area, (ctx,))),
             ("strip mine", lambda: skills.strip_mine_step(ctx),
-             overworld and self.has_pickaxe(snap) and lookahead.escape_ready(snap.inv)),
-            ("explore", lambda: self.explore(ctx), overworld and surface_day),
+             overworld and self.has_pickaxe(snap) and lookahead.escape_ready(snap.inv),
+             (skills.strip_mine_step, (ctx,))),
+            ("explore", lambda: self.explore(ctx), overworld and surface_day, None),
         ]
 
     def has_pickaxe(self, snap):
@@ -1504,12 +2148,13 @@ class Brain:
             api.wait_for_handback()
         except GameUnreachable:
             api.wait_for_game()
+        except api.CommitmentExpired as e:
+            log(f"   {e}")          # not a failure: the next round decides with what the world looks like now
+        except api.BodyContested as e:
+            log(f"?? {e}; standing down 10 s")
+            time.sleep(10)
         except (McError, skills.ToolMissing) as e:
             self.failed(name, e)
-            if "/" in name:
-                # The step itself failed, whichever goal ran it: iron pickaxe, torches, water bucket, bucket and
-                # shield took turns mining the same unreachable vein (recorded 06:39). Share the cooldown by step.
-                self.failed("step:" + name.split("/", 1)[1], e)
             try:
                 api.post("/stop")
             except McError:
@@ -1531,6 +2176,15 @@ def code_version():
 
 
 def autoplay(hours):
+    import fcntl
+    lock_file = paths.data("autoplay.lock")
+    os.makedirs(os.path.dirname(lock_file), exist_ok=True)
+    lock_fd = open(lock_file, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        log("!! another autoplay process is already running; aborting")
+        return
     log(f"autoplay start: brain code {code_version()}")
     from . import perception
     perception.start()   # interrupts long tasks on danger (~5 Hz), survival mode acts next round

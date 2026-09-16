@@ -22,6 +22,9 @@ class ToolMissing(McError):
         self.kind, self.tier = kind, tier
 
 
+_BAN_COUNTS = {}
+
+
 class Context:
     """What skills need from the brain: memory, movement policy, target blacklist."""
 
@@ -31,13 +34,19 @@ class Context:
         self.dimension = dimension
         # position or (entity id, 0, 0) -> expiry time. Owned by the brain so bans outlive one round.
         self.blacklist = blacklist if blacklist is not None else {}
+        self.ban_counts = _BAN_COUNTS      # how often each cell was banned this session, shared like the blacklist
 
     def blocked(self, pos):
         exp = self.blacklist.get(tuple(pos))
         return exp is not None and exp > time.time()
 
     def ban(self, pos, seconds=600):
-        self.blacklist[tuple(pos)] = time.time() + seconds
+        """Blacklist a cell. Repeats escalate: a place proven unreachable twice is banned twice as long, up to two
+        hours. A fixed ten minutes brought the same coal block back 37 times in one session."""
+        key = tuple(pos)
+        count = self.ban_counts.get(key, 0) + 1
+        self.ban_counts[key] = count
+        self.blacklist[key] = time.time() + min(seconds * (2 ** (count - 1)), 7200)
 
 
 def feet():

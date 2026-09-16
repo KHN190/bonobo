@@ -35,6 +35,15 @@ class TaskStuck(McError):
     """A task made no visible progress for STUCK_SECONDS, or exceeded its time budget. It has been cancelled."""
 
 
+class CommitmentExpired(McError):
+    """The running task outlived the commitment its plan was made under: the world owes the planner a new decision.
+
+    Not a failure and not an interrupt. The task is left running in the mod — stopping it would throw away work that
+    is still probably right — and the caller re-plans; if the new plan is the same action, the task is already under
+    way. This is the one decision point a long action used to have none of.
+    """
+
+
 class Interrupted(McError):
     """The perception thread stopped the running task because of a danger; survival mode takes over next round."""
 
@@ -47,10 +56,16 @@ MODE = "normal"
 SOFT = False
 
 
-def take_interrupt():
-    """Raise Interrupted if the perception thread asked for it (clears the request)."""
+def consume_interrupt():
+    """Return and clear the pending interrupt message, or None. Soft skills read it and take cover themselves."""
     global INTERRUPT
     reason, INTERRUPT = INTERRUPT, None
+    return reason
+
+
+def take_interrupt():
+    """Raise Interrupted if the perception thread asked for it (clears the request)."""
+    reason = consume_interrupt()
     if reason:
         raise Interrupted(reason)
 
@@ -59,8 +74,65 @@ class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
 
+class BodyContested(McError):
+    """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second
+    process) is driving the body. Standing down beats cycling through fallbacks against it — one burst of this
+    ran dig-in, burrow and pod in three seconds, every step "replaced by a new task"."""
+
+
 def log(*parts):
+    """The readable stream: decisions, failures, dangers, milestones. Goes to autoplay.log."""
     print(time.strftime("%H:%M:%S"), *parts, flush=True)
+
+
+DETAIL_FILE = paths.data("detail.log")
+DETAIL_MAX_BYTES = 2 << 20        # roll at 2 MB; the previous roll is kept as detail.log.1
+
+
+def roll(path, max_bytes):
+    """Keep one previous file and start a new one once `path` passes `max_bytes`. The whole log policy, in one
+    place, because there are two logs and they must age the same way.
+
+    Rolling, not truncating: a log cut in half mid-line loses the end of a session, which is the part anyone is
+    reading it for. Rolling at a size rather than a time, because what fills a log here is trouble, not hours.
+    """
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > max_bytes:
+            os.replace(path, path + ".1")
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def detail(*parts):
+    """The working-out: rankings, refusals, every task result, look-ahead. Always written, never to the console.
+
+    A separate function rather than a level argument. A level has to be judged at each call site, which is one more
+    human decision to get wrong and no way to see that it was; calling the wrong function shows up when you read
+    the line. And it is always on: a detail you only get by re-running the game is a detail you do not have.
+    """
+    line = time.strftime("%H:%M:%S") + " " + " ".join(str(p) for p in parts) + "\n"
+    try:
+        os.makedirs(os.path.dirname(DETAIL_FILE), exist_ok=True)
+        roll(DETAIL_FILE, DETAIL_MAX_BYTES)
+        with open(DETAIL_FILE, "a") as f:
+            f.write(line)
+    except OSError:
+        pass          # losing the working-out must never stop the agent
+
+
+def detail_window(since, until=None):
+    """Lines from the detail log between two clock times ("HH:MM:SS"), for a wake-up packet."""
+    until = until or "99:99:99"
+    out = []
+    for path in (DETAIL_FILE + ".1", DETAIL_FILE):
+        try:
+            with open(path) as f:
+                out += [ln.rstrip("\n") for ln in f if since <= ln[:8] <= until]
+        except OSError:
+            continue
+    return out
 
 
 def _token():
@@ -111,7 +183,14 @@ def get(path):
     return api("GET", path)
 
 
+BODY_PATHS = ("/task", "/stop")
+
+
 def post(path, body=None):
+    if path.startswith(BODY_PATHS):
+        from . import arbiter
+        if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
+            return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
     return api("POST", path, body or {})
 
 
@@ -152,9 +231,15 @@ def wait_for_handback(poll=3):
         time.sleep(poll)
 
 
+REPLACED = "replaced by a new task"      # the jar's message when a POST /task cancels what was running
+
+
 def _raise_if_released(results):
     if any("released by player" in (t.get("message") or "") for t in results):
         raise PlayerTookControl()
+    # We only post after our own await returns, so a task of ours replaced mid-wait was replaced by someone else.
+    if any(REPLACED in (t.get("message") or "") for t in results):
+        raise BodyContested("another commander posted a task while ours ran")
 
 
 def await_task(task_id, wait, exempt=("wait",)):
@@ -165,6 +250,13 @@ def await_task(task_id, wait, exempt=("wait",)):
         r = get(f"/task?id={task_id}&wait=2")
         if INTERRUPT and MODE != "survival" and not SOFT:
             take_interrupt()
+        # The commitment the current plan was made under. Checked here because this is where the seconds go: every
+        # long action in this codebase is a task and a wait on it.
+        from . import arbiter
+        current = arbiter.BODY.current()
+        if current is not None and current.over_commitment() and r["status"] == "running":
+            raise CommitmentExpired(f"{r['type']} outlived the {current.commit_s}s commitment of "
+                                    f"'{current.reason}': re-planning")
         if r["status"] != "running":
             return r
         if time.time() > deadline:
@@ -187,8 +279,45 @@ def await_task(task_id, wait, exempt=("wait",)):
             raise TaskStuck(f"no progress for {STUCK_SECONDS}s in {cur['type']}: {cur['doing']}")
 
 
+# Tasks that turn the player's head. Aiming is what provokes an enderman, so these are the ones worth vetting.
+AIMING_TASKS = ("look", "use_item", "use", "bed_bomb", "place", "mine", "attack")
+
+
+def vet_aim(task):
+    """Warn when a task would sweep the crosshair across an enderman's head. Returns the reason, or None.
+
+    Here rather than in each skill because every task goes through `run`, while each skill had to remember to ask —
+    and only one ever did. Advisory on purpose: an aim that provokes is worth knowing about and logging, but
+    refusing the task would trade a fight we might win for a fight that stops.
+    """
+    if task.get("type") not in AIMING_TASKS or "x" not in task:
+        return None
+    try:
+        from . import combat_model
+        from .world import entities
+        st = get("/state")
+        if st.get("dimension") != "minecraft:the_end":
+            return None
+        near = entities(32)
+        if combat_model.aim_hits_enderman((task["x"], task["y"], task["z"]), (st["x"], st["y"], st["z"]), near):
+            return f"aim at {task['x']},{task['y']},{task['z']} crosses an enderman's head"
+    except Exception:
+        return None          # perception is best-effort here; never let the check break the task
+    return None
+
+
 def run(task, wait=900):
-    """Runs one task to completion; returns its JSON (status may be failed — callers decide)."""
+    """Runs one task to completion; returns its JSON (status may be failed — callers decide).
+
+    During a fight only the arbiter's chosen intent may issue tasks. A task from anywhere else is refused as a
+    failed result rather than raised, so a stray caller degrades to "it did not work" instead of a crash.
+    """
+    from . import arbiter
+    if not arbiter.BODY.owns(f"api.run({task.get('type')})"):
+        return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}
+    why = vet_aim(task)
+    if why:
+        log(f"  !! {why}")
     r = post("/task?wait=0", task)
     if r["status"] == "running":
         r = await_task(r["id"], wait)
@@ -197,17 +326,24 @@ def run(task, wait=900):
     failures = (r.get("result") or {}).get("failures") or []
     if r["status"] != "succeeded" and failures and failures[0].get("reason"):
         r["message"] = f"{r['message']}: {failures[0]['reason']}"
-    log(f"  {r['type']:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
+    detail(f"  {r['type']:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
     _raise_if_released([r])
     return r
+
+
+# How long the last chain segment took. A segment is where an atomic action ends and the planner gets the body
+# back, so this is how far ahead anything watching has to look. Measured, not configured.
+LAST_SEGMENT_S = 2.0
 
 
 def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segment=None):
     """Queues tasks in segments so the game never idles, calling `before_segment(segment_tasks)` first
     (the brain uses it for reflexes: tools, light, site bookkeeping). Returns all task results."""
+    global LAST_SEGMENT_S
     results = []
     for start in range(0, len(tasks), segment):
         part = tasks[start:start + segment]
+        began = time.time()
         if before_segment:
             before_segment(part)
         r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
@@ -215,12 +351,13 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
         done = [get(f"/task?id={t['id']}") for t in r["tasks"]]
         for t in done:
             if t["status"] != "succeeded":
-                log(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
+                detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
         results += done
+        LAST_SEGMENT_S = max(0.2, min(30.0, time.time() - began))
         _raise_if_released(done)
         if stop_on_failure and any(t["status"] != "succeeded" for t in done):
             break
     if tasks:
         ok = sum(t["status"] == "succeeded" for t in results)
-        log(f"  chain: {ok}/{len(tasks)} succeeded")
+        detail(f"  chain: {ok}/{len(tasks)} succeeded")
     return results

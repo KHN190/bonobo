@@ -267,6 +267,23 @@ def cmd_once(a):
     once.main()
 
 
+def cmd_intent(a):
+    import json
+    from bonobo import intent
+    try:
+        with open(intent.FILE) as f:
+            lines = json.load(f).get("lines", [])
+    except (OSError, ValueError):
+        lines = []
+    print("\n".join(lines) if lines else "(no intention published yet)")
+
+
+def cmd_incidents(a):
+    from bonobo.tools import incidents
+    sys.argv = ["incidents"] + list(a.rest)
+    raise SystemExit(incidents.main())
+
+
 def cmd_dryrun(_):
     from bonobo.tools import dryrun
     raise SystemExit(dryrun.main())
@@ -346,6 +363,11 @@ def main():
     p.set_defaults(fn=cmd_once)
     sub.add_parser("dryrun", help="read-only check that the candidate pool builds against the live game") \
         .set_defaults(fn=cmd_dryrun)
+    sub.add_parser("intent", help="what the agent means to do right now, layer by layer (MC_DATA/intent.json)") \
+        .set_defaults(fn=cmd_intent)
+    p = sub.add_parser("incidents", help="replay captured planner states from live failures; `adopt NAME` to keep one")
+    p.add_argument("rest", nargs="*")
+    p.set_defaults(fn=cmd_incidents)
     args = ap.parse_args()
     try:
         args.fn(args)

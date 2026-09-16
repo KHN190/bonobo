@@ -55,6 +55,11 @@ FOOD = ["cooked_beef", "cooked_porkchop", "cooked_mutton", "cooked_chicken", "co
         "cooked_cod", "bread", "baked_potato", "golden_carrot", "apple", "carrot", "sweet_berries", "glow_berries",
         "melon_slice", "cookie"]
 
+# Food is a group like planks or wool: recipes and plans want "something to eat", the world hands out a cooked
+# chop. Without the group, "food" was not a dimension the solver could reach, so the one terminal good the agent
+# needs most often could not be priced at all.
+GROUPS["food"] = list(FOOD)
+
 
 def recipes():
     """item -> (row-major pattern of item ids / group tokens / None, output count). 4 entries = 2×2, 9 = 3×3."""
@@ -180,3 +185,9 @@ DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 ROUTE_FACTOR = 1.5            # real route length / straight line
+
+
+# Sky light at or below this means "under rock" — a cave with a distant opening reads 1–3. A world fact, and it
+# lives here because the action table needs it: a constant defined in `brain` drags the whole decision layer into
+# whatever imports it, and the bench keys its re-runs on exactly that dependency graph.
+COVERED_SKY = 4

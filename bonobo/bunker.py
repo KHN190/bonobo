@@ -16,10 +16,13 @@ outward from it along the same side axis. The pit stays the place a bed is click
 import math
 
 from .end import BED_R, BED_TOP, EYE, PIT_DEPTH, PIT_R, REACH
+from .fight_plan import CONFIG as _CFG
+
+_GEO = _CFG["geometry"]
 
 # How far the tunnel runs outward from the pit. Three blocks is what the tapes justify: breath pools at the mouth,
 # and two clear blocks past it is already out of the cloud. Deeper costs dig time for nothing.
-TUNNEL_LEN = 3
+TUNNEL_LEN = _GEO["tunnel_len"]
 # Where the bed is clicked from. The mouth itself: measured against the real height relation (the bed sits one block
 # above the floor plane, the mouth two below it) the bed's top is 3.57 blocks from the eye there, against a 4.5
 # interaction reach — 0.93 of margin. One block further in is 4.45, which is inside the limit on paper and 0.05 away
@@ -27,12 +30,12 @@ TUNNEL_LEN = 3
 #
 # This is what removes "peek" from the plan: an agent reads entity data directly, so it never needs line of sight,
 # only reach. Reach is available from inside cover, so there is no reason to ever step out.
-FIRE_AT = 0
+FIRE_AT = _GEO["fire_at"]
 # Where we wait out take-off and breath: three blocks in, past anything that pools at the mouth.
-RETREAT_AT = 3
+RETREAT_AT = _GEO["retreat_at"]
 # A bed blast chews through end stone, so the blocks framing the mouth are the ones that must not be end stone —
 # otherwise the cover is demolished by our own bombs after a few windows.
-REINFORCE = "minecraft:obsidian"
+REINFORCE = _GEO["reinforce"]
 
 
 def mouth(side, floor_y, centre=(0, 0)):

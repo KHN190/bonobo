@@ -277,9 +277,69 @@ def place_budget(stock):
     return max(0, stock - BLOCK_RESERVE) if stock > 2 * BLOCK_RESERVE else stock // 2
 
 
-def go_to(pos, policy, range_=1.5, attempts=3, min_hp=None):
-    """Walk; when the walker can't get there, build/dig a route toward the target."""
+# Below this, walking on is how runs end: no sprinting, no regeneration, and the next hit is the last one.
+# A default, not an option — see the comment on go_to.
+MIN_WALK_HP = 6.0
+
+
+def safe_destination(pos, hazards=None, clear=1.0):
+    """Pure: `pos`, or a nearby spot clear of every hazard when `pos` sits inside one. None when nothing is clear.
+
+    Consulted by every walk rather than by the call sites that remember — the alternative produced exactly one
+    caller that did. The choice comes from combat_model, the same closed-form rule the safety veto and the retreat
+    use, so a destination this accepts is never one the veto would refuse.
+
+    `hazards` are (centre, radius, velocity) rows; the two-element form from combat_model.hazard_points is accepted too.
+    """
+    from . import combat_model
+    hazards = [h if len(h) > 2 else (h[0], h[1], (0.0, 0.0, 0.0)) for h in (hazards or [])]
+    if not hazards or combat_model.min_tti(pos, hazards) == float("inf"):
+        return pos
+    spot, slack = combat_model.best_step(pos, hazards)
+    return spot if slack is not None and slack > 0 else None
+
+
+PLAYER_SPEED = 4.3
+
+
+def _arrived(start, target, began, ok):
+    """Feed one walk back into the terrain estimate: what it really cost against the straight line."""
+    try:
+        from . import field
+        straight = math.dist(start, target) / PLAYER_SPEED
+        if ok and straight > 0.5:
+            state = api.get("/state")
+            field.TERRAIN.observed(field.bucket_of(state), straight, time.time() - began)
+    except Exception:
+        pass
+    return ok
+
+
+def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards=True):
+    """Walk; when the walker can't get there, build/dig a route toward the target.
+
+    `min_hp` aborts the walk when health drops below it. It defaults to a real value because it used to
+    default to None: every call site had to remember the guard, and almost none did. Pass min_hp=0 where
+    walking while nearly dead is the point — fleeing, or recovering a body.
+    """
     pos = tuple(pos)
+    from . import arbiter
+    if not arbiter.BODY.owns("nav.go_to"):
+        return False
+    _began, _from = time.time(), feet_now()
+    if avoid_hazards:
+        from . import perception
+        hz = perception.hazards()
+        if hz:
+            safe = safe_destination(pos, hz)
+            if safe is None:
+                log(f"   every spot near {pos} is inside something dangerous: not walking there")
+                return False
+            if safe != pos:
+                from . import combat_model
+                log(f"   {pos} sits inside a hazard: walking to {safe} instead "
+                    f"(slack {combat_model.slack_at(safe, hz, pos)}s)")
+                pos = tuple(safe)
     if "travel" in mod_features():
         # One world model: the mod plans and executes the whole route (walk, swim, climb, dig, bridge, pillar), so
         # Python never plans moves the walker can't make.
@@ -362,8 +422,8 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=None):
             except NotAvailable:
                 pass  # deep underground: no sky in range, so work toward the target instead
         if dig_toward(pos, policy, range_):
-            return True
-    return False
+            return _arrived(_from, pos, _began, True)
+    return _arrived(_from, pos, _began, False)
 
 
 def dig_toward(target, policy, range_=2.0, hop=10, max_hops=20):

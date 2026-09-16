@@ -13,7 +13,7 @@ from bonobo import recovery
 class Lookup(unittest.TestCase):
     def test_every_trigger_has_an_answer(self):
         for needle, act, _ in recovery.TABLE:
-            self.assertEqual(recovery.recovery_for(f"perception: {needle} nearby"), act)
+            self.assertEqual(recovery.recovery_for(f"perception: {needle}"), act)
 
     def test_unknown_danger_still_answers(self):
         # The failure this table was written for: no match must never mean "carry on".
@@ -27,24 +27,24 @@ class Lookup(unittest.TestCase):
         self.assertEqual(recovery.DEFAULT, "retreat_to_cover")
 
     def test_matching_is_case_insensitive(self):
-        self.assertEqual(recovery.recovery_for("ENDERMAN staring"), "shake_enderman")
+        self.assertEqual(recovery.recovery_for("ENDERMAN"), "shake_enderman")
 
     def test_first_match_wins_and_is_stable(self):
         # An interrupt can name two dangers ("enderman in the breath"). Whichever the table prefers, it must prefer
         # it every time — the old chains disagreed between skills, which is how the same danger got two answers.
-        reason = "enderman in the breath"
+        reason = "claude: enderman"
         self.assertEqual(recovery.recovery_for(reason), recovery.recovery_for(reason))
         self.assertEqual(recovery.recovery_for(reason), "shake_enderman")
 
     def test_explain_gives_a_reason_with_the_action(self):
-        act, why = recovery.explain("dragon breath close")
+        act, why = recovery.explain("breath")
         self.assertEqual(act, "retreat_to_cover")
         self.assertTrue(why)
 
     def test_enderman_is_never_answered_by_hiding_in_the_hole(self):
         # A 2.9-block enderman does not fit in a 1×2 corridor, but it teleports and reaches into the mouth. The
         # answer is to break the aggro, never to climb into a hole beside it — a bench run died doing exactly that.
-        self.assertNotEqual(recovery.recovery_for("angry enderman"), "retreat_to_cover")
+        self.assertNotEqual(recovery.recovery_for("enderman"), "retreat_to_cover")
 
 
 class Aborts(unittest.TestCase):

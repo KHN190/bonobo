@@ -70,6 +70,7 @@ def make_brain(row):
     b.blacklist = {tuple(k): v for k, v in row.get("blacklist", [])}
     stalled = row.get("stalled", 0)
     b.stalled_seconds = lambda: stalled
+    b.snap_cache = None
     return b
 
 
@@ -95,8 +96,10 @@ def decide(row, brain=None, now=None):
             ids = [s["id"] for s in snap.inv.slots]
             b.sig = retry.signature(snap.feet, ids, night, bans)
             b.coarse = retry.signature(snap.feet, ids, night, 0, bin_size=16)
+            b.place = retry.place_signature(snap.feet, night)
             pool, filtered = b.candidates(ctx, snap, night, force=row.get("force", False))
-            pick = priority.choose(pool, b.committed, b.stalled_seconds())
+            pick = priority.choose(pool, b.committed, held=b.assumptions_hold(snap, night),
+                                   here=(snap.state["x"], snap.state["y"], snap.state["z"]))
         finally:
             tape.REPLAY = None
     top = [(c.name, round(c.score, 6)) for c in sorted(pool, key=lambda c: c.score, reverse=True)[:5]]
@@ -157,6 +160,157 @@ def survival_pick(row):
         finally:
             tape.REPLAY = None
     return picked[0] if picked else None
+
+
+def item_for(dim):
+    """One concrete item id that satisfies a planner dimension, or None for dimensions that are not items.
+
+    A playthrough has to put something in the bag when a goal is achieved, and goals are written against group
+    tokens ("planks", "bed") and tool levels ("tool:pickaxe:1"), not item ids. Any member of the group will do:
+    the question a playthrough asks is what the agent does next, and the planner counts members through groups.
+    """
+    from .data import GROUPS, MATERIAL_TOKEN, TOOL_MATERIALS
+    if dim.startswith("tool:"):
+        _, kind, tier = dim.split(":")
+        material = TOOL_MATERIALS[min(int(tier), len(TOOL_MATERIALS) - 1)]
+        return f"minecraft:{material}_{kind}"
+    if dim in GROUPS:
+        return GROUPS[dim][0] if ":" in GROUPS[dim][0] else f"minecraft:{GROUPS[dim][0]}"
+    if ":" in dim:
+        return dim
+    return None                      # sheltered, slept, at:… — states, not things to hold
+
+
+def playthrough(row, rounds=12, tick=None, until=None, script=None, slowdown=1.0):
+    """Play forward from a recorded round: WHAT the agent does and WHEN. Returns [(seconds from the start, name)].
+
+    `simulate` replays the same world over and over — it answers "does it get stuck". This answers the question no
+    offline test could ask before: does the agent do things in a sensible ORDER. Nothing is executed; the world
+    moves the way the plan says it will:
+
+      * the clock advances by what the chosen candidate was estimated to cost (the action table's own seconds, so
+        walking, mining and crafting are each modelled by the column that priced them);
+      * whatever the goal was for lands in the bag, and the goal is then done;
+      * hunger falls with the clock, sleeping puts the sun back up, eating fills the bar.
+
+    That is enough to show the order, which is what the objective decides and what kept going wrong: tools before
+    luxuries, shelter before dusk, food before starving.
+
+    Each entry is (started, name, finished) in seconds from the start, so a milestone can be timed by when the
+    round that reached it ENDED rather than when it began.
+
+    `until(row)` stops the playthrough when a milestone is reached, so a test can ask HOW LONG something took, not
+    only what order it came in. `script(name, i)` returns True (it worked) or an exception (it did not) — the same
+    shape `simulate` uses — and `slowdown` multiplies every estimate. Three scripts is all the uncertainty this
+    needs: everything works, the measured failures happen, everything takes twice as long. No distributions are
+    sampled: the point is that failure and delay travel through the real回路 (cooldown, re-plan, commitment), and
+    that the milestone is still reached, not what the variance of the arrival time is.
+    """
+    from .brain import goals as open_goals
+    from .actions import target_of
+    from .survival import CONFIG as _PLAY
+    b = make_brain(row)
+    t0 = t = row["t"]
+    out = []
+    was_lenient, tape.LENIENT = tape.LENIENT, True   # the life walks off the edge of the recording; see tape
+    try:
+        return _play(b, row, rounds, tick, until, script, slowdown, t0, t, out)
+    finally:
+        tape.LENIENT = was_lenient
+
+
+def _play(b, row, rounds, tick, until, script, slowdown, t0, t, out):
+    from .brain import goals as open_goals
+    from .actions import target_of
+    from .survival import CONFIG as _PLAY
+    for i in range(rounds):
+        if until is not None and until(row):
+            break
+        name, _top, _filtered, pick = decide(row, b, now=t)
+        entry = [round(t - t0, 1), name, round(t - t0, 1)]
+        out.append(entry)
+        if pick is None:
+            t += 5.0
+            entry[2] = round(t - t0, 1)
+            continue
+        b.committed = name
+        spent = max(1.0, min(pick.cost / 20.0, 1200.0)) * float(slowdown)
+        if script is not None:
+            result = script(name, i)
+            if result is not True:
+                # It failed. The failure goes through the brain's own retry policy, and nothing is produced — the
+                # clock still moves, because a failed attempt costs time too.
+                with mock.patch("time.time", return_value=t):
+                    b.failed(pick.key, result)
+                    if "/" in (pick.key or ""):
+                        b.failed("step:" + pick.key.split("/", 1)[1], result)
+                t += max(2.0, min(spent, 30.0))
+                entry[2] = round(t - t0, 1)
+                if tick:
+                    tick(row, name, t - t0)
+                continue
+        add, state = [], {}
+        with _files(row), mock.patch("time.time", return_value=t):
+            tape.REPLAY = row["calls"]
+            try:
+                from .world import Snapshot
+                snap = Snapshot()
+                goal = next((g for g in open_goals(snap, b.mem) if g.name == name), None)
+                held = snap.state
+            finally:
+                tape.REPLAY = None
+        if goal is not None:
+            for dim, n in target_of(goal.needs).items():
+                item = item_for(dim)
+                if item:
+                    add.append((item, int(n)))
+        food = float(held.get("food", 20)) - spent / float(_PLAY["risk"]["food_drain_s"])
+        if "eat" in (name or ""):
+            food = 20.0
+        state["food"] = max(0.0, min(20.0, food))
+        day = float(_PLAY["time"]["day_s"]) * 20.0
+        clock = (float(held.get("timeOfDay", 0)) + spent * 20.0) % day
+        state["timeOfDay"] = 1000.0 if "sleep" in (name or "") else clock
+        before_bag = sorted((sl["id"], sl["count"]) for sl in row["calls"].get("/inventory", {}).get("slots", []))
+        row = synth(row, add_items=add, state=state)
+        # A tool with no durability is not a tool: `Inventory.tools` reads maxDamage − damage, so a pickaxe added
+        # with neither field counted as broken and the goal that had just produced it stayed open forever (twelve
+        # rounds of "iron sword" in a row, each one making another one).
+        from .actions import TOOL_USES
+        from .data import bare
+        for slot in row["calls"].get("/inventory", {}).get("slots", []):
+            material, _, kind = bare(slot["id"]).rpartition("_")
+            if material in TOOL_USES and not slot.get("maxDamage"):
+                slot["maxDamage"], slot["damage"] = TOOL_USES[material], 0
+        # The live brain's own spin guard (`Brain._attempt`): succeeding twice without changing anything is a
+        # failure. A goal whose product is not a thing — a bucket of water, a lit room — otherwise repeats forever
+        # here, which says nothing about the planner and hides everything after it.
+        after_bag = sorted((sl["id"], sl["count"]) for sl in row["calls"].get("/inventory", {}).get("slots", []))
+        if after_bag == before_bag:
+            if getattr(b, "last_quick", None) == name:
+                from .api import McError
+                with mock.patch("time.time", return_value=t):
+                    b.failed(pick.key, McError("no progress (succeeded twice without changing anything)"))
+            b.last_quick = name
+        else:
+            b.last_quick = None
+        t += spent
+        entry[2] = round(t - t0, 1)
+        if tick:
+            tick(row, name, t - t0)
+    return [tuple(e) for e in out]
+
+
+def reached(row, *items):
+    """True when the bag holds all of `items` (ids or group tokens) — a milestone for `playthrough(until=…)`."""
+    from .data import GROUPS
+    slots = row["calls"].get("/inventory", {}).get("slots", [])
+    for want in items:
+        ids = set(GROUPS.get(want, [want]))
+        ids |= {i if ":" in i else f"minecraft:{i}" for i in ids}
+        if not any(s["id"] in ids for s in slots):
+            return False
+    return True
 
 
 def simulate(row, outcome, rounds=200):
@@ -236,7 +390,7 @@ def record_live(brain, force=False):
     brain.sig = retry.signature(snap.feet, ids, night, sum(1 for e in brain.blacklist.values() if e > now))
     brain.coarse = retry.signature(snap.feet, ids, night, 0, bin_size=16)
     pool, filtered = brain.candidates(ctx, snap, night, force=force)
-    pick = priority.choose(pool, brain.committed, brain.stalled_seconds())
+    pick = priority.choose(pool, brain.committed, held=True)
     row = tape.row_for(brain, pick, pool, filtered, force)
     tape._calls = None
     return row

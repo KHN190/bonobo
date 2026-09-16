@@ -72,6 +72,8 @@ def source(token):
     ('hunt', types) | ('gather',) | None."""
     if token == "log":
         return ("gather",)
+    if token in ("stone", "building"):
+        return ("mine",) + MINE["minecraft:cobblestone"]
     if token in GROUP_RECIPES:
         pattern, out = GROUP_RECIPES[token]
         return ("craft", pattern, out)

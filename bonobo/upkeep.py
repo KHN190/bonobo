@@ -57,7 +57,10 @@ def recover_items(ctx):
     before = Inventory().used_slots()
     api.run({"type": "collect", "radius": 10}, wait=60)
     yield Inventory().used_slots()
-    death["recovered"] = True
-    ctx.mem.save()
-    log(f"recovered {Inventory().used_slots() - before} stacks at {pos}")
+    got = Inventory().used_slots() - before
+    # Either way the note is spent: what is here is now carried, and what is not here is not coming back. A record
+    # the world has already answered must be retired on arrival rather than left to expire on a timer, or the same
+    # sixty-block walk is worth the same seconds again five minutes later.
+    ctx.mem.forget_death(pos)
+    log(f"recovered {got} stacks at {pos}" if got else f"nothing left at {pos}: the drops are gone")
     return True

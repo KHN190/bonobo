@@ -89,6 +89,49 @@ class Memory:
     def home(self):
         return next((s for s in self.data["sites"] if s["kind"] == "home"), None)
 
+    # ---- half-finished work. Progress belongs in the world, not in the planner: a task is re-derived from
+    # scratch every round, so anything it got done must be readable from outside it or it is lost on the first
+    # interruption. Items record themselves (they are in the bag); holes, tunnels and half-built huts do not.
+
+    def note_progress(self, kind, pos, dimension, done, of=None):
+        """Record that `done` units of `kind` are finished at `pos` (out of `of`, when the size is known)."""
+        key = f"{kind}:{int(pos[0])},{int(pos[1])},{int(pos[2])}"
+        entries = self.data.setdefault("progress", {})
+        entry = entries.setdefault(key, {"kind": kind, "pos": [int(c) for c in pos], "dimension": dimension})
+        entry["done"] = max(float(entry.get("done", 0)), float(done))
+        if of:
+            entry["of"] = float(of)
+        entry["t"] = _now()
+        self.save()
+        return entry
+
+    def clear_progress(self, kind, pos):
+        key = f"{kind}:{int(pos[0])},{int(pos[1])},{int(pos[2])}"
+        if self.data.get("progress", {}).pop(key, None) is not None:
+            self.save()
+
+    def progress(self, dimension, kind=None, near=None, within=64.0):
+        """Half-finished work in this dimension, nearest first. `near` is a position to measure from."""
+        out = [e for e in self.data.get("progress", {}).values()
+               if e.get("dimension") == dimension and (kind is None or e.get("kind") == kind)]
+        if near is not None:
+            out = [e for e in out if math.dist(e["pos"], near) <= within]
+            out.sort(key=lambda e: math.dist(e["pos"], near))
+        return out
+
+    def note_search(self, kind, distance):
+        """Record how far away one of these actually turned out to be. The geometric growth used when nothing is
+        known is a prior; this is the measurement that replaces it."""
+        found = self.data.setdefault("searches", {}).setdefault(kind, {"n": 0, "total": 0.0})
+        found["n"] += 1
+        found["total"] += float(distance)
+        self.save()
+
+    def search_distance(self, kind):
+        """The average distance one of these was found at, or None if never measured."""
+        found = self.data.get("searches", {}).get(kind)
+        return (found["total"] / found["n"]) if found and found["n"] else None
+
     def nearest_site(self, pos, dimension, kinds=None):
         options = self.sites(dimension, kinds)
         return min(options, key=lambda s: math.dist(s["pos"], pos), default=None)
@@ -296,6 +339,36 @@ class Memory:
             res.append({"kind": kind, "pos": list(pos), "dimension": dimension, "last": now, "depleted": depleted})
         self.save()
 
+    CONFIRM_R = 12.0      # a note and a sighting within this are the same thing
+
+    def confirm(self, kind, pos, dimension, found):
+        """Arriving settles a note: `found` keeps it, otherwise it is retired at once.
+
+        One rule for every kind of note — resources, sites, veins — because they fail the same way. Left to a
+        timer, a felled tree stays on the resource map, is priced, walked to, found missing, and priced again next
+        round; the agent walks the same sixty blocks until something else happens to win. Recovery already worked
+        this way (`forget_death`); this is the same thing for everything else.
+        """
+        if found:
+            if kind != "site":
+                self.note_resource(kind, pos, dimension)
+            return True
+        if kind == "site":
+            before = len(self.data.get("sites", []))
+            self.data["sites"] = [x for x in self.data.get("sites", [])
+                                  if not (x.get("dimension") == dimension
+                                          and math.dist(x["pos"], pos) <= self.CONFIRM_R)]
+            changed = len(self.data["sites"]) != before
+        else:
+            before = len(self.data.get("resources", []))
+            self.data["resources"] = [r for r in self.data.get("resources", [])
+                                      if not (r["kind"] == kind and r["dimension"] == dimension
+                                              and math.dist(r["pos"], pos) <= self.CONFIRM_R)]
+            changed = len(self.data.get("resources", [])) != before
+        if changed:
+            self.save()
+        return False
+
     def resources(self, kind, dimension, now=None):
         """Available points of a kind: never depleted, or depleted long enough ago to have regrown."""
         now = now or time.time()
@@ -320,15 +393,31 @@ class Memory:
         self.data["lava"] = [p for p in self.data.get("lava", []) if math.dist(p["pos"], pos) > 16]
         self.save()
 
-    def log_death(self, pos, dimension):
-        self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _now(), "t": time.time()})
+    def log_death(self, pos, dimension, carried=()):
+        """Record a death and WHAT WAS ON US. The pile on the ground is the only thing that says whether walking
+        back is worth it: a flat cost priced a corpse holding two blocks of dirt the same as one holding iron."""
+        self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _now(), "t": time.time(),
+                                    "carried": [[str(i), int(n)] for i, n in carried]})
         self.save()
 
-    def recent_death(self, dimension, within_s=300, now=None):
+    def forget_death(self, pos=None):
+        """Mark the last death recovered — or this one, by position. A note the world has contradicted must stop
+        being an errand at once; leaving it to time out means walking the same sixty blocks again in a minute."""
+        for d in reversed(self.data["deaths"]):
+            if d.get("recovered"):
+                continue
+            if pos is None or tuple(d["pos"]) == tuple(int(c) for c in pos):
+                d["recovered"] = True
+                self.save()
+                return d
+        return None
+
+    def recent_death(self, dimension, within_s=300, now=None):  # noqa: D401
         """The last death if its dropped items are still there (they despawn after 5 minutes), else None."""
         now = now or time.time()
         d = next((d for d in reversed(self.data["deaths"]) if d.get("t") and not d.get("recovered")), None)
         if d and d["dimension"] == dimension and now - d["t"] < within_s:
+            d.setdefault("carried", [])      # deaths recorded before the bag was kept
             return d
         return None
 
@@ -353,3 +442,19 @@ class Memory:
     @property
     def nights_missed(self):
         return self.data["night"]["missed"]
+
+
+def worth_of(carried, prices):
+    """Seconds the contents of a corpse would cost to obtain again, from the solver's shadow prices.
+
+    Anything this world has no way to make is worth nothing here — not because losing it does not hurt, but
+    because walking back for it cannot be priced by "what it costs to replace" when it cannot be replaced. The
+    walk itself is already in the candidate's cost.
+    """
+    total = 0.0
+    for item, count in carried or ():
+        per = prices.get(item)
+        if per is None or per == float("inf"):
+            continue
+        total += float(per) * float(count)
+    return round(total, 1)

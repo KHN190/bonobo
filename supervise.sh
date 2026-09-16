@@ -5,6 +5,8 @@
 cd "$(dirname "$0")" || exit 1
 # Where the mod writes config/agent-bridge.json. Override by exporting MC_INSTANCE before running.
 export MC_INSTANCE="${MC_INSTANCE:-$HOME/Library/Application Support/ModrinthApp/profiles/Fabric API}"
+# The mod's Java package, when checked out. Optional: without it readiness keys on the jar version.
+export MC_MOD_SRC="${MC_MOD_SRC:-$HOME/minecraft-claude-bridge/anaka/src/main/java/dev/anaka}"
 HOURS=${1:-10}
 CHECKIN=${2:-600}   # the 10-minute review (user, 2026-09-16): Claude reads the packet, distils lessons, plans
 # The runtime data directory, same default as bonobo.paths (override with MC_DATA).
@@ -21,7 +23,15 @@ echo $$ > "$WATCHFILE"
 
 python3 -m py_compile mc.py bonobo/*.py || { echo "WAKE: syntax error in the brain"; exit 1; }
 python3 -c "import bonobo.brain" || { echo "WAKE: brain fails to import"; exit 1; }
-python3 -m unittest discover -s tests > /tmp/bonobo-tests.log 2>&1 || { echo "WAKE: offline checks failed"; grep FAIL /tmp/bonobo-tests.log; exit 1; }
+# The start-up gate answers one question — can this code run — so it runs the tests that are pure functions and
+# structure (about a second). The replay tests (test_acceptance re-decides a recorded round per case, test_offline
+# drives the real planner) answer a different one: is the MODEL still right. Those take a minute, and a minute of
+# not playing, every restart, to re-confirm something that only changes when the model does. They run at the
+# check-in below instead, where there is already a pause.
+# One process per test file, in parallel (runtests.py): the files share nothing but the read-only tape, so the
+# wall clock is the slowest file rather than the sum. `--fast` leaves out the replay-driven ones — they answer "is
+# the model still right", which only changes when the model does, and the check-in below runs everything.
+./runtests.py --fast > /tmp/bonobo-tests.log 2>&1 || { echo "WAKE: offline checks failed"; grep -E "^FAIL" /tmp/bonobo-tests.log; exit 1; }
 # Live read-only dry-run of the candidate pool (catches runtime errors offline tests can't reach).
 python3 -m bonobo.tools.dryrun > /tmp/bonobo-dryrun.log 2>&1 || { echo "WAKE: live dry-run failed"; tail -15 /tmp/bonobo-dryrun.log; exit 1; }
 # Catch "parameter shadows a module function" bugs across the package.
@@ -57,6 +67,9 @@ if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
   kill "$(cat "$PIDFILE")"
   sleep 1
 fi
+# Roll the readable log before the run starts, never during one: the watcher below reads it by line offset, and a
+# file that rolls under a running `tail -n +N` reads back as an empty session. 2 MB, one previous log kept.
+python3 -c "import sys; from bonobo import api; api.roll(sys.argv[1], 2 << 20)" "$LOG"
 START=$(( $(wc -l < "$LOG" 2>/dev/null || echo 0) + 1 ))
 nohup python3 mc.py autoplay --hours "$HOURS" >> "$LOG" 2>&1 &
 echo $! > "$PIDFILE"
@@ -115,7 +128,24 @@ else:
   [ "$S" = "paused" ] && T0=$NOW
   [ $((NOW - T0)) -ge "$CHECKIN" ] && { REASON="review (every $((CHECKIN / 60)) min)"; break; }
 done
+# The model tests, at the pause rather than at start-up. A failure here is not a reason to stop playing — it says
+# the model drifted from the recorded rounds, which is something to read about, not to crash on.
+python3 -m unittest $SLOW_TESTS > /tmp/bonobo-slow-tests.log 2>&1 || \
+  echo "?? model checks failed: $(grep -cE '^(FAIL|ERROR)' /tmp/bonobo-slow-tests.log) — see /tmp/bonobo-slow-tests.log"
 echo "WAKE: $REASON (autoplay pid $(cat "$PIDFILE") still running: $(kill -0 "$(cat "$PIDFILE")" 2>/dev/null && echo yes || echo no))"
 tail -n +"$START" "$LOG" | grep -vE "cancelled step" | tail -30
+# The working-out for the same window: rankings, refusals, every task. Always on disk, so a wake-up never needs
+# the game re-run to find out why.
+FROM=$(tail -n +"$START" "$LOG" | head -1 | cut -c1-8)
+[ -n "$FROM" ] && python3 -c "
+import sys
+sys.path.insert(0, '.')
+from bonobo import api
+lines = api.detail_window('$FROM')
+if lines:
+    print('--- detail (' + str(len(lines)) + ' lines, last 40):')
+    print(chr(10).join(lines[-40:]))
+" 2>/dev/null
 echo
+./runtests.py > /tmp/bonobo-tests-full.log 2>&1 || { echo "model checks failed:"; grep -E "^FAIL" /tmp/bonobo-tests-full.log; }
 python3 mc.py review --minutes 5 2>/dev/null

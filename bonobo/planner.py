@@ -171,7 +171,13 @@ class Planner:
         elif kind == "hunt":
             _, types = src
             per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
-            self.add_step(Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per)}))
+            if hunts_a_fighter(types):
+                # A mob that hits back is a fight, and the threat layer refuses fights it cannot afford: bare-handed
+                # a spider costs more health than we have, so "string" without a sword planned a hunt that could
+                # only ever be abandoned. The weapon is part of the requirement, like the pickaxe tier for ore.
+                self.need_tool("sword", 1, depth)
+            self.add_step(Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
+                                                        "fighter": hunts_a_fighter(types)}))
 
     def add_step(self, step):
         step.est = self.cost.estimate(step)
@@ -203,11 +209,30 @@ class Planner:
         return out
 
 
+def hunts_a_fighter(types):
+    """Does this hunt target something that fights back (threat.MOBS knows its dps)? Animals do not."""
+    from .threat import MOBS
+    return any(t in MOBS for t in types)
+
+
+def tool_ok(inv, kind, tier, min_left=TOOL_MIN_DURABILITY):
+    if not hasattr(inv, "tools"):
+        return False
+    return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
+
+
 def runnable(step, inv):
     """Gathering steps can always start; crafting/smelting need their inputs on hand right now."""
-    if step.kind in ("mine", "gather", "hunt", "fill"):
-        # "fill" is listed on purpose: its bucket was planned as an earlier step, and without the name here it only
-        # passed by accident (an empty `inputs` dict makes the check below vacuously true).
+    if step.kind == "mine":
+        tier = step.detail.get("tier")
+        if tier is not None:
+            return tool_ok(inv, "pickaxe", tier)
+        return True
+    if step.kind == "fill":
+        return inv.count("minecraft:bucket") >= 1
+    if step.kind == "hunt":
+        return tool_ok(inv, "sword", 1, min_left=1) if step.detail.get("fighter") else True
+    if step.kind == "gather":
         return True
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
 

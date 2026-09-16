@@ -168,7 +168,10 @@ combat_ENDERMAN = "minecraft:enderman"
 def bombable(dragon):
     """Pure: the window is open — it sits, and it is not breathing right now."""
     return dragon is not None and dragon.get("phase") in BOMB_PHASES
-BED_R = 3     # blocks from the portal centre along the chosen side, for the bed
+# Geometry comes from fight.toml, the file that claims to hold it. These used to be typed here as well, which
+# made the config decorative and let the two copies drift (bed_r said 2, this said 3).
+_GEO = __import__("bonobo.fight_plan", fromlist=["fight_plan"]).CONFIG["geometry"]
+BED_R = _GEO["bed_r"]
 EYE = 1.62
 REACH = 4.5
 BED_TOP = 0.5625
@@ -211,7 +214,6 @@ def perched(dragon, top=None, centre=(0, 0)):
     return near and (top is None or dragon["y"] <= top + 6)
 
 
-BED_IDS = None
 
 
 def _bed_item():
@@ -220,10 +222,8 @@ def _bed_item():
     return next((b for b in GROUPS["bed"] if inv.count(b)), None)
 
 
-PIT_R = 5
-PIT_DEPTH = 2
-BOMB_R = PIT_R
-BOMB_DEPTH = PIT_DEPTH
+PIT_R = _GEO["mouth_r"]
+PIT_DEPTH = _GEO["pit_depth"]
 WAIT_BAND = (16, 22)
 PREP_MIN_R = 16      # never build anything closer than this while the dragon is down
 
@@ -446,8 +446,7 @@ PIT = []      # [mouth, firing cell, retreat cell, bed, floor y] from the last b
 def _soft_interrupt():
     """Take perception's interrupt without raising: a fight skill answers danger by retreating into the pit and
     trying again, not by failing. Four "dragon breath close" interrupts in a row killed a whole bench run."""
-    reason, api.INTERRUPT = api.INTERRUPT, None
-    return reason
+    return api.consume_interrupt()     # one reader/clearer for the message channel, next to its one writer
 
 
 def _recover(ctx, reason):
@@ -457,25 +456,29 @@ def _recover(ctx, reason):
     other about the same danger, and anything none of them enumerated fell through to "carry on" — which is standing
     still while being hit. The table decides; this function only executes.
     """
-    from . import recovery
+    from . import arbiter, recovery
     act, why = recovery.explain(reason)
     log(f"   {reason} → {act} ({why})")
+    # A recovery is the safety layer speaking: run it as a preemption so it owns the body while it runs and
+    # anything slower already queued is dropped. Inline, it would be one more place that drives the body.
+    arbiter.BODY.preempt("safety", lambda: _recover_body(ctx, act), f"{act}: {reason}")
+    return act
+
+
+def _recover_body(ctx, act):
     if act == "shake_enderman":
         shake_enderman(ctx)
     elif act == "water_clutch":
         api.run({"type": "wait", "ticks": 5}, wait=5)     # mid-air: the mod pours water under us
     elif act == "retreat_and_eat":
-        if PIT:
-            nav.go_to(PIT[2], ctx.policy, range_=0.6, attempts=1)
+        _retreat(ctx)
         from . import skills
         try:
             skills.eat(raw_ok=True)
         except McError:
             pass
     else:                                                 # retreat_to_cover, and every unrecognised danger
-        if PIT:
-            nav.go_to(PIT[2], ctx.policy, range_=0.6, attempts=1)
-    return act
+        _retreat(ctx)                                     # never an empty branch: see _retreat
 
 
 @skill(budget=180, stall=120, soft=True)
@@ -525,7 +528,7 @@ def await_perch(ctx):
                 for _ in station.__wrapped__(ctx, (0, 0), band=WAIT_BAND, rounds=4):
                     pass
             else:
-                _recover(ctx, why)
+                _recover(ctx, why)      # await_perch has no arbiter of its own; it is already a waiting loop
             yield (why, round(s["health"]))
             continue
         if not s.get("onGround") and s["y"] > floor_y + 3:
@@ -807,37 +810,64 @@ def break_caged_crystal(ctx, crystal):
 
 
 def fight_state(near, s, ctx):
-    """Pure-ish: the planner's view of the fight, assembled from one perception round.
+    """The planner's view of one perception round: {self, boss, threats, resources, terrain}.
 
-    The planner is a pure function of this dict, which is what makes it testable without a game: the same dict can be
-    constructed by hand in a test or replayed from a tape.
+    Perception fusion lives here and nowhere else. The planner is a pure function of what this returns, so the same
+    structure can be built by hand in a test or replayed from a tape; what it must never do is summarise — the
+    threat rows go through whole, and the safety layer asks them its own question.
     """
-    from . import bunker, fight_plan
+    from . import fight_plan
     d = dragon_entry(near)
     inv = Inventory()
     here = (s["x"], s["y"], s["z"])
     phase = (d or {}).get("phase")
     elapsed = time.time() - PHASE_SINCE[1] if PHASE_SINCE[0] == phase else 0.0
-    in_cover = bool(PIT) and math.dist(here, PIT[2]) <= 1.5
-    return {
-        "phase": phase if phase is not None else 0,
-        "phase_elapsed_s": round(elapsed, 2),
-        "hp": s["health"],
-        "hp_floor": fight_plan.CONFIG["combat"]["hp_floor"],
-        "incoming_dps": 6.0 if breath_near(near, here, 6.0) else 0.0,
-        "dragon_hp": (d or {}).get("health") or 0.0,
-        "beds": inv.count("bed"),
-        "obsidian": inv.count("minecraft:obsidian"),
-        "crystals_open": len([e for e in near if e["type"] == "minecraft:end_crystal"
-                              and not caged((e["x"], e["y"], e["z"]), here)]),
-        "water": bool(inv.count("minecraft:water_bucket")),
-        "angry_endermen": len([e for e in near if e["type"] == combat_ENDERMAN and e.get("angry")]),
-        "tunnel_ready": bool(PIT),
-        "bed_placed": bool(PIT) and _solid(PIT[3]),
-        "reinforced": False,
-        "in_cover": in_cover,
-        "exposure_s": 1.0 if in_cover else 3.0,
-    }
+    # A clock that was never started reports decades. Anything past the longest phase ever recorded is not an
+    # elapsed time, it is a bug, and believing it refuses every action for having no time left.
+    if not 0.0 <= elapsed <= 300.0:
+        elapsed = 0.0
+    return fight_plan.make_state(
+        self_={"pos": here, "hp": s["health"], "cover": PIT[2] if PIT else None,
+               "in_cover": bool(PIT) and math.dist(here, PIT[2]) <= 1.5},
+        boss={"phase": phase if phase is not None else 0, "phase_elapsed_s": round(elapsed, 2),
+              "hp": (d or {}).get("health") or 0.0},
+        threats=_threats(near, d),
+        resources={"beds": inv.count("bed"), "obsidian": inv.count("minecraft:obsidian"),
+                   "water": bool(inv.count("minecraft:water_bucket")),
+                   "bow": inv.count("minecraft:bow"), "arrows": inv.count("minecraft:arrow")},
+        terrain={"tunnel_ready": bool(PIT), "bed_placed": bool(PIT) and _solid(PIT[3]),
+                 "reinforced": _reinforced(PIT),
+                 "crystals_open": len([e for e in near if e["type"] == "minecraft:end_crystal"
+                                       and not caged((e["x"], e["y"], e["z"]), here)])},
+    )
+
+
+def _reinforced(pit):
+    """Pure-ish: is the bunker's mouth already blast-proofed? Hardcoded False before, so the planner believed
+    reinforcing was still worth doing after it had been done, and would have done it again every cycle."""
+    if not pit:
+        return False
+    from . import bunker
+    side = (1 if pit[0][0] > 0 else (-1 if pit[0][0] < 0 else 0), 0)
+    if side == (0, 0):
+        side = (0, 1 if pit[0][2] > 0 else -1)
+    cells = bunker.reinforce_cells(side, pit[4])
+    return all(_solid(c) for c in cells)
+
+
+_LAST_SEEN = {}          # entity id -> (position, when), for differencing velocity between rounds
+
+
+def _threats(near, dragon, now=None):
+    """The perception round as (centre, radius, velocity, kind) hazards — one row per hostile, no special cases.
+
+    A new enemy needs a radius in combat_model.HAZARD_R and nothing here: describing threats by reach rather than by
+    name keeps the planner free of per-monster branches. Differencing (threat.rows) is shared with ordinary play.
+    """
+    from . import combat_model, threat
+    now = time.time() if now is None else now
+    live = [e for e in near or [] if not (e.get("type") == combat_ENDERMAN and not e.get("angry"))]
+    return threat.rows(live, _LAST_SEEN, now, combat_model.HAZARD_R)
 
 
 def _solid(cell):
@@ -848,13 +878,21 @@ def _solid(cell):
 def _carry_out(ctx, intent, state, near):
     """Execute one planned intent. Dispatch only — every choice was already made by fight_plan.plan().
 
-    Split this way on purpose: choosing is a pure function that a test can exercise a thousand times a second, and
-    doing is a thin layer with no judgement in it. The old loop mixed the two, which is why its order could only be
+    Split this way on purpose: choosing is a pure function a test can exercise a thousand times a second, and doing
+    is a thin layer with no judgement in it. The old loop mixed the two, which is why its order could only be
     changed by editing the fight itself.
+
+    The deadline is honoured here. `plan` returns the latest moment an action may still be started and finished
+    inside the phase; ignoring it — which this did — means starting a bomb with 0.1 s of window left and being
+    caught in the open by the take-off.
     """
-    from . import combat
+    from . import arbiter, combat
     from .skillcore import place as _place
     name = intent["intent"]
+    if intent.get("deadline_s", 1.0) <= 0.0 and name != "retreat":
+        log(f"   {name} missed its deadline: retreating instead")
+        arbiter.BODY.preempt("tactic", lambda: _retreat(ctx, near), "deadline missed")
+        return True
     if name == "dig_tunnel":
         build_bed_pit(ctx)
     elif name == "place_bed":
@@ -884,20 +922,54 @@ def _carry_out(ctx, intent, state, near):
             except NotAvailable as e:
                 log(f"   holding the shot: {e}")
     elif name == "water_bucket":
-        shake_enderman(ctx)
+        arbiter.BODY.preempt("tactic", lambda: shake_enderman(ctx), "shake enderman")
     elif name == "fire_window":
-        await_perch(ctx)
+        # No await_perch here. The planner issues this intent only while the dragon is in a window phase, so
+        # waiting again re-decides what was already decided — and burns the window while deciding it.
         if _bed_item():
             bed_bomb_window(ctx)
-    else:                                                  # retreat: the default, and the answer to every fault
-        if PIT:
-            nav.go_to(PIT[2], ctx.policy, range_=0.6, attempts=1)
         else:
-            api.run({"type": "wait", "ticks": 10}, wait=5)
+            log("   fire_window without a bed: retreating")
+            arbiter.BODY.preempt("tactic", lambda: _retreat(ctx, near), "no bed")
+    else:                                                  # retreat: the default, and the answer to every fault
+        arbiter.BODY.preempt("tactic", lambda: _retreat(ctx, near), "retreat")
     return True
 
 
-PHASE_SINCE = [None, 0.0]     # (phase, when it started) — the planner needs elapsed time, not just the phase
+def _retreat(ctx, near=None):
+    """Get away from whatever is hurting us. Always does something.
+
+    The old version walked into the corridor when one existed and called `wait` when one did not — so on the run
+    that mattered, with no corridor dug yet, "retreat" meant standing still for half a second and then standing
+    still again. A default action that can be a no-op turns every upstream bug into the same silent death.
+    """
+    if PIT:
+        nav.go_to(PIT[2], ctx.policy, range_=0.6, attempts=1)
+        return "corridor"
+    s = api.get("/state")
+    here = (s["x"], s["y"], s["z"])
+    near = entities(128) if near is None else near
+    # No cover: put distance between us and the nearest thing that can hurt us, along the line away from it.
+    from . import combat_model
+    hazards = _threats(near, dragon_entry(near))
+    if hazards:
+        # The same rule the safety veto applies, not a second one. Scoring retreats by clearance while vetoing
+        # actions by arrival time let a retreat walk somewhere the veto would have refused.
+        away, slack = combat_model.best_step(here, hazards, cover=PIT[2] if PIT else None)
+        if away is not None:
+            log(f"   no cover to retreat into: backing off toward "
+                f"{tuple(round(c, 1) for c in away)} (slack {slack}s)")
+            nav.go_to(away, ctx.policy, range_=2, attempts=1, min_hp=0)
+            return "away"
+    api.run({"type": "wait", "ticks": 10}, wait=5)         # nothing nearby: waiting really is the answer
+    return "clear"
+
+
+_ASSUMPTIONS_LOGGED = []      # say it once per fight, not every round
+LAST_ROUND = [None, None]     # (state, intent) of the latest planning round, for incident capture
+PHASE_SINCE = [None, time.time()]   # (phase, when it started) — the planner needs elapsed time, not just the
+                                    # phase. Never 0.0: that is the epoch, and the elapsed time it yields
+                                    # vetoes every action for having no time left.
 
 
 def _track_phase(near):
@@ -919,7 +991,17 @@ def slay_dragon(ctx):
     """
     if api.get("/state")["dimension"] != "minecraft:the_end":
         raise NotAvailable("not in the End")
-    from . import fight_plan
+    from . import arbiter, fight_plan
+    motion = arbiter.BODY                 # the one body; perception preempts on it from its own thread
+    motion.engage(log=log)
+    fight = fight_plan.Fight()
+    try:
+        yield from _fight_rounds(ctx, motion, fight)
+    finally:
+        motion.disengage()
+
+
+def _fight_rounds(ctx, motion, fight):
     for _ in range(120):
         near = entities(128)
         _track_phase(near)
@@ -934,19 +1016,38 @@ def slay_dragon(ctx):
         # fight_plan, which is a pure function and is tested without a game.
         try:
             state = fight_state(near, s, ctx)
-            intent = fight_plan.plan(state)
+            intent = fight.plan(state)
         except Exception as e:                            # a planner fault must never leave us standing in the open
             log(f"   planner failed ({e}): retreating")
             intent = {"intent": "retreat", "benefit_s": 0.0, "deadline_s": 0.0}
             state = {}
+        LAST_ROUND[:] = [state, intent]                   # what the bench dumps as an incident when this run dies
+        if intent.get("assumptions") and not _ASSUMPTIONS_LOGGED:
+            log(f"   planning on unmeasured parameters: {', '.join(intent['assumptions'])} "
+                f"(run `mc.py report --fit` after a recorded fight)")
+            _ASSUMPTIONS_LOGGED.append(True)
+        if intent.get("fault"):
+            # Loud on purpose. A fault means the plan cannot be trusted: either the state handed to the planner is
+            # malformed, or every productive action was refused and "retreat" is paralysis wearing a decision's
+            # clothes. Both looked like a normal round in the log until this line existed.
+            log(f"?? planner fault: {intent['fault']}")
+            log(f"   refused: {intent.get('rejected')}")
+        boss = state.get("boss", {})
         log(f"   plan: {intent['intent']} (worth {intent['benefit_s']}s, phase "
-            f"{state.get('phase')}, {state.get('dragon_hp', 0):.0f} hp left)")
-        done = _carry_out(ctx, intent, state, near)
-        yield (intent["intent"], round(s["health"]))
-        if done:
-            continue
-        d = dragon_entry(entities(128))
-        yield ("hp", round((d or {}).get("health", 0)))
+            f"{boss.get('phase')}, {boss.get('hp', 0):.0f} hp left)")
+        # Submit, do not act. The planner speaks at the ten-second scale; anything faster — a recovery, a retreat —
+        # overrides it without being scored against it. One exit drives the body.
+        motion.submit("plan", lambda: _carry_out(ctx, intent, state, near),
+                      intent["intent"], deadline_s=max(intent.get("deadline_s") or 0.0, 1.0),
+                      commit_s=intent.get("commitment_s"))
+        try:
+            chosen = motion.step()
+        except api.CommitmentExpired as e:
+            # The action is still running in the mod; what expired is our claim to ignore the world while it does.
+            # Round again with fresh perception — usually the same intent, sometimes not, which is the point.
+            log(f"   {e}")
+            chosen = ("plan", intent["intent"])
+        yield (chosen[1] if chosen else "nothing", round(s["health"]))
     raise McError("the dragon fight ran out of rounds")
 
 

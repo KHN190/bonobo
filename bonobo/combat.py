@@ -5,6 +5,7 @@ import math
 import time
 
 from . import api, nav
+from . import combat_model
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, add, entities
@@ -51,22 +52,6 @@ def blaze_cover(region, here, blaze, radius=4):
 
 # How far each kind of danger reaches, in blocks. One flat distance treated a breath cloud like a creeper and a
 # dragon's head like a fireball; the head sweep and the take-off knockback are what killed the bench runs.
-HAZARD_R = {
-    "minecraft:ender_dragon": 8.0,        # head sweep, wings, and the shove when it takes off
-    "minecraft:area_effect_cloud": 6.0,   # dragon breath: it spreads over the floor and lingers
-    "minecraft:dragon_fireball": 7.0,     # bursts into a breath cloud where it lands
-    "minecraft:fireball": 6.0,
-    "minecraft:small_fireball": 4.0,
-    "minecraft:creeper": 5.0,
-    "minecraft:enderman": 3.0,
-}
-
-
-def hazard_points(near, radii=None):
-    """Pure: [(point, radius)] for everything that can hurt us here. Every ender dragon entry counts, body parts
-    included (they carry no health field)."""
-    radii = radii or HAZARD_R
-    return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near if e["type"] in radii]
 
 
 def clearance(spot, hazards):
@@ -119,34 +104,6 @@ ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
 HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
 
 
-def aim_hits_enderman(aim_at, here, near, half_angle=12.0, radius=24.0, head_band=HEAD_BAND):
-    """Pure: would looking at `aim_at` put the crosshair on an enderman's HEAD? Only the head provokes them (zh wiki:
-    看向较高的地方以免看到它们的头部), so an aim that passes the same direction but well below or above the head is fine —
-    which is what makes shooting crystals and placing beds possible at all in a crowd of them."""
-    ax, az = aim_at[0] - here[0], aim_at[2] - here[2]
-    span = math.hypot(ax, az)
-    if not span:
-        return False
-    base = math.atan2(az, ax)
-    eye = here[1] + EYE_HEIGHT
-    for e in near:
-        if e["type"] != ENDERMAN:
-            continue
-        ex, ez = e["x"] - here[0], e["z"] - here[2]
-        d = math.hypot(ex, ez)
-        if d > radius:
-            continue
-        diff = abs(math.degrees(math.atan2(ez, ex) - base))
-        diff = min(diff, 360 - diff)
-        if diff > half_angle:
-            continue
-        # Height of the aim line where that enderman stands, against its head.
-        y_at = eye + (aim_at[1] - eye) * (d / span)
-        if abs(y_at - (e["y"] + ENDERMAN_HEAD)) <= head_band:
-            return True
-    return False
-
-
 def looking_at_enderman(state, near):
     """Pure: the crosshair is on an enderman right now (mod's /state lookingAt)."""
     look = state.get("lookingAt") or {}
@@ -194,7 +151,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
             shake_enderman(ctx)
             yield (len(angry), round(s["health"]))
             continue
-        hz = hazard_points(near)
+        hz = combat_model.hazard_points(near)
         pad = int(band[1]) + 2
         ax, az = anchor[0], anchor[-1]      # (x, z) or (x, y, z): callers pass the perch as a flat pair
         region = Region((round(ax) - pad, here[1] - 4, round(az) - pad),
@@ -226,7 +183,7 @@ def shoot(entity, hold_ticks=22, near=None):
     the crosshair across an enderman is refused — looking at one provokes it, and a crystal is not worth an enderman
     fight; the caller waits or picks another target."""
     s = api.get("/state")
-    if near is not None and aim_hits_enderman((entity["x"], entity["y"], entity["z"]),
+    if near is not None and combat_model.aim_hits_enderman((entity["x"], entity["y"], entity["z"]),
                                               (s["x"], s["y"], s["z"]), near):
         raise NotAvailable("an enderman stands in the line of aim")
     eye = (s["x"], s["y"] + 1.62, s["z"])

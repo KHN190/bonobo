@@ -12,7 +12,8 @@ import subprocess
 import sys
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# The repository root, two levels up from bonobo/tools/ — mc.py lives there, not beside this file.
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 VERDICT = re.compile(r"^(PASS|FAIL) .*$", re.M)
 
 

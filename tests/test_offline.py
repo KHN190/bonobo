@@ -589,27 +589,51 @@ check("retry: travel failures are navigation",
 from bonobo import priority as PR  # noqa: E402
 
 _C = PR.Candidate
-_torch = _C("stock torches", 1.5 * PR.BACKGROUND, 60, None)
-_bed = _C("bed to carry", 9, 6000, None, urgency=PR.bed_urgency(6), success=PR.effective_success(0.0, False))
-check("priority: a bed missed 6 nights beats background torches (cost floor + urgency)", _bed.score > _torch.score,
-      (_bed.explain(), _torch.explain()))
-check("priority: bag urgency starts early and stays capped", PR.bag_urgency(27) == 0 and PR.bag_urgency(28) == 0.5
-      and PR.bag_urgency(32) == 1.5 and PR.bag_urgency(35) == 2.75 and PR.bag_urgency(36) == 4.0,
-      [PR.bag_urgency(n) for n in (27, 28, 32, 35, 36)])
-check("priority: a full bag no longer dwarfs goals (tidy vs portal ×<50)",
-      _C("tidy", 3, 300, None, urgency=PR.bag_urgency(36)).score < 50 * _C("nether portal", 10, 8800, None).score)
+
+# The pool, as the four things the score must be able to say. Not the shape of any curve: those are model numbers
+# in play.toml, and asserting them here only pins the model to whatever it happened to be.
+check("priority: the score is seconds gained, and every term of explain() is seconds",
+      "s" in _C("x", 1, 600, None).explain() and
+      abs(_C("x", 0, 0, None, seconds=100.0).score - 100.0) < 1e-6,
+      _C("x", 0, 0, None, seconds=100.0).explain())
+check("priority: work that costs more than it saves scores negative",
+      _C("long errand", 0, 20 * 600, None, seconds=30.0).score < 0)
+check("priority: a benefit that pays later is worth less than the same one now",
+      _C("later", 0, 600, None, seconds=100.0, delay_s=PR.DISCOUNT_HORIZON_S).score
+      < _C("now", 0, 600, None, seconds=100.0).score)
+# Added in seconds, not multiplied — and discounted by when the plan finishes, like every other benefit. A plan
+# that hands the pickaxe over in twenty seconds is worth more than the four-hundred-second one that passes through
+# a pickaxe on its way somewhere else; leaving unlocks undiscounted is why the agent stopped making tools at all.
+_opened = _C("opener", 0, 600, None, seconds=10.0, unlocks=[(100.0, 0.5)])
+_plain = _C("plain", 0, 600, None, seconds=10.0)
+_wait = 1.0 + (600 / PR.TICKS_PER_S) / PR.DISCOUNT_HORIZON_S
+check("priority: what a goal unlocks is added in seconds, discounted by when it arrives",
+      abs((_opened.score - _plain.score) - 50.0 / _wait) < 1e-6)
+check("priority: the same unlock is worth less the longer the plan takes",
+      _C("soon", 0, 60, None, seconds=10.0, unlocks=[(100.0, 1.0)]).benefit_s
+      > _C("late", 0, 12000, None, seconds=10.0, unlocks=[(100.0, 1.0)]).benefit_s)
+check("priority: an unreliable candidate is worth its expected benefit but the whole cost",
+      abs(_C("flaky", 0, 20 * 10, None, seconds=100.0, success=0.5).score - (50.0 - 10.0)) < 1e-6)
 check("priority: success floor, reset on state change",
       PR.effective_success(0.0, False) == PR.MIN_SUCCESS and PR.effective_success(0.0, True) == 1.0)
-_a, _b = _C("iron armor", 8, 3000, None), _C("stone pickaxe", 10, 4000, None)
-check("priority: committed task kept within the margin", PR.choose([_a, _b], "stone pickaxe", 0).name == "stone pickaxe")
-check("priority: margin decays when the committed task makes no progress",
-      PR.choose([_a, _b], "stone pickaxe", 120).name == "iron armor")
-check("priority: clearly beaten → switch", PR.choose([_C("a", 50, 600, None), _b], "stone pickaxe", 0).name == "a")
+_a, _b = _C("iron armor", 0, 3000, None, seconds=200.0), _C("stone pickaxe", 0, 3000, None, seconds=201.0)
+check("priority: a commitment survives a tie", PR.choose([_a, _b], "stone pickaxe").name == "stone pickaxe")
+check("priority: a commitment whose premise failed is released",
+      PR.choose([_a, _b], "stone pickaxe", held=False).name in ("stone pickaxe", "iron armor"))
+check("priority: clearly beaten → switch",
+      PR.choose([_C("a", 0, 600, None, seconds=9000.0), _b], "stone pickaxe").name == "a")
 _plans = {"iron pickaxe": [step("craft", "minecraft:iron_pickaxe", 1, 60)],
           "diamonds": [step("craft", "minecraft:iron_pickaxe", 1, 60), step("mine", "minecraft:diamond", 3, 900)],
           "bucket": [step("craft", "minecraft:bucket", 1, 60)]}
-_u = PR.unlock_values({n: p[-1].token for n, p in _plans.items()}, _plans)
-check("priority: unlock counts dependents", _u["iron pickaxe"] == 1.5 and _u["bucket"] == 1.0, _u)
+# Unlocking is read off the solver's shadow prices, from the TOP down: how much cheaper the terminal goods get
+# once this plan has run, capped by what each is worth. Summing over everything merely WANTED paid one saving once
+# per link of a supply chain and put the pool at two hundred thousand seconds for an enchanting table.
+_before, _after = {"bed": 400.0, "food": 60.0}, {"bed": 100.0, "food": 60.0}
+check("priority: unlocking is the fall in the price of the terminal goods",
+      PR.future_value(_before, _after, {"bed": 500.0, "food": 200.0}) == 300.0)
+check("priority: nobody pays more for a thing than the thing saves",
+      PR.future_value({"bed": 90000.0}, {"bed": 80000.0}, {"bed": 500.0}) == 0.0)
+
 _pf = os.path.join(tempfile.mkdtemp(), "prio.json")
 PR.add_weight("stock torches", path=_pf, now=1000, ttl=600, x=100)
 PR.add_weight("deposit", path=_pf, now=1000, ttl=60, ban=True)
@@ -708,17 +732,17 @@ from bonobo import perception as PC  # noqa: E402
 
 _ok = {"health": 20, "food": 20, "air": 300, "control": {"paused": False}}
 check("perception: healthy → no interrupt", PC.danger(_ok, lambda r: 2) is None)
-check("perception: lava interrupts", PC.danger({**_ok, "inLava": True}) == "in lava")
-check("perception: drowning only when swimming low on air",
-      PC.danger({**_ok, "inWater": True, "air": 80}) == "running out of air"
-      and PC.danger({**_ok, "inWater": True, "air": 80, "onGround": True}) is None)
+check("perception: lava interrupts", PC.danger({**_ok, "inLava": True}) == "lava")
+check("perception: drowning is a clock, and standing on the bottom counts",
+      PC.drowning({**_ok, "inWater": True, "air": 60, "onGround": True})
+      and not PC.drowning({**_ok, "inWater": True, "air": 300, "onGround": False}))
 check("perception: hurt + hostile close interrupts, hurt alone doesn't",
-      PC.danger({**_ok, "health": 9}, lambda r: 4) == "hurt with hostiles close"
+      PC.danger({**_ok, "health": 9}, lambda r: 4) == "hostiles"
       and PC.danger({**_ok, "health": 9}, lambda r: None) is None)
 check("perception: never while the player holds control",
       PC.danger({**_ok, "inLava": True, "control": {"paused": True}}) is None)
 check("perception: an interrupt is its own cause with no backstop",
-      RT.cause_of(__import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("in lava")) == "interrupt"
+      RT.cause_of(__import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("lava")) == "interrupt"
       and RT.BACKSTOP["interrupt"] == 0)
 
 # -- directive dependency graph, proximity
@@ -728,8 +752,8 @@ _dg = [{"id": "a", "status": "done"}, {"id": "b", "status": "pending", "requires
 check("directives: runnable = pending with all dependencies done (parallel branches allowed)",
       [x["id"] for x in D.runnable(_dg)] == ["b", "d"])
 check("directives: a failed dependency blocks its dependents", [x["id"] for x in D.blocked(_dg)] == ["f"])
-check("priority: nearby errands get a bonus", PR.proximity(10) == 2.0 and PR.proximity(30) == 1.5
-      and PR.proximity(80) == 1.0)
+check("priority: distance is a cost, not a bonus (there and back)",
+      PR.detour_s(40) > PR.detour_s(10) > 0)
 check("bag: the carried chest is kept, not stored", not [s for s in skills.store_plan(
     [{"id": "minecraft:chest", "count": 1, "slot": 5}]) if s["id"] == "minecraft:chest"])
 
@@ -847,7 +871,8 @@ check("build: a spot never overlaps the player's body (resume + body exclusion w
       "body" in skills.find_machine_spot.__code__.co_varnames)
 
 # -- Nether safety: neutral mobs, trip kit, retreat
-from bonobo.brain import is_threat, nether_kit_missing  # noqa: E402
+from bonobo.brain import nether_kit_missing  # noqa: E402
+from bonobo.threat import is_threat  # noqa: E402
 
 check("combat: zombified piglins, piglins and endermen aren't attacked on sight",
       not is_threat({"hostile": True, "type": "minecraft:zombified_piglin"})
@@ -1024,10 +1049,10 @@ from bonobo.api import McError as _ME  # noqa: E402
 from bonobo.api import NotAvailable as _NA  # noqa: E402
 
 _brain = object.__new__(BR.Brain)
-_brain.retry, _brain.sig = RT.Retry(), "state"
+_brain.retry, _brain.sig, _brain.place = RT.Retry(), "state", "place"
 _brain.seg_name, _brain.seg_misses = "nether kit", {}
 for _i in range(BR.SEG_MISSES):
-    _brain.sig = f"state-{_i}"                     # a different place each time: the state-aware retry resets
+    _brain.sig = _brain.place = f"state-{_i}"      # a different place each time: the state-aware retry resets
     _brain.failed("water bucket", _NA("no water within 48 blocks"))
 check("brain: 'found nothing' answers are counted per route segment, not per state",
       _brain.seg_misses[("nether kit", "water bucket")] == BR.SEG_MISSES
@@ -1071,7 +1096,8 @@ check("water: the fill stand spot is never below the surface, and the aim is the
       and FL.surface_aim((0, 64, 0)) == (0.5, 64.95, 0.5), _fs)
 # Real cases 07:57 and 07:58: both dragon benches died standing ~9 blocks in front of a perched dragon, health
 # 20 → 0, without a single bed placed. The fight now waits at a distance that clears every body part and the breath.
-from bonobo import combat as CB  # noqa: E402
+from bonobo import combat as CB
+from bonobo import combat_model as CM  # noqa: E402
 
 
 class _Flat:
@@ -1097,7 +1123,7 @@ _near = [{"type": "minecraft:ender_dragon", "x": 0, "y": 64, "z": 0, "health": 2
          {"type": "minecraft:ender_dragon", "x": 5, "y": 66, "z": 0},          # head: no health field
          {"type": "minecraft:area_effect_cloud", "x": 7, "y": 64, "z": 0},     # breath
          {"type": "minecraft:item", "x": 8, "y": 64, "z": 0}]
-_hz = CB.hazard_points(_near)
+_hz = CM.hazard_points(_near)
 _spot = CB.safe_stand(_Flat(), (9, 64, 0), _hz, (0, 0), band=(8, 12), clear=1.0)
 check("combat: hazards carry their own reach — head 8, breath 6 — and items are not hazards",
       _hz == [((0, 64, 0), 8.0), ((5, 66, 0), 8.0), ((7, 64, 0), 6.0)], _hz)
@@ -1181,9 +1207,9 @@ check("combat: only provoked endermen count as a threat, neutral ones are left a
       [e["id"] for e in CB.angry_endermen(_ender, (0, 64, 0), 16.0)] == [7],
       [e["id"] for e in CB.angry_endermen(_ender, (0, 64, 0), 16.0)])
 check("combat: only an aim through an enderman's head provokes it — level or low aims are fine",
-      CB.aim_hits_enderman((12, 69, 0), (0, 64, 0), _ender)          # rising line crosses the head band
-      and not CB.aim_hits_enderman((12, 64, 0), (0, 64, 0), _ender)  # same direction, below the head
-      and not CB.aim_hits_enderman((0, 80, 20), (0, 64, 0), _ender))
+      CM.aim_hits_enderman((12, 69, 0), (0, 64, 0), _ender)          # rising line crosses the head band
+      and not CM.aim_hits_enderman((12, 64, 0), (0, 64, 0), _ender)  # same direction, below the head
+      and not CM.aim_hits_enderman((0, 80, 20), (0, 64, 0), _ender))
 check("combat: the crosshair sitting on an enderman is seen (mod lookingAt)",
       CB.looking_at_enderman({"lookingAt": {"kind": "entity", "entity": 7}}, _ender)
       and not CB.looking_at_enderman({"lookingAt": {"kind": "entity", "entity": 9}}, _ender)
@@ -1480,9 +1506,11 @@ if _base is not None:
                           {"name": "portal-nether", "kind": "portal", "pos": [0, 70, 0],
                            "dimension": "minecraft:the_nether"}))
     try:
-        _rescue = DEC.survival_pick(_hurt)
-        check("scheduling: 6 hp in the Nether → survival retreats through the portal first",
-              _rescue is not None and "retreat" in _rescue, _rescue)
+        # Leaving the Nether is no longer an if above the pool: it is a candidate priced in seconds, so the check
+        # is that it WINS, not that it runs first. If it stops winning at 6 hp, the price is wrong.
+        _pick, _top, _filt, _ = DEC.decide(_hurt)
+        check("scheduling: 6 hp in the Nether → the pool chooses to leave through the portal",
+              _pick is not None and "retreat" in _pick, f"picked {_pick}; top {[n for n, _ in _top]}")
     except TAPE.ReplayMiss as _e:
         check("scheduling: survival pick replayable from the recorded world", False, str(_e))
 
@@ -1563,9 +1591,13 @@ if _base is not None:
           _targets and _targets[0][0] == _base["calls"]["/state"]["blockX"] - 40, _targets[:2])
 
     # 6. Recovery chain: right after a death with the items on the ground, the pool picks recovering them.
+    #    `carried` is what the corpse holds, and it is the whole reason to walk back: recovery is worth what that
+    #    pile costs to make again (memory.worth_of), so a scenario that leaves it empty is a scenario about an
+    #    empty corpse — correctly worth nothing, and correctly beaten by making a sword.
     _dead = DEC.synth(_base, mem=lambda m: m.setdefault("deaths", []).append(
         {"pos": [_base["calls"]["/state"]["blockX"] + 5, _base["calls"]["/state"]["blockY"],
-                 _base["calls"]["/state"]["blockZ"]], "dimension": "minecraft:overworld", "t": _base["t"] - 30}))
+                 _base["calls"]["/state"]["blockZ"]], "dimension": "minecraft:overworld", "t": _base["t"] - 30,
+         "carried": [["minecraft:iron_pickaxe", 1], ["minecraft:iron_ingot", 12], ["minecraft:cooked_beef", 16]]}))
     try:
         _pick, _top, _filt, _ = DEC.decide(_dead)
         check("scheduling: a fresh death → 'recover items after death' is picked", _pick == "recover items after death",
