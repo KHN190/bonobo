@@ -1,0 +1,66 @@
+# The dragon fight's numbers, in one place. An experiment changes a value here and nothing else — that is the whole
+# reason this file exists. Anything measured belongs here; anything derived belongs in code.
+#
+# Measured from 22 observation tapes, 147 minutes of game time (phase_report.py). Re-measure and these change.
+
+[geometry]
+# Blocks from the exit portal's centre, along the side the player approaches from.
+bed_r = 2              # bed_cell: on the fountain, one block above the bedrock top
+mouth_r = 5            # the shaft beside the fountain; the bed's top is 3.57 blocks from an eye here (reach 4.5)
+tunnel_len = 3         # corridor cells running outward from the mouth
+pit_depth = 2          # blocks below the floor plane: deep enough to put the eye under it
+fire_at = 0            # corridor index the bed is clicked from. 0 (the mouth) has 0.93 blocks of reach margin;
+                       # index 1 measures 4.45 against a 4.5 limit, which is a coin toss, not a design
+retreat_at = 3         # corridor index to wait in: past anything that pools at the mouth
+reinforce = "minecraft:obsidian"   # a bed blast eats end stone, including the bunker's own roof
+
+[phases]
+# Seconds. Quantiles are computed from the observed samples in fight_plan.OBSERVED, not stored here.
+window_phases = [6, 7]
+announce_phase = 3     # landing: ≥4.5 s of warning in 150 observations — everything must be in place by its end
+takeoff_s = 0.85       # sd 0.10 across 139 observations: effectively a constant, and shorter than any reaction
+sitting_s = 4.95       # 139 of 149 sitting phases, to the tick; the other 10 were cut short
+
+[combat]
+dragon_hp = 200.0
+bed_damage = 40.0      # NOT yet measured in a real fight. Pessimistic until one reports otherwise.
+death_cost_s = 120.0   # respawn, re-equip, cross the island, dig again — what makes the veto rules bite
+sprint_speed = 4.3
+hp_floor = 6.0         # health never to be spent: below it nothing sprints and nothing regenerates
+
+[actions]
+# duration, time to get back into cover, and the size of one indivisible piece for interruptible work.
+# An action with no segment is atomic: half of it is worse than none of it.
+dig_tunnel = { duration_s = 6.0, return_s = 0.0, segment_s = 0.8 }
+place_bed = { duration_s = 2.0, return_s = 1.0, segment_s = 0.5 }
+reinforce = { duration_s = 3.0, return_s = 0.0, segment_s = 0.6 }
+shoot_crystal = { duration_s = 2.0, return_s = 0.0 }
+water_bucket = { duration_s = 1.0, return_s = 0.0 }
+fire_window = { duration_s = 0.4, return_s = 0.4 }
+# The default. It is listed like any other action so nothing is hidden in code, but the veto exempts it: a rule that
+# can refuse "get back into cover" leaves the planner with no answer at all, and an agent with no answer stands still.
+retreat = { duration_s = 0.4, return_s = 0.0 }
+
+[observed]
+# Phase durations in seconds, as measured — 22 tapes, 147 minutes of game time. The planner takes conditional
+# quantiles over these samples rather than storing a median, so re-measuring is the only update needed.
+# Written as [value, count] pairs: 139 sitting phases lasted exactly 4.95 s, ten were cut short.
+holding = [[15.3, 90], [2.0, 20], [40.0, 20], [110.0, 10]]
+approach = [[4.65, 130], [1.35, 10], [20.45, 10]]
+landing = [[7.6, 130], [4.5, 10], [10.05, 10]]
+takeoff = [[0.85, 139]]
+sitting = [[4.95, 139], [0.4, 3], [1.75, 3], [3.15, 3], [4.25, 1]]
+
+[observed.phase_ids]
+# Which phase id each sample set belongs to, so renaming a phase never silently reassigns its timings.
+holding = 0
+approach = 2
+landing = 3
+takeoff = 4
+sitting = 6
+
+[targets]
+# What a run has to achieve for a change to count as an improvement. One metric per scenario.
+hold_60s_hp_lost = 4.0        # sixty seconds in the tunnel beside a perched dragon
+window_exposure_s = 1.0       # seconds outside cover per firing window
+window_dragon_hp = 20.0       # dragon health per window, minimum

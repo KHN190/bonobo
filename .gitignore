@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime data. None of this belongs in the repository: it is one player's world memory, decision recordings,
+# bench output and combat tapes. The data directory is configurable (MC_DATA) and defaults outside the package,
+# but these patterns catch a run that was pointed here on purpose.
+world-notes.json
+test-world-notes.json
+test-world
+route.json
+priorities.json
+slice-*.json
+directives.json
+readiness*.json
+skill-heartbeat
+decisions.jsonl
+decisions-mem/
+ranking.jsonl
+track.jsonl
+plan-bench.jsonl
+autoplay.log
+autoplay.pid
+bench/
+combat-tapes/
+*.log
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

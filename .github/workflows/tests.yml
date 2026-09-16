@@ -1,0 +1,39 @@
+name: tests
+
+# Everything here runs without Minecraft. That is the point of the split: the planner, the fight geometry, the threat
+# model and the recorded decision replays are pure functions, so CI can check them in seconds on a machine with no
+# game, no mod and no world.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Offline tests
+        env:
+          # Never the developer's real data directory, and never the default one either: a test that writes into
+          # $XDG_DATA_HOME would pass locally and quietly depend on whatever is already there.
+          MC_DATA: ${{ runner.temp }}/bonobo-data
+        run: python -m unittest discover -s tests -v
+      - name: Import every module
+        env:
+          MC_DATA: ${{ runner.temp }}/bonobo-data
+        run: |
+          python - <<'PY'
+          import importlib, pathlib
+          for f in sorted(pathlib.Path("bonobo").glob("*.py")):
+              if f.stem != "__init__":
+                  importlib.import_module(f"bonobo.{f.stem}")
+          print("all modules import")
+          PY

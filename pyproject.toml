@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bonobo"
+version = "0.1.0"
+description = "A Minecraft agent that plans and plays through the Agent Bridge mod's HTTP API"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"          # tomllib
+dependencies = []                    # standard library only, on purpose: this runs next to a game, not in a cluster
+
+[project.urls]
+Mod = "https://github.com/KHN190/anaka"
+
+[project.scripts]
+bonobo = "mc:main"
+
+[tool.setuptools]
+packages = ["bonobo"]
+py-modules = ["mc"]
+
+[tool.setuptools.package-data]
+bonobo = ["fight.toml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
