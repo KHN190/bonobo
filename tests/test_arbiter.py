@@ -140,40 +140,50 @@ class LockDiscipline(unittest.TestCase):
 
 
 class PricedInterruption(unittest.TestCase):
-    """The one place the two planners meet: what taking the body costs. Emergencies are never priced."""
+    """Price settles a contest WITHIN a layer. Between layers there is no contest: the faster one takes the body,
+    which is what subsumption means and what `test_body` sweeps. What price defends is what stopping throws away —
+    never what has already been spent, which is sunk whichever way the decision goes.
+    """
 
     def setUp(self):
         self.body = arbiter.Motion()
         self.ran = []
 
-    def submit_work(self, price):
-        self.body.submit("plan", lambda: self.ran.append("work"), "mine the vein", cost_rate=1.0, cost_s=price)
+    def submit(self, reason, resumable=True, redo_s=0.0):
+        self.body.submit("plan", lambda: self.ran.append(reason), reason, cost_rate=1.0, cost_s=300.0,
+                         resumable=resumable, redo_s=redo_s)
         self.body.pending[-1].at = 0.0
 
-    def test_a_cheap_tactic_does_not_take_a_valuable_commitment(self):
-        self.submit_work(300.0)
-        self.assertIsNone(self.body.preempt("tactic", lambda: self.ran.append("reposition"),
-                                            "shuffle aside", worth_s=5.0, now=1e6))
+    def test_a_cheap_answer_does_not_take_open_loop_work_off_its_own_layer(self):
+        self.submit("firing window", resumable=False, redo_s=30.0)
+        taken, why = self.body.preempt("plan", lambda: self.ran.append("something else"), "re-plan",
+                                       worth_s=5.0, now=1e6)
+        self.assertIsNone(taken)
+        self.assertEqual(why, "price")
         self.assertEqual(self.ran, [])
 
-    def test_a_tactic_worth_more_than_the_commitment_takes_it(self):
-        self.submit_work(10.0)
-        self.assertIsNotNone(self.body.preempt("tactic", lambda: self.ran.append("reposition"),
-                                               "get out of the pincer", worth_s=90.0, now=1e6))
-        self.assertEqual(self.ran, ["reposition"])
+    def test_an_answer_worth_more_than_the_redo_takes_it(self):
+        self.submit("firing window", resumable=False, redo_s=10.0)
+        taken, why = self.body.preempt("plan", lambda: self.ran.append("better"), "better plan",
+                                       worth_s=90.0, now=1e6)
+        self.assertIsNotNone(taken, why)
+        self.assertEqual(self.ran, ["better"])
 
-    def test_safety_is_never_priced(self):
-        """'You are drowning' is not a bid. An emergency that has to argue its case is not an emergency."""
-        self.submit_work(10_000.0)
-        self.assertIsNotNone(self.body.preempt("safety", lambda: self.ran.append("stop"), "lava", worth_s=0.1,
-                                               now=1e6))
-        self.assertEqual(self.ran, ["stop"])
+    def test_resumable_work_is_never_defended_however_long_it_has_run(self):
+        self.submit("mine the vein")
+        taken, why = self.body.preempt("plan", lambda: self.ran.append("re-plan"), "re-plan",
+                                       worth_s=0.1, now=1e6)
+        self.assertIsNotNone(taken, why)
 
-    def test_an_undefended_commitment_is_taken_freely(self):
-        self.body.submit("plan", lambda: self.ran.append("work"), "wander")   # nothing invested to defend
-        self.assertIsNotNone(self.body.preempt("tactic", lambda: self.ran.append("reposition"), "x", worth_s=0.5,
-                                               now=1e6))
-        self.assertEqual(self.ran, ["reposition"])
+    def test_a_faster_layer_is_never_priced_at_all(self):
+        self.submit("firing window", resumable=False, redo_s=10_000.0)
+        for layer in ("reflex", "safety", "tactic"):
+            body = arbiter.Motion()
+            body.submit("plan", lambda: None, "mine", cost_rate=1.0, cost_s=300.0,
+                        resumable=False, redo_s=10_000.0)
+            body.pending[-1].at = 0.0
+            taken, why = body.preempt(layer, lambda: self.ran.append(layer), "answer", worth_s=0.1, now=1e6)
+            self.assertIsNotNone(taken, f"{layer} was refused ({why})")
 
 
 class APreemptionIsNotAnIntruder(unittest.TestCase):

@@ -27,12 +27,21 @@ import time
 REFLEX, SAFETY, TACTIC, PLAN = 0.05, 0.2, 1.0, 10.0
 SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "plan": PLAN}
 
+# Why an answer did not get the body. A closed set, because "it did not happen" is not an observation: a bench
+# that cannot tell "outbid" from "locked out" reads fourteen empty cells and learns nothing from any of them.
+#
+#   layer    something faster holds or drives the body; subsumption, not a contest
+#   margin   the same layer already holds a decision this one does not clearly beat (`kernel.MARGIN`)
+#   price    the same layer is part-way through open-loop work worth more than this answer saves
+#   expired  the intent was too old to start
+REFUSED = ("layer", "margin", "price", "expired")
+
 
 class Intent:
     """What a layer would like the body to do. Data, not a command — the arbiter decides whether it happens."""
 
     def __init__(self, layer, action, reason="", deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None):
+                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         self.layer = layer
@@ -46,6 +55,12 @@ class Intent:
         self.commit_s = commit_s
         self.cost_rate = float(cost_rate)
         self.cost_s = None if cost_s is None else float(cost_s)
+        # What abandoning this really costs. A walk or a dig is resumable: stopping it throws away nothing, only
+        # postpones it. Anything open-loop (a firing window, a bed blast) has to be started again, and `redo_s` is
+        # that much. Neither is "how long it has been running" — that is sunk, and sunk seconds cannot be
+        # recovered by carrying on, so they must not defend a commitment against anything.
+        self.resumable = bool(resumable)
+        self.redo_s = float(redo_s)
         self.at = time.time() if at is None else at
 
     @property
@@ -58,12 +73,19 @@ class Intent:
         return (now if now is not None else time.time()) - self.at > self.deadline_s
 
     def interrupt_cost_s(self, now=None):
-        """Seconds of work already put in, which abandoning this would throw away — `estimate.sunk_s` over how
-        long this intent has been running. Asked at the moment of the interruption: a price frozen when the intent
-        was submitted is always zero."""
+        """Seconds abandoning this would THROW AWAY — not seconds already spent on it.
+
+        It used to be the second thing (`estimate.sunk_s`), which grows the longer the work runs: a plan that had
+        been walking for a minute defended itself with a minute, no threat answer could ever outbid it, and the
+        agent was beaten to death holding a pickaxe. Sunk seconds are sunk whichever way the decision goes; what a
+        decision may weigh is what is lost by stopping, which for resumable work is nothing.
+        """
+        return 0.0 if self.resumable else max(0.0, self.redo_s)
+
+    def spent_s(self, now=None):
+        """Seconds already put into this, for the log and the tape. Never for a comparison."""
         from . import estimate
-        elapsed = (now if now is not None else time.time()) - self.at
-        return estimate.sunk_s(self.cost_rate, elapsed, self.cost_s)
+        return estimate.sunk_s(self.cost_rate, (now if now is not None else time.time()) - self.at, self.cost_s)
 
     def over_commitment(self, now=None):
         """Has the body owed the world a fresh decision since `commit_s`? The action is not wrong, only stale."""
@@ -116,7 +138,7 @@ class Motion:
         self.preempted_by = None
         self.violations = []
         self.driving = None       # the preemption currently executing, if any
-        self.lease = None         # (intent, release): who holds the body, and what ends their hold
+        self.lease = None         # (intent, release, worth_s): the decision the body holds, and what ends it
         self._log = log or (lambda *_: None)
 
     # -- engagement ------------------------------------------------------------------------------------------------
@@ -153,12 +175,17 @@ class Motion:
         return getattr(self._local, "current", None)
 
     def holder(self):
-        """The intent holding the body, or None. A lease outlives the call that took it: an answer is not done
-        when its first task returns, it is done when answering stops being worth more than working."""
+        """The decision currently held by the body, or None.
+
+        A held decision outlives the call that took it: an answer is not done when its first task returns, it is
+        done when answering stops being worth more than working. It is a DECISION, not a lock — `kernel.Held`
+        says when one may be replaced, and the same rule applies here so that the second answer of one fight is a
+        re-decision rather than an intruder.
+        """
         with self._lock:
             if self.lease is None:
                 return None
-            intent, release = self.lease
+            intent, release, _worth = self.lease
             try:
                 done = bool(release())
             except Exception:
@@ -190,48 +217,64 @@ class Motion:
     # -- fast layers: preempt ----------------------------------------------------------------------------------------
 
     def preempt(self, layer, action, reason="", worth_s=None, now=None, clear_first=False, release=None):
-        """A fast layer speaks: run now, on this thread, and mark every slower intent stale. Returns (layer,
-        reason), or None when the layer was not worth the interruption.
+        """A fast layer speaks: run now, on this thread, and mark every slower intent stale.
+
+        Returns `((layer, reason), None)` when it took the body, or `(None, why)` when it did not, with `why` one
+        of REFUSED — a refusal that cannot say which rule stopped it is indistinguishable from a threat nobody
+        priced, which is exactly what a whole bench pass could not tell apart.
 
         Not queued. Waiting for the fight loop's next step would make a 0.2 s layer answer at a 10 s cadence,
         which is no priority at all. Slower pending intents are dropped; a slower action already running is told
         through api.INTERRUPT (the message channel) and abandons itself.
 
-        `worth_s` prices the interruption for the ONE layer that is a judgement call rather than an emergency.
-        REFLEX and SAFETY are never priced: "you are drowning" is not a bid, and an emergency that has to argue
-        its case is not an emergency. TACTIC is a bid — taking position, shaking pursuit — and it competes with
-        whatever the body is already committed to, at that commitment's own price (`interrupt_cost_s`). Without
-        this the two planners were not exchanging prices at all: the faster one simply took the body, and a
-        two-second reposition could abandon a minute of work worth far more than it.
+        Layering is not negotiable: a faster layer takes the body from a slower one, full stop. Price settles
+        contests WITHIN a layer only. It used to price tactic against plan, with the plan defended by its sunk
+        cost — which grows with time, so after a minute of walking nothing could interrupt it and threat answers
+        were refused fourteen cells running while the agent was beaten to death.
         """
         intent = Intent(layer, action, reason)
         # Subsumption applies to what is RUNNING, not only to what is pending: an answer that is half carried out
         # may be cut off by a faster layer and by nothing else. Without this the threat layer stopped its own
         # answer 0.05 s after starting it, every tick, and the log filled with contested tasks.
         holder = self.holder()
-        if holder is not None and holder.scale <= intent.scale and holder is not self.current():
-            self._log(f"   motion: {layer} '{reason}' waits: {holder.layer} '{holder.reason}' holds the body")
-            return None
+        if holder is not None and holder is not self.current():
+            if holder.scale < intent.scale:
+                self._log(f"   motion: {layer} '{reason}' waits: {holder.layer} '{holder.reason}' holds the body")
+                return None, "layer"
+            if holder.scale == intent.scale:
+                # Same layer: this is the same decision being made again, so `kernel`'s rule decides — keep what
+                # is held unless the challenger clearly beats it. Refusing on the layer made every answer after
+                # the first one an intruder, and a fight got one swing.
+                from . import kernel
+                held_worth = self.lease[2] if self.lease else None
+                if held_worth is not None and worth_s is not None and worth_s <= held_worth * kernel.MARGIN:
+                    self._log(f"   motion: {layer} '{reason}' worth {worth_s:.0f}s does not beat "
+                              f"'{holder.reason}' ({held_worth:.0f}s)")
+                    return None, "margin"
         driving = self.driving
         if driving is not None and driving.scale <= intent.scale:
             self._log(f"   motion: {layer} '{reason}' waits: {driving.layer} '{driving.reason}' is driving")
-            return None
-        if intent.scale > SAFETY and worth_s is not None:
+            return None, "layer"
+        if worth_s is not None:
             running = self.last if self.last is not None and self.last is self.current() else None
             defended = running or arbitrate(self.pending, now)
-            price = defended.interrupt_cost_s(now) if defended is not None else None
-            if price is not None and worth_s < price:
-                self._log(f"   motion: {layer} '{reason}' worth {worth_s:.0f}s, "
-                          f"not taking the body from '{defended.reason}' ({price:.0f}s)")
-                return None
+            # Only a contest within one layer is settled by price: below is subsumption, and above was refused
+            # already. What defends is what stopping THROWS AWAY, never what has been spent.
+            if defended is not None and defended.scale == intent.scale:
+                price = defended.interrupt_cost_s(now)
+                if worth_s < price:
+                    self._log(f"   motion: {layer} '{reason}' worth {worth_s:.0f}s, "
+                              f"not taking the body from '{defended.reason}' ({price:.0f}s)")
+                    return None, "price"
         with self._lock:
             self.pending = [p for p in self.pending if p.scale <= intent.scale]
             self.preempted_at, self.preempted_by = intent.at, intent
             if release is not None:
                 # Taking the body and saying so are one step. While they were two, the /stop below woke the
                 # planner, it asked `owns` before the lease existed, and posted its next task into the gap — which
-                # replaced this answer 0.05 s after it started, three fixes in a row.
-                self.lease = (intent, release)
+                # replaced this answer 0.05 s after it started, three fixes in a row. The worth is kept with it:
+                # a challenger from the same layer is compared against what this one claimed, not against a lock.
+                self.lease = (intent, release, float(worth_s) if worth_s is not None else 0.0)
             if intent.scale <= SAFETY:
                 # The message channel has ONE writer: a preemption. Whatever slow action is running reads it and
                 # abandons itself. Anyone else writing it was a second commander with a different opinion.
@@ -246,9 +289,9 @@ class Motion:
             except api.McError:
                 pass
         self._run(intent)              # outside the lock: a long action must not freeze submit/step
-        return intent.layer, intent.reason
+        return (intent.layer, intent.reason), None
 
-    def drive(self, layer, action, reason="", commit_s=None):
+    def drive(self, layer, action, reason="", commit_s=None, resumable=True, redo_s=0.0):
         """Run `action` now, on this thread, under a commitment. Ordinary play's entry point.
 
         The fight submits intents and steps them; ordinary play runs one chosen candidate per round, which is the
@@ -256,14 +299,16 @@ class Motion:
         the current intent, and without one a skill keeps the body for as long as it likes — which is why a zombie
         could beat on the agent for the length of a mining task.
         """
-        self._run(Intent(layer, action, reason, commit_s=commit_s))
+        self._run(Intent(layer, action, reason, commit_s=commit_s, resumable=resumable, redo_s=redo_s))
 
     # -- slow layers: submit + step ---------------------------------------------------------------------------------
 
-    def submit(self, layer, action, reason="", deadline_s=None, commit_s=None, cost_rate=0.0, cost_s=None):
+    def submit(self, layer, action, reason="", deadline_s=None, commit_s=None, cost_rate=0.0, cost_s=None,
+               resumable=True, redo_s=0.0):
         with self._lock:
             self.pending.append(Intent(layer, action, reason, deadline_s, commit_s=commit_s,
-                                       cost_rate=cost_rate, cost_s=cost_s))
+                                       cost_rate=cost_rate, cost_s=cost_s,
+                                       resumable=resumable, redo_s=redo_s))
 
     def step(self, now=None):
         """Run the winning pending intent and drop the rest. Returns (layer, reason) or None.

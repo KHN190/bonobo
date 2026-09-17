@@ -79,7 +79,7 @@ class OnlyOneDrives(unittest.TestCase):
         def slow():
             ran.append("first")
             self.assertIsNone(body.preempt("tactic", lambda: ran.append("second"), "again",
-                                           worth_s=1e6, now=1.0),
+                                           worth_s=1e6, now=1.0)[0],
                               "a tactic answer interrupted itself")
 
         body.preempt("tactic", slow, "first", worth_s=1e6, now=0.0)
@@ -91,7 +91,7 @@ class OnlyOneDrives(unittest.TestCase):
         def slow():
             ran.append("tactic")
             self.assertIsNotNone(body.preempt("safety", lambda: ran.append("safety"), "lava",
-                                              worth_s=1e6, now=1.0))
+                                              worth_s=1e6, now=1.0)[0])
 
         body.preempt("tactic", slow, "position", worth_s=1e6, now=0.0)
         self.assertEqual(ran, ["tactic", "safety"])
@@ -100,7 +100,7 @@ class OnlyOneDrives(unittest.TestCase):
         body, ran = arbiter.Motion(), []
         for layer in LAYERS[:-1]:
             self.assertIsNotNone(body.preempt(layer, lambda l=layer: ran.append(l), "x",
-                                              worth_s=1e6, now=0.0))
+                                              worth_s=1e6, now=0.0)[0])
         self.assertEqual(ran, list(LAYERS[:-1]))
 
 
@@ -148,8 +148,8 @@ class TheLease(unittest.TestCase):
         body.preempt("tactic", lambda: ran.append("tactic"), "position", worth_s=1e6, now=0.0,
                      release=lambda: False)
         self.assertIsNotNone(body.preempt("safety", lambda: ran.append("safety"), "lava",
-                                          worth_s=1e6, now=0.1))
-        self.assertIsNone(body.preempt("plan", lambda: ran.append("plan"), "mine", worth_s=1e6, now=0.2))
+                                          worth_s=1e6, now=0.1)[0])
+        self.assertIsNone(body.preempt("plan", lambda: ran.append("plan"), "mine", worth_s=1e6, now=0.2)[0])
         self.assertEqual(ran, ["tactic", "safety"])
 
     def test_a_refused_thread_is_told_to_re_plan_not_that_it_was_robbed(self):

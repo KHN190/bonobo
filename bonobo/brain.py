@@ -1031,8 +1031,12 @@ class Brain:
         if expected_s:
             prices, _vector = self.prices(snap, LiveCost(snap, self.blacklist, self.mem))
             worth_before = self.bag_worth_s(snap, prices)
+        # Ordinary work is resumable: a walk interrupted is a walk continued, and stopping it throws nothing
+        # away. What it would have to redo is one step's granularity (`commitment_s`), which is what defends it
+        # against another PLAN-layer answer — and nothing at all against a faster layer.
         arbiter.BODY.submit("plan", lambda: self.attempt(pick.key, pick.run, cooldown=pick.cap), pick.name,
-                            commit_s=pick.commitment_s, cost_rate=1.0, cost_s=pick.cost_s)
+                            commit_s=pick.commitment_s, cost_rate=1.0, cost_s=pick.cost_s,
+                            resumable=True, redo_s=pick.commitment_s)
         try:
             arbiter.BODY.step()
         except api.CommitmentExpired as e:
@@ -2636,6 +2640,41 @@ class Brain:
 
     def has_pickaxe(self, snap):
         return any(d >= 3 for _, d, _ in snap.inv.tools("pickaxe"))
+
+    def heal(self, ctx, snap=None):
+        """Regenerate: eat up to a full stomach, then stand still long enough for the health to come back.
+
+        Two candidates offered this for a long time and neither could run it — the method the pricing assumed
+        simply was not there. It is nothing but the game's own rule: health regenerates while food is above
+        REGEN_FOOD, and it regenerates about a point every few seconds, so the work is eating and then WAITING,
+        which is the one thing the round loop otherwise never lets us do.
+
+        It gives the body back the moment a faster layer wants it (`api.CommitmentExpired` from the arbiter) and
+        the moment the reason for waiting is gone: full health, or nothing left to eat with.
+        """
+        risk = survival.CONFIG["risk"]
+        per_hp_s, floor = float(risk["regen_s_per_hp"]), float(risk["regen_food_floor"])
+        snap = snap or Snapshot()
+        # How long this can take is not a constant: it is what the model already says regeneration costs, with
+        # room for the bites. A budget invented here would be a second opinion about the same seconds.
+        deadline = time.time() + per_hp_s * max(1.0, 20 - snap.get("health", 20)) * 2
+        while time.time() < deadline:
+            snap = Snapshot()
+            hp, food = snap.get("health", 20), snap.get("food", 20)
+            if hp >= 20:
+                return True
+            if food < floor:
+                # Nothing to regenerate ON: eat, raw meat included — a full bag and an empty stomach is the
+                # state this whole candidate exists to leave.
+                if not skills.eat(raw_ok=not food_count(snap.inv)):
+                    return False
+                continue
+            stop = api.consume_interrupt()     # a threat, a reflex, the player: waiting is the first to drop
+            if stop:
+                log(f"   healing stood down: {stop}")
+                return False
+            time.sleep(max(1.0, per_hp_s / 2))
+        return snap.get("health", 20) >= 20
 
     def replace_tool(self, ctx, kind):
         """Make the best tool of `kind` the inventory allows (tier 3 → 0, `pick_tool_plan`): only a plan that can run

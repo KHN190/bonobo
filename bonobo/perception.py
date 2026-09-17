@@ -311,9 +311,21 @@ class Watcher(threading.Thread):
         if now - self.last.get(key, 0) < 1.0:
             return
         self.last[key] = now
-        taken = arbiter.BODY.preempt("tactic", lambda: ANSWER(option), key, worth_s=worth, now=now,
-                                     clear_first=True,
-                                     release=lambda: lease_done(state, threats_seen()[0], price))
+        record = {"t": round(now, 2), "kind": option.kind, "worth_s": round(worth, 1),
+                  "taken": False, "refused": None, "failed": None}
+
+        def run():
+            try:
+                ANSWER(option)
+            except Exception as e:
+                record["failed"] = f"{type(e).__name__}: {e}"
+                raise
+
+        taken, refused = arbiter.BODY.preempt("tactic", run, key, worth_s=worth, now=now, clear_first=True,
+                                              release=lambda: lease_done(state, threats_seen()[0], price))
+        record["taken"], record["refused"] = bool(taken), refused
+        ANSWERED.append(record)
+        del ANSWERED[:-ANSWERED_MAX]
         if taken:
             api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
 
@@ -413,6 +425,23 @@ class Watcher(threading.Thread):
 
 
 ANSWER = None
+# Every answer this layer hands to the body, in order: {t, kind, worth_s, taken, failed}. One record, written at
+# the only place an answer is executed, so a bench observes what really happened instead of wrapping `ANSWER` with
+# a second code path of its own — which is how fourteen cells came back with an empty log and no explanation.
+ANSWERED = []
+ANSWERED_MAX = 500
+
+
+def answered_since(mark=0):
+    """Answers handed to the body after `mark` (a length taken before the stretch of interest)."""
+    return list(ANSWERED[mark:])
+
+
+def watching():
+    """Is the layer that answers threats actually running? A bench that does not ask this measures nothing and
+    says nothing: the body was never going to move."""
+    return ANSWER is not None and any(t.name == "perception" and t.is_alive()
+                                      for t in threading.enumerate())
 GRID, GRID_AT, GRID_AT_POS = None, 0.0, None
 GRID_R = 8
 GRID_TTL_S = 2.0

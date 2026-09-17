@@ -212,3 +212,32 @@ class PlanningStopsWhenThereIsEnoughToCompare(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatIsOfferedCanBeRun(unittest.TestCase):
+    """A candidate's `run` names a method that exists.
+
+    "heal up" was offered every time health dropped and threw AttributeError every time it won: the pricing
+    assumed a method nobody had written. The pool cannot catch this — a lambda is admissible until it is called —
+    so it is checked on the source, for every class in the package rather than for the one that was wrong.
+    """
+
+    def test_no_class_calls_a_method_it_does_not_have(self):
+        import ast
+        import pathlib
+        package = pathlib.Path(pool.__file__).parent
+        missing = {}
+        for path in sorted(package.rglob("*.py")):
+            tree = ast.parse(path.read_text())
+            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                if any(not (isinstance(b, ast.Name) and b.id == "object") for b in cls.bases):
+                    continue              # inherited names cannot be judged from this file alone
+                have = {n.name for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                have |= {t.attr for n in ast.walk(cls) for t in getattr(n, "targets", [])
+                         if isinstance(t, ast.Attribute)}
+                for node in ast.walk(cls):
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                            and isinstance(node.func.value, ast.Name) and node.func.value.id == "self" \
+                            and node.func.attr not in have:
+                        missing.setdefault(f"{path.name}:{cls.name}.{node.func.attr}", node.lineno)
+        self.assertEqual(missing, {}, "a call to a method that is not there")

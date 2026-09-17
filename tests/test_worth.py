@@ -145,3 +145,80 @@ class ItIsSecondsAllTheWayDown(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HoldingHalfOfItIsWorthLess(unittest.TestCase):
+    """Diminishing returns, stated as a relation rather than a number.
+
+    The in-game sheet read "carrying the wool made the bed worth LESS" as a bug. It is the pricing working: worth
+    is what the change still SAVES, and a state that already holds an input has banked half that saving. What may
+    not happen is the opposite — holding more of what a thing is made of cannot make acquiring it worth more.
+    """
+
+    GIFTS = ({"wool": 3}, {"planks": 8}, {"minecraft:iron_ingot": 3}, {"minecraft:coal": 4})
+    WANTS = ({"bed": 1}, {"sheltered": 1}, {"minecraft:torch": 8}, {"tool:pickaxe:1": 1})
+
+    def test_stocking_an_input_never_raises_what_the_output_is_worth(self):
+        for w in worlds():
+            for want in self.WANTS:
+                bare = worth(w, want)
+                for gift in self.GIFTS:
+                    held = w.with_()
+                    state = dict(held.state())
+                    for dim, count in gift.items():
+                        state[dim] = state.get(dim, 0) + count
+                    value_of, evolve = world_value(held)
+                    after = value.worth_s(state, want, value_of=value_of, evolve=evolve, horizon_s=HORIZON,
+                                          bag_free=state.get("bag_free", 30), slots=1.0)
+                    self.assertLessEqual(after, bare + 1e-6, f"{w}: holding {gift} raised the worth of {want}")
+
+    def test_and_the_work_never_gets_longer_for_holding_it(self):
+        """The other half of the same sentence, and the one the sheet should have been checking: V is the cost of
+        finishing, so more in the bag can only bring that cost down."""
+        for w in worlds():
+            bare = sum(gates.V(w.situation(), parts=True).values())
+            for gift in self.GIFTS:
+                state = dict(w.state())
+                for dim, count in gift.items():
+                    state[dim] = state.get(dim, 0) + count
+                self.assertLessEqual(sum(gates.V(w.situation(state), parts=True).values()), bare + 1e-6,
+                                     f"{w}: holding {gift} made finishing cost MORE")
+
+
+class HoldingHalfOfItIsWorthLess(unittest.TestCase):
+    """Diminishing returns, as a relation rather than a number.
+
+    The in-game sheet read "carrying the wool made the bed worth LESS" as a bug. It is the pricing working: worth
+    is what a change still SAVES, and a state already holding an input has banked half of that saving. The two
+    halves of the sentence are what belong in a test — acquiring cannot be worth MORE for already holding the
+    inputs, and finishing cannot cost MORE for holding anything at all.
+    """
+
+    GIFTS = ({"wool": 3}, {"planks": 8}, {"minecraft:iron_ingot": 3}, {"minecraft:coal": 4})
+    WANTS = ({"bed": 1}, {"sheltered": 1}, {"minecraft:torch": 8}, {"tool:pickaxe:1": 1})
+
+    def _holding(self, w, gift):
+        state = dict(w.state())
+        for dim, count in gift.items():
+            state[dim] = state.get(dim, 0) + count
+        return state
+
+    def test_stocking_an_input_never_raises_what_the_output_is_worth(self):
+        for w in worlds():
+            for want in self.WANTS:
+                bare = worth(w, want)
+                value_of, evolve = world_value(w)
+                for gift in self.GIFTS:
+                    state = self._holding(w, gift)
+                    after = value.worth_s(state, want, value_of=value_of, evolve=evolve, horizon_s=HORIZON,
+                                          bag_free=state.get("bag_free", 30), slots=1.0)
+                    self.assertLessEqual(after, bare + 1e-6, f"{w}: holding {gift} raised the worth of {want}")
+
+    def test_and_finishing_never_costs_more_for_holding_it(self):
+        """The half the sheet should have been checking: V is the cost of finishing, so more in the bag can only
+        bring it down — that is the monotonicity the falling worth is a consequence OF, not a contradiction to."""
+        for w in worlds():
+            bare = sum(gates.V(w.situation(), parts=True).values())
+            for gift in self.GIFTS:
+                held = sum(gates.V(w.situation(self._holding(w, gift)), parts=True).values())
+                self.assertLessEqual(held, bare + 1e-6, f"{w}: holding {gift} made finishing cost MORE")

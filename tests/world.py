@@ -500,6 +500,53 @@ def along_day(dimension, **fixed):
     return [day_state(**dict(fixed, **{dimension: value})) for value in values]
 
 
+# ---------------------------------------------------------------- who holds the body
+# The arbiter's own dimensions: what kind of work is running, how long it has been running, and what the layer
+# asking for the body says its answer is worth. A bundle would hide the very thing these are for — "has been
+# running for a while" must be separable from "costs a lot to abandon".
+
+INTENT = {                                   # {resumable, redo_s}: what abandoning this work would throw away
+    "walk": {"resumable": True, "redo_s": 0.0},
+    "dig": {"resumable": True, "redo_s": 0.0},
+    "window": {"resumable": False, "redo_s": 3.0},        # open-loop: stopping means starting again
+}
+ELAPSED = {"just_started": 0.0, "a_while": 20.0, "long": 300.0}
+WORTH = {"none": 0.0, "small": 5.0, "large": 500.0}
+LAYERS = {"reflex": "reflex", "safety": "safety", "tactic": "tactic", "plan": "plan"}
+
+# Who is already holding the body when someone else speaks, relative to the speaker, and how the new answer
+# compares with what is held. `MARGIN` is the kernel's: a held decision is kept unless a challenger clearly beats
+# it, and the arbiter must not invent a second rule for the same thing.
+HOLDER = {"none": None, "faster": -1, "same_layer": 0, "slower": +1}
+HELD_WORTH = 100.0
+
+
+def CHALLENGE(kind):
+    """What a challenger is worth against a held answer of `HELD_WORTH`."""
+    from bonobo import kernel
+    return {"worse": HELD_WORTH / kernel.MARGIN / 2.0,
+            "equal": HELD_WORTH,
+            "better": HELD_WORTH * kernel.MARGIN * 2.0}[kind]
+
+
+CHALLENGES = ("worse", "equal", "better")
+
+
+def faster_than(layer, step=-1):
+    """The layer `step` places away in the subsumption order, or None at the end."""
+    from bonobo import arbiter
+    order = sorted(arbiter.SCALES, key=lambda name: arbiter.SCALES[name])
+    i = order.index(layer) + step
+    return order[i] if 0 <= i < len(order) else None
+
+
+def intent(kind="walk", layer="plan", elapsed="just_started", at=0.0, **kw):
+    """One running intent, built from the dimensions rather than from a pile of keywords."""
+    from bonobo import arbiter
+    return arbiter.Intent(LAYERS[layer], lambda: None, kind, at=at, cost_rate=1.0, cost_s=600.0,
+                          **dict(INTENT[kind], **kw))
+
+
 # ---------------------------------------------------------------- one table of dimensions, one product
 # Named once, here, where every table above is already in scope. `World` reads them at call time, so the order in
 # this file does not matter — what matters is that there is exactly one list of what can vary.
