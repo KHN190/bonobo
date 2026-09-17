@@ -4,7 +4,7 @@ import math
 import time
 
 from . import api
-from .api import McError
+from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import bare
 from .world import Inventory, Region, add
@@ -14,6 +14,21 @@ def _collect_only(wanted):
     """{"only": [...]} for mine/collect tasks when the bag is nearly full, else {}."""
     only = pickup_whitelist(Inventory().used_slots(), wanted)
     return {"only": only} if only else {}
+
+
+def mine_cell(policy, cell, wanted=(), collect=True, require_drops=False, wait=30):
+    """Break one block, never one of ours.
+
+    Site cells — the shelter's walls, the base, a built machine — are in `policy.protected`, and nav has always
+    respected them. Every other way of digging went straight to the task API, so the night the agent ran out of
+    things to do it mined the hut it had just built for the cobblestone. One door for breaking a single cell, and
+    the protection is on this side of it.
+    """
+    cell = tuple(cell)
+    if cell in getattr(policy, "protected", ()):  
+        raise NotAvailable(f"{cell} is part of one of our own structures")
+    return api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": collect,
+                    **_collect_only(list(wanted)), "requireDrops": require_drops}, wait=wait)
 
 
 class ToolMissing(McError):
@@ -28,13 +43,21 @@ _BAN_COUNTS = {}
 class Context:
     """What skills need from the brain: memory, movement policy, target blacklist."""
 
-    def __init__(self, memory, policy, dimension, blacklist=None):
+    def __init__(self, memory, policy, dimension, blacklist=None, prices=None):
         self.mem = memory
         self.policy = policy
         self.dimension = dimension
+        # What a unit of each token would cost to get another way, this round (`solve.reach_cost`). Injected, so a
+        # skill can ask "is this worth carrying" in seconds without importing the planner.
+        self._prices = prices
         # position or (entity id, 0, 0) -> expiry time. Owned by the brain so bans outlive one round.
         self.blacklist = blacklist if blacklist is not None else {}
         self.ban_counts = _BAN_COUNTS      # how often each cell was banned this session, shared like the blacklist
+
+    def prices(self):
+        """{token: seconds per unit}, or {} when nobody handed any over (tests, replays)."""
+        got = self._prices() if callable(self._prices) else self._prices
+        return got or {}
 
     def blocked(self, pos):
         exp = self.blacklist.get(tuple(pos))

@@ -68,7 +68,20 @@ def note_hurt(state, now=None):
 
 
 def hurt_rate():
+    """The pressure, MEASURED: how fast the health bar has actually been falling. The estimated twin is
+    `estimate.pressure_hp_s`; keeping both is the point — the residual between them is what `fit` reads."""
     return HURT_RATE
+
+
+def pressure_now(here, rows, prot=0.0, ground=None):
+    """The pressure we are actually under: the model's rate or the measured one, whichever is worse.
+
+    The one place the two twins meet. Both are the same quantity — one estimated from what is in reach, one read
+    off the health bar — and every caller that needs "what is happening to us now" asks here rather than picking
+    a side: a skeleton that aims well outdoes the model, and that difference was a death.
+    """
+    from . import estimate
+    return max(estimate.pressure_hp_s(here, rows, prot, ground=ground), hurt_rate())
 
 
 def note_threats(near, now=None, here=None):
@@ -109,8 +122,11 @@ PAUSED = False         # the scenario bench sets this while commands rebuild the
 INTERRUPT_TTD_S = float(_ENGAGE["interrupt_ttd_s"])     # floor: never look less far ahead than this
 
 
-def horizon_s():
+def interrupt_within_s():
     """Seconds until the planner next gets to decide — the running commitment, measured from the last segment.
+
+    Not a horizon: `estimate.horizon_s` is how long the account runs, this is how soon a danger has to land for
+    the reflex to be the one that answers it. Sharing the word was enough to make them look like one number.
 
     A constant here, beside a skill that held the body until it finished, was wrong at both ends: too short to
     catch anything while the skill ran, too long once the skill yields every block.
@@ -121,20 +137,6 @@ REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let th
 
 
 DANGERS = ("lava", "burning", "drowning", "critical_health", "breath", "enderman", "hostiles", "starving")
-
-
-def assess(state, hostiles_within=None, breath_within=None, enderman_after_us=None):
-    """Pure: (kind, detail) — the danger as a stable kind plus the measured quantities behind it, or (None, {}).
-
-    A kind is an identifier the recovery table keys on exactly; the detail is what a review or a fit needs:
-    health, food, air, and which check fired. Strings like "hurt with hostiles close" were an enum pretending
-    to be prose, matched by substring downstream.
-    """
-    kind = danger(state, hostiles_within, breath_within, enderman_after_us)
-    if kind is None:
-        return None, {}
-    return kind, {"hp": state.get("health"), "food": state.get("food"), "air": state.get("air"),
-                  "dimension": state.get("dimension")}
 
 
 TICKS_PER_S = 20.0
@@ -205,7 +207,7 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     if time_to_die is not None and not fighting:
         t = time_to_die()
         # Only what would kill us before the planner next decides is worth interrupting for.
-        if t is not None and t <= horizon_s():
+        if t is not None and t <= interrupt_within_s():
             return "hostiles"
     if food <= 2:
         return "starving"
@@ -218,17 +220,6 @@ def clutch_needed(fallen, gap, state, has_water_bucket):
     if not has_water_bucket or state.get("onGround") or state.get("inWater") or state.get("inLava"):
         return False
     return fallen >= 5 and gap is not None and 2 <= gap <= 5
-
-
-def ground_gap(state, max_depth=24):
-    """Blocks of air below the feet down to the first solid block (None if deeper than max_depth)."""
-    from .world import Region
-    x, y, z = state["blockX"], state["blockY"], state["blockZ"]
-    r = Region((x, y - max_depth, z), (x, y, z))
-    for k in range(1, max_depth + 1):
-        if r.solid((x, y - k, z)):
-            return k - 1
-    return None
 
 
 FIGHT_SKILLS = ("fight_blaze", "fight_dragon", "slay_dragon", "build_bed_pit", "await_perch",
@@ -291,9 +282,9 @@ class Watcher(threading.Thread):
             if not rows:
                 self._ttd = None
             else:
+                from . import estimate
                 prot = threat.protection(s.get("armor", 0), False)
-                predicted = threat.pressure(here, rows, prot)
-                self._ttd = threat.time_to_die(s.get("health", 20), max(predicted, HURT_RATE))
+                self._ttd = estimate.time_to_die_s(s.get("health", 20), pressure_now(here, rows, prot))
         except (api.McError, KeyError):
             self._ttd = None
         return self._ttd
@@ -310,7 +301,8 @@ class Watcher(threading.Thread):
         except Exception:
             pass
         sstate = survival.make_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
-        chosen = bid(state, rows, lambda dhp: survival.hp_seconds(sstate, dhp))
+        price = lambda dhp: survival.hp_seconds(sstate, dhp)
+        chosen = bid(state, rows, price)
         if chosen is None:
             return
         option, worth = chosen
@@ -320,7 +312,8 @@ class Watcher(threading.Thread):
             return
         self.last[key] = now
         taken = arbiter.BODY.preempt("tactic", lambda: ANSWER(option), key, worth_s=worth, now=now,
-                                     clear_first=True)
+                                     clear_first=True,
+                                     release=lambda: lease_done(state, threats_seen()[0], price))
         if taken:
             api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
 
@@ -470,10 +463,13 @@ def wire_answer(fn):
 HELD = None
 
 
-def bid(state, rows, price, work_s=None, now=None):
+def threat_state(state, rows, work_s=None):
+    """The threat model's state vector, read off a player state and the rows the watcher last saw.
+
+    One builder: the live bid and the bench have to ask the same question, and a bench that assembles its own
+    state vector is testing its own arithmetic.
+    """
     from . import threat
-    if not rows:
-        return None
     from . import field as _field
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
           "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
@@ -482,6 +478,14 @@ def bid(state, rows, price, work_s=None, now=None):
           "field": state.get("field") or _field.Field(), "ids": list(THREAT_IDS)}
     if work_s is not None:
         st["work_s"] = work_s
+    return st
+
+
+def bid(state, rows, price, work_s=None, now=None):
+    from . import threat
+    if not rows:
+        return None
+    st = threat_state(state, rows, work_s)
     global HELD
     from . import kernel
     field_model = threat.Field(st, price)
@@ -495,6 +499,22 @@ def bid(state, rows, price, work_s=None, now=None):
         return None
     worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
     return (option, round(worth, 1)) if worth > 0 else None
+
+
+def lease_done(state, rows, price):
+    """Has answering stopped paying? The lease's release condition, and nothing else releases it.
+
+    Blind moments are NOT an answer: the entity read is a second old, the watcher was busy, the rows aged out. A
+    lease that reads "nothing visible" as "nothing to deal with" hands the body back in the middle of a fight, and
+    the planner's next mine task lands on top of the answer — which is what `BodyContested` was, all along.
+    """
+    if not rows:
+        return False
+    try:
+        fresh = bid(state, rows, price, now=time.time())
+    except Exception:
+        return False
+    return fresh is None or fresh[1] <= 0
 
 
 def still_worth(choice, field_model, price, horizon):

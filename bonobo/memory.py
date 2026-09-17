@@ -12,6 +12,16 @@ from . import paths
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
 
+def _stamp_s(stamp):
+    """A "%Y-%m-%d %H:%M" note stamp as epoch seconds; the epoch when it is missing or unreadable."""
+    if not stamp:
+        return 0.0
+    try:
+        return time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M"))
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _now():
     return time.strftime("%Y-%m-%d %H:%M")
 
@@ -128,9 +138,89 @@ class Memory:
         self.save()
 
     def search_distance(self, kind):
-        """The average distance one of these was found at, or None if never measured."""
+        """The average distance one of these was found at, or None if never measured.
+
+        A COUNTER behind `gates.takes_s`: this remembers what happened, the door decides what it means."""
         found = self.data.get("searches", {}).get(kind)
         return (found["total"] / found["n"]) if found and found["n"] else None
+
+    # -- how dangerous it is out there, over the long run
+    #
+    # Kept per (night/day × surface/underground) and across sessions, because that is what it is: a property of the
+    # world, not of this minute. This round's sightings are the threat layer's business — a fact to react to, not
+    # a price to plan with. The declared `risk.encounters_per_day` enters as PSEUDO-COUNTS, so a fresh world plans
+    # on the belief and a played one plans on what actually happened, with no switch between the two.
+    PRIOR_S = 600.0        # weight of the prior, in seconds of exposure. The prior RATE is passed in: beliefs
+                           # belong to whoever prices the work, and memory stays a leaf module that only counts.
+
+    def _exposure_bin(self, dark, underground):
+        # By LIGHT, not by the clock. An unlit cave at noon is neither night nor (until it is deep) underground, so
+        # both of the old bins called it safe — and the agent mined in the dark with "ignore — carrying on takes
+        # ~4.1 hp/s" until it died. Mobs spawn where the light is low, whatever the hour.
+        return f"{'dark' if dark else 'lit'}/{'under' if underground else 'surface'}"
+
+    def note_exposure(self, seconds, dark, underground, encounters):
+        """Record `seconds` spent out with `encounters` hostiles met. The measurement behind `encounter_rate`."""
+        if seconds <= 0:
+            return
+        row = self.data.setdefault("exposure", {}).setdefault(self._exposure_bin(dark, underground),
+                                                              {"s": 0.0, "n": 0.0})
+        row["s"] += float(seconds)
+        row["n"] += float(encounters)
+        self.save()
+
+    def encounter_rate(self, dark, underground=False, prior_rate=None):
+        """Hostiles met per second out there, long run: (prior + observed) / (prior seconds + observed seconds).
+
+        `prior_rate` is what to believe before anything has been seen in this bin (`actions.encounter_prior`).
+        
+
+        A COUNTER behind `gates.p("encounter")`: this remembers what happened, the door decides what it means."""
+        prior = float(prior_rate if prior_rate is not None else 0.0)
+        row = self.data.get("exposure", {}).get(self._exposure_bin(dark, underground), {"s": 0.0, "n": 0.0})
+        return (prior * self.PRIOR_S + row["n"]) / (self.PRIOR_S + row["s"])
+
+    # -- what an attempt actually brought back, against what was expected of it
+    YIELD_PRIOR_N = 5.0        # weight of the declared yield, in attempts
+
+    def note_yield(self, name, got, expected):
+        """Record one attempt of `name` that returned `got` where `expected` was hoped for (both in seconds or in
+        the same units). The measurement behind `yield_rate`."""
+        if expected <= 0:
+            return
+        row = self.data.setdefault("yields", {}).setdefault(name, {"n": 0.0, "ratio": 0.0})
+        row["n"] += 1.0
+        row["ratio"] += float(got) / float(expected)
+        self.save()
+
+    def yield_rate(self, name):
+        """How much of the declared yield this world actually gives, long run: 1.0 until anything is recorded, then
+        the declared prior as pseudo-counts and the attempts on top. A chest run that keeps coming back empty stops
+        being worth a walk without anyone editing a number.
+
+        A COUNTER behind `gates.p("yield")`: this remembers what happened, the door decides what it means."""
+        row = self.data.get("yields", {}).get(name)
+        if not row or row["n"] <= 0:
+            return 1.0
+        return (self.YIELD_PRIOR_N * 1.0 + row["ratio"]) / (self.YIELD_PRIOR_N + row["n"])
+
+    # -- how often each kind of tool is actually reached for
+    TOOL_PRIOR_S = 1200.0      # weight of the declared rate, in seconds of play
+
+    def note_tool_use(self, kind, seconds=0.0, uses=1):
+        """Record `uses` uses of a `kind` of tool over `seconds` of play. The measurement behind `tool_use_rate`."""
+        row = self.data.setdefault("tool_use", {}).setdefault(kind, {"s": 0.0, "n": 0.0})
+        row["s"] += float(seconds)
+        row["n"] += float(uses)
+        self.save()
+
+    def tool_use_rate(self, kind, prior_rate):
+        """Uses per second for this kind, long run: the declared rate as pseudo-counts, then what happened.
+
+        A COUNTER behind `gates.p("tool_use")`: this remembers what happened, the door decides what it means."""
+        prior = float(prior_rate)
+        row = self.data.get("tool_use", {}).get(kind, {"s": 0.0, "n": 0.0})
+        return (prior * self.TOOL_PRIOR_S + row["n"]) / (self.TOOL_PRIOR_S + row["s"])
 
     def nearest_site(self, pos, dimension, kinds=None):
         options = self.sites(dimension, kinds)
@@ -301,6 +391,16 @@ class Memory:
         self.data["stations"].append({"block": block, "pos": list(pos), "dimension": dimension})
         self.save()
 
+    def stations(self, dimension=None, near=None, within=None):
+        """Placed single-block stations (a crafting table, a furnace), optionally near a point.
+
+        One reader for what we have put down, so "is there a furnace here" is asked the same way everywhere
+        rather than each caller digging through `data["stations"]` its own way."""
+        out = [s for s in self.data["stations"] if dimension is None or s["dimension"] == dimension]
+        if near is not None and within is not None:
+            out = [s for s in out if math.dist(s["pos"], near) <= within]
+        return out
+
     def remove_station(self, pos):
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
         self.save()
@@ -310,11 +410,40 @@ class Memory:
         self.data["sightings"].setdefault(kind, []).append({"pos": list(pos), "dimension": dimension, "at": _now()})
         self.save()
 
-    def sightings(self, kind, dimension, max_age_min=30):
-        """Recent sightings only: animals wander off, and old ones sent exploration to empty fields."""
-        cutoff = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() - max_age_min * 60))
-        return [s for s in self.data["sightings"].get(kind, [])
-                if s["dimension"] == dimension and s.get("at", "") >= cutoff]
+    def sightings(self, kind, dimension, max_age_min=None):
+        """What we have seen of this kind here, newest first. `max_age_min` filters for callers that really mean
+        "right now" (is one within arm's reach); by default nothing is filtered out.
+
+        Animals wander, so an old sighting is a worse guess — but it is still a guess, and the cutoff that used to
+        stand here threw away a field of sheep mapped the night before and sent the agent exploring instead. Age is
+        priced in seconds now (`gates.marginal("staleness")`), where the pool can weigh it against everything else.
+        """
+        rows = [s for s in self.data["sightings"].get(kind, []) if s["dimension"] == dimension]
+        if max_age_min is not None:
+            cutoff = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() - max_age_min * 60))
+            rows = [s for s in rows if s.get("at", "") >= cutoff]
+        return sorted(rows, key=lambda s: s.get("at", ""), reverse=True)
+
+    def note_age_s(self, kinds, dimension, now=None):
+        """Seconds since the freshest note about any of these kinds, or 0.0 when there is none.
+
+        One reader for "how old is what we know", so the seek column and the walk agree about it.
+        
+
+        A COUNTER behind `gates.marginal("staleness")`: this remembers what happened, the door decides what it means."""
+        now = now or time.time()
+        best = None
+        for kind in kinds:
+            for s in self.data["sightings"].get(kind, ()):
+                if s["dimension"] != dimension:
+                    continue
+                age = now - _stamp_s(s.get("at"))
+                best = age if best is None else min(best, age)
+            for r in self.data.get("resources", ()):
+                if r["kind"] == kind and r["dimension"] == dimension and r.get("last"):
+                    age = now - float(r["last"])
+                    best = age if best is None else min(best, age)
+        return max(0.0, best) if best is not None else 0.0
 
     def log_vein(self, ore, pos, size, dimension):
         if any(v["ore"] == ore and v["dimension"] == dimension and math.dist(v["pos"], pos) <= 3
@@ -444,17 +573,3 @@ class Memory:
         return self.data["night"]["missed"]
 
 
-def worth_of(carried, prices):
-    """Seconds the contents of a corpse would cost to obtain again, from the solver's shadow prices.
-
-    Anything this world has no way to make is worth nothing here — not because losing it does not hurt, but
-    because walking back for it cannot be priced by "what it costs to replace" when it cannot be replaced. The
-    walk itself is already in the candidate's cost.
-    """
-    total = 0.0
-    for item, count in carried or ():
-        per = prices.get(item)
-        if per is None or per == float("inf"):
-            continue
-        total += float(per) * float(count)
-    return round(total, 1)

@@ -91,7 +91,7 @@ def decide(row, brain=None, now=None):
             snap = Snapshot()
             night = snap.night
             b.policy_cache = b.policy(snap, night)
-            ctx = skills.Context(b.mem, b.policy_cache, snap.dimension, b.blacklist)
+            ctx = skills.Context(b.mem, b.policy_cache, snap.dimension, b.blacklist, prices=b.price_table)
             bans = sum(1 for exp in b.blacklist.values() if exp > now)
             ids = [s["id"] for s in snap.inv.slots]
             b.sig = retry.signature(snap.feet, ids, night, bans)
@@ -153,7 +153,7 @@ def survival_pick(row):
         tape.REPLAY = row["calls"]
         try:
             snap = Snapshot()
-            ctx = skills.Context(b.mem, b.policy(snap, snap.night), snap.dimension, b.blacklist)
+            ctx = skills.Context(b.mem, b.policy(snap, snap.night), snap.dimension, b.blacklist, prices=b.price_table)
             b.sig = b.coarse = None
             with mock.patch.object(type(b), "attempt", lambda self, name, fn, cooldown=None: picked.append(name)):
                 b.survival(snap, ctx)
@@ -223,16 +223,23 @@ def _play(b, row, rounds, tick, until, script, slowdown, t0, t, out):
     from .brain import goals as open_goals
     from .actions import target_of
     from .survival import CONFIG as _PLAY
+    from .brain import IDLE_LIMIT
+    idle_since = None
     for i in range(rounds):
         if until is not None and until(row):
             break
+        # The idle rule, as in `Brain.round`: after IDLE_LIMIT with nothing runnable, cooling work comes back. A
+        # playthrough without it reports an idle round the live agent would never have had.
+        row["force"] = idle_since is not None and t - idle_since >= IDLE_LIMIT
         name, _top, _filtered, pick = decide(row, b, now=t)
         entry = [round(t - t0, 1), name, round(t - t0, 1)]
         out.append(entry)
         if pick is None:
+            idle_since = idle_since or t
             t += 5.0
             entry[2] = round(t - t0, 1)
             continue
+        idle_since = None
         b.committed = name
         spent = max(1.0, min(pick.cost / 20.0, 1200.0)) * float(slowdown)
         if script is not None:
@@ -384,7 +391,7 @@ def record_live(brain, force=False):
     snap = Snapshot()
     night = snap.night
     brain.policy_cache = brain.policy(snap, night)
-    ctx = skills.Context(brain.mem, brain.policy_cache, snap.dimension, brain.blacklist)
+    ctx = skills.Context(brain.mem, brain.policy_cache, snap.dimension, brain.blacklist, prices=brain.price_table)
     now = time.time()
     ids = [s["id"] for s in snap.inv.slots]
     brain.sig = retry.signature(snap.feet, ids, night, sum(1 for e in brain.blacklist.values() if e > now))
@@ -397,17 +404,33 @@ def record_live(brain, force=False):
 
 
 def save_golden(name, row, expect_pick=None, expect_filtered=None):
-    """Freeze a situation with its expected decision: tests/golden/<name>.json (memory inlined)."""
+    """Freeze a situation: tests/golden/<name>.json (memory inlined).
+
+    `expect_pick` is recorded as `was` — what this code chose the day it was frozen. It is printed, never
+    asserted: the assertions are that the round still replays and that the pick is the best of its pool.
+    """
     os.makedirs(GOLDEN, exist_ok=True)
     frozen = dict(row, mem=tape.load_mem(row["mem"]) if isinstance(row["mem"], str) else row["mem"],
-                  expect_pick=expect_pick, expect_filtered=expect_filtered or {})
+                  was=expect_pick, expect_filtered=expect_filtered or {})
     with open(os.path.join(GOLDEN, name + ".json"), "w") as f:
         json.dump(frozen, f, default=str)
     return os.path.join(GOLDEN, name + ".json")
 
 
 def golden_results():
-    """[(name, ok, message)] for every golden situation under the current code."""
+    """[(name, ok, message)] for every golden situation under the current code.
+
+    A golden asserts that the situation still DECIDES, not that it decides the same thing. Two questions:
+
+      * can the round be replayed at all — a decision that cannot be replayed cannot be judged by anything;
+      * is the pick the best of the pool under the pricing in force — self-consistency, which breaks the moment
+        the chooser and the scorer disagree.
+
+    What it deliberately does NOT assert is the name. The recorded pick is kept as `was` and printed, because a
+    change there is worth a look and is not by itself a fault: better prices pick different things, and a test
+    that forbids that turns every improvement red and gets edited into agreement. `expect_filtered` stays an
+    assertion — "this candidate is refused, for this reason" is a fact about the situation, not about the ranking.
+    """
     out = []
     if not os.path.isdir(GOLDEN):
         return out
@@ -421,8 +444,15 @@ def golden_results():
         except tape.ReplayMiss as e:
             out.append((fn[:-5], False, f"replay miss: {e}"))
             continue
-        ok = row.get("expect_pick") is None or name == row["expect_pick"]
+        ok, why = True, f"picked {name}; top {top[:3]}"
+        scores = [s for _n, s, *_ in top]
+        if name is not None and scores and max(scores) - scores[0] > 1e-6:
+            ok, why = False, f"picked {name} at {scores[0]:.6f} while {max(scores):.6f} was on offer: {top[:3]}"
         for cand, why_part in (row.get("expect_filtered") or {}).items():
-            ok = ok and why_part in str(filtered.get(cand, ""))
-        out.append((fn[:-5], ok, f"picked {name}; top {top[:3]}"))
+            if why_part not in str(filtered.get(cand, "")):
+                ok, why = False, f"{cand}: expected refusal {why_part!r}, got {filtered.get(cand)!r}"
+        was = row.get("was", row.get("expect_pick"))
+        if was and was != name:
+            why += f" (was {was!r} when recorded)"
+        out.append((fn[:-5], ok, why))
     return out

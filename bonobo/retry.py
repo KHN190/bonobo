@@ -11,7 +11,12 @@ Pure (time is passed in): offline-testable."""
 NAV_MARKERS = ("no path", "unreachable", "not reachable", "no reachable face", "gave up after", "could not get",
                "cannot reach", "can't reach", "positions explored")
 BACKSTOP = {"tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60, "interrupt": 0}
-MAX_BACKSTOP = 900
+# The ceiling the doubling runs into, by what went wrong. One ceiling for every cause said a world that does not
+# offer something HERE is as hopeless as a bug: a stone pickaxe that failed four times waited a quarter of an hour
+# while the agent repaired tools it did not need — 3840 s to a pickaxe in the offline life, against a 900 s budget.
+# "The world does not offer this" ages fast (mobs wander, the sun moves, we walk); a bug does not.
+MAX_BACKSTOP = {"unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "interrupt": 0, "error": 900}
+MAX_BACKSTOP_DEFAULT = 900
 MIN_GAP = 5
 EXHAUSTED_AFTER = 3
 LOG_EVERY = 10
@@ -75,7 +80,8 @@ class Retry:
         same = e is not None and (e.get("place") == place if place is not None and e.get("place") is not None
                                   else e["state"] == state)
         n = e["n"] + 1 if same else 1
-        wait = min(MAX_BACKSTOP, BACKSTOP.get(cause, 60) * 2 ** (min(n, 6) - 1))
+        ceiling = MAX_BACKSTOP.get(cause, MAX_BACKSTOP_DEFAULT)
+        wait = min(ceiling, BACKSTOP.get(cause, 60) * 2 ** (min(n, 6) - 1))
         worth_logging = not same or e["message"] != message or n == EXHAUSTED_AFTER or n % LOG_EVERY == 0
         self.entries[name] = {"state": state, "place": place, "n": n, "since": now, "until": now + wait,
                               "cause": cause, "message": message}

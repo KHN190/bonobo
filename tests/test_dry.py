@@ -62,7 +62,6 @@ class OneOwnerPerFact(unittest.TestCase):
         "start": "jobs.start and perception.start start different things",
         "add": "directives.add and world.add are unrelated",
         "current": "directives.current and route.current are unrelated",
-        "cost_of": "solve.cost_of prices a target [threat.option_cost prices an option]",
     }
 
     def test_no_public_function_name_is_defined_twice(self):

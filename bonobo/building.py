@@ -3,11 +3,12 @@ import math
 import re
 
 from . import api, blueprints, nav, world
+from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import skill
-from .skillcore import _collect_only, feet, snapshot
+from .skillcore import _collect_only, feet, snapshot, mine_cell
 from .world import Inventory, Region, add
 
 
@@ -45,44 +46,136 @@ def _go_to_machine(ctx, machine):
         raise NotAvailable(f"{machine['name']} not reachable")
 
 
-def find_machine_spot(bp, near, policy, radius=8, body=None):
-    """Nearest origin + rotation around `near` where every part cell is free, bottom parts stand on solid ground
-    and the access spot is standable. Cells the player's body occupies (`body`: feet position) don't count as free:
-    a portal frame planned through the agent's own legs failed with "can't step out" / "no position to place"."""
+def spot_options(bp, near, region, policy, radius=8, body=None):
+    """Pure: [(prepare cost, origin, turns, prepare)] for building `bp` around `near`, cheapest first.
+
+    Ground that is already perfect — every cell free, every bottom cell on solid ground — is what this used to
+    demand, and on real terrain that is rare: "no clear spot for shelter within 6 blocks" in a forest, with a bag
+    of blocks and a pickaxe in hand. But a patch of ground is something you MAKE. A sapling in the way is one
+    break; a dip under a wall is one placed block; a hillside is more work than walking somewhere else.
+
+    So levelling is priced rather than demanded, in blocks of work, and a ready spot still wins because it costs
+    nothing. `prepare` is what has to happen first: ("break", cell) and ("fill", cell), in the order to do them.
+    Lava, water and bedrock are not work: those spots are simply not offered.
+    """
     nx, ny, nz = near
-    height = max(p.offset[1] for p in bp.parts) + 2
-    region = Region((nx - radius - 3, ny - 4, nz - radius - 3), (nx + radius + 3, ny + height + 3, nz + radius + 3))
+    budget = int(_PLAY["build"]["max_prepare_blocks"])
     occupied = set()
     if body is not None:
         bx, by, bz = body
         occupied = {(bx + dx, by + dy, bz + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) for dy in (0, 1)}
 
-    def free(c):
-        return (region.inside(c) and not region.solid(c) and not region.hazard(c) and c not in policy.protected
-                and c not in occupied)
+    def clearable(c):
+        """None when the cell is already free, ("break", c) when it can be made free, False when it cannot."""
+        if not region.inside(c) or region.hazard(c) or c in occupied:
+            return False
+        if not region.solid(c):
+            return None
+        if region.unbreakable(c) or c in policy.protected or region.player_made(c):
+            return False
+        return ("break", c)
 
-    options = []
+    def standable(c):
+        """None when the cell already holds weight, ("fill", c) when a block can be put there, False otherwise."""
+        if not region.inside(c) or region.hazard(c):
+            return False
+        return None if region.solid(c) else ("fill", c)
+
+    out = []
     for dx in range(-radius, radius + 1):
         for dz in range(-radius, radius + 1):
             for dy in (0, 1, -1, 2, -2):
                 origin = (nx + dx, ny + dy, nz + dz)
                 for turns in range(4):
-                    cells = blueprints.placed(bp, origin, turns)
-                    clear = blueprints.clear_cells(bp, origin, turns)
-                    if not all(free(pos) for pos, *_ in cells) or not all(free(c) for c in clear):
+                    prepare = _prepare_for(bp, origin, turns, clearable, standable)
+                    if prepare is None or len(prepare) > budget:
                         continue
-                    bottom = [pos for pos, part, *_ in cells if part.offset[1] == 0] + \
-                             [c for c in clear if c[1] == origin[1]]
-                    if not all(region.solid(add(pos, (0, -1, 0))) for pos in bottom):
-                        continue
-                    a = blueprints.access_spot(bp, origin, turns)
-                    if free(a) and free(add(a, (0, 1, 0))) and region.solid(add(a, (0, -1, 0))):
-                        options.append((math.dist(origin, near), origin, turns))
-                        break
-    if not options:
-        raise NotAvailable(f"no clear spot for {bp.name} within {radius} blocks")
-    _, origin, turns = min(options)
+                    out.append((len(prepare), math.dist(origin, near), origin, turns, tuple(prepare)))
+                    break
+    out.sort()
+    return [(cost, origin, turns, prepare) for cost, _d, origin, turns, prepare in out]
+
+
+def _prepare_for(bp, origin, turns, clearable, standable):
+    """The breaks and fills this spot needs, or None when it cannot be made into a spot at all.
+
+    Breaks first, then fills: the floor goes in under walls that are no longer buried.
+    """
+    cells = blueprints.placed(bp, origin, turns)
+    clear = blueprints.clear_cells(bp, origin, turns)
+    breaks, fills = [], []
+    for c in [pos for pos, *_ in cells] + list(clear):
+        got = clearable(c)
+        if got is False:
+            return None
+        if got:
+            breaks.append(got)
+    bottom = [pos for pos, part, *_ in cells if part.offset[1] == 0] + [c for c in clear if c[1] == origin[1]]
+    for pos in bottom:
+        got = standable(add(pos, (0, -1, 0)))
+        if got is False:
+            return None
+        if got:
+            fills.append(got)
+    access = blueprints.access_spot(bp, origin, turns)
+    for c in (access, add(access, (0, 1, 0))):
+        got = clearable(c)
+        if got is False:
+            return None
+        if got:
+            breaks.append(got)
+    got = standable(add(access, (0, -1, 0)))
+    if got is False:
+        return None
+    if got:
+        fills.append(got)
+    seen, ordered = set(), []
+    for item in breaks + fills:
+        if item[1] not in seen:
+            seen.add(item[1])
+            ordered.append(item)
+    return ordered
+
+
+def find_machine_spot(bp, near, policy, radius=8, body=None):
+    """Nearest origin + rotation around `near` that can be built on, with what must be done to the ground first.
+
+    Returns (origin, turns); `plan_machine_spot` returns the preparation with it. The region is read here, and the
+    choosing is `spot_options` — pure, so what counts as buildable ground can be tested without a world.
+    """
+    origin, turns, _prepare = plan_machine_spot(bp, near, policy, radius=radius, body=body)
     return origin, turns
+
+
+def plan_machine_spot(bp, near, policy, radius=8, body=None):
+    """(origin, turns, prepare) for the cheapest spot: what to build on and what to do to the ground first."""
+    nx, ny, nz = near
+    height = max(p.offset[1] for p in bp.parts) + 2
+    region = Region((nx - radius - 3, ny - 4, nz - radius - 3), (nx + radius + 3, ny + height + 3, nz + radius + 3))
+    options = spot_options(bp, near, region, policy, radius=radius, body=body)
+    if not options:
+        raise NotAvailable(f"no ground for {bp.name} within {radius} blocks, and none that could be made")
+    _cost, origin, turns, prepare = options[0]
+    return origin, turns, prepare
+
+
+def prepare_spot(ctx, prepare):
+    """Do what the ground needs before a build: break what is in the way, fill what nothing stands on.
+
+    One place, for every blueprint. The blocks come out of the same bag the build uses, so this runs before the
+    materials are spent rather than after."""
+    if not prepare:
+        return
+    log(f"   levelling the spot: {sum(1 for k, _c in prepare if k == 'break')} to break, "
+        f"{sum(1 for k, _c in prepare if k == 'fill')} to fill")
+    for kind, c in prepare:
+        if kind == "break":
+            mine_cell(ctx.policy, c, wait=60)
+        else:
+            block = next((b for b in GROUPS["building"] if Inventory().usable(b)), None)
+            if block is None:
+                raise NotAvailable("nothing left to fill the ground with")
+            place_oriented(block, c, None, None)
 
 
 def resolve_item(token):
@@ -211,7 +304,8 @@ def build_blueprint(ctx, name, near):
         missing = materials_missing(bp)
         if missing:
             raise NotAvailable(f"missing materials for {name}: {missing}")
-        origin, turns = find_machine_spot(bp, tuple(near), ctx.policy, body=feet())
+        origin, turns, prepare = plan_machine_spot(bp, tuple(near), ctx.policy, body=feet())
+        prepare_spot(ctx, prepare)
         builds[name] = {"origin": list(origin), "turns": turns, "dimension": ctx.dimension}
         ctx.mem.save()
     log(f"building {name} at {origin} (rotation {turns})")
@@ -237,7 +331,8 @@ def build_shelter(ctx):
     missing = materials_missing(bp)
     if missing:
         raise NotAvailable(f"missing for a shelter: {missing}")
-    origin, turns = find_machine_spot(bp, feet(), ctx.policy, radius=6)
+    origin, turns, prepare = plan_machine_spot(bp, feet(), ctx.policy, radius=6)
+    prepare_spot(ctx, prepare)
     if not nav.go_to(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
         raise api.NavFailed("can't reach the shelter spot")
     log(f"building a shelter at {origin} (rotation {turns})")

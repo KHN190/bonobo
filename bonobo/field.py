@@ -44,17 +44,26 @@ class Field:
         self.blocks = int(blocks)
         self.terrain = terrain or TERRAIN
 
+    def slowdown(self, squeezes=False):
+        """How much longer anything takes over this ground than over a straight line: what the ground itself costs
+        (learned per bucket) times what the blocks we placed cost. The one definition of "slower" — `estimate`
+        asks for it rather than multiplying two of its own."""
+        return self.terrain.of(self.bucket) * self.delay_ratio(squeezes)
+
     def arrival_s(self, src, dst, squeezes=False, speed=None, now=None):
         straight = math.dist(tuple(src), tuple(dst)) / float(speed or self.speed)
-        factor = self.terrain.of(self.bucket)
-        if self.blocks:
-            factor *= (SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR) ** self.blocks
-        return straight * factor
+        return straight * self.slowdown(squeezes)
 
     def delay_ratio(self, squeezes=False):
+        """What the blocks we placed do to how soon something arrives.
+
+        A wall is only a wall to what has to walk round it. What climbs, squeezes or teleports goes over the first
+        block and the tenth is worth nothing more, so stacking does not compound for those: a compounding 5% put a
+        four-block wall against a spider at a 21% delay, and the sweep found the model building it.
+        """
         if not self.blocks:
             return 1.0
-        return (SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR) ** self.blocks
+        return SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR ** self.blocks
 
     def blocks_worth_placing(self):
         return self.bucket != "open"

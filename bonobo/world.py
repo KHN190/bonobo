@@ -69,6 +69,10 @@ class Inventory:
     def worn(self, slot):
         return self.equipment.get(slot, {}).get("id", "minecraft:air")
 
+    def free_slots(self):
+        """Main-inventory slots still empty: what "room to carry more" means everywhere."""
+        return max(0, 36 - self.used_slots())
+
     def used_slots(self):
         return len(self.slots)
 

@@ -33,6 +33,10 @@ import tomllib
 CONFIG_PATH = os.environ.get("MC_FIGHT_CONFIG", os.path.join(os.path.dirname(__file__), "fight.toml"))
 
 
+NOW_S = 1e-6      # "now" as a horizon: only what already reaches us is inside it
+PLAYER_HP = 20.0  # a full bar, the health a window's risk is measured against
+
+
 def load_config(path=None):
     with open(path or CONFIG_PATH, "rb") as f:
         return tomllib.load(f)
@@ -42,7 +46,7 @@ CONFIG = load_config()
 # What a death costs is a fact about the game, not about this fight: it lives in the belief table with everything
 # else. It was written down twice (240 s there, 120 s here), so the fight veto and ordinary play disagreed about
 # the price of the same death.
-from . import beliefs  # noqa: E402
+from . import beliefs, estimate  # noqa: E402
 CONFIG["combat"]["death_cost_s"] = beliefs.value("time.death_cost_s")
 
 
@@ -213,10 +217,7 @@ class Action:
         return 0.0 if self.in_cycle else self.duration_s + self.return_s
 
 
-def commitment(action):
-    """Pure: the time that must be available before starting. Kept as a function because the veto and the executor
-    both ask, and `kernel.commitment` asks the same question of any planner's actions."""
-    return action.commitment_s
+from .kernel import commitment          # noqa: E402  one definition of "how much of this cannot be called off"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -344,27 +345,40 @@ class Fight:
 
     # -- statistics ---------------------------------------------------------------------------------------------
 
-    def death_risk(self, exposure_s, in_cover):
-        """Rough p(death) for one window from the seconds it leaves us in the open. Not fitted — there are no deaths
-        on tape yet — but monotonic, near zero in cover, and declared unmeasured in the config."""
-        if in_cover:
-            return 0.01
-        return min(0.9, self.cfg["combat"]["death_risk_per_exposed_s"] * exposure_s)
+    def dragon_dps(self, in_cover):
+        """Health per second the dragon takes off while a window is open. A rate, so the seconds a window costs
+        and the damage it does are the same quantity everywhere — the risk used to be linear in exposure with a
+        constant of its own, which is a second pressure under another name."""
+        rate = float(self.cfg["combat"]["death_risk_per_exposed_s"]) * float(PLAYER_HP)
+        return rate * float(self.cfg["combat"]["cover_lets_through"]) if in_cover else rate
+
+    def death_risk(self, exposure_s, in_cover, hp=None):
+        """p(death) over one window: the damage those seconds imply at this rate, through the one curve.
+
+        `estimate.damage_over` turns the rate into health and `estimate.fatal_chance` turns the health into a
+        probability; nothing here does arithmetic of its own.
+        """
+        spare = float(PLAYER_HP if hp is None else hp)
+        damage = estimate.damage_over(self.dragon_dps(in_cover), exposure_s)
+        return estimate.fatal_chance(spare, damage, cap=0.9)
 
     def dps_here(self, state):
-        """Health per second we are taking now: every threat whose region covers us, summed.
+        """Health per second we are taking NOW: the one pressure function over a horizon of nothing, which is what
+        "now" means — only what already covers us counts, and anything on its way counts once it arrives.
 
         The planner's statistic. Safety uses the earliest arrival instead — the worst case, not the expectation.
         Mixing them gave a planner reckless about pincers and a safety layer that panicked about a distant dragon.
         """
         pos = state["self"]["pos"]
-        return sum(self.dps.get(t[3], 0.0) for t in state["threats"] if math.dist(pos, t[0]) <= t[1])
+        rows = [estimate.row(t[0], t[1], t[2], t[3], dps=self.dps.get(t[3], 0.0)) for t in state["threats"]]
+        return estimate.pressure_hp_s(pos, rows, horizon=NOW_S)
 
     def immediate_risk(self, state):
-        """p(death) from what is hitting us right now, before any window: damage over a reaction time against the
-        health we can spare."""
+        """p(death) from what is hitting us right now, before any window: the damage a reaction time lets through
+        at the rate covering us, against the health we can spare. The same two functions as `death_risk`."""
         spare = max(state["self"]["hp"] - state["self"]["hp_floor"], 1.0)
-        return min(0.9, self.dps_here(state) * self.cfg["combat"]["reaction_s"] / spare)
+        damage = estimate.damage_over(self.dps_here(state), self.cfg["combat"]["reaction_s"])
+        return estimate.fatal_chance(spare, damage, cap=0.9)
 
     # -- the objective -----------------------------------------------------------------------------------------
 
@@ -372,7 +386,8 @@ class Fight:
     # planner IS kernel.choose with these four; see kernel.py. Nothing below knows it is a dragon.
 
     def price(self, state):
-        """kernel: what the future costs from here, in seconds. The fight's objective, under its own name."""
+        """kernel: what the future costs from here, in seconds. The fight's objective, under the contract's name —
+        the same function, not a second one."""
         return self.objective(state)
 
     def fault(self, state):
@@ -398,11 +413,11 @@ class Fight:
         n = math.ceil(work / per)
         exposure, risk = self.profile.exposure(self, state, n)
         risk += self.immediate_risk(state)
-        return n * cycle_seconds() + exposure + risk * self.cfg["combat"]["death_cost_s"]
+        return n * cycle_seconds() + exposure + min(1.0, risk) * self.cfg["combat"]["death_cost_s"]
 
     def benefit(self, state, action):
-        """Seconds saved by this action: the objective before it, minus the objective after its effect."""
-        return round(self.objective(state) - self.objective(action.effect(state)), 2)
+        """Seconds saved by this action: the one scoring rule (`estimate.saved_s`) over this model's price."""
+        return round(estimate.saved_s(self.objective, state, action.effect(state)), 2)
 
     # -- the veto -----------------------------------------------------------------------------------------------
 

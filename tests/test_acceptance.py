@@ -80,7 +80,10 @@ class NeverIdle(unittest.TestCase):
                 continue
             replayed += 1
             idle += name is None
-        self.assertGreater(replayed, 50, "not enough rounds replayed to judge")
+        # The tape is rotated, so a fixed floor turns a pruned recording into a failure about nothing: judge by
+        # what fraction of what IS there could be replayed.
+        self.assertGreater(replayed, max(5, len(RECORDED) // 2),
+                           f"only {replayed} of {len(RECORDED)} recorded rounds could be replayed")
         self.assertEqual(idle, 0, f"{idle} of {replayed} rounds had nothing runnable")
 
     def test_the_pool_offers_more_than_one_thing(self):
@@ -122,15 +125,33 @@ class KnowsHow(unittest.TestCase):
         _name, top, filtered, _p = bare
         self.assertTrue(self.offered(top, filtered, "pickaxe", "axe", "sword"), self.report(top, filtered))
 
+    def answer(self, threats, hp=20, sword=2, armor=8, food=4, shield=True, blocks=64):
+        """What the threat layer bids for the body in this situation.
+
+        Not a pool candidate any more: threats are answered by the perception thread at its own cadence, and the
+        pool never sees them — it saw them once, could pick `ignore` as if doing nothing were an answer, and that
+        cost a death. So the acceptance question is whether a bid exists, not whether a candidate is listed.
+        """
+        from bonobo import field, perception, survival as sv
+        perception.HELD = None
+        here = (0.0, 64.0, 0.0)
+        rows = [threat.row((here[0] + d, here[1], here[2]), threat.MOBS[kind]["reach"], (0.0, 0.0, 0.0), kind)
+                for kind, d in threats]
+        state = {"x": here[0], "y": here[1], "z": here[2], "health": hp, "armor": armor, "sword_tier": sword,
+                 "food_items": food, "shield": shield, "blocks": blocks, "field": field.Field()}
+        sstate = sv.make_state(hp=hp, sword=sword, armor=armor)
+        return perception.bid(state, rows, lambda dhp: sv.hp_seconds(sstate, dhp))
+
     def test_it_can_fight_what_it_can_afford(self):
-        _name, top, filtered, _p = scene(threats=[("minecraft:zombie", 4)],
-                                         add_items=[("minecraft:iron_sword", 1)], state={"health": 20})
-        self.assertTrue(self.offered(top, filtered, "threat:"), self.report(top, filtered))
+        got = self.answer([("minecraft:zombie", 4)])
+        self.assertIsNotNone(got, "nothing was bid against a zombie four blocks away")
+        self.assertEqual(got[0].kind, "fight")
 
     def test_it_can_run_from_what_it_cannot(self):
-        _name, top, filtered, _p = scene(threats=[("minecraft:skeleton", 12), ("minecraft:creeper", 5)],
-                                         state={"health": 6})
-        self.assertTrue(self.offered(top, filtered, "threat:"), self.report(top, filtered))
+        got = self.answer([("minecraft:skeleton", 12), ("minecraft:creeper", 5)], hp=6, sword=0, armor=0,
+                          shield=False)
+        self.assertIsNotNone(got, "nothing was bid while being shot at 6 hp")
+        self.assertNotEqual(got[0].kind, "fight")
 
     def test_a_threat_makes_ordinary_work_more_expensive(self):
         """The blood tax: the same work, priced with and without something shooting at us."""
@@ -151,9 +172,12 @@ class PlansAhead(unittest.TestCase):
         table = actions.table(actions.Costs(lambda kinds: 20.0), {})
         plan = solve(table, {}, {"bed": 1})
         kinds = {a.tag[0] for a, _n in plan.steps() if a.tag}
-        self.assertGreaterEqual(len(plan.counts), 4, plan.counts)
-        self.assertIn("seek", kinds, "going to where the wool is, is part of the plan")
-        self.assertIn("craft", kinds)
+        # Not a step count: a SHORTER plan is a better plan, and the world decides which one is shorter. Knowing
+        # nowhere, the agent must still go and look, and end up holding a bed — made from wool it sheared, or
+        # taken out of a village. Asserting "four steps, one of them a craft" pinned yesterday's cheapest route.
+        self.assertIn("seek", kinds, "going to where the bed or the wool is, is part of the plan")
+        self.assertTrue(kinds & {"craft", "take"}, plan.counts)
+        self.assertGreater(plan.cost_s, 0.0)
 
     def test_it_plans_a_night_of_shelter_with_nothing_in_hand(self):
         from bonobo import actions

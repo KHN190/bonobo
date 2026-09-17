@@ -1,5 +1,6 @@
 """The kernel is the whole planner, so these are the only things it can get wrong: what it charges, what it lets
 through, and which of the two planners it is being. Everything domain-specific is tested where the domain lives."""
+import random
 import unittest
 
 from bonobo import kernel
@@ -126,25 +127,82 @@ class Markers(unittest.TestCase):
         self.assertTrue(self.sc._plans_far(self.rounds("blaze rods (7)"))[0])
 
 
+class HoldingADecision(unittest.TestCase):
+    """A decision may only change when there is a reason: its commitment ran out, an assumption failed, or a
+    challenger beat it by the margin. Random sequences with a few percent of jitter per tick — the shape of a
+    threat walking one step nearer — so anything that dithers shows up without a scenario being written for it.
+    """
+
+    SEEDS = range(200)
+
+    class Act:
+        def __init__(self, name, gain, cost_s):
+            self.name, self.gain, self.cost_s, self.commitment_s = name, gain, cost_s, cost_s
+
+        def effect(self, state):
+            return dict(state, price=max(0.0, state["price"] - self.gain * state["noise"][self.name]))
+
+    class Jittery:
+        def __init__(self, acts):
+            self.actions = list(acts)
+            self.default = acts[-1]
+
+        def price(self, state):
+            return state["price"]
+
+        def admissible(self, state, action):
+            return True, ""
+
+    def model(self):
+        A = self.Act
+        return self.Jittery([A("fight", 40.0, 2.0), A("evade", 38.0, 3.0), A("reshape", 36.0, 1.0),
+                             A("carry on", 0.0, 0.0)])
+
+    def states(self, seed, ticks=60):
+        rng = random.Random(seed)
+        noise = {n: 1.0 for n in ("fight", "evade", "reshape", "carry on")}
+        out = []
+        for _ in range(ticks):
+            noise = {k: max(0.5, min(1.5, v + rng.uniform(-0.04, 0.04))) for k, v in noise.items()}
+            out.append({"price": 100.0, "noise": dict(noise)})
+        return out
+
+    def sweep(self, holds=None, margin=kernel.MARGIN):
+        switches = reasons = 0
+        for seed in self.SEEDS:
+            held, last = kernel.Held(margin=margin), None
+            for tick, state in enumerate(self.states(seed)):
+                choice = held.decide(self.model(), state, now=tick * 0.2, holds=holds)
+                reasons += held.because is not None
+                switches += choice.name != last
+                last = choice.name
+        return switches, reasons
+
+    def test_it_changes_no_more_often_than_it_has_reason_to(self):
+        switches, reasons = self.sweep()
+        self.assertLessEqual(switches, reasons + len(self.SEEDS))
+
+    def test_re_deciding_every_tick_would_dither(self):
+        """The control: without holding, this fixture really does flip about — otherwise the test above is empty."""
+        flips = 0
+        for seed in self.SEEDS:
+            last = None
+            for state in self.states(seed):
+                name = kernel.choose(self.model(), state).name
+                flips += name != last
+                last = name
+        self.assertGreater(flips, len(self.SEEDS), "the jitter is too small to prove anything")
+
+    def test_a_broken_assumption_releases_it_at_once(self):
+        held = kernel.Held()
+        states = self.states(1)
+        held.decide(self.model(), states[0], now=0.0)
+        held.decide(self.model(), states[1], now=0.01, holds=lambda *_: False)
+        self.assertEqual(held.because, "assumption")
+
+    def test_a_challenger_must_win_by_more_than_the_margin(self):
+        self.assertLess(self.sweep(margin=1.5)[0], self.sweep(margin=1.0)[0])
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
-class BackgroundShare(unittest.TestCase):
-    """A side project is worth a quarter of itself — all of itself, unlocks included."""
-
-    def make(self, share):
-        from bonobo import priority
-        return priority.Candidate("stock blocks", 0, 200, lambda: None, seconds=2.0,
-                                  unlocks=[(850.0, 0.5)], share=share)
-
-    def test_the_discount_covers_what_it_unlocks(self):
-        from bonobo import priority
-        full, side = self.make(1.0), self.make(priority.BACKGROUND)
-        self.assertAlmostEqual(side.benefit_s, full.benefit_s * priority.BACKGROUND)
-
-    def test_a_side_project_loses_to_running_from_a_zombie(self):
-        """The failure this comes from: 2 s of blocks, +425 s 'unlocked', outscoring an escape by two to one."""
-        from bonobo import priority
-        escape = priority.Candidate("threat:evade", 0, 160, lambda: None, seconds=209.0, kind="maintenance")
-        self.assertGreater(escape.score, self.make(priority.BACKGROUND).score)

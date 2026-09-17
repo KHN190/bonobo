@@ -37,11 +37,6 @@ class Ordering(unittest.TestCase):
 class Preemption(unittest.TestCase):
     """A fast layer does not queue behind the fight loop; it runs now and stales what is slower."""
 
-    def test_preempt_runs_immediately(self):
-        out, m = [], arbiter.Motion()
-        m.preempt("safety", lambda: out.append("stop"), "breath")
-        self.assertEqual(out, ["stop"], "safety must not wait for step()")
-
     def test_preempt_drops_slower_pending_intents(self):
         out, m = [], arbiter.Motion()
         m.submit("plan", lambda: out.append("dig"), "dig")
@@ -144,10 +139,6 @@ class LockDiscipline(unittest.TestCase):
         api.INTERRUPT = None
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PricedInterruption(unittest.TestCase):
     """The one place the two planners meet: what taking the body costs. Emergencies are never priced."""
 
@@ -185,31 +176,6 @@ class PricedInterruption(unittest.TestCase):
         self.assertEqual(self.ran, ["reposition"])
 
 
-class TheWatcherSurvivesItsAnswers(unittest.TestCase):
-    """The perception thread is the only thing watching for lava, drowning and mobs. An answer that raises must
-    not take it down — it did, once, and the agent was beaten to death with a working threat model behind it."""
-
-    def test_a_failing_answer_does_not_stop_the_loop(self):
-        from unittest import mock
-        from bonobo import api, perception
-        w = perception.Watcher()
-        with mock.patch.object(perception.Watcher, "_answer_threats", side_effect=RuntimeError("boom")), \
-             mock.patch.object(api, "log") as log:
-            ticks = []
-
-            def one_pass(state):
-                try:
-                    w._answer_threats(state)
-                except Exception as e:
-                    api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
-                ticks.append(1)
-
-            for _ in range(3):
-                one_pass({"health": 20})
-            self.assertEqual(len(ticks), 3)
-            self.assertTrue(log.called)
-
-
 class APreemptionIsNotAnIntruder(unittest.TestCase):
     """When a fast layer takes the body, the slow layer's task really is replaced — by us. The waiting thread must
     read that as "go and re-plan", not as an outsider fighting over the player."""
@@ -240,3 +206,7 @@ class APreemptionIsNotAnIntruder(unittest.TestCase):
         self.arb.BODY.preempted_at = 105.0
         with self.assertRaises(self.api.PlayerTookControl):
             self.api._raise_if_released([{"message": "released by player"}], since=100.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

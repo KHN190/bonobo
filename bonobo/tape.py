@@ -14,7 +14,7 @@ from . import paths
 
 FILE = paths.data("decisions.jsonl", env="MC_DECISIONS")
 MEM_DIR = paths.data("decisions-mem")
-MAX_BYTES = 300 * 1024 * 1024
+MAX_BYTES = 2 * 1024 * 1024        # one file, 2 MB: the newest rounds are kept, older ones dropped
 MIN_GAP_S = 20          # record at most one round per 20 s unless the pick changed (regions make lines big)
 
 _calls = None
@@ -155,6 +155,31 @@ def row_for(brain, pick, pool, filtered, force, now=None):
     }
 
 
+def trim(path, keep_bytes):
+    """Keep the newest rounds that fit, drop the rest. One file, no second copy: what a replay is worth is in the
+    recent rounds, and older ones are the same situations again."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError:
+        return 0
+    kept, size = [], 0
+    for line in reversed(lines):
+        size += len(line.encode())
+        if size > keep_bytes:
+            break
+        kept.append(line)
+    kept.reverse()
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            f.writelines(kept)
+        os.replace(tmp, path)
+    except OSError:
+        return 0
+    return len(kept)
+
+
 def end(brain, pick, pool, filtered, force, path=None, always=False):
     """Write this round's decision line (throttled). Returns the row, or None when skipped."""
     global _calls
@@ -170,10 +195,11 @@ def end(brain, pick, pool, filtered, force, path=None, always=False):
     _last.update(t=now, pick=name)
     path = path or FILE
     try:
-        if os.path.exists(path) and os.path.getsize(path) > MAX_BYTES:
-            os.replace(path, path + ".1")
+        line = json.dumps(row, default=str) + "\n"
+        if os.path.exists(path) and os.path.getsize(path) + len(line) > MAX_BYTES:
+            trim(path, MAX_BYTES // 2)
         with open(path, "a") as f:
-            f.write(json.dumps(row, default=str) + "\n")
+            f.write(line)
     except OSError:
         pass
     return row

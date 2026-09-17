@@ -12,7 +12,7 @@ State (built by brain.survival_state from a snapshot and memory):
 """
 import math
 
-from . import beliefs
+from . import beliefs, estimate
 from .beliefs import protection as _belief_protection
 
 CONFIG = beliefs.CONFIG
@@ -33,14 +33,14 @@ def bag_loss(s):
     return share * _T["day_s"] * _K["mining_share_of_day"]
 
 
-FIELDS = ("night", "ticks_until_dusk", "hp", "food", "bed", "sheltered", "torches", "sword", "pickaxe",
-          "food_items", "nights_missed", "armor", "shield", "bag_free")
-
 
 def make_state(**kw):
     s = {"night": False, "ticks_until_dusk": 6000, "hp": 20, "food": 20, "bed": False, "sheltered": False,
          "torches": False, "sword": 0, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
-         "shield": False, "bag_free": 36}
+         "shield": False, "bag_free": 36,
+         # Dark where we stand, which is where mobs come from. Not the same as night: a torch-lit camp at midnight
+         # is safe and a cave at noon is not.
+         "dark": False}
     unknown = set(kw) - set(s)
     if unknown:
         raise KeyError(f"not survival state: {sorted(unknown)}")
@@ -55,21 +55,20 @@ def _protection(s):
 
 
 def encounter_damage(s):
-    """Expected health lost in one ordinary encounter, given the weapon and the armour.
+    """(seconds, health) one ordinary encounter costs at this weapon and armour.
 
-    The reference mob stands for "a hostile": the point is not to model a zombie exactly but to make a sword and a
-    breastplate worth the damage they prevent, in the same units as everything else.
+    One reference mob, met at arm's length, priced by the same `estimate.fight_cost` the threat layer uses to
+    decide whether to swing at the real thing. They were two arithmetics over one question — what a fight costs —
+    so a sword could be worth making and not worth using.
     """
-    ref = beliefs.mob(_R["reference_mob"])
-    PLAYER = beliefs.PLAYER
-    dps = float(PLAYER["dps"][str(min(3, max(0, int(s["sword"]))))])
-    kill_s = float(ref["hp"]) / dps
-    return kill_s, float(ref["dps"]) * kill_s * (1.0 - _protection(s))
+    kind = _R["reference_mob"]
+    here = (0.0, 0.0, 0.0)
+    row = estimate.row((float(beliefs.PLAYER["melee_reach"]), 0.0, 0.0), beliefs.mob(kind)["reach"],
+                       (0.0, 0.0, 0.0), kind)
+    return estimate.fight_cost(here, [row], s["sword"], _protection(s))
 
 
-def _fatal_chance(hp, damage):
-    """Probability that one encounter's damage exceeds `hp`. Continuous, monotone, no threshold."""
-    return math.exp(-max(0.1, hp) / damage) if damage > 0 else 0.0
+_fatal_chance = estimate.fatal_chance     # one curve, in the module that owns the five quantities
 
 
 def fight_loss(s):
@@ -163,17 +162,23 @@ def light_loss(s):
 
 
 def expected_loss(s):
-    """Pure: seconds expected to be lost from here, given what we lack. The objective every goal is valued against."""
+    """The fifth quantity for ordinary play: seconds expected to be lost from here, given what we lack.
+
+    `kernel` reaches it through `estimate.state_price_s`, the pool through `benefit`; both are the same number,
+    and every goal is worth exactly the reduction it makes to it.
+    """
     return (night_loss(s) + food_loss(s) + tool_loss(s) + light_loss(s) + fight_loss(s) + hurt_loss(s)
             + bag_loss(s))
 
 
 def hp_seconds(s, dhp):
-    """Pure: seconds that expecting to lose `dhp` health costs.
+    """The fourth quantity, implemented here because health is only worth what being hurt costs FROM THIS STATE:
+    seconds that expecting to lose `dhp` health costs.
 
     Damage is a chance of dying plus a loss of margin, both continuous. The version with a branch at `dhp >= hp`
     priced every answer in a bad spot as the same certain death, so fighting, fleeing and carrying on all came out
-    equal and the cheapest one (doing nothing) won. `_fatal_chance` is the same curve `fight_loss` uses.
+    equal and the cheapest one (doing nothing) won. The curve is `estimate.fatal_chance`, the same one the fight
+    planner's two risks and `fight_loss` read.
     """
     if dhp <= 0:
         return 0.0
@@ -204,10 +209,10 @@ def advance(s, dt):
 
 
 def benefit(s, effect):
-    """Pure: seconds a goal saves — the loss before minus the loss after its declared effect."""
+    """Pure: seconds a goal saves — the one scoring rule (`estimate.saved_s`) over this model's price."""
     after = dict(s)
     after.update(effect)
-    return round(expected_loss(s) - expected_loss(after), 1)
+    return round(estimate.saved_s(expected_loss, s, after), 1)
 
 
 # ------------------------------------------------------------------------------------- the terminal goods
@@ -221,31 +226,6 @@ def benefit(s, effect):
 TORCHES_MEAN = 8
 END_DIMS = {"sheltered": "sheltered", "bed": "bed", "food_items": "food", "torches": "minecraft:torch",
             "sword": "tool:sword:1", "pickaxe": "tool:pickaxe:1"}
-
-
-def end_worths(s):
-    """Pure: {dimension: seconds ONE unit of it is worth, from here}.
-
-    Per unit, because the shadow price it is compared against is the price of one more unit. Something already had
-    is worth nothing more, which falls out of `benefit` without a rule: the loss does not change.
-    """
-    out = {}
-    for lever, dim in END_DIMS.items():
-        have = s[lever]
-        if lever in ("sword", "pickaxe"):
-            better = 1
-        elif lever == "food_items":
-            better = float(have) + 1
-        else:
-            better = True
-        if have == better or (better is True and have):
-            out[dim] = 0.0
-            continue
-        worth = benefit(s, {lever: better})
-        if lever == "torches":
-            worth /= float(TORCHES_MEAN)
-        out[dim] = max(0.0, round(worth, 1))
-    return out
 
 
 def urgency(s):

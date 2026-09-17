@@ -41,6 +41,18 @@ WANDERING = {"deposit", "open space", "explore", "strip mine", "light up"}
 class Context:
     """Everything admission and gating read. Plain data, built once per round by the brain."""
 
+    def relaxed(self, **overrides):
+        """A copy with some of it waived. The brain uses it to re-offer through the SAME admission when the pool
+        comes out empty — a preference (staying near a retrying goal) may be waived, a skill's own "I cannot run"
+        may not, and going around the door rather than through it is what let that difference be lost."""
+        import copy
+        out = copy.copy(self)
+        for k, v in overrides.items():
+            if not hasattr(out, k):
+                raise AttributeError(f"not part of the pool context: {k}")
+            setattr(out, k, v)
+        return out
+
     def __init__(self, *, segment, seg_name, seg_goals, bench_failing, staying, committed, weights, ready,
                  force, seg_misses, seg_misses_limit, retry, sig, night, night_capable, snap, has_pickaxe,
                  sightings, way_into=None, no_go=(), sheltered=False, place=None):
@@ -113,8 +125,8 @@ def admit(c, ctx, weight_for, allowed, exhausted_after):
 def gate_step(step, goal, plan, ctx, underground_kinds, escape_ready, bare):
     """Pure: why this STEP cannot run now, or None. Rejects the step, never the goal."""
     inv = ctx.snap.inv
-    if ctx.night and step.kind not in underground_kinds and not ctx.night_capable:
-        return f"{step.kind} waits for day"
+    # The dark is priced, not forbidden (`actions.night_exposure_s`). The gate that used to stand here could not
+    # tell a stroll from a necessity, and refused the wool for a bed on every night the bed was needed.
     if goal.background and step.kind == "mine" and not escape_ready(inv):
         return "no escape kit for digging"
     # Admissibility, not preference: a plan that cannot finish before dark, with no bed to end the night and no

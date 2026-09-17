@@ -15,13 +15,20 @@ import unittest
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
 
 
+def source(module):
+    """A module's text. One reader, and it closes the file — ten bare `open()` calls left ten descriptors to the
+    garbage collector, which is a warning in every run and a leak in none of nobody's control."""
+    with open(os.path.join(PKG, module if module.endswith(".py") else module + ".py")) as f:
+        return f.read()
+
+
 def call_graph():
     """{module: {called names}} across the package — attribute calls included (`combat.shoot` → `shoot`)."""
     graph = {}
     for name in sorted(os.listdir(PKG)):
         if not name.endswith(".py"):
             continue
-        tree = ast.parse(open(os.path.join(PKG, name)).read())
+        tree = ast.parse(source(name))
         called = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
@@ -90,7 +97,7 @@ class RulesAreWired(unittest.TestCase):
         # A hazard list with hardcoded zero velocity makes every closed-form root return infinity, so the
         # prediction reports "nothing is coming" regardless of what is coming.
         import re
-        src = open(os.path.join(PKG, "threat.py")).read()
+        src = source("threat")
         body = src[src.index("def rows("):]
         body = body[:body.index("\ndef ", 1)]
         self.assertNotIn("(0.0, 0.0, 0.0)) for", body, "threats must be differenced, not declared stationary")
@@ -99,11 +106,15 @@ class RulesAreWired(unittest.TestCase):
 
     def test_ordinary_play_asks_the_threat_layer(self):
         # "hostile within 5 → attack, hp ≤ 10 and within 6 → flee" was two literals pretending to be a policy. The
-        # decision must come from threat.decide, in the round (brain) and in the watcher (perception).
-        self.assertIn("brain", callers_of("decide"), "the brain answers threats without the model")
+        # answer comes from the threat model, and from ONE place: perception, at its own cadence. The brain had a
+        # second copy that ran once a round, could choose `ignore` as though doing nothing were a rescue, and held
+        # the body while the real answer waited for a lease. That cost a death.
+        self.assertIn("perception", callers_of("bid") | callers_of("options"),
+                      "nothing bids for the body when something is hitting us")
+        self.assertNotIn("brain", callers_of("decide"), "the brain answers threats again: one decider, not two")
         self.assertIn("perception", callers_of("pressure") | callers_of("time_to_die"),
                       "perception interrupts on health alone: deaths by arrows are invisible to it")
-        src = open(os.path.join(PKG, "brain.py")).read()
+        src = source("brain")
         self.assertNotIn('e["distance"] <= 5', src, "a distance literal decides a fight again")
 
     def test_the_body_has_one_exit(self):
@@ -115,7 +126,7 @@ class RulesAreWired(unittest.TestCase):
     def test_perception_does_not_halt_the_body_itself(self):
         # The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's. Two direct stops here were
         # two of the commanders a multi-threat fight cannot afford.
-        src = open(os.path.join(PKG, "perception.py")).read()
+        src = source("perception")
         direct = src.replace('lambda: api.post("/stop")', "").count('api.post("/stop")')
         self.assertEqual(direct, 0, "perception must preempt through the arbiter, never call /stop directly")
         self.assertIn("preempt", GRAPH["perception"])
@@ -125,7 +136,7 @@ class RulesAreWired(unittest.TestCase):
             self.assertIn("owns", GRAPH[mod], f"{mod} drives the body without asking the arbiter who owns it")
 
     def test_recoveries_preempt_rather_than_walk_inline(self):
-        src = open(os.path.join(PKG, "end.py")).read()
+        src = source("end")
         body = src[src.index("def _recover("):]
         body = body[:body.index("\ndef ", 1)]
         self.assertIn("preempt", body, "a recovery is the safety layer speaking; it must own the body while it runs")
@@ -134,7 +145,7 @@ class RulesAreWired(unittest.TestCase):
         import re
         writers = {}
         for name in ("perception", "end", "brain", "skill", "arbiter", "api"):
-            src = open(os.path.join(PKG, name + ".py")).read()
+            src = source(name)
             n = sum(1 for rhs in re.findall(r"api\.INTERRUPT\s*=\s*(\S+)", src) if rhs != "None")
             if n:
                 writers[name] = n
@@ -144,13 +155,13 @@ class RulesAreWired(unittest.TestCase):
         self.assertLessEqual(writers.get("perception", 0), 1)
 
     def test_raw_posts_that_drive_the_body_are_guarded(self):
-        src = open(os.path.join(PKG, "api.py")).read()
+        src = source("api")
         body = src[src.index("def post("):]
         body = body[:body.index("\ndef ", 1)]
         self.assertIn("owns", body, "run_chain posts /task directly; the gate must be on post, not only on run")
 
     def test_tactics_are_preempted_not_nested_in_plans(self):
-        src = open(os.path.join(PKG, "end.py")).read()
+        src = source("end")
         body = src[src.index("def _carry_out("):]
         body = body[:body.index("\ndef ", 1)]
         self.assertNotIn("        _retreat(ctx, near)\n", body, "a retreat inside a plan is a plan sub-step, not a tactic")
@@ -163,7 +174,7 @@ class RulesAreWired(unittest.TestCase):
         emitted = set(perception.DANGERS) | {"airborne", "stale"}       # the two non-perception triggers
         for kind, _, _ in recovery.TABLE:
             self.assertIn(kind, emitted, f"recovery row {kind!r} can never fire")
-        src = open(os.path.join(PKG, "perception.py")).read()
+        src = source("perception")
         import re
         body = src[src.index("def danger("):src.index("\ndef ", src.index("def danger(") + 1)]
         for lit in re.findall(r'return "([a-z_]+)"', body):
@@ -199,7 +210,7 @@ class SafetyIsNotOptIn(unittest.TestCase):
     """A guard that each call site must remember to ask for is a guard whose coverage decays."""
 
     def test_travel_health_guard_is_not_per_call(self):
-        src = open(os.path.join(PKG, "nav.py")).read()
+        src = source("nav")
         tree = ast.parse(src)
         go_to = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "go_to")
         default = dict(zip([a.arg for a in go_to.args.args][-len(go_to.args.defaults):],

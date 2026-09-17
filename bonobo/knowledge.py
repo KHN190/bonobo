@@ -1,5 +1,5 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
-from .data import FOOD, GROUPS, RECIPES, SMELTS, mid
+from .data import COLORS, FOOD, GROUPS, RECIPES, SMELTS, WOODS, mid
 
 # Group-level recipes: output type follows the input variant (spruce logs → spruce planks, white wool → white bed).
 # The craft skill resolves each group token to ONE owned member with enough items.
@@ -46,6 +46,57 @@ HUNT = {
 HUNT_YIELD = {"minecraft:beef": 2, "minecraft:porkchop": 2, "minecraft:mutton": 1.5, "minecraft:chicken": 1,
               "minecraft:rabbit": 1, "wool": 1, "minecraft:leather": 1, "minecraft:feather": 1,
               "minecraft:string": 1, "minecraft:ender_pearl": 0.5, "minecraft:blaze_rod": 0.5}
+
+# Things the world has already MADE. A village is a bag of finished goods — beds, furnaces, tables, chests, hay —
+# and the planner could not say "take that one", only "craft one", so it spent mornings shearing sheep next to a
+# row of beds. One row per thing worth carrying away:
+#
+#   blocks   what to look for, as the world names it to `find` (bare, no namespace; variants included)
+#   gives    what ends up in the bag, in tokens the rest of the planner already knows
+#   tool     (kind, tier) needed for the block to drop anything, or None for bare hands
+#   break_s  seconds to break it, once we are standing there (the walk is priced separately)
+#
+# Breaking these costs nothing socially: villagers take offence at trades and at hurting their golem, not at a
+# missing bed. So there is no theft price here — that would be a belief about a rule the game does not have.
+TAKEABLE = {
+    "bed": {"blocks": [f"{c}_bed" for c in COLORS], "gives": {"bed": 1}, "tool": None, "break_s": 1.0},
+    "wool": {"blocks": [f"{c}_wool" for c in COLORS], "gives": {"wool": 1}, "tool": None, "break_s": 1.2},
+    "minecraft:crafting_table": {"blocks": ["crafting_table"], "gives": {"minecraft:crafting_table": 1},
+                                 "tool": None, "break_s": 2.5},
+    "minecraft:furnace": {"blocks": ["furnace", "blast_furnace", "smoker"],
+                          "gives": {"minecraft:furnace": 1}, "tool": ("pickaxe", 0), "break_s": 5.5},
+    "minecraft:chest": {"blocks": ["chest", "barrel"], "gives": {"minecraft:chest": 1}, "tool": None,
+                        "break_s": 3.0},
+    "minecraft:cauldron": {"blocks": ["cauldron"], "gives": {"minecraft:cauldron": 1}, "tool": ("pickaxe", 0),
+                           "break_s": 6.0},
+    "door": {"blocks": [f"{w}_door" for w in WOODS], "gives": {"door": 1}, "tool": None, "break_s": 3.0},
+    "minecraft:ladder": {"blocks": ["ladder"], "gives": {"minecraft:ladder": 1}, "tool": None, "break_s": 0.6},
+    "minecraft:torch": {"blocks": ["torch", "wall_torch"], "gives": {"minecraft:torch": 1}, "tool": None,
+                        "break_s": 0.3},
+    "minecraft:bookshelf": {"blocks": ["bookshelf"], "gives": {"minecraft:book": 3}, "tool": None, "break_s": 2.3},
+    "minecraft:smithing_table": {"blocks": ["smithing_table"], "gives": {"minecraft:smithing_table": 1},
+                                 "tool": None, "break_s": 3.8},
+    "minecraft:stonecutter": {"blocks": ["stonecutter"], "gives": {"minecraft:stonecutter": 1},
+                              "tool": ("pickaxe", 0), "break_s": 5.5},
+    "minecraft:hay_block": {"blocks": ["hay_block"], "gives": {"minecraft:wheat": 9}, "tool": None,
+                            "break_s": 1.2},
+    "minecraft:wheat": {"blocks": ["wheat"], "gives": {"minecraft:wheat": 1, "minecraft:wheat_seeds": 1},
+                        "tool": None, "break_s": 0.4},
+    "minecraft:carrot": {"blocks": ["carrots"], "gives": {"minecraft:carrot": 3}, "tool": None, "break_s": 0.4},
+    "minecraft:potato": {"blocks": ["potatoes"], "gives": {"minecraft:potato": 3}, "tool": None, "break_s": 0.4},
+    "minecraft:beetroot": {"blocks": ["beetroots"], "gives": {"minecraft:beetroot": 1}, "tool": None,
+                           "break_s": 0.4},
+    "minecraft:pumpkin": {"blocks": ["pumpkin", "carved_pumpkin"], "gives": {"minecraft:pumpkin": 1},
+                          "tool": None, "break_s": 1.5},
+    "minecraft:melon_slice": {"blocks": ["melon"], "gives": {"minecraft:melon_slice": 5}, "tool": None,
+                              "break_s": 1.5},
+}
+
+
+def takeable_blocks():
+    """Every block worth walking over to break, flat — one list for the travel scan and the resource map."""
+    return sorted({b for row in TAKEABLE.values() for b in row["blocks"]})
+
 
 # Stations are required by a step but not consumed.
 STATIONS = {"minecraft:crafting_table", "minecraft:furnace"}

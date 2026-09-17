@@ -147,6 +147,9 @@ _PRICES = {}
 def reach_cost(cols, state):
     """Pure: {dimension: cheapest seconds to obtain one unit}, ignoring how much is needed.
 
+    An ENGINE of `gates.V`: the relaxation belongs to the solver, the question "what is this state worth" belongs
+    to the value door.
+
     The global relaxation, computed once per round and shared by every layer of the descent — it is what lets a
     layer treat "and then the rest of the chain" as a single number instead of unrolling it. A column's cost is its
     own seconds plus the cost of everything it consumes and requires; a dimension's cost is the cheapest column
@@ -189,57 +192,6 @@ def reach_tree(cols, state):
     return cost, via
 
 
-_CREDITS = {}
-
-
-def credits(cols, state, ends):
-    """Pure: {end: {dimension: seconds of that end's cheapest route that pass through this dimension}}.
-
-    What one dimension becoming free would save the end, read off the route tree instead of recomputed. A walk
-    down one route, so the whole table costs a route per end — microseconds, against a second relaxation and a
-    second solve per candidate, which a tenth-of-a-second round cannot pay for.
-
-    A LOWER bound by construction: it credits only the route the tree actually took, never a cheaper one that
-    becoming free might open. Shy is the safe direction — under-crediting delays a good plan by a round, while
-    over-crediting is how an enchanting table came to be worth two hundred thousand seconds.
-    """
-    cost, via = reach_tree(cols, state)
-    key = (id(cols), tuple(sorted(state.items())), tuple(sorted(ends)))
-    if key in _CREDITS:
-        return _CREDITS[key]
-    out = {}
-    for end in ends:
-        rows = {}
-        if cost.get(end, float("inf")) == float("inf"):
-            out[end] = rows
-            continue
-        seen, stack = set(), [(end, 1.0)]
-        while stack:
-            dim, units = stack.pop()
-            if units <= 0 or state.get(dim, 0) > 0:
-                continue          # already held: it is on nobody's route, because it costs nothing to have
-            price = cost.get(dim, float("inf"))
-            if price == float("inf"):
-                continue
-            rows[dim] = min(rows.get(dim, 0.0) + units * price, cost[end])
-            if dim in seen:
-                continue          # a dimension two branches both want is credited once, not once per branch
-            seen.add(dim)
-            a = via.get(dim)
-            if a is None:
-                continue
-            runs = units / float(a.effect.get(dim, 1))
-            for d, v in a.effect.items():
-                if v < 0:
-                    stack.append((d, runs * -v))
-            for d in a.requires:
-                if state.get(d, 0) <= 0:
-                    stack.append((d, 1.0))
-        out[end] = {d: round(v, 2) for d, v in rows.items()}
-    if len(_CREDITS) > MEMO_MAX:
-        _CREDITS.clear()
-    _CREDITS[key] = out
-    return out
 
 
 def cost_of(actions, state, target):

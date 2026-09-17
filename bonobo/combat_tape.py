@@ -137,14 +137,3 @@ class EventStream:
             self.seq = max(self.seq, data.get("latest", self.seq))
         return got
 
-    def wait_for(self, kind, timeout_s=5.0, **match):
-        """Block until an event of `kind` arrives whose fields match, or the timeout. Returns it, or None.
-
-        This is what replaces "ask every 200 ms whether the dragon has landed yet".
-        """
-        end = time.time() + timeout_s
-        while time.time() < end:
-            for e in self.poll(int(min(1000, max(50, (end - time.time()) * 1000)))):
-                if e.get("type") == kind and all(e.get(k) == v for k, v in match.items()):
-                    return e
-        return None

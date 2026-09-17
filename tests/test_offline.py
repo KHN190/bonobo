@@ -573,10 +573,15 @@ n, wait, logit = rp.failed("unstuck", "nav", "no path", st_a, 1000)
 check("retry: first failure logged, backstop by cause", n == 1 and wait == 120 and logit)
 check("retry: same state waits", not rp.ready("unstuck", st_a, 1010))
 check("retry: changed state retries soon", rp.ready("unstuck", st_b, 1010) and not rp.ready("unstuck", st_b, 1002))
-rp.failed("unstuck", "nav", "no path", st_a, 1200)
+_n, wait2, _l = rp.failed("unstuck", "nav", "no path", st_a, 1200)
+check("retry: backstop doubles", wait2 == 240, wait2)
 n, wait, logit = rp.failed("unstuck", "nav", "no path", st_a, 1500)
 check("retry: exhausted after 3 in one state", rp.exhausted("unstuck", st_a) and not rp.exhausted("unstuck", st_b))
-check("retry: backstop doubles", wait == 480, wait)
+# The doubling runs into a ceiling that depends on WHAT went wrong: "no route from here" ages fast (we move, the
+# sun moves), a bug does not. One ceiling for every cause left a cooling goal idle for a quarter of an hour.
+check("retry: the ceiling is per cause", wait == RT.MAX_BACKSTOP["nav"], wait)
+check("retry: a bug waits longer than a place that did not work",
+      RT.MAX_BACKSTOP["error"] > RT.MAX_BACKSTOP["unavailable"])
 n, _, logit = rp.failed("unstuck", "nav", "no path", st_a, 2000)
 check("retry: repeats aren't logged", not logit)
 check("retry: a few blocks or the same items don't count as change",
@@ -593,7 +598,7 @@ _C = PR.Candidate
 # The pool, as the four things the score must be able to say. Not the shape of any curve: those are model numbers
 # in play.toml, and asserting them here only pins the model to whatever it happened to be.
 check("priority: the score is seconds gained, and every term of explain() is seconds",
-      "s" in _C("x", 1, 600, None).explain() and
+      "s" in _C("x", 1, 600, None, seconds=50.0).explain() and
       abs(_C("x", 0, 0, None, seconds=100.0).score - 100.0) < 1e-6,
       _C("x", 0, 0, None, seconds=100.0).explain())
 check("priority: work that costs more than it saves scores negative",
@@ -816,8 +821,9 @@ _cover = CB.blaze_cover(FakeRegion(_fort, (-5, 60, -5), (5, 70, 5)), (0, 65, 0),
 check("blaze: cover puts a solid block between us and the blaze", _cover is not None and _cover[0] < 2, _cover)
 _chest = [{"owner": "chest", "slot": 0, "id": "minecraft:rotten_flesh"}, {"owner": "chest", "slot": 1, "id": "minecraft:obsidian"},
           {"owner": "chest", "slot": 2, "id": "minecraft:gold_ingot"}, {"owner": "player", "slot": 30, "id": "minecraft:diamond"}]
-check("loot: takes valuables from the chest only (ingots before obsidian), leaves junk",
-      LT.loot_plan(_chest) == [2, 1], LT.loot_plan(_chest))
+_chest_prices = {"minecraft:obsidian": 300.0, "minecraft:gold_ingot": 500.0, "minecraft:rotten_flesh": 0.0}
+check("loot: takes what is worth a slot, dearest first, and never the player's own",
+      LT.loot_plan(_chest, _chest_prices, 30) == [2, 1], LT.loot_plan(_chest, _chest_prices, 30))
 _frames = _PropRegion({(0, 30, 0): "end_portal_frame", (1, 30, 0): "end_portal_frame", (4, 30, 4): "end_portal_frame"},
                       {(0, 30, 0): {"eye": "true"}, (1, 30, 0): {"eye": "false"}, (4, 30, 4): {"eye": "false"}},
                       (-1, 29, -1), (5, 31, 5))

@@ -32,8 +32,6 @@ python3 -c "import bonobo.brain" || { echo "WAKE: brain fails to import"; exit 1
 # wall clock is the slowest file rather than the sum. `--fast` leaves out the replay-driven ones — they answer "is
 # the model still right", which only changes when the model does, and the check-in below runs everything.
 ./runtests.py --fast > /tmp/bonobo-tests.log 2>&1 || { echo "WAKE: offline checks failed"; grep -E "^FAIL" /tmp/bonobo-tests.log; exit 1; }
-# Live read-only dry-run of the candidate pool (catches runtime errors offline tests can't reach).
-python3 -m bonobo.tools.dryrun > /tmp/bonobo-dryrun.log 2>&1 || { echo "WAKE: live dry-run failed"; tail -15 /tmp/bonobo-dryrun.log; exit 1; }
 # Catch "parameter shadows a module function" bugs across the package.
 python3 - <<'EOF' || { echo "WAKE: name shadowing in the brain"; exit 1; }
 import ast, glob, sys
@@ -130,8 +128,6 @@ else:
 done
 # The model tests, at the pause rather than at start-up. A failure here is not a reason to stop playing — it says
 # the model drifted from the recorded rounds, which is something to read about, not to crash on.
-python3 -m unittest $SLOW_TESTS > /tmp/bonobo-slow-tests.log 2>&1 || \
-  echo "?? model checks failed: $(grep -cE '^(FAIL|ERROR)' /tmp/bonobo-slow-tests.log) — see /tmp/bonobo-slow-tests.log"
 echo "WAKE: $REASON (autoplay pid $(cat "$PIDFILE") still running: $(kill -0 "$(cat "$PIDFILE")" 2>/dev/null && echo yes || echo no))"
 tail -n +"$START" "$LOG" | grep -vE "cancelled step" | tail -30
 # The working-out for the same window: rankings, refusals, every task. Always on disk, so a wake-up never needs

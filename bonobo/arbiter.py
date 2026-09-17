@@ -58,10 +58,12 @@ class Intent:
         return (now if now is not None else time.time()) - self.at > self.deadline_s
 
     def interrupt_cost_s(self, now=None):
-        """Seconds of work already put in, which abandoning this would throw away. Asked at the moment of the
-        interruption: a price frozen when the intent was submitted is always zero."""
-        spent = max(0.0, (now if now is not None else time.time()) - self.at) * self.cost_rate
-        return min(spent, self.cost_s) if self.cost_s is not None else spent
+        """Seconds of work already put in, which abandoning this would throw away — `estimate.sunk_s` over how
+        long this intent has been running. Asked at the moment of the interruption: a price frozen when the intent
+        was submitted is always zero."""
+        from . import estimate
+        elapsed = (now if now is not None else time.time()) - self.at
+        return estimate.sunk_s(self.cost_rate, elapsed, self.cost_s)
 
     def over_commitment(self, now=None):
         """Has the body owed the world a fresh decision since `commit_s`? The action is not wrong, only stale."""
@@ -71,6 +73,20 @@ class Intent:
 
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
+
+
+def wants_body(body, running, now=None):
+    """Is there a reason to take the body from `running` right now?
+
+    A faster layer waiting for it — and nothing else. The commitment used to be read as a timer, so a walk to a
+    chest forty blocks away was abandoned every ten seconds, re-scored, and walked again: the agent paced back and
+    forth for a session. Time passing is not a reason; somebody faster wanting the body is.
+    """
+    if running is None:
+        return False
+    with body._lock:
+        pending = list(body.pending)
+    return any(p.scale < running.scale and not p.expired(now) for p in pending)
 
 
 def arbitrate(intents, now=None):
@@ -100,6 +116,7 @@ class Motion:
         self.preempted_by = None
         self.violations = []
         self.driving = None       # the preemption currently executing, if any
+        self.lease = None         # (intent, release): who holds the body, and what ends their hold
         self._log = log or (lambda *_: None)
 
     # -- engagement ------------------------------------------------------------------------------------------------
@@ -135,9 +152,35 @@ class Motion:
     def current(self):
         return getattr(self._local, "current", None)
 
+    def holder(self):
+        """The intent holding the body, or None. A lease outlives the call that took it: an answer is not done
+        when its first task returns, it is done when answering stops being worth more than working."""
+        with self._lock:
+            if self.lease is None:
+                return None
+            intent, release = self.lease
+            try:
+                done = bool(release())
+            except Exception:
+                done = True       # a judgement we cannot make is not a reason to keep the body
+            if done:
+                self.lease = None
+                self._log(f"   motion: {intent.layer} '{intent.reason}' hands the body back")
+                return None
+            return intent
+
     def owns(self, what):
-        """Is the calling thread allowed to drive the body right now? Always, outside a fight. Inside one, only
-        while executing the chosen intent. Refusals are recorded so a test can assert none happened."""
+        """Is the calling thread allowed to drive the body right now?
+
+        While a lease stands, only the thread running that intent may drive. This used to be gated on `engaged`
+        (a boss fight), so in ordinary play every thread was allowed and whoever posted last won: the threat
+        answer took the body, the planner's next mine task replaced it, and the agent stood still being hit.
+        """
+        holder = self.holder()
+        if holder is not None and self.current() is not holder:
+            self.violations.append((time.time(), what))
+            self._log(f"?? {what} drove the body while '{holder.reason}' held it (refused)")
+            return False
         if not self.engaged or self.current() is not None:
             return True
         self.violations.append((time.time(), what))
@@ -146,7 +189,7 @@ class Motion:
 
     # -- fast layers: preempt ----------------------------------------------------------------------------------------
 
-    def preempt(self, layer, action, reason="", worth_s=None, now=None, clear_first=False):
+    def preempt(self, layer, action, reason="", worth_s=None, now=None, clear_first=False, release=None):
         """A fast layer speaks: run now, on this thread, and mark every slower intent stale. Returns (layer,
         reason), or None when the layer was not worth the interruption.
 
@@ -165,6 +208,10 @@ class Motion:
         # Subsumption applies to what is RUNNING, not only to what is pending: an answer that is half carried out
         # may be cut off by a faster layer and by nothing else. Without this the threat layer stopped its own
         # answer 0.05 s after starting it, every tick, and the log filled with contested tasks.
+        holder = self.holder()
+        if holder is not None and holder.scale <= intent.scale and holder is not self.current():
+            self._log(f"   motion: {layer} '{reason}' waits: {holder.layer} '{holder.reason}' holds the body")
+            return None
         driving = self.driving
         if driving is not None and driving.scale <= intent.scale:
             self._log(f"   motion: {layer} '{reason}' waits: {driving.layer} '{driving.reason}' is driving")
@@ -180,6 +227,11 @@ class Motion:
         with self._lock:
             self.pending = [p for p in self.pending if p.scale <= intent.scale]
             self.preempted_at, self.preempted_by = intent.at, intent
+            if release is not None:
+                # Taking the body and saying so are one step. While they were two, the /stop below woke the
+                # planner, it asked `owns` before the lease existed, and posted its next task into the gap — which
+                # replaced this answer 0.05 s after it started, three fixes in a row.
+                self.lease = (intent, release)
             if intent.scale <= SAFETY:
                 # The message channel has ONE writer: a preemption. Whatever slow action is running reads it and
                 # abandons itself. Anyone else writing it was a second commander with a different opinion.
@@ -187,7 +239,7 @@ class Motion:
                 api.INTERRUPT = reason
         if clear_first:
             # The slower layer's task is still running in the mod, and posting on top of it is two commanders.
-            # Cancelling goes through this module like every other command to the body.
+            # Sent after the lease stands, so whoever this wakes is already refused.
             from . import api
             try:
                 api.post("/stop")

@@ -93,10 +93,11 @@ def commitment(action):
 def value(model, state, action):
     """Seconds this action saves: what the future costs now, minus what it costs after the action has happened.
 
-    Its own duration is NOT subtracted here — that is `cost_s`, and it is subtracted once, in `score`. Folding
-    the time into the price is how an action comes to look free.
+    `estimate.saved_s` with nothing charged: its own duration is NOT subtracted here — that is `cost_s`, and it is
+    subtracted once, in `score`. Folding the time into the price is how an action comes to look free.
     """
-    return model.price(state) - model.price(action.effect(state))
+    from . import estimate
+    return estimate.saved_s(lambda s: estimate.state_price_s(model, s), state, action.effect(state))
 
 
 def survivors(model, state):

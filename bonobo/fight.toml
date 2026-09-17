@@ -26,7 +26,8 @@ dragon_hp = 200.0
 bed_damage = 40.0      # multiplies every benefit through windows_left
 sprint_speed = 4.3
 hp_floor = 6.0         # health never to be spent: below it nothing sprints and nothing regenerates
-death_risk_per_exposed_s = 0.10    # slope of p(death) against seconds in the open
+death_risk_per_exposed_s = 0.10    # health per second, as a share of a full bar, taken while a window is open
+cover_lets_through = 0.05          # of that rate that reaches us inside a bunker
 exposure_in_cover_s = 1.0          # seconds exposed per window when there is a bunker
 exposure_in_open_s = 3.0           # and when there is not
 crystal_heal_hp = 10.0             # work a crystal adds back per lap while it stands
@@ -37,8 +38,9 @@ reaction_s = 2.0                   # seconds of damage taken before anything we 
 # Which of the numbers above are guesses. Every one of these is a multiplier on the objective, so a plan built on
 # them is a plan built on my typing: `mc.py report --fit` fits what the tapes can support and rewrites this list.
 # Every plan carries the list as `assumptions`, so nobody mistakes the ranking for a measurement.
-unmeasured = ["bed_damage", "death_risk_per_exposed_s", "exposure_in_cover_s", "exposure_in_open_s",
-              "crystal_heal_hp", "melee_per_window", "cover_windows_unreinforced", "reaction_s"]
+unmeasured = ["bed_damage", "death_risk_per_exposed_s", "cover_lets_through", "exposure_in_cover_s",
+              "exposure_in_open_s", "crystal_heal_hp", "melee_per_window", "cover_windows_unreinforced",
+              "reaction_s"]
 
 [dps]
 # Health per second while inside each threat's reach. A new enemy is a row here and a radius in combat_model.HAZARD_R —

@@ -5,26 +5,35 @@ import math
 
 from . import api, nav
 from .api import McError, NotAvailable, log
+from .beliefs import slot_cost_s
 from .skill import skill
 from .world import Inventory, find
 
-WANTED_SUFFIX = ("_ingot", "diamond", "obsidian", "flint_and_steel", "ender_pearl", "arrow", "golden_carrot",
-                 "golden_apple", "bread", "cooked_", "emerald", "saddle", "bucket", "bow", "_nugget", "blaze_rod",
-                 "string", "gunpowder", "book", "enchanted_book", "name_tag", "fire_charge", "raw_iron", "raw_gold")
+def loot_plan(slots, prices, bag_free, stack=64):
+    """Pure: container slot numbers worth taking, dearest first.
 
+    There used to be a hand-written list of interesting suffixes here. It had no wheat in it, no potatoes and no
+    planks, so the agent walked to a village chest, opened it, took nothing, and wrote the chest down as looted.
+    A list of names is a price nobody can check.
 
-def loot_plan(slots):
-    """Pure: container slot numbers worth taking (chest-owned, a wanted item), most valuable kinds first."""
-    rank = {s: i for i, s in enumerate(WANTED_SUFFIX)}
+    What a stack is worth is what getting it another way would cost (`prices`, the round's shadow prices), and what
+    taking it costs is the slot it eats (`actions.slot_cost_s`, which grows as the bag fills). Take it while the
+    first is bigger than the second — so wheat is loot in a world where bread is dear, sticks are loot only when
+    the bag is empty, and something nobody has a price for is left where it is.
+    """
     take = []
+    free = float(bag_free)
     for s in slots:
         if s.get("owner") == "player" or s.get("id") in (None, "minecraft:air"):
             continue
-        item = s["id"].split(":")[-1]
-        hits = [rank[w] for w in WANTED_SUFFIX if w in item]
-        if hits:
-            take.append((min(hits), s["slot"]))
-    return [slot for _, slot in sorted(take)]
+        per = prices.get(s["id"])
+        if per is None or per == float("inf"):
+            continue
+        worth = float(per) * float(s.get("count", 1))
+        if worth > slot_cost_s(max(1.0, free)):
+            take.append((-worth, s["slot"]))
+            free -= 1.0
+    return [slot for _worth, slot in sorted(take)]
 
 
 def unlooted_chests(ctx, radius=32):
@@ -75,10 +84,15 @@ def loot_chest(ctx):
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         ctx.ban(pos, 1800)
         raise McError(f"could not open the chest at {pos}")
+    prices = ctx.prices()
+    if not prices:
+        # No price table, no decision: taking nothing and calling the chest looted is how a chest of iron got
+        # written off. Say so instead — whoever built this context owes the skill its prices.
+        raise NotAvailable("no price table: cannot say what is worth taking")
     taken = 0
     try:
         from .world import container
-        for slot in loot_plan(container()["slots"]):
+        for slot in loot_plan(container()["slots"], prices, Inventory().free_slots()):
             api.post("/click", {"slot": slot, "button": 0, "action": "QUICK_MOVE"})
             taken += 1
             yield taken

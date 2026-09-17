@@ -15,6 +15,22 @@ BASE = paths.api_base()
 STUCK_SECONDS = 10
 
 
+# What the code chose not to look at. A world read inside a decision is allowed to fail — the game may be
+# restarting, a recorded round has no such call — but it must not fail INVISIBLY: swallowing it silently is how
+# route pricing stayed switched off for a whole session while every test passed, because "no price" and "no
+# answer" look identical from the outside. Every quiet handler reports here, and `mc.py` can print the tally.
+SWALLOWED = {}
+
+
+def swallowed(where, err):
+    """Record that a world read failed and was ignored. Returns None, so a handler can `return api.swallowed(...)`."""
+    key = f"{where}: {type(err).__name__}"
+    SWALLOWED[key] = SWALLOWED.get(key, 0) + 1
+    if SWALLOWED[key] in (1, 10, 100):
+        log(f"?? {where}: {type(err).__name__} ignored ({SWALLOWED[key]}×) — that feature is off in this round")
+    return None
+
+
 class McError(Exception):
     """Something went wrong carrying out a goal."""
 
@@ -259,13 +275,13 @@ def await_task(task_id, wait, exempt=("wait",)):
         r = get(f"/task?id={task_id}&wait=2")
         if INTERRUPT and MODE != "survival" and not SOFT:
             take_interrupt()
-        # The commitment the current plan was made under. Checked here because this is where the seconds go: every
-        # long action in this codebase is a task and a wait on it.
+        # Where the seconds go: every long action here is a task and a wait on it, so this is where the body
+        # changes hands. It changes hands when a faster layer is waiting for it — never because a clock ran out.
         from . import arbiter
         current = arbiter.BODY.current()
-        if current is not None and current.over_commitment() and r["status"] == "running":
-            raise CommitmentExpired(f"{r['type']} outlived the {current.commit_s}s commitment of "
-                                    f"'{current.reason}': re-planning")
+        if current is not None and r["status"] == "running" and arbiter.wants_body(arbiter.BODY, current):
+            raise CommitmentExpired(f"{r['type']} gives the body up: a faster layer is waiting "
+                                    f"(was '{current.reason}')")
         if r["status"] != "running":
             return r
         if time.time() > deadline:
@@ -390,9 +406,15 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
             done = [get(f"/task?id={resume}")]
         else:
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
-            LAST_POSTED = (chain_signature(part), r["tasks"][-1]["id"])
-            await_task(r["tasks"][-1]["id"], wait)
-            done = [get(f"/task?id={t['id']}") for t in r["tasks"]]
+            queued = r.get("tasks") or []
+            if not queued:
+                # The mod took the post and queued nothing — the body is held by another commander, or the tasks
+                # were refused. That is the world declining the work, not a bug in the caller: say so in the one
+                # language every skill already understands, instead of an IndexError that kills the round.
+                raise NotAvailable("the game queued none of the posted tasks")
+            LAST_POSTED = (chain_signature(part), queued[-1]["id"])
+            await_task(queued[-1]["id"], wait)
+            done = [get(f"/task?id={t['id']}") for t in queued]
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")

@@ -23,8 +23,11 @@ import math
 
 from .data import COVERED_SKY, GROUPS, bare, mid
 from .survival import CONFIG as _PLAY
-from .knowledge import (GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS,
+from .knowledge import (GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE,
                         TOOL_MATERIAL_FOR_TIER)
+from . import beliefs
+from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
+from . import estimate
 from .solve import Action
 
 TICKS_PER_S = 20.0
@@ -54,9 +57,17 @@ def exposure_of(action, state):
     here = tuple(state["here"])
     prot = float(state.get("protection", 0.0))
     tag = action.tag or ("",)
+    press = estimate.pressure_hp_s(here, hazards, prot)
     if tag[0] == "threat" and len(tag) > 1 and tag[1] in ("evade", "wall_in"):
-        return sum(float(threat.MOBS[h[3]]["dps"]) * threat.exposure_s(here, h) for h in hazards) * (1.0 - prot)
-    return threat.pressure(here, hazards, prot) * action.cost_s
+        return estimate.leaving_hp(press, action.cost_s)
+    return press * action.cost_s
+
+
+# The rate beliefs live at the bottom (`beliefs`), where the doors can reach them without importing this module.
+# These names stay because the columns read them.
+use_rate = beliefs.use_rate
+expected_uses = beliefs.expected_uses
+encounter_prior = beliefs.encounter_prior
 
 
 def with_exposure(action):
@@ -92,7 +103,8 @@ def left_behind_dims(actions):
     Standing at the coal is required and never spent, but it is not left for anyone — the next goal starts from
     wherever the body ends up, one place and not every place this plan walked through.
 
-    A tool is carried. `priority.future_value` already prices it through the fall in its own shadow price, and
+    A tool is carried. The one pricing door (`value.worth_s`) already prices it through the fall in the terminal
+    goods' own prices, and
     what it wears out is a spent dimension (`uses:`), so treating it as something left behind paid twice over: a
     diamond pickaxe came out as a legacy of eighteen thousand seconds.
     """
@@ -142,7 +154,7 @@ def consume(token, n):
 
 # ------------------------------------------------------------------------------------------------- the state vector
 
-def state_of(snap, mem, extra=None):
+def state_of(snap, mem, extra=None, reachable=None):
     """The world as a vector, from the snapshot and memory only — no world reads, so recorded rounds still replay.
 
     Items are counted by every token that names them (an oak log counts as "log" and as "minecraft:oak_log"),
@@ -168,11 +180,61 @@ def state_of(snap, mem, extra=None):
     for station in STATIONS:
         if inv.count(station):
             x[station] = x.get(station, 0)
+    # A station standing in the world, close enough to walk to, is the same fact as one in the bag: `smelt`
+    # requires "minecraft:furnace" and only a CARRIED one ever set it, so the agent beside the furnace it built
+    # planned eight more cobblestone and another furnace, round after round. Memory only — no world read.
+    for block, pos in _stations_near(snap, mem):
+        x[block] = max(x.get(block, 0), 1)
+    # Where we already ARE. Without this the state vector never satisfied an `at:` dimension, so the plan's first
+    # step stayed `seek` for ever: standing on stone, the agent "sought stone" twice a second, each time arriving
+    # instantly and changing nothing, and every stone tool died of it. Read from remembered resource points and
+    # sightings only — no world queries, so recorded rounds still replay.
+    # Being AT something means being able to work on it, not being near it in a straight line. Standing on the rim
+    # of a flooded pit is five blocks from the coal and no route to it, and the radius alone said "at: coal" — so
+    # the plan's next step was to mine, the mine failed for want of a way there, and the round repeated. `reachable`
+    # is whoever can price a route (`Brain.LiveCost.reach_s`); without one this is the old radius test.
+    for what, kinds in _findable():
+        if _standing_at(kinds, snap, mem) and (reachable is None or reachable(kinds)):
+            x[at(what)] = 1
     x["sheltered"] = 1 if _sheltered(snap, mem) else 0
     x["bag_free"] = max(0, 36 - inv.used_slots())
     x["bed"] = x.get("bed", 0)
     x.update(extra or {})
     return {d: v for d, v in x.items() if v}
+
+
+# Close enough to work on it without walking: the skills' own reach.
+ARRIVED_R = 5.0
+# Close enough to walk over and use: a station a few steps away is one we have.
+STATION_R = 8.0
+# What a built machine provides, by the tag the blueprint carries. One table, so a new machine kind is one line.
+MACHINE_PROVIDES = {"smelting": "minecraft:furnace", "crafting": "minecraft:crafting_table"}
+
+
+def _stations_near(snap, mem):
+    """[(block id, position)] of the stations and machines within reach of where we stand, from memory alone."""
+    out = []
+    for s in mem.stations(snap.dimension, near=snap.feet, within=STATION_R):
+        out.append((s["block"], tuple(s["pos"])))
+    for m in mem.machines(snap.dimension):
+        if math.dist(m["origin"], snap.feet) > STATION_R:
+            continue
+        for tag in m.get("tags", ()):
+            if tag in MACHINE_PROVIDES:
+                out.append((MACHINE_PROVIDES[tag], tuple(m["origin"])))
+    return out
+
+
+def _standing_at(kinds, snap, mem):
+    """Is one of these within arm's reach of where we stand, as far as memory knows?"""
+    for kind in kinds:
+        for pos in mem.resources(kind, snap.dimension):
+            if math.dist(pos, snap.feet) <= ARRIVED_R:
+                return True
+        for s in mem.sightings(kind, snap.dimension, max_age_min=2):
+            if math.dist(s["pos"], snap.feet) <= ARRIVED_R:
+                return True
+    return False
 
 
 def _sheltered(snap, mem):
@@ -184,6 +246,15 @@ def _sheltered(snap, mem):
 
 # ------------------------------------------------------------------------------------------------- the columns
 
+def work_s(cost, kind, token, count=1):
+    """Seconds this piece of work takes: what this kind costs per unit, times how many.
+
+    The ENGINE of `gates.takes_s(s, Do(kind, token))`. It lives here, with the table it reads, and the door asks it —
+    never the other way round, or the bottom of the package would depend on the top.
+    """
+    return float(cost.work_s(kind, token)) * float(count)
+
+
 def table(cost, state, wants=()):
     """Every action available in this world, as solver columns. `cost` answers the two questions an estimate needs:
     `walk_s(kinds)` (seconds to reach the nearest of these blocks/mobs, or None when none is known) and
@@ -194,6 +265,7 @@ def table(cost, state, wants=()):
     out += _seek(cost)
     out += _gather(cost)
     out += _mine(cost)
+    out += _take(cost)
     out += _hunt(cost)
     out += _craft(cost)
     out += _smelt(cost)
@@ -217,7 +289,17 @@ def _seek(cost):
     """
     out = []
     for what, kinds in _findable():
-        out.append(Action(f"seek:{what}", {at(what): 1}, cost.seek_s(kinds), limit=1,
+        reach = cost.reach_s(kinds)
+        if reach is None:
+            seconds = cost.seek_s(kinds)                  # nobody priced a route: the straight line, as before
+        elif reach == math.inf:
+            seconds = cost.seek_s(kinds, ignore_known=True)   # no route to that one: this errand is another one
+        else:
+            seconds = max(1.0, round(reach, 1))
+        # What we know may be old. An old note is a worse guess, not a wrong one, so it costs more rather than
+        # counting for nothing — a herd mapped last night still beats exploring, and still loses to one in sight.
+        seconds += beliefs.staleness_s(cost.note_age_s(kinds))
+        out.append(Action(f"seek:{what}", {at(what): 1}, seconds, limit=1,
                           tag=("seek", what, kinds, cost.where(kinds))))
     return out
 
@@ -229,13 +311,15 @@ def _findable():
         seen.setdefault(blocks[0], list(blocks))
     for _token, types in HUNT.items():
         seen.setdefault(types[0], list(types))
+    for row in TAKEABLE.values():
+        seen.setdefault(row["blocks"][0], list(row["blocks"]))
     seen.setdefault("tree", list(GROUPS["log"]))
     seen.setdefault("water", ["minecraft:water"])
     return sorted(seen.items())
 
 
 def _gather(cost):
-    return [Action("gather:log", produce("log", 1), cost.work_s("gather", "log"),
+    return [Action("gather:log", produce("log", 1), work_s(cost, "gather", "log"),
                    requires={at("tree"): 1, "bag_free": 1}, tag=("gather", "log"))]
 
 
@@ -252,8 +336,35 @@ def _mine(cost):
             effect[uses_dim("pickaxe")] = effect.get(uses_dim("pickaxe"), 0) - 1
         if token == "minecraft:cobblestone":
             effect["stone"] = effect.get("stone", 0) + per     # what recipes and shelters ask for
-        out.append(Action(f"mine:{token}", effect, cost.work_s("mine", token), requires=requires,
+        out.append(Action(f"mine:{token}", effect, work_s(cost, "mine", token), requires=requires,
                           tag=("mine", token, blocks, tier)))
+    return out
+
+
+def _take(cost):
+    """One column per finished thing the world already holds: go to it, break it, keep it.
+
+    The village the agent spawned in had beds, furnaces, tables and hay in it, and the table could only say
+    "craft". A column that says "take" makes the comparison arithmetic — a bed twenty blocks away beats three
+    sheep and a shearing, the same bed half a kilometre away does not — and nobody writes the rule.
+
+    Priced like mining, because it IS mining: being there is a requirement (`seek` satisfies it), room in the bag
+    is a requirement, the tool is a requirement where the block needs one, and the seconds are the block's own.
+    """
+    out = []
+    for token, row in TAKEABLE.items():
+        requires = {at(row["blocks"][0]): 1, "bag_free": 1}
+        tool = row["tool"]
+        effect = {}
+        for given, count in row["gives"].items():
+            for d, v in produce(given, count).items():
+                effect[d] = effect.get(d, 0) + v
+        if tool is not None:
+            kind, tier = tool
+            requires[tool_dim(kind, tier)] = 1
+            effect[uses_dim(kind)] = effect.get(uses_dim(kind), 0) - 1
+        out.append(Action(f"take:{token}", effect, float(row["break_s"]), requires=requires,
+                          tag=("take", token, list(row["blocks"]))))
     return out
 
 
@@ -265,7 +376,7 @@ def _hunt(cost):
         if any(t in FIGHTERS for t in types):
             # It fights back, so it needs a weapon — the same fact the threat layer uses to refuse the fight.
             requires[tool_dim("sword", 1)] = 1
-        out.append(Action(f"hunt:{token}", produce(token, per), cost.work_s("hunt", token), requires=requires,
+        out.append(Action(f"hunt:{token}", produce(token, per), work_s(cost, "hunt", token), requires=requires,
                           tag=("hunt", token, types)))
     return out
 
@@ -281,7 +392,7 @@ def _craft(cost):
         requires = {}
         if len(pattern) == 9:
             requires["minecraft:crafting_table"] = 1
-        out.append(Action(f"craft:{token}", effect, cost.work_s("craft", token), requires=requires,
+        out.append(Action(f"craft:{token}", effect, work_s(cost, "craft", token), requires=requires,
                           tag=("craft", token, pattern, made)))
     # Tools are craftable at every tier; the dimensions are cumulative so a tier-2 tool also satisfies tier-1 needs.
     for name, (pattern, made) in RECIPES.items():
@@ -307,7 +418,7 @@ def _smelt(cost):
         for d, v in consume("minecraft:coal", 0.125).items():
             effect[d] = effect.get(d, 0) + v
         out.append(Action(f"smelt:{token}", effect,
-                          cost.work_s("smelt", token), requires={"minecraft:furnace": 1},
+                          work_s(cost, "smelt", token), requires={"minecraft:furnace": 1},
                           tag=("smelt", token, source)))
     return out
 
@@ -330,7 +441,7 @@ def _resume(cost, state):
         where = f"{int(pos[0])},{int(pos[1])},{int(pos[2])}"
         walk = cost.walk_to(pos) or 0.0
         out.append(Action(f"resume:{kind}@{where}", {RESUMES[kind]: 1},
-                          max(0.5, cost.work_s("shelter", kind) * remaining + walk), limit=1,
+                          max(0.5, work_s(cost, "shelter", kind) * remaining + walk), limit=1,
                           tag=("resume", kind, pos)))
     return out
 
@@ -342,24 +453,69 @@ RESUMES = {"dig_in": "sheltered", "pod": "sheltered", "hut": "sheltered", "tunne
 def _room(cost, state):
     """Ways to free bag space. Without these the requirement above would simply make a full bag unplannable."""
     return [
-        Action("room:tidy", {"bag_free": 8}, cost.work_s("room", "tidy"), limit=1, tag=("room", "tidy")),
-        Action("room:deposit", {"bag_free": 16}, cost.work_s("room", "deposit"), limit=1, tag=("room", "deposit")),
+        Action("room:tidy", {"bag_free": 8}, work_s(cost, "room", "tidy"), limit=1, tag=("room", "tidy")),
+        Action("room:deposit", {"bag_free": 16}, work_s(cost, "room", "deposit"), limit=1, tag=("room", "deposit")),
     ]
 
 
 def _shelter(cost, state):
     """Several ways to survive a night, each with its own price. The solver chooses; no if-chain decides."""
     out = [
-        Action("shelter:dig in", {"sheltered": 1}, cost.work_s("shelter", "dig in"),
+        Action("shelter:dig in", {"sheltered": 1}, work_s(cost, "shelter", "dig in"),
                requires={tool_dim("pickaxe", 0): 1}, limit=1, tag=("shelter", "dig_in")),
-        Action("shelter:wall in", {"sheltered": 1, "building": -9}, cost.work_s("shelter", "wall in"),
+        Action("shelter:wall in", {"sheltered": 1, "building": -9}, work_s(cost, "shelter", "wall in"),
                limit=1, tag=("shelter", "pod")),
         Action("shelter:hut", {"sheltered": 1, "stone": -14, "door": -1, "minecraft:torch": -1},
-               cost.work_s("shelter", "hut"), limit=1, tag=("shelter", "hut")),
+               work_s(cost, "shelter", "hut"), limit=1, tag=("shelter", "hut")),
     ]
-    out.append(Action("sleep", {"slept": 1, at("bed"): 0}, cost.work_s("sleep", "bed"),
+    out.append(Action("sleep", {"slept": 1, at("bed"): 0}, work_s(cost, "sleep", "bed"),
                       requires={"bed": 1, "sheltered": 1}, limit=1, tag=("sleep",)))
     return out
+
+
+def marginal_batch(step, shadow, demand, bag_free, stack=64):
+    """How much to actually take, from the margin rather than from the shortfall.
+
+    The plan asks for what THIS goal needs — one cobblestone for a furnace — and the body pays the same approach,
+    task chain and re-decision for one as for forty. But "always take eight" is a constant nobody can defend, and
+    it hoards gold as eagerly as stone.
+
+    The margin can be defended, and every term is already computed:
+
+        take one more   while   shadow[token]  >=  pick_s + slot_cost_s(free)/stack
+
+    `shadow` is the round's dual (`solve.reach_cost` / `Plan.shadow`): what one more unit of this token saves
+    everything that wants it. `demand` is what the open goals still want of it in total, so the extra is never
+    imaginary — gold nothing asks for has demand 0 and is taken exactly as planned, while logs and stone, which
+    half the plan passes through, are taken until the bag says stop. No dimensionless factors, no per-item table.
+    """
+    if step.kind not in ("mine", "gather", "take"):
+        return step
+    per_unit = float(shadow.get(step.token, 0.0) or 0.0)
+    want = int(max(step.count, min(int(demand.get(step.token, 0) or 0), _cap_for(bag_free, stack))))
+    pick_s = beliefs.cautious("batch.pick_s", "cost")
+    while want > step.count:
+        # Cost of the LAST unit of this batch: picking it up, plus the slot it eats, at the fullness it leaves.
+        free_after = float(bag_free) - float(want) / float(stack)
+        slots_needed = math.ceil(want / float(stack))
+        slot_cost = beliefs.slots_cost_s(slots_needed, float(bag_free))
+        if per_unit * want >= pick_s * want + slot_cost and free_after >= 1.0:
+            break
+        want -= 1
+    if want <= step.count:
+        return step
+    per_tick = step.est / step.count if step.count else 0
+    step.est = int(round(per_tick * want))
+    step.detail["batched"] = True        # one task chain: the body is busy for all of it (priority.step_commitment)
+    if step.kind == "mine" and step.detail.get("breaks"):
+        step.detail["breaks"] = int(math.ceil(step.detail["breaks"] * want / step.count))
+    step.count = want
+    return step
+
+
+def _cap_for(bag_free, stack):
+    """The most units the bag could hold, leaving a slot to move in."""
+    return int(max(0.0, float(bag_free) - 1.0) * float(stack))
 
 
 def target_of(needs):
@@ -411,6 +567,9 @@ def _shape(action, times):
         per = MINE_YIELD.get(mid(token), 1)
         return Step("mine", token, max(1, int(round(times * per))),
                     {"blocks": list(blocks), "tier": tier, "breaks": times})
+    if kind == "take":
+        _, token, blocks = tag
+        return Step("take", token, times, {"blocks": list(blocks)})
     if kind == "hunt":
         _, token, types = tag
         per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
@@ -453,30 +612,35 @@ class Costs:
         self._distance = find_distance
         self.unknown = unknown_walk_s
 
-    def seek_s(self, kinds):
-        """Seconds to reach one of these: known distance, else measured search distance, else the prior."""
-        known = self._distance(list(kinds))
-        if known is not None:
-            return max(1.0, round(known / float(_PLAY["player"]["speed"]) + 2.0, 1))
-        measured = self.searched(list(kinds))
-        if measured:
-            return max(1.0, round(measured / float(_PLAY["player"]["speed"]) + 2.0, 1))
-        return float(_PLAY["pool"]["seek_prior_s"])
+    def distance(self, kinds):
+        """How far the nearest of these is, or None. A FACT about the world, not a duration: what it costs in
+        seconds is the time door's business (`gates.takes_s`)."""
+        return self._distance(list(kinds))
+
+    def seek_s(self, kinds, ignore_known=False):
+        """Seconds to go to one of these: the nearest one we know of, else how far these turn out to be, else the
+        declared prior. The ENGINE of `gates.takes_s(s, Seek(kinds))`.
+
+        `ignore_known` prices going to ANOTHER one — the nearest has no route from here, so its distance says
+        nothing about what this errand costs."""
+        speed = float(_PLAY["player"]["speed"])
+        known = None if ignore_known else self.distance(list(kinds))
+        if known is None:
+            known = self.searched(list(kinds))
+        if known is None:
+            return float(_PLAY["pool"]["seek_prior_s"])
+        return max(1.0, round(float(known) / speed + 2.0, 1))
 
     def walk_s(self, kinds, misses=0):
-        """Seconds to reach the nearest known one. Each previous "nothing of this kind here" doubles the radius the
-        next look has to cover, so the walk grows geometrically: 30 s, 60 s, 120 s… The goal never dies, it just
-        stops being the cheapest thing to do, and it comes straight back the moment one is actually seen.
-        """
-        d = self._distance(kinds)
+        """Seconds to reach the nearest KNOWN one, or None. Each "nothing of this kind here" widens the radius the
+        next look must cover, so the errand never dies — it stops being the cheapest thing to do."""
+        d = self.distance(list(kinds))
         if d is None:
             return None
         if misses:
-            measured = self.searched(kinds)
-            # Doubling is only the prior. Once it is known how far these actually turn out to be, the miss count
-            # multiplies the MEASURED distance instead — a guess corrected by the world rather than compounded.
+            measured = self.searched(list(kinds))
             d = max(d, measured * misses) if measured else d * float(_PLAY["pool"]["search_growth"]) ** int(misses)
-        return max(1.0, round(d / 4.3 + 2.0, 1))
+        return max(1.0, round(float(d) / float(_PLAY["player"]["speed"]) + 2.0, 1))
 
     def searched(self, kinds):
         """How far one of these was found at on average, from experience. None until it has happened."""
@@ -487,6 +651,22 @@ class Costs:
         same direction, which is what "on the way" means — and "on the way" is most of a speedrun's saving."""
         return None
 
+    def note_age_s(self, kinds):
+        """How old the note about the nearest of these is, in seconds. Zero when nobody has looked (a guess is not
+        stale, it is a guess), and what `gates.marginal("staleness")` turns into the extra seconds it costs."""
+        return 0.0
+
+    def reach_s(self, kinds):
+        """Seconds to get within working reach of the nearest one — the route-aware half of the time door
+        (`gates.takes_s(s, Go(here, there))`), asked through the cost oracle because the columns hold the oracle.
+
+        A number, `math.inf` when there is no route from here, or None when nobody has looked.
+
+        This is the one answer "I can see it but cannot get to it" needs. Water, lava, a wall, a drop, nothing to
+        bridge with — every reason is already priced by the moves a route is allowed to make, so the planner never
+        has to enumerate them, and a dear route simply loses to a cheaper errand."""
+        return None
+
     def work_s(self, kind, token):
         return self.WORK.get((kind, token), self.WORK.get((kind, None), 10.0))
 
@@ -495,7 +675,8 @@ class Costs:
         return []
 
     def walk_to(self, pos):
-        """Seconds to reach a known position, or None."""
+        """Seconds to reach a known position, or None. A FACT provider: the door (`gates.takes_s(s, Go(...))`) is
+        what turns a position into seconds when the terrain matters."""
         return None
 
 
@@ -512,6 +693,16 @@ class LiveCosts(Costs):
 
     def where(self, kinds):
         return self._position(list(kinds))
+
+    def reach_s(self, kinds):
+        ask = getattr(self.model, "reach_s", None)
+        return ask(list(kinds)) if ask else None
+
+    def note_age_s(self, kinds):
+        mem, snap = getattr(self.model, "mem", None), getattr(self.model, "snap", None)
+        if mem is None or snap is None or not hasattr(mem, "note_age_s"):
+            return 0.0
+        return mem.note_age_s(list(kinds), snap.dimension)
 
     def searched(self, kinds):
         mem = getattr(self.model, "mem", None)

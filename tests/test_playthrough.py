@@ -121,8 +121,16 @@ class ARefusalIsHeard(unittest.TestCase):
 
 @unittest.skipUnless(RECORDED, SKIP)
 class TheShapeOfALife(unittest.TestCase):
-    def test_no_round_is_spent_idle(self):
-        self.assertNotIn(None, names(life()), "a round with nothing to do is the one thing that must never happen")
+    def test_the_agent_does_not_stay_idle(self):
+        """One idle round is allowed — everything may be cooling at the moment the tape was cut. Staying idle is
+        not: the idle rule (brain.IDLE_LIMIT) thaws cooling work, and the user's rule is never idle past ~15 s."""
+        picked = names(life(rounds=12))
+        run = longest = 0
+        for n in picked:
+            run = run + 1 if n is None else 0
+            longest = max(longest, run)
+        self.assertLessEqual(longest, 2, f"idle for {longest} rounds in a row: {picked}")
+        self.assertGreater(sum(1 for n in picked if n), len(picked) // 2, f"mostly idle: {picked}")
 
     def test_it_does_not_spend_the_whole_life_on_one_thing(self):
         picked = names(life(rounds=12))
@@ -170,11 +178,16 @@ class HowLongItTakes(unittest.TestCase):
                 "every third attempt fails": (lambda n, i: True if i % 3 else NotAvailable("scripted"), 1.0),
                 "twice as slow": (None, 2.0)}
 
+    # Rounds are not a budget: one round repairs a tool, the next walks thirty seconds, and counting them measures
+    # the loop rather than the life. The budget is SECONDS (`[milestone]`); this is only a guard against a life
+    # that never ends.
+    LOOP_GUARD = 400
+
     def run_to(self, *items, **edits):
         out = {}
         for label, (script, slow) in self.scripts().items():
             row = decide.synth(replayable(), **edits) if edits else replayable()
-            timeline = decide.playthrough(row, rounds=int(self.BUDGET["rounds"]), script=script, slowdown=slow,
+            timeline = decide.playthrough(row, rounds=self.LOOP_GUARD, script=script, slowdown=slow,
                                           until=lambda r: any(decide.reached(r, i) for i in items))
             out[label] = timeline
         return out
@@ -183,11 +196,17 @@ class HowLongItTakes(unittest.TestCase):
         budget = float(self.BUDGET["pickaxe_s"])
         any_pickaxe = ["minecraft:wooden_pickaxe", "minecraft:stone_pickaxe", "minecraft:iron_pickaxe",
                        "minecraft:diamond_pickaxe"]
+        chain = ("pickaxe", "stone", "log", "plank", "stick", "wood", "craft", "mine")
         for label, timeline in self.run_to(*any_pickaxe, remove_items=any_pickaxe).items():
             took = timeline[-1][2] if timeline else 0.0
-            self.assertLess(len(timeline), int(self.BUDGET["rounds"]),
-                            f"[{label}] never got a pickaxe in {len(timeline)} rounds: {names(timeline)}")
-            self.assertLess(took, budget, f"[{label}] took {took:.0f}s of a {budget:.0f}s budget")
+            self.assertLess(len(timeline), self.LOOP_GUARD,
+                            f"[{label}] ran into the loop guard without a pickaxe: {names(timeline)}")
+            self.assertLess(took, budget, f"[{label}] took {took:.0f}s of a {budget:.0f}s budget: {names(timeline)}")
+            # And it must still be TRYING all the way: a life that gives up on the pickaxe and fills the clock
+            # with repairs and strolls would pass a budget test purely by running out of things to fail at.
+            tail = [n for _t, n, _e in timeline[-8:] if n]
+            self.assertTrue(any(any(word in n for word in chain) for n in tail),
+                            f"[{label}] stopped working towards a pickaxe: {names(timeline)}")
 
     def test_failures_cost_time_but_do_not_stop_the_life(self):
         """The script that fails must take longer than the one that does not — if it does not, failure is not

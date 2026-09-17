@@ -10,10 +10,16 @@ import os
 
 from . import (api, arbiter, bag, blueprints, brewing, combat, directives, end, farming, fluids, intent, jobs,
                lookahead, loot, nav, nether, paths, priority, retry, route, skills, tape, ui, upkeep, world)
+from . import beliefs
+from . import estimate
 from . import skill as skillkit
+from . import skillcore
+from .skillcore import mine_cell as skillkit_mine
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, TaskStuck, log
-from .data import BASE_MARKERS, GROUPS, HAND_MINEABLE_SUFFIX, bare, mid
+from .data import BASE_MARKERS, GROUPS, HAND_MINEABLE_SUFFIX, TOOL_MATERIALS, bare, mid
+from . import knowledge
 from .knowledge import UNDERGROUND_KINDS
+from .actions import tool_dim as act_tool_dim, uses_dim as act_uses_dim  # noqa: F401
 from .planner import tool_ok  # noqa: F401  (one definition, shared)
 from .memory import Memory
 from .planner import Planner, Unplannable, runnable
@@ -94,13 +100,52 @@ def step_key(goal, step):
     return f"{goal.name}/{step.kind}:{step.token}"
 
 
-def progress_signature():
+def tool_wear():
+    """{tool kind: total damage on tools of that kind}, or None when the world cannot answer.
+
+    Damage is how the game itself counts uses: a block mined is a point of durability. Reading it before and after
+    a step is how "how often is a pickaxe actually reached for" gets measured instead of assumed.
+    """
+    from .data import TIER_OF_MATERIAL, bare
     try:
         inv = Inventory()
-    except McError:
-        return None
+    except McError as e:
+        return api.swallowed("tool_wear: what the tools look like now", e)
+    out = {}
+    for slot in inv.slots:
+        material, _, kind = bare(slot["id"]).rpartition("_")
+        if material in TIER_OF_MATERIAL:
+            out[kind] = out.get(kind, 0) + int(slot.get("damage", 0))
+    return out
+
+
+def note_tool_wear(mem, before, after, seconds):
+    """Record what the last step wore out, as uses per second of play (memory.note_tool_use)."""
+    if before is None or after is None or seconds <= 0:
+        return
+    for kind in set(before) | set(after):
+        used = max(0, after.get(kind, 0) - before.get(kind, 0))
+        mem.note_tool_use(kind, seconds=seconds, uses=used)
+
+
+def progress_signature():
+    """What a step could have changed: what is carried, and where the body stands.
+
+    Position belongs here. `seek` walks to where the work is and is SUPPOSED to leave the bag alone — comparing
+    inventories alone called every walk a spin, so on a fresh world the agent made a wooden pickaxe and then
+    failed `seek 1× stone` for the stone sword, the stone axe and the stone pickaxe in turn, each "succeeded twice
+    without changing anything", each cooling for a minute. It never made a stone tool at all.
+    """
+    try:
+        inv = Inventory()
+    except McError as e:
+        return api.swallowed("progress_signature: what changed this round", e)
+    try:
+        feet = tuple(int(x) for x in nav.feet_now())
+    except Exception:
+        feet = None
     return (tuple(sorted((s["id"], s.get("count", 1), s.get("damage", 0)) for s in inv.slots)),
-            tuple(sorted((k, v.get("id")) for k, v in inv.equipment.items())))
+            tuple(sorted((k, v.get("id")) for k, v in inv.equipment.items())), feet)
 
 
 # Which mobs count as a threat is a fact about mobs, not a decision, so it lives with the rest of them in
@@ -190,7 +235,21 @@ def survival_state(snap, mem):
         sword=tier("sword"), pickaxe=tier("pickaxe"), food_items=food_count(inv), nights_missed=mem.nights_missed,
         # Armour POINTS, as /state reports them: the belief table prices protection per point, in one place.
         armor=snap.get("armor", 0),
-        shield=inv.offhand() == "minecraft:shield" or inv.count("minecraft:shield") > 0)
+        shield=inv.offhand() == "minecraft:shield" or inv.count("minecraft:shield") > 0,
+        dark=is_dark(snap))
+
+
+def is_dark(snap):
+    """Is it dark enough HERE for hostiles to spawn and come at us?
+
+    Skylight only counts while the sun is up; after dusk an open field is as dark as a cave. One reading of what
+    "dark" means, so the exposure price, the torch goal and the survival model cannot drift apart.
+    """
+    from . import survival
+    light = int(snap.get("blockLight", 0))
+    if not snap.night:
+        light = max(light, int(snap.get("skyLight", 0)))
+    return light <= int(survival.CONFIG["risk"]["dark_light"])
 
 
 def tier_of(item):
@@ -394,15 +453,93 @@ class LiveCost:
         key = ("find", tuple(blocks), radius)
         if key not in self.cache:
             hits = [h for h in find(blocks, radius=radius, limit=20) if not self._banned((h["x"], h["y"], h["z"]))]
+            # The position comes free with the distance: whoever prices the WAY there (`reach_s`) then needs no
+            # query of its own — and a decision that makes a query nobody recorded cannot be replayed.
+            self.cache[("hit",) + key[1:]] = (hits[0]["x"], hits[0]["y"], hits[0]["z"]) if hits else None
             dist = hits[0]["distance"] if hits else None
             if dist is None and self.mem is not None and radius >= 32:
-                kind = next((k for k, ids in Brain.SCAN_BLOCKS.items() if set(ids) & {bare(b) for b in blocks}), None)
+                kind = next((k for k, ids in Brain.RESOURCE_KINDS.items()
+                             if set(ids) & {bare(b) for b in blocks}), None)
                 if kind:
                     known = [p for p in self.mem.resources(kind, self.snap.dimension)
                              if not self._banned(tuple(p))]
                     if known:
                         dist = min(math.dist(p, self.snap.feet) for p in known)
             self.cache[key] = dist
+        return self.cache[key]
+
+    def _nearest_known(self, kinds, radius):
+        """Position of the nearest one of these that memory knows and that is not blacklisted, or None.
+
+        Memory only — the resource map and remembered sightings. An estimate that makes a fresh query cannot be
+        replayed: every recorded round would miss the call it never made.
+        """
+        if self.mem is None:
+            return None
+        here, dim = self.snap.feet, self.snap.dimension
+        best, best_d = None, None
+        for kind in kinds:
+            spots = list(self.mem.resources(bare(kind), dim)) + list(self.mem.resources(kind, dim))
+            spots += [s["pos"] if isinstance(s, dict) else s for s in (self.mem.sightings(kind, dim) or ())]
+            for p in spots:
+                p = tuple(p)
+                if self._banned(p):
+                    continue
+                d = math.dist(p, here)
+                if d <= radius and (best_d is None or d < best_d):
+                    best, best_d = p, d
+        return best
+
+    def reach_s(self, kinds):
+        """Seconds to get within working reach of the nearest one of these — `math.inf` when there is no route from
+        here, None when it cannot be priced (nothing known nearby, or the blocks are not to hand).
+
+        The price comes from nav's own route search, which may walk, dig, bridge, pillar or climb, and refuses to
+        go through lava or water. So every reason a thing can be visible and still unworkable — a flooded pit, a
+        lava sheet, a wall with no pickaxe, a drop with nothing to bridge with — arrives here as one number in
+        seconds, and the planner compares it with everything else instead of discovering it by failing.
+
+        The one world read is the box of blocks between us and it, and it is optional: on a recorded round the
+        call was never made, so this answers None and the table falls back to the straight line it used before.
+        """
+        from . import nav, tape
+        from .beliefs import CONFIG as _PLAY
+        key = ("reach", tuple(kinds))
+        if key in self.cache:
+            return self.cache[key]
+        self.cache[key] = None                                  # unknown until something better is found
+        probe = float(_PLAY["nav"]["probe_r"])
+        pos = self._nearest_known(list(kinds), probe)
+        if pos is None:
+            # Memory is empty for everything we have not walked to yet — which includes everything in plain sight.
+            # Pricing arrival from memory alone is why a bed behind a lava sheet cost the same as one on flat
+            # ground: nobody had ever written it down, so nobody priced the way to it. The position comes from a
+            # query the round has ALREADY made (`_find` stores it); asking again would make this decision
+            # unreplayable, and a decision that cannot be replayed cannot be tested.
+            seen = [v for k, v in self.cache.items()
+                    if k[0] == "hit" and v is not None and set(k[1]) & {mid(x) for x in kinds}]
+            pos = min(seen, key=lambda p: math.dist(p, self.snap.feet)) if seen else None
+        if pos is None:
+            return None
+        try:
+            region = world.region_around([self.snap.feet, pos], pad=3)
+        except (tape.ReplayMiss, McError, NotAvailable) as e:
+            return api.swallowed("reach_s: the blocks between us and it", e)
+        if region is None or not region.blocks:
+            # A box nobody has the blocks for is not a wall: "unknown" and "no route" are different answers, and
+            # only the second one may move the body somewhere else.
+            return None
+        # The route's means come from the bag we already have in hand, never from a fresh inventory query.
+        inv = self.snap.inv
+        policy = nav.Policy(hand_only=not any(d >= 3 for _t, d, _n in inv.tools("pickaxe")))
+        # A QUICK price, not the route: ranking asks about every findable thing every round, and a full search
+        # each time is the round's whole budget. Through the time door, which owns the arithmetic; the exact
+        # search runs when the body actually moves.
+        from . import gates
+        priced = gates.takes_s(gates.Situation(region=region, policy=policy, route=nav.estimate_price_s,
+                                              here=tuple(self.snap.feet)),
+                               gates.Go(tuple(self.snap.feet), tuple(pos)))
+        self.cache[key] = math.inf if priced is None else priced
         return self.cache[key]
 
     def _entity(self, types):
@@ -440,9 +577,11 @@ class LiveCost:
         return int(per * units * 20) if per is not None else None
 
     def estimate(self, step):
-        # Measured durations beat heuristics once there are enough samples (they include the walking involved).
+        """Ticks this step takes here. An ENGINE of `gates.takes_s(s, Run(step))`: measured durations where this
+        world has measured them (`memory.duration`), the heuristics where it has not. Everyone who wants seconds
+        asks the door, which divides by the tick rate."""
         learned = self._learned_ticks(step)
-        # Success rates apply once, at the candidate (priority.effective_success), not inside step costs.
+        # Success rates apply once, at the candidate (`gates.p("success")`), not inside step costs.
         return learned if learned is not None else self._estimate(step)
 
     def risk_s(self, step, ticks=None):
@@ -453,12 +592,22 @@ class LiveCost:
         leaving takes it only until it is out of reach. A flat rate applied to everything is what made walking
         away from a zombie look as expensive as standing in front of it.
         """
-        from . import perception, survival, threat
+        from . import gates, perception, threat
         from .solve import Action
-        rows, _ids = perception.threats_seen()
-        if not rows or self.snap is None:
+        if self.snap is None:
             return 0.0
-        seconds = (self.estimate(step) if ticks is None else ticks) / priority.TICKS_PER_S
+        rows, _ids = perception.threats_seen()
+        from . import gates as _g
+        seconds = (_g.takes_s(None, _g.Run(step, cost=self)) if ticks is None
+                   else float(ticks) / priority.TICKS_PER_S)
+        sstate = survival_state(self.snap, self.mem) if self.mem is not None else None
+        # What the DARK costs, before anything is in sight: hostiles spawn where the light is low, and the price of
+        # working there is a RATE (`gates.p("encounter")`), not a sighting. Without this an unlit cave at noon was
+        # free, the threat layer answered "ignore — carrying on takes ~4.1 hp/s", and the agent mined until it died.
+        ambient = gates.exposure_s(seconds, sstate, mem=self.mem,
+                                   underground=self.snap.get("skyLight", 15) <= COVERED_SKY) if sstate else 0.0
+        if not rows:
+            return ambient
         inv = self.snap.inv
         state = {"here": (self.snap.state["x"], self.snap.state["y"], self.snap.state["z"]),
                  "hp": self.snap.state.get("health", 20),
@@ -468,9 +617,9 @@ class LiveCost:
         shape = Action(step.kind, {}, max(0.1, seconds), tag=(step.kind, step.token))
         dhp = shape.exposure(state)
         if dhp <= 0:
-            return 0.0
-        sstate = survival_state(self.snap, self.mem) if self.mem is not None else None
-        return survival.hp_seconds(sstate, dhp) if sstate else dhp
+            return ambient
+        # Health into seconds through the one scarcity door: blood is scarce the way a slot is scarce.
+        return ambient + (gates.marginal("blood", sstate=sstate) * dhp if sstate else dhp)
 
     def _estimate(self, step):
         walk = lambda d: int(d * 1.5 / 0.12)  # noqa: E731
@@ -529,7 +678,8 @@ def _wire_threats(brain):
     from . import perception, skills
     def answer(option):
         snap = Snapshot()
-        ctx = skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist)
+        ctx = skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
+                             prices=brain.price_table)
         brain.engage(option, snap.state, ctx)
     perception.wire_answer(answer)
 
@@ -554,7 +704,10 @@ class Brain:
         self.fail_sig = {}      # step statistics key -> world state of its last failure (success resets on change)
         self.recent_fail = None  # (candidate name, time) of the last failed pick
         self.plan_cache = {}    # goal name -> (time, bag key, plan)
+        # How many goals it took to fill the pool last time: a capacity hint, like a growing buffer's, not a quota.
+        self.expand_hint = MIN_CHOICES * 2
         self.blacklist = {}     # unreachable targets, shared by every round's Context and the cost model
+        self.ban_counts = skillcore._BAN_COUNTS   # how often each cell was banned: the same counter skills use
         self.last_light = 0
         self.last_offhand = 0
         self._seen = {}              # entity id -> (pos, when): the threat layer differences velocity between rounds
@@ -656,7 +809,7 @@ class Brain:
             skills.shield_to_offhand()
         # Inside a sealed pod everything dark is behind the wall: nothing to light, nothing can spawn next to us.
         if time.time() - self.last_light > 5 and not skills.enclosed():
-            ctx = skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist)
+            ctx = skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist, prices=self.price_table)
             if skills.place_torch_if_dark(ctx):
                 self.last_light = time.time()
 
@@ -697,7 +850,7 @@ class Brain:
             if needs_pick and not any(d >= 3 for _, d, _ in Inventory().tools("pickaxe")):
                 raise skills.ToolMissing("pickaxe", 0)
             # The previous segment may have broken into lava: cover it before digging on.
-            skills.contain_lava(skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist))
+            skills.contain_lava(skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist, prices=self.price_table))
         self.reflexes()
 
     # -- failure policy
@@ -766,6 +919,9 @@ class Brain:
             # Group tokens (stone, coal) are counted as groups, so any variant mined counts toward the step.
             skills.mine(ctx, step.token, step.count, step.detail["blocks"], step.detail["tier"],
                         step.detail.get("breaks"))
+        elif step.kind == "take":
+            # Already made, standing in the world: walk over and break it out. Same protection as any other dig.
+            skills.take(ctx, step.token, step.count, step.detail["blocks"])
         elif step.kind == "room":
             {"tidy": skills.tidy_inventory, "deposit": skills.deposit}[step.token](ctx)
         elif step.kind == "seek":
@@ -814,7 +970,7 @@ class Brain:
         night = snap.night
         self.mem.observe_phase(night)
         self.policy_cache = self.policy(snap, night)
-        ctx = skills.Context(self.mem, self.policy_cache, snap.dimension, self.blacklist)
+        ctx = skills.Context(self.mem, self.policy_cache, snap.dimension, self.blacklist, prices=self.price_table)
         now = time.time()
         bans = sum(1 for exp in self.blacklist.values() if exp > now)
         self.sig = retry.signature(snap.feet, (s["id"] for s in snap.inv.slots), night, bans)
@@ -868,12 +1024,20 @@ class Brain:
         bag.RESERVED = bag.RESERVED | pick.reserve   # the running plan's items too (a food-stock hunt threw its meat)
         # Failures cool down this candidate's key only (a goal's current step); everything else stays available.
         before = self.retry.entries.get(pick.key, {}).get("since")
+        # What this candidate was PRICED at, if it was priced by an expected yield, and what the bag was worth
+        # before it ran. Together they are the measurement that outgrows the declared prior (`memory.yield_rate`).
+        expected_s = self.yield_worth_s(pick.name, snap) if hasattr(snap, "inv") else 0.0
+        worth_before = None
+        if expected_s:
+            prices, _vector = self.prices(snap, LiveCost(snap, self.blacklist, self.mem))
+            worth_before = self.bag_worth_s(snap, prices)
         arbiter.BODY.submit("plan", lambda: self.attempt(pick.key, pick.run, cooldown=pick.cap), pick.name,
                             commit_s=pick.commitment_s, cost_rate=1.0, cost_s=pick.cost_s)
         try:
             arbiter.BODY.step()
         except api.CommitmentExpired as e:
             log(f"   {e}")
+        self.note_yield_of(pick.name, expected_s, worth_before)
         after = self.retry.entries.get(pick.key, {}).get("since")
         if after is not None and after != before:
             self.recent_fail = (pick.name, time.time())
@@ -882,6 +1046,12 @@ class Brain:
     SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
                    "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"],
                    "coal": ["coal_ore", "deepslate_coal_ore"]}
+    # Finished goods standing in the world (a village's beds, furnaces, tables, crops), noted under the block's
+    # own name — that is what `at:<block>` and the take columns ask for, and it is what makes "take that one" cost
+    # a walk instead of a search. Sixty blocks, but ONE query: a scan runs every twenty seconds and sixty finds a
+    # scan would be the round's whole budget.
+    TAKE_BLOCKS = knowledge.takeable_blocks()
+    RESOURCE_KINDS = dict(SCAN_BLOCKS, **{b: [b] for b in TAKE_BLOCKS})
     SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chicken")
 
     def scan_resources(self, snap):
@@ -900,10 +1070,15 @@ class Brain:
                         self.mem.add_lava(h, snap.dimension)
                     else:
                         self.mem.note_resource(kind, (h["x"], h["y"], h["z"]), snap.dimension)
+            # One sweep for everything that is already made: each hit is remembered under its own block name.
+            for h in find(self.TAKE_BLOCKS, radius=48, limit=16) or ():
+                self.mem.note_resource(bare(h["block"]), (h["x"], h["y"], h["z"]), snap.dimension)
             for e in entities(48, list(self.SCAN_MOBS)):
                 self.mem.add_sighting(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), snap.dimension)
-        except McError:
-            pass
+        except McError as e:
+            # A scan that fails is a map that does not grow — and every price read off that map is then a guess
+            # about a world nobody looked at. Not fatal; not invisible either.
+            api.swallowed("scan_resources: looking around", e)
 
     # -- the priority pool
     def candidates(self, ctx, snap, night, force=False):
@@ -929,10 +1104,12 @@ class Brain:
                 c.precheck = lambda t=target, a=args: skill_kit.can_run(t, *a)
             r = _pool.admit(c, pctx, priority.weight_for, route.allowed, retry.EXHAUSTED_AFTER)
             if r is None:
+                filtered.pop(c.name, None)      # admitted on a second pass: it is no longer being kept out
                 out.append(c)
-                return
+                return True
             filtered[c.name] = str(r)
             self.last_refusals.append((c.name, r))
+            return False       # the caller may need to know that planning more is the only way to fill the pool
 
         self._rescue_candidates(ctx, snap, night, offer, filtered)
         self._maintenance_candidates(ctx, snap, night, offer, filtered)
@@ -942,7 +1119,15 @@ class Brain:
         # farm's seeds were thrown away three times in a minute.
         bag.RESERVED = set().union(*(bag.reserved_ids(plan, g.needs) for g, plan, _, _ in eligible
                                      if not g.background)) if eligible else set()
-        self._fallback_candidates(ctx, snap, night, pctx, offer, out, filtered)
+        self._fallback_candidates(ctx, snap, night, pctx, offer, filtered)
+        if not out and pctx.staying:
+            # Nothing can run while a goal retries where it stands. Holding wandering work back is a PREFERENCE —
+            # stay near the thing being retried — and a preference cannot be the reason the agent does nothing. It
+            # is waived by offering again through the SAME door with `staying` cleared, never by appending to the
+            # pool behind the door's back: that second way in is how `light up` with no torches was chosen thirty
+            # times in twenty seconds, having just been refused for exactly that.
+            pctx = pctx.relaxed(staying=False)
+            self._fallback_candidates(ctx, snap, night, pctx, offer, filtered)
         return out, filtered
 
     def _pool_context(self, snap, night, force):
@@ -988,29 +1173,31 @@ class Brain:
 
     def _maintenance_candidates(self, ctx, snap, night, offer, filtered):
         """Urgency curves decide how much each upkeep item matters right now."""
-        from . import survival
+        from . import gates, survival
         C = priority.Candidate
         # Health is the margin every future fight starts from (survival.fight_loss), so healing is worth whatever
         # that margin is worth. Regeneration needs food above 17 and a few quiet seconds; both are cheap, which is
         # why nothing ever chose to do it while the value was zero.
         hp = snap.get("health", 20)
         if hp < 20 and food_count(snap.inv):
-            sstate = survival_state(snap, self.mem)
-            saves = survival.benefit(sstate, {"hp": 20})
+            saves = self.worth_of_change(snap, {"lever:hp": 20 - hp}, slots=0)
             if saves > 0:
                 offer(C("heal up", 8, 20 * (20 - hp), lambda: self.heal(ctx, snap), kind="maintenance",
                         seconds=saves, cap=20, detail=f"regenerate {20 - hp:.0f} hp"))
         if not self.has_pickaxe(snap):
             offer(C("replace pickaxe", 12, 2000, lambda: self.replace_tool(ctx, "pickaxe"),
-                    kind="maintenance", cap=30))     # no pickaxe: the benefit is due now, so no discount
-        bag_delay = priority.bag_delay(snap.inv.used_slots())
+                    kind="maintenance", cap=30,      # no pickaxe: the benefit is due now, so no discount
+                    seconds=self.worth_of_change(snap, {act_tool_dim("pickaxe", 1): 1,
+                                                        act_uses_dim("pickaxe"): 131}, slots=1)))
         # What a full bag costs: the next stretch of mining produces nothing that can be kept.
-        bag_worth = survival.bag_loss(survival_state(snap, self.mem))
-        if bag_delay < priority.DISCOUNT_HORIZON_S:
+        # What making room is worth: the same subtraction as everything else, with the bag as the lever.
+        freed = max(1, snap.inv.used_slots() - (36 - skills.FREE_SLOTS_TARGET))
+        bag_worth = self.worth_of_change(snap, {"lever:bag_free": freed}, slots=0)
+        if True:
             if not skills.store_plan(snap.inv.slots):
                 filtered["deposit"] = "nothing worth storing"
             elif skills.can_store_here(ctx, local_only=night):
-                _c = C("deposit", 3, 1200, lambda: skills.deposit(ctx, local_only=night), delay_s=bag_delay,
+                _c = C("deposit", 3, 1200, lambda: skills.deposit(ctx, local_only=night),
                         kind="maintenance", seconds=bag_worth)
                 _c.runs = (skills.deposit, (ctx,))
                 offer(_c)
@@ -1020,12 +1207,12 @@ class Brain:
             if not throwable:
                 filtered["tidy"] = "nothing worth throwing away"
             elif skills.throw_direction(world.Region((x - 3, y - 1, z - 3), (x + 3, y + 2, z + 3)), snap.feet):
-                _c = C("tidy", 3, 300, lambda: skills.tidy_inventory(ctx), delay_s=bag_delay,
+                _c = C("tidy", 3, 300, lambda: skills.tidy_inventory(ctx),
                         kind="maintenance", cap=20, seconds=bag_worth)
                 _c.runs = (skills.tidy_inventory, (ctx,))
                 offer(_c)
             elif not (night and self.sheltered(snap)):   # never leave a night shelter just for the bag
-                _c = C("open space", 3, 400, lambda: skills.move_to_open_space(ctx), delay_s=bag_delay,
+                _c = C("open space", 3, 400, lambda: skills.move_to_open_space(ctx),
                         kind="maintenance", cap=30, seconds=bag_worth)
                 _c.runs = (skills.move_to_open_space, (ctx,))
                 offer(_c)
@@ -1034,8 +1221,12 @@ class Brain:
         if night:
             return
         dirty = [s for s in self.mem.sites(snap.dimension) if s.get("dirty")]
+        dirty = [self.pick_target(dirty, snap.feet)] if dirty else []
+        dirty = [d for d in dirty if d is not None]
         if dirty:
-            offer(C("repair", 2, 2000, lambda: skills.repair_site(ctx, dirty[0]), kind="maintenance"))
+            # A shelter with a hole in it is not a shelter: what mending it is worth is what having one is worth.
+            offer(C("repair", 2, 2000, lambda: skills.repair_site(ctx, dirty[0]), kind="maintenance",
+                    seconds=self.worth_of_change(snap, {"sheltered": 1}, slots=0)))
         ready_jobs = sorted((j for j in self.mem.jobs(snap.dimension)
                              if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= 96),
                             key=lambda j: math.dist(j["pos"], snap.feet))[:3]
@@ -1043,19 +1234,33 @@ class Brain:
             d = math.dist(job["pos"], snap.feet)
             # Being close does not make a job worth more; it makes it cheaper — and "close" means close to where
             # we are already going, not to where we stand.
-            detour = priority.detour_s(d, here=snap.feet, there=tuple(job["pos"]), via=self.committed_pos)
+            detour = gates.marginal("detour", distance=d, here=snap.feet, there=tuple(job["pos"]),
+                                    via=self.committed_pos)
             offer(C(f"collect {job['kind']} job", jobs.JOB_VALUE.get(job["kind"], 3),
                     int(detour * priority.TICKS_PER_S) + 200,
                     lambda job=job: jobs.collect(ctx, job),
                     key=f"job {job['id']}", kind="maintenance", cap=30,
+                    seconds=self.items_worth_s(snap, [(job.get("item"), job.get("count", 0))]),
                     detail=f"{job['kind']} at {tuple(job['pos'])}"))
         ready = [m for m in self.mem.machines(snap.dimension) if skills.pending_ready(m)]
+        ready = [m for m in [self.pick_target(ready, snap.feet, pos_of=lambda m: m["origin"])] if m is not None]
         if ready:
-            offer(C("collect machine", 4, 1200, lambda: skills.collect_machine(ctx, ready[0]), kind="maintenance"))
+            waiting = [(p.get("item"), p.get("count", 0)) for p in ready[0].get("pending", ())]
+            offer(C("collect machine", 4, 1200, lambda: skills.collect_machine(ctx, ready[0]), kind="maintenance",
+                    seconds=self.items_worth_s(snap, waiting)))
 
-    def _goal_candidates(self, ctx, snap, night, pctx, offer, filtered):
+    def _goal_candidates(self, ctx, snap, night, pctx, offer, filtered, expand_all=False):
         """Plan every open goal, gate its steps, refuse with a reason or offer one candidate. Returns the eligible
-        (goal, plan, step, run) tuples for reservations."""
+        (goal, plan, step, run) tuples for reservations.
+
+        How many goals get planned is decided by what came of the last rounds, not by a constant: `expand_hint` is
+        the capacity hint, grown when a round needed more and let down slowly when it did not — and when the pool
+        comes out EMPTY, the hint is ignored and everything left is planned (`expand_all`). Three recorded rounds
+        had nothing to do for exactly this reason: the five goals that planned first were all cooling or short of
+        torches, and the thirty behind them were dismissed as "outranked before planning" without being tried.
+        """
+        from . import actions as act
+        from . import gates
         from . import pool as _pool
         C = priority.Candidate
         open_goals = [g for g in goals(snap, self.mem) if not g.done()]
@@ -1087,15 +1292,13 @@ class Brain:
         from .survival import CONFIG as _PLAY
         sstate = survival_state(snap, self.mem)
 
+
         def rough_score(g):
-            worth = _sv.benefit(sstate, g.effect) if g.effect else g.value * priority.SECONDS_PER_VALUE
-            price = self.rough_cost(g, prices, vector)
-            if not g.needs:
-                # No requirement list means the price cannot be read off the graph — the work is in a skill. Rank
-                # it by worth alone rather than as if it were free, or every action-shaped goal outranks every
-                # goal that has to be built.
-                price = 0.0 if g.dimension == snap.dimension else float(_PLAY["pool"]["portal_trip_s"])
-            return float(worth) - price
+            # One number, from the one door. `goal_worth_s` already asks what this costs — it moves the clock on by
+            # how long the work takes (`takes_s`, read off the same price table) and discounts the saving from when
+            # it lands. Subtracting the work here as well was the second yardstick: the same seconds charged
+            # twice, and the ranking then disagreed with the score it was ranking for.
+            return float(self.goal_worth_s(g, sstate, snap, prices))
         # Expand until there are enough choices, not a fixed number of them. A quota of six looked like a saving
         # until a night filtered all six ("gather waits for day") and the pool came down to one maintenance errand
         # — which is a queue, not a decision. Planning stops as soon as there is something to compare.
@@ -1103,12 +1306,24 @@ class Brain:
         # usable candidates was the trap — on a night when five goals plan fine and every one of them answers
         # "gather waits for day", the quota is spent and the pool comes down to a single maintenance errand.
         ranked_goals = sorted(ready_goals, key=rough_score, reverse=True)
+        # What every open goal still wants, added up: the ceiling on taking more than this step asks for. Extra
+        # beyond it is not cheap, it is imaginary — nothing in the world is waiting for it.
+        demand = {}
+        for g in ready_goals:
+            for dim, want in act.target_of(g.needs).items():
+                short = float(want) - float(vector.get(dim, 0))
+                if short > 0:
+                    demand[dim] = demand.get(dim, 0.0) + short
         open_names = {g.name for g in open_goals}
-        plans, eligible = {}, []
+        plans, eligible, planned_goals = {}, [], 0
+        budget = len(ranked_goals) if expand_all else max(MIN_CHOICES, min(MAX_EXPAND, self.expand_hint))
+        outranked = 0
         for n, g in enumerate(ranked_goals):
-            if len(eligible) >= MIN_CHOICES or n >= MAX_EXPAND:
+            if not expand_all and (len(eligible) >= MIN_CHOICES or n >= budget):
+                outranked += 1
                 filtered[g.name] = "outranked before planning (there were already better things to compare)"
                 continue
+            planned_goals = n + 1
             try:
                 plans[g.name] = self.plan_for(g, snap, cost_model)
             except Unplannable as e:
@@ -1119,6 +1334,11 @@ class Brain:
                                                              lookahead.escape_ready, bare)
             runnables = [s for s in plan if runnable(s, snap.inv)]
             step, reason = _pool.pick_step(plan, runnables, self.prep_tokens.get(g.name, ()), gate)
+            if step is not None:
+                # How much to take is a margin: one more unit is worth what the round's own prices say it saves
+                # (`prices` is the dual of the same solve), and costs the pickup plus the slot it eats. Done here,
+                # after the gate and before the step is priced, so the bigger parcel is what the body is promised.
+                step = act.marginal_batch(step, prices, demand, max(0, 36 - snap.inv.used_slots()))
             if reason is None:
                 reason = _pool.goal_reason(g, plan, pctx, nether_kit_missing, nether.NETHER, NETHER_MOBS)
             run = self.goal_runner(ctx, g, plan, step, night)
@@ -1153,17 +1373,11 @@ class Brain:
         sstate = survival_state(snap, self.mem)
         # Every goal's worth in seconds first, so "what this one unlocks" can be counted in the same unit as
         # "what this one saves" instead of as a multiplier nobody could price.
-        worth = {}
-        for g, _plan, _step, _run in eligible:
-            saves = survival.benefit(sstate, g.effect) if g.effect else None
-            if g.name == "recover items after death":
-                # Worth what is lying there, priced like anything else: an empty corpse is worth nothing and a
-                # full one is worth the hours in it. A flat death cost said both were 240 seconds, so the pile
-                # lost to a stone sword and despawned.
-                from .memory import worth_of
-                dead = self.mem.recent_death(snap.dimension)
-                saves = worth_of(dead.get("carried") if dead else [], prices)
-            worth[g.name] = float(saves if saves is not None else g.value * priority.SECONDS_PER_VALUE)
+        # The plan is solved by now, so how long it takes is known exactly — the ranking pass had to guess it
+        # from the price table.
+        worth = {g.name: self.goal_worth_s(g, sstate, snap, prices,
+                                           takes_s=sum(st.est for st in plan) / priority.TICKS_PER_S)
+                 for g, plan, _step, _run in eligible}
 
         # How many eligible goals need each piece of work: the denominator of the sharing above.
         shared = {}
@@ -1173,13 +1387,7 @@ class Brain:
         # What the world's TERMINAL goods are worth right now, per unit: shelter, a bed, food, light, a sword, a
         # pickaxe (survival.END_DIMS). Value is computed from these downward, so a saving on a shared intermediate
         # is counted once instead of once per link of the chain that wants it.
-        ends = survival.end_worths(sstate)
-        from .solve import credits
-        # The cheapest route to each of those goods, once for the whole round. Every candidate's future value is
-        # then a walk down routes already computed instead of a solve and a relaxation of its own — a round is a
-        # tenth of a second, and a second search per candidate does not fit in it.
-        table, _vec = self.action_table(snap, cost_model)
-        credit = credits(table, vector, [d for d, w in ends.items() if w > 0])
+        admitted = 0
         for g, plan, step, run in eligible:
             stat = f"{step.kind}:{step.token}" if step else None
             changed = stat in self.fail_sig and self.fail_sig[stat] != self.coarse
@@ -1188,7 +1396,14 @@ class Brain:
             # plan has run. Product, facility placed, room made, tool crafted — all of it is the same price
             # difference, so none of it has to be classified (and none can be classified wrongly, which is what
             # the two earlier functions kept doing to each other).
-            unlocks_s = [(self.future_worth(plan, prices, ends, credit), 1.0)]
+            # What this goal is worth to everything AFTER it: the same subtraction, over what its plan leaves
+            # behind. One entry, so a goal's own worth and what it unlocks cannot be computed two different ways.
+            made = {}
+            for st in plan:
+                if st.token and st.kind in ("mine", "gather", "take", "craft", "smelt", "hunt"):
+                    made[st.token] = made.get(st.token, 0.0) + float(st.count or 1)
+            future = self.items_worth_s(snap, list(made.items())) if made else 0.0
+            unlocks_s = [(future, 1.0)]
             unlocks_s = [(v, p) for v, p in unlocks_s if v > 0]
             # Shared work is paid for once. A step another eligible goal also needs (the same iron, the same
             # trip) is split between them, so "mine iron" does not look twice as expensive as it is just because
@@ -1198,11 +1413,12 @@ class Brain:
                      key=step_key(g, step) if step else g.name,
                      seconds=worth[g.name], share=share,
                      risk_s=sum(cost_model.risk_s(s, s.est) for s in plan),
-                     delay_s=self.goal_delay(g, snap, sstate),
                      unlocks=unlocks_s,
-                     success=priority.effective_success(self.mem.success_rate(stat), changed) if stat else 1.0,
+                     success=priority.effective_success(gates.p(None, "success", mem=self.mem, key=stat), changed)
+                     if stat else 1.0,
                      detail=str(step) if step else "finish", reserve=bag.reserved_ids(plan, g.needs),
-                     commitment_s=priority.step_commitment(step.est, step.count) if step else None,
+                     commitment_s=priority.step_commitment(step.est, step.count,
+                                                           atomic=bool(step.detail.get("batched"))) if step else None,
                      assumptions=self.assumptions_for(g, plan, step, snap))
             cand.goes_to = next((tuple(s.detail["pos"]) for s in plan if s.detail.get("pos")), None)
             cand.dimension_s = portal_s
@@ -1210,7 +1426,18 @@ class Brain:
             # Only crafting left, everything in the bag: no travel, so no waiting for a later route segment.
             cand.craft_only = bool(plan) and all(s.kind == "craft" for s in plan) and \
                 g.dimension in (None, snap.dimension)
-            offer(cand)
+            admitted += 1 if offer(cand) else 0
+        # What it took this time, remembered for the next round: enough to choose between is a property of the
+        # world we are in, not a number anybody can write down once. Up at once when a round needed more, down a
+        # step at a time when it did not, so a quiet stretch does not leave the hint stuck at its worst case.
+        if not expand_all:
+            self.expand_hint = max(MIN_CHOICES, planned_goals + 2) if admitted < MIN_CHOICES \
+                else max(MIN_CHOICES, min(self.expand_hint, planned_goals + 2))
+        if admitted < MIN_CHOICES and outranked and not expand_all:
+            # Not enough got IN — which is the only count that matters, since a candidate the pool refuses is not
+            # a choice. The goals that were never tried are the only place more can come from, so the hint does
+            # not get to decide whether there is anything to compare.
+            return self._goal_candidates(ctx, snap, night, pctx, offer, filtered, expand_all=True)
         return eligible
 
     def _directive_candidates(self, ctx, snap, night, offer, filtered):
@@ -1236,20 +1463,35 @@ class Brain:
                 filtered[name] = "no runnable step"
                 continue
             base = 10 * min(priority.CLAMP[1], float(d.get("x", 3))) if mode == "boost" else 1.0
+            # What Claude asked for is worth what its plan produces, priced like anybody else's plan; the boost
+            # is a WEIGHT on top (`base`), which is what an instruction actually is — a thumb on the scale, not a
+            # different currency.
+            prices, _vector = self.prices(snap, cost_model)
+            worth = sum(float(prices.get(st.token, 0.0) or 0.0) * float(st.count)
+                        for st in plan if prices.get(st.token) not in (None, float("inf")))
             offer(C(name, base, sum(s.est for s in plan) + 200, lambda step=step: self.execute(ctx, step, night),
-                    key=f"{name}/{step.kind}:{step.token}", kind="directive", detail=str(step)))
+                    key=f"{name}/{step.kind}:{step.token}", kind="directive", detail=str(step),
+                    seconds=round(worth * max(1.0, float(base)), 2)))
 
-    def _fallback_candidates(self, ctx, snap, night, pctx, offer, pool_out, filtered):
-        """Always-available low-value work, so the pool is rarely empty; wandering fallbacks held back while a goal
-        retries on the spot come back when nothing else can run here."""
-        from . import pool as _pool
+    def _fallback_candidates(self, ctx, snap, night, pctx, offer, filtered):
+        """Always-available low-value work, so the pool is rarely empty.
+
+        Offers only. Wandering work held back while a goal retries on the spot comes back because `candidates`
+        offers this again with `staying` cleared when the pool is empty — through the same admission, which still
+        asks each skill whether it can run at all.
+        """
         C = priority.Candidate
         from . import skill as skillkit_
-        held_back = []
         for fname, fn, allowed, runs in self.fallbacks(ctx, snap, night):
             if allowed:
                 base, cost = FALLBACK_BASE[fname]
-                c = C(fname, base, cost, fn, kind="fallback", cap=20)
+                worth = self.fallback_worth_s(fname, snap)
+                if worth is None:
+                    # No price, no offer. There is no other currency to fall back on, and a fallback nobody can
+                    # price is a fallback nobody can compare — which is how "explore" used to win nights.
+                    filtered[fname] = "not priced in seconds yet (play.toml [yield] / [yield_s])"
+                    continue
+                c = C(fname, base, cost, fn, kind="fallback", cap=20, seconds=worth)
                 c.runs = runs
                 if runs:
                     target, args = runs
@@ -1261,14 +1503,6 @@ class Brain:
                     # `torches (≥8)`; it is in the pool on its own, and it can win on its own.
                     c.precheck = lambda t=target, a=args: skillkit_.can_run(t, *a)
                 offer(c)
-                if pctx.staying and fname in _pool.WANDERING and fname in filtered:
-                    held_back.append(c)
-        if not pool_out and held_back:
-            for c in held_back:
-                if priority.weight_for(c.name, pctx.weights)[1]:
-                    continue        # ask the ban itself, not the filter reason (a banned fallback came back 170×)
-                filtered.pop(c.name, None)
-                pool_out.append(c)
 
     def go_find(self, ctx, snap_kinds):
         """Walk to the nearest one of these; if none is in sight, go look. Records how far it turned out to be, so
@@ -1287,19 +1521,78 @@ class Brain:
             if mobs:
                 spot = (round(mobs[0]["x"]), round(mobs[0]["y"]), round(mobs[0]["z"]))
             else:
-                # Nothing in sight where the map said there would be something: the note is wrong, and saying so
-                # now is what stops the same walk being priced again next round.
-                if note_kind:
-                    for stale in list(self.mem.resources(note_kind, ctx.dimension)):
-                        if math.dist(stale, here) <= 48:
-                            self.mem.confirm(note_kind, stale, ctx.dimension, found=False)
-                return self.explore(ctx) or False
+                # Nothing in SIGHT is not nothing known. A dozen sheep were written down at 21:07 and at 09:14 the
+                # answer was still "could not find sheep", because the only question ever asked was what is within
+                # 48 blocks NOW. Walk to what is remembered; exploring is what is left when nothing is remembered.
+                spot = self.remembered_spot(snap_kinds, ctx.dimension, here)
+                if spot is None:
+                    return self.explore(ctx) or False
+                if not nav.go_to(spot, self.policy_cache, range_=4, attempts=2):
+                    # Could not GET there. That is a fact about the route, not about the note: the place is banned
+                    # (so the next round prices the next one) and what memory says about it still stands.
+                    self.ban(spot)
+                    return False
+                # Standing there and looking is the only thing that can settle a note — and it settles exactly the
+                # ONE note we walked to. Retiring every note within 48 blocks of a single disappointing look is
+                # how "could not find stone" survived a memory holding fourteen stone points.
+                found = bool(find(snap_kinds, radius=6, limit=1) or entities(8, list(snap_kinds)))
+                for kind in snap_kinds:
+                    self.mem.confirm(kind, spot, ctx.dimension, found=found)
+                if found:
+                    self.mem.note_resource(snap_kinds[0], spot, ctx.dimension)
+                return found
         if not nav.go_to(spot, self.policy_cache, range_=3, attempts=2):
             return False      # could not get there: the note may still be true, so it stands
         if note_kind:
             self.mem.confirm(note_kind, spot, ctx.dimension, found=True)
+        # Where we now stand, written down for whatever we came for — not only for the handful of kinds that have
+        # an entry in `LiveCosts.MAPPED`. `state_of` reads `at:<what>` from these notes, and until this line existed
+        # nothing ever set it: the body walked onto the stone, remembered nothing, and planned the same walk again
+        # every round until every stone goal had cooled.
+        self.mem.note_resource(snap_kinds[0], spot, ctx.dimension)
         self.mem.note_search(snap_kinds[0], math.dist(spot, here))
         return True
+
+    def pick_target(self, options, here, pos_of=lambda o: o["pos"]):
+        """The nearest of these that is not blacklisted, or None.
+
+        "shelter-3 not reachable" was logged every two minutes for an hour because the candidate was cooled by
+        NAME and the site was chosen by distance alone — so the same unreachable shelter came back as soon as the
+        cooldown expired, while a second one stood forty blocks away. Choosing from what is not banned is what
+        makes "go to a shelter" mean the dimension rather than that one building; None is what makes digging a new
+        one the cheapest thing left, which is the answer nobody had to write down.
+        """
+        left = [o for o in options if not self.banned(pos_of(o))]
+        return min(left, key=lambda o: math.dist(pos_of(o), here), default=None)
+
+    def banned(self, pos):
+        """Is this place under an unreachability ban right now? One reader, shared with the cost model."""
+        exp = self.blacklist.get(tuple(pos))
+        return exp is not None and exp > time.time()
+
+    def ban(self, pos, seconds=600):
+        """Write down that we could not get there. Repeats escalate, exactly as `Context.ban` does — the same
+        blacklist AND the same escalation counter, so a ban a skill wrote and a ban the brain wrote mean the same
+        thing (the counter lives in `skillcore`, shared by everyone, and is why a place proven unreachable twice
+        waits twice as long)."""
+        self.ban_counts = getattr(self, "ban_counts", None) or skillcore._BAN_COUNTS
+        skillcore.Context.ban(self, pos, seconds)
+
+    def remembered_spot(self, kinds, dimension, here):
+        """The nearest place memory says one of these was, or None. Sightings and resource points are one map for
+        this question: a herd is a sighting, a grove is a resource point, and "where was one of these" is the same
+        question about both."""
+        best, best_d = None, None
+        for kind in kinds:
+            spots = [tuple(p) for p in self.mem.resources(kind, dimension)]
+            spots += [tuple(x["pos"]) for x in self.mem.sightings(kind, dimension)]
+            for pos in spots:
+                d = math.dist(pos, here)
+                if d <= 1.5:
+                    continue          # we are standing on it and it is not here: that is what `confirm` is for
+                if best_d is None or d < best_d:
+                    best, best_d = pos, d
+        return best
 
     def unmet_cost(self, needs, snap, ctx):
         """Seconds to satisfy what this work requires but the world does not yet provide. Zero when it is all there.
@@ -1361,42 +1654,314 @@ class Brain:
             self._prices = (reach_cost(table, vector), vector)
         return self._prices
 
-    def rough_cost(self, g, prices, vector):
-        """Seconds to finish this goal, read off the price table. No search: this is the ordering, not the plan."""
-        from . import actions as act
-        total = 0.0
-        for dim, want in act.target_of(g.needs).items():
-            short = float(want) - float(vector.get(dim, 0))
-            if short <= 0:
-                continue
-            per = prices.get(dim)
-            if per is None or per == float("inf"):
-                return float("inf")
-            total += per * short
-        return total
+    def price_table(self, snap=None):
+        """This round's shadow prices, per ITEM, for whoever needs to ask what a thing is worth in seconds.
 
-    def future_worth(self, plan, prices, ends, credit):
-        """Seconds this plan saves everything after it (priority.future_value), read off the round's credit table.
+        The solver prices DIMENSIONS: group tokens ("bed", "planks", "food") and the item ids that happen to be
+        dimensions of their own. A chest is full of concrete items, so asking it raw answered None for bread and
+        planks (no column makes them by that name) and 0.0 for a stone pickaxe (we are holding one, so another
+        saves nothing this round) — and the looter walked past food, planks and a spare pickaxe.
 
-        The honest question — what do the terminal goods cost once this plan has run — needs a second solve and a
-        second relaxation per candidate. `credits` answers it from the route tree the round already built: for each
-        end, how many of its seconds pass through something this plan makes. What the plan makes is read off its
-        steps, which exist because the plan was solved to be RUN; nothing is solved in order to be priced.
+        Three fills, in one place, so the looter, the bag and the yield measurement all price an item the same way:
 
-        Per end the biggest single credit is taken, not the sum: the things a plan makes sit on top of one another
-        along the same route (logs, then planks, then a bed), and adding them charges one saving once per link —
-        the mistake that put an enchanting table at two hundred thousand seconds. The biggest is a lower bound,
-        and shy is the safe direction.
+          * an item with no price of its own inherits its GROUP's (a loaf is food, oak planks are planks);
+          * a TOOL is worth what having one takes off the terminal goods, not what this round's plan needs;
+          * everything else keeps the dual the solve produced.
         """
-        if not plan or not ends:
+        try:
+            snap = snap or Snapshot()
+            prices, _vector = self.prices(snap, LiveCost(snap, self.blacklist, self.mem))
+        except (McError, NotAvailable):
+            return {}
+        out = dict(prices)
+        for group, members in GROUPS.items():
+            per = prices.get(group)
+            if not per or per == float("inf"):
+                continue
+            for item in members:
+                # Group members are written both ways in this codebase ("bread" and "minecraft:bread"); a chest
+                # reports the second. Fill both, or half the food in a village chest has no price.
+                for token in (item, mid(item)):
+                    if not out.get(token):
+                        out[token] = per
+        for kind in ("pickaxe", "axe", "sword", "shovel", "hoe"):
+            # A tool is worth what having one takes off the terminal goods, over the horizon — the value door,
+            # not a table of frequencies.
+            worth = self.worth_of_change(snap, {act_tool_dim(kind, 1): 1, act_uses_dim(kind): 131}, slots=1)
+            for material in TOOL_MATERIALS:
+                item = f"minecraft:{material}_{kind}"
+                if worth > (out.get(item) or 0.0):
+                    out[item] = worth
+        return out
+
+    def bag_worth_s(self, snap, prices):
+        """What the bag is worth in seconds — what everything in it takes off the terminal goods.
+
+        The measurement half of `[yield]`: what an attempt actually BROUGHT BACK is this before and after. Priced
+        by the one entry, so a stack of dirt is worth what a stack of dirt is worth (nothing) even though it cost
+        seconds to dig.
+        """
+        counts = {}
+        for slot in snap.inv.slots:
+            counts[slot["id"]] = counts.get(slot["id"], 0) + slot.get("count", 1)
+        return self.items_worth_s(snap, list(counts.items()))
+
+    def items_worth_s(self, snap, items):
+        """Seconds a pile of items is worth: `V(now) − V(now ⊕ pile)`. One place, so a corpse, a chest and a
+        furnace's output are priced the same way — and none of them by "what it cost to make", which said a thing
+        this world cannot make is worth nothing at all."""
+        from . import actions as act
+        effect = {}
+        for item, count in items or ():
+            if not item or not count:
+                continue
+            for dim, delta in act.produce(item, float(count)).items():
+                effect[dim] = effect.get(dim, 0.0) + delta
+        return self.worth_of_change(snap, effect, slots=len(items or ()))
+
+    def note_yield_of(self, name, expected_s, worth_before):
+        """Record what that attempt gave against what was hoped for. One call, at the one place a candidate runs,
+        so every `[yield]`-priced thing is corrected by this world: chests that keep coming back empty stop being
+        worth the walk, and a rich seam raises the prior for mining instead of being forgotten."""
+        if not expected_s or worth_before is None:
+            return
+        try:
+            snap = Snapshot()
+            prices, _vector = self.prices(snap, LiveCost(snap, self.blacklist, self.mem))
+            self.mem.note_yield(name, max(0.0, self.bag_worth_s(snap, prices) - worth_before), expected_s)
+        except (McError, NotAvailable) as e:
+            # No measurement is better than a wrong one; the prior stands. But say so: a yield that never gets
+            # corrected is a prior that never learns.
+            api.swallowed("note_yield_of: measuring what came back", e)
+
+    def yield_worth_s(self, name, snap):
+        """Seconds one attempt of this is worth: what it brings back, through the one entry.
+
+        `[yield]` says WHAT comes back, in items, and nothing about what that is worth; `[yield_s]` is for what
+        produces no item (an enchantment, a potion, a leg of exploring), read at its cautious end while nobody has
+        measured it. `memory.yield_rate` scales both by what this world actually gives back.
+        """
+        from .survival import CONFIG as _PLAY
+        items = _PLAY.get("yield", {}).get(name)
+        flat = _PLAY.get("yield_s", {}).get(name)
+        total = beliefs.cautious(f"yield_s.{name}") if flat else 0.0
+        if items:
+            total += self.items_worth_s(snap, list(items.items()))
+        from . import gates
+        return round(total * gates.p(None, "yield", mem=self.mem, name=name), 2) if total else 0.0
+
+    def progress_worth_s(self, name):
+        """Seconds of the run this stage removes, or 0 when it is not a stage of it (`play.toml [progress]`)."""
+        from .survival import CONFIG as _PLAY
+        return float(_PLAY.get("progress", {}).get(name, 0.0))
+
+    def fallback_worth_s(self, name, snap):
+        """Seconds a fallback is worth. Lighting up removes the dark, which is a lever on the same subtraction;
+        mining and exploring are worth what they bring back (`yield_worth_s`)."""
+        if name != "light up":
+            return self.yield_worth_s(name, snap) or None
+        return self.worth_of_change(snap, {"lever:dark": -1}, slots=0)
+
+    def situation(self, snap, cost_model=None, region=None):
+        """The facts the four doors are allowed to look at, for this round.
+
+        Built once and passed down: the columns this world offers, the body in it, what has been measured. A door
+        that has to go and fetch any of this is a door that depends on the middle of the package.
+        """
+        from . import actions as act, gates, want
+        cost_model = cost_model or LiveCost(snap, self.blacklist, self.mem)
+        columns, vector = self.action_table(snap, cost_model)
+        return gates.Situation(state=vector, columns=columns, region=region, policy=self.policy_cache,
+                               wants=want.priced_wants(),
+                               route=nav.estimate_price_s, mem=self.mem, costs=act.LiveCosts(cost_model),
+                               here=tuple(snap.feet),
+                               hp=snap.get("health", 20), inv_free=max(0, 36 - snap.inv.used_slots()),
+                               dark=is_dark(snap), underground=snap.get("skyLight", 15) <= COVERED_SKY)
+
+    def value_world(self, snap, cost_model=None):
+        """(value_of, evolve) for `value.worth_s`: what finishing costs from a state, and where play leaves us.
+
+        Both come from the doors: `gates.V` prices a state (terminal goods in parts, plus what being without them
+        costs), and the dynamics move the levers the same model reads — hunger falls, tools wear. Nothing here
+        computes seconds of its own; it decides which state to ask about.
+        """
+        from . import actions as act, gates
+        from .survival import CONFIG as _PLAY
+        cost_model = cost_model or LiveCost(snap, self.blacklist, self.mem)
+        costs = act.LiveCosts(cost_model)
+        stages = float(sum(v for k, v in _PLAY.get("progress", {}).items() if not self.stage_done(k, snap)))
+        base = survival_state(snap, self.mem)
+        # The columns this world offers, built once for the round. The door is handed them; it does not go and
+        # build a table of its own, which is what made the bottom of the package depend on the middle.
+        columns, _vector = self.action_table(snap, cost_model)
+        cache = {}
+
+        def value_of(state):
+            key = tuple(sorted((d, round(float(v), 3)) for d, v in state.items() if v))
+            if key not in cache:
+                here = gates.Situation(state=state, columns=columns, costs=costs, mem=self.mem,
+                                       hp=state.get("lever:hp", base.get("hp", 20)),
+                                       inv_free=state.get("bag_free", base.get("bag_free", 36)))
+                parts = dict(gates.V(here, parts=True, sstate=self._sstate_for(base, state)))
+                parts["run"] = parts.pop("loss", 0.0) + stages
+                cache[key] = parts
+            return cache[key]
+
+        drain = float(_PLAY["risk"]["food_drain_s"])
+        wear = {k: gates.p(None, "tool_use", mem=self.mem, kind=k) for k in ("pickaxe", "axe", "sword", "shovel")}
+
+        def evolve(state, t):
+            out = dict(state)
+            if out.get("food"):
+                out["food"] = max(0.0, float(out["food"]) - float(t) / drain)
+            for kind, rate in wear.items():
+                dim = act.uses_dim(kind)
+                if out.get(dim):
+                    out[dim] = max(0.0, float(out[dim]) - rate * float(t))
+            return out
+        return value_of, evolve
+
+    def _sstate_for(self, base, state):
+        """This round's survival levers, with what an imagined state changes about them. The levers the solver has
+        no dimension for (health, the dark, room in the bag) arrive as "lever:" deltas."""
+        from . import survival
+        out = dict(base)
+        for key, delta in state.items():
+            if str(key).startswith("lever:"):
+                name = str(key).split(":", 1)[1]
+                now = base.get(name, 0)
+                out[name] = (float(now) + float(delta)) if isinstance(now, (int, float)) else bool(delta)
+        for lever, dim in survival.END_DIMS.items():
+            have = float(state.get(dim, 0) or 0)
+            if lever == "food_items":
+                out[lever] = have
+            elif lever == "torches":
+                out[lever] = have >= survival.TORCHES_MEAN
+            elif lever in ("sword", "pickaxe"):
+                out[lever] = max(float(base.get(lever, 0)), 1.0 if have else 0.0)
+            else:
+                out[lever] = bool(have) or bool(base.get(lever))
+        return out
+
+    def stage_done(self, name, snap):
+        """Has this stage of the run already happened? Read off the same goals the pool offers, so the ladder and
+        the goal list cannot disagree about what is left."""
+        for g in goals(snap, self.mem):
+            if g.name == name:
+                return bool(g.done())
+        return True
+
+    def worth_of_change(self, snap, effect, slots=None, takes_s=0.0):
+        """Seconds a change to the world would be worth: the ONE entry every candidate goes through.
+
+        `effect` is a delta on the state vector — items, terminal goods, or a "lever:" (health, bag room, the
+        dark) — and the answer is `value.worth_s`: what finishing costs now, minus what it costs once the change
+        has happened, over the horizon, less the slots it eats. Healing, tidying, looting, mining, building and
+        walking to a village all meet here, which is the only way they can be compared.
+        """
+        from . import value
+        effect = {d: v for d, v in (effect or {}).items() if v}
+        if not effect:
             return 0.0
-        made = {s.token for s in plan if s.token}
-        after = dict(prices)
-        for dim, rows in credit.items():
-            saved = max([v for d, v in rows.items() if d in made] or [0.0])
-            if saved:
-                after[dim] = max(0.0, prices.get(dim, float("inf")) - saved)
-        return priority.future_value(prices, after, ends)
+        value_of, evolve = self.value_world(snap)
+        _table, vector = self.action_table(snap, LiveCost(snap, self.blacklist, self.mem))
+        carried = [d for d in effect if not str(d).startswith(("at:", "stage:", "tool:", "uses:", "lever:"))]
+        return max(0.0, value.worth_s(dict(vector), effect, value_of=value_of, evolve=evolve,
+                                      horizon_s=priority.DISCOUNT_HORIZON_S,
+                                      bag_free=max(0, 36 - snap.inv.used_slots()),
+                                      slots=float(slots if slots is not None else max(1, len(carried))),
+                                      takes_s=float(takes_s or 0.0)))
+
+    def goal_worth_s(self, g, sstate, snap, prices, takes_s=None):
+        """What this goal is worth, in seconds. The ONE ladder, used both to decide which goals get planned and to
+        score the ones that did — they drifted apart once, and the ranking then threw away the goal the score would
+        have chosen ("recover items after death" dismissed as outranked with a full corpse on the ground).
+
+            what it SAVES        a terminal effect, through the survival model
+            what it ADVANCES     a stage of the run (`play.toml [progress]`), in seconds of the run
+            what it BRINGS BACK  an expected yield, priced by the table and corrected by what this world gives
+            what is LYING THERE  a corpse is worth what is in it, not a flat death cost
+            what it UNLOCKS      everything else: what having its products makes cheaper
+
+        `takes_s` is how long getting there takes. It belongs INSIDE the comparison (`value.worth_s`), because a
+        thing that arrives in three hundred seconds is not the same thing as one underfoot — and without it every
+        plan, near or far, long or short, was priced as if it finished instantly.
+        """
+        from . import actions as act, gates, survival as _sv, value
+        from .survival import CONFIG as _PLAY
+        if g.name == "recover items after death":
+            # What is lying there, priced like anything else: the pile IS the effect.
+            dead = self.mem.recent_death(snap.dimension)
+            return float(self.items_worth_s(snap, dead.get("carried") if dead else []))
+        # What this goal LEAVES US HOLDING that we do not hold already. The shortfall, not the target: adding the
+        # whole requirement on top of a bag that already contains it prices a second copy — which is why carrying
+        # the wool made the bed worth LESS than not carrying it (three more wool, no more bed, one more slot).
+        _table, vector = self.action_table(snap, LiveCost(snap, self.blacklist, self.mem))
+        effect = {}
+        if g.effect:
+            for dim, on in g.effect.items():
+                dim = _sv.END_DIMS.get(dim, dim)
+                want = 1.0 if on is True else float(on)
+                effect[dim] = max(0.0, want - float(vector.get(dim, 0)))
+        for dim, want in act.target_of(g.needs).items():
+            short = max(0.0, float(want) - float(vector.get(dim, 0)))
+            effect[dim] = max(effect.get(dim, 0.0), short)
+        effect = {d: v for d, v in effect.items() if v > 0}
+        if self.progress_worth_s(g.name):
+            # A stage of the run: what it removes is not an item, it is the stage itself.
+            effect[f"stage:{g.name}"] = 1
+        brought = _PLAY.get("yield", {}).get(g.name) or {}
+        for token, n in brought.items():
+            for dim, delta in act.produce(token, float(n)).items():
+                effect[dim] = effect.get(dim, 0.0) + delta
+        if not effect:
+            return 0.0
+        value_of, evolve = self.value_world(snap)
+        stage_s = self.progress_worth_s(g.name)
+
+        def valued(state):
+            # A stage is seconds of the run, not a dimension the solver knows: it belongs to the "run" part, where
+            # it adds rather than competing with the terminal goods.
+            parts = dict(value_of({d: v for d, v in state.items() if not str(d).startswith("stage:")}))
+            if state.get(f"stage:{g.name}"):
+                parts["run"] = parts.get("run", 0.0) - stage_s
+            return parts
+        slots = max(1.0, sum(1 for d in effect if not str(d).startswith(("at:", "stage:", "tool:", "uses:"))))
+        if takes_s is None:
+            # How long this will take, before a plan exists: the shortfall read off the price table, through the
+            # time door.
+            takes_s = gates.takes_s(None, gates.Short(act.target_of(g.needs), prices=prices,
+                                                      state=self.action_table(snap,
+                                                                              LiveCost(snap, self.blacklist,
+                                                                                       self.mem))[1]))
+        return max(0.0, value.worth_s(dict(vector), effect, value_of=valued, evolve=evolve,
+                                      horizon_s=priority.DISCOUNT_HORIZON_S,
+                                      bag_free=max(0, 36 - snap.inv.used_slots()), slots=slots,
+                                      takes_s=takes_s))
+
+    def rough_unlocks(self, g, prices, sstate, snap=None):
+        """What a goal with no terminal effect is worth: what HAVING its products takes off the terminal goods.
+        One line, through the value door — the name survives because the ranking reads it."""
+        from . import actions as act
+        if snap is None:
+            return 0.0
+        return self.worth_of_change(snap, {d: float(v) for d, v in act.target_of(g.needs).items()})
+
+    def uses_of(self, dim):
+        """How many times what this dimension names will be reached for, within the horizon.
+
+        One for a thing used once — a bed, a bucket of water poured out. For a TOOL, how often that kind is used
+        times how much of it is left (`actions.expected_uses`): a pickaxe saves its few seconds two hundred times
+        a day and a bucket twice, and pricing both as a single use is why the agent made the bucket and the sword
+        and never the pickaxe it needs all day.
+        """
+        from . import actions as act, gates
+        if not dim.startswith("tool:"):
+            return 1.0
+        _, kind, _tier = dim.split(":")
+        left = act.TOOL_USES.get("iron", 250)      # a fresh tool of the middling material
+        return max(1.0, gates.p(None, "tool_left", mem=self.mem, kind=kind, left=left,
+                                horizon_s=priority.DISCOUNT_HORIZON_S))
 
     def solve_steps(self, needs, snap, cost_model):
         """`needs` → executable steps, through the one solver. Raises Unplannable when nothing reaches them."""
@@ -1430,7 +1995,7 @@ class Brain:
         key = (id(snap), id(cost_model))
         if getattr(self, "_table_key", None) != key:
             costs = act.LiveCosts(cost_model)
-            vector = act.state_of(snap, self.mem)
+            vector = act.state_of(snap, self.mem, reachable=lambda kinds: costs.reach_s(kinds) != math.inf)
             self._table_key = key
             self._table = (act.table(costs, vector), vector)
         return self._table
@@ -1445,19 +2010,6 @@ class Brain:
             near = tuple(home["pos"]) if home and goal.build != "nether_portal" else nav.feet_now()
             return lambda: skills.build_blueprint(ctx, goal.build, near)
         return goal.after
-
-    def goal_delay(self, g, snap, sstate):
-        """Seconds until this goal's benefit falls due. The discount replaces the urgency multiplier: a bed is not
-        "worth more at dusk", it is worth the same and paid sooner, which is a thing the score can express."""
-        if g.effect and ("bed" in g.effect or "sheltered" in g.effect):
-            return priority.dusk_delay(snap.ticks_until_dusk, snap.night)
-        if g.effect and "food_items" in g.effect:
-            return priority.food_delay(snap.get("food", 20), food_count(snap.inv))
-        if g.effect and "pickaxe" in g.effect:
-            return priority.tool_delay(self.pickaxe_left(snap))
-        if g.effect and ("sword" in g.effect or "armor" in g.effect or "shield" in g.effect):
-            return 0.0      # a fight can happen at any moment: combat gear pays the moment it is carried
-        return priority.dusk_delay(snap.ticks_until_dusk, snap.night) if g.effect else 0.0
 
     def assumptions_for(self, g, plan, step, snap):
         """What the world must still look like for this plan to remain the right one. Checked every round; when one
@@ -1483,17 +2035,16 @@ class Brain:
         return best
 
     def hp_tax_rate(self, snap):
-        """Health per second the surroundings are charging us right now. The one number a plan's premise rests on."""
+        """Health per second the surroundings are charging us right now — a RATE, and an engine of the chance
+        door: `gates.marginal("blood")` turns it into seconds when anyone needs seconds. The one number a plan's
+        premise rests on."""
         from . import perception, threat
         rows, _ids = perception.threats_seen()
         if not rows and perception.hurt_rate() <= 0:
             return 0.0
-        inv = snap.inv
-        prot = threat.protection(snap.get("armor", 0), inv.offhand() == "minecraft:shield")
+        prot = threat.protection(snap.get("armor", 0), snap.inv.offhand() == "minecraft:shield")
         here = (snap.state["x"], snap.state["y"], snap.state["z"])
-        # The larger of what the model expects and what the health bar is actually doing. The model prices a
-        # skeleton by reach and dps; a skeleton that aims well outdoes it, and the difference was a death.
-        return max(threat.pressure(here, rows, prot), perception.hurt_rate())
+        return perception.pressure_now(here, rows, prot)
 
     def premise(self, snap):
         """What the world charges us, coarsely. A plan stays valid while this holds.
@@ -1511,7 +2062,8 @@ class Brain:
         from .survival import CONFIG as _PLAY
         tax_bin, health_bin = _PLAY["pool"]["tax_bin"], _PLAY["pool"]["health_bin"]
         tax = round(self.hp_tax_rate(snap) / tax_bin) * tax_bin
-        coming = [h for h in rows if h[3] in threat.MOBS and threat.arrival(here, h) != float("inf")]
+        coming = [h for h in rows if h[3] in threat.MOBS
+                  and estimate.arrival_s(here, h) != float("inf")]
         health = int(float(snap.get("health", 20)) // health_bin)
         return (tax, len(coming), health)
 
@@ -1612,8 +2164,16 @@ class Brain:
 
     # -- safety layer: a priority mode ahead of goals (Mindcraft/Baritone style); owns dusk and night
     def sheltered(self, snap):
-        if snap.get("skyLight", 15) <= COVERED_SKY or skills.enclosed():
+        if snap.get("skyLight", 15) <= COVERED_SKY:
             return True
+        try:
+            if skills.enclosed():
+                return True
+        except (tape.ReplayMiss, McError, NotAvailable):
+            # A decision must be replayable, and "am I walled in" is a world read. On a recorded round the answer
+            # is not in the tape, so fall back to what memory knows — which is where the other half of this test
+            # already lives. Thirty of thirty-six recorded rounds died here instead of being judged.
+            pass
         feet = list(snap.feet)
         return any(feet in s.get("interior", []) for s in self.mem.sites(snap.dimension))
 
@@ -1631,7 +2191,7 @@ class Brain:
             if snap.get("skyLight", 15) <= COVERED_SKY:
                 return False   # underground already counts as sheltered: keep working, no trek, no hut
             dusk = snap.ticks_until_dusk
-            site = self.mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
+            site = self.pick_target(self.mem.sites(snap.dimension, kinds=["home", "shelter"]), snap.feet)
             if site is not None:
                 eta = travel_ticks(snap.feet, site["pos"])
                 if math.dist(snap.feet, site["pos"]) <= 24 or dusk >= eta + 1500:
@@ -1839,11 +2399,9 @@ class Brain:
             rescues.append(("unbury", lambda: skills.unbury(ctx)))
         if s["inWater"] and s["air"] < 150 and skills.head_underwater(s):
             rescues.append(("find air", lambda: skills.find_air(ctx)))
-        urgent = self.threat_now(snap)
-        if urgent is not None:
-            # Dead before the next round: no time to price anything.
-            intent.say("threat", f"threat: {urgent.kind} — {urgent.why}")
-            rescues.append((f"threat:{urgent.kind}", lambda: self.engage(urgent, s, ctx)))
+        # Threats are answered by the perception thread at its own cadence (perception.bid → arbiter lease), not
+        # here: this ran once a round, could pick `ignore` as if doing nothing were a rescue, and held the body
+        # while the real answer waited for a lease it could never get. One decider, not two.
         for name, fn in rescues:
             if self.ready(name):
                 intent.say("survival", f"survival: {name}")
@@ -1865,14 +2423,21 @@ class Brain:
         sstate = survival_state(snap, self.mem)
 
         def worth(effect):
-            return max(0.0, survival.benefit(sstate, effect))
+            # The rescue layer prices what it would change exactly like every other candidate: one entry, levers
+            # for what the solver has no dimension for (health, the dark, room in the bag).
+            levers = {f"lever:{k}" if k in ("hp", "dark", "bag_free") else k:
+                      (1 if v is True else (0 if v is False else v)) for k, v in effect.items()}
+            if "lever:hp" in levers:
+                levers["lever:hp"] = float(levers["lever:hp"]) - float(s.get("health", 20))
+            return self.worth_of_change(snap, levers, slots=0)
 
         retreat = must_retreat(snap)
         if retreat:
             # Everything the Nether costs is ahead of us until we are out: price it as a day of the risk we carry.
             offer(C(f"retreat from the Nether ({retreat})", 0, 4000,
                     lambda: nether.use_portal(ctx, "minecraft:overworld"), kind="maintenance", cap=30,
-                    seconds=survival.expected_loss(sstate), detail=retreat))
+                    seconds=self.worth_of_change(snap, {"lever:dimension_risk": 1}, slots=0)
+                    or survival.expected_loss(sstate), detail=retreat))
         if s["health"] < 20 and food_count(snap.inv):
             offer(C("heal up", 0, 20 * max(1, 20 - int(s["health"])), lambda: self.heal(ctx, snap),
                     kind="maintenance", cap=20, seconds=worth({"hp": 20}),
@@ -1913,22 +2478,23 @@ class Brain:
         if snap.dimension != "minecraft:overworld":
             return          # no day, no night, and beds explode
         carried_bed = snap.inv.count("bed") > 0
-        delay = priority.dusk_delay(snap.ticks_until_dusk, night)
         if night and (carried_bed or find(BASE_MARKERS["bed"], radius=48, limit=1)):
             offer(C("sleep", 0, 400, lambda: skills.sleep(ctx, self.policy(snap, True)), kind="maintenance",
                     cap=20, seconds=worth({"bed": True, "sheltered": True}), detail="skip the night"))
         if not self.sheltered(snap):
-            site = self.mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
+            # The nearest shelter we can actually get to: one that proved unreachable is banned, and when they all
+            # are, this offer simply is not made — which is what lets "dig in" and "wall in" win the night.
+            site = self.pick_target(self.mem.sites(snap.dimension, kinds=["home", "shelter"]), snap.feet)
             if site is not None:
                 eta = travel_ticks(snap.feet, site["pos"])
                 offer(C("return to shelter", 0, eta + 200,
                         lambda: self._go_to_site(site, snap), kind="maintenance", cap=60,
-                        seconds=worth({"sheltered": True}), delay_s=delay,
+                        seconds=worth({"sheltered": True}),
                         detail=f"{site['name']} ~{eta // 20}s away"))
             if not skills.materials_missing(blueprints.SHELTER):
                 offer(C("build shelter", 0, int(skillkit.expected(skills.build_shelter, ctx) * 20) or 2400,
                         lambda: skills.build_shelter(ctx), kind="maintenance", cap=120,
-                        seconds=worth({"sheltered": True}), delay_s=delay))
+                        seconds=worth({"sheltered": True})))
             if night:
                 _c = C("dig in", 0, 600, lambda: skills.dig_in(ctx), kind="maintenance", cap=30,
                         seconds=worth({"sheltered": True}))
@@ -1939,7 +2505,10 @@ class Brain:
 
     def _go_to_site(self, site, snap):
         if not nav.go_to(tuple(site["pos"]), self.policy(snap, snap.night), range_=4):
-            raise NotAvailable(f"{site['name']} not reachable")
+            # Not reachable is a fact about the PLACE. Written down, the next round prices the next shelter (or
+            # digging one) instead of this same walk a minute from now.
+            self.ban(tuple(site["pos"]))
+            raise api.NavFailed(f"{site['name']} not reachable")
 
     def forage(self, ctx, snap):
         from .knowledge import HUNT
@@ -1965,25 +2534,14 @@ class Brain:
                 "night": 13000 <= tod < 23000, "blocks": blocks, "hazards": hazards, "ids": ids}
 
     def threat_price(self, snap):
-        """How this agent, right now, converts health into seconds — the survival model, as a function."""
-        from . import survival
-        sstate = survival_state(snap, self.mem)
-        return lambda dhp: survival.hp_seconds(sstate, dhp)
+        """How this agent, right now, converts health into seconds — the scarcity door, as a function of hp.
 
-    def threat_now(self, snap):
-        """The emergency answer, or None. Emergency means: dead before the pool gets another turn — anything slower
-        than that is a choice, and choices are priced against mining and crafting in the pool."""
-        from . import threat
-        try:
-            tstate = self.threat_state(snap.state)
-        except McError:
-            return None
-        if not tstate["hazards"]:
-            return None
-        press = threat.pressure(tstate["here"], tstate["hazards"], tstate["protection"])
-        if threat.time_to_die(tstate["hp"], press) > threat.ENGAGE["interrupt_ttd_s"]:
-            return None
-        return threat.decide(tstate, self.threat_price(snap))
+        Blood is scarce the way an inventory slot is scarce: `gates.marginal("blood")` is what one point of it
+        costs here, and everything that prices damage multiplies by that one number."""
+        from . import gates
+        sstate = survival_state(snap, self.mem)
+        per_hp = gates.marginal("blood", sstate=sstate)
+        return lambda dhp: per_hp * float(dhp)
 
     def engage(self, decision, s, ctx=None):
         """Carry out one threat answer — an Option from the pool or a Decision from the emergency; both name a
@@ -1994,7 +2552,7 @@ class Brain:
             if not nav.go_to(decision.target, self.policy_cache, range_=3, attempts=1, min_hp=0):
                 raise NotAvailable(f"could not get away to {decision.target}")
         elif decision.kind == "wall_in":
-            ctx = ctx or skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist)
+            ctx = ctx or skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist, prices=self.price_table)
             skills.pod(ctx)
         elif decision.kind == "eat":
             skills.eat(raw_ok=True)
@@ -2010,7 +2568,7 @@ class Brain:
         feet = tuple(int(math.floor(s[k])) for k in ("x", "y", "z"))
         if where == "down":
             for i in range(n):
-                api.run({"type": "mine", "x": feet[0], "y": feet[1] - 1 - i, "z": feet[2]}, wait=20)
+                skillkit_mine(self.policy_cache, (feet[0], feet[1] - 1 - i, feet[2]), collect=False, wait=20)
             return
         item = next((b for b in skills.GROUPS["building"] if Inventory().count(b)), None)
         if item is None:
@@ -2135,9 +2693,13 @@ class Brain:
 
     def _attempt(self, name, fn):
         before = progress_signature()
+        wear_before, began = tool_wear(), time.time()
         try:
             fn()
             self.retry.succeeded(name)
+            # What that step wore out, and over how long: the frequency each tool is priced by (`actions.use_rate`)
+            # is measured here rather than believed forever.
+            note_tool_wear(self.mem, wear_before, tool_wear(), time.time() - began)
             # Progress = the inventory/equipment changed. Quick successful steps are fine; only "succeeded" with no
             # effect twice in a row for the same goal is a spin.
             idle = progress_signature() == before

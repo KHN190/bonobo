@@ -17,7 +17,7 @@ from .bag import pickup_whitelist
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
 from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VALUE_CAPS, STACK_VALUE, _stack_value, PROTECTED_IDS, PROTECTED_SUFFIX, _protected_stack, RAW_MEAT, SURPLUS_CAP, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
-from .skillcore import _collect_only, ToolMissing, Context, feet, close_screen, free_spots, free_spot, place, snapshot  # noqa: F401,E402  (split out; re-exported for skills.X callers)
+from .skillcore import _collect_only, ToolMissing, Context, feet, close_screen, free_spots, free_spot, place, snapshot, mine_cell  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .explore import surface_first, explore_for, seek_blocks, approach_policy  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .wood import chop  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .building import _mod_at_least, _open_container, _empty_container_slot, _machine_roles, _go_to_machine, find_machine_spot, resolve_item, block_matches, place_oriented, materials_missing, _build_parts, build_blueprint, build_shelter  # noqa: F401,E402  (split out; re-exported for skills.X callers)
@@ -123,8 +123,7 @@ class Station:
         api.post("/close")
         if self.placed:
             before = Inventory().count(self.block)
-            api.run({"type": "mine", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2], "collect": True, **_collect_only([self.block]),
-                     "requireDrops": True}, wait=60)
+            mine_cell(self.ctx.policy, self.pos, wanted=[self.block], require_drops=True, wait=60)
             if Inventory().count(self.block) <= before:
                 api.run({"type": "collect", "radius": 6}, wait=30)   # the drop can land out of the sweep
             if Inventory().count(self.block) > before:
@@ -319,8 +318,7 @@ def collect_job(ctx, job):
         log(f"took {got}× {bare(job['item'])}; {still_cooking} still cooking")
         return
     if job.get("carried"):
-        api.run({"type": "mine", "x": pos[0], "y": pos[1], "z": pos[2], "collect": True, **_collect_only(["minecraft:furnace", job["item"]]), "requireDrops": True},
-                wait=40)
+        mine_cell(ctx.policy, pos, wanted=["minecraft:furnace", job["item"]], require_drops=True, wait=40)
     ctx.mem.finish_job(job["id"])
     log(f"collected {got}× {bare(job['item'])} from the background furnace")
 
@@ -931,8 +929,7 @@ def sleep(ctx, night_policy):
                     return
             raise NotAvailable("could not fall asleep (monsters nearby?)")
         finally:
-            api.run({"type": "mine", "x": spot[0], "y": spot[1], "z": spot[2], "collect": True, **_collect_only([]), "requireDrops": False},
-                    wait=60)
+            mine_cell(ctx.policy, spot, wait=60)
     beds = find(BASE_MARKERS["bed"], radius=48, limit=1)
     if not beds:
         raise NotAvailable("no bed carried or nearby")
@@ -965,6 +962,39 @@ def dig_in(ctx):
     if block and fy < y:
         place(block, (x, fy + 2, z))
     log("dug in for the night")
+
+
+@skill(start=lambda c: Inventory().used_slots(), budget=180, stall=45, per_unit=8)
+def take(ctx, token, count, blocks):
+    """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops.
+
+    The same shape as `mine` — walk to the nearest one that is not ours and not blacklisted, break it, collect —
+    and deliberately the same code path for protection: `mine_cell` refuses anything inside one of our own sites,
+    so "take a furnace" can never mean "take OUR furnace out of the wall we built it into".
+    """
+    want = int(count)
+    got = 0
+    for _ in range(want * 2):
+        if got >= want:
+            return got
+        hits = [h for h in (find(blocks, radius=48, limit=20) or ())
+                if not ctx.blocked((h["x"], h["y"], h["z"]))
+                and (h["x"], h["y"], h["z"]) not in ctx.policy.protected]
+        if not hits:
+            raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
+        cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
+        if not nav.go_to(cell, ctx.policy, range_=3, attempts=2):
+            ctx.ban(cell)
+            continue
+        mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
+        api.run({"type": "collect", "radius": 4}, wait=20)
+        yield None
+        got += 1
+        # The block is gone from the world whether or not the drop reached the bag: the map has to stop sending us
+        # back to it, or the next round walks to the same empty square and calls that progress.
+        ctx.mem.note_resource(bare(hits[0]["block"]), cell, ctx.dimension, depleted=True)
+        log(f"took {bare(token)} at {cell} ({got}/{want})")
+    return got
 
 
 def enclosed():
@@ -1010,7 +1040,7 @@ def pod(ctx):
         name = region.name(c)
         if not name.endswith(("air", "water")) and not region.hazard(c):
             # Torches, flowers, grass: something non-solid occupies the cell. Break it first.
-            api.run({"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": True, **_collect_only([]), "requireDrops": False}, wait=30)
+            mine_cell(ctx.policy, c)
         if not has_support(c, region) and c == (x, y + 2, z):
             # The roof has nothing to click against: cap one of the side walls first (a block on top of a wall
             # beside the head), then the roof goes against that cap — how players close a 1×1 hole.

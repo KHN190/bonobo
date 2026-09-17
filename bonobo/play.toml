@@ -2,11 +2,10 @@
 night_s = 420.0            # a Minecraft night, real seconds
 day_s = 600.0
 death_cost_s = 240.0       # respawn, walk back, re-gear: what a death costs the run in time
-seconds_per_value = 10.0   # legacy `Goal.value` points → seconds: unmodelled goals stay modest by design
 
 [risk]
 # p(death) per night by how the night is spent. Sleeping skips it entirely.
-night_open = 0.25          # on the surface, no shelter, no bed
+night_open = 0.35          # on the surface, no shelter, no bed
 night_sheltered = 0.03     # walled in or underground
 night_bed = 0.0
 # Extra p(death) per night without a weapon / per hunt without one.
@@ -19,9 +18,12 @@ hunger_slowdown = 0.25     # fraction of working time lost at an empty bar, scal
 meal_share_of_day = 0.25   # how long a hunger level is carried before there is a chance to eat
 starving_slowdown = 0.5    # fraction of working time lost while low on food
 starving_death = 0.15      # p(death) per day at low food with no food carried
+dark_light = 7
 # Dark workplaces spawn mobs; torches remove that for the work site.
 dark_work_death = 0.05     # p(death) per working session with no torches
 encounters_per_day = 3.0
+night_encounter_share = 0.85    # fraction of a day's encounters that happen after dark
+night_share_of_day = 0.29       # 7000 of 24000 ticks
 reference_mob = "minecraft:zombie"   # what "a hostile" means when pricing a day
 regen_s_per_hp = 4.0                 # seconds to regenerate one health, fed and undisturbed
 regen_food_floor = 18                # health only regenerates above this food level
@@ -38,13 +40,19 @@ mine_time_iron = 1.0
 mining_share_of_day = 0.4  # how much of a day is spent mining or digging
 
 unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_night", "starving_slowdown", "hunger_slowdown", "meal_share_of_day",
-              "starving_death", "dark_work_death", "phantom_night_death", "mine_time_no_pickaxe",
+              "starving_death", "dark_work_death", "dark_light", "phantom_night_death", "mine_time_no_pickaxe",
               "mine_time_stone", "mining_share_of_day", "death_cost_s", "armor_per_tier", "shield",
-              "encounters_per_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "regen_food_floor", "night_bed_open",
-              "slot_fill_s", "food_point_s", "tax_bin", "health_bin", "commit_floor_s",
+              "encounters_per_day", "night_encounter_share", "night_share_of_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "regen_food_floor", "night_bed_open",
+              "fresh_s", "drift_s_per_log2", "slot_fill_s", "food_point_s", "tax_bin", "health_bin", "commit_floor_s",
               "pickaxe_s", "bed_s", "rounds",
-              "notice_r", "follow_p", "portal_trip_s", "seek_prior_s",
-              "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "shape_min_gain"]
+              "pickaxe", "shovel", "axe", "sword", "hoe", "bucket", "other",
+              "notice_r", "follow_p", "portal_trip_s", "seek_prior_s", "nether portal", "nether kit",
+              "nether fortress", "blaze rods (7)", "gold helmet for piglins", "piglin barter", "ender pearls (12)",
+              "eyes of ender (12)", "stronghold located", "portal room found", "beds for the dragon",
+              "activate end portal", "enter the End", "defeat the ender dragon",
+              "breed animals", "loot nearby chests", "villager pearls", "repair worn pickaxe", "strip mine",
+              "enchant the pickaxe", "fire resistance potions", "explore",
+              "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
 "minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 2.3 }
@@ -96,19 +104,85 @@ shield_s = 0.3             # raising a shield
 shield_protects = 0.15     # damage removed while it is up, on top of armour
 block_s = 0.6              # placing one block in the way
 dig_s = 0.9                # digging one block down, out of sight
-hide_per_block = 0.45      # of an archer's fire that a block of height or depth takes out of the line
+hide_per_block = 0.45      # of an archer's fire that a block of depth takes out of the line
+melee_stop_blocks = 2      # blocks of height or depth that put us out of a walking mob's reach entirely
 shape_min_gain = 0.1       # a shape must cut this share of the pressure to be worth offering at all      # of what is coming at us that a block of height or depth takes out of the line
 detour_blocks = 8.0        # how far a placed block sends a mob around, where it cannot squeeze past
 interrupt_ttd_s = 4.0      # perception stops a task only when death is closer than one planning round      # perception interrupts a task when death is this close at the current pressure
 
 [milestone]
-# How long a playthrough may take to reach a milestone, in simulated seconds. Budgets, not measurements: they say
-# what "fast enough" means for the offline life test, and they are listed as unmeasured because they are declared
-# rather than fitted. Three scripts share them: everything works, the measured failures happen, everything takes
-# twice as long — a life that cannot reach a pickaxe under the third is not a life.
 pickaxe_s = 900.0          # a stone pickaxe in hand
 bed_s = 2400.0             # wool, planks, a bed
 rounds = 40                # give up after this many decisions, however the clock stands
+
+[tool_use]
+pickaxe = 50.0
+shovel = 20.0
+axe = 15.0
+sword = 8.0
+hoe = 4.0
+bucket = 3.0
+other = 2.0                # anything not named above
+
+[goals]
+unmodelled = []   # empty: every goal is priced in seconds. Adding a name here is taking on a debt.
+
+[progress]
+# The run itself, in seconds: how much of the way to the credits each stage removes. Declared budgets, not
+# measurements (listed unmeasured) — but they are SECONDS, so a portal can be compared with a bed instead of
+# being compared with nothing. Read downward: entering the End is worth what is left after it, and so on back.
+# A stage is only ever worth this once; the goals that reach it carry it (`Brain.progress_worth_s`).
+"nether portal" = 900.0
+"nether kit" = 400.0
+"nether fortress" = 700.0
+"blaze rods (7)" = 900.0
+"gold helmet for piglins" = 200.0
+"piglin barter" = 600.0
+"ender pearls (12)" = 900.0
+"eyes of ender (12)" = 400.0
+"stronghold located" = 700.0
+"portal room found" = 500.0
+"beds for the dragon" = 400.0
+"activate end portal" = 300.0
+"enter the End" = 300.0
+"defeat the ender dragon" = 1800.0
+
+[yield]
+"breed animals" = { "minecraft:beef" = 6 }
+"loot nearby chests" = { "minecraft:iron_ingot" = 2, "minecraft:bread" = 3, "minecraft:coal" = 4 }
+"villager pearls" = { "minecraft:ender_pearl" = 4 }
+"repair worn pickaxe" = { "minecraft:stone_pickaxe" = 0.5 }
+"strip mine" = { "minecraft:cobblestone" = 40, "minecraft:coal" = 6, "minecraft:raw_iron" = 3 }
+
+[yield_s]
+"enchant the pickaxe" = 600.0        # efficiency and unbreaking over the pickaxe's remaining life
+"fire resistance potions" = 400.0    # the Nether trips that do not end in a respawn
+"explore" = 120.0                    # a leg of exploring pays for itself by what it puts on the map
+
+[memory]
+# A note gets dearer as it ages; it never stops being a note. A cutoff cannot tell "the sheep wandered off" from
+# "there were never sheep there", and throwing the note away at thirty minutes is what made the agent explore past
+# a field it had mapped the night before. Cost in seconds, growing with the LOGARITHM of age, so a day-old note is
+# dearer than an hour-old one by a few doublings — never by infinity, never to zero worth.
+fresh_s = 600.0            # age at which a note has taken its first doubling's worth of drift
+drift_s_per_log2 = 25.0    # seconds added per doubling of (1 + age / fresh_s)
+
+[build]
+max_prepare_blocks = 12
+
+[batch]
+# How much a step actually takes is a margin, not a number: one more unit is worth its shadow price (what the
+# round's own solve says another one saves) and costs the seconds to pick it up plus the slot it eats
+# (`actions.slot_cost_s`, from `pool.slot_fill_s`). Stone and logs, which half of every plan passes through, come
+# back by the stack; gold nothing asks for comes back in the quantity that was planned.
+pick_s = 0.35              # seconds to pick up one more item once it is broken and we are standing there
+
+[nav]
+unit_s = 0.5               # seconds per move unit
+probe_r = 14               # blocks: how far from the body a target is priced by route search rather than by the
+                           # straight line. Beyond this the box to fetch is too big to be worth a query. Zero
+                           # switches route pricing OFF entirely — which is how a bed behind a lava sheet came to
+                           # cost exactly what a bed on flat ground costs.
 
 [water]
 surface_s = 4.0            # seconds to swim out from a working depth
@@ -116,6 +190,7 @@ reaction_s = 1.5           # perception round, /stop, and the rescue getting und
 air_floor = 120            # ticks: a hard floor under the clock, in case the clock's own inputs are wrong
 
 [pool]
+unmodelled = []   # empty: every candidate is priced in seconds.
 slot_fill_s = 90.0         # seconds of work per inventory slot filled: how fast a bag fills while mining
 portal_trip_s = 180.0      # there and back through a portal: what work in another dimension costs extra
 seek_prior_s = 300.0       # seconds to find one of something never seen and never measured. A declared

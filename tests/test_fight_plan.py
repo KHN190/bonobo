@@ -1,8 +1,9 @@
-"""Offline tests for the fight planner: structured states in, intents out. No game, milliseconds.
+"""What the swept fight table cannot reach: the shape of a state, the clock, and the declarations.
 
-Each test names a way a fight has actually been lost — starting what could not finish, walking into the open with
-no cover to return to, standing still because everything was refused, ranking on a number nobody measured — and
-asserts the planner refuses or reports it, for the stated reason.
+Pricing and vetoing — which action wins, what it saves, what is refused in which phase, with how much health and
+how little time — are swept over the whole state space in test_state_price and test_saved, and the
+deleted with it. What is left is what a sweep of well-formed cells never sees: malformed states, a phase clock read wrong,
+actions declared in data rather than in branches, and a pincer, which is geometry rather than a cell.
 """
 import unittest
 
@@ -112,44 +113,7 @@ class ActionsAreData(unittest.TestCase):
 
 
 class Veto(unittest.TestCase):
-    def test_atomic_work_must_fit_the_phase(self):
-        ok, why = F.admissible(state(elapsed=4.9), F.action("fire_window"))
-        self.assertFalse(ok)
-        self.assertIn("s left", why)
 
-    def test_interruptible_work_is_judged_by_its_segment(self):
-        # Digging takes 6 s and the holding pattern's p10 is 2.0 s; judged whole it would starve forever.
-        s = state(phase=0, tunnel=False, in_cover=False, pos=(20.0, 64.0, 0.0))
-        self.assertEqual(fp.commitment(F.action("dig_tunnel")), 0.8)
-        ok, why = F.admissible(s, F.action("dig_tunnel"))
-        self.assertTrue(ok, why)
-
-    def test_phase_restricted_actions(self):
-        ok, why = F.admissible(state(phase=6, bow=1, arrows=8, crystals=2), F.action("shoot_crystal"))
-        self.assertFalse(ok)
-        self.assertIn("phase", why)
-
-    def test_damage_rule_only_fails_on_damage(self):
-        # Hurt, nothing hitting us, no cover: digging cover must still be allowed. A version compared 0 against a
-        # negative allowance and refused it — a hurt agent could not build the cover that would stop the hurt.
-        s = state(phase=0, hp=8.0, tunnel=False, in_cover=False, pos=(20.0, 64.0, 0.0))
-        ok, why = F.admissible(s, F.action("dig_tunnel"))
-        self.assertTrue(ok, why)
-
-    def test_damage_rule_fails_when_it_would_kill(self):
-        s = state(phase=0, hp=8.0, tunnel=False, in_cover=False, pos=(0.0, 65.0, 0.0),
-                  threats=[threat(CLOUD, 0, 0, r=6.0)])       # standing in breath
-        ok, why = F.admissible(s, F.action("dig_tunnel"))
-        self.assertFalse(ok)
-
-    def test_dead_admits_nothing_but_says_why(self):
-        ok, why = F.admissible(state(hp=0.0), F.action("dig_tunnel"))
-        self.assertFalse(ok)
-        self.assertIn("health", why)
-
-    def test_retreat_is_never_vetoed(self):
-        for s in (state(), state(hp=1.0, tunnel=False, beds=0, phase=0), state(phase=4, elapsed=0.8)):
-            self.assertTrue(F.admissible(s, F.default)[0], "the default must always survive the veto")
 
     def test_the_pincer_is_refused(self):
         # Two clouds closing from either side: each alone leaves an escape, together they do not. The veto asks
@@ -167,74 +131,6 @@ class Veto(unittest.TestCase):
         ok, why = F.admissible(s_ring, F.action("place_bed"))
         self.assertFalse(ok, "converging from every side must veto what an open flank allows")
         self.assertIn("first threat arrives", why)
-
-
-class Objective(unittest.TestCase):
-    """cost = work / rate + Σ exposure + p(death) × death_cost — and every benefit is a difference of it."""
-
-    def test_a_hurt_dragon_is_closer_to_done(self):
-        self.assertLess(F.objective(state(boss_hp=40.0)), F.objective(state(boss_hp=200.0)))
-
-    def test_cover_is_worth_seconds(self):
-        self.assertLess(F.objective(state(tunnel=True, in_cover=True)),
-                        F.objective(state(tunnel=False, in_cover=False)))
-
-    def test_a_dead_dragon_costs_nothing(self):
-        self.assertEqual(F.objective(state(boss_hp=0.0)), 0.0)
-
-    def test_benefit_is_the_effect_on_the_objective(self):
-        s = state(tunnel=False, in_cover=False, phase=0)
-        after = F.action("dig_tunnel").effect(s)
-        self.assertAlmostEqual(F.benefit(s, F.action("dig_tunnel")), F.objective(s) - F.objective(after), places=1)
-
-    def test_the_tunnel_stops_paying_on_the_last_window(self):
-        # No rule says so — with one window left there is nothing to amortise the dig over, and the seconds say it.
-        many = F.benefit(state(phase=0, boss_hp=200.0, tunnel=False, in_cover=False), F.action("dig_tunnel"))
-        few = F.benefit(state(phase=0, boss_hp=30.0, tunnel=False, in_cover=False), F.action("dig_tunnel"))
-        self.assertGreater(many, few)
-
-    def test_being_hit_now_is_a_cost(self):
-        calm = state(pos=(30.0, 65.0, 0.0), threats=[])
-        hit = state(pos=(0.0, 65.0, 0.0), threats=[threat(CLOUD, 0, 0, r=6.0)])
-        self.assertGreater(F.objective(hit), F.objective(calm))
-
-    def test_shaking_an_enderman_is_worth_the_damage_it_stops(self):
-        s = state(phase=0, pos=(0.0, 65.0, 0.0), threats=[threat(ENDERMAN, 1.0, 0)])
-        self.assertGreater(F.benefit(s, F.action("water_bucket")), 0.0)
-
-    def test_a_standing_crystal_is_work(self):
-        self.assertGreater(F.objective(state(crystals=3)), F.objective(state(crystals=0)))
-
-
-class Planning(unittest.TestCase):
-    def test_sitting_phase_fires(self):
-        self.assertEqual(F.plan(state())["intent"], "fire_window")
-
-    def test_late_in_the_window_it_refuses_to_start(self):
-        p = F.plan(state(elapsed=4.8))
-        self.assertNotEqual(p["intent"], "fire_window")
-        self.assertIn("fire_window", dict(p["rejected"]))
-
-    def test_circling_with_nothing_built_digs(self):
-        p = F.plan(state(phase=0, tunnel=False, bed_placed=False, in_cover=False, pos=(20.0, 64.0, 0.0)))
-        self.assertEqual(p["intent"], "dig_tunnel", p["rejected"])
-
-    def test_zero_benefit_never_beats_retreating(self):
-        p = F.plan(state(phase=6, tunnel=False, in_cover=False, beds=0))
-        self.assertEqual(p["intent"], "retreat")
-
-    def test_always_answers_something(self):
-        p = F.plan(state(phase=4, elapsed=0.5, hp=3.0, beds=0, tunnel=False))
-        self.assertEqual(p["intent"], "retreat")
-
-    def test_deadline_matches_the_intent(self):
-        p = F.plan(state(elapsed=1.0))
-        self.assertGreaterEqual(p["deadline_s"], 0.0)
-        self.assertEqual(p["duration_s"], F.action(p["intent"]).duration_s)
-
-    def test_rejections_carry_reasons(self):
-        for _, why in F.plan(state(beds=0, tunnel=False))["rejected"]:
-            self.assertTrue(why)
 
 
 class Faults(unittest.TestCase):

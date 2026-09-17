@@ -94,6 +94,25 @@ def cmd_direct(a):
         print(d["id"], directives.describe(d))
 
 
+def cmd_want(a):
+    """The cerebrum's door (docs/api.md): a wanted state and what it is worth in seconds. Nothing else gets in."""
+    from bonobo import want
+    want.load()
+    if a.action == "list":
+        for w in want.list(active=a.all is False):
+            print(w)
+    elif a.action == "status":
+        print(json.dumps(want.status(a.args[0] if a.args else None), indent=1))
+    elif a.action == "stop":
+        for w in want.stop(a.args[0] if a.args else None, hard=a.hard, reason=a.note):
+            print("stopped", w)
+    else:
+        pairs = {a.args[i]: float(a.args[i + 1]) for i in range(0, len(a.args) - 1, 2)}
+        w = want.offer(pairs, a.worth_s, deadline_s=a.deadline_s, expires_s=a.expires_s,
+                       scope=a.scope, note=a.note, id=a.id)
+        print(w.id, w.state, json.dumps(want.status(w.id)[0]))
+
+
 def cmd_prio(a):
     """Claude's priority adjustments (priorities.json): hot-reloaded every round, always expiring."""
     from bonobo import priority
@@ -148,12 +167,16 @@ def cmd_scenario(a):
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
     names = [n for n, sc in scenarios.SCENARIOS.items() if not sc.get("release")] if a.action == "all" else a.names
     brain = Brain()
-    scenarios.BRAIN = brain   # plan-driven scenarios execute steps the way the brain does
+    scenarios.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
     perception.start()   # same danger interrupts as a real run
     same, running, built = scenarios.jar_matches_source()
     if not same:
         raise McError(f"game runs mod {running} but the sources are {built}: install the jar and restart first")
-    runs = [(name, attempt) for name in names for attempt in range(5)]
+    # A scenario that SWEEPS (the arena) is its own sample: one pass writes dozens of rows, and running it three
+    # times only re-measures the same code against the same cells. Yes/no scenarios still repeat until two
+    # counted runs agree, because one of those is a coin toss about flaky execution, not a measurement.
+    runs = [(name, attempt) for name in names
+            for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else 5)]
     for name, attempt in runs:
         # Run only until the current code has a verdict (2 agreeing counted runs): an already-decided scenario isn't
         # run at all; setup/harness failures retry up to 5 times.
@@ -172,7 +195,10 @@ def cmd_scenario(a):
         brain.blacklist = {}
         def make_ctx():
             snap = Snapshot()
-            return skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist)
+            # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
+            # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
+            return skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
+                                  prices=brain.price_table)
         ok, seconds, note, cls, code = scenarios.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
 
@@ -284,11 +310,6 @@ def cmd_incidents(a):
     raise SystemExit(incidents.main())
 
 
-def cmd_dryrun(_):
-    from bonobo.tools import dryrun
-    raise SystemExit(dryrun.main())
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -313,6 +334,18 @@ def main():
     p.add_argument("--mode", choices=["override", "boost", "background"], default="override")
     p.add_argument("--x", type=float, default=None, help="boost multiplier")
     p.set_defaults(fn=cmd_direct)
+    p = sub.add_parser("want", help="LLM door: offer TOKEN N --worth-s S | stop [id] | status [id] | list")
+    p.add_argument("action", choices=["offer", "stop", "status", "list"])
+    p.add_argument("args", nargs="*")
+    p.add_argument("--worth-s", dest="worth_s", type=float, default=None, help="seconds the wanted state is worth")
+    p.add_argument("--deadline-s", dest="deadline_s", type=float, default=None, help="only steepens the discount")
+    p.add_argument("--expires-s", dest="expires_s", type=float, default=600.0)
+    p.add_argument("--scope", default=None, help="narrows the candidate pool; never widens it")
+    p.add_argument("--note", default="")
+    p.add_argument("--id", default=None, help="re-offering an id re-prices that want")
+    p.add_argument("--hard", action="store_true", help="stop: take the body now (arbiter), not at the next round")
+    p.add_argument("--all", action="store_true", help="list: include expired, stopped and refused")
+    p.set_defaults(fn=cmd_want)
     p = sub.add_parser("prio", help="priority weights: list | clear | set TARGET X | ban TARGET | pin TARGET")
     p.add_argument("action", choices=["list", "clear", "set", "ban", "pin", "profile"])
     p.add_argument("target", nargs="?")
@@ -361,8 +394,6 @@ def main():
     p.add_argument("scenario")
     p.add_argument("log", nargs="?")
     p.set_defaults(fn=cmd_once)
-    sub.add_parser("dryrun", help="read-only check that the candidate pool builds against the live game") \
-        .set_defaults(fn=cmd_dryrun)
     sub.add_parser("intent", help="what the agent means to do right now, layer by layer (MC_DATA/intent.json)") \
         .set_defaults(fn=cmd_intent)
     p = sub.add_parser("incidents", help="replay captured planner states from live failures; `adopt NAME` to keep one")

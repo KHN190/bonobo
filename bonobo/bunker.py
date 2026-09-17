@@ -33,9 +33,6 @@ TUNNEL_LEN = _GEO["tunnel_len"]
 FIRE_AT = _GEO["fire_at"]
 # Where we wait out take-off and breath: three blocks in, past anything that pools at the mouth.
 RETREAT_AT = _GEO["retreat_at"]
-# A bed blast chews through end stone, so the blocks framing the mouth are the ones that must not be end stone —
-# otherwise the cover is demolished by our own bombs after a few windows.
-REINFORCE = _GEO["reinforce"]
 
 
 def mouth(side, floor_y, centre=(0, 0)):

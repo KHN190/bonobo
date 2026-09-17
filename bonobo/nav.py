@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import api
+from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, HAND_MINEABLE_SUFFIX, bare
 from .world import NEIGHBOURS6, Inventory, Region, add, region_around
@@ -57,12 +58,18 @@ def mod_features():
     return _features
 
 
-def plan_tunnel(region, start, targets, policy, max_expand=60000, blocks=None, ladders=None, features=None):
+def plan_tunnel(region, start, targets, policy, max_expand=60000, blocks=None, ladders=None, features=None,
+                price_only=False):
     """Cheapest route from `start` (feet) until a target block touches the body, as a list of mod tasks (empty when
     already there, None when impossible). Moves: walk / step up / step down (digging through if needed), bridge a
     gap by placing a floor, pillar up, climb ladders hung on a wall, dig straight down. Never digs next to lava or
     water, never bridges over or beside lava (unless policy.lava_ok), never touches protected or player-made blocks,
-    never plans falls."""
+    never plans falls.
+
+    With `price_only`, the same search answers what it COSTS rather than how to do it: the route's cost in move
+    units, or None when there is no route. That is what makes "I can see it but cannot get to it" a price instead
+    of a dead end — every reason (water, lava, a wall, no blocks to bridge with) is already priced by the moves
+    this search is allowed to make, so nobody has to enumerate the reasons."""
     targets = set(targets)
     if blocks is None or ladders is None:
         inv = Inventory()
@@ -127,6 +134,8 @@ def plan_tunnel(region, start, targets, policy, max_expand=60000, blocks=None, l
             continue
         expanded += 1
         if goal(f):
+            if price_only:
+                return cost
             actions, node = [], f
             while node is not None:
                 prev, acts = came[node]
@@ -189,6 +198,71 @@ def plan_tunnel(region, start, targets, policy, max_expand=60000, blocks=None, l
             if dc is not None and region.solid(down):
                 push(down, cost + DIG_DOWN + dc, digs([down]) + [("goto", down)])
     return None
+
+
+# What one cell of each kind costs to get through, in "walked block" units — the capability table. A body that
+# can fly pays nothing for any of them; one that can teleport does not consult this at all. Same estimate, one
+# table per kind of body, instead of a formula per kind of body.
+CELL_COST = {"open": 1.0, "dig": 3.0, "bridge": 4.0, "hazard": 12.0, "unbreakable": 40.0}
+
+
+def estimate_price_s(region, start, target, policy, sample=None):
+    """A QUICK price for getting there: the straight line, plus what the cells along it cost to get through.
+
+    An ENGINE of `gates.takes_s(s, Go(...))`: movement knows what a cell costs this body, the time door is
+    who may ask.
+
+    The exact answer is a route search (`reach_price_s`), and it is the right answer when the body is about to
+    move. It is the wrong answer to ask about forty candidate targets a round — so this walks the straight line
+    between here and there, counts what each cell it crosses would cost this body (air is a step, stone is a dig,
+    a gap is a bridge, lava is a bridge over lava), and adds it up. Never exact; monotone in the things that
+    matter, which is what a ranking needs.
+    """
+    import math as _m
+    step = max(1, int(sample or 1))
+    dx, dy, dz = (target[i] - start[i] for i in range(3))
+    span = max(1, int(_m.dist(start, target)))
+    total = 0.0
+    for i in range(0, span + 1, step):
+        f = i / float(span)
+        cell = (int(round(start[0] + dx * f)), int(round(start[1] + dy * f)), int(round(start[2] + dz * f)))
+        total += _cell_cost(region, cell, policy) * step
+    return total * float(_PLAY["nav"]["unit_s"])
+
+
+def _cell_cost(region, cell, policy):
+    """What this body pays to be in that cell: nothing it can walk through, more for what it must break, most for
+    what it must cover or go round."""
+    if not region.inside(cell):
+        return CELL_COST["open"]
+    head = add(cell, (0, 1, 0))
+    if region.hazard(cell) or region.hazard(head):
+        return CELL_COST["hazard"] if policy.allow_build else CELL_COST["unbreakable"]
+    if region.unbreakable(cell) or cell in policy.protected:
+        return CELL_COST["unbreakable"]
+    solid = region.solid(cell) or region.solid(head)
+    if solid:
+        return CELL_COST["dig"] if policy.allow_dig else CELL_COST["unbreakable"]
+    below = add(cell, (0, -1, 0))
+    if region.inside(below) and region.hazard(below):
+        # What we would be WALKING ON. The bench's water and lava lie in the floor, not at head height, and
+        # reading only the cell and the head priced a lava sheet exactly like flat ground.
+        return CELL_COST["hazard"] if policy.allow_build else CELL_COST["unbreakable"]
+    if region.inside(below) and not region.solid(below):
+        return CELL_COST["bridge"] if policy.allow_build else CELL_COST["unbreakable"]
+    return CELL_COST["open"]
+
+
+def reach_price_s(region, start, targets, policy, blocks=None, ladders=None, features=None, max_expand=20000):
+    """Seconds to get within reach of any of `targets` from `start`, or None when no route exists.
+
+    Pure over the region snapshot: no world reads, so a recorded round replays. The search's move costs are in
+    units of "about a walked block"; `[nav] unit_s` turns them into the only currency there is."""
+    cost = plan_tunnel(region, start, targets, policy, max_expand=max_expand, blocks=blocks, ladders=ladders,
+                       features=features, price_only=True)
+    if cost is None:
+        return None
+    return max(0.0, float(cost) * float(_PLAY["nav"]["unit_s"]))
 
 
 def building_item():
