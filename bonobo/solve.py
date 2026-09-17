@@ -253,8 +253,7 @@ def _memo_key(actions, state, target, integral):
     because the food bar ticked down a tenth, and keying on the raw state meant every round asked a question
     nobody had ever asked before.
     """
-    cols = tuple(sorted((a.name, a.cost_s, a.limit) for a in actions))
-    return (cols, _state_key(state), tuple(sorted(target.items())), integral)
+    return (_columns_key(actions), _state_key(state), tuple(sorted(target.items())), integral)
 
 
 def solve(actions, state, target, integral=True):
