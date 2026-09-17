@@ -69,6 +69,11 @@ class Action:
         fn = getattr(self, "_exposure", None)
         return float(fn(self, state)) if fn else 0.0
 
+    # A round builds a hundred and thirty thousand of these (every column, every layer of every descent, every
+    # goal drawn). Without slots each one is a dict of six entries; with them it is six pointers. Nothing else
+    # about the class changes, and the saving is most of a round's allocation.
+    __slots__ = ("name", "effect", "cost_s", "requires", "limit", "tag", "_exposure")
+
     def __init__(self, name, effect, cost_s, requires=None, limit=None, tag=None):
         if cost_s <= 0:
             raise ValueError(f"action {name!r} must cost time: a free action makes every plan infinite")
@@ -159,6 +164,33 @@ def reach_cost(cols, state):
     return reach_tree(cols, state)[0]
 
 
+# What makes two relaxations the same question. Not the whole state: this is a table of "cheapest way to get one
+# of each dimension", and whether we HOLD something changes it, while how much food is in the bar does not. With
+# the raw state as the key the cache missed on every round (food drains continuously) and the tree — a thousand
+# calls a round — was rebuilt from nothing each time.
+_UNPRICED = ("lever:", "food", "bag_free")
+
+
+def _state_key(state):
+    """Only what a price depends on: what is held, in coarse steps. Holding one plank or four changes what is
+    cheapest; holding 17.3 versus 17.4 points of food does not."""
+    return tuple(sorted((d, min(int(v), 64)) for d, v in state.items()
+                        if v and not str(d).startswith(_UNPRICED)))
+
+
+def _columns_key(cols):
+    """The table's identity: its columns and what they cost.
+
+    Carried ON the table when it is one (`actions.Table` keeps it), computed from the contents otherwise. It is
+    NOT keyed by id(): a table is built per round, the old one is collected, and Python hands the same id to the
+    next — which served one world's prices for another's ground, and made a room come out cheaper than open air.
+    """
+    got = getattr(cols, "key", None)
+    if got is not None:
+        return got
+    return tuple(sorted((a.name, a.cost_s) for a in cols))
+
+
 def reach_tree(cols, state):
     """The same relaxation, keeping the CHOICE: ({dimension: seconds}, {dimension: column that made it cheapest}).
 
@@ -166,7 +198,7 @@ def reach_tree(cols, state):
     affordable. Asking honestly what a plan leaves behind means a second relaxation per candidate; reading it off
     this tree is a walk down one route (see `credits`).
     """
-    key = (tuple(sorted((a.name, a.cost_s) for a in cols)), tuple(sorted(state.items())))
+    key = (_columns_key(cols), _state_key(state))
     if key in _PRICES:
         return _PRICES[key]
     cost = {d: 0.0 for d, v in state.items() if v > 0}
@@ -215,9 +247,14 @@ MEMO_MAX = 4000
 
 
 def _memo_key(actions, state, target, integral):
-    """What makes two solves the same question: the columns offered, what we hold, what is wanted."""
+    """What makes two solves the same question: the columns offered, what we hold, what is wanted.
+
+    The same coarse reading of the state as `reach_tree` uses, and for the same reason: a plan does not change
+    because the food bar ticked down a tenth, and keying on the raw state meant every round asked a question
+    nobody had ever asked before.
+    """
     cols = tuple(sorted((a.name, a.cost_s, a.limit) for a in actions))
-    return (cols, tuple(sorted(state.items())), tuple(sorted(target.items())), integral)
+    return (cols, _state_key(state), tuple(sorted(target.items())), integral)
 
 
 def solve(actions, state, target, integral=True):

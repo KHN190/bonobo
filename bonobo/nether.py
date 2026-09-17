@@ -220,7 +220,7 @@ def barter_piglin(ctx, ingots=8):
         if not Inventory().count("minecraft:gold_ingot") and thrown < ingots:
             thrown = ingots
         api.run({"type": "wait", "ticks": 140}, wait=15)      # a piglin inspects gold for ~6 s
-        api.run({"type": "collect", "radius": 8}, wait=30)
+        nav.sweep(ctx, radius=8, wait=30)
         yield Inventory().count("minecraft:ender_pearl")
     log(f"bartered with piglins: {Inventory().count('minecraft:ender_pearl')} pearls now")
     return True

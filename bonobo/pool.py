@@ -55,7 +55,8 @@ class Context:
 
     def __init__(self, *, segment, seg_name, seg_goals, bench_failing, staying, committed, weights, ready,
                  force, seg_misses, seg_misses_limit, retry, sig, night, night_capable, snap, has_pickaxe,
-                 sightings, way_into=None, no_go=(), sheltered=False, place=None, stood_down=None):
+                 sightings, way_into=None, no_go=(), sheltered=False, place=None, stood_down=None,
+                 footing=None):
         self.segment, self.seg_name, self.seg_goals = segment, seg_name, seg_goals
         self.bench_failing, self.staying, self.committed = bench_failing, staying, committed
         self.weights, self.ready, self.force = weights, ready, force
@@ -73,6 +74,10 @@ class Context:
         # driving the body says so here rather than skipping the round: the candidates are still built and still
         # refused in the open, so the tape shows a planner that stood down instead of a planner that vanished.
         self.stood_down = stood_down
+        # Why the body cannot do ordinary work where it stands, or None (`skills.can_work_here`). Treading water
+        # is the case that made this necessary: eight goals in one minute each planned, each failed on it, and
+        # each cooled for two minutes over the same fact.
+        self.footing = footing
 
 
 def admit(c, ctx, weight_for, allowed, exhausted_after):
@@ -129,9 +134,16 @@ def admit(c, ctx, weight_for, allowed, exhausted_after):
     return None
 
 
+# Kinds of step that need somewhere to stand: they break, place or build something. A body treading water can do
+# none of them, and it is one fact about the body, not eight separate discoveries by eight goals.
+NEEDS_FOOTING = ("mine", "take", "gather", "build", "room", "resume", "shelter")
+
+
 def gate_step(step, goal, plan, ctx, underground_kinds, escape_ready, bare):
     """Pure: why this STEP cannot run now, or None. Rejects the step, never the goal."""
     inv = ctx.snap.inv
+    if step.kind in NEEDS_FOOTING and ctx.footing:
+        return ctx.footing       # `reach` is not in that list: it is how footing is got back
     # The dark is priced, not forbidden (`actions.night_exposure_s`). The gate that used to stand here could not
     # tell a stroll from a necessity, and refused the wool for a bed on every night the bed was needed.
     if goal.background and step.kind == "mine" and not escape_ready(inv):

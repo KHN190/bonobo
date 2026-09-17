@@ -14,7 +14,10 @@ import time
 from . import paths
 
 FILE = paths.data("directives.json", env="MC_DIRECTIVES")
-MAX_FAILS = 3
+# An order does not expire because the agent could not carry it out yet (user, 2026-09-18). Failing three times
+# retired the directive while the reason was a passing one — "no stone within 48 blocks" because the blocks it
+# found were all banned this minute — and Claude's instruction quietly stopped existing. Failures are still
+# counted (the retry policy backs off on them); nothing gives up on them.
 
 
 def load(path=None):
@@ -63,7 +66,8 @@ def blocked(items):
 
 
 def mark(items, directive_id, *, done=False, failed_reason=None):
-    """Record an outcome. Returns (items, gave_up): a directive failing MAX_FAILS times is marked failed."""
+    """Record an outcome. Returns (items, gave_up) — `gave_up` is always False: an order stands until it is done
+    or Claude clears it."""
     gave_up = False
     for d in items:
         if d["id"] != directive_id:
@@ -74,9 +78,6 @@ def mark(items, directive_id, *, done=False, failed_reason=None):
         elif failed_reason is not None:
             d["fails"] = d.get("fails", 0) + 1
             d["last_error"] = failed_reason
-            if d["fails"] >= MAX_FAILS:
-                d["status"] = "failed"
-                gave_up = True
     return items, gave_up
 
 

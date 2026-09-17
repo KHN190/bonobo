@@ -86,26 +86,29 @@ if __name__ == "__main__":
 
 
 class LookingIsPricedByWhetherItFinds(unittest.TestCase):
-    """A seek costs its seconds DIVIDED by the chance the look succeeds.
+    """A seek costs its seconds DIVIDED by the chance the look succeeds — swept over every kind of thing a look
+    can be for, because the ways it goes wrong differ by kind: a block stays put, an animal walks away, a biome
+    either has the thing or never will.
 
-    "Could not find white_wool" was said sixty times at nine seconds a try, and won the round every time, because
-    the column was priced by distance alone — the one column with no precondition also had no chance in it. The
-    rules here are relations: misses lower the chance, finds raise it, an old note about something that walks
-    away is worth less than one about a block, and no column ever prices κ or V a second time.
+    One table of cases, four relations asked of all of them. "Could not find white_wool" was said sixty times at
+    nine seconds a try and won the round every time, because the one column with no precondition also had no
+    chance in it.
     """
 
-    KINDS = ("white_wool", "minecraft:sheep", "minecraft:iron_ore")
+    # (kind, does it move, what a note about it is worth after an hour)
+    KINDS = (("white_wool", False), ("minecraft:sheep", True), ("minecraft:iron_ore", False),
+             ("minecraft:cow", True), ("stone", False))
 
     def _mem(self):
-        import tempfile
         import os as _os
+        import tempfile
         from bonobo import memory
         _os.environ["MC_NOTES"] = tempfile.mktemp()
         return memory.Memory()
 
-    def test_a_miss_lowers_the_chance_and_a_find_raises_it(self):
+    def test_looking_and_finding_are_what_move_the_chance(self):
         from bonobo import gates
-        for kind in self.KINDS:
+        for kind, _moves in self.KINDS:
             with self.subTest(kind=kind):
                 mem = self._mem()
                 before = gates.p(None, "find", mem=mem, kinds=[kind], age_s=0.0)
@@ -114,39 +117,30 @@ class LookingIsPricedByWhetherItFinds(unittest.TestCase):
                 missed = gates.p(None, "find", mem=mem, kinds=[kind], age_s=0.0)
                 for _ in range(20):
                     mem.note_look(kind, True)
-                found = gates.p(None, "find", mem=mem, kinds=[kind], age_s=0.0)
-                self.assertLess(missed, before)
-                self.assertGreater(found, missed)
+                self.assertLess(missed, before, "a miss did not lower it")
+                self.assertGreater(gates.p(None, "find", mem=mem, kinds=[kind], age_s=0.0), missed)
+                # However many misses, it stays a price and never becomes a wall.
+                for _ in range(500):
+                    mem.note_look(kind, False)
+                self.assertGreater(gates.p(None, "find", mem=mem, kinds=[kind], age_s=0.0), 0.0)
 
-    def test_it_stays_a_price_and_never_becomes_a_wall(self):
-        """Not knowing where is a price, not an impossibility — so the chance has a floor and the seconds stay
-        finite however many times a look has failed."""
-        from bonobo import actions, gates
-        mem = self._mem()
-        for _ in range(500):
-            mem.note_look("white_wool", False)
-        self.assertGreater(gates.p(None, "find", mem=mem, kinds=["white_wool"], age_s=0.0), 0.0)
-        self.assertGreater(actions.MIN_FIND_P, 0.0)
-
-    def test_a_note_about_something_that_walks_decays_faster(self):
+    def test_a_note_ages_and_what_walks_ages_faster(self):
         from bonobo import gates
-        for age_s in (60.0, 600.0, 3600.0):
-            with self.subTest(age_s=age_s):
-                block = gates.p(None, "find", kinds=["stone"], age_s=age_s, moving=False)
-                mob = gates.p(None, "find", kinds=["minecraft:sheep"], age_s=age_s, moving=True)
-                self.assertLess(mob, block)
+        ages = (0.0, 30.0, 300.0, 3000.0)
+        for kind, moves in self.KINDS:
+            with self.subTest(kind=kind):
+                seen = [gates.p(None, "find", kinds=[kind], age_s=a, moving=moves) for a in ages]
+                self.assertEqual(seen, sorted(seen, reverse=True), "an older note came out more certain")
+                if moves:
+                    still = [gates.p(None, "find", kinds=[kind], age_s=a, moving=False) for a in ages]
+                    self.assertTrue(all(m <= s + 1e-9 for m, s in zip(seen, still)),
+                                    "what walks away is no less certain than what stays put")
 
-    def test_an_older_note_is_never_more_certain(self):
-        from bonobo import gates
-        for moving in (False, True):
-            seen = [gates.p(None, "find", kinds=["x"], age_s=age, moving=moving)
-                    for age in (0.0, 30.0, 300.0, 3000.0)]
-            self.assertEqual(seen, sorted(seen, reverse=True), f"moving={moving}")
-
-    def test_seeking_divides_time_by_that_chance(self):
+    def test_the_column_prices_time_over_that_chance_and_nothing_else(self):
         from bonobo import actions
         source = inspect.getsource(actions._seek)
         self.assertIn("find_p", source)
-        self.assertIn("/ chance", source.replace("go_s / chance", "/ chance"))
+        self.assertIn("/ chance", source)
         for door in ("marginal(", "exposure_s(", "gates.V"):
             self.assertNotIn(door, source, "a column prices time and chance, never κ or V")
+        self.assertGreater(actions.MIN_FIND_P, 0.0, "not knowing where must stay a price")

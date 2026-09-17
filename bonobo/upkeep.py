@@ -55,7 +55,7 @@ def recover_items(ctx):
     if not nav.go_to(pos, ctx.policy, range_=2, attempts=1):
         raise api.NavFailed(f"death spot {pos} not reachable")
     before = Inventory().used_slots()
-    api.run({"type": "collect", "radius": 10}, wait=60)
+    nav.sweep(ctx, radius=10, wait=60)
     yield Inventory().used_slots()
     got = Inventory().used_slots() - before
     # Either way the note is spent: what is here is now carried, and what is not here is not coming back. A record

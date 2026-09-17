@@ -134,11 +134,18 @@ TERRAIN = {"flat": 6.0, "room": 30.0, "water": 60.0, "lava": 240.0}   # seconds 
 
 # Levers are ABSOLUTE here (what the body is), not deltas: a delta only means something against a base, and a
 # world of the sweep IS the base. `value.worth_s` adds deltas on top when it imagines a change.
+# What the BODY is. The last three are the body's own preconditions (`actions.body_dims`) as sweep values: a
+# swimmer can act but has nothing to stand on, a drowning body must breathe first, a falling one owns nothing.
+# They are dimensions of the sweep rather than tests of their own, so every relation this file already states —
+# V, Δt, p, κ, worth, the pool's rules — is asked about them too, for free.
 SELF = {
-    "ready": {"bag_free": 30, "food": 16, "lever:hp": 20},
-    "full_bag": {"bag_free": 1, "food": 16, "lever:hp": 20},
-    "hungry": {"bag_free": 30, "food": 2, "lever:hp": 20},
-    "hurt": {"bag_free": 30, "food": 16, "lever:hp": 8},
+    "ready": {"bag_free": 30, "food": 16, "lever:hp": 20, "footing": 1, "hands_free": 1},
+    "full_bag": {"bag_free": 1, "food": 16, "lever:hp": 20, "footing": 1, "hands_free": 1},
+    "hungry": {"bag_free": 30, "food": 2, "lever:hp": 20, "footing": 1, "hands_free": 1},
+    "hurt": {"bag_free": 30, "food": 16, "lever:hp": 8, "footing": 1, "hands_free": 1},
+    "swimming": {"bag_free": 30, "food": 16, "lever:hp": 20, "hands_free": 1},
+    "drowning": {"bag_free": 30, "food": 16, "lever:hp": 20},
+    "falling": {"bag_free": 30, "food": 16, "lever:hp": 16},
 }
 
 # A station is not a thing carried, it is a thing that makes half the action table possible: the fuzz table had

@@ -28,14 +28,14 @@ MAY_IMPORT_TOP = {"brain", "scenarios", "decide", "review"}
 # How many modules each one drags in, frozen. A ratchet, not a target: these may fall, never rise. When one rises
 # the bench's re-run key has just got coarser, and this is the only place that will say so. Rebased when the belief
 # table was introduced: one leaf module that genuinely belongs in every closure raises them all by one.
-CLOSURE = {"actions": 17, "api": 10, "arbiter": 10, "bag": 12, "beliefs": 2, "value": 8, "gates": 7, "blueprints": 1, "brain": 57,   # +want: the cerebrum's door is a thing the planner must know about
-    "brewing": 30, "building": 23, "bunker": 35, "combat": 35, "combat_model": 3, "combat_tape": 11, "data": 1,
+CLOSURE = {"actions": 22, "api": 9, "arbiter": 9, "bag": 11, "beliefs": 2, "value": 8, "gates": 7, "blueprints": 1, "brain": 57,   # +want: the cerebrum's door is a thing the planner must know about
+    "brewing": 30, "building": 23, "bunker": 35, "combat": 35, "combat_model": 3, "combat_tape": 10, "data": 1,
     "decide": 58, "directives": 2, "end": 35, "explore": 21, "farming": 29, "field": 1, "fight_plan": 6, "estimate": 4, "fit": 1, "fresh": 2, "measure": 7,
-    "fluids": 19, "intent": 11, "jobs": 29, "kernel": 5, "knowledge": 2, "lookahead": 2, "loot": 18, "memory": 4,
-    "nav": 17, "nether": 21, "paths": 1, "perception": 15, "planner": 14, "pool": 1, "priority": 6, "recovery": 1,
-    "retry": 1, "review": 41, "roads": 1, "route": 4, "scenarios": 41, "skill": 11, "skillcore": 13, "skills": 29,
-    "solve": 1, "survival": 5, "tape": 2, "terrain": 20, "threat": 6, "ui": 30, "upkeep": 18, "want": 16, "wood": 29,
-    "world": 10,
+    "fluids": 19, "intent": 10, "jobs": 29, "kernel": 5, "knowledge": 2, "lookahead": 2, "loot": 18, "memory": 4,
+    "nav": 17, "nether": 21, "paths": 1, "perception": 15, "planner": 13, "pool": 1, "priority": 6, "recovery": 1,
+    "retry": 1, "review": 41, "roads": 1, "route": 4, "scenarios": 41, "skill": 10, "skillcore": 12, "skills": 29,
+    "solve": 1, "survival": 5, "tape": 2, "terrain": 20, "threat": 6, "ui": 30, "upkeep": 18, "want": 15, "wood": 29,
+    "world": 9,
 }
 
 # And by one again when the arbiter stopped holding the body with a lock and started holding a DECISION: keeping

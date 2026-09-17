@@ -204,6 +204,26 @@ def _enchant_best_pickaxe(ctx, inv, mem):
 from .route import food_count  # noqa: E402,F811  (one definition of "food carried" for every module)
 
 
+def _still_short(inv, needs):
+    """What of `needs` is not in the bag yet, as text. Empty when everything asked for is held.
+
+    The one question "is this finished?" — asked of the world, not of the plan. A plan can be empty because the
+    work is done, because it is under way somewhere else (a furnace), or because nothing can be planned at all;
+    only the bag tells those apart.
+    """
+    short = []
+    for need in needs:
+        kind, token, count = (need if len(need) == 3 else ("token",) + tuple(need))
+        if kind == "tool":
+            if not tool_ok(inv, token, int(count)):
+                short.append(f"{token} tier {count}")
+            continue
+        have = inv.count(token)
+        if have < int(count):
+            short.append(f"{token} {have}/{int(count)}")
+    return ", ".join(short)
+
+
 def _needed_by(plan, better):
     """Is this goal's own product a step of the better goal's plan? Then it is that plan's cheap prefix, not its
     rival: iron ore cannot be mined without a stone pickaxe, so "superseded by iron pickaxe" removed the only way
@@ -704,9 +724,12 @@ class Brain:
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.fail_sig = {}      # step statistics key -> world state of its last failure (success resets on change)
         self.recent_fail = None  # (candidate name, time) of the last failed pick
-        self.plan_cache = {}    # goal name -> (time, bag key, plan)
+        self.plan_cache = {}    # goal name -> (time, bag key, plan, depth reached) — see `plan_for`
         # How many goals it took to fill the pool last time: a capacity hint, like a growing buffer's, not a quota.
         self.expand_hint = MIN_CHOICES * 2
+        # What each goal is thought to be worth, and how hard that was looked at (`priority.Estimate`). Kept
+        # ACROSS rounds: planning is work, so a round spends a budget on a few and inherits the rest.
+        self.estimates = {}
         self.blacklist = {}     # unreachable targets, shared by every round's Context and the cost model
         self.ban_counts = skillcore._BAN_COUNTS   # how often each cell was banned: the same counter skills use
         self.last_light = 0
@@ -728,7 +751,6 @@ class Brain:
         self.coarse = None           # coarser state (success-rate resets)
         self.committed = None        # goal name kept until its assumptions fail or it is clearly beaten
         self.stood_down = None       # why this layer is not a participant this round (`stand_down`), or None
-        self._prepared = {}          # (goal, plan) -> the looked-ahead plan, for THIS round only
         self.committed_assumptions = []
         self.committed_pos = None    # where the committed plan is headed: errands are judged against that path
         self.last_choice = (None, 0)
@@ -867,6 +889,18 @@ class Brain:
             # minutes looking for water and sheep that were not in that biome at all.
             key = (self.seg_name, name)
             self.seg_misses[key] = self.seg_misses.get(key, 0) + 1
+        # What happened is a fact about this step, and the price is made of facts: `gates.p(s, "success", key=…)`
+        # reads `memory.success_rate`, which nothing was writing on failure. So a step that could not possibly
+        # work ("sleep" at noon, a seek for a block that is not in this biome) kept its full price, won the round
+        # every time its cooldown lapsed, failed, and cooled again — for hours.
+        mem = getattr(self, "mem", None)
+        if mem is not None:
+            mem.record_outcome(name, False)
+        # The same wall, told once. A body treading water fails to dig, to place, to build and to shelter — four
+        # failures, one fact — and each used to cool its own candidate for two minutes while the next queued up to
+        # discover it again. The REASON is cooled too, here, against this place: whoever asks next is told what
+        # happened rather than repeating it. Nothing is banned; the hold lasts as long as the reason does.
+        self.retry.failed(f"cause:{cause}@{self.place}", cause, str(err), self.sig, now, self.place)
         n, wait, worth_logging = self.retry.failed(name, cause, str(err), self.sig, now, self.place)
         if cause == "tool" and n < 3:
             self.retry.cap(name, 0, now)   # the tool goal runs next round; retry right after it
@@ -875,8 +909,15 @@ class Brain:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{n} here; retry on change or in {wait}s)")
 
-    def ready(self, name):
-        return self.retry.ready(name, self.sig, time.time(), self.place)
+    def ready(self, name, cause=None):
+        """Is this worth trying now? Its own cooldown, and — when the caller knows what would stop it — the
+        cooldown on that REASON: eight candidates that would all fail for the same reason ask once between them."""
+        now = time.time()
+        if not self.retry.ready(name, self.sig, now, self.place):
+            return False
+        if cause and not self.retry.ready(f"cause:{cause}@{self.place}", self.sig, now, self.place):
+            return False
+        return True
 
     def escalate(self, kind, what):
         """A macro problem (stalled progress, every rescue exhausted), not a single failure: one `?? STALL` line per
@@ -939,6 +980,13 @@ class Brain:
                 self.mem.note_look(kind, found)
             if not found:
                 raise NotAvailable(f"could not find {bare(kinds[0])}")
+        elif step.kind == "reach":
+            # Mend the body's own preconditions. Which mend was chosen is the solver's business — it compared
+            # their seconds like any other column — and each is one skill: up for a breath, over to the shore, or
+            # a single block put down where we float.
+            {"air": skills.surface,
+             "land": skills.reach_land,
+             "footing": skills.stand_on_a_block}[step.token](ctx)
         elif step.kind == "resume":
             # Finish what is already half done, where it is. The skill is the same one; only the place is given.
             pos = tuple(step.detail["pos"])
@@ -975,7 +1023,7 @@ class Brain:
     def _round(self):
         self.reflexes()
         tape.begin()          # the world queries this round reads (decisions.jsonl, replayed offline by decide.py)
-        self._prepared = {}   # this round's look-ahead answers: the same goal is ranked more than once
+        nav.forget_routes()   # routes were priced from where the body stood last round, not from where it is now
         snap = Snapshot()
         night = snap.night
         self.mem.observe_phase(night)
@@ -1226,6 +1274,11 @@ class Brain:
         finally:
             self.resume()
 
+    def _hands_free_here(self, snap):
+        """The precheck every goal whose work needs solid ground under the feet shares (`skills.can_work_here`)."""
+        why = skills.can_work_here(snap.state)
+        return (why is None, why)
+
     def _pool_context(self, snap, night, force):
         from . import pool as _pool, scenarios
         recent = self.recent_fail
@@ -1236,6 +1289,7 @@ class Brain:
             self.seg_misses.clear()      # a new segment is a new place: everything is worth one more look
         return _pool.Context(
             stood_down=self.stood_down,
+            footing=skills.can_work_here(snap.state),
             segment=segment, seg_name=self.seg_name,
             seg_goals=set(segment["goals"]) if segment is not None else set(),
             bench_failing=scenarios.failing_goals() if segment is not None else set(),
@@ -1413,12 +1467,31 @@ class Brain:
                     demand[dim] = demand.get(dim, 0.0) + short
         open_names = {g.name for g in open_goals}
         plans, eligible, planned_goals = {}, [], 0
-        budget = len(ranked_goals) if expand_all else max(MIN_CHOICES, min(MAX_EXPAND, self.expand_hint))
-        outranked = 0
-        for n, g in enumerate(ranked_goals):
-            if not expand_all and (len(eligible) >= MIN_CHOICES or n >= budget):
+        # WHO gets planned this round. Not "the top few, every round, from scratch": a fixed budget, drawn in
+        # proportion to what each candidate might be worth if the doubt went its way (`Estimate.optimistic_s`).
+        # A rough first number therefore buys a second look rather than a life sentence, the work per round is
+        # bounded whatever the world offers, and the estimates improve from round to round instead of being
+        # rebuilt from nothing — which is what made a thousand look-ahead lines a minute say the same thing.
+        outranked, now = 0, time.time()
+        for g in ranked_goals:
+            est = self.estimates.setdefault(g.name, priority.Estimate())
+            if est.depth == 0 or est.stale(now, float(_PLAY["pool"]["plan_stale_s"])):
+                est.value_s = rough_score(g)      # a first glance, worth as much doubt as itself
+        draws = max(MIN_CHOICES, min(MAX_EXPAND, int(_PLAY["pool"]["plans_per_round"])))
+        picked = set(g.name for g in ranked_goals) if expand_all else set(priority.draw(
+            [g.name for g in ranked_goals],
+            lambda name: self.estimates[name].optimistic_s(), draws))
+        # A budget is a budget for THINKING, never an excuse to do nothing: if the ones drawn turn out to be
+        # unplannable, the round keeps drawing. Anytime planning means the answer improves with the budget, not
+        # that a round may end without one.
+        order = [g for g in ranked_goals if g.name in picked] + [g for g in ranked_goals if g.name not in picked]
+        for n, g in enumerate(order):
+            # What ends the search is having enough to choose between, never a ceiling: the draw decides who is
+            # thought about FIRST, and the round keeps going down the list until the pool can make a comparison.
+            if g.name not in picked and len(eligible) >= MIN_CHOICES:
                 outranked += 1
-                filtered[g.name] = "outranked before planning (there were already better things to compare)"
+                filtered[g.name] = (f"not drawn this round (worth about {self.estimates[g.name].value_s:.0f}s, "
+                                    f"depth {self.estimates[g.name].depth})")
                 continue
             planned_goals = n + 1
             try:
@@ -1426,7 +1499,7 @@ class Brain:
             except Unplannable as e:
                 filtered[g.name] = f"unplannable: {e}"
                 continue
-            plan = self.with_preparation(g, plans[g.name], snap, cost_model)
+            plan = plans[g.name]          # already as deep as this draw could take it (`plan_for`)
             gate = lambda s, plan=plan, g=g: _pool.gate_step(s, g, plan, pctx, UNDERGROUND_KINDS,
                                                              lookahead.escape_ready, bare)
             runnables = [s for s in plan if runnable(s, snap.inv)]
@@ -1475,6 +1548,12 @@ class Brain:
         worth = {g.name: self.goal_worth_s(g, sstate, snap, prices,
                                            takes_s=sum(st.est for st in plan) / priority.TICKS_PER_S)
                  for g, plan, _step, _run in eligible}
+        # One layer deeper for the ones drawn: the number is now backed by a solved plan rather than a price-table
+        # guess, so the estimate tightens and the next draw weighs it accordingly. What was NOT drawn keeps the
+        # value it had — the round's answer is the best of everything known, not of what happened to be planned.
+        for name, value_s in worth.items():
+            est = self.estimates.setdefault(name, priority.Estimate())
+            est.value_s, est.depth, est.at = float(value_s), est.depth + 1, time.time()
 
         # How many eligible goals need each piece of work: the denominator of the sharing above.
         shared = {}
@@ -2075,15 +2154,34 @@ class Brain:
         return [act.to_step(a, n) for a, n in found.steps()]
 
     def plan_for(self, g, snap, cost_model):
-        """Plans are reused for PLAN_CACHE_S while the bag is unchanged: 27 goals × world queries every round was
-        most of a round's HTTP traffic."""
+        """Think about this goal one layer deeper, and return the best plan known for it.
+
+        ONE route into planning, because a goal's plan and its preparation are not two questions — they are two
+        DEPTHS of the same one:
+
+            depth 1   solve the goal's own needs                     (`solve_steps`)
+            depth 2+  solve them again with what the way there wants (`lookahead.prepare`: stations, a kit, food)
+
+        They used to be separate calls with separate caches, so a round could solve the same goal twice, log the
+        same look-ahead line thirty times, and still hand the pool a plan that disagreed with the number it was
+        ranked by. Now a draw (`priority.draw`) buys one call to this, the answer is kept in `plan_cache` with the
+        depth it reached, and everything else — the pool, the ranking, the pick — reads that one answer.
+        """
         contents = tuple(sorted((s["id"], s.get("count", 1)) for s in snap.inv.slots))
         hit = self.plan_cache.get(g.name)
-        if hit and hit[1] == contents and time.time() - hit[0] < PLAN_CACHE_S:
+        fresh = hit and hit[1] == contents and time.time() - hit[0] < PLAN_CACHE_S
+        depth = hit[3] if hit else 0
+        if fresh and depth >= 2:
             return hit[2]
-        plan = self.solve_steps(g.needs, snap, cost_model)
-        self.plan_cache[g.name] = (time.time(), contents, plan)
-        return plan
+        if fresh:
+            plan = hit[2]                                    # depth 1 is in hand: spend this draw on the next one
+        else:
+            plan = self.solve_steps(g.needs, snap, cost_model)
+            self.plan_cache[g.name] = (time.time(), contents, plan, 1)
+            return plan
+        deeper = self._with_preparation(g, plan, snap, cost_model)
+        self.plan_cache[g.name] = (time.time(), contents, deeper, 2)
+        return deeper
 
     def action_table(self, snap, cost_model):
         """(columns, state vector) for this round, built once. The table depends on where we are — a place the
@@ -2158,9 +2256,15 @@ class Brain:
         here = (snap.state["x"], snap.state["y"], snap.state["z"])
         from .survival import CONFIG as _PLAY
         tax_bin, health_bin = _PLAY["pool"]["tax_bin"], _PLAY["pool"]["health_bin"]
-        tax = round(self.hp_tax_rate(snap) / tax_bin) * tax_bin
-        coming = [h for h in rows if h[3] in threat.MOBS
-                  and estimate.arrival_s(here, h) != float("inf")]
+        # "Can reach us" means inside a piece of work, not inside the threat model's whole account: a zombie
+        # sixty blocks off arrives in fourteen seconds, which is real and is not a reason to throw away the plan
+        # in hand. The premise is about what would make this plan the wrong one NOW — so both of its threat terms,
+        # the rate and the count, are asked about the same set.
+        reach_s = float(_PLAY["pool"]["premise_reach_s"])
+        coming = [h for h in rows if h[3] in threat.MOBS and estimate.arrival_s(here, h) <= reach_s]
+        prot = threat.protection(snap.get("armor", 0), snap.inv.offhand() == "minecraft:shield")
+        rate = perception.pressure_now(here, coming, prot) if (coming or perception.hurt_rate() > 0) else 0.0
+        tax = round(rate / tax_bin) * tax_bin
         health = int(float(snap.get("health", 20)) // health_bin)
         return (tax, len(coming), health)
 
@@ -2232,7 +2336,7 @@ class Brain:
             self.last_hold_log = time.time()
             log(text)
 
-    def with_preparation(self, goal, plan, snap, cost_model):
+    def _with_preparation(self, goal, plan, snap, cost_model):
         """Look-ahead (lookahead.py): simulate the plan and re-plan with whatever it would be missing on the way —
         carried stations, a shelter kit if it runs into the night, a spare pickaxe, food.
 
@@ -2242,17 +2346,12 @@ class Brain:
         """
         if not plan or goal.background:
             return plan
-        key = (goal.name, tuple(step.key() for step in plan))
-        hit = self._prepared.get(key)
-        if hit is not None:
-            return hit
         site = self.mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
         eta = travel_ticks(snap.feet, site["pos"]) if site else None
         extra = lookahead.prepare(plan, snap.inv, snap.time, snap.inv.count("bed") > 0,
                                   blueprints.materials(blueprints.SHELTER), eta)
         extra = [e for e in extra if e[0] not in {n[0] for n in goal.needs}]
         if not extra:
-            self._prepared[key] = plan
             return plan
         try:
             # The same solver the goal was planned with. There used to be two planners here — the solver for the
@@ -2260,7 +2359,6 @@ class Brain:
             # could not, and the round died inside `planner.need` on a requirement the solver had introduced.
             prepared = self.solve_steps(goal.needs + extra, snap, cost_model)
         except Unplannable:
-            self._prepared[key] = plan
             return plan
         if prepared and prepared[0].key() != plan[0].key():
             api.detail(f"   look-ahead for {goal.name}: bring {lookahead.describe(extra)} first")
@@ -2268,7 +2366,6 @@ class Brain:
         # because its preparation can run: a food goal whose hunt was gated kept crafting torches instead, and the
         # kit sat at food 0/6 for a whole slice while "making progress".
         self.prep_tokens[goal.name] = {e[1] if e[0] == "tool" else e[0] for e in extra}
-        self._prepared[key] = prepared
         return prepared
 
     # -- safety layer: a priority mode ahead of goals (Mindcraft/Baritone style); owns dusk and night
@@ -2329,7 +2426,8 @@ class Brain:
                 return True
             return False
 
-        if self.ready("sleep") and (carried_bed or find(BASE_MARKERS["bed"], radius=48, limit=1)):
+        if self.ready("sleep") and skills.can_sleep(snap.state) is None \
+                and (carried_bed or find(BASE_MARKERS["bed"], radius=48, limit=1)):
             try:
                 skills.sleep(ctx, self.policy(snap, True))
                 return True
@@ -2419,6 +2517,14 @@ class Brain:
                 plan = Planner.from_inventory(snap.inv, LiveCost(snap, self.blacklist, self.mem),
                                               self.mem.pending_outputs(snap.dimension)).plan(needs)
                 if not plan:
+                    # Nothing left to PLAN is not the same as having it. The planner counts a furnace job's output
+                    # as pending stock so it does not smelt the same iron twice — and that made "smelting 5×
+                    # iron_ingot in the background" finish the directive on the spot, with five raw_iron still in
+                    # the bag. A directive is done when what it asked for is HELD.
+                    short = _still_short(snap.inv, needs)
+                    if short:
+                        log(f"   directive {d['id']}: nothing left to plan, waiting on {short}")
+                        return False
                     directives.save(directives.mark(items, d["id"], done=True)[0])
                     log(f"directive done: {directives.describe(d)}")
                     return True
@@ -2430,7 +2536,15 @@ class Brain:
             elif d["kind"] == "goto":
                 target = tuple(d["target"])
                 log(f"=== directive {d['id']}: {directives.describe(d)}")
-                if not nav.go_to(target, self.policy(snap, snap.night), range_=d.get("range", 2), attempts=2):
+                got = nav.go_to(target, self.policy(snap, snap.night), range_=d.get("range", 2), attempts=2)
+                if isinstance(got, nav.Walked):
+                    # A long way is walked in legs: the mod goes as far as the ground and the pickaxe allow and
+                    # stops at the closest point it could reach. That is progress, so the directive stays pending
+                    # and is NOT cooled — cooling it is what let a 135 s errand take the round back every time,
+                    # and the twenty-three blocks dug on the way counted for nothing.
+                    log(f"   {got!r}; continuing next round")
+                    return True
+                if not got:
                     raise NotAvailable(f"{target} not reached")
                 directives.save(directives.mark(directives.load(), d["id"], done=True)[0])
             elif d["kind"] == "skill":
@@ -2445,13 +2559,10 @@ class Brain:
         except PlayerTookControl:
             raise
         except (McError, skills.ToolMissing, AttributeError, TypeError) as e:
-            items, gave_up = directives.mark(directives.load(), d["id"], failed_reason=str(e))
+            items, _gave_up = directives.mark(directives.load(), d["id"], failed_reason=str(e))
             directives.save(items)
             self.failed(name, e)
-            if gave_up:
-                log(f"?? directive gave up after {directives.MAX_FAILS} tries: {directives.describe(d)} ({e})")
-            else:
-                log(f"!! {name}: {e}")
+            log(f"!! {name}: {e}")
         return True
 
     # -- survival mode: always-available rescues, ahead of safety and goals
@@ -2589,7 +2700,11 @@ class Brain:
         carried_bed = snap.inv.count("bed") > 0
         if night and (carried_bed or find(BASE_MARKERS["bed"], radius=48, limit=1)):
             offer(C("sleep", 0, 400, lambda: skills.sleep(ctx, self.policy(snap, True)), kind="maintenance",
-                    cap=20, seconds=worth({"bed": True, "sheltered": True}), detail="skip the night"))
+                    cap=20, seconds=worth({"bed": True, "sheltered": True}), detail="skip the night",
+                    # Not "is there a bed" but "would using one work now": the world's own rule, asked before the
+                    # work is priced (`pool.admit` → precheck), never waived by `force`.
+                    precheck=lambda: (skills.can_sleep(snap.state) is None,
+                                      skills.can_sleep(snap.state))))
         if not self.sheltered(snap):
             # The nearest shelter we can actually get to: one that proved unreachable is banned, and when they all
             # are, this offer simply is not made — which is what lets "dig in" and "wall in" win the night.
@@ -2720,6 +2835,7 @@ class Brain:
             self.history.clear()
             if nav.go_to(target, self.policy(snap, snap.night), range_=3, attempts=1):
                 self.retry.succeeded(name)
+                self.mem.record_outcome(name, True)      # the other half: what works gets its price back
                 return
             self.failed(name, NotAvailable(f"could not get {label} to {target}"))
             raise NotAvailable(f"unstuck {label} failed")
@@ -2843,6 +2959,7 @@ class Brain:
         try:
             fn()
             self.retry.succeeded(name)
+            self.mem.record_outcome(name, True)          # the other half: what works gets its price back
             # What that step wore out, and over how long: the frequency each tool is priced by (`actions.use_rate`)
             # is measured here rather than believed forever.
             note_tool_wear(self.mem, wear_before, tool_wear(), time.time() - began)

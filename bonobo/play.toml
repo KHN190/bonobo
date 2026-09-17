@@ -53,6 +53,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
               "breed animals", "loot nearby chests", "villager pearls", "repair worn pickaxe", "strip mine",
               "enchant the pickaxe", "fire resistance potions", "explore",
               "attack_s", "speed", "block_half_life_s", "mob_half_life_s", "exists_prior",
+              "plans_per_round", "plan_sample_floor", "plan_stale_s", "stickiness", "premise_reach_s",
               "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
@@ -148,7 +149,7 @@ unmodelled = []   # empty: every goal is priced in seconds. Adding a name here i
 "eyes of ender (12)" = 400.0
 "stronghold located" = 700.0
 "portal room found" = 500.0
-"beds for the dragon" = 400.0
+"beds for the dragon" = 900.0
 "activate end portal" = 300.0
 "enter the End" = 300.0
 "defeat the ender dragon" = 1800.0
@@ -200,6 +201,22 @@ reaction_s = 1.5           # perception round, /stop, and the rescue getting und
 air_floor = 120            # ticks: a hard floor under the clock, in case the clock's own inputs are wrong
 
 [pool]
+# How much planning one round may do, and how it is spent. Planning every candidate to the end, every round, is
+# what put a thousand look-ahead lines a minute in the log and left the body waiting — while the answer barely
+# moved from round to round. Instead: a fixed budget per round, spent on candidates drawn BY WEIGHT (their worth
+# in seconds), keeping what was worked out last time for the ones not drawn. The estimate improves round by round
+# instead of being rebuilt from nothing; the choice is always the best of what is known so far.
+plans_per_round = 4          # candidates planned in full each round (the rest keep their last plan)
+plan_sample_floor = 0.15     # weight every candidate keeps however poor, so nothing is never looked at again
+plan_stale_s = 30.0          # a kept plan older than this is refreshed before it is trusted
+# How much better a challenger must be before the body changes its mind, ON TOP of what switching costs in
+# seconds (the walk, and redoing the piece of work in hand). A pure number, because it is not a fact about the
+# world but a taste: how much thrash is worth how much responsiveness. 0 = switch on any improvement.
+stickiness = 0.10
+# Which threats count as "on us" for the premise a plan is held under. Not every mob the threat model can see
+# within its 20 s account: a zombie sixty blocks away arrives in fourteen seconds and changes nothing about
+# whether this plan is still the right one. What matters is what can reach us inside a piece of work.
+premise_reach_s = 6.0
 unmodelled = []   # empty: every candidate is priced in seconds.
 slot_fill_s = 90.0         # seconds of work per inventory slot filled: how fast a bag fills while mining
 portal_trip_s = 180.0      # there and back through a portal: what work in another dimension costs extra

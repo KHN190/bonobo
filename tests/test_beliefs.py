@@ -166,37 +166,52 @@ class AMeasurementSurvivesTheProcessThatTookIt(unittest.TestCase):
         self.assertEqual(row["where"], "bench:decision_arena")
 
 
-class OrdinaryPlayIsTheMeasurement(unittest.TestCase):
-    """The loop is closed where the work happens, not in a bench.
+class EveryCounterTellsTheHistory(unittest.TestCase):
+    """The connection between what the agent DOES and what it believes, stated once and swept over every place it
+    is made.
 
-    `[nav] unit_s` is the one number a route estimate is made of, and it was a declared guess with every round
-    that moved the body throwing away a sample of it. What is checked here is the SHAPE of that closure: the walk
-    is measured against the belief it came from, short walks are not samples, and a measurement never moves the
-    number by itself.
+    Each row is: the function that watches something happen, and the belief it is a measurement of. Written this
+    way, adding a measurement is a row — not a new test — and the rules (it names a real belief, it says what
+    counts as a sample, it never moves the number by itself) are asked of all of them at once.
     """
 
-    def test_the_planner_measures_the_belief_its_estimate_came_from(self):
-        from bonobo import brain, nav
-        walk = inspect.getsource(brain.Brain.note_walk_of)
-        quoted = inspect.getsource(nav)
-        path = "nav.unit_s"
-        self.assertIn(f'"{path}"', walk, "the walk is noted against the belief the estimate is made of")
-        self.assertIn('["nav"]["unit_s"]', quoted, "and that is the belief the estimate is made of")
+    WIRED = (("memory", "Memory", "note_exposure", "risk.encounters_per_day"),
+             ("memory", "Memory", "note_yield", "yield_s."),
+             ("memory", "Memory", "forget_death", "time.death_cost_s"),
+             ("brain", "Brain", "note_body_of", "risk.regen_s_per_hp"),
+             ("brain", "Brain", "note_body_of", "risk.food_drain_s"),
+             ("brain", "Brain", "note_body_of", "pool.slot_fill_s"),
+             ("brain", "Brain", "note_walk_of", "nav.unit_s"),
+             ("skillcore", None, "_note_break", "tools.mine_time_stone"),
+             ("skillcore", None, "_note_break", "tools.mine_time_no_pickaxe"),
+             ("skills", None, "eat", "engage.eat_s"))
 
-    def test_a_step_aside_is_not_a_sample(self):
-        from bonobo import brain
-        self.assertGreater(brain.Brain.WALK_SAMPLE_BLOCKS, 1)
-        self.assertIn("WALK_SAMPLE_BLOCKS", inspect.getsource(brain.Brain.note_walk_of))
+    def source(self, module, owner, func):
+        import importlib
+        mod = importlib.import_module(f"bonobo.{module}")
+        holder = getattr(mod, owner) if owner else mod
+        return inspect.getsource(getattr(holder, func))
 
-    def test_it_is_seconds_per_block(self):
-        from bonobo import brain
-        src = inspect.getsource(brain.Brain.note_walk_of)
-        self.assertIn("/ moved", src, "seconds per walked block, not seconds")
+    def test_each_counter_notes_a_belief_that_exists(self):
+        for module, owner, func, path in self.WIRED:
+            with self.subTest(where=f"{module}.{func}", belief=path):
+                src = self.source(module, owner, func)
+                self.assertIn("beliefs.note(", src, "keeps its measurement to itself")
+                self.assertIn(path.rstrip("."), src, f"does not name {path}")
+                if not path.endswith("."):
+                    beliefs.value(path)        # KeyError here: filed under a typo
 
-    def test_a_missing_world_leaves_a_mark_rather_than_a_number(self):
-        from bonobo import brain
-        src = inspect.getsource(brain.Brain.note_walk_of)
-        self.assertIn("swallowed", src)
+    def test_each_timer_says_what_counts_as_a_sample(self):
+        """A queued task, a stall, an interrupted break time the harness rather than the world. Every place that
+        times something states a window it will accept — otherwise one thousand-second outlier drags a belief the
+        pseudo-counts exist to protect."""
+        import re as _re
+        for module, owner, func, _path in self.WIRED:
+            with self.subTest(where=f"{module}.{func}"):
+                src = self.source(module, owner, func)
+                bounded = (_re.search(r"<=\s*\w+\s*<=", src) or _re.search(r"[<>]=?\s*(self\.)?[A-Z_]*SAMPLE", src)
+                           or _re.search(r"if\s+\w+\s*[<>]", src) or "floor" in src)
+                self.assertTrue(bounded, "times something without saying what counts as a sample")
 
 
 class MeasurementsMoveTheNumber(unittest.TestCase):

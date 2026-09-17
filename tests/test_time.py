@@ -30,43 +30,50 @@ class GoingSomewhereCostsMoreTheFurtherItIs(unittest.TestCase):
         self.assertGreater(far, near)
         self.assertGreater(near, 0.0)
 
-    def test_terrain_only_ever_adds(self):
-        open_ground = gates.takes_s(gates.Situation(region=region_with(), policy=nav.Policy(), route=nav.estimate_price_s), gates.Go((0, 64, 0), (10, 64, 0)))
-        for block in ("stone", "water", "lava"):
-            harder = gates.takes_s(gates.Situation(region=region_with(block), policy=nav.Policy(), route=nav.estimate_price_s), gates.Go((0, 64, 0), (10, 64, 0)))
-            self.assertGreaterEqual(harder, open_ground, f"{block} came out no dearer than open ground")
+    def test_the_ground_is_the_games_answer_not_ours(self):
+        """How long a walk takes over THAT ground is physics, and physics is the game's to answer (`/plan`).
 
-    def test_the_body_is_what_makes_ground_hard(self):
-        """The same wall, a different body: what changes is the capability table, not the world. This is why the
-        door takes a situation — handed only a region, it cannot tell the two bodies apart."""
-        wall = region_with()
-        for z in range(-4, 5):
-            for y in (64, 65):
-                wall.blocks[(3, y, z)] = "stone"
-        digging = gates.takes_s(gates.Situation(region=wall, policy=nav.Policy(), route=nav.estimate_price_s),
-                                gates.Go((0, 64, 0), (10, 64, 0)))
-        barehanded = gates.takes_s(gates.Situation(region=wall, route=nav.estimate_price_s,
-                                                   policy=nav.Policy(allow_dig=False, allow_build=False)),
-                                   gates.Go((0, 64, 0), (10, 64, 0)))
-        self.assertGreater(barehanded, digging)
+        This file used to assert that stone cost more than air, water more than stone — against a table of
+        seconds-per-cell kept here in Python. That table was a second physics engine beside the one the body
+        actually moves with, and every place the two disagreed became a bug to patch: water in the floor priced
+        as flat ground, lava the same as water, a seam two blocks inside rock called unreachable. So what is
+        asserted now is the CONTRACT: whatever the game says, the door passes through, in order.
+        """
+        from unittest import mock
+        answers = {"open": (True, 4.0), "rough": (True, 12.0), "round about": (True, 30.0)}
+        priced = {}
+        for name, answer in answers.items():
+            with mock.patch.object(nav, "route_s", lambda *a, **k: answer):
+                priced[name] = gates.takes_s(
+                    gates.Situation(region=region_with(), policy=nav.Policy(), route=nav.estimate_price_s),
+                    gates.Go((0, 64, 0), (10, 64, 0)))
+        self.assertLess(priced["open"], priced["rough"])
+        self.assertLess(priced["rough"], priced["round about"])
 
-    def test_the_quick_estimate_never_ranks_ground_the_wrong_way_round(self):
-        """Ranking cannot afford a route search per candidate, and does not need one — it needs an ORDER. The
-        estimate walks the straight line, so it never finds the way round that the search finds; what it must
-        never do is call harder ground cheaper."""
-        prices = {}
-        for block in (None, "stone", "water", "lava"):
-            region = region_with(block)
-            prices[block] = (gates.takes_s(gates.Situation(region=region, policy=nav.Policy(), route=nav.estimate_price_s),
-                                           gates.Go((0, 64, 0), (10, 64, 0))),
-                             nav.reach_price_s(region, (0, 64, 0), {(10, 63, 0)}, nav.Policy(), blocks=64,
-                                               ladders=0, features=set()))
-        open_quick, _open_exact = prices[None]
-        for block in ("stone", "water", "lava"):
-            quick, exact = prices[block]
-            self.assertGreaterEqual(quick, open_quick, f"{block}: cheaper than open ground")
-            if exact is not None:
-                self.assertGreaterEqual(quick, exact * 0.5, f"{block}: wildly under the route ({quick} vs {exact})")
+    def test_no_way_is_dear_and_never_a_wall(self):
+        from unittest import mock
+        with mock.patch.object(nav, "route_s", lambda *a, **k: (False, 30.0)):
+            no_way = gates.takes_s(gates.Situation(region=region_with(), policy=nav.Policy(),
+                                                   route=nav.estimate_price_s), gates.Go((0, 64, 0), (10, 64, 0)))
+        with mock.patch.object(nav, "route_s", lambda *a, **k: (True, 30.0)):
+            a_way = gates.takes_s(gates.Situation(region=region_with(), policy=nav.Policy(),
+                                                  route=nav.estimate_price_s), gates.Go((0, 64, 0), (10, 64, 0)))
+        self.assertGreater(no_way, a_way)
+        self.assertLess(no_way, float("inf"), "unreachable is a price, not a wall")
+
+    def test_with_no_answer_it_claims_nothing_about_the_ground(self):
+        """Offline — an imagined state, a replayed round — the game cannot be asked. The honest answer is the
+        distance at walking speed: far is dearer than near, and nothing is said about what is in the way."""
+        from unittest import mock
+        with mock.patch.object(nav, "route_s", lambda *a, **k: (None, None)):
+            near = gates.takes_s(gates.Situation(region=region_with(), policy=nav.Policy(),
+                                                 route=nav.estimate_price_s), gates.Go((0, 64, 0), (5, 64, 0)))
+            far = gates.takes_s(gates.Situation(region=region_with(), policy=nav.Policy(),
+                                                route=nav.estimate_price_s), gates.Go((0, 64, 0), (50, 64, 0)))
+            walled = gates.takes_s(gates.Situation(region=region_with("stone"), policy=nav.Policy(),
+                                                   route=nav.estimate_price_s), gates.Go((0, 64, 0), (5, 64, 0)))
+        self.assertGreater(far, near)
+        self.assertEqual(near, walled, "with no answer, the ground is not something this side may invent")
 
 
 class WhatTheDoorIsNotToldItDoesNotInvent(unittest.TestCase):
@@ -80,10 +87,16 @@ class WhatTheDoorIsNotToldItDoesNotInvent(unittest.TestCase):
         bare = gates.takes_s(None, gates.Go((0, 64, 0), (10, 64, 0)))
         self.assertAlmostEqual(blind, bare, places=9)
 
-    def test_with_a_reader_the_ground_is_priced(self):
+    def test_with_a_reader_the_games_answer_comes_through(self):
+        """A `route` in the situation is not a licence to invent terrain here — it is the wire to the game. With
+        the game answering, its seconds are what the door returns; the bare straight line is what it returns
+        without one."""
+        from unittest import mock
         region = region_with("lava")
-        seeing = gates.takes_s(gates.Situation(region=region, policy=nav.Policy(), route=nav.estimate_price_s),
-                               gates.Go((0, 64, 0), (10, 64, 0)))
+        with mock.patch.object(nav, "route_s", lambda *a, **k: (True, 40.0)):
+            seeing = gates.takes_s(gates.Situation(region=region, policy=nav.Policy(), route=nav.estimate_price_s),
+                                   gates.Go((0, 64, 0), (10, 64, 0)))
+        self.assertAlmostEqual(seeing, 40.0, places=6)
         self.assertGreater(seeing, gates.takes_s(None, gates.Go((0, 64, 0), (10, 64, 0))))
 
 

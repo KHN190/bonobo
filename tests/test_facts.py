@@ -23,7 +23,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import actions, brain, knowledge, loot, memory, nav, skillcore  # noqa: E402
 from bonobo.solve import solve  # noqa: E402
-from tests.world import FakeRegion, PricingSnap, flat  # noqa: E402
+from tests.world import DIMS, FakeRegion, PricingSnap, flat, worlds  # noqa: E402
 
 
 def mem():
@@ -312,60 +312,64 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ThereIsAlwaysAWayWithAPickaxe(unittest.TestCase):
-    """"The walker refused" is a fact about ways, not about the target.
+class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
+    """What the body can do where it stands is dimensions, not special cases — so it is swept, not spot-checked.
 
-    Buried coal two blocks inside a wall was reported "3 unreachable in a row" round after round: the travel
-    branch of `nav.go_to` returned False the moment the mod said "no route", while `dig_toward` — the tunneller
-    this very file provides — was only reachable on jars that have no travel at all. The same shape in
-    `skills.mine`, which banned a whole vein instead of digging to it. Both are checked here on the source,
-    because what is wrong with them is their STRUCTURE: one question ("can we get there?") had two answers and
-    only one was ever asked.
+    Swimming, drowning and falling are values of the `self` dimension (`tests/world.py`), which means every
+    relation the other files state is already asked about them. What belongs HERE is what only this idea can be
+    wrong about: that the dimensions exist, that the columns which need them say so, and that a body missing one
+    can always plan its way back — otherwise the pool empties and the agent floats there deciding nothing, which
+    is exactly what happened.
     """
 
-    def test_walking_falls_back_to_digging_on_every_branch(self):
-        from bonobo import nav
-        src = inspect.getsource(nav.go_to)
-        travel = src[src.index('"travel" in mod_features()'):]
-        self.assertIn("dig_toward", travel, "the travel branch gives up without trying to dig")
-        for branch in travel.split("return False"):
-            pass
-        self.assertNotIn("\n        return False\n", travel,
-                         "a bare 'no way' return in the travel branch: dig first, then say it")
+    NEEDS = {"craft:minecraft:furnace": ("hands_free", "footing"),   # 3x3: a station has to be put down
+             "mine:minecraft:coal": ("hands_free", "footing"),
+             "take:bed": ("hands_free", "footing"),
+             "smelt:minecraft:iron_ingot": ("hands_free", "footing"),
+             "gather:log": ("hands_free",),                          # cutting a tree needs no floor
+             "hunt:wool": ("hands_free",)}                           # a fight can happen in the water
 
-    # What counts as MAKING a way: digging through, bridging over, or the one helper that does either.
-    WAY_MAKERS = ("_dig_to", "plan_tunnel", "dig_toward", "dig_route", "bridge")
+    def columns(self, state):
+        from bonobo import actions
+        return {a.name: a for a in actions.table(actions.Costs(lambda kinds: 6.0), state)}
 
-    def test_nothing_is_given_up_on_before_a_way_is_attempted(self):
-        """The rule, wherever a goal needs to get somewhere: try to MAKE a way before calling it unreachable.
+    def test_every_column_that_touches_the_world_says_what_body_it_needs(self):
+        whole = self.columns({"bag_free": 30, "footing": 1, "hands_free": 1})
+        for name, needs in self.NEEDS.items():
+            with self.subTest(column=name):
+                requires = whole[name].requires
+                for dim in needs:
+                    self.assertEqual(requires.get(dim), 1, f"{name} does not say it needs {dim}")
 
-        Not "call plan_tunnel here" — a test that names the callee freezes the code around it. What must hold is
-        that every place which bans a target or reports it unreachable has a way-making attempt in front of it.
-        Water and lava are the one exception: opening those cells floods the tunnel, so they are banned on
-        purpose.
-        """
-        import re
-        from bonobo import nav, skills
-        for func in (skills.mine, nav.go_to):
-            src = inspect.getsource(func)
-            for give_up in re.finditer(r"ctx\.ban\(|return _arrived\([^)]*False\)|NavFailed\(", src):
-                head = src[max(0, give_up.start() - 800):give_up.start()]
-                if "too_wet" in head[-400:] or "hazard" in head[-200:]:
-                    continue                      # a cell beside water or lava is banned on purpose
-                self.assertTrue(any(w in head for w in self.WAY_MAKERS),
-                                f"{func.__name__}: gives up at char {give_up.start()} without trying to make a way")
+    def test_a_body_that_cannot_work_can_always_plan_its_way_back(self):
+        """For every way of losing a precondition, the table offers a way of getting it back — and the pool is
+        never empty because of it. Swept over the `self` dimension rather than written out per case."""
+        from bonobo import actions, solve
+        for w in worlds(self_=list(DIMS["self_"]), resource="bare", stock="none"):
+            state = w.state()
+            with self.subTest(body=w.dims["self_"]):
+                table = self.columns(state)
+                missing = [d for d in actions.BODY_DIMS if not state.get(d)]
+                mends = [a for a in table.values() if a.tag and a.tag[0] == "reach"]
+                self.assertEqual(bool(missing), bool(mends),
+                                 f"{missing} missing but {[a.name for a in mends]} offered")
+                for dim in missing:
+                    self.assertTrue(any(a.effect.get(dim) for a in mends), f"nothing restores {dim}")
+                # And the mend is priced, not free or infinite: it competes with the work it unblocks.
+                prices = solve.reach_cost(list(table.values()), state)
+                for dim in missing:
+                    self.assertGreater(prices.get(dim, 0.0), 0.0, dim)
+                    self.assertLess(prices.get(dim, float("inf")), 600.0, f"{dim}: priced as good as impossible")
 
-    def test_making_a_way_is_one_helper_with_both_ends_in_its_region(self):
-        """`plan_tunnel` answers about the region it is shown. Asked with a region built around somewhere else, it
-        says "no route" about blocks it never saw — which reads exactly like "unreachable"."""
-        from bonobo import skills
-        src = inspect.getsource(skills._dig_to)
-        self.assertIn("region_around", src)
-        self.assertIn("here", src[:src.index("region_around")], "both ends, not just the target")
-        self.assertIn("plan_tunnel", src)
+    def test_the_mends_are_alternatives_and_the_cheapest_is_what_it_costs(self):
+        """More than one way back (swim to the shore, or put a block underfoot) — so the price of footing is the
+        cheaper of them, whichever the world makes cheap here."""
+        from bonobo import actions, solve
+        swimming = {"bag_free": 30, "hands_free": 1, "building": 8}
+        table = list(self.columns(swimming).values())
+        ways = [a for a in table if a.effect.get("footing")]
+        self.assertGreater(len(ways), 1, "one way back is not a choice")
+        cheapest = min(a.cost_s for a in ways)
+        self.assertLessEqual(solve.reach_cost(table, swimming).get("footing", 1e9), cheapest + 1e-6)
 
-    def test_digging_is_gated_by_the_policy_and_nothing_else(self):
-        from bonobo import nav
-        src = inspect.getsource(nav.go_to)
-        cut = src[src.index('"travel" in mod_features()'):]
-        self.assertIn("policy.allow_dig", cut, "whether we may dig is the policy's answer, not the walker's")
+

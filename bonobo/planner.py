@@ -234,6 +234,8 @@ def runnable(step, inv):
         return tool_ok(inv, "sword", 1, min_left=1) if step.detail.get("fighter") else True
     if step.kind == "gather":
         return True
+    if step.kind == "reach":
+        return True      # getting the body somewhere it can work needs nothing but the body
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
 
 

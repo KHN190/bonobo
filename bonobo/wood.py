@@ -33,16 +33,27 @@ def chop(ctx, n):
             # The walker alone can't climb a mountain or tunnel to a tree 30 blocks up: get to the trunk with the
             # navigator (dig, pillar, ladder, bridge) first, then chop within reach.
             if not nav.go_to((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
-                for t in trunk:   # out of reach: never mine_many a trunk we couldn't get to
-                    ctx.ban((t["x"], t["y"], t["z"]))
-                # One failure ends the skill; the brain's retry policy decides (the ban changes its state).
-                raise api.NavFailed(f"tree at {(base['x'], base['y'], base['z'])} not reachable")
+                # The walker gave up; that is not the same as there being no way. The game plans with the same
+                # pathfinder it moves with, so it is the one that knows whether digging or bridging gets there.
+                if nav.way_to(ctx, [(base["x"], base["y"], base["z"])], range_=2.0):
+                    pass                         # a way was made and checked: chop from where we now stand
+                elif not nav.reachable((base["x"], base["y"], base["z"]), ctx.policy, 2.0)[0]:
+                    for t in trunk:   # genuinely no way in: never mine_many a trunk we cannot get to
+                        ctx.ban((t["x"], t["y"], t["z"]))
+                    # One failure ends the skill; the brain's retry policy decides (the ban changes its state).
+                    raise api.NavFailed(f"no way to the tree at {(base['x'], base['y'], base['z'])}")
         before = Inventory().count("log")
         # Base log from outside, then stand in its cell and take the logs overhead: every bottom face is right above
         # the eye, no approach search. From outside, logs 1–2 up behind leaves failed "no path found (267 positions)"
         # after a 3 s walk (bench 05:14), and mine_many's top-down order hit the canopy first (bench 03:43).
-        r = api.run({"type": "mine", "x": base["x"], "y": base["y"], "z": base["z"], "collect": False,
-                     "requireDrops": False}, wait=60)
+        try:
+            r = api.run({"type": "mine", "x": base["x"], "y": base["y"], "z": base["z"], "collect": False,
+                         "requireDrops": False}, wait=60)
+        except api.Unreachable as out:
+            if not nav.way_to(ctx, out.cells or [(base["x"], base["y"], base["z"])]):
+                raise
+            r = api.run({"type": "mine", "x": base["x"], "y": base["y"], "z": base["z"], "collect": False,
+                         "requireDrops": False}, wait=60)
         overhead = sorted((t for t in trunk if t["x"] == base["x"] and t["z"] == base["z"]
                            and base["y"] < t["y"] <= base["y"] + 4), key=lambda t: t["y"])
         if overhead and Inventory().count("log") + 1 < target:
@@ -52,17 +63,24 @@ def chop(ctx, n):
             for t in overhead:
                 if Inventory().count("log") + 1 >= target:
                     break
-                r = api.run({"type": "mine", "x": t["x"], "y": t["y"], "z": t["z"], "collect": False,
-                             "requireDrops": False}, wait=30)
+                try:
+                    r = api.run({"type": "mine", "x": t["x"], "y": t["y"], "z": t["z"], "collect": False,
+                                 "requireDrops": False}, wait=30)
+                except api.Unreachable:
+                    break                  # the canopy closed over that column: the next tree
+
                 if r["status"] != "succeeded":
                     break
         # One pickup sweep for the whole trunk (the drops fall to the base cell).
-        api.run({"type": "collect", "radius": 4, **_collect_only(["log"])}, wait=15)
-        from .world import Region
-        left = Region((base["x"] - 1, base["y"], base["z"] - 1), (base["x"] + 1, base["y"] + 12, base["z"] + 1)).blocks
+        nav.sweep(ctx, radius=4, only=["log"], wait=15)
+        # What is still standing: asked of the world rather than read off a region snapshot taken before the
+        # chopping. A cell we just broke is not "left over", and one the canopy dropped into is.
+        still = {(t["x"], t["y"], t["z"]) for t in find(GROUPS["log"], radius=8, limit=60)}
         for t in trunk:
-            if (t["x"], t["y"], t["z"]) in left:
-                ctx.ban((t["x"], t["y"], t["z"]))
+            cell = (t["x"], t["y"], t["z"])
+            # Standing AND with no way to it — the second half is the game's answer, not a guess from here.
+            if cell in still and not nav.reachable(cell, ctx.policy, 2.0)[0]:
+                ctx.ban(cell)
         if Inventory().count("log") <= before:
             # This trunk gave nothing (canopy, drops stuck): ban it and take the next tree in the same skill call.
             for t in trunk:

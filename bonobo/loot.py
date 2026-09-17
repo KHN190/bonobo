@@ -3,7 +3,7 @@ steel, gold, iron, diamonds, food, pearls, arrows. Looted chests are remembered 
 Pure `loot_plan` is offline-tested."""
 import math
 
-from . import api, nav
+from . import api, nav, tape
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
 from .skill import skill
@@ -66,7 +66,15 @@ def unlooted_chests_cached(mem, snap, ttl=60):
         def blocked(self, pos):
             return False
 
-    _CACHE.update(t=time.time(), pos=area, hits=unlooted_chests(_Ctx()))
+    try:
+        hits = unlooted_chests(_Ctx())
+    except (McError, tape.ReplayMiss) as err:
+        # A feasibility check is asked every round, including while a recorded round is being replayed offline,
+        # where this scan was never made. "Nobody could look" is not "there is a chest": it answers no, and says
+        # so rather than throwing the whole round away.
+        api.swallowed("loot.unlooted_chests_cached", err)
+        return []
+    _CACHE.update(t=time.time(), pos=area, hits=hits)
     return _CACHE["hits"]
 
 

@@ -68,7 +68,7 @@ class Candidate:
 
     def __init__(self, name, base, cost, run, key=None, unlocks=(), weight=1.0, success=1.0,
                  kind="goal", cap=None, detail="", reserve=None, seconds=None, assumptions=(), risk_s=0.0,
-                 share=1.0, commitment_s=None):
+                 share=1.0, commitment_s=None, precheck=None):
         if seconds is None:
             raise NotPricedInSeconds(f"{name}: say what it is worth in seconds")
         self.seconds = float(seconds)
@@ -91,7 +91,7 @@ class Candidate:
         # Seconds this costs beyond the work itself: being off the route, being in another dimension, being
         # somewhere that charges a health tax while the work happens. Each was a veto or a multiplier before, and
         # neither could say how much.
-        self.precheck = None      # () -> (ok, why): the skill's own preconditions, asked before this is offered
+        self.precheck = precheck  # () -> (ok, why): the skill's own preconditions, asked before this is offered
         self.runs = None          # (skill, args): what this candidate would actually call. `offer` derives the
                                   # precheck from it, so no candidate source can forget to attach one.
         self.off_route_s = 0.0
@@ -276,6 +276,64 @@ def apply_profile(name, path=None, now=None, ttl=6 * 3600):
 
 
 # -- choosing with persistence
+class Estimate:
+    """What a candidate is worth, how sure we are, and how it got that way.
+
+    Planning is work, and work is priced in seconds like everything else — so a round does not plan every
+    candidate to the end. Each one carries a number and a DEPTH: how many layers of look-ahead have been spent on
+    it. Depth is the only thing that makes a number more trustworthy, so uncertainty falls as depth grows, and the
+    uncertainty is what decides who gets looked at next.
+    """
+
+    __slots__ = ("value_s", "depth", "at", "detail")
+
+    def __init__(self, value_s=0.0, depth=0, at=0.0, detail=None):
+        self.value_s, self.depth, self.at, self.detail = float(value_s), int(depth), float(at), detail
+
+    def spread_s(self):
+        """How wrong this could be, in seconds. A first glance is worth as much as itself; every layer halves it."""
+        return abs(self.value_s) / (1.0 + self.depth)
+
+    def optimistic_s(self):
+        """The value it would have if the doubt went our way — what a draw is weighted by, so a candidate nobody
+        has looked at properly competes with one that has been measured to the end (the bandit's whole point)."""
+        return self.value_s + self.spread_s()
+
+    def stale(self, now, after_s):
+        return self.at and (now - self.at) >= after_s
+
+    def __repr__(self):
+        return f"Estimate({self.value_s:.1f}s ±{self.spread_s():.1f}, depth {self.depth})"
+
+
+def draw(names, weight_of, k, rng=None, floor=None):
+    """`k` names drawn WITHOUT replacement, in proportion to weight — the round's planning budget, spent.
+
+    Proportional rather than top-k: the best few would otherwise be the only ones ever planned, and a candidate
+    whose first rough number was poor could never earn a second look. `floor` is the share every name keeps
+    however poor it looks, which is what stops that door closing.
+    """
+    import random
+    rng = rng or random
+    floor = float(_PLAY["pool"]["plan_sample_floor"] if floor is None else floor)
+    left = list(names)
+    if k >= len(left):
+        return left
+    out = []
+    while left and len(out) < k:
+        weights = [max(floor, float(weight_of(n))) for n in left]
+        total = sum(weights) or 1.0
+        pick = rng.random() * total
+        for i, w in enumerate(weights):
+            pick -= w
+            if pick <= 0:
+                out.append(left.pop(i))
+                break
+        else:
+            out.append(left.pop())
+    return out
+
+
 def switch_cost(current, challenger, here=None):
     """Seconds it costs to drop `current` for `challenger`. Forward-looking only.
 
@@ -319,9 +377,22 @@ def choose(pool, committed, held=True, here=None):
     if current is None:
         return ranked[0]
     best = max(ranked, key=lambda c: c.score - switch_cost(current, c, here))
-    chosen = current if best is current or \
-        best.score - switch_cost(current, best, here) <= current.score else best
-    return chosen
+    if best is current:
+        return current
+    # A challenger takes over only when it beats the incumbent by more than SWITCHING COSTS — the same rule every
+    # layer that re-decides faster than it acts already uses (`kernel.Held`), stated in the only currency there
+    # is. Scores are rebuilt from scratch each round out of estimates that move a few seconds either way, so
+    # "strictly greater" turned 269 vs 244 into a coin flipped every ten seconds: seek cow, seek bed, shelter,
+    # carrots, each dropped half-done. Two seconds make the difference:
+    #   the extra walking     (`switch_cost`, already counted in `best`)
+    #   what must be REDONE   the incumbent's current commitment — the piece of work that cannot be split, which
+    #                         is what leaving in the middle of it throws away. Sunk time is NOT in here: what is
+    #                         already spent is spent, and charging for it would weld us to whatever we started.
+    redo_s = float(getattr(current, "commitment_s", 0.0) or 0.0)
+    # And a taste on top of the seconds: how much thrash is worth how much responsiveness (`[pool] stickiness`,
+    # a declared preference, not a measurement — which is why it is a fraction and not a number of seconds).
+    sticky = abs(float(current.score)) * float(_PLAY["pool"]["stickiness"])
+    return best if best.score - switch_cost(current, best, here) > current.score + redo_s + sticky else current
 
 
 

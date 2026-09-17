@@ -167,6 +167,9 @@ def _token():
                   "launch the game with the mod once, or point MC_INSTANCE at the right instance")
 
 
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def api(method, path, body=None, timeout=1200):
     from . import tape
     if tape.REPLAY is not None:          # an offline decision replay: the world answers from the recording
@@ -175,7 +178,7 @@ def api(method, path, body=None, timeout=1200):
     req = urllib.request.Request(BASE + path, data=data, method=method,
                                  headers={"Authorization": "Bearer " + _token()})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _DIRECT.open(req, timeout=timeout) as r:
             out = json.loads(r.read())
             tape.recorded(method, path, out)
             return out
@@ -251,13 +254,6 @@ REPLACED = "replaced by a new task"      # the jar's message when a POST /task c
 
 
 def _raise_if_released(results, since=None):
-    """Raise for whoever took the body from us: the player, our own faster layer, or an outsider.
-
-    A replaced task used to mean an intruder, always. But a tactic preemption replaces it on purpose — that is
-    what taking the body IS — so the waiting thread reported "another commander" every time the threat layer
-    answered, and the answer looked like a fault. `since` is when this wait began: a preemption recorded after it
-    is ours, and the right response is to go and re-plan.
-    """
     if any("released by player" in (t.get("message") or "") for t in results):
         raise PlayerTookControl()
     if any(REPLACED in (t.get("message") or "") for t in results):
@@ -354,7 +350,44 @@ def run(task, wait=900):
         r["message"] = f"{r['message']}: {failures[0]['reason']}"
     detail(f"  {r['type']:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
     _raise_if_released([r], since=began)
+    out_of_reach(r)
     return r
+
+
+# What the mod says when the body simply could not get to something: no standing spot, no path, an item that
+# landed where nothing can stand. Not an error in the usual sense — a fact about WAYS, and the answer to it is to
+# make one (`skills.way_to`), never to conclude the thing does not exist.
+UNREACHABLE = ("unreachable", "cannot reach", "can't reach", "no path found", "positions explored")
+
+
+class Unreachable(NotAvailable):
+    """Could not get to it. `cells` are the positions the mod named, when it named any."""
+
+    def __init__(self, message, cells=()):
+        super().__init__(message)
+        self.cells = tuple(tuple(c) for c in cells)
+
+
+def out_of_reach(r):
+    """Raise `Unreachable` when a task failed for reach reasons, so no caller can read that as success.
+
+    Thirty-nine of the sixty-nine `api.run` calls never looked at what came back. "collect: 1 items unreachable"
+    therefore read exactly like "collect: nothing there" — the cow was killed, the beef lay three blocks up a
+    tree, and the hunt concluded that killing cows yields no beef. One place decides what "could not get to it"
+    means, and it is here, at the door the answer comes through.
+    """
+    import re as _re
+    if r.get("status") == "succeeded" and "unreachable" not in (r.get("message") or "").lower():
+        return r
+    text = (r.get("message") or "")
+    for step in ((r.get("result") or {}).get("failures") or []):
+        text += " " + str(step.get("reason") or "")
+    low = text.lower()
+    if not any(word in low for word in UNREACHABLE):
+        return r
+    cells = [(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+             for m in _re.finditer(r"(-?\d+),\s*(-?\d+),\s*(-?\d+)", text)]
+    raise Unreachable(f"{r.get('type', 'task')}: {text.strip()}", cells)
 
 
 # How long the last chain segment took. A segment is where an atomic action ends and the planner gets the body

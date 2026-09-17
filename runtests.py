@@ -13,8 +13,10 @@ rather than the sum of all of them.
 import concurrent.futures
 import glob
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 # Replay-driven files: they answer "is the model still right", not "does this code run". The start-up gate skips
@@ -40,9 +42,29 @@ def run_group(names):
     """
     began = time.time()
     p = subprocess.run([sys.executable, "-m", "unittest"] + list(names),
-                       capture_output=True, text=True, env=dict(os.environ))
+                       capture_output=True, text=True, env=sandbox())
     code = 0 if p.returncode == 5 else p.returncode      # 5 = "NO TESTS RAN": a check-style file, already run
     return list(names), code, p.stdout + p.stderr, time.time() - began
+
+
+# Where a test process writes. The suite used to run against the PLAYER'S data directory, so a test that took a
+# measurement left it in `beliefs.jsonl`, and a test that handed the body to Claude left `handover.json` saying so
+# — after which the real agent stood down at every start-up, because the start-up gate is this suite. Tests read
+# the recorded tape (in the repo) and write nowhere that matters.
+_SANDBOX = None
+
+
+def sandbox():
+    """The environment a test process gets: its own empty data directory, made once per run."""
+    global _SANDBOX
+    if _SANDBOX is None:
+        _SANDBOX = tempfile.mkdtemp(prefix="bonobo-tests-")
+    env = dict(os.environ)
+    env["MC_DATA"] = _SANDBOX
+    # The per-file overrides too: a module that takes its own env var would otherwise still find the real file.
+    for var in ("MC_NOTES", "MC_ROUTE", "MC_DIRECTIVES", "MC_HANDOVER", "MC_BELIEFS", "MC_WANTS", "MC_TAPE"):
+        env.pop(var, None)
+    return env
 
 
 def groups(names, workers):
@@ -56,12 +78,18 @@ def groups(names, workers):
     return [g for g in out if g]
 
 
+def cleanup():
+    if _SANDBOX and os.path.isdir(_SANDBOX):
+        shutil.rmtree(_SANDBOX, ignore_errors=True)
+
+
 def main(argv):
     names = [a for a in argv if a.startswith("tests.")]
     if not names:
         names = [n for n in files() if not ("--fast" in argv and n in SLOW)]
     began = time.time()
     failed, total = [], 0
+    sandbox()                       # one empty data directory for the whole run, removed at the end
     batches = groups(names, min(8, len(names) or 1))
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(batches)) as pool:
         for group, code, out, took in pool.map(run_group, batches):
@@ -75,6 +103,7 @@ def main(argv):
                 print("\n".join(ln for ln in out.splitlines()
                                  if ln.startswith(("FAIL", "ERROR", "AssertionError")) or "Error:" in ln)[:2000])
     print(f"\n{total} tests in {time.time() - began:.1f}s — {'FAILED: ' + ', '.join(failed) if failed else 'OK'}")
+    cleanup()
     return 1 if failed else 0
 
 

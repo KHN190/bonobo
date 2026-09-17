@@ -35,28 +35,33 @@ class ARefusalIsAKindAndAReason(unittest.TestCase):
                         "the skill's own answer comes before any thawing")
 
 
-class StandingDownIsSaidOutLoud(unittest.TestCase):
-    """A layer that is not taking part refuses in the open rather than disappearing.
+class ARefusalAnswersBeforeThePrice(unittest.TestCase):
+    """Some refusals are not preferences: they are facts about whether the thing can happen at all, and they must
+    answer before anything is weighed — and never be waived by the idle rule's `force`.
 
-    A bench cell that wants one layer driving the body used to get there by not calling `round()`. Nothing then
-    appears on the tape — no candidates, no refusals, no reason — and whatever the planner was committed to keeps
-    running. `Brain.stand_down` says it instead, and the refusal has a kind like every other.
+    One table of them, because the list grows: standing down (the body is Claude's), no footing (treading water),
+    a skill's own precheck. Each was found the same way — as a loop of candidates each discovering the same wall
+    and each cooling for two minutes.
     """
 
-    def test_the_door_exists_and_is_a_context(self):
+    ABSOLUTE = ("stood_down", "precheck", "footing")
+
+    def test_each_is_asked_and_none_of_them_is_waived_by_force(self):
+        """`force` is the idle rule thawing things that are merely cooling. It may not thaw an impossibility —
+        that is the difference between a preference and a fact, and the one the pool exists to keep."""
+        admit = inspect.getsource(pool.admit)
+        gate = inspect.getsource(pool.gate_step)
+        for reason in self.ABSOLUTE:
+            with self.subTest(reason=reason):
+                src = admit if reason in admit else gate
+                self.assertIn(reason, src, "not asked anywhere")
+                if reason in admit:
+                    self.assertLess(admit.index(reason), admit.index("ctx.force"),
+                                    "asked after `force` has had its say: that makes it waivable")
+
+    def test_the_planner_can_stand_down_and_come_back(self):
         for name in ("stand_down", "resume", "not_taking_part"):
             self.assertTrue(callable(getattr(brain.Brain, name)), name)
-
-    def test_standing_down_refuses_everything_before_any_other_rule(self):
-        src = inspect.getsource(pool.admit)
-        self.assertIn("stood_down", src)
-        self.assertLess(src.index("stood_down"), src.index("weight_for(c.name"),
-                        "standing down is not a preference: it answers before the weights are even read")
-
-    def test_it_is_not_waived_by_force(self):
-        src = inspect.getsource(pool.admit)
-        head = src[:src.index("ctx.force")]
-        self.assertIn("stood_down", head)
 
 
 class OneWriteDoor(unittest.TestCase):

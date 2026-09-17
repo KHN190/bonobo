@@ -176,7 +176,11 @@ class Motion:
     intent is a violation: refused, counted, logged. That is the ownership check nav.go_to and api.run make.
     """
 
-    def __init__(self, log=None):
+    def __init__(self, log=None, watch_handover=False):
+        # Only the one real body watches the handover file. A Motion built for a test is its own world, and having
+        # every instance read a flag another process wrote made "who may drive" depend on the machine's state:
+        # one takeover left the whole arbiter suite red.
+        self.watch_handover = bool(watch_handover)
         self._lock = threading.RLock()
         self._local = threading.local()
         self.pending = []
@@ -239,6 +243,8 @@ class Motion:
         """The ceiling in force: this process's own, or the one another process wrote."""
         if self.ceiling is not None:
             return self.ceiling
+        if not self.watch_handover:
+            return None
         kept = handed_over()
         return None if kept is None else SCALES[kept]
 
@@ -430,4 +436,4 @@ class Motion:
         return chosen.layer, chosen.reason
 
 
-BODY = Motion()      # the one player this process drives
+BODY = Motion(watch_handover=True)      # the one player this process drives

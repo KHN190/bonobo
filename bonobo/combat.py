@@ -255,8 +255,12 @@ def fight_blaze(ctx, rods):
         else:
             waited += 1
             guard(30)   # shield up until it drops to our height (blazes descend to shoot)
-        r = api.run({"type": "collect", "radius": 6, "only": ["minecraft:blaze_rod"]}, wait=20)
-        if "unreachable" in (r.get("message") or ""):
+        try:
+            api.run({"type": "collect", "radius": 6, "only": ["minecraft:blaze_rod"]}, wait=20)
+            unreachable = False
+        except api.Unreachable:
+            unreachable = True
+        if unreachable:
             # A rod fell where the pickup walk can't go (bench 06:20): walk to it with the navigator, then collect.
             rods_on_floor = [e for e in entities(16, ["minecraft:item"])
                              if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]

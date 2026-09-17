@@ -1,12 +1,27 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
 
 
+# Both of these are called tens of millions of times a session — the action table asks them in its innermost
+# loop, once per ingredient per recipe per column per round — and they are pure functions of a few hundred
+# distinct strings. Memoised, they cost a dict lookup; unmemoised they were nine seconds of a 129-second replay
+# spent re-deciding whether "oak_planks" needs a colon.
+_MID, _BARE = {}, {}
+
+
 def mid(name):
-    return name if ":" in name else "minecraft:" + name
+    """The full id: "oak_planks" → "minecraft:oak_planks". Already-qualified names pass through."""
+    got = _MID.get(name)
+    if got is None:
+        got = _MID[name] = name if ":" in name else "minecraft:" + name
+    return got
 
 
 def bare(name):
-    return name.removeprefix("minecraft:")
+    """The short id: "minecraft:oak_planks" → "oak_planks"."""
+    got = _BARE.get(name)
+    if got is None:
+        got = _BARE[name] = name.removeprefix("minecraft:")
+    return got
 
 
 WOODS = ["oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "cherry", "pale_oak"]

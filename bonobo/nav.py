@@ -1,12 +1,22 @@
-"""Getting from A to B under a safety policy, Baritone-style: one cost-based route search whose moves may walk,
-dig, bridge, pillar, climb placed ladders or dig down, compiled into a chain of mod tasks."""
+"""Getting from A to B: ASKING THE GAME to, and pricing what it answers.
+
+There is no pathfinder here any more. There were two — the mod's, which moves the body (walking, digging,
+bridging, pillaring, ladders), and one in this file, which planned routes the body then did not take. Every
+disagreement between them became a bug: water in the floor priced as flat ground, ore two blocks inside rock
+"unreachable", a village room behind a door the walker would have opened. Physics is the world's, so:
+
+    route_s(cell, policy)   /plan — is there a way, and how many seconds (the one door for both questions)
+    go_to(pos, policy)      travel — the mod walks, digs and bridges its own way there
+    way_to(ctx, cells)      the answer to "could not get to it": walk with digging allowed, then check
+
+What stays on this side is the decision: what is worth walking to, what a walk is worth, and when to give up."""
 import heapq
 import math
 import re
 import time
 from dataclasses import dataclass, field
 
-from . import api
+from . import api, tape
 from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, HAND_MINEABLE_SUFFIX, bare
@@ -31,8 +41,7 @@ def mine_task(c, collect=False):
     return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False}
 
 
-# Move costs (≈ seconds). Placing costs more than walking; blocks are a resource, so they get dearer when scarce.
-WALK, STEP, DIG_DOWN, BRIDGE, PILLAR, LADDER = 1, 2, 3, 4, 4, 2.5
+# What a placement is allowed to spend, kept because `travel` is told how many blocks it may lay (`placeBudget`).
 HAND_STONE = 16   # breaking a pickaxe block by hand
 TOO_HARD_BY_HAND = {"obsidian", "crying_obsidian", "ancient_debris", "reinforced_deepslate", "iron_block",
                     "netherite_block", "respawn_anchor", "ender_chest", "anvil", "basalt", "blackstone"}
@@ -58,258 +67,39 @@ def mod_features():
     return _features
 
 
-def plan_tunnel(region, start, targets, policy, max_expand=60000, blocks=None, ladders=None, features=None,
-                price_only=False):
-    """Cheapest route from `start` (feet) until a target block touches the body, as a list of mod tasks (empty when
-    already there, None when impossible). Moves: walk / step up / step down (digging through if needed), bridge a
-    gap by placing a floor, pillar up, climb ladders hung on a wall, dig straight down. Never digs next to lava or
-    water, never bridges over or beside lava (unless policy.lava_ok), never touches protected or player-made blocks,
-    never plans falls.
-
-    With `price_only`, the same search answers what it COSTS rather than how to do it: the route's cost in move
-    units, or None when there is no route. That is what makes "I can see it but cannot get to it" a price instead
-    of a dead end — every reason (water, lava, a wall, no blocks to bridge with) is already priced by the moves
-    this search is allowed to make, so nobody has to enumerate the reasons."""
-    targets = set(targets)
-    if blocks is None or ladders is None:
-        inv = Inventory()
-        blocks = sum(inv.usable(b) for b in GROUPS["building"]) if blocks is None else blocks
-        ladders = inv.usable("minecraft:ladder") if ladders is None else ladders
-    features = mod_features() if features is None else features
-    can_place = policy.allow_build and blocks > 0
-    can_pillar = can_place and "pillar" in features
-    can_ladder = policy.allow_build and ladders > 0 and "ladder_in_cell" in features
-    scarcity = 1 if blocks >= 32 else 3   # keep the last blocks for a night shelter
-
-    def lava_near(c):
-        return not policy.lava_ok and any(region.name(add(c, d)) == "lava" for d in NEIGHBOURS6)
-
-    def dig_cost(cells):
-        cost = 0
-        for c in cells:
-            if not region.inside(c) or region.hazard(c) or region.unbreakable(c):
-                return None
-            if region.solid(c):
-                if not policy.allow_dig or c in policy.protected or region.player_made(c):
-                    return None
-                if policy.hand_only and not bare(region.name(c)).endswith(HAND_MINEABLE_SUFFIX):
-                    name = bare(region.name(c))
-                    if "deepslate" in name or name.endswith("_ore") or name in TOO_HARD_BY_HAND:
-                        return None   # 15 s+ per block by hand: the task watchdog cancels it, so it's a wall
-                    # Vanilla lets hands break stone too (~7 s, no drop): far dearer than dirt, but a way out
-                    # when nothing else is.
-                    cost += HAND_STONE
-                    continue
-                if any(region.hazard(add(c, d)) for d in NEIGHBOURS6):
-                    return None
-                cost += 6 if region.falling(c) else 2
-        return cost
-
-    def digs(cells):
-        return [("dig", c) for c in cells if region.solid(c)]
-
-    def goal(f):
-        head = add(f, (0, 1, 0))
-        return any(add(f, d) in targets or add(head, d) in targets for d in NEIGHBOURS6)
-
-    frontier, best, came, expanded = [(0, start)], {start: 0}, {start: (None, ())}, 0
-    # What the route itself put under a node ("floor", "pillar", "ladder"): the region snapshot doesn't know blocks
-    # we plan to place, so a bridge or pillar could never continue past its first block without this.
-    made = {start: None}
-
-    def push(to, nc, actions, placed=None):
-        if nc < best.get(to, math.inf):
-            best[to] = nc
-            came[to] = (f, tuple(actions))
-            made[to] = placed
-            heapq.heappush(frontier, (nc, to))
-
-    def standing_support(node):
-        below = (node[0], node[1] - 1, node[2])
-        return (region.solid(below) and not region.hazard(below)) or made.get(node) in ("floor", "pillar")
-
-    while frontier and expanded < max_expand:
-        cost, f = heapq.heappop(frontier)
-        if cost > best.get(f, math.inf):
-            continue
-        expanded += 1
-        if goal(f):
-            if price_only:
-                return cost
-            actions, node = [], f
-            while node is not None:
-                prev, acts = came[node]
-                actions[:0] = list(acts)
-                node = prev
-            return compile_route(actions, targets)
-        x, y, z = f
-        floor_here = (x, y - 1, z)
-        head2 = (x, y + 2, z)
-        for dx, dz in DIRS4:
-            n = (x + dx, y, z + dz)
-            n_up, n_down = add(n, (0, 1, 0)), add(n, (0, -1, 0))
-            for to, cells, floor, base in (
-                (n, [n_up, n], n_down, WALK),
-                (n_up, [head2, add(n, (0, 2, 0)), n_up], n, STEP),
-                (n_down, [n_up, n, n_down], add(n, (0, -2, 0)), STEP),
-            ):
-                if not region.inside(floor) or not region.solid(floor) or region.hazard(floor):
-                    continue
-                if floor in targets:
-                    below = add(floor, (0, -1, 0))
-                    if not region.solid(below) or any(region.hazard(add(floor, d)) for d in NEIGHBOURS6):
-                        continue
-                dc = dig_cost(cells)
-                if dc is not None:
-                    push(to, cost + base + dc, digs(cells) + [("goto", to)])
-            # Bridge: nothing to stand on ahead → place a floor against the block under us.
-            # The floor cell must really be empty (air or water): a torch or flower there isn't solid but a block
-            # can't be placed into it ("position is occupied"), which voided whole routes.
-            if (can_place and standing_support(f) and region.inside(n_down)
-                    and region.name(n_down) in ("air", "cave_air", "water") and not lava_near(n_down)):
-                dc = dig_cost([n_up, n])
-                if dc is not None:
-                    push(n, cost + BRIDGE * scarcity + dc,
-                         digs([n_up, n]) + [("floor", n_down, floor_here), ("goto", n)], placed="floor")
-        up = (x, y + 1, z)
-        on_ladder = made.get(f) == "ladder"
-        if standing_support(f) or on_ladder:
-            dc = dig_cost([head2])
-            if dc is not None:
-                # Ladder: hang a ladder on a wall beside the feet cell (and the head cell on the first rung), climb.
-                if can_ladder:
-                    wall = next(((x + dx, y + 1, z + dz) for dx, dz in DIRS4
-                                 if region.solid((x + dx, y + 1, z + dz))
-                                 and (on_ladder or region.solid((x + dx, y, z + dz)))), None)
-                    if wall is not None:
-                        rungs = [] if on_ladder else [("ladder", f, add(wall, (0, -1, 0)))]
-                        push(up, cost + LADDER + dc,
-                             digs([head2]) + rungs + [("ladder", up, wall), ("goto", up)], placed="ladder")
-                # Pillar: jump and place a block into the cell we leave.
-                # Pillaring places a block into our own cell: impossible when a ladder, torch or vine hangs there
-                # (the block isn't replaceable), so a pillar step from such a cell just times out.
-                if can_pillar and standing_support(f) and region.name(f) in ("air", "cave_air") \
-                        and made.get(f) != "ladder":
-                    push(up, cost + PILLAR * scarcity + dc, digs([head2]) + [("pillar", f)], placed="pillar")
-        down, below_down = (x, y - 1, z), (x, y - 2, z)
-        if (policy.allow_dig and region.inside(below_down) and region.solid(below_down)
-                and not region.hazard(below_down)):
-            dc = dig_cost([down])
-            if dc is not None and region.solid(down):
-                push(down, cost + DIG_DOWN + dc, digs([down]) + [("goto", down)])
-    return None
-
-
 # What one cell of each kind costs to get through, in "walked block" units — the capability table. A body that
 # can fly pays nothing for any of them; one that can teleport does not consult this at all. Same estimate, one
 # table per kind of body, instead of a formula per kind of body.
-CELL_COST = {"open": 1.0, "dig": 3.0, "bridge": 4.0, "hazard": 12.0, "unbreakable": 40.0}
 
 
 def estimate_price_s(region, start, target, policy, sample=None):
-    """A QUICK price for getting there: the straight line, plus what the cells along it cost to get through.
-
-    An ENGINE of `gates.takes_s(s, Go(...))`: movement knows what a cell costs this body, the time door is
-    who may ask.
-
-    The exact answer is a route search (`reach_price_s`), and it is the right answer when the body is about to
-    move. It is the wrong answer to ask about forty candidate targets a round — so this walks the straight line
-    between here and there, counts what each cell it crosses would cost this body (air is a step, stone is a dig,
-    a gap is a bridge, lava is a bridge over lava), and adds it up. Never exact; monotone in the things that
-    matter, which is what a ranking needs.
+    """Seconds to get there, as the GAME says. An ENGINE of `gates.takes_s(s, Go(...))`.
     """
     import math as _m
-    step = max(1, int(sample or 1))
-    dx, dy, dz = (target[i] - start[i] for i in range(3))
-    span = max(1, int(_m.dist(start, target)))
-    total = 0.0
-    for i in range(0, span + 1, step):
-        f = i / float(span)
-        cell = (int(round(start[0] + dx * f)), int(round(start[1] + dy * f)), int(round(start[2] + dz * f)))
-        total += _cell_cost(region, cell, policy) * step
-    return total * float(_PLAY["nav"]["unit_s"])
+    found, seconds = route_s(target, policy, range_=1.5)
+    if seconds is not None:
+        return float(seconds) if found else float(seconds) * UNREACHABLE_FACTOR
+    # Nobody could say. Not zero, not infinity: how long the walk would take if the ground were flat and empty.
+    return max(1.0, _m.dist(tuple(start), tuple(target)) / float(_PLAY["player"]["speed"]))
 
 
-def _cell_cost(region, cell, policy):
-    """What this body pays to be in that cell: nothing it can walk through, more for what it must break, most for
-    what it must cover or go round."""
-    if not region.inside(cell):
-        return CELL_COST["open"]
-    head = add(cell, (0, 1, 0))
-    if region.hazard(cell) or region.hazard(head):
-        return CELL_COST["hazard"] if policy.allow_build else CELL_COST["unbreakable"]
-    if region.unbreakable(cell) or cell in policy.protected:
-        return CELL_COST["unbreakable"]
-    solid = region.solid(cell) or region.solid(head)
-    if solid:
-        return CELL_COST["dig"] if policy.allow_dig else CELL_COST["unbreakable"]
-    below = add(cell, (0, -1, 0))
-    if region.inside(below) and region.hazard(below):
-        # What we would be WALKING ON. The bench's water and lava lie in the floor, not at head height, and
-        # reading only the cell and the head priced a lava sheet exactly like flat ground.
-        return CELL_COST["hazard"] if policy.allow_build else CELL_COST["unbreakable"]
-    if region.inside(below) and not region.solid(below):
-        return CELL_COST["bridge"] if policy.allow_build else CELL_COST["unbreakable"]
-    return CELL_COST["open"]
+# What "there is no way" costs, as a multiple of the search's own estimate: a price, never a wall — the same
+# rule the seek column follows. Nothing is unreachable for ever; it is expensive until the world changes.
+UNREACHABLE_FACTOR = 8.0
 
 
-def reach_price_s(region, start, targets, policy, blocks=None, ladders=None, features=None, max_expand=20000):
-    """Seconds to get within reach of any of `targets` from `start`, or None when no route exists.
-
-    Pure over the region snapshot: no world reads, so a recorded round replays. The search's move costs are in
-    units of "about a walked block"; `[nav] unit_s` turns them into the only currency there is."""
-    cost = plan_tunnel(region, start, targets, policy, max_expand=max_expand, blocks=blocks, ladders=ladders,
-                       features=features, price_only=True)
-    if cost is None:
-        return None
-    return max(0.0, float(cost) * float(_PLAY["nav"]["unit_s"]))
+def _is_here(start):
+    """Is `start` where the body actually stands? Only then can the game be asked about the route from it."""
+    try:
+        return tuple(int(v) for v in start) == tuple(int(v) for v in feet_now())
+    except (McError, TypeError, ValueError):
+        return False
 
 
 def building_item():
     inv = Inventory()
     options = [b for b in GROUPS["building"] if inv.usable(b)]
     return max(options, key=inv.usable) if options else None
-
-
-def compile_route(actions, targets=()):
-    """Route actions → mod tasks. Digs and placements walk into reach by themselves; explicit gotos are only kept
-    where standing on the exact cell matters (before a pillar or ladder) and at the end."""
-    tasks, dug, pending_goto = [], set(), None
-    block = building_item()
-
-    def flush_goto(range_=0.6):
-        nonlocal pending_goto
-        if pending_goto is not None:
-            g = pending_goto
-            tasks.append({"type": "goto", "x": g[0], "y": g[1], "z": g[2], "range": range_, "partial": False})
-            pending_goto = None
-
-    for act in actions:
-        kind = act[0]
-        if kind == "goto":
-            pending_goto = act[1]
-        elif kind == "dig":
-            if act[1] in dug or act[1] in targets:
-                continue
-            dug.add(act[1])
-            tasks.append(mine_task(act[1]))
-        elif kind == "floor":
-            flush_goto()
-            cell, against = act[1], act[2]
-            tasks.append({"type": "place", "item": block, "x": cell[0], "y": cell[1], "z": cell[2],
-                          "against": {"x": against[0], "y": against[1], "z": against[2]}})
-        elif kind == "pillar":
-            pending_goto = act[1]          # stand on the exact cell first; the task centres itself
-            flush_goto(0.5)
-            tasks.append({"type": "pillar", "item": block})
-        elif kind == "ladder":
-            flush_goto(0.6)                # rungs are hung from where the previous step ended
-            cell, wall = act[1], act[2]
-            tasks.append({"type": "place", "item": "minecraft:ladder", "x": cell[0], "y": cell[1], "z": cell[2],
-                          "against": {"x": wall[0], "y": wall[1], "z": wall[2]}})
-    if tasks and pending_goto is not None:
-        flush_goto(1.0)
-    return tasks
 
 
 def trapped(message):
@@ -320,12 +110,6 @@ def trapped(message):
 def feet_now():
     s = api.get("/state")
     return s["blockX"], s["blockY"], s["blockZ"]
-
-
-def dig_route(tasks, policy):
-    """Runs a compiled route (tasks from plan_tunnel). Old callers passing plain cells get mine tasks."""
-    tasks = [t if isinstance(t, dict) else mine_task(t) for t in tasks]
-    return api.run_chain(tasks, stop_on_failure=True, before_segment=policy.before_segment)
 
 
 def ground_in_column(solid, x, z, y_hint, span=32):
@@ -376,8 +160,14 @@ def safe_destination(pos, hazards=None, clear=1.0):
 PLAYER_SPEED = 4.3
 
 
-def _arrived(start, target, began, ok):
-    """Feed one walk back into the terrain estimate: what it really cost against the straight line."""
+def _arrived(start, target, began, ok, closer=False):
+    """Feed one walk back into the terrain estimate, and say what the leg achieved.
+
+    Returns True when we got there, `Walked` when we only got nearer — truthy, so every caller that asks "did the
+    walk work" still reads it as yes, while a caller that cares can tell the difference. Without this a deep
+    target was a failure every round, cooled for two minutes, and never finished, though every attempt dug
+    another ten blocks toward it.
+    """
     try:
         from . import field
         straight = math.dist(start, target) / PLAYER_SPEED
@@ -386,7 +176,31 @@ def _arrived(start, target, began, ok):
             field.TERRAIN.observed(field.bucket_of(state), straight, time.time() - began)
     except Exception:
         pass
-    return ok
+    if ok:
+        return True
+    return Walked(math.dist(start, target) - math.dist(feet_now(), target)) if closer else False
+
+
+class Walked(float):
+    """A leg that got nearer without arriving. Truthy, and carries how many blocks it gained."""
+
+    def __repr__(self):
+        return f"Walked({float(self):.0f} blocks nearer)"
+
+
+# How much closer a walk has to leave us before it counts as progress rather than a failed errand. A journey is
+# made of legs: the mod walks until the ground runs out, digs or bridges what it can, and stops at the closest
+# point it could reach. That is not "unreachable" — the next round starts from there and goes further. Treating
+# it as a failure is what put a 120 s cooldown on every deep target and let a 135 s errand take the round back.
+PROGRESS_BLOCKS = 2.0
+# How many legs one call may walk before it hands the round back. Enough that a deep or far target is reached in
+# one errand; few enough that the body comes up for air and the planner can change its mind.
+LEGS = 6
+
+
+def walked_closer(start, here, target):
+    """Did this leg actually bring us nearer the target? In blocks, against where it began."""
+    return math.dist(start, target) - math.dist(here, target) >= PROGRESS_BLOCKS
 
 
 def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards=True):
@@ -441,7 +255,10 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                     log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
                     return False
                 if not go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp):
-                    return False
+                    # This hop got nowhere. The trip is not over unless we are no nearer than when it started:
+                    # the caller asked for the far end, and the next round carries on from wherever we stand.
+                    return _arrived(_from, pos, _began, False,
+                                    closer=walked_closer(_from, feet_now(), pos))
             here = feet_now()
             # Per-leg accounting: a Nether trek took 3× the Overworld one with no failures and no blocks spent, so
             # the cost is inside the walking itself. Without this line there is no way to tell replanning from
@@ -458,12 +275,21 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         avoid = [{"x": c[0], "y": c[1], "z": c[2]} for c in policy.protected
                  if math.dist(c, here) <= 64 or math.dist(c, pos) <= 64][:4000]
         grounded = False
-        for _ in range(attempts):
+        # A journey is made of LEGS. The mod walks until the ground, the pickaxe or its own search budget runs
+        # out, then stops at the closest point it could reach and says "target unreachable". Read as a failure,
+        # that put a two-minute cooldown on every far or deep target and none of them ever finished — though
+        # every attempt had dug another ten blocks toward it. So: keep going while each leg brings us nearer,
+        # and only give up when one does not.
+        for _ in range(max(attempts, LEGS)):
+            was = feet_now()
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": policy.allow_dig, "place": policy.allow_build, "placeBudget": budget,
                          "avoid": avoid}, wait=900)
             if r["status"] == "succeeded" or math.dist(feet_now(), pos) <= range_ + 1:
                 return True
+            if walked_closer(was, feet_now(), pos):
+                budget = place_budget(Inventory().count("building"))
+                continue                     # that leg gained ground: the next one starts from here
             here = feet_now()
             budget = place_budget(Inventory().count("building"))     # the last leg spent some
             if not grounded and "no route" in (r.get("message") or "") and \
@@ -481,78 +307,16 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                                  "avoid": avoid}, wait=900)
                     if r["status"] == "succeeded" or math.dist(feet_now(), pos) <= range_ + 1:
                         return True
-        # The walker says there is no way. That is a fact about ways, not about the target: with a pickaxe there
-        # is always a way, and this file already knows how to make one. Without this, "travel refused" meant
-        # "unreachable" — ten coal two blocks inside a wall, a village room behind a hill, a chest through a
-        # doorway the walker would not open — while `dig_toward` sat unused on the branch for jars without travel.
-        if policy.allow_dig or policy.allow_build:
-            if dig_toward(pos, policy, range_):
-                return _arrived(_from, pos, _began, True)
-        return _arrived(_from, pos, _began, False)
+        # The walker says it could not get all the way. Whether that is a failure depends on where it left us:
+        # a leg that ended thirty blocks nearer is progress, and the next round continues from there.
+        return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet_now(), pos))
     for _ in range(attempts):
+        # A jar without `travel`: one step at a time, and the same rule — the mod says whether it got there.
         r = api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True})
         here = feet_now()
         if r["status"] == "succeeded" or math.dist(here, pos) <= range_ + 1:
             return True
-        if not (policy.allow_dig or policy.allow_build):
-            return False
-        if trapped(r["message"]) and policy.allow_surface and policy.allow_dig:
-            try:
-                if escape_to_surface(policy):
-                    continue
-            except NotAvailable:
-                pass  # deep underground: no sky in range, so work toward the target instead
-        if dig_toward(pos, policy, range_):
-            return _arrived(_from, pos, _began, True)
     return _arrived(_from, pos, _began, False)
-
-
-def dig_toward(target, policy, range_=2.0, hop=10, max_hops=20):
-    """Hop by hop toward a target, each hop a planned route (walk, dig, bridge, pillar, ladder)."""
-    for _ in range(max_hops):
-        here = feet_now()
-        dist = math.dist(here, target)
-        if dist <= range_ + 1:
-            return True
-        step = min(hop, dist)
-        waypoint = tuple(round(here[i] + (target[i] - here[i]) * step / dist) for i in range(3))
-        region = region_around([here, waypoint], pad=3)
-        route = plan_tunnel(region, here, {waypoint}, policy) if region else None
-        if route is None:
-            log(f"no safe route toward {waypoint}")
-            return False
-        kinds = {t["type"] for t in route}
-        if kinds - {"mine"}:
-            log(f"route toward {waypoint}: {len(route)} tasks ({', '.join(sorted(kinds))})")
-        dig_route(route, policy)
-        api.run({"type": "goto", "x": waypoint[0], "y": waypoint[1], "z": waypoint[2], "range": 2, "partial": True})
-        if math.dist(feet_now(), here) < 1.5:
-            return False
-    return math.dist(feet_now(), target) <= range_ + 1
-
-
-def escape_to_surface(policy, max_rise=64):
-    """Staircase / pillar / ladder up to a column open to the sky. Returns True if it did something."""
-    fx, fy, fz = feet_now()
-    top_y = min(fy + max_rise, 319)
-    region = Region((fx - 4, fy - 1, fz - 4), (fx + 4, top_y, fz + 4))
-    tops = {}
-    for (x, y, z) in region.blocks:
-        if region.solid((x, y, z)):
-            tops[(x, z)] = max(tops.get((x, z), y), y)
-    targets = {(fx + dx, tops.get((fx + dx, fz + dz), fy - 1) + 1, fz + dz)
-               for dx in range(-4, 5) for dz in range(-4, 5)
-               if max(abs(dx), abs(dz)) >= 2
-               and tops.get((fx + dx, fz + dz), fy - 1) + 3 <= top_y
-               and tops.get((fx + dx, fz + dz), fy - 1) + 1 >= fy}
-    if not targets:
-        raise NotAvailable(f"no sky within {max_rise} blocks above")
-    route = plan_tunnel(region, (fx, fy, fz), targets, policy)
-    if not route:
-        return False
-    log(f"boxed in → {len(route)} tasks up to the surface")
-    dig_route(route, policy)
-    return True
 
 
 def dig_down(depth, policy, use_ladders):
@@ -587,3 +351,107 @@ def dig_down(depth, policy, use_ladders):
     if any(r["status"] != "succeeded" for r in results):
         raise NotAvailable("digging down stopped: a block couldn't be reached")
     return safe
+
+
+def sweep(ctx, radius=6, only=(), wait=30, tries=2):
+    """Pick up what is lying around; when something lies where nothing can stand, make a way and sweep again.
+
+    Every collector in the package used to fire one `collect` and read the result as the whole truth, so "1 items
+    unreachable" — beef up a tree, ore down a hole, a drop across a fence — meant the work had produced nothing.
+    """
+    for attempt in range(max(1, tries)):
+        try:
+            return api.run({"type": "collect", "radius": radius, **({'only': list(only)} if only else {})}, wait=wait)
+        except api.Unreachable as out:
+            if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet_now()], range_=1.5):
+                raise
+    return None
+
+
+# One round asks about dozens of targets and the answer cannot change while the body stands still, so the
+# game is asked once per (target, policy, nodes) and the answer is kept for the round. Cleared by `forget_routes`.
+_ROUTES = {}
+# How many route questions one round may put to the game. A `/plan` is a real pathfinding search on the client
+# thread — tens of milliseconds when it succeeds, seconds when it has to give up — so asking it once per candidate
+# priced a round in minutes and the body stood still through all of it. The budget is what makes "ask the world"
+# affordable: the few questions that decide something get the truth, the rest fall back to the straight line and
+# say so (unknown, never "no way").
+_ROUTE_BUDGET = [0]
+ROUTES_PER_ROUND = 6
+
+
+def route_s(cell, policy, range_=1.5, nodes=6000):
+    """(can we get there, seconds it would take) — THE GAME'S answer, not one assembled here.
+
+    Physics belongs to the world: what counts as a standing spot, what can be stepped up, broken, bridged or
+    pillared, and how long the walk takes. The mod plans with the very pathfinder it moves with (`/plan`), so
+    asking it is both cheaper to maintain and impossible to disagree with. What stays on this side is what to do
+    with the answer — pricing, ranking, giving up.
+
+    Three answers, not two: (True, seconds) there is a way, (False, seconds-or-None) there is none, and
+    (None, None) NOBODY COULD SAY — no game, or a recorded round whose tape never asked this. Unknown is not "no":
+    a replayed round must not conclude that a place is unreachable because the recording did not happen to ask,
+    and pricing falls back to the straight line rather than to a refusal.
+    """
+    key = (tuple(cell), bool(policy.allow_dig), bool(policy.allow_build), float(range_), int(nodes))
+    hit = _ROUTES.get(key)
+    if hit is not None:
+        return hit
+    if _ROUTE_BUDGET[0] >= ROUTES_PER_ROUND:
+        return (None, None)          # this round has asked enough: unknown, and the caller estimates instead
+    _ROUTE_BUDGET[0] += 1
+    try:
+        r = api.get(f"/plan?to={cell[0]},{cell[1]},{cell[2]}&range={range_}"
+                    f"&break={'true' if policy.allow_dig else 'false'}"
+                    f"&place={'true' if policy.allow_build else 'false'}&nodes={nodes}")
+        out = (bool(r.get("found")), r.get("seconds"))
+    except tape.ReplayMiss:
+        return (None, None)                 # a recorded round: not an answer, and never cached as one
+    except McError as err:
+        api.swallowed("nav.route_s", err)
+        out = (None, None)
+    _ROUTES[key] = out
+    return out
+
+
+def forget_routes():
+    """New round, new body position: the routes priced from the old one say nothing about this one."""
+    _ROUTES.clear()
+    _ROUTE_BUDGET[0] = 0
+
+
+def reachable(cell, policy, range_=1.5, nodes=6000):
+    """Is there a way to `cell` at all? The first half of `route_s`.
+
+    Unknown counts as "maybe": only a definite No from the game may stand behind a ban, because the alternative
+    is banning a place because nobody asked.
+    """
+    found, seconds = route_s(cell, policy, range_=range_, nodes=nodes)
+    return (True if found is None else found), seconds
+
+
+def way_to(ctx, cells, range_=2.0):
+    """Get these cells within working range, and say whether they now ARE. Walk if there is a way, make one if not.
+
+    The one answer to "could not get to it" (`api.Unreachable`), wherever it is raised — ore inside rock, beef up
+    a tree, a chest behind a wall. What it returns is not "something happened" but the only thing a caller can act
+    on: can the work be done now? Walking three blocks nearer a stone sealed in earth changes nothing, and
+    reporting that as a way made is how a retry loop spins — the caller asks again, the mod refuses again, and
+    after three refusals sixty perfectly good stones are banned and the goal says there is no stone for 48 blocks.
+
+    Whether a cell is within reach is the GAME'S question (`/plan`), not one to answer from a block region here.
+    """
+    cells = {tuple(int(round(v)) for v in c) for c in cells}
+    if not cells:
+        return False
+    near = min(cells, key=lambda p: math.dist(p, feet_now()))
+    if go_to(near, ctx.policy, range_=range_, attempts=1) and reachable(near, ctx.policy, range_)[0]:
+        return True                                    # the walk was enough
+    if not (ctx.policy.allow_dig or ctx.policy.allow_build):
+        return False
+    # Making a way IS travel with a pickaxe: the mod breaks and places as it goes. There is nothing for this side
+    # to plan — asking the body to walk there, with digging allowed, is the whole of it.
+    for cell in sorted(cells)[:4]:
+        if go_to(cell, ctx.policy, range_=range_, attempts=1) and reachable(cell, ctx.policy, range_)[0]:
+            return True
+    return False
