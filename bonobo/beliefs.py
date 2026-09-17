@@ -16,11 +16,20 @@ The count is in the interface now, before anything reads it, because the thing t
 explores when it is unsure) must not require changing every call site again to arrive. `fit` raises the count as
 recorded play accumulates; until it does, nothing should pretend to know more than it does.
 
-This module imports nothing. It is the bottom of the package: facts do not depend on decisions.
+Measurements are WRITTEN DOWN as they are taken (`note`), to `MC_DATA/beliefs.jsonl`, and read back at import.
+A count that lives only in one process is not an observation count: the bench measured a route, the run ended,
+and the next round believed the prior again. One line per measurement, never rewritten, so the history is the
+record and the count is derived from it — a wrong fit can be re-derived, a wrong average cannot be undone.
+
+This module imports one thing, `paths`, which is where a filesystem layout lives. It still depends on no
+decision: facts do not depend on decisions.
 """
+import json
 import math
 import os
 import tomllib
+
+from . import paths
 
 CONFIG_PATH = os.environ.get("MC_PLAY_CONFIG", os.path.join(os.path.dirname(__file__), "play.toml"))
 
@@ -48,18 +57,57 @@ PLAYER = CONFIG["player"]
 # them for a measurement.
 UNMEASURED = tuple(CONFIG["tools"].get("unmeasured", ()))
 
-# Observation counts, keyed the same way as `value`. Empty: nothing has been fitted yet. `fit` writes here.
+# Observation counts, keyed the same way as `value`, and the measurements behind them. Filled from the log at
+# import; `note` adds to both and appends the line.
 COUNTS = {}
+OBSERVED = {}
+LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
 
 
-def value(path):
-    """The believed number at "section.key", or "mobs.<kind>.<field>". A KeyError for an unknown one — a default
-    would hide a typo behind a plausible answer, and every number here changes a decision."""
+# How much a declared number is discounted while nothing has been measured. One observation is worth this many
+# "prior" observations' worth of doubt: with n = 0 a benefit is read at half, and it climbs toward the declared
+# value as the count grows. It also weighs the prior against the measurements in `value`: the number moves as the count grows.
+PRIOR_STRENGTH = 1.0
+
+
+def declared(path):
+    """The number as WRITTEN DOWN in play.toml: a guess, or something Mojang publishes. No measurement in it."""
     if path.startswith("mobs."):
         _, kind, field = path.split(".", 2)
         return MOBS[kind][field]
     section, _, key = path.partition(".")
     return CONFIG[section][key]
+
+
+def value(path):
+    """The believed number at "section.key", or "mobs.<kind>.<field>" — the declared one, moved by what has
+    actually been measured. A KeyError for an unknown one: a default would hide a typo behind a plausible answer.
+
+    Only a number `play.toml` itself calls unmeasured can move, and it moves by pseudo-counts rather than by its
+    last sample: with n measurements of median m against a prior p, the belief is (W·p + n·m)/(W + n). One odd
+    round therefore barely shifts it, twenty consistent ones nearly replace it, and nothing published by the game
+    is touched at all — fitting a constant Mojang publishes is fitting noise.
+    """
+    prior = declared(path)
+    if not is_unmeasured(path):
+        return prior
+    seen = [m for m, _at in OBSERVED.get(path, ())]
+    if not seen:
+        return prior
+    return (PRIOR_STRENGTH * float(prior) + len(seen) * _median(seen)) / (PRIOR_STRENGTH + len(seen))
+
+
+def is_unmeasured(path):
+    """Is this one of the numbers `play.toml` declares as a guess? Only those are ours to move."""
+    return path.rsplit(".", 1)[-1] in UNMEASURED
+
+
+def _median(xs):
+    """The middle measurement, not the mean: one round that walked into a wall should not be able to drag a
+    belief, and there is no theory here to fit — only what happened."""
+    s = sorted(float(x) for x in xs)
+    mid = len(s) // 2
+    return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2.0
 
 
 def count(path):
@@ -80,37 +128,105 @@ def belief(path):
 OBSERVED = {}
 
 
-def observe(path, measured, now=None):
+def note(path, measured, now=None, where=""):
     """Record one measurement of a believed number, and return (believed, observations).
 
     Deliberately not an update: a single bench cell is one sample of something noisy, and a table that follows its
     last sample is not a belief, it is a rumour. This raises the count, which is what tells a planner how much to
     trust the number and what `unmeasured` is about.
+
+    The line is appended to `LOG` as it is taken, so a measurement survives the process that took it. `where` is
+    free text naming what took it (a bench cell, a round, a tape) — a number with no provenance cannot be argued
+    with later.
     """
     import time as _time
-    value(path)
-    OBSERVED.setdefault(path, []).append((float(measured), now if now is not None else _time.time()))
+    believed = value(path)          # what was believed BEFORE this measurement joined the history
+    at = now if now is not None else _time.time()
+    OBSERVED.setdefault(path, []).append((float(measured), at))
     COUNTS[path] = int(COUNTS.get(path, 0)) + 1
+    _append({"path": path, "measured": float(measured), "believed": believed,
+             "n": COUNTS[path], "at": at, "where": where})
     return belief(path)
+
+
+# Measurements arrive at the speed of the world — one per broken block while mining — so they are written in
+# batches rather than one file open per block. Nothing is dropped: the buffer is part of the history until it is
+# on disk, and it is flushed when it fills, when it gets old, and when the process ends.
+_PENDING = []
+FLUSH_EVERY = 25
+FLUSH_AFTER_S = 30.0
+_last_flush = 0.0
+
+
+def _append(row):
+    """Queue one line. A failure to write is not allowed to lose the measurement from THIS process, so it stays in
+    memory either way — but it is never silent: the message says the history is now incomplete."""
+    import time as _time
+    global _last_flush
+    # The row remembers WHERE it is to be written. A test points LOG at a temporary file, takes a measurement and
+    # puts LOG back; without this the batch lands wherever LOG happens to be at flush time, and a test's invented
+    # numbers end up in the player's real history — which is exactly what happened.
+    _PENDING.append((LOG, row))
+    now = _time.time()
+    if len(_PENDING) >= FLUSH_EVERY or now - _last_flush >= FLUSH_AFTER_S:
+        _last_flush = now
+        flush()
+
+
+def flush():
+    """Write the queued measurements out. Safe to call at any time; it is what `atexit` calls."""
+    if not _PENDING:
+        return 0
+    written = 0
+    for target in dict.fromkeys(path for path, _row in _PENDING):
+        rows = [row for path, row in _PENDING if path == target]
+        try:
+            paths.ensure(target)
+            with open(target, "a") as out:
+                for row in rows:
+                    out.write(json.dumps(row) + "\n")
+            written += len(rows)
+        except OSError as err:
+            print(f"?? beliefs: {type(err).__name__} writing {target}: {len(rows)} measurements are not in it")
+    _PENDING.clear()
+    return written
+
+
+import atexit          # noqa: E402  (registered after `flush` exists, which is the only order that works)
+
+atexit.register(flush)
+
+
+def load(path=None):
+    """Read the measurement log back into OBSERVED/COUNTS. Called once at import; call it again after a bench run
+    in another process. Lines that name a belief this config does not have are kept out and reported — a renamed
+    belief must not silently take another's history."""
+    path = path or LOG
+    if not os.path.exists(path):
+        return 0
+    read = 0
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+                value(row["path"])
+            except (ValueError, KeyError):
+                continue
+            OBSERVED.setdefault(row["path"], []).append((float(row["measured"]), float(row.get("at", 0.0))))
+            COUNTS[row["path"]] = int(COUNTS.get(row["path"], 0)) + 1
+            read += 1
+    return read
+
+
+load()
 
 
 def observed(path):
     """Every measurement of this belief, newest last."""
     return list(OBSERVED.get(path, ()))
-
-
-def residual(path):
-    """(believed, mean measured, relative error) — or None when nothing has been measured.
-
-    The number a calibration run reads: an estimator that is 40% out is not a wrong branch, it is a constant that
-    play disagrees with, and it should be visible as such before anybody rewrites the code around it.
-    """
-    seen = [v for v, _t in OBSERVED.get(path, ())]
-    if not seen:
-        return None
-    mean = sum(seen) / len(seen)
-    believed = float(value(path))
-    return believed, mean, abs(mean - believed) / max(abs(mean), 1e-6)
 
 
 def mob(kind):
@@ -146,12 +262,6 @@ def slot_cost_s(bag_free):
     """
     free = max(1.0, float(bag_free))
     return float(CONFIG["pool"]["slot_fill_s"]) / (free * free)
-
-
-# How much a declared number is discounted while nothing has been measured. One observation is worth this many
-# "prior" observations' worth of doubt: with n = 0 a benefit is read at half, and it climbs toward the declared
-# value as the count grows. Fitting raises the counts (`fit.py`); nothing else does.
-PRIOR_STRENGTH = 1.0
 
 
 def cautious(path, direction="benefit"):

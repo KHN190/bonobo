@@ -153,6 +153,10 @@ class Held:
     Three reasons, and no others: its commitment ran out, an assumption it was made under stopped holding, or a
     challenger beats it by `MARGIN` once it is revisitable. Every layer that re-decides faster than it acts needs
     this, and each one had been growing its own half of it.
+
+    "The body refused me" is the second reason wearing different clothes: a decision that cannot be carried out is
+    a decision made under an assumption that does not hold, so `note_denied` drops it and the next call decides
+    afresh. Without that, a layer re-proposes the same refused answer at its own cadence, for ever.
     """
 
     def __init__(self, margin=MARGIN):
@@ -160,6 +164,10 @@ class Held:
         self.choice = None
         self.since = 0.0
         self.because = None
+
+    def note_denied(self, why=""):
+        """The body would not run this. Drop it: whatever was assumed when it was chosen no longer holds."""
+        self.choice, self.because = None, f"denied:{why}" if why else "denied"
 
     def expired(self, now):
         if self.choice is None or self.choice.action is None:

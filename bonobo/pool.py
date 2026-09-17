@@ -55,7 +55,7 @@ class Context:
 
     def __init__(self, *, segment, seg_name, seg_goals, bench_failing, staying, committed, weights, ready,
                  force, seg_misses, seg_misses_limit, retry, sig, night, night_capable, snap, has_pickaxe,
-                 sightings, way_into=None, no_go=(), sheltered=False, place=None):
+                 sightings, way_into=None, no_go=(), sheltered=False, place=None, stood_down=None):
         self.segment, self.seg_name, self.seg_goals = segment, seg_name, seg_goals
         self.bench_failing, self.staying, self.committed = bench_failing, staying, committed
         self.weights, self.ready, self.force = weights, ready, force
@@ -69,6 +69,10 @@ class Context:
         self.no_go = list(no_go)
         self.sheltered = sheltered        # a roof we can reach: whether running into the dark is survivable
         self.place = place                # coarse location: what "failed here before" is counted against
+        # Why this layer is not a participant at all this round, or None. A bench cell that wants ONE layer
+        # driving the body says so here rather than skipping the round: the candidates are still built and still
+        # refused in the open, so the tape shows a planner that stood down instead of a planner that vanished.
+        self.stood_down = stood_down
 
 
 def admit(c, ctx, weight_for, allowed, exhausted_after):
@@ -78,6 +82,9 @@ def admit(c, ctx, weight_for, allowed, exhausted_after):
     fallback used to be resurrected because "staying" answered before "banned" — the brain asks the ban itself
     before undoing a hold, and this function keeps the same sequence so the tape reads the same.
     """
+    if ctx.stood_down:
+        # Before everything, and not waived by `force`: standing down is not a preference.
+        return Refusal("stood_down", ctx.stood_down)
     w, banned = weight_for(c.name, ctx.weights)
     seg = ctx.segment
     if seg is not None and c.kind == "goal" and not allowed(seg, c.name) and not getattr(c, "craft_only", False):

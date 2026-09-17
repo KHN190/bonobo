@@ -52,15 +52,21 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
               "activate end portal", "enter the End", "defeat the ender dragon",
               "breed animals", "loot nearby chests", "villager pearls", "repair worn pickaxe", "strip mine",
               "enchant the pickaxe", "fire resistance potions", "explore",
+              "attack_s", "speed",
               "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
-"minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 2.3 }
-"minecraft:husk" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 2.3 }
-"minecraft:zombie_villager" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 2.3 }
-"minecraft:drowned" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 2.3 }
-"minecraft:skeleton" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 2.5, ranged = true }
-"minecraft:stray" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 2.5, ranged = true }
+# `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
+# a mob that wanders, and `arrival_s` is about pursuit. Measured by the arena (`bench/combat.jsonl`) for the two
+# families it has fought so far — walkers and archers — and still a declared guess for the rest.
+# attack_s and speed are BEHAVIOUR, not published constants: they are what the mob does here, at this tick rate,
+# against this body. Measured ones (see MC_DATA/beliefs.jsonl) replace the guess below as the count grows.
+"minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:husk" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:zombie_villager" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:drowned" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:skeleton" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 3.5, ranged = true }
+"minecraft:stray" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 3.5, ranged = true }
 "minecraft:pillager" = { hp = 24, attack = 4.0, notice_r = 16.0, attack_s = 1.6, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }
 "minecraft:witch" = { hp = 26, attack = 3.0, notice_r = 16.0, attack_s = 1.5, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }
 "minecraft:creeper" = { hp = 20, attack = 43.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 5.0, speed = 2.5, burst = true }
@@ -81,7 +87,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 [player]
 speed = 4.3                 # sprinting, blocks per second
 melee_reach = 3.0
-dps = { "0" = 2.0, "1" = 6.0, "2" = 8.0, "3" = 10.0 }   # by sword tier: fist, wood/stone, iron, diamond
+dps = { "0" = 3.0, "1" = 12.0, "2" = 18.0, "3" = 24.0 }   # by sword tier: fist, wood/stone, iron, diamond
 protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
 protection_cap = 0.8

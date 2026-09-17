@@ -17,8 +17,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import arbiter  # noqa: E402
-from tests.world import (CHALLENGE, CHALLENGES, ELAPSED, HELD_WORTH, HOLDER, INTENT, LAYERS, WORTH,
-                         faster_than, intent)  # noqa: E402
+from tests.world import (CHALLENGE, CHALLENGES, ELAPSED, FRESHNESS, FakeHeld, HELD_WORTH, HOLDER, INTENT,
+                         LAYERS, WORTH, faster_than, intent)  # noqa: E402
 
 FASTER = ("reflex", "safety", "tactic")
 
@@ -57,21 +57,9 @@ class LayeringIsHard(unittest.TestCase):
             self.assertIsNotNone(taken, f"safety had to argue its case over {kind}/{elapsed} ({why})")
 
 
-class ThePriceOfStoppingIsWhatIsThrownAway(unittest.TestCase):
-    def test_it_does_not_move_with_how_long_the_work_has_run(self):
-        for kind in INTENT:
-            seen = [intent(kind, at=-seconds).interrupt_cost_s(now=0.0) for seconds in ELAPSED.values()]
-            self.assertEqual(len(set(seen)), 1, f"{kind}: the price of stopping moved with the clock: {seen}")
-
-    def test_resumable_work_costs_nothing_to_stop(self):
-        for kind, spec in INTENT.items():
-            if spec["resumable"]:
-                self.assertEqual(intent(kind).interrupt_cost_s(now=0.0), 0.0, kind)
-
-    def test_open_loop_work_costs_what_it_would_have_to_redo(self):
-        for kind, spec in INTENT.items():
-            if not spec["resumable"]:
-                self.assertEqual(intent(kind).interrupt_cost_s(now=0.0), spec["redo_s"], kind)
+class NothingAboutTheWorkDefendsIt(unittest.TestCase):
+    """What an intent declares about itself — how long it has run, what it would have to redo — is data for the
+    log. A judgement that reads it is the arbiter pricing, which is the layer's job."""
 
     def test_what_has_been_spent_is_reported_and_never_compared(self):
         """`spent_s` exists for the log and the tape; nothing in the arbiter may read it to decide."""
@@ -79,11 +67,12 @@ class ThePriceOfStoppingIsWhatIsThrownAway(unittest.TestCase):
         running = intent("walk", at=-100.0)
         self.assertGreater(running.spent_s(now=0.0), 0.0)
         source = inspect.getsource(arbiter.Motion.preempt)
-        self.assertNotIn("spent_s", source, "the arbiter weighed sunk cost again")
+        for forbidden in ("spent_s", "redo_s", "resumable", "interrupt_cost"):
+            self.assertNotIn(forbidden, source, f"the arbiter weighed the work itself: {forbidden}")
 
 
 class ARefusalHasExactlyOneReason(unittest.TestCase):
-    REASONS = {"price", "lease", "layer", "expired"}
+    REASONS = set(arbiter.REFUSED)
 
     def test_every_answer_is_taken_or_refused_for_a_named_reason(self):
         for kind, elapsed, worth, layer in itertools.product(INTENT, ELAPSED, WORTH, LAYERS):
@@ -94,21 +83,24 @@ class ARefusalHasExactlyOneReason(unittest.TestCase):
             else:
                 self.assertIsNone(why, f"{layer}/{kind}: taken and refused at once ({why!r})")
 
-    def test_a_lease_refuses_as_a_lease_and_not_as_a_price(self):
+    def test_a_held_answer_refuses_a_slower_layer_as_a_layer(self):
         for worth in WORTH.values():
             body = arbiter.Motion()
             body.preempt("tactic", lambda: None, "answer", worth_s=1e6, now=0.0, release=lambda: False)
             _taken, why = body.preempt("plan", lambda: None, "mine", worth_s=worth, now=0.1)
             self.assertEqual(why, "layer", f"worth {worth}: {why!r}")
 
-    def test_only_the_same_layer_can_be_refused_on_price(self):
+    def test_only_the_same_layer_is_ever_refused_by_a_held_answer(self):
         seen = set()
-        for kind, elapsed, worth, layer in itertools.product(INTENT, ELAPSED, WORTH, LAYERS):
-            body = body_with(intent(kind, layer="plan", at=-ELAPSED[elapsed]))
-            taken, why = body.preempt(layer, lambda: None, "answer", worth_s=WORTH[worth], now=0.0)
-            if why == "price":
+        for challenge, layer in itertools.product(CHALLENGES, LAYERS):
+            body = arbiter.Motion()
+            body.preempt("tactic", lambda: None, "held", worth_s=HELD_WORTH, now=0.0,
+                         release=lambda: False, seen_at=0.0)
+            _taken, why = body.preempt(layer, lambda: None, "answer", worth_s=CHALLENGE(challenge),
+                                       now=0.0, seen_at=0.0)
+            if why == "held":
                 seen.add(layer)
-        self.assertFalse(seen - {"plan"}, f"a faster layer was refused on price: {sorted(seen)}")
+        self.assertFalse(seen - {"tactic"}, f"another layer was refused by a held answer: {sorted(seen)}")
 
 
 class HoldingIsADecisionNotALock(unittest.TestCase):
@@ -137,16 +129,15 @@ class HoldingIsADecisionNotALock(unittest.TestCase):
             self.assertIsNone(taken, f"{slower} took the body from a held tactic answer")
             self.assertEqual(why, "layer")
 
-    def test_the_same_layer_replaces_only_what_it_clearly_beats(self):
+    def test_the_same_layer_keeps_what_still_pays_whatever_the_challenger_claims(self):
+        """Whether a held answer is still the right one is the LAYER's question, asked through `release()`. The
+        arbiter comparing two worths would be a second decision rule beside `kernel.Held`'s."""
         for challenge in CHALLENGES:
             body = self.held()
             taken, why = body.preempt("tactic", lambda: None, "another answer",
                                       worth_s=CHALLENGE(challenge), now=1.0)
-            if challenge == "better":
-                self.assertIsNotNone(taken, f"a clearly better answer was refused ({why})")
-            else:
-                self.assertIsNone(taken, f"{challenge} replaced a held answer")
-                self.assertEqual(why, "margin")
+            self.assertIsNone(taken, f"{challenge} replaced an answer that still pays")
+            self.assertEqual(why, "held")
 
     def test_an_answer_that_has_stopped_paying_is_handed_over_at_once(self):
         for challenge in CHALLENGES:
@@ -155,13 +146,13 @@ class HoldingIsADecisionNotALock(unittest.TestCase):
                                       worth_s=CHALLENGE(challenge), now=1.0)
             self.assertIsNotNone(taken, f"a held answer that stopped paying kept the body ({why})")
 
-    def test_replacement_does_not_move_with_how_long_it_has_been_held(self):
-        for elapsed in ELAPSED.values():
+    def test_replacement_depends_on_whether_it_still_pays_and_nothing_else(self):
+        for paying in (True, False):
             for challenge in CHALLENGES:
-                body = self.held()
-                taken, _why = body.preempt("tactic", lambda: None, "another", worth_s=CHALLENGE(challenge),
-                                           now=elapsed)
-                self.assertEqual(taken is not None, challenge == "better", f"{elapsed}s/{challenge}")
+                body = self.held(paying=paying)
+                taken, why = body.preempt("tactic", lambda: None, "another", worth_s=CHALLENGE(challenge),
+                                          now=0.0, seen_at=0.0)
+                self.assertEqual(taken is not None, not paying, f"paying={paying}/{challenge}: {why}")
 
     def test_there_is_one_margin_in_the_agent(self):
         """The rule for keeping a decision belongs to `kernel`; an arbiter with its own constant is the second
@@ -170,6 +161,70 @@ class HoldingIsADecisionNotALock(unittest.TestCase):
         source = inspect.getsource(arbiter)
         self.assertNotIn("MARGIN =", source, "the arbiter grew its own margin")
         self.assertIn("kernel", source, "the arbiter must reach for the one margin it does not own")
+
+
+class TheArbiterJudgesAndNeverPrices(unittest.TestCase):
+    """One job: who may drive the body. Layers are ordered, and within a layer the layer's own held decision says
+    whether it is still paying. The moment the arbiter compares two numbers it is both the lock and the judge, and
+    the layer above it is left holding a decision nobody will run."""
+
+    def test_it_holds_no_prices_of_its_own(self):
+        import inspect
+        source = inspect.getsource(arbiter.Motion.preempt)
+        for forbidden in ("MARGIN", "worth_s *", "* worth", "interrupt_cost"):
+            self.assertNotIn(forbidden, source, f"the arbiter priced something: {forbidden}")
+
+    def test_the_same_layer_is_settled_by_the_held_decision_itself(self):
+        for paying in (True, False):
+            for challenge in CHALLENGES:
+                held, body = FakeHeld(paying=paying), arbiter.Motion()
+                body.preempt("tactic", lambda: None, "held answer", worth_s=HELD_WORTH, now=0.0,
+                             release=held.release, held=held)
+                taken, why = body.preempt("tactic", lambda: None, "another", worth_s=CHALLENGE(challenge), now=1.0)
+                self.assertEqual(taken is not None, not paying,
+                                 f"paying={paying}/{challenge}: {'' if taken else why}")
+
+    def test_a_refusal_is_reported_to_whoever_was_refused(self):
+        for layer, expected in (("plan", "layer"),):
+            held, body = FakeHeld(), arbiter.Motion()
+            body.preempt("tactic", lambda: None, "held answer", worth_s=HELD_WORTH, now=0.0,
+                         release=held.release, held=held)
+            asking = FakeHeld()
+            _taken, why = body.preempt(layer, lambda: None, "mine", worth_s=1e6, now=1.0, held=asking)
+            self.assertEqual(why, expected)
+            self.assertEqual(asking.denials, [expected],
+                             "a layer that was refused was never told, and will re-decide the same thing")
+
+    def test_being_refused_ends_the_assumption_it_was_made_under(self):
+        asking = FakeHeld()
+        body = arbiter.Motion()
+        body.preempt("safety", lambda: None, "emergency", worth_s=1e6, now=0.0, release=lambda: False)
+        body.preempt("plan", lambda: None, "mine", worth_s=1e6, now=0.1, held=asking)
+        self.assertTrue(asking.release(), "the refused layer still thinks its decision stands")
+
+
+class NothingIsComparedAcrossDifferentWorlds(unittest.TestCase):
+    """Every reading carries when it was taken. Two layers polling the same world at different rates will hold
+    readings of different ages, and a comparison between them is only honest while both are recent."""
+
+    def test_a_reading_says_when_it_was_taken(self):
+        for age in FRESHNESS.values():
+            self.assertFalse(arbiter.fresh_enough(seen_at=-age, now=0.0, within=1.0) and age > 1.0,
+                             f"a {age}s old reading passed as fresh")
+
+    def test_freshness_is_a_property_of_the_reading_not_of_the_asker(self):
+        for age in FRESHNESS.values():
+            for within in (0.5, 5.0):
+                self.assertEqual(arbiter.fresh_enough(seen_at=-age, now=0.0, within=within), age <= within,
+                                 f"{age}s within {within}s")
+
+    def test_a_decision_made_from_a_stale_reading_is_not_defended(self):
+        held, body = FakeHeld(), arbiter.Motion()
+        body.preempt("tactic", lambda: None, "held answer", worth_s=HELD_WORTH, now=0.0,
+                     release=held.release, held=held, seen_at=-FRESHNESS["stale"])
+        taken, why = body.preempt("tactic", lambda: None, "fresh answer", worth_s=1.0, now=0.0,
+                                  seen_at=0.0)
+        self.assertIsNotNone(taken, f"a decision from a {FRESHNESS['stale']}s old world kept the body ({why})")
 
 
 if __name__ == "__main__":

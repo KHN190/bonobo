@@ -1,6 +1,7 @@
 """The decision loop: reflexes → phase bookkeeping → night handling → cost-scored goal selection → one verified
 step → repeat. Goals are expressed as requirements; the planner turns them into steps; only the first step of the
 best plan runs per round, so every round re-plans against the real inventory (DEPS-style selector)."""
+import contextlib
 import math
 import time
 import traceback
@@ -726,6 +727,7 @@ class Brain:
         self.seg_misses = {}         # (segment, goal) → how often it found nothing of its kind here
         self.coarse = None           # coarser state (success-rate resets)
         self.committed = None        # goal name kept until its assumptions fail or it is clearly beaten
+        self.stood_down = None       # why this layer is not a participant this round (`stand_down`), or None
         self.committed_assumptions = []
         self.committed_pos = None    # where the committed plan is headed: errands are judged against that path
         self.last_choice = (None, 0)
@@ -969,6 +971,7 @@ class Brain:
         snap = Snapshot()
         night = snap.night
         self.mem.observe_phase(night)
+        self.note_body_of(snap)
         self.policy_cache = self.policy(snap, night)
         ctx = skills.Context(self.mem, self.policy_cache, snap.dimension, self.blacklist, prices=self.price_table)
         now = time.time()
@@ -1037,14 +1040,66 @@ class Brain:
         arbiter.BODY.submit("plan", lambda: self.attempt(pick.key, pick.run, cooldown=pick.cap), pick.name,
                             commit_s=pick.commitment_s, cost_rate=1.0, cost_s=pick.cost_s,
                             resumable=True, redo_s=pick.commitment_s)
+        ran_from, ran_at = tuple(snap.feet), time.time()
         try:
             arbiter.BODY.step()
         except api.CommitmentExpired as e:
             log(f"   {e}")
+        self.note_walk_of(ran_from, ran_at, pick)
         self.note_yield_of(pick.name, expected_s, worth_before)
         after = self.retry.entries.get(pick.key, {}).get("since")
         if after is not None and after != before:
             self.recent_fail = (pick.name, time.time())
+
+    # A walk shorter than this says nothing about what a block costs: turning round, one step aside, a door.
+    WALK_SAMPLE_BLOCKS = 8
+    # The body moves slowly: below this, a difference of one point is rounding, not a rate.
+    BODY_SAMPLE_S = 30.0
+
+    def note_body_of(self, snap):
+        """What the body actually does between rounds: how fast health comes back, how fast food goes down.
+
+        Both are declared guesses (`play.toml [risk] regen_s_per_hp, food_drain_s`) and both are visible in every
+        pair of consecutive snapshots — the agent has been walking past its own measurement all along. Only the
+        stretches that say something are counted: health rising while fed is regeneration, health falling is a
+        fight and says nothing about regeneration; food only ever falls.
+        """
+        hp, food, now = snap.get("health", 20), snap.get("food", 20), time.time()
+        used = snap.inv.used_slots() if hasattr(snap, "inv") else None
+        was = getattr(self, "last_body", None)
+        self.last_body = (hp, food, now, used)
+        if was is None:
+            return None
+        was_hp, was_food, was_at, was_used = was
+        dt = now - was_at
+        if dt < self.BODY_SAMPLE_S:
+            return None
+        # How fast working fills the bag — the number every "is it worth carrying" answer divides by.
+        if used is not None and was_used is not None and used > was_used:
+            beliefs.note("pool.slot_fill_s", dt / (used - was_used), where="round")
+        floor = float(survival.CONFIG["risk"]["regen_food_floor"])
+        if hp > was_hp and min(food, was_food) >= floor:
+            beliefs.note("risk.regen_s_per_hp", dt / (hp - was_hp), where="round")
+        if food < was_food:
+            beliefs.note("risk.food_drain_s", dt / (was_food - food), where="round")
+        return self.last_body
+
+    def note_walk_of(self, was, at, pick):
+        """What that leg of walking actually cost, against what the navigator quoted.
+
+        The only number in the whole route estimate is `[nav] unit_s` — seconds per walked block — and it has been
+        a declared guess since the day it was written (`play.toml [unmeasured]`). Every round that moves the body
+        is a measurement of it, and they were all being thrown away. `beliefs.note` only raises the count; what
+        moves the number is a fit over the history, which is not this call's business.
+        """
+        try:
+            now = Snapshot()
+        except (McError, GameUnreachable) as err:
+            return api.swallowed("brain.note_walk_of", err)
+        moved = sum(abs(a - b) for a, b in zip(tuple(now.feet), was))     # walked blocks, not the straight line
+        if moved < self.WALK_SAMPLE_BLOCKS:
+            return None
+        return beliefs.note("nav.unit_s", (time.time() - at) / moved, where=f"round:{pick.name}")
 
     SCAN_EVERY_S = 20
     SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
@@ -1134,6 +1189,35 @@ class Brain:
             self._fallback_candidates(ctx, snap, night, pctx, offer, filtered)
         return out, filtered
 
+    def stand_down(self, reason):
+        """Stop being a participant: every candidate this layer would offer is refused, in the open, until
+        `resume()`. The body is then whoever else asks for it — which is the arbiter's business, not ours.
+
+        A bench cell measuring one layer needs the others quiet, and the way that used to be done was to not call
+        `round()` at all. That hides the planner from the tape (no candidates, no refusals, no reason) and leaves
+        anything it was committed to running. This says it instead.
+        """
+        self.stood_down = reason or "standing down"
+        self.committed = None            # nothing is held while we are not playing
+        log(f"   planner standing down: {self.stood_down}")
+
+    def resume(self):
+        """Take part again."""
+        was, self.stood_down = self.stood_down, None
+        if was:
+            log("   planner taking part again")
+        return was
+
+    @contextlib.contextmanager
+    def not_taking_part(self, reason):
+        """`with brain.not_taking_part("threat bench cell"):` — the shape a bench should use, so a cell that
+        raises still gives the planner back."""
+        self.stand_down(reason)
+        try:
+            yield self
+        finally:
+            self.resume()
+
     def _pool_context(self, snap, night, force):
         from . import pool as _pool, scenarios
         recent = self.recent_fail
@@ -1143,6 +1227,7 @@ class Brain:
             self.seg_name = segment["name"] if segment else None
             self.seg_misses.clear()      # a new segment is a new place: everything is worth one more look
         return _pool.Context(
+            stood_down=self.stood_down,
             segment=segment, seg_name=self.seg_name,
             seg_goals=set(segment["goals"]) if segment is not None else set(),
             bench_failing=scenarios.failing_goals() if segment is not None else set(),
@@ -2652,7 +2737,8 @@ class Brain:
         It gives the body back the moment a faster layer wants it (`api.CommitmentExpired` from the arbiter) and
         the moment the reason for waiting is gone: full health, or nothing left to eat with.
         """
-        risk = survival.CONFIG["risk"]
+        from . import survival as _survival
+        risk = _survival.CONFIG["risk"]
         per_hp_s, floor = float(risk["regen_s_per_hp"]), float(risk["regen_food_floor"])
         snap = snap or Snapshot()
         # How long this can take is not a constant: it is what the model already says regeneration costs, with

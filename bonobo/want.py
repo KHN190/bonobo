@@ -141,7 +141,14 @@ def stop(id=None, *, hard=False, reason=""):
         w.state, w.blocked_by = "stopped", reason or w.blocked_by
     if hard and going:
         from . import arbiter
-        arbiter.BODY.preempt("plan", lambda: None, reason=f"want stopped: {reason or 'cerebrum'}")
+        # The body has ONE door, and what it answers is (taken, why). A hard stop that is refused is not a
+        # failure to report later: it is written on the want, so `status` says the body was never handed over.
+        answer = arbiter.BODY.preempt("plan", lambda: None,
+                                      reason=f"want stopped: {reason or 'cerebrum'}")
+        taken, why = answer if isinstance(answer, tuple) else (bool(answer), None)
+        if not taken:
+            for w in going:
+                w.blocked_by = f"body not handed over ({why or 'refused'})"
     _save()
     return going
 

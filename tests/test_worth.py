@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import gates, value  # noqa: E402
-from tests.world import World, worlds  # noqa: E402
+from tests.world import World, sweep, worlds  # noqa: E402
 
 HORIZON = 600.0
 
@@ -47,13 +47,13 @@ class TheIdentity(unittest.TestCase):
         w = World()
         value_of, evolve = world_value(w)
         by_hand = 0.0
-        steps = value.STEPS
-        dt = HORIZON / steps
-        for i in range(steps):
-            t = (i + 0.5) * dt
+        # The same quadrature the module uses, asked for by name rather than re-derived here: the rule is an
+        # implementation detail of the integral, and a test that hard-codes midpoints is testing the rule.
+        for fraction, weight in value.nodes(value.STEPS):
+            t = fraction * HORIZON
             before = value_of(evolve(dict(w.state()), t))
             after = value_of(value.apply(evolve(dict(w.state()), t), {"bed": 1}))
-            by_hand += value.discount(t, HORIZON) * value.gain(before, after) * dt
+            by_hand += value.discount(t, HORIZON) * value.gain(before, after) * weight * HORIZON
         by_hand = by_hand / HORIZON - gates.marginal("slot", free=w.state()["bag_free"])
         self.assertAlmostEqual(worth(w, {"bed": 1}), by_hand, places=9)
 
@@ -155,11 +155,15 @@ class HoldingHalfOfItIsWorthLess(unittest.TestCase):
     not happen is the opposite — holding more of what a thing is made of cannot make acquiring it worth more.
     """
 
+    # A property over a ladder, not over the product: this one costs 20 pricings per world, and the full sweep of
+    # those is an hour. The relation is about holding an input, so it is the STOCK ladder that has to be walked —
+    # the other dimensions vary a second-order term and are sampled at their baseline.
     GIFTS = ({"wool": 3}, {"planks": 8}, {"minecraft:iron_ingot": 3}, {"minecraft:coal": 4})
     WANTS = ({"bed": 1}, {"sheltered": 1}, {"minecraft:torch": 8}, {"tool:pickaxe:1": 1})
+    LADDER = sweep(stock=None, resource=None)
 
     def test_stocking_an_input_never_raises_what_the_output_is_worth(self):
-        for w in worlds():
+        for w in self.LADDER:
             for want in self.WANTS:
                 bare = worth(w, want)
                 for gift in self.GIFTS:
@@ -175,7 +179,7 @@ class HoldingHalfOfItIsWorthLess(unittest.TestCase):
     def test_and_the_work_never_gets_longer_for_holding_it(self):
         """The other half of the same sentence, and the one the sheet should have been checking: V is the cost of
         finishing, so more in the bag can only bring that cost down."""
-        for w in worlds():
+        for w in self.LADDER:
             bare = sum(gates.V(w.situation(), parts=True).values())
             for gift in self.GIFTS:
                 state = dict(w.state())
@@ -194,8 +198,12 @@ class HoldingHalfOfItIsWorthLess(unittest.TestCase):
     inputs, and finishing cannot cost MORE for holding anything at all.
     """
 
+    # A property over a ladder, not over the product: this one costs 20 pricings per world, and the full sweep of
+    # those is an hour. The relation is about holding an input, so it is the STOCK ladder that has to be walked —
+    # the other dimensions vary a second-order term and are sampled at their baseline.
     GIFTS = ({"wool": 3}, {"planks": 8}, {"minecraft:iron_ingot": 3}, {"minecraft:coal": 4})
     WANTS = ({"bed": 1}, {"sheltered": 1}, {"minecraft:torch": 8}, {"tool:pickaxe:1": 1})
+    LADDER = sweep(stock=None, resource=None)
 
     def _holding(self, w, gift):
         state = dict(w.state())
@@ -204,7 +212,7 @@ class HoldingHalfOfItIsWorthLess(unittest.TestCase):
         return state
 
     def test_stocking_an_input_never_raises_what_the_output_is_worth(self):
-        for w in worlds():
+        for w in self.LADDER:
             for want in self.WANTS:
                 bare = worth(w, want)
                 value_of, evolve = world_value(w)
@@ -217,7 +225,7 @@ class HoldingHalfOfItIsWorthLess(unittest.TestCase):
     def test_and_finishing_never_costs_more_for_holding_it(self):
         """The half the sheet should have been checking: V is the cost of finishing, so more in the bag can only
         bring it down — that is the monotonicity the falling worth is a consequence OF, not a contradiction to."""
-        for w in worlds():
+        for w in self.LADDER:
             bare = sum(gates.V(w.situation(), parts=True).values())
             for gift in self.GIFTS:
                 held = sum(gates.V(w.situation(self._holding(w, gift)), parts=True).values())

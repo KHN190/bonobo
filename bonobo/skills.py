@@ -5,7 +5,7 @@ import math
 import re
 import time
 
-from . import api, blueprints, nav, world
+from . import api, beliefs, blueprints, nav, world
 from .api import McError, NotAvailable, log
 from .skill import skill, world_signature
 from .data import (ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, KEEP_BUILDING_BLOCKS, LOG_TO_PLANKS,
@@ -761,7 +761,11 @@ def eat(raw_ok=False):
     raw = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken"]
     food = next((f for f in ALL_FOOD + (raw if raw_ok else []) if inv.count(f)), None)
     if food:
+        started = time.time()
         api.run({"type": "eat", "item": food}, wait=30)
+        took = time.time() - started
+        if 0.05 <= took <= 30.0:        # a queued or interrupted bite times the queue, not the bite
+            beliefs.note("engage.eat_s", took, where="eat")
         return True
     return False
 

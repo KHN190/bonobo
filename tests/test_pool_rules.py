@@ -22,7 +22,8 @@ class ARefusalIsAKindAndAReason(unittest.TestCase):
     def test_every_refusal_carries_both(self):
         src = inspect.getsource(pool)
         self.assertIn("Refusal(", src)
-        for kind in ("bench", "staying", "banned", "unavailable", "cooling", "segment_misses", "exhausted"):
+        for kind in ("bench", "staying", "banned", "unavailable", "cooling", "segment_misses", "exhausted",
+                     "stood_down"):
             self.assertIn(f'"{kind}"', src, f"{kind}: a refusal kind the tape reads")
 
     def test_a_skill_that_says_it_cannot_run_is_not_talked_round(self):
@@ -32,6 +33,30 @@ class ARefusalIsAKindAndAReason(unittest.TestCase):
         self.assertIn("precheck", src)
         self.assertLess(src.index("precheck"), src.index("ctx.force"),
                         "the skill's own answer comes before any thawing")
+
+
+class StandingDownIsSaidOutLoud(unittest.TestCase):
+    """A layer that is not taking part refuses in the open rather than disappearing.
+
+    A bench cell that wants one layer driving the body used to get there by not calling `round()`. Nothing then
+    appears on the tape — no candidates, no refusals, no reason — and whatever the planner was committed to keeps
+    running. `Brain.stand_down` says it instead, and the refusal has a kind like every other.
+    """
+
+    def test_the_door_exists_and_is_a_context(self):
+        for name in ("stand_down", "resume", "not_taking_part"):
+            self.assertTrue(callable(getattr(brain.Brain, name)), name)
+
+    def test_standing_down_refuses_everything_before_any_other_rule(self):
+        src = inspect.getsource(pool.admit)
+        self.assertIn("stood_down", src)
+        self.assertLess(src.index("stood_down"), src.index("weight_for(c.name"),
+                        "standing down is not a preference: it answers before the weights are even read")
+
+    def test_it_is_not_waived_by_force(self):
+        src = inspect.getsource(pool.admit)
+        head = src[:src.index("ctx.force")]
+        self.assertIn("stood_down", head)
 
 
 class OneWriteDoor(unittest.TestCase):

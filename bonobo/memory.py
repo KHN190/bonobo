@@ -7,7 +7,7 @@ import json
 import math
 import os
 import time
-from . import paths
+from . import beliefs, paths
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
@@ -168,6 +168,16 @@ class Memory:
         row["s"] += float(seconds)
         row["n"] += float(encounters)
         self.save()
+        # The same fact, told to the belief history as well: this table is how OFTEN it happened in this world,
+        # `risk.encounters_per_day` is what the model believes in general, and it was a guess with nothing behind
+        # it while this counter filled up right next to it.
+        day_s = float(beliefs.value("time.day_s"))
+        if seconds >= self.EXPOSURE_SAMPLE_S:
+            beliefs.note("risk.encounters_per_day", float(encounters) / float(seconds) * day_s,
+                         where=f"exposure:{self._exposure_bin(dark, underground)}")
+
+    # A stretch shorter than this is not a rate: one hostile in four seconds is not sixty an hour.
+    EXPOSURE_SAMPLE_S = 60.0
 
     def encounter_rate(self, dark, underground=False, prior_rate=None):
         """Hostiles met per second out there, long run: (prior + observed) / (prior seconds + observed seconds).
@@ -192,6 +202,10 @@ class Memory:
         row["n"] += 1.0
         row["ratio"] += float(got) / float(expected)
         self.save()
+        # Errands whose whole worth is declared in seconds (`[yield_s]`: explore, enchant, potions) have a belief
+        # of their own, and this attempt is a measurement of it.
+        if name in beliefs.CONFIG.get("yield_s", {}):
+            beliefs.note(f"yield_s.{name}", float(got), where="attempt")
 
     def yield_rate(self, name):
         """How much of the declared yield this world actually gives, long run: 1.0 until anything is recorded, then
@@ -538,6 +552,13 @@ class Memory:
             if pos is None or tuple(d["pos"]) == tuple(int(c) for c in pos):
                 d["recovered"] = True
                 self.save()
+                # A death is paid for when the walk back is done, and how long that took is exactly what
+                # `time.death_cost_s` claims to know. Measured from the death itself: the respawn, the walk and
+                # the re-gearing are all of it, which is what makes dying cost a run its time.
+                if d.get("t"):
+                    took = time.time() - float(d["t"])
+                    if 1.0 <= took <= 3600.0:
+                        beliefs.note("time.death_cost_s", took, where="death recovered")
                 return d
         return None
 

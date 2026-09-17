@@ -3,7 +3,7 @@ free of skill logic so a skill module's readiness hash doesn't change with unrel
 import math
 import time
 
-from . import api
+from . import api, beliefs
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import bare
@@ -27,8 +27,28 @@ def mine_cell(policy, cell, wanted=(), collect=True, require_drops=False, wait=3
     cell = tuple(cell)
     if cell in getattr(policy, "protected", ()):  
         raise NotAvailable(f"{cell} is part of one of our own structures")
-    return api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": collect,
-                    **_collect_only(list(wanted)), "requireDrops": require_drops}, wait=wait)
+    started = time.time()
+    out = api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": collect,
+                   **_collect_only(list(wanted)), "requireDrops": require_drops}, wait=wait)
+    _note_break(started)
+    return out
+
+
+def _note_break(started):
+    """How long breaking ONE block actually took, against what the model believes it takes.
+
+    `[tools] mine_time_stone` and `mine_time_no_pickaxe` are the two numbers every mining estimate is built on and
+    both were declared guesses. Every block this door breaks is one measurement of one of them — which one depends
+    on whether there is a pickaxe in hand, because that is the whole difference between the two.
+    """
+    took = time.time() - started
+    if not 0.05 <= took <= 30.0:
+        return None                      # a queued task, a stall, an interrupted break: not a measurement
+    try:
+        has = bool(Inventory().tools("pickaxe"))
+    except (McError, OSError) as err:
+        return api.swallowed("skillcore._note_break", err)
+    return beliefs.note("tools.mine_time_stone" if has else "tools.mine_time_no_pickaxe", took, where="mine_cell")
 
 
 class ToolMissing(McError):

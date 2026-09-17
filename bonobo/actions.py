@@ -261,18 +261,28 @@ def table(cost, state, wants=()):
     `work_s(kind, token)` (seconds per unit of work once there). `wants` narrows the table to what is relevant;
     empty means everything.
     """
-    out = []
-    out += _seek(cost)
-    out += _gather(cost)
-    out += _mine(cost)
-    out += _take(cost)
-    out += _hunt(cost)
-    out += _craft(cost)
-    out += _smelt(cost)
-    out += _shelter(cost, state)
-    out += _room(cost, state)
-    out += _resume(cost, state)
-    return [with_exposure(a) for a in out]
+    return base_table(cost) + [with_exposure(a) for a in
+                               _shelter(cost, state) + _room(cost, state) + _resume(cost, state)]
+
+
+def base_table(cost):
+    """The columns that do NOT depend on what we hold — everything but shelter, room and a resumed step.
+
+    Pricing the future asks for a table once per imagined state, and rebuilding all of it every time is most of
+    what that costs (63 of 69 ms in a `gates.V` call). These columns answer to the WORLD, which is not what the
+    imagining changes, so they are built once per cost model and shared.
+    """
+    # Cached ON the cost model, not in a table keyed by its id: an id is reused the moment the object is
+    # collected, and a recycled one served another world's columns (a room that cost less than flat ground).
+    hit = getattr(cost, "_base_columns", None)
+    if hit is None:
+        out = _seek(cost) + _gather(cost) + _mine(cost) + _take(cost) + _hunt(cost) + _craft(cost) + _smelt(cost)
+        hit = [with_exposure(a) for a in out]
+        try:
+            cost._base_columns = hit
+        except AttributeError:
+            pass                    # a cost model that will not hold it simply rebuilds; correctness first
+    return hit
 
 
 def _seek(cost):

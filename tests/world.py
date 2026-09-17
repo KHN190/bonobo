@@ -141,11 +141,17 @@ SELF = {
     "hurt": {"bag_free": 30, "food": 16, "lever:hp": 8},
 }
 
+# A station is not a thing carried, it is a thing that makes half the action table possible: the fuzz table had
+# 137 of 218 columns never once admissible, and "needs minecraft:crafting_table, have 0" was almost all of it.
+# Without these two values the sweep asks what the planner does in a world where nothing can be crafted.
 STOCK = {
     "none": {},
     "has_wool": {"wool": 3, "planks": 3},
     "has_iron": {"minecraft:iron_ingot": 3, "planks": 8},
     "has_tools": {"tool:pickaxe:1": 1, "uses:pickaxe": 120, "tool:sword:1": 1},
+    "has_station": {"minecraft:crafting_table": 1, "minecraft:furnace": 1, "planks": 8},
+    "has_kit": {"minecraft:crafting_table": 1, "minecraft:furnace": 1, "planks": 16,
+                "minecraft:iron_ingot": 3, "minecraft:coal": 8, "minecraft:stick": 4},
 }
 
 CONFIDENCE = {"unmeasured": 0.0, "measured": 40.0}    # observations behind the beliefs a world's rates come from
@@ -193,8 +199,12 @@ class World:
         return out
 
     def costs(self):
+        """One cost model per world, kept: the columns it answers for are cached against its identity, and a new
+        one per call threw that away (and with it most of the time a sweep spends)."""
         from bonobo import actions
-        return actions.Costs(lambda kinds: self.walk_s)
+        if getattr(self, "_costs", None) is None:
+            self._costs = actions.Costs(lambda kinds: self.walk_s)
+        return self._costs
 
     def columns(self, state=None):
         """The columns this world offers, for the state given (its own by default). A FACT the doors are handed."""
@@ -438,6 +448,41 @@ FIGHT_BODY = {"fresh": (20.0, True), "hurt": (8.0, True), "exposed": (20.0, Fals
 HERE = (0.0, 64.0, 0.0)
 
 
+# ---------------------------------------------------------------- traces, as worlds a measurement reads
+# A measurement is only as good as the trace it reads, so the trace is a dimension too: how the body moved, how
+# the world moved, and whether the samples arrived on time. Synthetic, because a property about a reading must
+# hold for readings nobody could have produced by playing well.
+
+MOTION = {"still": 0.0, "walking": 4.0, "sprinting": 5.6}
+APPROACH = {"closing": -3.0, "holding": 0.0, "fleeing": +3.0}     # how the mob's distance changes per second
+SAMPLING = {"even": 0.2, "coarse": 1.0, "gappy": 3.0}             # seconds between samples
+TELEPORTS = {"none": 0, "once": 1}
+
+
+def trace(motion="still", approach="closing", sampling="even", teleports="none", seconds=6.0,
+          kind="minecraft:zombie", hp=20.0, reach=3.0, start=8.0, bleed=0.0):
+    """A trace as the bench records one: {t, hp, pos, near}, built from the dimensions above.
+
+    `bleed` is health lost per second, applied evenly — a measurement of a rate must be checkable against a rate
+    it was given, or nothing it says can be trusted.
+    """
+    step = SAMPLING[sampling]
+    speed, closing = MOTION[motion], APPROACH[approach]
+    out, t, x, distance, health = [], 0.0, 0.0, start, hp
+    jumped = 0
+    while t <= seconds + 1e-9:
+        out.append({"t": round(t, 2), "hp": round(health, 3), "pos": [round(x, 3), 64.0, 0.0],
+                    "near": [(kind, round(max(0.0, distance), 2), 20.0)]})
+        t += step
+        x += speed * step
+        if teleports != "none" and jumped < TELEPORTS[teleports] and t >= seconds / 2:
+            x += 5000.0           # a respawn or a /tp: distance the body did not travel
+            jumped += 1
+        distance = max(0.0, distance + closing * step)
+        health = max(0.0, health - bleed * step)
+    return out
+
+
 # ---------------------------------------------------------------- what a walk turned out to cost
 # The terrain factor is the one part of arrival that is measured rather than believed, so the samples it learns
 # from are a dimension like any other: how much longer the walk took than the straight line.
@@ -519,6 +564,25 @@ LAYERS = {"reflex": "reflex", "safety": "safety", "tactic": "tactic", "plan": "p
 # it, and the arbiter must not invent a second rule for the same thing.
 HOLDER = {"none": None, "faster": -1, "same_layer": 0, "slower": +1}
 HELD_WORTH = 100.0
+
+# How old the reading a decision was made from is, in seconds. A comparison between two layers is only honest if
+# both are looking at roughly the same world; without a timestamp neither can tell.
+FRESHNESS = {"now": 0.0, "a_moment": 0.3, "stale": 30.0}
+
+
+class FakeHeld:
+    """A layer's held decision, as the arbiter is allowed to see it: it can be asked whether it still pays, and
+    told that the body was refused. It cannot be re-priced from outside — that is the layer's own business."""
+
+    def __init__(self, paying=True):
+        self.paying, self.denials = paying, []
+
+    def release(self):
+        return not self.paying
+
+    def note_denied(self, why):
+        self.denials.append(why)
+        self.paying = False      # an assumption that cannot reach the body is not an assumption that holds
 
 
 def CHALLENGE(kind):

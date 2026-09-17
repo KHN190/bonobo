@@ -109,6 +109,12 @@ def threats_seen(max_age_s=3.0, now=None):
     return list(THREAT_ROWS), list(THREAT_IDS)
 
 
+def seen_at():
+    """When the rows above were read. Every layer polls the same world at its own rate, so a reading has to say
+    when it was taken or nothing can tell whether two decisions describe the same world."""
+    return THREAT_AT
+
+
 def hazards(max_age_s=3.0, now=None):
     """The current hazard set, or empty when perception has not looked recently enough to be trusted."""
     import time as _t
@@ -257,12 +263,17 @@ class Watcher(threading.Thread):
         self.fall_top = None     # highest y since leaving the ground
 
     def _hostiles_within(self, radius):
+        """How close the nearest thing that can hurt us is, from THIS tick's reading.
+
+        It used to take a reading of its own. Two reads a tick is two worlds a tick, and the danger check could
+        disagree with the answer chosen a millisecond later about whether anything was there at all.
+        """
         try:
-            from .threat import is_threat
-            _all = api.get(f"/entities?radius={radius}").get("entities", [])
-            note_hazards(_all)          # the authority is refreshed by the loop that was already looking
-            near = [e["distance"] for e in _all if is_threat(e)]
-        except api.McError:
+            rows, _ids = threats_seen()
+            here = LAST_HERE
+            near = [math.dist(here, row[0]) for row in rows] if here else []
+            near = [d for d in near if d <= radius]
+        except Exception:
             return None
         return min(near, default=None)
 
@@ -275,10 +286,8 @@ class Watcher(threading.Thread):
         self._ttd_t = now
         try:
             from . import threat
-            near = api.get("/entities?radius=24").get("entities", [])
-            note_hazards(near)
             here = (s["x"], s["y"], s["z"])
-            rows = note_threats(near, now, here=here)   # the planner reads these; it never queries entities itself
+            rows, _ids = threats_seen(now=now)      # this tick's own reading: nobody queries entities twice
             if not rows:
                 self._ttd = None
             else:
@@ -289,13 +298,43 @@ class Watcher(threading.Thread):
             self._ttd = None
         return self._ttd
 
+    def _look(self, s):
+        """One read of what is near, shared by everything that asks this tick.
+
+        `note_threats` stamps the rows with when they were taken (`seen_at`), so a decision made from them can say
+        which world it describes — and a decision made from rows nobody refreshed can be told apart from a
+        decision that the world was quiet.
+        """
+        global LAST_HERE
+        try:
+            near = api.get("/entities?radius=24").get("entities", []) or []
+        except (api.McError, KeyError):
+            return None
+        note_hazards(near)
+        LAST_HERE = (s["x"], s["y"], s["z"])
+        return note_threats(near, time.time(), here=LAST_HERE)
+
     def _answer_threats(self, state):
+        """One look at the world, one outcome recorded — an answer, or a named reason there was none.
+
+        Every tick writes exactly one entry (`observe`). Silence used to be indistinguishable from "nothing was
+        worth answering": a bench read fourteen empty cells and could not tell a model that chose to carry on
+        from a layer that never looked.
+        """
         from . import survival
-        if ANSWER is None or api.SOFT or _eating():
-            return
-        rows, _ids = threats_seen()
+        now = time.time()
+        if ANSWER is None:
+            return observe(now, "unwired")
+        if api.SOFT:
+            return observe(now, "soft")
+        if _eating():
+            return observe(now, "eating")
+        rows, _ids = threats_seen(now=now)
         if not rows:
-            return
+            # Nothing there, or nothing fresh: the tick read the world itself a moment ago, so "no rows" now means
+            # the world was quiet — which is an answer, not a blind spot. `stale` can only happen if the read
+            # failed, and that is the one case worth counting as blindness.
+            return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
         try:
             state = dict(state, field=ground(state), **kit(state.get("selected", "") + str(state.get("screen"))))
         except Exception:
@@ -304,28 +343,27 @@ class Watcher(threading.Thread):
         price = lambda dhp: survival.hp_seconds(sstate, dhp)
         chosen = bid(state, rows, price)
         if chosen is None:
-            return
+            return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at())
         option, worth = chosen
-        now = time.time()
         key = f"threat:{option.kind}"
         if now - self.last.get(key, 0) < 1.0:
-            return
+            return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at())
         self.last[key] = now
-        record = {"t": round(now, 2), "kind": option.kind, "worth_s": round(worth, 1),
-                  "taken": False, "refused": None, "failed": None}
+        failure = {}
 
         def run():
             try:
                 ANSWER(option)
             except Exception as e:
-                record["failed"] = f"{type(e).__name__}: {e}"
+                failure["failed"] = f"{type(e).__name__}: {e}"
                 raise
 
-        taken, refused = arbiter.BODY.preempt("tactic", run, key, worth_s=worth, now=now, clear_first=True,
-                                              release=lambda: lease_done(state, threats_seen()[0], price))
-        record["taken"], record["refused"] = bool(taken), refused
-        ANSWERED.append(record)
-        del ANSWERED[:-ANSWERED_MAX]
+        taken, refused = arbiter.BODY.preempt(
+            "tactic", run, key, worth_s=worth, now=now, clear_first=True,
+            release=lambda: lease_done(state, threats_seen()[0], price),
+            held=HELD, seen_at=seen_at() or now)
+        observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
+                rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, **failure)
         if taken:
             api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
 
@@ -369,6 +407,11 @@ class Watcher(threading.Thread):
             except Exception:   # game restarting, network hiccup: the main loop handles those
                 continue
             note_hurt(s)
+            # Look at the world FIRST, once, and hand that one reading to everything below. The entity read used
+            # to happen at most once a second inside `_time_to_die` while the answering ran at every tick, so the
+            # rows were either absent or seconds old: a bench window of eight seconds took forty looks and found
+            # rows in two of them. One read per tick, one timestamp, one answer.
+            self._look(s)
             try:
                 self._answer_threats(s)
             except Exception as e:
@@ -425,15 +468,27 @@ class Watcher(threading.Thread):
 
 
 ANSWER = None
+LAST_HERE = None       # where we stood when the rows were read: the reading and the position are one observation
 # Every answer this layer hands to the body, in order: {t, kind, worth_s, taken, failed}. One record, written at
 # the only place an answer is executed, so a bench observes what really happened instead of wrapping `ANSWER` with
 # a second code path of its own — which is how fourteen cells came back with an empty log and no explanation.
+# One entry per look at the world: when it was taken, and what came of it. `outcome` is a closed set, because
+# "nothing happened" is not an observation — a bench that cannot tell "nothing was worth answering" from "nobody
+# looked" reads fourteen empty cells and learns nothing from any of them.
+OUTCOMES = ("answered", "refused", "nothing_pays", "quiet", "stale", "repeat", "eating", "soft", "unwired")
 ANSWERED = []
 ANSWERED_MAX = 500
 
 
+def observe(t, outcome, **facts):
+    """Record what this look at the world came to. Returns None so a caller can `return observe(...)`."""
+    ANSWERED.append({"t": round(t, 2), "outcome": outcome, **facts})
+    del ANSWERED[:-ANSWERED_MAX]
+    return None
+
+
 def answered_since(mark=0):
-    """Answers handed to the body after `mark` (a length taken before the stretch of interest)."""
+    """Every look taken after `mark` (a length read before the stretch of interest)."""
     return list(ANSWERED[mark:])
 
 
