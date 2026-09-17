@@ -293,25 +293,37 @@ def _seek(cost):
     therefore no bed, no food, and every goal wanting a furnace unplannable. Finding is one action, and not knowing
     where is a price, not an absence.
 
-    The price: walk to the nearest known one, or — with none known — the distance these have actually turned out to
-    be at (memory.search_distance), or the declared prior when that has never been measured. The prior is a fixed
-    guess and stays fixed; one real find replaces it outright.
+    The price is an EXPECTED time, because a look can fail:
+
+        seek_s = (go there + sweep for one) / p(it is here × the note still holds × there is a route)
+
+    Time over chance, and nothing else — κ and V are the outer doors' business. Without the division a thing that
+    is not in this biome cost exactly what one underfoot costs: "could not find white_wool" sixty times, at nine
+    seconds a try, winning the round every time. Each failed look lowers `p` (`memory.note_look`), so the errand
+    prices itself out and the hunt takes over, without anything being banned.
     """
     out = []
     for what, kinds in _findable():
         reach = cost.reach_s(kinds)
         if reach is None:
-            seconds = cost.seek_s(kinds)                  # nobody priced a route: the straight line, as before
+            go_s = cost.seek_s(kinds)                  # nobody priced a route: the straight line, as before
         elif reach == math.inf:
-            seconds = cost.seek_s(kinds, ignore_known=True)   # no route to that one: this errand is another one
+            go_s = cost.seek_s(kinds, ignore_known=True)   # no route to that one: this errand is another one
         else:
-            seconds = max(1.0, round(reach, 1))
-        # What we know may be old. An old note is a worse guess, not a wrong one, so it costs more rather than
-        # counting for nothing — a herd mapped last night still beats exploring, and still loses to one in sight.
-        seconds += beliefs.staleness_s(cost.note_age_s(kinds))
-        out.append(Action(f"seek:{what}", {at(what): 1}, seconds, limit=1,
+            go_s = max(1.0, round(reach, 1))
+        chance = max(MIN_FIND_P, cost.find_p(kinds))
+        out.append(Action(f"seek:{what}", {at(what): 1}, round(go_s / chance, 1), limit=1,
                           tag=("seek", what, kinds, cost.where(kinds))))
     return out
+
+
+# A look that succeeds one time in fifty is not impossible, it is a day's work. The floor keeps the division from
+# becoming a wall — "unreachable" is still a price, which is the whole point of the seek column.
+MIN_FIND_P = 0.02
+
+
+# What walks away on its own. A note about one of these decays at the mob half-life, not the block one.
+_MOBS = frozenset(sum((list(v) for v in HUNT.values()), []))
 
 
 def _findable():
@@ -656,10 +668,20 @@ class Costs:
         """How far one of these was found at on average, from experience. None until it has happened."""
         return None
 
+    def find_p(self, kinds):
+        """The chance a look for one of these finds it. 1.0 here: a cost model with no memory to consult knows of
+        no reason to doubt; `LiveCosts` asks `gates.p("find")`."""
+        return 1.0
+
     def where(self, kinds):
         """The position of the nearest known one, or None. Distance alone cannot say whether two errands are in the
         same direction, which is what "on the way" means — and "on the way" is most of a speedrun's saving."""
         return None
+
+    def find_p(self, kinds):
+        """The chance a look for one of these finds it. 1.0 here: a cost model with no memory knows of no reason
+        to doubt, and the live one (below) asks `gates.p("find")`."""
+        return 1.0
 
     def note_age_s(self, kinds):
         """How old the note about the nearest of these is, in seconds. Zero when nobody has looked (a guess is not
@@ -707,6 +729,14 @@ class LiveCosts(Costs):
     def reach_s(self, kinds):
         ask = getattr(self.model, "reach_s", None)
         return ask(list(kinds)) if ask else None
+
+    def find_p(self, kinds):
+        """The chance a look for one of these finds it, through the one door that answers chances."""
+        from . import gates
+        mem = getattr(self.model, "mem", None)
+        moving = any(str(k).startswith("minecraft:") and k in _MOBS for k in kinds)
+        return gates.p(None, "find", mem=mem, kinds=list(kinds), age_s=self.note_age_s(kinds),
+                       moving=moving, reachable=self.reach_s(kinds) != math.inf)
 
     def note_age_s(self, kinds):
         mem, snap = getattr(self.model, "mem", None), getattr(self.model, "snap", None)

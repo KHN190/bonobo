@@ -21,8 +21,12 @@ Two channels, kept distinct on purpose:
 
 The body is a singleton — one process, one player — so BODY is module state. Actions are per fight; the body is not.
 """
+import json
+import os
 import threading
 import time
+
+from . import paths
 
 REFLEX, SAFETY, TACTIC, PLAN = 0.05, 0.2, 1.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
@@ -35,7 +39,50 @@ SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "plan": PLAN}
 #   margin   the same layer already holds a decision this one does not clearly beat (`kernel.MARGIN`)
 #   price    the same layer is part-way through open-loop work worth more than this answer saves
 #   expired  the intent was too old to start
-REFUSED = ("layer", "held", "expired")
+#   stood_down  the body was handed to Claude; only reflexes still run
+REFUSED = ("layer", "held", "expired", "stood_down")
+
+
+# Standing down outlives the process that asked for it: `mc.py` is a second process, and a flag held in memory
+# there says nothing to the loop that is actually playing. So the handover is a file, re-read at most every
+# HANDOVER_POLL_S, and the live loop sees it within one round.
+HANDOVER = paths.data("handover.json", env="MC_HANDOVER")
+HANDOVER_POLL_S = 0.5
+_HANDOVER = (0.0, None)
+
+
+def handover(keep=None, clear=False):
+    """Write (or clear) the handover flag. `keep` is the slowest layer the agent may still run itself."""
+    global _HANDOVER
+    if clear:
+        try:
+            os.remove(HANDOVER)
+        except OSError:
+            pass
+    else:
+        if keep not in SCALES:
+            raise ValueError(f"unknown layer {keep!r}: expected one of {sorted(SCALES)}")
+        paths.ensure(HANDOVER)
+        with open(HANDOVER, "w") as fh:
+            json.dump({"keep": keep, "at": time.time()}, fh)
+    _HANDOVER = (0.0, None)
+    return None if clear else keep
+
+
+def handed_over(now=None):
+    """The layer kept by the agent while Claude drives, or None. Cached: this is asked at every tick."""
+    global _HANDOVER
+    now = time.time() if now is None else now
+    when, value = _HANDOVER
+    if now - when <= HANDOVER_POLL_S:
+        return value
+    try:
+        with open(HANDOVER) as fh:
+            value = json.load(fh).get("keep")
+    except (OSError, ValueError):
+        value = None
+    _HANDOVER = (now, value if value in SCALES else None)
+    return _HANDOVER[1]
 
 
 def fresh_enough(seen_at, now=None, within=1.0):
@@ -140,6 +187,11 @@ class Motion:
         self.violations = []
         self.driving = None       # the preemption currently executing, if any
         self.lease = None         # (intent, release, worth_s): the decision the body holds, and what ends it
+        # The slowest layer that may still drive itself. `None` is ordinary play — every layer runs. Set to REFLEX
+        # and the agent keeps its reflexes (and whatever the jar does on its own tick) and stops deciding: the body
+        # is then driven from outside, through `api` directly. Handing over and taking back is one number, because
+        # anything else leaves a mode that can be entered and not left.
+        self.ceiling = None
         self._log = log or (lambda *_: None)
 
     # -- engagement ------------------------------------------------------------------------------------------------
@@ -156,6 +208,44 @@ class Motion:
         with self._lock:
             self.engaged = False
             self.pending = []
+
+    def stand_down(self, keep="reflex", persist=True):
+        """Hand the body to whoever is driving from outside; keep only layers at least as fast as `keep`."""
+        if keep not in SCALES:
+            raise ValueError(f"unknown layer {keep!r}: expected one of {sorted(SCALES)}")
+        if persist:
+            handover(keep)
+        with self._lock:
+            self.ceiling = SCALES[keep]
+            self.pending = []
+            self.lease = None
+        self._log(f"   motion: stood down to {keep}; the body is driven from outside")
+        return keep
+
+    def resume(self, persist=True):
+        """Take the layers back. Idempotent: resuming an agent that never stood down changes nothing."""
+        if persist:
+            handover(clear=True)
+        with self._lock:
+            was, self.ceiling = self.ceiling, None
+        if was is not None:
+            self._log("   motion: layers resumed; the agent decides for itself again")
+        return was is not None
+
+    def stood_down(self):
+        return self.ceiling_now() is not None
+
+    def ceiling_now(self):
+        """The ceiling in force: this process's own, or the one another process wrote."""
+        if self.ceiling is not None:
+            return self.ceiling
+        kept = handed_over()
+        return None if kept is None else SCALES[kept]
+
+    def allows(self, layer):
+        """May this layer still decide for itself?"""
+        ceiling = self.ceiling_now()
+        return ceiling is None or SCALES[layer] <= ceiling
 
     # -- ownership -------------------------------------------------------------------------------------------------
 
@@ -248,6 +338,8 @@ class Motion:
                 held.note_denied(why)
             return None, why
 
+        if not self.allows(layer):
+            return refuse("stood_down", f"   motion: {layer} '{reason}' stands down: the body is Claude's")
         holder = self.holder()
         if holder is not None and holder is not self.current():
             if holder.scale < intent.scale:
@@ -299,8 +391,14 @@ class Motion:
         same thing with a queue of one. What it needs from the arbiter is the commitment: `api.await_task` reads
         the current intent, and without one a skill keeps the body for as long as it likes — which is why a zombie
         could beat on the agent for the length of a mining task.
+
+        Returns whether it ran: a stood-down agent does not drive itself.
         """
+        if not self.allows(layer):
+            self._log(f"   motion: {layer} '{reason}' stands down: the body is Claude's")
+            return False
         self._run(Intent(layer, action, reason, commit_s=commit_s, resumable=resumable, redo_s=redo_s))
+        return True
 
     # -- slow layers: submit + step ---------------------------------------------------------------------------------
 
@@ -318,7 +416,8 @@ class Motion:
         since changed — and is dropped even if it would otherwise win.
         """
         with self._lock:
-            fresh = [p for p in self.pending if not (p.layer == "plan" and p.at < self.preempted_at)]
+            fresh = [p for p in self.pending
+                     if self.allows(p.layer) and not (p.layer == "plan" and p.at < self.preempted_at)]
             chosen = arbitrate(fresh, now)
             dropped = [p for p in self.pending if p is not chosen]
             self.pending = []

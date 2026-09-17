@@ -18,22 +18,11 @@ FIGHT_POLL_S = 0.1     # while arbiter.BODY is engaged: a window is 0.4 s at wor
 # The operator's interrupt (mc.py interrupt): end the running skill so an override directive runs next round. /stop
 # alone only cancels the current mod task; a skill (a hunt exploring leg after leg) keeps going.
 FLAG = paths.data("interrupt")
-# The hazard set, maintained here because this is the only loop that already looks at the world often enough, and
-# consulted by movement (nav.go_to). One authority: before this, every call site either invented its own threat
-# logic or had none, which is how a retreat walked into the dragon while escaping an enderman.
-# What health is ACTUALLY draining at, from the state reads this loop already makes. The threat model predicts a
-# rate from reach and dps; a skeleton that aims well beats the prediction, and the agent died to arrows while the
-# model said it had ten seconds. Decisions take the larger of the two: a model may be wrong, a falling health bar
-# is not.
 HURT_RATE = 0.0       # health per second, measured
 _HP_SEEN = None       # (health, when) from the previous read
 
 HAZARDS = []          # [(point, radius)], newest perception round wins
 HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
-# The threat rows the planner reasons about, kept by the one loop that already reads entities often enough. The
-# planner must NOT read the world itself: an entity query inside candidates() costs a request per round and, worse,
-# makes recorded decisions unreplayable (every golden round then misses /entities). One perception authority,
-# everyone else consumes it.
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 
 
@@ -73,15 +62,21 @@ def hurt_rate():
     return HURT_RATE
 
 
-def pressure_now(here, rows, prot=0.0, ground=None):
+def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
     """The pressure we are actually under: the model's rate or the measured one, whichever is worse.
 
     The one place the two twins meet. Both are the same quantity — one estimated from what is in reach, one read
     off the health bar — and every caller that needs "what is happening to us now" asks here rather than picking
     a side: a skeleton that aims well outdoes the model, and that difference was a death.
+
+    `horizon` is the seconds the question is about, and the caller owns it: "what presses me while I work" is the
+    work horizon, "what can kill me before the planner decides again" is the interrupt window. Asked over twenty
+    seconds, two zombies seventeen blocks away came out at 8.5 hp/s and the interrupt fired every round for a
+    danger that was still four seconds' walk away — while every column priced over the same seconds saved
+    nothing, so the body was stopped over and over and never answered.
     """
     from . import estimate
-    return max(estimate.pressure_hp_s(here, rows, prot, ground=ground), hurt_rate())
+    return max(estimate.pressure_hp_s(here, rows, prot, ground=field, horizon=horizon), hurt_rate())
 
 
 def note_threats(near, now=None, here=None):
@@ -293,7 +288,8 @@ class Watcher(threading.Thread):
             else:
                 from . import estimate
                 prot = threat.protection(s.get("armor", 0), False)
-                self._ttd = estimate.time_to_die_s(s.get("health", 20), pressure_now(here, rows, prot))
+                self._ttd = estimate.time_to_die_s(
+                    s.get("health", 20), pressure_now(here, rows, prot, horizon=interrupt_within_s()))
         except (api.McError, KeyError):
             self._ttd = None
         return self._ttd
@@ -453,6 +449,12 @@ class Watcher(threading.Thread):
                 continue
             if not (s.get("control") or {}).get("task"):
                 continue        # nothing running to interrupt; the next round's survival check will see it
+            if reason == "hostiles" and not answering(now):
+                # Stopping the body is not an answer. While this was a rule of its own, the interrupt fired on one
+                # number (time to die) and the answer was chosen on another (what a column saves), the two
+                # disagreed, and the agent spent whole sessions having every task cut short by a threat no layer
+                # ever did anything about. What may stop the work is the layer that is about to answer it.
+                continue
             self.last[reason] = now
             if api.SOFT:
                 api.INTERRUPT = reason      # soft skill: message only, no /stop — the skill takes cover itself
@@ -469,15 +471,15 @@ class Watcher(threading.Thread):
 
 ANSWER = None
 LAST_HERE = None       # where we stood when the rows were read: the reading and the position are one observation
-# Every answer this layer hands to the body, in order: {t, kind, worth_s, taken, failed}. One record, written at
-# the only place an answer is executed, so a bench observes what really happened instead of wrapping `ANSWER` with
-# a second code path of its own — which is how fourteen cells came back with an empty log and no explanation.
-# One entry per look at the world: when it was taken, and what came of it. `outcome` is a closed set, because
-# "nothing happened" is not an observation — a bench that cannot tell "nothing was worth answering" from "nobody
-# looked" reads fourteen empty cells and learns nothing from any of them.
 OUTCOMES = ("answered", "refused", "nothing_pays", "quiet", "stale", "repeat", "eating", "soft", "unwired")
 ANSWERED = []
 ANSWERED_MAX = 500
+
+
+def answering(now=None, within=2.0):
+    """Did the threat layer just choose an answer? The interrupt's one permission to stop ordinary work."""
+    now = time.time() if now is None else now
+    return any(now - a["t"] <= within and a["outcome"] in ("answered", "refused") for a in ANSWERED[-20:])
 
 
 def observe(t, outcome, **facts):

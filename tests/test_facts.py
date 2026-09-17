@@ -13,6 +13,7 @@ that turns a world into a state:
 
 Property-shaped and parameterised where the sweep applies, so each of these is one statement rather than a file.
 """
+import inspect
 import math
 import os
 import sys
@@ -309,3 +310,62 @@ class WhatIsWorthTakingIsDecidedByPrice(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThereIsAlwaysAWayWithAPickaxe(unittest.TestCase):
+    """"The walker refused" is a fact about ways, not about the target.
+
+    Buried coal two blocks inside a wall was reported "3 unreachable in a row" round after round: the travel
+    branch of `nav.go_to` returned False the moment the mod said "no route", while `dig_toward` — the tunneller
+    this very file provides — was only reachable on jars that have no travel at all. The same shape in
+    `skills.mine`, which banned a whole vein instead of digging to it. Both are checked here on the source,
+    because what is wrong with them is their STRUCTURE: one question ("can we get there?") had two answers and
+    only one was ever asked.
+    """
+
+    def test_walking_falls_back_to_digging_on_every_branch(self):
+        from bonobo import nav
+        src = inspect.getsource(nav.go_to)
+        travel = src[src.index('"travel" in mod_features()'):]
+        self.assertIn("dig_toward", travel, "the travel branch gives up without trying to dig")
+        for branch in travel.split("return False"):
+            pass
+        self.assertNotIn("\n        return False\n", travel,
+                         "a bare 'no way' return in the travel branch: dig first, then say it")
+
+    # What counts as MAKING a way: digging through, bridging over, or the one helper that does either.
+    WAY_MAKERS = ("_dig_to", "plan_tunnel", "dig_toward", "dig_route", "bridge")
+
+    def test_nothing_is_given_up_on_before_a_way_is_attempted(self):
+        """The rule, wherever a goal needs to get somewhere: try to MAKE a way before calling it unreachable.
+
+        Not "call plan_tunnel here" — a test that names the callee freezes the code around it. What must hold is
+        that every place which bans a target or reports it unreachable has a way-making attempt in front of it.
+        Water and lava are the one exception: opening those cells floods the tunnel, so they are banned on
+        purpose.
+        """
+        import re
+        from bonobo import nav, skills
+        for func in (skills.mine, nav.go_to):
+            src = inspect.getsource(func)
+            for give_up in re.finditer(r"ctx\.ban\(|return _arrived\([^)]*False\)|NavFailed\(", src):
+                head = src[max(0, give_up.start() - 800):give_up.start()]
+                if "too_wet" in head[-400:] or "hazard" in head[-200:]:
+                    continue                      # a cell beside water or lava is banned on purpose
+                self.assertTrue(any(w in head for w in self.WAY_MAKERS),
+                                f"{func.__name__}: gives up at char {give_up.start()} without trying to make a way")
+
+    def test_making_a_way_is_one_helper_with_both_ends_in_its_region(self):
+        """`plan_tunnel` answers about the region it is shown. Asked with a region built around somewhere else, it
+        says "no route" about blocks it never saw — which reads exactly like "unreachable"."""
+        from bonobo import skills
+        src = inspect.getsource(skills._dig_to)
+        self.assertIn("region_around", src)
+        self.assertIn("here", src[:src.index("region_around")], "both ends, not just the target")
+        self.assertIn("plan_tunnel", src)
+
+    def test_digging_is_gated_by_the_policy_and_nothing_else(self):
+        from bonobo import nav
+        src = inspect.getsource(nav.go_to)
+        cut = src[src.index('"travel" in mod_features()'):]
+        self.assertIn("policy.allow_dig", cut, "whether we may dig is the policy's answer, not the walker's")

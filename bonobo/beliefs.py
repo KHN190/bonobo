@@ -36,9 +36,6 @@ CONFIG_PATH = os.environ.get("MC_PLAY_CONFIG", os.path.join(os.path.dirname(__fi
 with open(CONFIG_PATH, "rb") as _f:
     CONFIG = tomllib.load(_f)
 
-# Published game data (minecraft.wiki, Java Edition, Normal difficulty). Not ours to fit: fitting a constant that
-# Mojang publishes is fitting noise. Everything else about a mob — how often the hit lands, how far it hurts from
-# in practice, how close movement should stay — is behaviour, and only a tape can answer it.
 WIKI_FIELDS = ("hp", "attack", "notice_r")
 WIKI_N = 10 ** 6          # "known", in the same unit as an observation count, so one comparison works everywhere
 
@@ -291,14 +288,25 @@ def staleness_s(age_s):
     return round(drift * math.log2(1.0 + max(0.0, float(age_s)) / fresh), 2)
 
 
-def slots_cost_s(count, free):
-    """What `count` more occupied slots cost, each priced against the bag as it will be by then.
+def still_there(age_s, moving=False):
+    """The chance a note that old is still TRUE: a half-life, not a cutoff.
+
+    A note is not evidence that decays into nothing — it decays into a coin flip and then into noise, and the two
+    kinds decay at very different speeds. `staleness_s` is what an old note COSTS; this is how likely it is to be
+    right at all, which is what a seek divides by.
+    """
+    half = float(CONFIG["memory"]["mob_half_life_s" if moving else "block_half_life_s"])
+    return 0.5 ** (max(0.0, float(age_s)) / half)
+
+
+def slots_cost_s(slots, free):
+    """What `slots` more occupied slots cost, each priced against the bag as it will be by then.
 
     Averaging one slot over a batch is what let a full bag take a full stack; the bag empties one slot at a time
     and so does the price.
     """
     free = float(free)
-    return sum(slot_cost_s(max(1.0, free - i)) for i in range(int(count)))
+    return sum(slot_cost_s(max(1.0, free - i)) for i in range(int(slots)))
 
 
 def use_rate(kind, mem=None):

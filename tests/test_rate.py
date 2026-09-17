@@ -149,7 +149,7 @@ class TheTaxTheOtherPlannerReads(unittest.TestCase):
         for cell in dangers():
             rows, ground = cell.rows(), cell.ground()
             modelled = estimate.pressure_hp_s(cell.here, rows, cell.armour, ground=ground)
-            self.assertGreaterEqual(perception.pressure_now(cell.here, rows, cell.armour, ground=ground),
+            self.assertGreaterEqual(perception.pressure_now(cell.here, rows, cell.armour, field=ground),
                                     modelled - 1e-9, cell)
 
     def test_every_threat_is_a_zone_and_the_zone_is_wider_than_its_reach(self):

@@ -392,6 +392,28 @@ def too_wet(region, p, margin=1):
     return False
 
 
+def _dig_to(ctx, cells):
+    """Open a way to these cells by digging. True when something was dug.
+
+    "cannot reach -14, 55, 11: no path found (1 positions explored)" is not a hard path — it is a target with no
+    standing spot at all: the ore is inside rock, all six faces solid, so the search ends before it starts. That
+    is the tunneller's question, not the walker's, and it was being answered by banning the block.
+    """
+    cells = {tuple(c) for c in cells}
+    if not cells:
+        return False
+    here = feet()
+    # The region must CONTAIN both ends, or the tunneller is asked about blocks it was never shown.
+    region = region_around([here] + sorted(cells), pad=3)
+    if region is None:
+        return False
+    route = nav.plan_tunnel(region, here, cells, ctx.policy)
+    if not route:
+        return False
+    nav.dig_route(route, ctx.policy)
+    return True
+
+
 REACH_BUDGET = 3         # ways of not getting there, per call, before the place itself is the problem
 
 
@@ -457,9 +479,11 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         seed = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
         region = region_around([start, seed], pad=3)
         if region is None:
-            if not nav.go_to(seed, ctx.policy, range_=12):
+            # Too far to read the ground between us: walk closer, or make a way — the same two answers as
+            # everywhere else. Only when neither works is the place itself the problem.
+            if not nav.go_to(seed, ctx.policy, range_=12) and not _dig_to(ctx, {seed}):
                 ctx.ban(seed)
-                raise api.NavFailed(f"{blocks[0]} at {seed} not reachable")
+                raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             continue
         vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)}
         if not vein:
@@ -477,45 +501,40 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 continue   # banned the wet cells: the next vein is a different target, not a retry
         want = breaks or max(1, target - have)
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
-        if "travel" in nav.mod_features():
-            # One movement mechanism: the mod's travel reaches the vein (digging/bridging as needed).
-            near = min(vein, key=lambda p: math.dist(p, start))
-            if not nav.go_to(near, ctx.policy, range_=3.5, attempts=1):
-                for p in vein:
-                    ctx.ban(p)
-                # The next vein is a different target, not a retry — the same rule the wet-cell branch above uses.
-                # Failing the whole step over one unreachable vein cooled the goal for two minutes, and on a hilltop
-                # landing that happened to every vein in turn ("nether kit/mine:stone: … not reachable", ×3).
-                unreachable += 1
-                _reach_budget(unreachable, blocks)
-                continue
-        else:
-            digs = nav.plan_tunnel(region, start, vein, ctx.policy)
-            if digs is None:
-                for p in vein:
-                    ctx.ban(p)
-                raise api.NavFailed(f"no tunnel to the {blocks[0]} vein at {seed}")
-            if digs:
-                nav.dig_route(digs, ctx.policy)
+        # Getting to a vein is ONE question with two answers, tried in order: walk there if there is a way, dig a
+        # way if there is not. Buried ore has no way — that is what buried means — and the travel branch used to
+        # ban the whole vein the moment the mod said "no path", so ten coal two blocks inside a wall were
+        # "unreachable in a row" forever while the tunneller sat right there, used only on jars without travel.
+        near = min(vein, key=lambda p: math.dist(p, start))
+        walked = nav.go_to(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
+        if not walked and not _dig_to(ctx, vein):
+            for p in vein:
+                ctx.ban(p)
+            # The next vein is a different target, not a retry — the same rule the wet-cell branch above uses.
+            # Failing the whole step over one vein cooled the goal for two minutes, and on a hilltop landing
+            # that happened to every vein in turn ("nether kit/mine:stone: … not reachable", ×3).
+            unreachable += 1
+            _reach_budget(unreachable, blocks, f"no way and no tunnel to the {blocks[0]} vein at {seed}")
+            continue
         # Only blocks within reach of where travel actually left us, a dozen at a time: a 67-block gravel batch
         # walked toward a block 6 below through rock and froze the agent.
         here_now = feet()
         in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
-            if not nav.go_to(near_cell, ctx.policy, range_=2.0, attempts=1):
+            if not nav.go_to(near_cell, ctx.policy, range_=2.0, attempts=1) and not _dig_to(ctx, {near_cell}):
                 for p in vein:
                     ctx.ban(p)
                 unreachable += 1
-                _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell} not reachable")
+                _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
                 continue
             here_now = feet()
             in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
-            if not in_reach:
+            if not in_reach and not _dig_to(ctx, vein):
                 for p in vein:
                     ctx.ban(p)
                 unreachable += 1
-                _reach_budget(unreachable, blocks, f"got near {near_cell} but no {blocks[0]} within reach")
+                _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
         # Distance is not reachability: on a hillside the mod answered "cannot reach … no path found" for 6 of 7
         # blocks that were all within 4.5. Only hand over blocks with an open face, judged from the region already
@@ -540,14 +559,21 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if part and int(part.group(1)) < int(part.group(2)):
                 bad = {(int(m.group(1)), int(m.group(2)), int(m.group(3)))
                        for m in _re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", r.get("message") or "")}
+                # "No path found" to a block INSIDE rock is not news: nothing stands next to it yet. Dig one face
+                # open and it is an ordinary block. Banning it instead is how ten coal 2.4 blocks away stayed
+                # "unreachable" for a whole session while the tunneller went unused.
+                if bad and ctx.policy.allow_dig and _dig_to(ctx, bad):
+                    continue           # a face is open now: the same blocks, asked again
                 for p in bad or ():
-                    ctx.ban(p)      # only the blocks the mod named as unreachable
+                    ctx.ban(p)      # only the blocks the mod named as unreachable, and only with no way in
                 if bad:
                     # The mod's refusal costs a full path search each time, so it counts against the same budget as
                     # a refusal by travel. Without this the batch shrank by one block per 6 s for a whole minute.
                     unreachable += 1
                     _reach_budget(unreachable, blocks)
                 continue
+            if ctx.policy.allow_dig and _dig_to(ctx, vein):
+                continue               # nothing broke because nothing could be stood next to: now it can
             for p in vein:
                 ctx.ban(p)
             # Ban this batch, then try the next one: one unmineable batch is not proof that the whole seam is dead,

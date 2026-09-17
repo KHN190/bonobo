@@ -481,7 +481,14 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                                  "avoid": avoid}, wait=900)
                     if r["status"] == "succeeded" or math.dist(feet_now(), pos) <= range_ + 1:
                         return True
-        return False
+        # The walker says there is no way. That is a fact about ways, not about the target: with a pickaxe there
+        # is always a way, and this file already knows how to make one. Without this, "travel refused" meant
+        # "unreachable" — ten coal two blocks inside a wall, a village room behind a hill, a chest through a
+        # doorway the walker would not open — while `dig_toward` sat unused on the branch for jars without travel.
+        if policy.allow_dig or policy.allow_build:
+            if dig_toward(pos, policy, range_):
+                return _arrived(_from, pos, _began, True)
+        return _arrived(_from, pos, _began, False)
     for _ in range(attempts):
         r = api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True})
         here = feet_now()

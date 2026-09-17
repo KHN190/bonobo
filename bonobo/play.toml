@@ -52,7 +52,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
               "activate end portal", "enter the End", "defeat the ender dragon",
               "breed animals", "loot nearby chests", "villager pearls", "repair worn pickaxe", "strip mine",
               "enchant the pickaxe", "fire resistance potions", "explore",
-              "attack_s", "speed",
+              "attack_s", "speed", "block_half_life_s", "mob_half_life_s", "exists_prior",
               "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
@@ -172,6 +172,10 @@ unmodelled = []   # empty: every goal is priced in seconds. Adding a name here i
 # dearer than an hour-old one by a few doublings — never by infinity, never to zero worth.
 fresh_s = 600.0            # age at which a note has taken its first doubling's worth of drift
 drift_s_per_log2 = 25.0    # seconds added per doubling of (1 + age / fresh_s)
+# How fast a note stops being TRUE, as a half-life. A block stays where it is until somebody takes it; an animal
+# walks away, despawns, or is eaten by something else. Same note, two different chances of still being right.
+block_half_life_s = 3600.0
+mob_half_life_s = 240.0
 
 [build]
 max_prepare_blocks = 12
@@ -199,6 +203,10 @@ air_floor = 120            # ticks: a hard floor under the clock, in case the cl
 unmodelled = []   # empty: every candidate is priced in seconds.
 slot_fill_s = 90.0         # seconds of work per inventory slot filled: how fast a bag fills while mining
 portal_trip_s = 180.0      # there and back through a portal: what work in another dimension costs extra
+# The chance the thing is HERE AT ALL before anything has been looked for: a world where half the errands find
+# what they went for. Measurement replaces it per kind (`memory.exists_rate`), which is what stops the planner
+# pricing "find wool" the same in a forest and in a desert.
+exists_prior = 0.5
 seek_prior_s = 300.0       # seconds to find one of something never seen and never measured. A declared
                            # guess, used ONLY without a sample; one real find replaces it outright — it does not
                            # decay, compound, or grow with failures, because none of those are measurements.

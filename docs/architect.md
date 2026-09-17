@@ -23,9 +23,14 @@ pricing identity (value.worth_s; brain.worth_of_change is the only entry)
 priority.Candidate
   score = success x benefit_s - cost_s # both in seconds
 
-want.py (docs/api.md) -- the cerebrum's door
-  offer(want, worth_s, ...)   wanted state + its seconds -> temporary terminal dim in gates.V
-  stop(hard=)                 soft = value zeroed; hard = arbiter.BODY.preempt
+want.py (docs/api.md)
+  offer(want, worth_s, ...)  # wanted state + its seconds -> temporary terminal dim in gates.V
+  stop(hard=)                # soft = value zeroed; hard = arbiter.BODY.preempt
+
+seek_s(kinds) = ( Δt_go + Δt_sweep ) / p
+  Δt_go    = route_s(here → nearest known one)          # with nite: travel; no: 0
+  Δt_sweep = area_left / (2·detect_r·speed)             # seek when no note about
+  p        = p_exists(biome, dimension, y) · p_still(age, halflife_by_species) · p_reachable
 ```
 
 ## Combat

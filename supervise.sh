@@ -15,11 +15,32 @@ LOG="$DIR/autoplay.log"
 PIDFILE="$DIR/autoplay.pid"
 WATCHFILE="$DIR/supervise.pid"
 
-# Only one supervisor at a time: retire the previous one (never ourselves).
-if [ -f "$WATCHFILE" ] && [ "$(cat "$WATCHFILE")" != "$$" ] && kill -0 "$(cat "$WATCHFILE")" 2>/dev/null; then
-  kill "$(cat "$WATCHFILE")"
+# Only one supervisor at a time: retire the previous one (never ourselves) and WAIT for it to go. Signalling and
+# carrying straight on left two supervisors alive for as long as the old one took to die, both watching the same
+# player and both restarting autoplay — and a pid that has been recycled is not the old supervisor, so the pid is
+# checked against the command as well.
+OLD=$(cat "$WATCHFILE" 2>/dev/null)
+if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && ps -p "$OLD" -o command= 2>/dev/null | grep -q supervise.sh; then
+  kill "$OLD" 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    ps -p "$OLD" -o command= 2>/dev/null | grep -q supervise.sh || break
+    sleep 1
+  done
+  ps -p "$OLD" -o command= 2>/dev/null | grep -q supervise.sh && kill -9 "$OLD" 2>/dev/null
 fi
 echo $$ > "$WATCHFILE"
+
+# A restart is a new agent: it starts with the logs and what it has measured (beliefs.jsonl) and nothing else.
+# Sites, directives, wants, routes and the decision tape are about one save, and inheriting them cost a
+# five-hundred-block walk to repair a shelter that belonged to a world that no longer exists.
+python3 - <<'EOF'
+from bonobo import fresh
+world, dropped = fresh.check()
+if dropped:
+    print(f"world {world}: fresh start, dropped {', '.join(dropped)}")
+elif world:
+    print(f"world {world}: fresh start")
+EOF
 
 python3 -m py_compile mc.py bonobo/*.py || { echo "WAKE: syntax error in the brain"; exit 1; }
 python3 -c "import bonobo.brain" || { echo "WAKE: brain fails to import"; exit 1; }
@@ -129,19 +150,9 @@ done
 # The model tests, at the pause rather than at start-up. A failure here is not a reason to stop playing — it says
 # the model drifted from the recorded rounds, which is something to read about, not to crash on.
 echo "WAKE: $REASON (autoplay pid $(cat "$PIDFILE") still running: $(kill -0 "$(cat "$PIDFILE")" 2>/dev/null && echo yes || echo no))"
-tail -n +"$START" "$LOG" | grep -vE "cancelled step" | tail -30
-# The working-out for the same window: rankings, refusals, every task. Always on disk, so a wake-up never needs
-# the game re-run to find out why.
-FROM=$(tail -n +"$START" "$LOG" | head -1 | cut -c1-8)
-[ -n "$FROM" ] && python3 -c "
-import sys
-sys.path.insert(0, '.')
-from bonobo import api
-lines = api.detail_window('$FROM')
-if lines:
-    print('--- detail (' + str(len(lines)) + ' lines, last 40):')
-    print(chr(10).join(lines[-40:]))
-" 2>/dev/null
-echo
+# The logs are NOT printed here. This script wakes somebody up; what woke them is one line, and the evidence is on
+# disk where it can be read, searched and re-read. Printing thirty lines of log plus forty of working-out buried
+# the reason under its own explanation, every ten minutes.
+echo "  session from line $START of $LOG (detail: $DIR/detail.log)"
 ./runtests.py > /tmp/bonobo-tests-full.log 2>&1 || { echo "model checks failed:"; grep -E "^FAIL" /tmp/bonobo-tests-full.log; }
 python3 mc.py review --minutes 5 2>/dev/null

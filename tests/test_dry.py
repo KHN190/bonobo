@@ -191,3 +191,30 @@ class NothingReferencesWhatIsGone(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoNameHidesItsOwnModule(unittest.TestCase):
+    """A parameter may not take the name of something its module defines.
+
+    `perception.pressure_now(…, ground=None)` hid `perception.ground` — the walkable field — so inside the one
+    function about pressure the field was unreachable, and `beliefs.slots_cost_s(count, …)` hid `beliefs.count`,
+    the door that says how much a belief is trusted. Both read perfectly and both are traps for the next edit.
+    """
+
+    def test_no_parameter_shadows_a_module_level_name(self):
+        import ast
+        import pathlib
+        package = pathlib.Path(__import__("bonobo").__file__).parent
+        hidden = {}
+        for path in sorted(package.rglob("*.py")):
+            tree = ast.parse(path.read_text())
+            top = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+            top |= {t.id for n in tree.body if isinstance(n, ast.Assign)
+                    for t in n.targets if isinstance(t, ast.Name)}
+            for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+                args = fn.args
+                names = [p.arg for p in args.posonlyargs + args.args + args.kwonlyargs]
+                names += [x.arg for x in (args.vararg, args.kwarg) if x]
+                for name in sorted(set(names) & top):
+                    hidden[f"{path.name}:{fn.lineno} {fn.name}()"] = name
+        self.assertEqual(hidden, {}, "a parameter hiding a name of its own module")

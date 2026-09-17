@@ -728,6 +728,7 @@ class Brain:
         self.coarse = None           # coarser state (success-rate resets)
         self.committed = None        # goal name kept until its assumptions fail or it is clearly beaten
         self.stood_down = None       # why this layer is not a participant this round (`stand_down`), or None
+        self._prepared = {}          # (goal, plan) -> the looked-ahead plan, for THIS round only
         self.committed_assumptions = []
         self.committed_pos = None    # where the committed plan is headed: errands are judged against that path
         self.last_choice = (None, 0)
@@ -930,7 +931,13 @@ class Brain:
             # Go to where one of these is: the nearest known, else look for one. Ore, animals, water and trees all
             # take this path — finding is one action, and not knowing where is what it costs, not a special case.
             kinds = step.detail["kinds"]
-            if not self.go_find(ctx, snap_kinds=kinds):
+            found = self.go_find(ctx, snap_kinds=kinds)
+            # The look itself is the measurement: what a seek costs is its seconds over the chance it finds one
+            # (`gates.p("find")`), and that chance is nothing but this tally. Sixty fruitless looks for wool used
+            # to leave the price untouched; now the sixty-first is priced at what sixty misses are worth.
+            for kind in kinds:
+                self.mem.note_look(kind, found)
+            if not found:
                 raise NotAvailable(f"could not find {bare(kinds[0])}")
         elif step.kind == "resume":
             # Finish what is already half done, where it is. The skill is the same one; only the place is given.
@@ -968,6 +975,7 @@ class Brain:
     def _round(self):
         self.reflexes()
         tape.begin()          # the world queries this round reads (decisions.jsonl, replayed offline by decide.py)
+        self._prepared = {}   # this round's look-ahead answers: the same goal is ranked more than once
         snap = Snapshot()
         night = snap.night
         self.mem.observe_phase(night)
@@ -1077,7 +1085,7 @@ class Brain:
         # How fast working fills the bag — the number every "is it worth carrying" answer divides by.
         if used is not None and was_used is not None and used > was_used:
             beliefs.note("pool.slot_fill_s", dt / (used - was_used), where="round")
-        floor = float(survival.CONFIG["risk"]["regen_food_floor"])
+        floor = float(beliefs.value("risk.regen_food_floor"))
         if hp > was_hp and min(food, was_food) >= floor:
             beliefs.note("risk.regen_s_per_hp", dt / (hp - was_hp), where="round")
         if food < was_food:
@@ -2226,15 +2234,25 @@ class Brain:
 
     def with_preparation(self, goal, plan, snap, cost_model):
         """Look-ahead (lookahead.py): simulate the plan and re-plan with whatever it would be missing on the way —
-        carried stations, a shelter kit if it runs into the night, a spare pickaxe, food."""
+        carried stations, a shelter kit if it runs into the night, a spare pickaxe, food.
+
+        Once per (goal, plan) per round. The pool asks about a goal several times while it ranks — and this is a
+        SECOND solve each time, plus a line in the log. Sixty identical "look-ahead for nether portal: bring …"
+        lines a minute is what that looked like from outside; inside, it was the round's whole budget.
+        """
         if not plan or goal.background:
             return plan
+        key = (goal.name, tuple(step.key() for step in plan))
+        hit = self._prepared.get(key)
+        if hit is not None:
+            return hit
         site = self.mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
         eta = travel_ticks(snap.feet, site["pos"]) if site else None
         extra = lookahead.prepare(plan, snap.inv, snap.time, snap.inv.count("bed") > 0,
                                   blueprints.materials(blueprints.SHELTER), eta)
         extra = [e for e in extra if e[0] not in {n[0] for n in goal.needs}]
         if not extra:
+            self._prepared[key] = plan
             return plan
         try:
             # The same solver the goal was planned with. There used to be two planners here — the solver for the
@@ -2242,6 +2260,7 @@ class Brain:
             # could not, and the round died inside `planner.need` on a requirement the solver had introduced.
             prepared = self.solve_steps(goal.needs + extra, snap, cost_model)
         except Unplannable:
+            self._prepared[key] = plan
             return plan
         if prepared and prepared[0].key() != plan[0].key():
             api.detail(f"   look-ahead for {goal.name}: bring {lookahead.describe(extra)} first")
@@ -2249,6 +2268,7 @@ class Brain:
         # because its preparation can run: a food goal whose hunt was gated kept crafting torches instead, and the
         # kit sat at food 0/6 for a whole slice while "making progress".
         self.prep_tokens[goal.name] = {e[1] if e[0] == "tool" else e[0] for e in extra}
+        self._prepared[key] = prepared
         return prepared
 
     # -- safety layer: a priority mode ahead of goals (Mindcraft/Baritone style); owns dusk and night
@@ -2653,6 +2673,7 @@ class Brain:
 
     def reshape(self, decision, s):
         """Change the ground: block the way, stand a block up, or dig down. One answer, three places to put it."""
+        from . import perception          # the one authority on what is around us, asked where it is used
         where, n = decision.target
         feet = tuple(int(math.floor(s[k])) for k in ("x", "y", "z"))
         if where == "down":

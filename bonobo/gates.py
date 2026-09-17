@@ -23,6 +23,7 @@ is testable without a game and replays exactly.
 import math
 
 from . import survival
+from .beliefs import still_there as beliefs_still_there  # noqa: F401
 from .beliefs import (CONFIG, TICKS_PER_S, cautious, detour_s, encounter_prior, expected_uses, slot_cost_s,
                       slots_cost_s, staleness_s, use_rate)
 from .solve import reach_cost
@@ -252,6 +253,9 @@ def p(situation_, event=None, mem=None, **facts):
         p(s, "tool_use", kind=…)    how often a tool of this kind is reached for, per second
         p(s, "tool_left", kind=…)   how many uses of it are still ahead of us
         p(s, "stale", age_s=…)      how much worse a note has become with age
+        p(s, "find", kinds=…)       the chance a look for one of these finds it: here at all × still there ×
+                                    reachable. What a seek's seconds are DIVIDED by — an errand that fails half
+                                    the time costs twice as long, and one that cannot succeed costs the world.
     """
     if isinstance(situation_, str) and event is None:
         situation_, event = None, situation_       # p("stale", age_s=…) — no situation to speak of
@@ -273,6 +277,13 @@ def p(situation_, event=None, mem=None, **facts):
     if event == "tool_left":
         return expected_uses(facts["kind"], mem, float(facts.get("left", 0.0)),
                              float(facts.get("horizon_s", CONFIG["time"]["day_s"])))
+    if event == "find":
+        kinds = [k for k in (facts.get("kinds") or ()) if k]
+        prior = float(CONFIG["pool"]["exists_prior"])
+        here = min((mem.exists_rate(k, prior) for k in kinds), default=prior) if mem is not None else prior
+        still = beliefs_still_there(float(facts.get("age_s", 0.0)), moving=bool(facts.get("moving")))
+        reachable = 1.0 if facts.get("reachable", True) else 0.0
+        return max(0.0, min(1.0, here * still * reachable))
     if event == "stale":
         fresh = float(CONFIG["memory"]["fresh_s"])
         return math.log2(1.0 + max(0.0, float(facts.get("age_s", 0.0))) / fresh)

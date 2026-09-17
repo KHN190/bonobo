@@ -137,6 +137,29 @@ class Memory:
         found["total"] += float(distance)
         self.save()
 
+    # -- did looking for this kind ever find one, here?
+    LOOK_PRIOR_N = 3.0         # weight of the declared chance, in looks
+
+    def note_look(self, kind, found):
+        """Record one look for `kind` that did or did not find one. The measurement behind `exists_rate`.
+
+        "Could not find white_wool" was said sixty times and cost nothing: the errand was priced by distance
+        alone, so a thing that is not in this biome stayed as cheap as one underfoot. This is the counter that
+        makes looking for it get more expensive.
+        """
+        row = self.data.setdefault("looks", {}).setdefault(str(kind), {"found": 0.0, "n": 0.0})
+        row["found"] += 1.0 if found else 0.0
+        row["n"] += 1.0
+        self.save()
+
+    def exists_rate(self, kind, prior):
+        """How often looking for this kind finds one, long run: the declared chance as pseudo-counts, plus what
+        happened. A COUNTER behind `gates.p("find")`: this remembers, the door decides what it means."""
+        row = self.data.get("looks", {}).get(str(kind))
+        if not row or row["n"] <= 0:
+            return float(prior)
+        return (self.LOOK_PRIOR_N * float(prior) + row["found"]) / (self.LOOK_PRIOR_N + row["n"])
+
     def search_distance(self, kind):
         """The average distance one of these was found at, or None if never measured.
 
