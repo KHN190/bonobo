@@ -178,10 +178,6 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
     WIRED = (("memory", "Memory", "note_exposure", "risk.encounters_per_day"),
              ("memory", "Memory", "note_yield", "yield_s."),
              ("memory", "Memory", "forget_death", "time.death_cost_s"),
-             ("brain", "Brain", "note_body_of", "risk.regen_s_per_hp"),
-             ("brain", "Brain", "note_body_of", "risk.food_drain_s"),
-             ("brain", "Brain", "note_body_of", "pool.slot_fill_s"),
-             ("brain", "Brain", "note_walk_of", "nav.unit_s"),
              ("skillcore", None, "_note_break", "tools.mine_time_stone"),
              ("skillcore", None, "_note_break", "tools.mine_time_no_pickaxe"),
              ("skills", None, "eat", "engage.eat_s"))

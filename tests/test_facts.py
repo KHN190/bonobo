@@ -80,25 +80,11 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
 class WhatWasWrittenDownIsReadBack(unittest.TestCase):
     def test_the_seek_walks_to_what_memory_knows_before_exploring(self):
         import inspect
-        src = inspect.getsource(brain.Brain.go_find)
-        self.assertIn("remembered_spot", src)
-        self.assertLess(src.index("remembered_spot"), src.index("self.explore("),
-                        "exploring is the last resort, after what is already known")
-
-    def test_both_maps_answer_where_was_one_of_these(self):
-        b = brain.Brain.__new__(brain.Brain)
-        b.mem = mem()
-        b.mem.add_sighting("minecraft:sheep", (100, 64, 0), "minecraft:overworld")
-        b.mem.add_sighting("minecraft:sheep", (20, 64, 0), "minecraft:overworld")
-        b.mem.note_resource("tree", (40, 64, 0), "minecraft:overworld")
-        self.assertEqual(b.remembered_spot(["minecraft:sheep"], "minecraft:overworld", (0, 64, 0)), (20, 64, 0))
-        self.assertEqual(b.remembered_spot(["tree"], "minecraft:overworld", (0, 64, 0)), (40, 64, 0))
-
-    def test_a_note_under_our_feet_is_not_somewhere_to_walk(self):
-        b = brain.Brain.__new__(brain.Brain)
-        b.mem = mem()
-        b.mem.add_sighting("minecraft:sheep", (0, 64, 1), "minecraft:overworld")
-        self.assertIsNone(b.remembered_spot(["minecraft:sheep"], "minecraft:overworld", (0, 64, 0)))
+        from bonobo import dispatch
+        src = inspect.getsource(dispatch.go_find)
+        known = min(src.index("mem.progress("), src.index("mem.resources("))
+        for last in ("explore_for(", "seek_blocks("):
+            self.assertLess(known, src.index(last), "exploring is the last resort, after what is already known")
 
     def test_one_look_retires_one_note(self):
         """Retiring every note within a radius is how "could not find stone" survived a memory holding fourteen
@@ -113,9 +99,11 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
 
     def test_a_walk_that_failed_bans_the_route_and_keeps_the_note(self):
         import inspect
-        src = inspect.getsource(brain.Brain.go_find)
-        failed = src[src.index("remembered_spot"):src.index("confirm")]
-        self.assertIn("self.ban(", failed, "could not get there is about the route, not about the note")
+        from bonobo import dispatch
+        src = inspect.getsource(dispatch.go_find)
+        failed = src[src.index("for spot in spots"):src.index("FIND_AT")]
+        self.assertIn("ctx.ban(", failed, "could not get there is about the route, not about the note")
+        self.assertNotIn("confirm(", failed, "a note is retired by looking, not by failing to walk there")
 
     def test_an_old_sighting_is_kept_and_priced_rather_than_deleted(self):
         import time
@@ -169,7 +157,10 @@ class WhatExistsCanBeTaken(unittest.TestCase):
                                 f"{token} gives {given}, which nothing else names")
 
     def test_memory_can_see_them(self):
-        scanned = {b for blocks in brain.Brain.RESOURCE_KINDS.values() for b in blocks}
+        import inspect
+        from bonobo import explore
+        self.assertIn("takeable_blocks()", inspect.getsource(explore.note_around), "the travel scan notes them")
+        scanned = set(knowledge.takeable_blocks())
         for token, row in knowledge.TAKEABLE.items():
             self.assertTrue(set(row["blocks"]) & scanned, f"{token}: nothing in the scan ever notes it")
 
