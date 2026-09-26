@@ -176,19 +176,6 @@ def detail(*parts):
         pass          # losing the working-out must never stop the agent
 
 
-def detail_window(since, until=None):
-    """Lines from the detail log between two clock times ("HH:MM:SS"), for a wake-up packet."""
-    until = until or "99:99:99"
-    out = []
-    for path in (DETAIL_FILE + ".1", DETAIL_FILE):
-        try:
-            with open(path) as f:
-                out += [ln.rstrip("\n") for ln in f if since <= ln[:8] <= until]
-        except OSError:
-            continue
-    return out
-
-
 def _token():
     if not INSTANCE:
         raise McError("set MC_INSTANCE to your Minecraft instance directory "

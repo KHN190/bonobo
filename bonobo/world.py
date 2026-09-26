@@ -1,23 +1,13 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
-import math
-
 from . import api
 from .data import (DAY_END, FALLING, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
-                   ROUTE_FACTOR, TIER_OF_MATERIAL, UNBREAKABLE, WALK_BLOCKS_PER_TICK, bare, mid)
+                   TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
 
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
 
 def add(p, d):
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
-
-
-def horizontal_dist(a, b):
-    return math.dist((a[0], a[2]), (b[0], b[2]))
-
-
-def travel_ticks(a, b):
-    return int(math.dist(a, b) * ROUTE_FACTOR / WALK_BLOCKS_PER_TICK)
 
 
 class Inventory:

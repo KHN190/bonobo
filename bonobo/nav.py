@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass, field
 
 from . import api, tape
-from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, HAND_MINEABLE_SUFFIX, bare
 from .world import NEIGHBOURS6, Inventory, Region, add, region_around
@@ -41,12 +40,6 @@ def mine_task(c, collect=False):
     return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False}
 
 
-# What a placement is allowed to spend, kept because `travel` is told how many blocks it may lay (`placeBudget`).
-HAND_STONE = 16   # breaking a pickaxe block by hand
-TOO_HARD_BY_HAND = {"obsidian", "crying_obsidian", "ancient_debris", "reinforced_deepslate", "iron_block",
-                    "netherite_block", "respawn_anchor", "ender_chest", "anvil", "basalt", "blackstone"}
-
-
 _features = None
 
 
@@ -67,44 +60,10 @@ def mod_features():
     return _features
 
 
-# What one cell of each kind costs to get through, in "walked block" units — the capability table. A body that
-# can fly pays nothing for any of them; one that can teleport does not consult this at all. Same estimate, one
-# table per kind of body, instead of a formula per kind of body.
-
-
-def estimate_price_s(region, start, target, policy, sample=None):
-    """Seconds to get there, as the GAME says. An ENGINE of `gates.takes_s(s, Go(...))`.
-    """
-    import math as _m
-    found, seconds = route_s(target, policy, range_=1.5)
-    if seconds is not None:
-        return float(seconds) if found else float(seconds) * UNREACHABLE_FACTOR
-    # Nobody could say. Not zero, not infinity: how long the walk would take if the ground were flat and empty.
-    return max(1.0, _m.dist(tuple(start), tuple(target)) / float(_PLAY["player"]["speed"]))
-
-
-# What "there is no way" costs, as a multiple of the search's own estimate: a price, never a wall — the same
-# rule the seek column follows. Nothing is unreachable for ever; it is expensive until the world changes.
-UNREACHABLE_FACTOR = 8.0
-
-
-def _is_here(start):
-    """Is `start` where the body actually stands? Only then can the game be asked about the route from it."""
-    try:
-        return tuple(int(v) for v in start) == tuple(int(v) for v in feet_now())
-    except (McError, TypeError, ValueError):
-        return False
-
-
 def building_item():
     inv = Inventory()
     options = [b for b in GROUPS["building"] if inv.usable(b)]
     return max(options, key=inv.usable) if options else None
-
-
-def trapped(message):
-    m = re.search(r"\((\d+) positions explored\)", message or "")
-    return m is not None and int(m.group(1)) < 5000
 
 
 def feet_now():

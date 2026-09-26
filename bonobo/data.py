@@ -48,15 +48,7 @@ GROUPS = {
 }
 
 TIER_OF_MATERIAL = {"wooden": 0, "golden": 0, "stone": 1, "iron": 2, "diamond": 3, "netherite": 4}
-TOOL_MATERIALS = ["wooden", "stone", "iron", "diamond"]
 MATERIAL_TOKEN = {"wooden": "planks", "stone": "stone", "iron": "minecraft:iron_ingot", "diamond": "minecraft:diamond"}
-# Minimum pickaxe tier that yields drops.
-ORE_TIER = {"coal_ore": 0, "copper_ore": 1, "iron_ore": 1, "lapis_ore": 1, "gold_ore": 2, "redstone_ore": 2,
-            "diamond_ore": 2, "emerald_ore": 2, "obsidian": 3, "ancient_debris": 3, "nether_gold_ore": 0,
-            "nether_quartz_ore": 0}
-ORE_DROP = {"coal_ore": "coal", "copper_ore": "raw_copper", "iron_ore": "raw_iron", "lapis_ore": "lapis_lazuli",
-            "gold_ore": "raw_gold", "redstone_ore": "redstone", "diamond_ore": "diamond", "emerald_ore": "emerald",
-            "nether_gold_ore": "gold_nugget", "nether_quartz_ore": "quartz"}
 ANIMALS = {"minecraft:cow": "beef", "minecraft:pig": "porkchop", "minecraft:sheep": "mutton",
            "minecraft:chicken": "chicken", "minecraft:rabbit": "rabbit"}
 COOKED = {f"minecraft:{raw}": f"minecraft:cooked_{raw}" for raw in ANIMALS.values()}
@@ -65,7 +57,6 @@ SMELTS = {"minecraft:stone": "minecraft:cobblestone", "minecraft:glass": "minecr
           "minecraft:iron_ingot": "minecraft:raw_iron", "minecraft:gold_ingot": "minecraft:raw_gold",
           "minecraft:copper_ingot": "minecraft:raw_copper", "minecraft:charcoal": "log",
           **{cooked: raw for raw, cooked in COOKED.items()}}
-FUEL_SMELTS = {"coal": 8, "planks": 1.5, "log": 1.5}
 FOOD = ["cooked_beef", "cooked_porkchop", "cooked_mutton", "cooked_chicken", "cooked_rabbit", "cooked_salmon",
         "cooked_cod", "bread", "baked_potato", "golden_carrot", "apple", "carrot", "sweet_berries", "glow_berries",
         "melon_slice", "cookie"]
@@ -224,9 +215,6 @@ EXCESS_CAP = {"minecraft:gravel": 16, "minecraft:sweet_berries": 32, "minecraft:
 
 ARMOR_SLOTS = {"helmet": "head", "chestplate": "chest", "leggings": "legs", "boots": "feet"}
 ARMOR_RANK = {"leather": 0, "golden": 1, "chainmail": 2, "iron": 3, "diamond": 4, "netherite": 5}
-IRON_COST = {"minecraft:iron_pickaxe": 3, "minecraft:iron_sword": 2, "minecraft:shield": 1, "minecraft:bucket": 3,
-             "minecraft:flint_and_steel": 1, "minecraft:iron_helmet": 5, "minecraft:iron_chestplate": 8,
-             "minecraft:iron_leggings": 7, "minecraft:iron_boots": 4}
 
 BASE_MARKERS = {
     "bed": [f"{c}_bed" for c in COLORS],

@@ -93,23 +93,6 @@ def facility_dims(actions):
     return required - consumed
 
 
-def left_behind_dims(actions):
-    """Facilities that OUTLAST the plan that made them: benches, furnaces, shelter — things the next goal finds
-    already there.
-
-    Not every facility qualifies, and the two exceptions are the same shape: they travel with the body rather than
-    staying in the world.
-
-    Standing at the coal is required and never spent, but it is not left for anyone — the next goal starts from
-    wherever the body ends up, one place and not every place this plan walked through.
-
-    A tool is carried, and what it wears out is a spent dimension (`uses:`), so treating it as something left behind paid twice over: a
-    diamond pickaxe came out as a legacy of eighteen thousand seconds.
-    """
-    return {d for d in facility_dims(actions)
-            if not d.startswith(("at:", "tool:", "uses:"))}
-
-
 def uses_dim(kind):
     """How many more blocks this kind of tool can break before it is gone.
 

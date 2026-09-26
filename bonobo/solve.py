@@ -221,24 +221,6 @@ def reach_tree(cols, state):
     return cost, via
 
 
-
-
-def cost_of(actions, state, target):
-    """Seconds to reach `target`, or None when nothing can. The relaxation: one pass, and a true lower bound —
-    what ranking needs, since comparing thirty goals must not cost thirty searches."""
-    price = reach_cost(actions, state)
-    total = 0.0
-    for d, v in target.items():
-        short = v - state.get(d, 0)
-        if short <= 0:
-            continue
-        per = price.get(d)
-        if per is None or per == float("inf"):
-            return None
-        total += per * short
-    return round(total, 2)
-
-
 _MEMO = {}            # (columns, state, target) -> Plan. Bounded; cleared when it grows past MEMO_MAX.
 MEMO_MAX = 4000
 

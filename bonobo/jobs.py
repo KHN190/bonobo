@@ -6,8 +6,6 @@ import time
 
 from .api import NotAvailable, log
 
-# Base value of collecting each kind (the pool multiplies by proximity and divides by the trip).
-JOB_VALUE = {"furnace": 4, "crop": 3.5, "sapling": 2, "breed": 2.5}
 # How long each kind takes when started (seconds); furnace jobs compute theirs from the item count.
 DURATION = {"crop": 15 * 60, "sapling": 20 * 60, "breed": 5 * 60}
 

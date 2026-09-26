@@ -156,9 +156,6 @@ FIND_AT = {
 }
 
 
-# Step kinds that are safe underground / at night.
-UNDERGROUND_KINDS = {"craft", "smelt", "mine"}
-
 TOOL_MATERIAL_FOR_TIER = {0: "wooden", 1: "stone", 2: "iron", 3: "diamond"}
 
 

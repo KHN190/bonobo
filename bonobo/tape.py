@@ -73,11 +73,6 @@ def store_mem(data):
     return h
 
 
-def load_mem(h):
-    with open(os.path.join(MEM_DIR, h + ".json")) as f:
-        return json.load(f)
-
-
 # What else belongs on a decision line, registered by whoever owns it. The recorder used to import the four
 # modules whose state it wanted — a file that exists to WATCH the others reached upward into them, which put loot,
 # and through it nav and perception, into the dependency closure of everything that records anything. Now the top
@@ -100,17 +95,6 @@ def _extras():
         try:
             out[name] = fn()
         except Exception:
-            out[name] = None
-    return out
-
-
-def _files():
-    out = {}
-    for name, path in FILES.items():
-        try:
-            with open(path() if callable(path) else path) as f:
-                out[name] = f.read()
-        except OSError:
             out[name] = None
     return out
 

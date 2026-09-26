@@ -17,7 +17,6 @@ BACKSTOP = {"tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 6
 MAX_BACKSTOP = {"unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "error": 900}
 MAX_BACKSTOP_DEFAULT = 900
 SOURCES_TRIED = 3          # failures of one (task, cause) — each after changing source — before reporting upward
-EXHAUSTED_AFTER = SOURCES_TRIED
 LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
 

@@ -9,11 +9,11 @@ the same way.
 import math
 
 from .api import McError
-from .data import GROUPS, bare
+from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
 from .world import entities, find
 
 TICKS_PER_S = 20
-WALK_TICKS_PER_BLOCK = 1.5 / 0.12 / 1.0     # ~12.5 ticks a block, walking with detours
+WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
 # Work per unit when nothing has been measured yet, in ticks.
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 40,
@@ -22,10 +22,10 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
              "craft": lambda s: ("craft", 1)}
-HUNT_TYPES = ("minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:chicken")
 
 
 def walk_ticks(distance):
+    """Ticks to walk `distance` straight-line blocks, detours included: the one walk-time estimate."""
     return int(float(distance) * WALK_TICKS_PER_BLOCK)
 
 

@@ -95,12 +95,6 @@ def expected(fn, *args, **kwargs):
     return (per if per is not None else contract.per_unit) * units
 
 
-def needs_of(fn):
-    """{dimension: minimum} this skill requires, for the planner to price. Empty when it declares none."""
-    contract = getattr(fn, "contract", None)
-    return dict(getattr(contract, "needs", {}) or {})
-
-
 def can_run(fn, *args, **kwargs):
     """Would this skill's preconditions pass right now? (ok, why not).
 
