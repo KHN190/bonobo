@@ -1942,7 +1942,8 @@ SHEET["drowning_in_a_pit"] = {
     "module": "brain", "point": "B", "skills": ["reach:air"], "tags": {"base": "l0", "hazard": "drowning"},
     "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
-    "run": _brain_rounds(25, lambda: __import__("bonobo.api", fromlist=["get"]).get("/state")["air"] >= 250),
+    # The rounds run until exactly what the check judges: a looser stop (air ≥ 250) passed the run and failed the row.
+    "run": _brain_rounds(25, lambda: _breathing()(__import__("bonobo.api", fromlist=["get"]), None)),
     "check": _all(_alive(8), _breathing()), "budget": 30,
 }
 SHEET["interrupted_rescue_is_not_a_failure"] = {
