@@ -175,5 +175,86 @@ class Rescue(unittest.TestCase):
                 api.INTERRUPT, api.MODE = None, "normal"
 
 
+# Hostiles go to the fight (fight_loop), never to L0. What each answer sends, recorded rather than sent: the batch of
+# one decision. (kind, target, the calls it makes: api.run task types / skill names)
+Decision = __import__("collections").namedtuple("Decision", "kind target")
+ANSWERS = [
+    ("fight", 42, [("run", "attack")]),
+    ("evade", (10, 64, 0), [("go_to", (10, 64, 0))]),
+    ("wall_in", None, [("skill", "pod")]),
+    ("eat", None, [("skill", "eat")]),
+    ("shield", None, [("skill", "shield_to_offhand"), ("run", "use_item")]),
+    ("reshape", ("under", 2), [("run", "pillar"), ("run", "pillar")]),
+    ("reshape", ("down", 2), [("mine_cell", (0, 63, 0)), ("mine_cell", (0, 62, 0))]),
+    ("ignore", None, []),
+]
+
+
+class FightHandOff(unittest.TestCase):
+    def test_answer_to_calls(self):
+        from bonobo import fight_loop
+        from tests.world import bag, inventory
+        for kind, target, want in ANSWERS:
+            calls = []
+            with self.subTest(kind=kind, target=target), \
+                    mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"])) or
+                                      {"status": "succeeded"}), \
+                    mock.patch.object(fight_loop.nav, "go_to", side_effect=lambda pos, *a, **k: calls.append(
+                        ("go_to", pos)) or True), \
+                    mock.patch.object(fight_loop, "mine_cell", side_effect=lambda pol, cell, **k: calls.append(
+                        ("mine_cell", cell))), \
+                    mock.patch.object(fight_loop, "Inventory", lambda: bag(inventory(cobblestone=8))), \
+                    mock.patch.object(skills, "pod", side_effect=lambda ctx: calls.append(("skill", "pod"))), \
+                    mock.patch.object(skills, "eat", side_effect=lambda **k: calls.append(("skill", "eat"))), \
+                    mock.patch.object(skills, "shield_to_offhand",
+                                      side_effect=lambda: calls.append(("skill", "shield_to_offhand"))), \
+                    mock.patch.object(api, "api", side_effect=AssertionError("the answer read the world")):
+                ctx = type("Ctx", (), {"policy": None})()
+                fight_loop.engage(Decision(kind, target), state(x=0.5, y=64.0, z=0.5), ctx)
+                self.assertEqual(calls, want)
+
+    def test_an_evade_that_gets_nowhere_fails(self):
+        from bonobo import fight_loop
+        with mock.patch.object(fight_loop.nav, "go_to", return_value=False):
+            with self.assertRaises(api.NotAvailable):
+                fight_loop.engage(Decision("evade", (9, 64, 0)), state(), type("Ctx", (), {"policy": None})())
+
+    # (the answer raises?, taken by the arbiter?) → (taken, failure recorded)
+    OFFERS = [(None, True, (True, {})), (api.NavFailed("cornered"), True, (True, {"failed": "NavFailed: cornered"})),
+              (None, False, (False, {}))]
+
+    def test_offer_takes_the_body_at_tactic(self):
+        from bonobo import fight_loop
+        for raises, taken, (want_taken, want_failure) in self.OFFERS:
+            seen = {}
+
+            def preempt(layer, run, key, **kw):
+                seen.update(layer=layer, clear_first=kw.get("clear_first"))
+                if taken:
+                    try:
+                        run()
+                    except Exception:
+                        pass
+                return taken, None if taken else "held by a faster layer"
+
+            def answer(option):
+                if raises:
+                    raise raises
+            with self.subTest(raises=raises, taken=taken), \
+                    mock.patch.object(fight_loop.arbiter.BODY, "preempt", side_effect=preempt), \
+                    mock.patch.object(fight_loop, "ANSWER", answer):
+                got_taken, refused, failure = fight_loop.offer("opt", 10.0, "k", 0.0, lambda: True, None, 0.0)
+                self.assertEqual((got_taken, failure), (want_taken, want_failure))
+                self.assertEqual(seen, {"layer": "tactic", "clear_first": True})
+                self.assertEqual(refused is None, taken)
+
+    def test_wired_once_wire_is_called(self):
+        from bonobo import fight_loop
+        with mock.patch.object(fight_loop, "ANSWER", None):
+            self.assertFalse(fight_loop.wired())
+            fight_loop.wire(None, lambda snap: None, {})
+            self.assertTrue(fight_loop.wired())
+
+
 if __name__ == "__main__":
     unittest.main()
