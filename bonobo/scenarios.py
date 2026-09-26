@@ -218,14 +218,15 @@ SCENARIOS["craft_stone_tools"] = {
     "budget": 60,
 }
 SCENARIOS["iron_ingots"] = {
-    "doc": "Stone room, a furnace placed, 3 raw iron + 3 coal carried → 3 iron ingots (load, start, wait, collect).",
+    "doc": "Stone room, 3 furnaces placed side by side, 3 raw iron + 3 coal carried → 3 iron ingots, one per furnace "
+           "in parallel (load, start, wait, collect).",
     "module": "skills",
     # Core tests the smelt chain only: mining and crafting the furnace are other rows' job. The furnace clock is
     # game time — the wait is sprinted (/tick sprint) twice, early and late, so the row fits the core's 30 s.
     "setup": [f"fill {_c(at(-8, -4, -8))} {_c(at(8, -1, 8))} stone",
-              f"setblock {_c(at(2, 0, 0))} furnace",
+              f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} furnace",
               f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p raw_iron 3", "give @p coal 3"],
-    "expect": [(at(2, 0, 0), at(2, 0, 0), "furnace", 1, 1)],
+    "expect": [(at(2, 0, -1), at(2, 0, 1), "furnace", 3, 3)],
     "run": lambda ctx: _achieve(ctx, [("minecraft:iron_ingot", 3)], _inv_has("minecraft:iron_ingot", 3), rounds=10),
     "check": lambda api, inv: inv.count("minecraft:iron_ingot") >= 3 and inv.count("minecraft:raw_iron") == 0,
     "budget": 30,

@@ -254,7 +254,7 @@ def _code_for(name):
 # Settled scenarios: obvious mechanics that passed and never failed are not re-run for code or jar changes (placing
 # eyes, throwing gold at piglins). Re-test by name with --force, or drop the name here after a live-run problem.
 STABLE = {"activate_end_portal", "barter_piglin", "enter_end", "craft_eyes", "gold_helmet_swap", "loot_chest",
-          "fill_water_bucket", "enter_nether", "return_from_nether", "relight_portal", "cast_obsidian",
+          "fill_water_bucket", "enter_nether", "return_from_nether", "relight_portal", "cast_portal",
           "build_light_portal",
           # deterministic layouts with no opponent: once they pass, logic fixes don't need a game run to prove them
           "craft_stone_tools", "iron_ingots", "hunt_food", "gather_logs", "gather_logs_birch", "recover_items",
