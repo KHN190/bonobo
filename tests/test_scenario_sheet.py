@@ -24,11 +24,11 @@ from bonobo import skill as skillkit  # noqa: E402
 VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "fight_dragon",
                "shake_enderman", "slay_dragon", "station"}
 # Skills no scenario row proves in the world yet. May only shrink.
-SCENARIO_GAPS = {"anvil_repair", "await_perch", "bed_bomb_window", "break_caged_crystal", "brew_fire_resistance",
-                 "build_bed_pit", "collect_machine", "enchant_item", "shake_enderman", "station", "trade"}
-CEILING = 11        # neither list grows past this; lower it as they shrink
+SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "shake_enderman",
+                 "station"}
+CEILING = 8        # neither list grows past this; lower it as they shrink
 
-COMMANDS = {"fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",
+COMMANDS = {"experience", "gamemode", "fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",
             "spreadplayers", "locate", "execute", "gamerule", "difficulty", "forceload", "data", "damage"}
 POINTS = {"A", "B", "C", "D"}
 BASICS_A = ("nav", "chop", "mine_stone", "craft", "smelt", "hunt", "eat", "sleep", "loot")

@@ -555,10 +555,10 @@ _herd = [{"id": 1, "type": "minecraft:cow", "x": 0, "y": 64, "z": 0}, {"id": 2, 
 check("farm: breeding pair = two close adults of one kind", FM.breeding_pair(_herd, "minecraft:cow") == (1, 2)
       and FM.breeding_pair(_herd, "minecraft:sheep") is None)
 _rm = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
-_rm.note_resource("tree", (10, 64, 10), "overworld")
-_rm.note_resource("tree", (12, 64, 11), "overworld", depleted=True)
-check("resources: a depleted grove is unavailable until it regrows",
-      _rm.resources("tree", "overworld") == [] and _rm.resources("tree", "overworld", now=__import__("time").time() + 1300))
+_rm.clock = 0
+_rm.note_seen("tree", (10, 64, 10), "overworld")
+_rm.forget_seen("tree", (10, 64, 10), "overworld")
+check("seen: a grove we felled is forgotten, not walked to again", _rm.seen("tree", "overworld") == [])
 check("recipes: hoes exist for the farm", "minecraft:stone_hoe" in __import__("bonobo.data", fromlist=["RECIPES"]).RECIPES)
 
 # -- nether / stronghold helpers

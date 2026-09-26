@@ -107,39 +107,42 @@ def bag(data):
 
 
 def snapshot(st=None, inv=None):
-    """The real `world.Snapshot`, from readings. (Missing hook: `Snapshot.from_readings(state, inv)`.)"""
+    """The real `world.Snapshot`, from readings (`Snapshot.from_readings`): no world read."""
     from bonobo.world import Snapshot
-    snap = Snapshot.__new__(Snapshot)
-    snap.state = st if st is not None else state()
-    snap.inv = bag(inv if inv is not None else inventory())
-    return snap
+    return Snapshot.from_readings(st if st is not None else state(), inv if inv is not None else inventory())
 
 
-class Seen(dict):
-    """What `/find` and `/entities` answered this round, as the cost model's per-round cache holds it: {block or
-    mob: distance}. Read-only data like `FakeRegion`; a key it has no row for is "nothing in sight". (Missing hook:
-    `cost.Cost(snap, finds=...)` instead of priming the cache.)"""
-
-    def __init__(self, **seen):
-        super().__init__()
-        self.seen = {k.replace("minecraft:", ""): float(v) for k, v in seen.items()}
-
-    def __contains__(self, key):
-        return isinstance(key, tuple) and key[:1] in (("find",), ("ent",))
-
-    def __getitem__(self, key):
-        names = [n.replace("minecraft:", "") for n in key[1]]
-        radius = key[2] if key[0] == "find" else 1e9
-        hits = [self.seen[n] for n in names if n in self.seen and self.seen[n] <= radius]
-        return min(hits) if hits else None
+def finds(**seen):
+    """What /find and /entities saw, {name: distance}, keyed both ways the cost model may ask (bare and namespaced)."""
+    out = {}
+    for k, v in seen.items():
+        name = k.replace("minecraft:", "")
+        out[name] = out[f"minecraft:{name}"] = float(v)
+    return out
 
 
-def cost(snap=None, **seen):
-    """The real `cost.Cost` over readings: what is in sight at what distance, no memory, no bans."""
+def cost(snap=None, mem=None, **seen):
+    """The real `cost.Cost` over readings (`finds=`): what is in sight at what distance, no query made."""
     from bonobo.cost import Cost
-    c = Cost(snap if snap is not None else snapshot())
-    c.cache = Seen(**seen)
-    return c
+    return Cost(snap if snap is not None else snapshot(), mem=mem, finds=finds(**seen))
+
+
+def places(seconds):
+    """A cost model with no snapshot where every kind is `seconds` of walking away (None: nowhere known) — for the
+    column solver's tables, which ask only how far things are."""
+    from bonobo.cost import TICKS_PER_S, WALK_TICKS_PER_BLOCK, Cost
+    blocks = None if seconds is None else max(0.0, (float(seconds) - 2.0) * TICKS_PER_S / WALK_TICKS_PER_BLOCK)
+    return Cost(None, known=lambda kinds: blocks)
+
+
+def places_by(fn):
+    """Like `places`, with the seconds decided per kind: fn(kinds) -> seconds or None."""
+    from bonobo.cost import TICKS_PER_S, WALK_TICKS_PER_BLOCK, Cost
+
+    def known(kinds):
+        s = fn(kinds)
+        return None if s is None else max(0.0, (float(s) - 2.0) * TICKS_PER_S / WALK_TICKS_PER_BLOCK)
+    return Cost(None, known=known)
 
 
 # The planner's sweep, as readings. Three dimensions of a situation a plan is made in: what is AROUND us (what the

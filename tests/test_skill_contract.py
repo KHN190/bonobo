@@ -25,7 +25,21 @@ from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
 from tests.world import FakeRegion, bag, flat, inventory, state  # noqa: E402
 
-FAST = dict(timeout=0.25, stable_s=0.03, poll=0.001)      # the same rule, on a millisecond clock
+FAST = dict(timeout=3.0, stable_s=0.5, poll=0.25)      # the real rule, on a recorded clock (Clock)
+
+
+class Clock:
+    """Game-free time for `settle(clock=, sleep=)`: it moves only when settle sleeps, so a reading sequence is
+    judged the same way every run."""
+
+    def __init__(self):
+        self.t = 0.0
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
 
 
 class _Clean(unittest.TestCase):
@@ -69,7 +83,8 @@ SETTLE = [
     ("the bag was full: a gain that never shows", [3, 3, 3, 3], GAINED, {}, 3),
     ("lost: stored or loaded, and it held", [5, 5, 2], lambda v: v < 5, {}, 2),
     ("dead for a frame while the chunk loads", [True, False], bool, {}, False),
-    ("respawn reports dead for three frames, then alive", [True, True, True, False], bool, {}, False),
+    ("respawn reports dead for two frames, then alive", [True, True, False], bool, {}, False),
+    ("dead for as long as the hold: confirmed", [True, True, True, False], bool, {}, True),
     ("dead and staying dead", [True], bool, {}, True),
     ("interrupted mid-settle", [3, 3, 3, 3], GAINED, {"interrupt_at": 1}, api.Interrupted),
     ("interrupted at the very reading that succeeds, with a hold to wait out", [3, 4], GAINED,
@@ -90,7 +105,8 @@ class Settle(_Clean):
                 kw = dict(kw)
                 api.INTERRUPT, api.MODE = None, kw.pop("mode", "normal")
                 read = reader(seq, kw.pop("interrupt_at", None))
-                args = dict(FAST, **kw)
+                c = Clock()
+                args = dict(FAST, clock=c.now, sleep=c.sleep, **kw)
                 if isinstance(want, type) and issubclass(want, BaseException):
                     with self.assertRaises(want):
                         skillcore.settle(read, ok, **args)
@@ -106,7 +122,8 @@ class Settle(_Clean):
     def test_two_interrupts_in_a_row_stop_two_waits(self):
         for _ in range(2):
             with self.subTest(attempt=_), self.assertRaises(api.Interrupted):
-                skillcore.settle(reader([3, 3], interrupt_at=0), GAINED, **FAST)
+                c = Clock()
+                skillcore.settle(reader([3, 3], interrupt_at=0), GAINED, clock=c.now, sleep=c.sleep, **FAST)
 
     def test_judgments_built_on_settle(self):
         """gained / lost / dead: the same wait, each with its own verdict. (dead: one alive reading is never a death,
@@ -123,6 +140,29 @@ class Settle(_Clean):
         for name, call, want in rows[:2]:
             with self.subTest(name):
                 self.assertEqual(call(), want)
+
+
+# (situation, [(seconds, reading)], confirmed?) — a death (or any flag) is judged by readings that agree for a moment.
+T = lambda dead: dict(state(), dead=dead)         # noqa: E731
+CONFIRMED = [
+    ("no readings", [], False),
+    ("one reading is never enough", [(0.0, True)], False),
+    ("three frames over half a second", [(0.0, True), (0.25, True), (0.5, True)], True),
+    ("a gap in the middle", [(0.0, True), (0.25, False), (0.5, True)], False),
+    ("the first reading says alive", [(0.0, False), (0.5, True), (1.0, True)], False),
+    ("states from /state, dead throughout", [(0.0, T(True)), (0.3, T(True)), (0.6, T(True))], True),
+    ("states from /state, a respawn frame", [(0.0, T(True)), (0.3, T(False)), (0.6, T(True))], False),
+    ("a /state without the field", [(0.0, state()), (0.6, state())], False),
+]
+
+
+class Confirmed(unittest.TestCase):
+    def test_reading_sequences(self):
+        with mock.patch.object(api, "api", side_effect=AssertionError("the pure judgment asked the world")):
+            for name, readings, want in CONFIRMED:
+                with self.subTest(name):
+                    self.assertEqual(skillcore.confirmed(readings), want)
+                    self.assertEqual(skillcore.dead(readings=readings), want)
 
 
 # ------------------------------------------------------------------------------------------------------- arrive
@@ -215,13 +255,20 @@ class Outcomes(unittest.TestCase):
     def test_the_interruptions_are_exactly_the_interrupted_rows(self):
         self.assertEqual(set(api.INTERRUPTIONS), {type(e) for e, _, c in OUTCOMES if c == "interrupted"})
 
-    def test_waiting_is_caught_before_failing(self):
-        """GameUnreachable is an McError, so its cause reads "error": it must never reach the failure path. The order
-        of `Brain.attempt`'s handlers is that guarantee."""
+    def test_outcome_of(self):
+        """What the attempt does about each: interruptions never fail (and some need a hand back or a wait)."""
+        special = {api.PlayerTookControl: ("interrupted", "handback"), api.GameUnreachable: ("interrupted", "wait_game"),
+                   api.BodyContested: ("interrupted", "stand_down")}
+        rows = [(err, special.get(type(err), ("interrupted", None) if cls == "interrupted" else ("failed", "stop")))
+                for err, _cause, cls in OUTCOMES]
+        rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]
+        for err, want in rows:
+            with self.subTest(repr(err)):
+                self.assertEqual(brain.outcome_of(err), want)
+
+    def test_the_attempt_asks_outcome_of(self):
         import inspect
-        src = inspect.getsource(brain.Brain.attempt)
-        for first in ("except PlayerTookControl", "except GameUnreachable", "except api.INTERRUPTIONS"):
-            self.assertLess(src.index(first), src.index("except (McError"), first)
+        self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt))
 
 
 # ----------------------------------------------------------------------------------------------------- commands

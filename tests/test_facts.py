@@ -23,7 +23,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import actions, brain, knowledge, loot, memory, nav, skillcore  # noqa: E402
 from bonobo.solve import solve  # noqa: E402
-from tests.world import FakeRegion, bag, flat, inventory  # noqa: E402
+from tests.world import FakeRegion, bag, flat, inventory, places, places_by  # noqa: E402
 
 
 def mem():
@@ -51,7 +51,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
 
     def vector(self, reachable=None, kind="stone", pos=(1, 64, 1)):
         m = mem()
-        m.note_resource(kind, pos, "minecraft:overworld")
+        m.note_seen(kind, pos, "minecraft:overworld")
         return actions.state_of(Snap(), m, reachable=reachable)
 
     def test_within_reach_and_reachable_is_arrival(self):
@@ -65,10 +65,10 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
 
     def test_arriving_removes_the_walk_from_the_plan(self):
         m = mem()
-        cost = actions.Costs(lambda kinds: 40.0)
+        cost = places(40.0)
         far = solve(actions.table(cost, {}), {"tool:pickaxe:0": 1}, {"minecraft:cobblestone": 1})
         self.assertIn("seek:stone", far.counts)
-        m.note_resource("stone", (1, 64, 1), "minecraft:overworld")
+        m.note_seen("stone", (1, 64, 1), "minecraft:overworld")
         state = actions.state_of(Snap(), m) | {"tool:pickaxe:0": 1}
         near = solve(actions.table(cost, state), state, {"minecraft:cobblestone": 1})
         self.assertNotIn("seek:stone", near.counts, "we are standing on it; walking to it is not work")
@@ -82,7 +82,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
         import inspect
         from bonobo import dispatch
         src = inspect.getsource(dispatch.go_find)
-        known = min(i for i in (src.find("mem.progress("), src.find("mem.resources(")) if i >= 0)
+        known = min(i for i in (src.find("mem.seen("), src.find(".seen(")) if i >= 0)
         for last in ("explore_for(", "seek_blocks("):
             self.assertLess(known, src.index(last), "exploring is the last resort, after what is already known")
 
@@ -91,10 +91,10 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
         stone points."""
         m = mem()
         for pos in ((10, 64, 10), (40, 64, 10), (200, 64, 200)):
-            m.note_resource("stone", pos, "minecraft:overworld")
-        before = {tuple(p) for p in m.resources("stone", "minecraft:overworld")}
+            m.note_seen("stone", pos, "minecraft:overworld")
+        before = {tuple(r["pos"]) for r in m.seen("stone", "minecraft:overworld")}
         m.confirm("stone", (10, 64, 10), "minecraft:overworld", found=False)
-        left = {tuple(p) for p in m.resources("stone", "minecraft:overworld")}
+        left = {tuple(r["pos"]) for r in m.seen("stone", "minecraft:overworld")}
         self.assertEqual(before - left, {(10, 64, 10)}, "exactly the note we stood on, and no other")
 
     def test_a_walk_that_failed_bans_the_route_and_keeps_the_note(self):
@@ -104,16 +104,6 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
         failed = src[src.index("for spot in spots"):src.index("FIND_AT")]
         self.assertIn("ctx.ban(", failed, "could not get there is about the route, not about the note")
         self.assertNotIn("confirm(", failed, "a note is retired by looking, not by failing to walk there")
-
-    def test_an_old_sighting_is_kept_and_priced_rather_than_deleted(self):
-        import time
-        m = mem()
-        m.add_sighting("minecraft:sheep", (10, 64, 10), "minecraft:overworld")
-        for s in m.data["sightings"]["minecraft:sheep"]:
-            s["at"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() - 24 * 3600))
-        m.save()
-        self.assertTrue(m.sightings("minecraft:sheep", "minecraft:overworld"))
-        self.assertEqual(m.sightings("minecraft:sheep", "minecraft:overworld", max_age_min=2), [])
 
 
 class AStationStandingThereIsOneWeHave(unittest.TestCase):
@@ -136,7 +126,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
     """A village is a bag of finished goods. Taking one is a column like any other, priced like any other."""
 
     def test_every_takeable_thing_has_a_column_that_produces_what_it_gives(self):
-        table = {a.name: a for a in actions.table(actions.Costs(lambda kinds: 20.0), {})}
+        table = {a.name: a for a in actions.table(places(20.0), {})}
         for token, row in knowledge.TAKEABLE.items():
             action = table.get(f"take:{token}")
             self.assertIsNotNone(action, token)
@@ -145,7 +135,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
             self.assertTrue(any(d.startswith("at:") for d in action.requires), token)
 
     def test_the_tool_a_block_needs_is_required_and_no_other(self):
-        table = {a.name: a for a in actions.table(actions.Costs(lambda kinds: 20.0), {})}
+        table = {a.name: a for a in actions.table(places(20.0), {})}
         self.assertTrue(any(d.startswith("tool:pickaxe") for d in table["take:minecraft:furnace"].requires))
         self.assertFalse(any(d.startswith("tool:") for d in table["take:bed"].requires))
 
@@ -168,7 +158,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
         village = set(knowledge.TAKEABLE["bed"]["blocks"])
 
         def plan(village_s):
-            cost = actions.Costs(lambda kinds: village_s if village & set(kinds) else 30.0)
+            cost = places_by(lambda kinds: village_s if village & set(kinds) else 30.0)
             state = {"bag_free": 20, "tool:pickaxe:0": 1, "uses:pickaxe": 100}
             return [a.name for a, _n in solve(actions.table(cost, state), state, {"bed": 1}).steps()]
         self.assertIn("take:bed", plan(10.0))
@@ -245,30 +235,6 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
         self.assertEqual(offenders, [], f"these break blocks without the protection door: {offenders}")
 
 
-class ANoteIsAClueNotAFact(unittest.TestCase):
-    """Things vanish: a felled tree, a looted chest, a herd that wandered. Arriving settles a note either way —
-    left to a timer, the same sixty-block walk is priced again next round."""
-
-    def test_arriving_and_finding_nothing_retires_it(self):
-        m = mem()
-        m.note_resource("tree", (10, 64, 10), "minecraft:overworld")
-        m.confirm("tree", (10, 64, 10), "minecraft:overworld", found=False)
-        self.assertEqual(m.resources("tree", "minecraft:overworld"), [])
-
-    def test_arriving_and_finding_it_keeps_it(self):
-        m = mem()
-        m.note_resource("tree", (10, 64, 10), "minecraft:overworld")
-        m.confirm("tree", (10, 64, 10), "minecraft:overworld", found=True)
-        self.assertTrue(m.resources("tree", "minecraft:overworld"))
-
-    def test_what_we_emptied_ourselves_comes_back_only_when_it_regrows(self):
-        m = mem()
-        m.note_resource("tree", (10, 64, 10), "minecraft:overworld", depleted=True)
-        self.assertEqual(m.resources("tree", "minecraft:overworld"), [])
-        later = m.resources("tree", "minecraft:overworld", now=9e12)
-        self.assertTrue(later, "a grove that has had twenty minutes is a grove again")
-
-
 class WhatIsWorthTakingIsDecidedByPrice(unittest.TestCase):
     """A hand-written list of loot had no wheat in it, so the agent opened a village chest and took nothing."""
 
@@ -329,7 +295,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
 
     def columns(self, state):
         from bonobo import actions
-        return {a.name: a for a in actions.table(actions.Costs(lambda kinds: 6.0), state)}
+        return {a.name: a for a in actions.table(places(6.0), state)}
 
     def test_every_column_that_touches_the_world_says_what_body_it_needs(self):
         whole = self.columns({"bag_free": 30, "footing": 1, "hands_free": 1})

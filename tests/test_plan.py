@@ -15,9 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import actions, knowledge, memory  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from bonobo.solve import Action, Unsolvable, reach_cost, solve  # noqa: E402
+from tests.world import places  # noqa: E402
 
-EVERYWHERE = actions.Costs(lambda kinds: 20.0)
-NOWHERE = actions.Costs(lambda kinds: None)
+EVERYWHERE = places(20.0)
+NOWHERE = places(None)
 
 
 def table(state=None, cost=EVERYWHERE):
@@ -100,7 +101,7 @@ class EveryWayOfGettingSomethingIsAColumn(unittest.TestCase):
 
     def test_seeing_one_makes_it_cheaper_never_possible(self):
         blind = reach_cost(actions.table(NOWHERE, {}), {})
-        seen = reach_cost(actions.table(actions.Costs(lambda kinds: 10.0), {}), {})
+        seen = reach_cost(actions.table(places(10.0), {}), {})
         for dim, price in seen.items():
             self.assertLessEqual(price, blind.get(dim, math.inf) + 1e-6, dim)
 

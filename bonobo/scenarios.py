@@ -1526,6 +1526,9 @@ SURPRISES = {
     "chest_or_tree": dict(base="chop", doc="4 logs in a chest by the body, a tree 12 away: the brain takes the "
                                            "cheaper (plan-driven, test point C)", point="C",
                           setup=_chest(at(1, 0, 1), "oak_log 4"),
+                          # The planner takes from containers as last seen open (memory.note_container): opened once.
+                          before=lambda ctx: core.BRAIN.mem.note_container(
+                              at(1, 0, 1), "minecraft:overworld", [{"id": "minecraft:oak_log", "count": 4}]),
                           run=lambda ctx: _achieve(ctx, [("log", 4)], lambda: _inv_now().count("log") >= 4),
                           check=_all(_gain("log", 4), _blocks(at(4, 0, 0), at(4, 6, 0), "oak_log", 3))),
 }
@@ -1540,6 +1543,8 @@ def _row(name, base, cond=None, extra=None):
     fails = x.get("fails", c.get("fails"))
     if b.get("pre"):
         hooks.append(b["pre"])
+    if x.get("before"):
+        hooks.append(x["before"])
     if x.get("run_n"):
         run = (lambda n: lambda ctx: _skill("chop")(ctx, n))(x["run_n"])
     if c.get("goal_met"):
@@ -1649,7 +1654,7 @@ _ONE = {
                          _tp(0, -3, 0), "give @p stone_pickaxe"],
                         lambda ctx: _skill("find_air")(ctx), _alive(10), 45),
     "surface_from_lake": (["reach:air"], "4 blocks down in open water → up to breathe",
-                          _tank(-5, 5, -5, 5, 8, water_top=7) + [_tp(0, -3, 0)], lambda ctx: _skill("surface")(ctx),
+                          _tank(-5, 5, -5, 5, 8, water_top=7) + [_tp(0, -3, 0)], lambda ctx: _skill("find_air")(ctx),
                           lambda api, inv: api.get("/state")["air"] >= 200, 30),
     "reach_land_swim": (["reach:land"], "night, treading water 10 blocks from shore → on dry land",
                         _tank(-8, 9, -8, 8, 1, water_top=-1) + [f"fill {_c(at(10, -3, -8))} {_c(at(14, -1, 8))} stone",
@@ -1666,7 +1671,7 @@ _ONE = {
     "seek_remembered": (["seek"], "memory says iron ore 16 blocks away → walked there",
                         _floor(half=10) + [f"fill {_c(at(10, -1, -8))} {_c(at(19, -1, 8))} stone",
                                            f"setblock {_c(at(17, 0, 0))} iron_ore", _tp(-6, 0, 0)],
-                        lambda ctx: (ctx.mem.note_resource("iron_ore", at(17, 0, 0), "minecraft:overworld"),
+                        lambda ctx: (ctx.mem.note_seen("iron_ore", at(17, 0, 0), "minecraft:overworld"),
                                      _skill("seek")(ctx, ["iron_ore"]))[1], _at(at(17, 0, 0), 6), 60),
     "smelt_in_background": (["start_smelt_job", "collect_job"], "load a furnace, walk off, come back → ingots",
                             _floor() + [_tp(), "give @p furnace", "give @p raw_iron 4", "give @p coal 2"],
@@ -1692,6 +1697,36 @@ _ONE = {
                             _floor() + _chest(at(2, 0, 0), "iron_ingot 9") + [_tp()],
                             lambda ctx: _skill("withdraw")(ctx, "minecraft:iron_ingot", 4, at(2, 0, 0)),
                             _gain("minecraft:iron_ingot", 4), 30),
+    "anvil_repair_pickaxe": (["repair"], "an anvil, a worn diamond pickaxe, diamonds, levels → repaired",
+                             _floor() + [f"setblock {_c(at(2, 0, 0))} anvil", _tp(),
+                                         "give @p diamond_pickaxe[damage=1200]", "give @p diamond 2",
+                                         "experience add @p 20 levels"],
+                             lambda ctx: _skill("anvil_repair")(ctx, "minecraft:diamond_pickaxe", "minecraft:diamond"),
+                             lambda api, inv: any(s_["id"] == "minecraft:diamond_pickaxe" and s_.get("damage", 0) < 1200
+                                                  for s_ in inv.slots), 60),
+    "enchant_pickaxe": (["enchant"], "an enchanting table, lapis, levels, an iron pickaxe → enchanted (lapis spent)",
+                        _floor() + [f"setblock {_c(at(2, 0, 0))} enchanting_table", _tp(), "give @p iron_pickaxe",
+                                    "give @p lapis_lazuli 6", "experience add @p 30 levels"],
+                        lambda ctx: _skill("enchant_item")(ctx, "minecraft:iron_pickaxe"),
+                        lambda api, inv: inv.count("minecraft:lapis_lazuli") < 6, 60),
+    "trade_bread": (["trade"], "a farmer selling bread for an emerald, 3 emeralds → bread",
+                    _floor() + [_tp(), "give @p emerald 3",
+                                f'summon villager {_c(at(3, 0, 0))} {{NoAI:1b,VillagerData:{{profession:"minecraft:farmer",'
+                                f'level:2,type:"minecraft:plains"}},Offers:{{Recipes:[{{buy:{{id:"minecraft:emerald",'
+                                f'count:1}},sell:{{id:"minecraft:bread",count:6}},maxUses:12}}]}}}}'],
+                    lambda ctx: _skill("trade")(ctx, "minecraft:bread"), _gain("minecraft:bread", 6), 45),
+    "brew_fire_resistance_stand": (["brew:fire_resistance"], "a brewing stand, water bottles, wart, magma cream, "
+                                                              "blaze powder → fire resistance (the cream spent)",
+                                   _floor() + [f"setblock {_c(at(2, 0, 0))} brewing_stand", _tp(),
+                                               'give @p potion[potion_contents={potion:"minecraft:water"}] 3',
+                                               "give @p nether_wart", "give @p magma_cream", "give @p blaze_powder 2"],
+                                   lambda ctx: _skill("brew_fire_resistance")(ctx),
+                                   lambda api, inv: inv.count("minecraft:magma_cream") == 0, 120),
+    "collect_auto_smelter": (["collect_machine"], "a remembered auto smelter whose output chest holds 8 ingots → "
+                                                  "taken",
+                             _floor() + _chest(at(3, 0, 0), "iron_ingot 8") + [_tp()],
+                             lambda ctx: _skill("collect_machine")(ctx, _bench_machine(ctx, at(3, 0, 0))),
+                             _gain("minecraft:iron_ingot", 8), 45),
     "bridge_the_gap": (["bridge_toward"], "a 6-block gap in the floor toward the target, blocks carried → across",
                        _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
                        lambda ctx: _skill("bridge_toward")(ctx, at(9, 0, 0)), _at(at(9, 0, 0), 4), 45),
@@ -1706,6 +1741,12 @@ _ONE = {
                                          "give @p glass_bottle 3"], lambda ctx: _skill("fill_bottles")(ctx, 3),
                              lambda api, inv: inv.count("minecraft:glass_bottle") == 0, 30),
 }
+
+
+def _bench_machine(ctx, origin):
+    """The arena's auto smelter as memory knows a built one (the dict `upkeep.ready_machine` hands the skill)."""
+    name = ctx.mem.add_machine("auto_smelter", origin, 0, "minecraft:overworld", ["smelting"])
+    return next(m for m in ctx.mem.machines("minecraft:overworld") if m["name"] == name)
 
 
 def _broken_hut(ctx):
@@ -1770,7 +1811,7 @@ SHEET["buried_by_sand"] = {
 }
 SHEET["drowning_in_a_pit"] = {
     "doc": "Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else",
-    "module": "brain", "point": "B", "skills": ["find_air", "reach:air"], "tags": {"base": "l0", "hazard": "drowning"},
+    "module": "brain", "point": "B", "skills": ["reach:air"], "tags": {"base": "l0", "hazard": "drowning"},
     "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
     "run": _brain_rounds(25, lambda: __import__("bonobo.api", fromlist=["get"]).get("/state")["air"] >= 250),

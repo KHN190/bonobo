@@ -216,9 +216,26 @@ class Repairs(unittest.TestCase):
         seen = {"oak_log": 8, "stone": 2, "iron_ore": 12, "coal_ore": 9}
         for name, goal, inv_before, inv_after, pending, check in REPAIRS:
             with self.subTest(name):
-                before = plan(goal, snapshot(inv=inv_before), seen)
-                after = plan(goal, snapshot(inv=inv_after), seen, pending=pending)
-                check(self, before, after)
+                task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {})}
+                snap_b, snap_a = snapshot(inv=inv_before), snapshot(inv=inv_after)
+                held_b, why_b = brainmod.replan(task, goal, snap_b, cost(snap_b, **seen))
+                held_a, why_a = brainmod.replan(task, goal, snap_a, cost(snap_a, **seen), pending=pending)
+                self.assertIsNone(why_b)
+                self.assertIsNone(why_a)
+                self.assertEqual(held_a["sig"], upkeep.bag_signature(snap_a.inv), "the held plan is stamped with its bag")
+                self.assertFalse(held_a["event"])
+                check(self, held_b["steps"], held_a["steps"])
+
+    def test_nothing_can_plan_it(self):
+        for name, goal in UNPLANNABLE:
+            with self.subTest(name):
+                task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {})}
+                try:
+                    held, why = brainmod.replan(task, goal, snapshot(), cost())
+                except ValueError:
+                    continue
+                self.assertIsNone(held)
+                self.assertTrue(why.startswith("unplannable"))
 
     def test_a_saved_plan_survives_a_restart(self):
         """tasks.json keeps step dicts; what comes back is the same plan (repair then runs from the bag)."""
@@ -345,12 +362,9 @@ def run_upkeep(row, tmp):
             secs = float("inf")
         plan_s[goal["args"]["needs"][0][0]] = secs
         table.plan_s_cache[(json.dumps(goal, sort_keys=True), upkeep.bag_signature(snap.inv))] = (now + 60, secs)
-    bed_hits = [{"block": "minecraft:red_bed", "x": 5, "y": 64, "z": 0, "distance": 5.0}] if row.bed_seen else []
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
-            mock.patch.object(skills, "enclosed", return_value=row.enclosed), \
-            mock.patch.object(upkeep, "find", return_value=bed_hits), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
-        got = table.act(snap, ctx=None)
+        got = table.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen})
         queued = [tuple(tuple(n) for n in t["args"]["needs"]) for t in tasks.load() if t["state"] in tasks.LIVE]
     return (got[0] if got else None), queued, plan_s
 
@@ -467,27 +481,43 @@ class Craftable(unittest.TestCase):
                 self.assertEqual(upkeep.craftable_tier(bag(inventory()), kind), 0)
 
 
-HOUR = 3600
-# (situation, [(op, *args)], kind asked, expected positions). ops: see ... ages are hours before now.
+DAY_T = 24000
+# What memory keeps of what was seen (data.VOLATILITY), on the game clock. ops: ("at", tick) sets memory's clock;
+# ("see", kind, pos); ("forget", kind, pos); ("confirm", kind, pos, found); ("dug", [cells]).
+# expected: [(pos, to-verify?)] of `kind`, newest first.
 NOTES = [
-    ("a sheep seen yesterday is still a guess", [("see", "minecraft:sheep", (20, 64, 0), 24)], "minecraft:sheep",
-     [(20, 64, 0)]),
-    ("diamonds seen 5 h ago are still there", [("see", "diamond_ore", (3, 12, 3), 5)], "diamond_ore", [(3, 12, 3)]),
-    ("diamonds seen 7 h ago are not trusted", [("see", "diamond_ore", (3, 12, 3), 7)], "diamond_ore", []),
-    ("seen again at the same spot: one note, refreshed", [("see", "obsidian", (9, 30, 9), 7),
-                                                         ("see", "obsidian", (9, 30, 9), 0)], "obsidian",
-     [(9, 30, 9)]),
-    ("two spots: newest first", [("see", "minecraft:cow", (5, 64, 5), 2), ("see", "minecraft:cow", (50, 64, 5), 0)],
-     "minecraft:cow", [(50, 64, 5), (5, 64, 5)]),
-    ("arrived and found nothing: the note is dropped", [("see", "diamond_ore", (3, 12, 3), 1),
-                                                       ("confirm", "diamond_ore", (3, 12, 3), False)],
-     "diamond_ore", []),
-    ("arrived and found it: kept", [("see", "diamond_ore", (3, 12, 3), 1), ("confirm", "diamond_ore", (3, 12, 3), True)],
-     "diamond_ore", [(3, 12, 3)]),
-    ("an empty spot elsewhere drops only its own note", [("see", "diamond_ore", (3, 12, 3), 1),
-                                                         ("see", "diamond_ore", (90, 12, 3), 1),
-                                                         ("confirm", "diamond_ore", (90, 12, 3), False)],
-     "diamond_ore", [(3, 12, 3)]),
+    ("an ore is static: still there a year later", [("at", 0), ("see", "iron_ore", (3, 12, 3)), ("at", 10 ** 7)],
+     "iron_ore", [((3, 12, 3), False)]),
+    ("a tree is slow: kept three days", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T)], "tree",
+     [((10, 64, 10), False)]),
+    ("a tree is slow: gone after three days", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T + 1)],
+     "tree", []),
+    ("seen again: refreshed, one note", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 70000),
+                                         ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T + 5000)], "tree",
+     [((10, 64, 10), False)]),
+    ("two trees 5 apart are one grove", [("at", 0), ("see", "tree", (10, 64, 10)), ("see", "tree", (15, 64, 10))],
+     "tree", [((10, 64, 10), False)]),
+    ("a cow is mobile: an area, not a cell", [("at", 0), ("see", "cow", (5, 64, 5))], "cow", [((8, 64, 8), False)]),
+    ("a cow is gone after 6000 ticks", [("at", 0), ("see", "cow", (5, 64, 5)), ("at", 6001)], "cow", []),
+    ("a hostile is never stored", [("at", 0), ("see", "zombie", (5, 64, 5))], "zombie", []),
+    ("arrived, found nothing: retired", [("at", 0), ("see", "iron_ore", (3, 12, 3)),
+                                         ("confirm", "iron_ore", (3, 12, 3), False)], "iron_ore", []),
+    ("arrived, found it: kept", [("at", 0), ("see", "iron_ore", (3, 12, 3)),
+                                 ("confirm", "iron_ore", (3, 12, 3), True)], "iron_ore", [((3, 12, 3), False)]),
+    ("an empty spot elsewhere drops only its own note", [("at", 0), ("see", "diamond_ore", (3, 12, 3)),
+                                                         ("see", "diamond_ore", (90, 12, 3)),
+                                                         ("forget", "diamond_ore", (90, 12, 3))],
+     "diamond_ore", [((3, 12, 3), False)]),
+    ("we mined the ore ourselves: gone", [("at", 0), ("see", "coal_ore", (3, 50, 3)), ("dug", [(3, 50, 3)])],
+     "coal_ore", []),
+    ("we dug near a tree: to verify, not gone", [("at", 0), ("see", "tree", (10, 64, 10)), ("dug", [(12, 64, 10)])],
+     "tree", [((10, 64, 10), True)]),
+    ("dug far from the tree: untouched", [("at", 0), ("see", "tree", (10, 64, 10)), ("dug", [(40, 64, 10)])],
+     "tree", [((10, 64, 10), False)]),
+    ("an unknown kind is slow, never forever", [("at", 0), ("see", "sugar_cane", (4, 64, 4)), ("at", 10 ** 7)],
+     "sugar_cane", []),
+    ("village furniture is static", [("at", 0), ("see", "red_bed", (4, 64, 4)), ("at", 10 ** 7)], "red_bed",
+     [((4, 64, 4), False)]),
 ]
 
 
@@ -496,19 +526,51 @@ class WhereToLook(unittest.TestCase):
         for name, ops, kind, want in NOTES:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
-                for o in ops:
-                    if o[0] == "see":
-                        _, k, pos, hours = o
-                        m.add_sighting(k, pos, OVER)
-                        for row in m.data["sightings"][k]:
-                            if tuple(row["pos"]) == tuple(pos):
-                                row["at"] = time.strftime("%Y-%m-%d %H:%M",
-                                                          time.localtime(time.time() - hours * HOUR))
-                        m.save()
-                    else:
-                        _, k, pos, found = o
-                        m.confirm(k, pos, OVER, found=found)
-                self.assertEqual([tuple(s["pos"]) for s in m.sightings(kind, OVER)], want)
+                for op_, *a in ops:
+                    if op_ == "at":
+                        m.clock = a[0]
+                    elif op_ == "see":
+                        m.note_seen(a[0], a[1], OVER)
+                    elif op_ == "forget":
+                        m.forget_seen(a[0], a[1], OVER)
+                    elif op_ == "confirm":
+                        m.confirm(a[0], a[1], OVER, found=a[2])
+                    elif op_ == "dug":
+                        m.mark_dirty_near(a[0], OVER)
+                self.assertEqual([(tuple(r["pos"]), bool(r.get("verify"))) for r in m.seen(kind, OVER)], want)
+
+    def test_every_volatility_class_has_rows(self):
+        from bonobo.data import VOLATILITY, seen_class
+        covered = {seen_class(k) for _n, _ops, k, _w in NOTES}
+        self.assertEqual(covered, set(VOLATILITY))
+
+
+# (situation, what a chest holds (as last seen open) and how far, what /find saw, the step chosen / not chosen)
+WITHDRAW = [
+    ("4 logs in a chest 3 away, trees 40 away: take them", (3, {"minecraft:oak_log": 4}), {"oak_log": 40},
+     ("withdraw", "minecraft:oak_log"), ("gather", "log")),
+    ("the chest is 90 away, trees 5 away: chop", (90, {"minecraft:oak_log": 4}), {"oak_log": 5},
+     ("gather", "log"), ("withdraw", "minecraft:oak_log")),
+    ("the chest holds 2 of 4: take 2, chop the rest", (3, {"minecraft:oak_log": 2}), {"oak_log": 40},
+     ("withdraw", "minecraft:oak_log"), None),
+    ("the chest holds something else", (3, {"minecraft:cobblestone": 64}), {"oak_log": 40}, ("gather", "log"),
+     ("withdraw", "minecraft:oak_log")),
+]
+
+
+class Withdraw(unittest.TestCase):
+    def test_chest_or_make(self):
+        for name, (dist, items), seen, chosen, not_chosen in WITHDRAW:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                m.note_container((dist, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
+                snap = snapshot()
+                steps = decompose.decompose(snap.inv, goals.have(("log", 4)), cost(snap, mem=m, **seen))
+                self.assertTrue(has(steps, *chosen), list(map(str, steps)))
+                if not_chosen:
+                    self.assertFalse(has(steps, *not_chosen), list(map(str, steps)))
+                took = sum(st.count for st in steps if st.kind == "withdraw")
+                self.assertLessEqual(took, sum(items.get(i, 0) for i in ("minecraft:oak_log",)))
 
 
 # --------------------------------------------------------------------------------------------------------- retry
