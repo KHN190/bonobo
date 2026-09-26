@@ -44,6 +44,15 @@ def has(steps, kind, token):
     return any(s.kind == kind and bare(s.token) == bare(token) for s in steps)
 
 
+def pair(kind, token):
+    return kind, bare(token)
+
+
+def pairs(steps):
+    """The plan as {(kind, token)}: what an assertIn / assertNotIn names exactly."""
+    return {(s.kind, bare(s.token)) for s in steps}
+
+
 def plan(goal, snap, seen=None, pending=None, c=None):
     c = c if c is not None else cost(snap, **(seen or {}))
     return decompose.decompose(snap.inv, goal, c, pending=pending)
@@ -120,12 +129,12 @@ class Plans(unittest.TestCase):
                 with self.subTest(goal=goals.describe(goal), world=w):
                     steps = decompose.decompose(snap.inv, goal, w.cost())
                     for kind, token in contains:
-                        self.assertTrue(has(steps, kind, token), f"no {kind} {token} in {list(map(str, steps))}")
+                        self.assertIn(pair(kind, token), pairs(steps), f"no {kind} {token} in {list(map(str, steps))}")
                     if omits == ANY:
                         self.assertEqual(steps, [], "the goal is met: no action")
                         continue
                     for kind, token in omits:
-                        self.assertFalse(has(steps, kind, token), f"{kind} {token} planned: {list(map(str, steps))}")
+                        self.assertNotIn(pair(kind, token), pairs(steps), f"{kind} {token} planned: {list(map(str, steps))}")
                     for s in steps:
                         self.assertTrue(skillkit.handles(s), f"{s}: no skill provides it")
                         self.assertGreaterEqual(s.est, 0)
@@ -140,12 +149,12 @@ class Plans(unittest.TestCase):
             snap = w.snapshot()
             steps = decompose.decompose(snap.inv, goal, w.cost())
             with self.subTest(goal=goals.describe(goal)):
-                made = set()
+                made, orphans = set(), []
                 for s in steps:
-                    for tok in s.detail.get("inputs", {}):
-                        self.assertTrue(bare(tok) in made or snap.inv.count(tok) > 0,
-                                        f"{s}: {tok} neither held nor made before it")
+                    orphans += [(str(s), tok) for tok in s.detail.get("inputs", {})
+                                if bare(tok) not in made and snap.inv.count(tok) == 0]
                     made.add(bare(s.token))
+                self.assertEqual(orphans, [], "inputs neither held nor made before the step that consumes them")
 
     def test_unplannable(self):
         for name, goal in UNPLANNABLE:
@@ -163,7 +172,7 @@ class Plans(unittest.TestCase):
                 task = {"id": "t1", "goal": goal["goal"], "args": goal["args"], **({"solver": own} if own else {})}
                 held, why = brainmod.replan(task, goal, snapshot(), cost(snapshot(), oak_log=5, stone=2))
                 self.assertIsNone(why)
-                self.assertTrue(has(held["steps"], *step), list(map(str, held["steps"])))
+                self.assertIn(pair(*step), pairs(held["steps"]), list(map(str, held["steps"])))
 
     def test_the_sweep_is_the_whole_product(self):
         n = sum(1 for _ in worlds())
@@ -265,9 +274,9 @@ class Cheaper(unittest.TestCase):
         for name, goal, inv, seen, chosen, not_chosen in CHEAPER:
             with self.subTest(name):
                 steps = plan(goal, snapshot(inv=inv), seen)
-                self.assertTrue(has(steps, *chosen), list(map(str, steps)))
+                self.assertIn(pair(*chosen), pairs(steps), list(map(str, steps)))
                 if not_chosen:
-                    self.assertFalse(has(steps, *not_chosen), list(map(str, steps)))
+                    self.assertNotIn(pair(*not_chosen), pairs(steps), list(map(str, steps)))
 
     def test_nearer_is_never_dearer(self):
         """The same plan with the trees nearer costs no more (the walk is priced, the work is the same)."""
@@ -364,7 +373,17 @@ def _needs_torches(c):
 # (situation, the provider's preconditions, bag) → offered (valid) this round?
 STARTS = [("no preconditions", (), inventory(), True),
           ("a precondition that refuses", (_needs_torches,), inventory(), False),
-          ("the inputs are missing, whatever the skill says", (), None, False)]
+          ("the inputs are missing, whatever the skill says", (), None, False),
+          ("the inputs are missing and the skill refuses too", (_needs_torches,), None, False),
+          ("a precondition that passes", (lambda c: None,), inventory(), True)]
+
+
+def _passes(check):
+    try:
+        check(None)
+        return True
+    except Exception:
+        return False
 
 
 class CanStart(unittest.TestCase):
@@ -379,13 +398,27 @@ class CanStart(unittest.TestCase):
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
                 self.assertEqual(b.valid(step, snapshot(inv=bag_), ctx), want)
-                self.assertEqual(dispatch.can_start(ctx, step), bool(not pre))
+                self.assertEqual(dispatch.can_start(ctx, step), all(_passes(p) for p in pre))
 
-    def test_a_step_nobody_provides_cannot_start(self):
+    def test_who_can_start_a_step(self):
+        """dispatch.can_start over the registry as it is, by the step's kind: no provider, an unknown skill name,
+        a provider whose adapter declines here, a provider that can."""
         from bonobo import dispatch
-        for kind, token in (("zz", "nothing"), ("skill", "no_such_skill")):
-            with self.subTest(kind=kind):
-                self.assertFalse(dispatch.can_start(None, planner.Step(kind, token, 1)))
+        rows = [("nobody provides this kind", {}, planner.Step("zz", "nothing", 1), False),
+                ("a skill name nobody registered", {}, planner.Step("skill", "no_such_skill", 1), False),
+                ("the one provider's adapter declines here", {"zz_a": ("zz", None, ())}, planner.Step("zz", "t", 1),
+                 False),
+                ("a provider that can, no preconditions", {"zz_a": ("zz", (1,), ())}, planner.Step("zz", "t", 1), True),
+                ("a provider that can, but its precondition refuses", {"zz_a": ("zz", (1,), (_needs_torches,))},
+                 planner.Step("zz", "t", 1), False),
+                ("by name, a registered skill with no preconditions", {"zz_b": ("yy", (), ())},
+                 planner.Step("skill", "zz_b", 1), True)]
+        for name, fakes, step, want in rows:
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
+                for sname, (effect, args, pre) in fakes.items():
+                    skillkit.skill(name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
+                        lambda ctx, *a: None)
+                self.assertIs(dispatch.can_start(None, step), want)
 
 
 # -------------------------------------------------------------------------------------------------- the cost model
@@ -517,12 +550,12 @@ REPAIRS = [
      lambda t, before, after: t.assertEqual(sum(s.count for s in after if s.kind == "gather"), 3)),
     ("interrupted after the table and wooden pickaxe were made", PICK1, inventory(("oak_log", 3)),
      inventory(("wooden_pickaxe", 1), ("oak_planks", 4), ("stick", 4), ("crafting_table", 1)), None,
-     lambda t, before, after: (t.assertTrue(has(before, "craft", "minecraft:crafting_table")),
-                               t.assertFalse(has(after, "craft", "minecraft:crafting_table")),
-                               t.assertFalse(has(after, "craft", "minecraft:wooden_pickaxe")))),
+     lambda t, before, after: (t.assertIn(pair("craft", "minecraft:crafting_table"), pairs(before)),
+                               t.assertNotIn(pair("craft", "minecraft:crafting_table"), pairs(after)),
+                               t.assertNotIn(pair("craft", "minecraft:wooden_pickaxe"), pairs(after)))),
     ("the pickaxe wore down to 1 mid-plan", IRON3, stone_tools(), stone_tools(worn=130), None,
-     lambda t, before, after: (t.assertFalse(has(before, "craft", "minecraft:stone_pickaxe")),
-                               t.assertTrue(has(after, "craft", "minecraft:stone_pickaxe")))),
+     lambda t, before, after: (t.assertNotIn(pair("craft", "minecraft:stone_pickaxe"), pairs(before)),
+                               t.assertIn(pair("craft", "minecraft:stone_pickaxe"), pairs(after)))),
     ("the ingots are already cooking in a furnace", IRON3, stone_tools(), stone_tools(),
      {"minecraft:iron_ingot": 3}, lambda t, before, after: t.assertEqual(after, [])),
     ("half the ore already mined", IRON3, stone_tools(), inventory(*stone_tools()["slots"], ("raw_iron", 2)), None,
@@ -530,7 +563,7 @@ REPAIRS = [
     ("goal met while the plan was held", IRON3, stone_tools(), inventory(("iron_ingot", 3)), None,
      lambda t, before, after: t.assertEqual(after, [])),
     ("died: the bag is empty again", IRON3, stone_tools(), inventory(), None,
-     lambda t, before, after: (t.assertTrue(has(after, "gather", "log")),
+     lambda t, before, after: (t.assertIn(pair("gather", "log"), pairs(after)),
                                t.assertGreater(len(after), len(before)))),
 ]
 
@@ -558,8 +591,7 @@ class Repairs(unittest.TestCase):
                     held, why = brainmod.replan(task, goal, snapshot(), cost())
                 except ValueError:
                     continue
-                self.assertIsNone(held)
-                self.assertTrue(why.startswith("unplannable"))
+                self.assertEqual((held, why.split(":")[0]), (None, "unplannable"))
 
     def test_a_saved_plan_survives_a_restart(self):
         """tasks.json keeps step dicts; what comes back is the same plan (repair then runs from the bag)."""
@@ -582,7 +614,7 @@ class Repairs(unittest.TestCase):
 # ----------------------------------------------------------------------------------------------- held plans
 # The brain's queue work (task_act / repair / after_step / finish / prepare) on an unstarted Brain: the cost model it
 # builds answers from the row's look-around, the bag after a step from the row's readings; any other request fails.
-TREES = {"oak_log": 6, "stone": 2}
+TREES = {"oak_log": 6, "stone": 2}          # fixture: the default look-around of a held-plan row
 
 
 class Queue_:
@@ -673,7 +705,7 @@ HELD = [
         ("check", lambda t, q: (
             t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if (st.kind, st.token) == ("mine", "stone")], [4]),
             t.assertEqual(q.b.held["t1"]["steps"][-1].kind, "build"),
-            t.assertFalse(has(q.b.held["t1"]["steps"], "craft", "door"))))]),
+            t.assertNotIn(pair("craft", "door"), pairs(q.b.held["t1"]["steps"]))))]),
     ("road: interrupted on the second leg → that leg only", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
         ("round", inventory()), ("ok", inventory()), ("round", inventory()), ("interrupted",),
         ("round", inventory()),
@@ -707,7 +739,7 @@ HELD = [
     ("no stone anywhere: the stone pickaxe plan still starts from what can be had", PICK1, [
         ("seen", {"oak_log": 5}), ("round", inventory()),
         ("check", lambda t, q: (t.assertEqual(q.act.step.kind, "gather"),
-                                t.assertTrue(has(q.b.held["t1"]["steps"], "mine", "stone"))))]),
+                                t.assertIn(pair("mine", "stone"), pairs(q.b.held["t1"]["steps"]))))]),
     ("ingots cooking in a furnace: wait, don't fail", IRON3, [
         ("job", "minecraft:iron_ingot", 3), ("round", stone_tools()),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state()[0], "running")))]),
@@ -761,7 +793,7 @@ class HeldPlans(unittest.TestCase):
 # -------------------------------------------------------------------------------------------------------- upkeep
 PLACE = retry.place_signature((0, 64, 0), False)
 DAY, DUSK, NIGHT = 2000, 11500, 18000
-WELL_FED = [("cooked_beef", 8), ("white_bed", 1), ("stone_pickaxe", 1)]
+WELL_FED = [("cooked_beef", 8), ("white_bed", 1), ("stone_pickaxe", 1)]      # fixture: the default bag
 HERD = {"cow": 12, "sheep": 20, "oak_log": 10, "stone": 2}
 
 
@@ -1114,11 +1146,12 @@ class Withdraw(unittest.TestCase):
                 m.note_container((dist, 64, 0), OVER, [{"id": i, "count": n} for i, n in items.items()])
                 snap = snapshot()
                 steps = decompose.decompose(snap.inv, goals.have(("log", 4)), cost(snap, mem=m, **seen))
-                self.assertTrue(has(steps, *chosen), list(map(str, steps)))
+                self.assertIn(pair(*chosen), pairs(steps), list(map(str, steps)))
                 if not_chosen:
-                    self.assertFalse(has(steps, *not_chosen), list(map(str, steps)))
+                    self.assertNotIn(pair(*not_chosen), pairs(steps), list(map(str, steps)))
                 took = sum(st.count for st in steps if st.kind == "withdraw")
-                self.assertLessEqual(took, sum(items.get(i, 0) for i in ("minecraft:oak_log",)))
+                want = min(4, items.get("minecraft:oak_log", 0)) if chosen[0] == "withdraw" else 0
+                self.assertEqual(took, want, "exactly what the chest holds of the need, no more")
 
 
 # --------------------------------------------------------------------------------------------------------- retry
@@ -1151,7 +1184,7 @@ RETRY = [
 
 # Retry as a pure ledger over time. ops: ("fail", task, cause, t) / ("hold", name, s, t) / ("cap", name, s, t) /
 # ("release", name) / ("ok", task). Then, at `now`: ready?, exhausted, last failure, what is cooling.
-P = ("here", False)
+P = ("here", False)          # fixture: the place causes cool at
 NAV_S = retry.BACKSTOP["nav"]
 LEDGER = [
     ("three sources failed: exhausted, with the last message", [("fail", "t", "nav", 0), ("fail", "t", "nav", 1),
