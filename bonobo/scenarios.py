@@ -2133,6 +2133,28 @@ SHEET["pearls_from_barter"] = {
     "check": lambda api, inv: inv.count("minecraft:gold_ingot") <= 4 and _trades(inv) >= 1, "budget": 180,
 }
 
+def _queue(goal):
+    """`before` hook: put a task at the head of the queue, as L3 would."""
+    def hook(ctx):
+        from . import tasks
+        tasks.add(goal, front=True, source="bench")
+    return hook
+
+
+SHEET["bucket_before_the_shaft"] = {
+    "doc": "An empty bucket, water 3 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
+           "before any digging (WaterClutch needs it in hand)",
+    "module": "upkeep", "point": "C", "skills": ["fill"], "tier_fixed": "exception", "tags": {"base": "upkeep"},
+    "setup": _floor(depth=6) + [f"setblock {_c(at(3, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
+                                "give @p stone_pickaxe", "give @p cooked_beef 8", "give @p white_bed"],
+    "before": _hooks(_start("bucket_before_the_shaft"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
+        ("minecraft:raw_iron", 1)))),
+    "run": _brain_rounds(150, lambda: _inv_now().count("minecraft:water_bucket") >= 1),
+    # Filled, and not a block dug down yet: the feet are still on the floor they started on.
+    "check": _all(lambda api, inv: inv.count("minecraft:water_bucket") >= 1,
+                  lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]), "budget": 180,
+}
+
 START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)
     ("nav_from_stairs", "a stair step", [f"setblock {_c(at(0, 0, 0))} oak_stairs[facing=east]"], (0, 0.5, 0)),
     ("nav_from_slab", "a bottom slab", [f"setblock {_c(at(0, 0, 0))} stone_slab"], (0, 0.5, 0)),

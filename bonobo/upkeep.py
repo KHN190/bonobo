@@ -31,6 +31,12 @@ WORKING = 3                # durability left for a tool to count as working
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 BRIDGE_MIN = 8             # building blocks worth starting a bridge with
 BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN
+# Plan steps that put the body where a fall can happen — portals, strongholds, fortresses, deep ore reached by
+# digging down. The jar's WaterClutch saves a fall only with a water bucket to hand, so a plan with one of these
+# gets a bucket first. (kind, token) with token None = any token of that kind.
+FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("seek", "portal_room"),
+             ("activate", "end_portal"), ("hunt", "minecraft:blaze_rod")}
+DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
 
 def bag_signature(inv):
@@ -102,6 +108,23 @@ def _once(reads, key, read):
     return get
 
 
+def falls(step):
+    """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)?"""
+    from .knowledge import FIND_AT
+    if (step.kind, None) in FALL_RISK or (step.kind, step.token) in FALL_RISK:
+        return True
+    depth = FIND_AT.get(step.token)
+    return step.kind == "mine" and depth is not None and depth < DEEP_Y
+
+
+def needs_water_bucket(snap, plans):
+    """Pure: a held plan has a step with a fall in it and the bag has no water bucket — outside the Nether, where
+    water cannot be poured and the bucket has to be filled before going in."""
+    if snap.dimension == "minecraft:the_nether" or snap.inv.count("minecraft:water_bucket"):
+        return False
+    return any(falls(s) for steps in plans for s in steps)
+
+
 class Upkeep:
     """The table, and what it remembers between rounds: where the body has been (stuck), which tools worked last
     round (broken), where the last path failure was going (blocked). `brain` supplies the failure policy
@@ -169,6 +192,8 @@ class Upkeep:
             self.urgent(goals.have(("tool", "pickaxe", 0)), "no working pickaxe")
         for kind in sorted(self.broken):
             self.urgent(goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
+        if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()]):
+            self.urgent(goals.have(("minecraft:water_bucket", 1)), "a plan with a fall in it and no water to land in")
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
             self.urgent(goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))

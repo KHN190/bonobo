@@ -1524,5 +1524,46 @@ class Queue(unittest.TestCase):
                 self.assertIsInstance(steps, list)
 
 
+
+# -------------------------------------------------------------------------------------------- a bucket before a fall
+def _plan(*steps):
+    return [planner.Step(k, t, 1) for k, t in steps]
+
+
+class WaterBucketBeforeAFall(unittest.TestCase):
+    """The jar's WaterClutch lands a fall only with a water bucket to hand: a plan with a fall in it (upkeep.FALL_RISK,
+    or ore dug down to) gets one first — outside the Nether, where water cannot be poured."""
+
+    # (situation, dimension, bag, held plans) → a water bucket to the front?
+    ROWS = [("a portal ahead, no bucket", "minecraft:overworld", (), [_plan(("gather", "log"), ("portal", "x"))], True),
+            ("a portal ahead, a water bucket carried", "minecraft:overworld", (("water_bucket", 1),),
+             [_plan(("portal", "minecraft:the_nether"))], False),
+            ("an empty bucket is not a water bucket", "minecraft:overworld", (("bucket", 1),),
+             [_plan(("seek", "stronghold"))], True),
+            ("flat work only: logs, planks, a table", "minecraft:overworld", (),
+             [_plan(("gather", "log"), ("craft", "planks"), ("craft", "minecraft:crafting_table"))], False),
+            ("iron is dug down to (y 16)", "minecraft:overworld", (), [_plan(("mine", "minecraft:raw_iron"))], True),
+            ("coal near the surface (y 48) is not", "minecraft:overworld", (), [_plan(("mine", "minecraft:coal"))],
+             False),
+            ("already in the Nether: water cannot be poured there", "minecraft:the_nether", (),
+             [_plan(("seek", "fortress"), ("hunt", "minecraft:blaze_rod"))], False),
+            ("nothing held", "minecraft:overworld", (), [], False)]
+
+    def test_needs_water_bucket_over_the_table(self):
+        for name, dim, items, plans, want in self.ROWS:
+            with self.subTest(name):
+                snap = snapshot(inv=inventory(*items))
+                snap.state = dict(snap.state, dimension=dim)
+                self.assertEqual(upkeep.needs_water_bucket(snap, plans), want)
+
+    def test_no_iron_no_bucket_the_plan_goes_through_iron(self):
+        """With nothing, the bucket's plan is the iron chain (mine, smelt, craft the bucket, fill it)."""
+        snap = snapshot(inv=inventory())
+        steps = decompose.decompose(snap.inv, goals.have(("minecraft:water_bucket", 1)), cost(snap))
+        got = [(s.kind, s.token) for s in steps]
+        for step in (("mine", "minecraft:raw_iron"), ("craft", "minecraft:bucket")):
+            self.assertIn(step, got)
+
+
 if __name__ == "__main__":
     unittest.main()
