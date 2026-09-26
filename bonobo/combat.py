@@ -168,6 +168,29 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
     return True
 
 
+def shoot_batch(entity, eye, hold_ticks=22):
+    """Pure: the one task that draws fully and looses at `entity` from `eye` (arrow drop allowed for)."""
+    aim = bow_aim(eye, (entity["x"], entity["y"], entity["z"]), height=entity.get("height", 1.0) * 0.6)
+    return [{"type": "use_item", "item": "minecraft:bow", "x": aim[0], "y": aim[1], "z": aim[2],
+             "holdTicks": hold_ticks}]
+
+
+def guard_batch(inv, yaw, ticks=30):
+    """Pure: raise the shield (hold 'use' with the weapon in hand), or [] without a shield in the offhand or a
+    sword to hold (swords have no use action in 1.21, so the offhand shield blocks)."""
+    if inv.offhand() != "minecraft:shield":
+        return []
+    weapon = next((w for w in ("minecraft:diamond_sword", "minecraft:iron_sword", "minecraft:stone_sword")
+                   if inv.count(w)), None)
+    return [] if weapon is None else [{"type": "use_item", "item": weapon, "yaw": yaw, "pitch": 0,
+                                       "holdTicks": ticks}]
+
+
+def strike_batch(entity):
+    """Pure: a melee attack on `entity`."""
+    return [{"type": "attack", "entity": entity["id"]}]
+
+
 def shoot(entity, hold_ticks=22, near=None):
     """Draw fully and release at an entity (entity dict from /entities). With `near` given, an aim that would sweep
     the crosshair across an enderman is refused — looking at one provokes it, and a crystal is not worth an enderman
@@ -176,10 +199,7 @@ def shoot(entity, hold_ticks=22, near=None):
     if near is not None and combat_model.aim_hits_enderman((entity["x"], entity["y"], entity["z"]),
                                               (s["x"], s["y"], s["z"]), near):
         raise NotAvailable("an enderman stands in the line of aim")
-    eye = (s["x"], s["y"] + 1.62, s["z"])
-    aim = bow_aim(eye, (entity["x"], entity["y"], entity["z"]), height=entity.get("height", 1.0) * 0.6)
-    r = api.run({"type": "use_item", "item": "minecraft:bow", "x": aim[0], "y": aim[1], "z": aim[2],
-                 "holdTicks": hold_ticks}, wait=10)
+    r = api.run(shoot_batch(entity, (s["x"], s["y"] + 1.62, s["z"]), hold_ticks)[0], wait=10)
     if r["status"] != "succeeded":
         raise McError(f"shooting failed: {r['message']}")
 
@@ -187,15 +207,10 @@ def shoot(entity, hold_ticks=22, near=None):
 def guard(ticks=30):
     """Raise the shield for a moment: hold 'use' with the weapon in hand (swords have no use action in 1.21, so the
     offhand shield blocks)."""
-    inv = Inventory()
-    if inv.offhand() != "minecraft:shield":
+    batch = guard_batch(Inventory(), api.get("/state")["yaw"], ticks)
+    if not batch:
         return False
-    weapon = next((w for w in ("minecraft:diamond_sword", "minecraft:iron_sword", "minecraft:stone_sword")
-                   if inv.count(w)), None)
-    if weapon is None:
-        return False
-    api.run({"type": "use_item", "item": weapon, "yaw": api.get("/state")["yaw"], "pitch": 0,
-             "holdTicks": ticks}, wait=5)
+    api.run(batch[0], wait=5)
     return True
 
 
@@ -203,7 +218,7 @@ def _strike(entity, seconds=8):
     """A short melee burst: the attack task is stopped after `seconds` (a blaze rising out of reach isn't a failure,
     the fight loop looks again)."""
     try:
-        api.run({"type": "attack", "entity": entity["id"]}, wait=seconds)
+        api.run(strike_batch(entity)[0], wait=seconds)
     except api.TaskStuck:
         pass
 
