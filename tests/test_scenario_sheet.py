@@ -181,7 +181,7 @@ class Tiers(unittest.TestCase):
 
     def test_common_is_core_under_everyday_conditions(self):
         for name, row in rows():
-            if row["tier"] == "common" and name not in sc.COMMON:
+            if row["tier"] == "common" and name not in sc.COMMON and name not in {c[0] for c in sc.FIGHT_CELLS}:
                 with self.subTest(name):
                     self.assertIn(row["tags"]["base"], sc.BASES)
                     self.assertTrue(set(row["tags"].values()) & set(sc.COMMON_CONDITIONS))

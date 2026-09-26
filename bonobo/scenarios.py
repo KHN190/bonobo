@@ -1944,6 +1944,89 @@ SHEET["interrupted_rescue_is_not_a_failure"] = {
 for _name in ("water_clutch", "cross_lava_8", "cave_escape"):
     SCENARIOS[_name]["point"] = "B"
 
+# -- CT3: fights on a walled platform, one per enemy line-up. The whole agent runs (perception decides, fight_loop
+# answers, the brain yields); a row is judged by the world — alive, the enemies gone (or, for a neutral mob, left
+# alone), health kept — and by the decision rhythm while engaged: no gap between two bids of the threat layer longer
+# than 1.5 × FIGHT_POLL_S.
+FIGHT_LOG = {"bids": []}
+
+
+def _record_bids(ctx):
+    """`before` hook: time every bid the threat layer makes during this row (the fight's decision clock)."""
+    from . import fight_loop
+    FIGHT_LOG["bids"] = []
+    real = FIGHT_LOG.setdefault("real_bid", fight_loop.bid)
+
+    def bid(*a, **k):
+        FIGHT_LOG["bids"].append(time.time())
+        return real(*a, **k)
+    fight_loop.bid = bid
+
+
+def _fight_until(kinds, seconds, clear=True):
+    """Brain rounds (which yield while the fight holds the body) until the line-up is gone, or `seconds`."""
+    def run(ctx):
+        from . import fight_loop
+        t0 = time.time()
+        try:
+            while time.time() - t0 < seconds:
+                if clear and not _hostiles(24, set(kinds)):
+                    return True
+                core.BRAIN.round()
+            return not clear or not _hostiles(24, set(kinds))
+        finally:
+            fight_loop.bid = FIGHT_LOG.get("real_bid", fight_loop.bid)
+    return run
+
+
+def _decision_gaps_ok(factor=1.5):
+    def check(api, inv):
+        from . import fight_loop
+        t = FIGHT_LOG["bids"]
+        gaps = [b - a for a, b in zip(t, t[1:])]
+        return bool(t) and max(gaps, default=0.0) <= fight_loop.FIGHT_POLL_S * factor
+    return check
+
+
+def _gone(kinds):
+    return lambda api, inv: not _hostiles(24, set(kinds))
+
+
+def _hp_kept(least):
+    return lambda api, inv: api.get("/state")["health"] >= least and not api.get("/state")["dead"]
+
+
+_ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
+          f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air", f"fill {_c(at(-9, -1, -9))} {_c(at(9, -1, 9))} stone", _tp(),
+          "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate",
+          "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
+          "item replace entity @p weapon.offhand with shield"]
+# (name, mob, how many, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob, left alone
+FIGHT_CELLS = [
+    ("fight_zombie_1", "zombie", 1, "common", 40, 12, True),
+    ("fight_zombie_3", "zombie", 3, "exception", 90, 6, True),
+    ("fight_skeleton_1", "skeleton", 1, "common", 60, 10, True),
+    ("fight_creeper_1", "creeper", 1, "common", 45, 14, True),
+    ("fight_blaze_3", "blaze", 3, "exception", 120, 6, True),
+    ("fight_enderman_1", "enderman", 1, "exception", 30, 20, False),
+]
+for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
+    _kinds = [f"minecraft:{_mob}"]
+    _spots = [(6, 0, 0), (-5, 0, 4), (2, 0, -6)][:_n]
+    SHEET[_name] = {
+        "doc": f"Walled platform, iron kit: {_n} {_mob} → " + ("all dead" if _clear else "left alone (neutral)") +
+               f", health ≥ {_hp}, a threat decision every ≤ 1.5 × FIGHT_POLL_S while engaged",
+        "module": "fight_loop", "combat": True, "point": "B", "skills": [], "tier": _tier,
+        "tags": {"base": "fight", "enemy": _mob, "count": _n},
+        "setup": list(_ARENA) + [f"summon {_mob} {_c(at(x, y, z))} {{PersistenceRequired:1b}}" for x, y, z in _spots],
+        "expect_entities": [(f"minecraft:{_mob}", _n)],
+        "before": _hooks(_start(_name), _record_bids),
+        "run": _fight_until(_kinds, _secs, _clear),
+        "check": _all(_hp_kept(_hp), _gone(_kinds), _decision_gaps_ok()) if _clear
+        else _all(_hp_kept(_hp), lambda api, inv, k=_kinds: bool(_hostiles(24, set(k)))),
+        "budget": _secs,
+    }
+
 # -- test point D: acceptance ------------------------------------------------------------------------------------
 SCENARIOS[ACCEPTANCE_D] = {
     "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within "
@@ -2004,7 +2087,9 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 
 def tier_of(name, row):
-    """Pure: the tier a row belongs to."""
+    """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
+    if row.get("tier") in ("core", "common", "exception") and name.startswith("fight_"):
+        return row["tier"]
     if name in CORE:
         return "core"
     if name in ACCEPTANCE:
