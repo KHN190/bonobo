@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import estimate, kernel, threat  # noqa: E402
 from tests.world import dangers, fights  # noqa: E402
 
-SHAPES = ("reshape", "wall_in")          # the answers that change the ground; a squeezer walks past both
+# fixture: the answers that change the ground (a squeezer walks past both), and the rest
+SHAPES = ("reshape", "wall_in")
 NOT_SHAPES = ("ignore", "fight", "evade", "eat", "shield")
 
 

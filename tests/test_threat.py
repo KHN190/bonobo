@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import threat as sv  # noqa: E402  (the price of health lives in threat now)
 from bonobo import threat  # noqa: E402
 
-HERE = (0.0, 64.0, 0.0)
-STILL = (0.0, 0.0, 0.0)
+HERE = (0.0, 64.0, 0.0)      # fixture: where we stand
+STILL = (0.0, 0.0, 0.0)      # fixture: a mob at rest
 
 
 def row(kind, x, z, vel=STILL, aware=1.0, dps=None):
@@ -37,7 +37,7 @@ def decide(hazards, **kw):
 
 
 class Rows(unittest.TestCase):
-    ZOMBIE = {"minecraft:zombie": 3.0}
+    ZOMBIE = {"minecraft:zombie": 3.0}      # fixture: the kinds asked for
 
     # (last reading of entity 7 or None, this reading, kinds asked for) → the rows built: (centre, velocity)
     ROWS = [("first sight: at rest", None, {"type": "minecraft:zombie", "x": 10.0}, ZOMBIE,
@@ -77,7 +77,9 @@ class Answers(unittest.TestCase):
     ESCAPE = [("two archers flanking east", [("minecraft:skeleton", 10, 2), ("minecraft:skeleton", 10, -2)],
                (-16, 64, 0)),
               ("one zombie east", [("minecraft:zombie", 5, 0)], (-16, 64, 0)),
-              ("nothing", [], (16, 64, 0))]
+              ("one zombie west", [("minecraft:zombie", -5, 0)], (16, 64, 0)),
+              ("one zombie south", [("minecraft:zombie", 0, 6)], (0, 64, -16)),
+              ("nothing: an arbitrary way, still a spot", [], (16, 64, 0))]
 
     def test_escape_spot_over_the_table(self):
         for name, hz, want in self.ESCAPE:
@@ -129,14 +131,16 @@ class PricesForTheOtherPlanner(unittest.TestCase):
     NO_GO = [("a zombie, reach 2", threat.row((10, 0, 0), 2.0, (0, 0, 0), "minecraft:zombie"), [((10, 0, 0), 4.0)]),
              ("a skeleton, reach 15", threat.row((10, 0, 0), 15.0, (0, 0, 0), "minecraft:skeleton"),
               [((10, 0, 0), 17.0)]),
-             ("a creeper, reach 3", threat.row((10, 0, 0), 3.0, (0, 0, 0), "minecraft:creeper"), [((10, 0, 0), 5.0)])]
+             ("a creeper, reach 3", threat.row((10, 0, 0), 3.0, (0, 0, 0), "minecraft:creeper"), [((10, 0, 0), 5.0)]),
+             ("nothing: no circle", None, [])]
 
     def test_no_go_over_the_table(self):
-        self.assertEqual(threat.no_go(self.rows()), [])
         for name, hazard, want in self.NO_GO:
             with self.subTest(name):
-                zones = threat.no_go(self.rows(hazard))
+                zones = threat.no_go(self.rows(*([hazard] if hazard else [])))
                 self.assertEqual(zones, want)
+                if not zones:
+                    continue
                 (centre, radius), = zones
                 outside = (centre[0], centre[1], centre[2] + radius + 1)
                 self.assertEqual([threat.inside_no_go(p, zones) for p in (centre, outside)], [True, False])
