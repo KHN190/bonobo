@@ -92,41 +92,6 @@ class Commitment(unittest.TestCase):
         self.assertEqual((c.cost_s, c.commitment_s), (6.0, 0.8))
 
 
-class Markers(unittest.TestCase):
-    """The markers are the acceptance criteria themselves, so the judging has to be right even when no game is
-    running: a marker that passes an empty log would let everything through."""
-
-    def setUp(self):
-        from bonobo import scenarios
-        self.sc = scenarios
-
-    def rounds(self, *picks, top=2):
-        return [{"pick": p, "top": [None] * top} for p in picks]
-
-    def test_no_rounds_is_not_a_pass(self):
-        for check in (self.sc._never_idle, self.sc._knows_how, self.sc._multitasks, self.sc._plans_far):
-            self.assertFalse(check([])[0], check.__name__)
-
-    def test_idling_fails_even_once(self):
-        rounds = self.rounds(*(["mine"] * 30))
-        self.assertTrue(self.sc._never_idle(rounds)[0])
-        self.assertFalse(self.sc._never_idle(rounds + [{"pick": None, "top": []}])[0])
-
-    def test_all_five_abilities_are_required(self):
-        did = ["sleep", "eat anything", "craft table", "threat:fight", "threat:evade"]
-        self.assertTrue(self.sc._knows_how(self.rounds(*did))[0])
-        for drop in range(len(did)):
-            self.assertFalse(self.sc._knows_how(self.rounds(*(did[:drop] + did[drop + 1:])))[0])
-
-    def test_a_queue_is_not_multitasking(self):
-        """Doing one thing over and over, with nothing else in the pool, is what this must catch."""
-        self.assertFalse(self.sc._multitasks(self.rounds(*(["mine"] * 20), top=1))[0])
-
-    def test_near_term_work_alone_is_not_far_sighted(self):
-        self.assertFalse(self.sc._plans_far(self.rounds(*(["stone pickaxe", "food (≥8)"] * 10)))[0])
-        self.assertTrue(self.sc._plans_far(self.rounds("blaze rods (7)"))[0])
-
-
 class HoldingADecision(unittest.TestCase):
     """A decision may only change when there is a reason: its commitment ran out, an assumption failed, or a
     challenger beat it by the margin. Random sequences with a few percent of jitter per tick — the shape of a

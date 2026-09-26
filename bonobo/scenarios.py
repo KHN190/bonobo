@@ -387,9 +387,14 @@ def _wait_landed(ctx, seconds=10):
     return bool(s.get("onGround") or s.get("inWater") or s.get("dead"))
 
 
-def _snap_survival(ctx):
-    from .world import Snapshot
-    return core.BRAIN.survival(Snapshot(), ctx)
+def _snap_survival(ctx, seconds=20):
+    """Brain rounds until the body is back in the Overworld: leaving the Nether is an upkeep row now (low food,
+    health or room → `nether.use_portal`), not an L0 rescue."""
+    from . import api
+    t0 = time.time()
+    while time.time() - t0 < seconds and api.get("/state")["dimension"] != "minecraft:overworld":
+        core.BRAIN.round()
+    return api.get("/state")["dimension"] == "minecraft:overworld"
 
 
 SCENARIOS["loot_chest"] = {
@@ -455,7 +460,7 @@ SCENARIOS["gold_helmet_swap"] = {
     "budget": 10,
 }
 SCENARIOS["retreat_from_nether"] = {
-    "doc": "Nether, hurt to 6 hp with one food, the arrival portal 8 blocks away → survival retreats through it.",
+    "doc": "Nether, hurt to 6 hp with one food, the arrival portal 8 blocks away → upkeep retreats through it.",
     "module": "brain",
     "dimension": "minecraft:the_nether",
     "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} netherrack",
@@ -683,7 +688,7 @@ SCENARIOS["road_reuse"] = {
     "budget": 240,
 }
 
-# -- route slices: the cerebellum itself (brain.round) over one route segment, not a single skill. Most live problems
+# -- slices: the cerebellum itself (brain.round) over a private task queue, not a single skill. Most live problems
 # were scheduling and chaining (loops, idle holds, wrong-way unstucks, repeated exits), so each slice measures them.
 SLICE = {}
 
@@ -796,7 +801,7 @@ def _in_overworld():
 
 
 SCENARIOS["slice_start_tools"] = {
-    "doc": "Route slice: empty-handed on real Overworld terrain → stone pickaxe + furnace, no loops, idle ≤ 15 s.",
+    "doc": "Slice: empty-handed on real Overworld terrain → stone pickaxe + furnace, no loops, idle ≤ 15 s.",
     "module": "brain", "raw": True, "release": True,
     "setup": ["spreadplayers 11600 11600 0 4 false @p", "clear @p", "time set day"],
     "run": _slice(_has_tools_and_furnace, 6, queue=[__import__("bonobo.goals", fromlist=["goals"]).make(
@@ -824,7 +829,7 @@ def _spread_to_located_biome():
 
 def _portal_beside_player(ctx):
     """A lit portal three blocks east of wherever the player landed, remembered as built — the slice starts in the
-    'nether kit' segment. Without it the route sat in 'portal' and the slice hunted sheep for a bed for 5 minutes."""
+    'nether kit' milestone. Without it the slice hunted sheep for a bed for 5 minutes before the kit."""
     from . import api
     s = api.get("/state")
     x, y, z = s["blockX"] + 3, s["blockY"], s["blockZ"]
@@ -836,14 +841,14 @@ def _portal_beside_player(ctx):
 
 
 SCENARIOS["slice_nether_kit"] = {
-    "doc": "Route slice: at a lit portal with tools but no kit → kit complete (food, blocks, gold helmet) without "
+    "doc": "Slice: at a lit portal with tools but no kit → kit complete (food, blocks, gold helmet) without "
            "stepping into the Nether early, no loops, idle ≤ 15 s.",
     "module": "brain", "raw": True, "release": True,
     # Land in a plains biome, not wherever (12000, 12000) happens to be: that spot is animal-free mountains, and the
     # slice failed for 8 minutes at food 0/6 with everything else in the kit ready (blocks 30/32, no idling, no
-    # loops). The kit needs meat, so the scenario must start where meat exists — this tests the route, not the luck
+    # loops). The kit needs meat, so the scenario must start where meat exists — this tests the queue, not the luck
     # of a landing spot.
-    # Three cooked steaks to start with, like the iron pickaxe and the bucket. This slice measures route scheduling
+    # Three cooked steaks to start with, like the iron pickaxe and the bucket. This slice measures scheduling
     # (kit assembled without stepping into the Nether early, no loops, no idling), not whether cows happen to have
     # spawned: in this world every landing spot tried, plains included, answered "no pig seen yet" for 8 minutes
     # while blocks went 0 → 30/32. The remaining half of the food target still has to be hunted, so the food path
@@ -859,8 +864,8 @@ SCENARIOS["slice_nether_kit"] = {
     "budget": 480,
 }
 SCENARIOS["slice_retreat"] = {
-    "doc": "Route slice: in the Nether at 6 hp with one food, the arrival portal remembered 10 blocks away → back in "
-           "the Overworld by the survival layer, no loops.",
+    "doc": "Slice: in the Nether at 6 hp with one food, the arrival portal remembered 10 blocks away → back in "
+           "the Overworld by the upkeep table, no loops.",
     "module": "brain", "dimension": "minecraft:the_nether", "release": True,
     "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(12, -1, 8))} netherrack",
               f"fill {_c(at(8, 0, -1))} {_c(at(8, 4, 2))} obsidian",
@@ -1005,39 +1010,17 @@ SCENARIOS["gather_logs_birch"] = {
 }
 
 
-# Route goals → the scenarios that prove their skills. The review lists them; a route goal whose scenario is not
-# ready is flagged, so a live-run failure there is expected rather than a surprise.
-GOAL_SCENARIOS = {
-    "water bucket": ["fill_water_bucket"], "nether portal": ["cast_obsidian", "build_light_portal"],
-    "stock logs": ["gather_logs", "gather_logs_birch"], "nether fortress": ["enter_nether", "cross_lava_8"],
-    "blaze rods (7)": ["fight_blaze"], "piglin barter": ["barter_piglin"],
-    "activate end portal": ["activate_end_portal"], "enter the End": ["enter_end"],
+# Milestones (goals.MILESTONES) → the scenarios that prove the skills they need. The review lists the milestones
+# whose scenarios are not ready, so a live-run failure there is expected rather than a surprise.
+MILESTONE_SCENARIOS = {
+    "stone tools": ["craft_stone_tools", "slice_start_tools"], "station kit": ["slice_start_tools"],
+    "food": ["hunt_food"], "iron pickaxe": ["iron_ingots"], "water bucket": ["fill_water_bucket"],
+    "nether kit": ["slice_nether_kit"], "blaze rods": ["fight_blaze"], "eyes of ender": ["craft_eyes"],
 }
 
 
-_FAILING = {"t": 0, "names": set()}
-
-
-def failing_goals(ttl=60):
-    """Route goals whose bench scenario has a 'fail' verdict for the current code (cached: hashing sources each
-    round would cost more than the round). The route skips them while another goal of the segment can run."""
-    now = time.time()
-    if now - _FAILING["t"] < ttl:
-        return _FAILING["names"]
-    table = load_table()
-    names = set()
-    for goal, scen in GOAL_SCENARIOS.items():
-        try:
-            if any(verdict(table, n, code_for(n)) == "fail" for n in scen if n in SCENARIOS):
-                names.add(goal)
-        except OSError:
-            continue
-    _FAILING.update(t=now, names=names)
-    return names
-
-
 def readiness_lines(table=None):
-    """Lines for the review: every scenario's verdict for the current code, then route goals not yet proven."""
+    """Lines for the review: every scenario's verdict for the current code, then milestones not yet proven."""
     table = load_table() if table is None else table
     out, verdict = [], {}
     for name in SCENARIOS:
@@ -1045,9 +1028,9 @@ def readiness_lines(table=None):
         verdict[name] = st
         budget = SCENARIOS[name]["budget"]
         out.append(f"  {name:22} {st:9}" + ("" if med is None else f" median {med}s (budget {budget}s)"))
-    unproven = [g for g, names in GOAL_SCENARIOS.items() if any(verdict.get(n) != "scenario" for n in names)]
+    unproven = [g for g, names in MILESTONE_SCENARIOS.items() if any(verdict.get(n) != "scenario" for n in names)]
     if unproven:
-        out.append(f"  route goals not proven on the bench: {', '.join(unproven)}")
+        out.append(f"  milestones not proven on the bench: {', '.join(unproven)}")
     return out
 
 
@@ -1058,10 +1041,734 @@ def _trades(inv):
 
 
 
-from .bench import decide, fight   # noqa: E402,F401  (the other sheets register themselves)
-from .bench.decide import *        # noqa: E402,F403
+from .bench import fight           # noqa: E402,F401  (the fight sheet registers itself)
 from .bench.fight import *         # noqa: E402,F403
-from .bench.decide import (_decision, _decision_ok, _knows_how, _marker, _multitasks, _never_idle, _picked,
-                           _plans_far, _rounds_since)   # noqa: E402
 from .bench.fight import (_build, _cells, _combat_execute, _combat_intent, _fought, _hostiles,
                           _siege_cells, _summon)        # noqa: E402
+
+
+# ================================================================================================================
+# The generated sheet (test points A–D). Basics × the conditions that break them, as a cross-product: a BASE is one
+# skill doing one job in a small arena, a CONDITION changes the arena, the clock, the bag or the world around the
+# job, and says what must happen then — the same effect, or a failure with a specific reason. Every row is judged by
+# the WORLD (a bag delta against the bag at the start, a block count, where the body stands), never by what the
+# skill returned. Rows carry `skills` (what they prove), `point` (A–D) and `tags`; `tests/test_scenario_sheet.py`
+# checks the sheet's shape and that every registered skill is proven somewhere. Nothing here runs until
+# `mc.py scenario <name>` in a test world.
+# ================================================================================================================
+import itertools as _it
+import threading as _threading
+
+BASE = {}                 # the bag, the /state and the time at the start of the run (`_start`)
+FAILED_AS_EXPECTED = {}   # scenario → the failure message that matched its `fails` pattern
+INTERRUPTS = {}           # scenario → interruptions the run absorbed (injected or not)
+SHEET = {}                # the generated rows, by name (also in SCENARIOS)
+CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
+ACCEPTANCE_D = "accept_fresh_iron_pickaxe"
+
+
+def _skill(name):
+    """The registered runner of a skill (every skill module is imported by the brain)."""
+    from . import brain  # noqa: F401
+    from .skill import REGISTRY
+    return REGISTRY[name].runner
+
+
+def _inv_now():
+    from .world import Inventory
+    return Inventory()
+
+
+def _start(name):
+    """`before` hook head: forget the last run's verdicts and remember the bag and body this run starts from."""
+    def hook(ctx):
+        from . import api
+        FAILED_AS_EXPECTED.pop(name, None)
+        INTERRUPTS[name] = 0
+        BASE.clear()
+        BASE.update(name=name, inv=api.get("/inventory"), state=api.get("/state"), t=time.time())
+    return hook
+
+
+def _base_count(token):
+    from .world import Inventory
+    return Inventory(BASE["inv"]).count(token) if BASE.get("inv") else 0
+
+
+# -- checks: what the world must show afterwards ----------------------------------------------------------------
+def _gain(token, n, at_most=None):
+    """The bag holds at least `n` more `token` than at the start (and, with `at_most`, not more than that)."""
+    def check(api, inv):
+        got = inv.count(token) - _base_count(token)
+        return got >= n and (at_most is None or got <= at_most)
+    return check
+
+
+def _same_bag_and_place(r=1.5):
+    """Goal already met: nothing taken, nothing spent, the body did not wander off."""
+    def check(api, inv):
+        from .world import Inventory
+        before = sorted((s["id"], s["count"]) for s in Inventory(BASE["inv"]).slots)
+        after = sorted((s["id"], s["count"]) for s in inv.slots)
+        s0, s1 = BASE["state"], api.get("/state")
+        return before == after and math.dist((s0["x"], s0["y"], s0["z"]), (s1["x"], s1["y"], s1["z"])) <= r
+    return check
+
+
+def _alive(min_hp=1.0):
+    return lambda api, inv: not api.get("/state")["dead"] and api.get("/state")["health"] >= min_hp
+
+
+def _at(pos, r):
+    return lambda api, inv: _near(api, pos, r)
+
+
+def _blocks(lo, hi, name, least, most=None):
+    def check(api, inv):
+        n = _count_blocks(api, lo, hi, name)
+        return n >= least and (most is None or n <= most)
+    return check
+
+
+def _no_block_suffix(lo, hi, suffix):
+    def check(api, inv):
+        from .world import Region
+        return not any(n.endswith(suffix) for n in Region(lo, hi).blocks.values())
+    return check
+
+
+def _food_up():
+    return lambda api, inv: api.get("/state")["food"] > BASE["state"]["food"]
+
+
+def _is_day():
+    return lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 12500
+
+
+def _dimension(dim):
+    return lambda api, inv: api.get("/state")["dimension"] == dim
+
+
+def _free_slots(n):
+    return lambda api, inv: inv.free_slots() >= n
+
+
+def _interrupted(least=1):
+    return lambda api, inv: INTERRUPTS.get(BASE.get("name"), 0) >= least
+
+
+def _failed_as_expected():
+    return lambda api, inv: BASE.get("name") in FAILED_AS_EXPECTED
+
+
+def _all(*checks):
+    return lambda api, inv: all(c(api, inv) for c in checks)
+
+
+# -- run wrappers: timing and expected failures -----------------------------------------------------------------
+def _expect_failure(name, run, pattern):
+    """An expected-failure row: the run must END (the budget still applies) with a failure whose message names the
+    reason — not succeed, not fail for some other reason."""
+    def go(ctx):
+        from . import api
+        try:
+            out = run(ctx)
+        except api.McError as e:
+            if re.search(pattern, str(e), re.I):
+                FAILED_AS_EXPECTED[name] = str(e)
+                return True
+            raise
+        raise api.McError(f"expected to fail ({pattern}), reported success instead: {out!r}")
+    return go
+
+
+def _resume(name, run, resume, tries=4):
+    """Run; when an interruption stops it, count it and resume by what is still missing (`resume`, plan-driven)."""
+    def go(ctx):
+        from . import api
+        fn = run
+        try:
+            for _ in range(tries):
+                try:
+                    return fn(ctx)
+                except api.INTERRUPTIONS:
+                    INTERRUPTS[name] = INTERRUPTS.get(name, 0) + 1
+                    fn = resume
+            raise api.McError(f"still interrupted after {tries} tries")
+        finally:
+            if api.INTERRUPT and str(api.INTERRUPT).startswith("bench:"):
+                api.INTERRUPT = None       # an injected interrupt that landed after the end must not stop the next row
+    return go
+
+
+def _interrupt_after(*delays, message="bench: injected interrupt"):
+    """`before` hook: perception's interrupt, raised from a thread `delays` seconds after the run starts."""
+    def hook(ctx):
+        def fire():
+            from . import api
+            t0 = time.time()
+            for d in delays:
+                time.sleep(max(0.0, t0 + d - time.time()))
+                api.INTERRUPT = message
+        _threading.Thread(target=fire, daemon=True).start()
+    return hook
+
+
+def _interrupt_when(token, n, message="bench: interrupt at the moment of success"):
+    """`before` hook: the interrupt lands the moment the bag first shows the effect (n more `token`)."""
+    def hook(ctx):
+        def fire():
+            from . import api
+            t0 = time.time()
+            while time.time() - t0 < 120:
+                try:
+                    if _inv_now().count(token) - _base_count(token) >= n:
+                        api.INTERRUPT = message
+                        return
+                except api.McError:
+                    pass
+                time.sleep(0.05)
+        _threading.Thread(target=fire, daemon=True).start()
+    return hook
+
+
+def _contest_after(delay):
+    """`before` hook: another commander posts a task straight to the mod mid-run (BodyContested for the skill)."""
+    def hook(ctx):
+        def fire():
+            from . import api
+            time.sleep(delay)
+            api.api("POST", "/task?wait=0", {"type": "wait", "ticks": 40})
+        _threading.Thread(target=fire, daemon=True).start()
+    return hook
+
+
+def _unless_done(check, run):
+    """Resume only what is not done: an interruption that landed at the moment of success leaves nothing to redo."""
+    def go(ctx):
+        from . import api
+        return True if check(api, _inv_now()) else run(ctx)
+    return go
+
+
+def _missing_hook(what):
+    def run(ctx):
+        raise SetupInvalid(f"missing hook: {what}")
+    return run
+
+
+def _hooks(*hooks):
+    hooks = [h for h in hooks if h is not None]
+    return lambda ctx: [h(ctx) for h in hooks] and None
+
+
+def _achieve_needs(needs, rounds=12):
+    """Resume by amount: plan the needs from the bag as it is now and run the plan (the brain's own path)."""
+    def run(ctx):
+        want = [(t, n + _base_count(t)) if t != "tool" else (t, n, *rest) for t, n, *rest in needs]
+        done = lambda: all(_inv_now().count(t) >= n for t, n, *_ in want if t != "tool")  # noqa: E731
+        return _achieve(ctx, want, done, rounds=rounds)
+    return run
+
+
+def _plan_is_empty(needs):
+    """Goal already met: the planner, asked from the real bag, plans nothing — and nothing is run."""
+    def run(ctx):
+        from . import api, decompose, goals
+        from .cost import Cost
+        from .world import Snapshot
+        snap = Snapshot()
+        steps = decompose.decompose(snap.inv, goals.have(*needs), Cost(snap, ctx.mem))
+        if steps:
+            raise api.McError(f"goal already met, but planned {' → '.join(map(str, steps))}")
+        return True
+    return run
+
+
+def _brain_rounds(seconds, until):
+    """The whole cerebellum for up to `seconds` (L0 and upkeep included), until `until()`."""
+    def run(ctx):
+        t0 = time.time()
+        while time.time() - t0 < seconds and not until():
+            core.BRAIN.round()
+        return until()
+    return run
+
+
+def _head_clear():
+    from . import skills
+    return not skills.head_buried()
+
+
+# -- arena pieces (relative to ORIGIN) ----------------------------------------------------------------------------
+def _floor(block="stone", half=8, depth=3):
+    return [f"fill {_c(at(-half, -depth, -half))} {_c(at(half, -1, half))} {block}"]
+
+
+def _tp(dx=0, dy=0, dz=0):
+    return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
+
+
+def _grove(*spots, feature="minecraft:oak"):
+    return [f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block"] + \
+        [f"place feature {feature} {_c(at(x, 0, z))}" for x, z in spots]
+
+
+def _chest(pos, *items):
+    return [f"setblock {_c(pos)} chest"] + \
+        [f"item replace block {_c(pos)} container.{i} with {item}" for i, item in enumerate(items)]
+
+
+def _pen(mob, n, half=7):
+    walls = [f"fill {_c(at(a, 0, b))} {_c(at(c, 0, d))} oak_fence" for a, b, c, d in
+             ((-half, -half, half, -half), (-half, half, half, half), (-half, -half + 1, -half, half - 1),
+              (half, -half + 1, half, half - 1))]
+    spots = [(3, 2), (-3, 2), (2, -4), (-4, -3), (4, -1), (-1, 4)][:n]
+    return walls + [f"summon {mob} {_c(at(x, 0, z))}" for x, z in spots]
+
+
+def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass"):
+    """A glass tank inside the box: floor at `floor_y`, four walls up to `top`, open above, water up to `water_top`."""
+    lo, hi = (x0 - 1, floor_y, z0 - 1), (x1 + 1, top, z1 + 1)
+    out = [f"fill {_c(at(lo[0], floor_y, lo[2]))} {_c(at(hi[0], floor_y, hi[2]))} stone"]
+    for a, b in (((lo[0], lo[2]), (hi[0], lo[2])), ((lo[0], hi[2]), (hi[0], hi[2])),
+                 ((lo[0], lo[2]), (lo[0], hi[2])), ((hi[0], lo[2]), (hi[0], hi[2]))):
+        out.append(f"fill {_c(at(a[0], floor_y + 1, a[1]))} {_c(at(b[0], top, b[1]))} {wall}")
+    if water_top is not None:
+        out.append(f"fill {_c(at(x0, floor_y + 1, z0))} {_c(at(x1, water_top, z1))} water")
+    return out
+
+
+# -- the bases: one skill, one job, one arena ---------------------------------------------------------------------
+# name → dict(skills, doc, setup, run, check, budget, needs (the goal as planner needs, for resume / goal-met),
+#             effect (token, n) for the at-success interrupt, work_s: when an interrupt lands mid-work)
+BASES = {
+    "nav": dict(skills=["travel_to"], doc="walk 14 blocks east over the arena", point="A",
+                setup=_floor() + [_tp()], run=lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 2),
+                check=_at(at(14, 0, 0), 3.5), budget=30, work_s=3, arena=16),
+    "chop": dict(skills=["chop"], doc="a grove of two oaks → 4 logs", point="A",
+                 setup=_grove((4, 0), (-4, 3)) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 4),
+                 check=_gain("log", 4), needs=[("log", 4)], effect=("log", 1), budget=45, work_s=4),
+    "mine_stone": dict(skills=["mine"], doc="stone floor, a wooden pickaxe → 6 cobblestone", point="A",
+                       setup=_floor() + [_tp(), "give @p wooden_pickaxe"],
+                       run=lambda ctx: _skill("mine")(ctx, "minecraft:cobblestone", 6, ["stone"], 0),
+                       check=_gain("minecraft:cobblestone", 6), needs=[("minecraft:cobblestone", 6)],
+                       effect=("minecraft:cobblestone", 1), budget=45, work_s=3),
+    "mine_iron": dict(skills=["mine"], doc="two iron ore in a stone wall, a stone pickaxe → 2 raw iron", point="A",
+                      setup=_floor() + [f"fill {_c(at(4, 0, -1))} {_c(at(5, 2, 1))} stone",
+                                        f"fill {_c(at(4, 0, 0))} {_c(at(4, 1, 0))} iron_ore", _tp(),
+                                        "give @p stone_pickaxe"],
+                      run=lambda ctx: _skill("mine")(ctx, "minecraft:raw_iron", 2, ["iron_ore"], 1),
+                      check=_gain("minecraft:raw_iron", 2), needs=[("minecraft:raw_iron", 2)],
+                      effect=("minecraft:raw_iron", 1), budget=45, work_s=3),
+    "craft": dict(skills=["craft"], doc="planks, sticks, a table carried → a wooden pickaxe", point="A",
+                  setup=_floor() + [_tp(), "give @p oak_planks 8", "give @p stick 4", "give @p crafting_table"],
+                  run=lambda ctx: _skill("craft")(ctx, "minecraft:wooden_pickaxe", 1),
+                  check=_gain("minecraft:wooden_pickaxe", 1, at_most=1), needs=[("minecraft:wooden_pickaxe", 1)],
+                  effect=("minecraft:wooden_pickaxe", 1), budget=20, work_s=1),
+    "smelt": dict(skills=["smelt"], doc="a furnace, 3 raw iron, coal → 3 iron ingots", point="A",
+                  setup=_floor() + [_tp(), "give @p furnace", "give @p raw_iron 3", "give @p coal 2"],
+                  run=lambda ctx: _skill("smelt")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 3, "coal"),
+                  check=_gain("minecraft:iron_ingot", 3, at_most=3), needs=[("minecraft:iron_ingot", 3)],
+                  effect=("minecraft:iron_ingot", 1), budget=60, work_s=5, tick_rate=60),
+    "hunt": dict(skills=["hunt"], doc="a pen of three cows, a sword → 2 beef", point="A",
+                 setup=_floor("grass_block") + _pen("cow", 3) + [_tp(), "give @p iron_sword"],
+                 run=lambda ctx: _skill("hunt")(ctx, "minecraft:beef", 2, ["minecraft:cow"], False),
+                 check=_gain("minecraft:beef", 2), needs=[("minecraft:beef", 2)], effect=("minecraft:beef", 1),
+                 budget=45, work_s=4, entities=[("minecraft:cow", 3)]),
+    "eat": dict(skills=["eat"], doc="hungry, bread carried → the food bar rises", point="A",
+                setup=_floor() + [_tp(), "give @p bread 4"],
+                pre=lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5)),
+                run=lambda ctx: _skill("eat")(), check=_food_up(), budget=20, work_s=1),
+    "sleep": dict(skills=["sleep"], doc="night, a bed carried → morning", point="A",
+                  setup=_floor() + [_tp(), "give @p white_bed", "time set 18000"],
+                  run=lambda ctx: _skill("sleep")(ctx, ctx.policy), check=_is_day(), budget=40, work_s=3),
+    "loot": dict(skills=["loot_chest"], doc="a chest of iron and bread 5 blocks away → the iron", point="A",
+                 setup=_floor() + _chest(at(5, 0, 1), "iron_ingot 5", "bread 4") + [_tp(-1, 0, 0)],
+                 run=lambda ctx: _skill("loot_chest")(ctx), check=_gain("minecraft:iron_ingot", 5),
+                 effect=("minecraft:iron_ingot", 1), budget=25, work_s=2),
+}
+
+# -- the conditions ------------------------------------------------------------------------------------------------
+# name → dict(axis, doc, bases it applies to, and what it changes). `setup` is appended to the base's; `fails` makes
+# the row an expected failure with that reason; `check` (a function of the base) replaces the base's effect check;
+# `run` (a function of name, base) wraps the base's run; `before` hooks run after the start snapshot.
+H = 6        # canopy height
+
+
+def _all_bases(*names):
+    return set(names) if names else set(BASES)
+
+
+CONDITIONS = {
+    # terrain
+    "canopy": dict(axis="terrain", doc="under a closed leaf canopy", bases={"nav", "chop", "hunt", "loot", "sleep"},
+                   setup=[f"fill {_c(at(-8, H, -8))} {_c(at(8, H + 1, 8))} oak_leaves[persistent=true]"]),
+    # `outline` touches only the shell, and the shell's bottom is the floor layer: what the base built stays.
+    "cave": dict(axis="terrain", doc="in a dark stone room under rock",
+                 bases={"nav", "mine_stone", "craft", "smelt", "loot", "sleep"},
+                 setup=[f"fill {_c(at(-9, -1, -9))} {_c(at(15, 4, 9))} stone outline"]),
+    "underwater": dict(axis="terrain", doc="the arena flooded two blocks deep", bases={"nav", "eat", "loot"},
+                       setup=[f"fill {_c(at(-9, -1, -9))} {_c(at(15, 3, 9))} glass outline",
+                              f"fill {_c(at(-8, 0, -8))} {_c(at(14, 1, 8))} water replace air"]),
+    "pillar": dict(axis="terrain", doc="starting on top of a 1×1 pillar 10 high", bases={"nav", "chop", "hunt"},
+                   setup=[f"fill {_c(at(0, 0, 0))} {_c(at(0, 9, 0))} dirt", _tp(0, 10, 0)]),
+    "cliff_edge": dict(axis="terrain", doc="the arena ends in a 20-block drop two blocks behind the body",
+                       bases={"nav", "mine_stone", "chop", "craft"},
+                       setup=[f"fill {_c(at(-8, -3, -8))} {_c(at(-3, -1, 8))} air", _tp(-1, 0, 0)]),
+    "nether": dict(axis="terrain", doc="the same job in the Nether", bases={"nav", "craft", "smelt", "mine_stone"},
+                   dimension="minecraft:the_nether"),
+    "night": dict(axis="terrain", doc="at night", bases={"nav", "chop", "hunt", "mine_stone", "loot"},
+                  setup=["time set 18000"]),
+    "rain": dict(axis="terrain", doc="in the rain", bases={"nav", "chop", "hunt", "sleep"}, setup=["weather rain"]),
+    # timing
+    "pickup_lag": dict(axis="timing", doc="the server at 8 ticks/s: drops and slots update late",
+                       bases={"chop", "mine_stone", "mine_iron", "hunt", "loot", "craft"}, tick_rate=8),
+    "interrupt_mid_work": dict(axis="timing", doc="interrupted mid-work, then resumed by what is still missing",
+                               bases={"chop", "mine_stone", "mine_iron", "craft", "smelt", "hunt"}, interrupt="mid"),
+    "interrupt_twice": dict(axis="timing", doc="interrupted twice, resumed twice",
+                            bases={"chop", "mine_stone", "smelt", "hunt"}, interrupt="twice"),
+    "interrupt_at_success": dict(axis="timing", doc="interrupted the moment the effect shows in the bag",
+                                 bases={"chop", "mine_stone", "craft", "smelt", "loot"}, interrupt="success"),
+    "contested": dict(axis="timing", doc="another commander posts a task mid-run (BodyContested), then resume",
+                      bases={"chop", "mine_stone", "nav"}, interrupt="contested"),
+    "player_takeover": dict(axis="timing", doc="the player takes control mid-run: stand down, no failure counted",
+                            bases={"chop", "nav"}, hook="mod: POST /control {paused} to simulate the player"),
+    # inventory
+    "full_bag": dict(axis="inventory", doc="every slot full of dirt: nothing new can be picked up",
+                     bases={"chop", "mine_stone", "hunt", "loot"}, setup=["give @p dirt 2304"],
+                     fails=r"bag|full|room|slot"),
+    "tool_one_use": dict(axis="inventory", doc="the pickaxe has one use left", bases={"mine_stone", "mine_iron"},
+                         setup=["clear @p", "give @p wooden_pickaxe[damage=58]", "give @p stone_pickaxe[damage=130]"],
+                         fails=r"pickaxe|tier"),
+    "wrong_tool": dict(axis="inventory", doc="only a wooden pickaxe for iron ore", bases={"mine_iron"},
+                       setup=["clear @p", "give @p wooden_pickaxe"], fails=r"tier-1 pickaxe|tier 1|pickaxe"),
+    "goal_met": dict(axis="inventory", doc="the bag already holds the goal: plan nothing, do nothing",
+                     bases={"chop", "mine_stone", "mine_iron", "craft", "smelt", "hunt"}, goal_met=True),
+}
+
+# Surprises: one-off rows, each a base with its own twist and its own verdict.
+SURPRISES = {
+    "leaves_block_trunk": dict(base="chop", doc="leaves packed round the trunk at head height",
+                               setup=[f"fill {_c(at(3, 0, -1))} {_c(at(5, 2, 1))} oak_leaves[persistent=true]",
+                                      f"fill {_c(at(4, 0, 0))} {_c(at(4, 4, 0))} oak_log"]),
+    "floating_logs": dict(base="chop", doc="three logs floating 3 blocks up, no trunk under them",
+                          setup=[f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block",
+                                 f"fill {_c(at(4, 3, 0))} {_c(at(4, 5, 0))} oak_log", _tp(),
+                                 "give @p dirt 16"], replace_setup=True, check=_gain("log", 2), run_n=2),
+    "empty_chest": dict(base="loot", doc="the only chest is empty", replace_setup=True,
+                        setup=_floor() + [f"setblock {_c(at(5, 0, 1))} chest", _tp(-1, 0, 0)],
+                        fails=r"empty|nothing|worth|no unlooted"),
+    "bed_obstructed": dict(base="sleep", doc="a bed carried, the body boxed in a 1×1 cell", replace_setup=True,
+                           setup=_floor() + [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 2, 1))} stone",
+                                             f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air", _tp(),
+                                             "give @p white_bed", "time set 18000"],
+                           fails=r"no flat 2-block spot|no room|obstruct"),
+    "bed_in_nether": dict(base="sleep", doc="night in the Nether, a bed carried: must refuse (it explodes)",
+                          dimension="minecraft:the_nether", replace_setup=True,
+                          setup=_floor("netherrack") + [_tp(), "give @p white_bed", "time set 18000"],
+                          fails=r"nether|dimension|explod",
+                          check=_all(_alive(18), _no_block_suffix(at(-4, -1, -4), at(4, 2, 4), "_bed"))),
+    "lava_under_ore": dict(base="mine_iron", doc="lava right under the iron ore",
+                           setup=[f"fill {_c(at(4, -2, -1))} {_c(at(5, -1, 1))} lava"],
+                           check=_all(_gain("minecraft:raw_iron", 2), _alive(14))),
+    "falling_gravel": dict(base="mine_stone", doc="gravel stacked over the stone to be mined",
+                           setup=[f"fill {_c(at(-3, 0, -3))} {_c(at(3, 3, 3))} gravel",
+                                  f"fill {_c(at(-1, 0, -1))} {_c(at(1, 3, 1))} air"],
+                           check=_all(_gain("minecraft:cobblestone", 6), _alive(14))),
+    "chest_or_tree": dict(base="chop", doc="4 logs in a chest by the body, a tree 12 away: the brain takes the "
+                                           "cheaper (plan-driven, test point C)", point="C",
+                          setup=_chest(at(1, 0, 1), "oak_log 4"),
+                          run=lambda ctx: _achieve(ctx, [("log", 4)], lambda: _inv_now().count("log") >= 4),
+                          check=_all(_gain("log", 4), _blocks(at(4, 0, 0), at(4, 6, 0), "oak_log", 3))),
+}
+
+
+def _row(name, base, cond=None, extra=None):
+    """One row: the base, changed by a condition or a surprise."""
+    b, c, x = BASES[base], cond or {}, extra or {}
+    setup = list(x["setup"]) if x.get("replace_setup") else list(b["setup"]) + list(c.get("setup", ())) + \
+        list(x.get("setup", ()))
+    run, check, hooks = x.get("run", b["run"]), x.get("check", b["check"]), [_start(name)]
+    fails = x.get("fails", c.get("fails"))
+    if b.get("pre"):
+        hooks.append(b["pre"])
+    if x.get("run_n"):
+        run = (lambda n: lambda ctx: _skill("chop")(ctx, n))(x["run_n"])
+    if c.get("goal_met"):
+        needs = b["needs"]
+        setup += [f"give @p {t.split(':')[-1] if t != 'log' else 'oak_log'} {n}" for t, n in needs]
+        run, check = _plan_is_empty(needs), _same_bag_and_place()
+    kind = c.get("interrupt")
+    if kind:
+        resume = _unless_done(b["check"], _achieve_needs(b["needs"]) if b.get("needs") else b["run"])
+        if kind == "mid":
+            hooks.append(_interrupt_after(b.get("work_s", 3)))
+        elif kind == "twice":
+            hooks.append(_interrupt_after(b.get("work_s", 3), b.get("work_s", 3) + 4))
+        elif kind == "success":
+            hooks.append(_interrupt_when(*b["effect"]))
+        elif kind == "contested":
+            hooks.append(_contest_after(b.get("work_s", 3)))
+        run = _resume(name, run, resume)
+        check = _all(check, _interrupted(2 if kind == "twice" else 1)) if kind != "success" else check
+    if c.get("hook"):
+        run = _missing_hook(c["hook"])
+    if fails:
+        run = _expect_failure(name, run, fails)
+        check = _all(_failed_as_expected(), x.get("check", _alive()))
+    row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
+           "before": _hooks(*hooks), "run": run, "check": check,
+           "budget": int(b["budget"] * (2 if kind else 1) * (3 if c.get("tick_rate") == 8 else 1)),
+           "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
+           "tags": {"base": base, **({c["axis"]: next(k for k, v in CONDITIONS.items() if v is c)} if c else {}),
+                    **({"surprise": name} if x else {})}}
+    if fails:
+        row["fails"] = fails
+    for key in ("tick_rate", "dimension"):
+        if c.get(key) or x.get(key) or b.get(key):
+            row[key] = x.get(key) or c.get(key) or b.get(key)
+    if b.get("entities"):
+        row["expect_entities"] = list(b["entities"])
+    if c.get("hook"):
+        row["hook"] = c["hook"]
+    return row
+
+
+for _base in BASES:
+    SHEET[f"{_base}__base"] = _row(f"{_base}__base", _base)
+for (_cname, _cond), _base in _it.product(CONDITIONS.items(), BASES):
+    if _base in _cond["bases"]:
+        SHEET[f"{_base}__{_cname}"] = _row(f"{_base}__{_cname}", _base, _cond)
+for _sname, _s in SURPRISES.items():
+    SHEET[_sname] = _row(_sname, _s["base"], None, _s)
+
+# -- the rest of the registry, one row each: every skill must be proven in the world somewhere ------------------
+_ONE = {
+    "take_bed": (["take"], "a village bed 6 blocks away → carried", _floor() + [f"setblock {_c(at(6, 0, 0))} red_bed",
+                                                                             _tp()],
+                 lambda ctx: _skill("take")(ctx, "bed", 1, ["red_bed"]), _gain("bed", 1), 30),
+    "tidy_full_bag": (["tidy_inventory"], "a full bag of junk → slots free", _floor() + [_tp(), "give @p dirt 2304"],
+                      lambda ctx: _skill("tidy_inventory")(ctx), _free_slots(2), 30),
+    "deposit_home_chest": (["deposit"], "a home chest beside the body, a bag of cobblestone → stored",
+                           _floor() + [f"setblock {_c(at(2, 0, 0))} chest", _tp(), "give @p cobblestone 1280",
+                                       "give @p dirt 640"],
+                           lambda ctx: (ctx.mem.add_site("home", at(2, 0, 0), "minecraft:overworld", name="home"),
+                                        _skill("deposit")(ctx))[1], _free_slots(8), 60),
+    "dig_in_night": (["dig_in"], "night on stone, a pickaxe → three down, sealed", _floor(depth=4) +
+                     [_tp(), "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
+                     lambda ctx: _skill("dig_in")(ctx), lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1],
+                     40),
+    "dig_out_morning": (["dig_out"], "morning, sealed in a 1×1 pocket → out", _floor() +
+                        [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 2, 1))} stone", f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air",
+                         _tp(), "give @p stone_pickaxe"],
+                        lambda ctx: _skill("dig_out")(ctx), lambda api, inv: not _near(api, at(0.5, 0, 0.5), 0.9), 40),
+    "pod_open_ground": (["pod"], "night, open ground, 16 blocks → walled in", _floor() +
+                        [_tp(), "give @p cobblestone 16", "time set 18000"], lambda ctx: _skill("pod")(ctx),
+                        _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9), 40),
+    "pod_in_water": (["pod"], "night, standing on a pillar in deep water → walled in anyway",
+                     _tank(-6, 6, -6, 6, 0, water_top=-1) + [f"fill {_c(at(0, -3, 0))} {_c(at(0, -1, 0))} stone",
+                                                            _tp(), "give @p cobblestone 32", "time set 18000"], lambda ctx: _skill("pod")(ctx),
+                     _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9), 60),
+    "build_shelter_flat": (["build_shelter"], "flat stone, the hut's materials → a shelter standing",
+                           _floor() + [_tp(), "give @p cobblestone 32", "give @p oak_door", "give @p torch 2"],
+                           lambda ctx: _skill("build_shelter")(ctx),
+                           _blocks(at(-6, 0, -6), at(6, 3, 6), "cobblestone", 14), 120),
+    "burrow_hillside": (["burrow"], "night, a stone hillside beside the body → tunnelled in and sealed",
+                        _floor() + [f"fill {_c(at(2, 0, -4))} {_c(at(8, 4, 4))} stone", _tp(),
+                                    "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
+                        lambda ctx: _skill("burrow")(ctx), _alive(18), 60),
+    "contain_lava_pool": (["contain_lava"], "an open lava pool beside the body → covered", _floor() +
+                          [f"fill {_c(at(2, -1, -1))} {_c(at(3, -1, 1))} lava", _tp(), "give @p cobblestone 16"],
+                          lambda ctx: _skill("contain_lava")(ctx), _blocks(at(2, -1, -1), at(3, -1, 1), "lava", 0, 0), 30),
+    "torch_in_the_dark": (["place_torch_if_dark"], "a dark room, torches carried → one torch placed",
+                          _floor() + [f"fill {_c(at(-4, 0, -4))} {_c(at(4, 3, 4))} stone hollow",
+                                      f"fill {_c(at(-3, 0, -3))} {_c(at(3, 2, 3))} air", _tp(), "give @p torch 4"],
+                          lambda ctx: _skill("place_torch_if_dark")(ctx),
+                          _blocks(at(-3, 0, -3), at(3, 2, 3), "torch", 1), 20),
+    "light_the_room": (["light_area"], "a dark 9×9 room, 8 torches → several placed",
+                       _floor() + [f"fill {_c(at(-6, 0, -6))} {_c(at(6, 3, 6))} stone hollow",
+                                   f"fill {_c(at(-5, 0, -5))} {_c(at(5, 2, 5))} air", _tp(), "give @p torch 8"],
+                       lambda ctx: _skill("light_area")(ctx, 6, 4), _blocks(at(-5, 0, -5), at(5, 2, 5), "torch", 2), 60),
+    "find_air_capped": (["find_air"], "under water with a stone cap, out of breath → air",
+                        [f"fill {_c(at(-4, -4, -4))} {_c(at(4, 3, 4))} stone", f"fill {_c(at(-3, -3, -3))} {_c(at(3, 2, 3))} water",
+                         _tp(0, -3, 0), "give @p stone_pickaxe"],
+                        lambda ctx: _skill("find_air")(ctx), _alive(10), 45),
+    "surface_from_lake": (["surface"], "4 blocks down in open water → up to breathe",
+                          _tank(-5, 5, -5, 5, 8, water_top=7) + [_tp(0, -3, 0)], lambda ctx: _skill("surface")(ctx),
+                          lambda api, inv: api.get("/state")["air"] >= 200, 30),
+    "reach_land_swim": (["reach_land"], "night, treading water 10 blocks from shore → on dry land",
+                        _tank(-8, 9, -8, 8, 1, water_top=-1) + [f"fill {_c(at(10, -3, -8))} {_c(at(14, -1, 8))} stone",
+                                                               _tp(), "time set 18000"],
+                        lambda ctx: _skill("reach_land")(ctx),
+                        lambda api, inv: api.get("/state")["onGround"] and not api.get("/state")["inWater"], 60),
+    "footing_in_water": (["stand_on_a_block"], "treading water, cobblestone carried → a block underfoot",
+                         _tank(-4, 4, -4, 4, 0, water_top=-1) + [_tp(), "give @p cobblestone 8"],
+                         lambda ctx: _skill("stand_on_a_block")(ctx),
+                         lambda api, inv: api.get("/state")["onGround"], 20),
+    "unbury_sand": (["unbury"], "sand dropped on the head → dug out", _floor() + [_tp()],
+                    lambda ctx: (_chat(f"fill {_c(at(0, 1, 0))} {_c(at(0, 3, 0))} sand"), time.sleep(1),
+                                 _skill("unbury")(ctx))[2], lambda api, inv: _head_clear() and _alive(10)(api, inv), 20),
+    "seek_remembered": (["seek"], "memory says iron ore 16 blocks away → walked there",
+                        _floor(half=10) + [f"fill {_c(at(10, -1, -8))} {_c(at(19, -1, 8))} stone",
+                                           f"setblock {_c(at(17, 0, 0))} iron_ore", _tp(-6, 0, 0)],
+                        lambda ctx: (ctx.mem.note_resource("iron_ore", at(17, 0, 0), "minecraft:overworld"),
+                                     _skill("seek")(ctx, ["iron_ore"]))[1], _at(at(17, 0, 0), 6), 60),
+    "smelt_in_background": (["start_smelt_job", "collect_job"], "load a furnace, walk off, come back → ingots",
+                            _floor() + [_tp(), "give @p furnace", "give @p raw_iron 4", "give @p coal 2"],
+                            lambda ctx: (_skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 4,
+                                                                   "coal"), time.sleep(12),
+                                         _skill("collect_job")(ctx, ctx.mem.jobs("minecraft:overworld")[0]))[2],
+                            _gain("minecraft:iron_ingot", 4), 90),
+    "open_space_from_shaft": (["move_to_open_space"], "a full bag at the bottom of a 1×1 shaft → out where it is open",
+                              _floor(depth=4) + [f"fill {_c(at(0, -3, 0))} {_c(at(0, -1, 0))} air", _tp(0, -3, 0),
+                                                  "give @p dirt 2304", "give @p stone_pickaxe"],
+                              lambda ctx: _skill("move_to_open_space")(ctx),
+                              lambda api, inv: api.get("/state")["blockY"] >= at(0, -1, 0)[1], 60),
+    "repair_two_pickaxes": (["repair_tool"], "two worn stone pickaxes → one", _floor() +
+                            [_tp(), "give @p stone_pickaxe[damage=100]", "give @p stone_pickaxe[damage=100]"],
+                            lambda ctx: _skill("repair_tool")(ctx, "pickaxe"),
+                            lambda api, inv: inv.count("minecraft:stone_pickaxe") == 1, 20),
+    "repair_broken_hut": (["repair_site"], "a remembered hut with two wall blocks knocked out → rebuilt",
+                          _floor() + [f"fill {_c(at(2, 0, -2))} {_c(at(6, 2, 2))} cobblestone hollow",
+                                      f"fill {_c(at(2, 0, 0))} {_c(at(2, 1, 0))} air", _tp(), "give @p cobblestone 8"],
+                          lambda ctx: _skill("repair_site")(ctx, _broken_hut(ctx)),
+                          _blocks(at(2, 0, 0), at(2, 1, 0), "cobblestone", 2), 60),
+    "bridge_the_gap": (["bridge_toward"], "a 6-block gap in the floor toward the target, blocks carried → across",
+                       _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
+                       lambda ctx: _skill("bridge_toward")(ctx, at(9, 0, 0)), _at(at(9, 0, 0), 4), 45),
+    "plant_wheat": (["plant_farm"], "grass, seeds, a hoe, a water bucket → a wheat plot growing",
+                    _floor("grass_block") + [_tp(), "give @p wheat_seeds 8", "give @p stone_hoe", "give @p water_bucket"],
+                    lambda ctx: _skill("plant_farm")(ctx), _blocks(at(-4, 0, -4), at(4, 0, 4), "wheat", 4), 90),
+    "breed_cows": (["breed"], "two cows in a pen, wheat carried → wheat spent on them",
+                   _floor("grass_block") + _pen("cow", 2) + [_tp(), "give @p wheat 4"],
+                   lambda ctx: _skill("breed")(ctx), lambda api, inv: inv.count("minecraft:wheat") < 4, 45),
+    "fill_bottles_at_pond": (["fill_bottles"], "a pond, 3 glass bottles → 3 water bottles",
+                             _floor() + [f"fill {_c(at(2, -1, -1))} {_c(at(3, -1, 1))} water", _tp(),
+                                         "give @p glass_bottle 3"], lambda ctx: _skill("fill_bottles")(ctx, 3),
+                             lambda api, inv: inv.count("minecraft:glass_bottle") == 0, 30),
+}
+
+
+def _broken_hut(ctx):
+    """The hut in the arena as a remembered site whose snapshot is the whole wall (taken before it was broken)."""
+    lo, hi = at(2, 0, -2), at(6, 2, 2)
+    blocks = {f"{x},{y},{z}": "cobblestone" for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1)
+              for z in range(lo[2], hi[2] + 1) if x in (lo[0], hi[0]) or y in (lo[1], hi[1]) or z in (lo[2], hi[2])}
+    site = ctx.mem.add_site("shelter", at(4, 0, 0), "minecraft:overworld", name="bench-hut",
+                            snapshot={"lo": list(lo), "hi": list(hi), "blocks": blocks})
+    return site
+
+
+for _name, (_skills, _doc, _setup, _run, _check, _budget) in _ONE.items():
+    SHEET[_name] = {"doc": _doc, "module": "skills", "setup": list(_setup), "before": _start(_name), "run": _run,
+                    "check": _check, "budget": _budget, "skills": list(_skills), "point": "A",
+                    "tags": {"base": _skills[0]}}
+
+# Searching needs a world bigger than the box: these run on real terrain (raw), judged by what they found.
+def _found_near(blocks, r=6):
+    def check(api, inv):
+        from .world import find
+        return bool(find(blocks, radius=r, limit=1))
+    return check
+
+
+for _name, _row_ in {
+    "seek_blocks_real": (["seek_blocks"], "real terrain, no tree in the first look → walked to one",
+                         lambda ctx: _skill("seek_blocks")(ctx, ["oak_log", "birch_log", "spruce_log"], 4, 40),
+                         _found_near(["oak_log", "birch_log", "spruce_log"], 8), 240),
+    "explore_for_animals_real": (["explore_for"], "real terrain → cows, sheep or pigs found",
+                                 lambda ctx: _skill("explore_for")(ctx, ["minecraft:cow", "minecraft:sheep",
+                                                                         "minecraft:pig"], 4, 40),
+                                 lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
+                                     24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), 240),
+    "strip_mine_real": (["strip_mine_step"], "real terrain, a stone pickaxe → a mining tunnel started",
+                        lambda ctx: _skill("strip_mine_step")(ctx, 8), _gain("minecraft:cobblestone", 1), 300),
+}.items():
+    _skills_, _doc_, _run_, _check_, _budget_ = _row_
+    SHEET[_name] = {"doc": _doc_, "module": "skills", "raw": True, "release": True,
+                    "setup": ["spreadplayers 14200 14200 0 4 false @p", "clear @p", "give @p stone_pickaxe",
+                              "give @p torch 8", "give @p cobblestone 32", "give @p cooked_beef 8"],
+                    "before": _start(_name), "run": _run_, "check": _check_, "budget": _budget_,
+                    "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"}}
+
+# -- test point B: L0 hazards (the existing water_clutch, cross_lava_8, cave_escape) and two more ---------------
+SHEET["lava_edge_walk"] = {
+    "doc": "A 1-wide stone path between two lava pools to a target 12 blocks on → there, not burnt",
+    "module": "nav", "point": "B", "skills": ["travel_to"], "tags": {"base": "nav", "hazard": "lava"},
+    "setup": [f"fill {_c(at(-3, -3, -4))} {_c(at(15, -1, 4))} stone", f"fill {_c(at(0, -1, -3))} {_c(at(13, -1, -1))} lava",
+              f"fill {_c(at(0, -1, 1))} {_c(at(13, -1, 3))} lava", _tp(-1, 0, 0), "give @p cobblestone 32"],
+    "before": _start("lava_edge_walk"),
+    "run": lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 1.5),
+    "check": _all(_at(at(14, 0, 0), 2.5), _alive(16)), "budget": 40,
+}
+SHEET["buried_by_sand"] = {
+    "doc": "Sand dropped on the body mid-task → L0 rescues (unbury) through the brain's own round, then alive",
+    "module": "brain", "point": "B", "skills": ["unbury"], "tags": {"base": "l0", "hazard": "suffocating"},
+    "setup": _floor() + [_tp(), "give @p stone_pickaxe"],
+    "before": _hooks(_start("buried_by_sand"),
+                     lambda ctx: _chat(f"fill {_c(at(0, 0, 0))} {_c(at(0, 3, 0))} sand")),
+    "run": _brain_rounds(15, _head_clear), "check": _all(lambda api, inv: _head_clear(), _alive(10)), "budget": 20,
+}
+SHEET["drowning_in_a_pit"] = {
+    "doc": "Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else",
+    "module": "brain", "point": "B", "skills": ["find_air", "surface"], "tags": {"base": "l0", "hazard": "drowning"},
+    "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
+    "before": _start("drowning_in_a_pit"),
+    "run": _brain_rounds(25, lambda: __import__("bonobo.api", fromlist=["get"]).get("/state")["air"] >= 250),
+    "check": _alive(8), "budget": 30,
+}
+SHEET["interrupted_rescue_is_not_a_failure"] = {
+    "doc": "Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
+           "brain resumes and still gets its 4 logs",
+    "module": "brain", "point": "B", "skills": ["chop"], "tags": {"base": "chop", "hazard": "lava"},
+    "setup": _grove((4, 0)) + [_tp(), "give @p cobblestone 16"],
+    "before": _hooks(_start("interrupted_rescue_is_not_a_failure"),
+                     lambda ctx: _threading.Timer(3.0, lambda: _chat(f"setblock {_c(at(0, 0, 1))} lava")).start()),
+    "run": _resume("interrupted_rescue_is_not_a_failure", lambda ctx: _skill("chop")(ctx, 4),
+                   _achieve_needs([("log", 4)])),
+    "check": _all(_gain("log", 4), _alive(10)), "budget": 90,
+}
+for _name in ("water_clutch", "cross_lava_8", "cave_escape"):
+    SCENARIOS[_name]["point"] = "B"
+
+# -- test point D: acceptance ------------------------------------------------------------------------------------
+SCENARIOS[ACCEPTANCE_D] = {
+    "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within "
+           "30 minutes (stone tools → iron pickaxe milestones)",
+    "module": "brain", "raw": True, "release": True, "point": "D", "skills": [], "tags": {"base": "acceptance"},
+    "setup": ["spreadplayers 13000 13000 0 4 false @p", "clear @p", "time set 0"],
+    "run": _slice(lambda: _inv_now().count("minecraft:iron_pickaxe") >= 1, 30, max_idle=60,
+                  queue=[__import__("bonobo.goals", fromlist=["goals"]).make("milestone", name="stone tools"),
+                         __import__("bonobo.goals", fromlist=["goals"]).make("milestone", name="iron pickaxe")]),
+    "check": _slice_check(lambda: _inv_now().count("minecraft:iron_pickaxe") >= 1, max_idle=60),
+    "detail": _slice_detail, "budget": 1800,
+}
+for _i, _name in enumerate(CHAIN_C):
+    SCENARIOS[_name].update(point="C", chain=_i)
+
+# -- what the hand-written rows prove (skills) and at which test point --------------------------------------------
+COVERS = {
+    "cast_obsidian": ["cast_obsidian"], "build_light_portal": ["build_blueprint"],
+    "fill_water_bucket": ["fill_water_bucket"], "cross_lava_lake": ["travel_to"], "cross_lava_3": ["travel_to"],
+    "cross_lava_8": ["travel_to"], "gather_logs": ["chop"], "gather_logs_birch": ["chop"],
+    "enter_nether": ["use_portal"], "relight_portal": ["use_portal"], "return_from_nether": ["use_portal"],
+    "return_to_portal": ["use_portal"], "retreat_from_nether": ["use_portal"], "barter_piglin": ["barter_piglin"],
+    "fight_blaze": ["fight_blaze"], "activate_end_portal": ["activate_end_portal"], "enter_end": ["enter_end"],
+    "craft_stone_tools": ["craft", "mine", "chop"], "iron_ingots": ["mine", "load_smelter", "start_smelt_job", "smelt"],
+    "hunt_food": ["hunt"], "craft_eyes": ["craft"], "locate_stronghold": ["locate_stronghold"],
+    "find_portal_room_fresh": ["find_portal_room"], "fight_dragon": ["fight_dragon"], "loot_chest": ["loot_chest"],
+    "recover_items": ["recover_items"], "find_fortress": ["find_fortress"], "find_fortress_far": ["find_fortress"],
+    "bed_bomb_kill": ["slay_dragon"], "cave_escape": ["travel_to"],
+}
+for _name, _skills in COVERS.items():
+    if _name in SCENARIOS:
+        SCENARIOS[_name].setdefault("skills", list(_skills))
+        SCENARIOS[_name].setdefault("point", "A")
+SCENARIOS.update(SHEET)
+for _name in ("slice_retreat",):
+    SCENARIOS[_name].setdefault("point", "C")
+SCENARIOS["water_clutch"].setdefault("skills", [])
+for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one skill: they carry an empty list
+    _row_.setdefault("skills", [])
+    _row_.setdefault("point", "A")
