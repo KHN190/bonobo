@@ -75,8 +75,11 @@ class EveryRow(unittest.TestCase):
             for cmd in row["setup"]:
                 for x, y, z in re.findall(r"(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)", cmd):
                     with self.subTest(name, cmd=cmd):
-                        self.assertTrue(x0 - 1 <= float(x) - ox <= x1 + 1 and y0 <= float(y) - oy <= y1 + 1
-                                        and z0 - 1 <= float(z) - oz <= z1 + 1, (x, y, z))
+                        rel = (float(x) - ox, float(y) - oy, float(z) - oz)
+                        outside = [(axis, v) for axis, v, lo, hi in (("x", rel[0], x0 - 1, x1 + 1),
+                                                                    ("y", rel[1], y0, y1 + 1),
+                                                                    ("z", rel[2], z0 - 1, z1 + 1)) if not lo <= v <= hi]
+                        self.assertEqual(outside, [], "outside the bench box")
 
     def test_expected_failures_name_a_reason(self):
         for name, row in rows():
@@ -84,10 +87,10 @@ class EveryRow(unittest.TestCase):
                 continue
             with self.subTest(name):
                 pattern = re.compile(row["fails"], re.I)
-                for generic in ("", "error", "failed", "finished without reaching its goal", "TaskStuck"):
-                    self.assertIsNone(pattern.fullmatch(generic), f"{row['fails']!r} accepts {generic!r}")
-                self.assertIsNone(pattern.search("chop: finished without reaching its goal"),
-                                  "a verify failure is not a reason")
+                accepted = [g for g in ("", "error", "failed", "finished without reaching its goal", "TaskStuck")
+                            if pattern.fullmatch(g)]
+                accepted += [g for g in ("chop: finished without reaching its goal",) if pattern.search(g)]
+                self.assertEqual(accepted, [], f"{row['fails']!r} accepts a failure that names no reason")
 
 
 class EverySkillIsProven(unittest.TestCase):
@@ -96,21 +99,21 @@ class EverySkillIsProven(unittest.TestCase):
         proven = set().union(*(proven_by(e) for _, row in rows() for e in row.get("skills", ())))
         return no_verify, set(skillkit.REGISTRY) - proven
 
-    def test_real_verify(self):
-        no_verify, _ = self.gaps()
-        self.assertEqual(no_verify - VERIFY_GAPS, set(), "a skill without verify: give it one (the world's effect)")
-        self.assertEqual(VERIFY_GAPS - no_verify, set(), "fixed: remove it from VERIFY_GAPS (the list only shrinks)")
-
-    def test_a_row_per_skill(self):
-        _, unproven = self.gaps()
-        self.assertEqual(unproven - SCENARIO_GAPS, set(), "a skill no scenario row proves: add a row")
-        self.assertEqual(SCENARIO_GAPS - unproven, set(), "proven now: remove it from SCENARIO_GAPS")
-
-    def test_the_allowlists_only_shrink(self):
-        self.assertLessEqual(len(VERIFY_GAPS), CEILING)
-        self.assertLessEqual(len(SCENARIO_GAPS), CEILING)
-        self.assertTrue(VERIFY_GAPS <= set(skillkit.REGISTRY) and SCENARIO_GAPS <= set(skillkit.REGISTRY),
-                        "an allowlisted skill that no longer exists")
+    def test_gaps_are_exactly_the_allowlists(self):
+        """Each gap list is exactly its allowlist: a new gap fails until fixed, a fixed one until removed; every list
+        stays within the ceiling and names only what exists."""
+        no_verify, unproven = self.gaps()
+        named = {e for _, row in rows() for e in row.get("skills", ())}
+        unknown = {e for e in named if not proven_by(e)}
+        orphans = (VERIFY_GAPS | SCENARIO_GAPS) - set(skillkit.REGISTRY)
+        table = [("skills without a real verify", no_verify, VERIFY_GAPS),
+                 ("skills no bench row proves", unproven, SCENARIO_GAPS),
+                 ("row entries that are neither a skill nor a provided effect", unknown, set()),
+                 ("allowlisted names that no longer exist", orphans, set())]
+        for name, actual, allowed in table:
+            with self.subTest(name):
+                self.assertEqual(sorted(actual), sorted(allowed))
+                self.assertEqual(len(allowed) <= CEILING, True, f"{len(allowed)} over the ceiling {CEILING}")
 
 
 class TheCrossProductIsWhole(unittest.TestCase):
@@ -148,12 +151,12 @@ class TheCrossProductIsWhole(unittest.TestCase):
         for name, row in sorted(sc.SHEET.items()):
             if row["tags"].get("timing", "").startswith("interrupt"):
                 with self.subTest(name):
-                    self.assertGreaterEqual(row["budget"], 2 * sc.BASES[row["tags"]["base"]]["budget"],
-                                            "an interrupted run gets time to resume")
+                    self.assertEqual(row["budget"], 2 * sc.BASES[row["tags"]["base"]]["budget"],
+                                     "an interrupted run gets twice the base's time, to resume")
 
     def test_missing_hooks_are_rows_not_silence(self):
         hooked = {n: r["hook"] for n, r in sc.SHEET.items() if "hook" in r}
-        self.assertTrue(hooked, "the player-takeover rows exist and say what they need")
+        self.assertEqual(sorted(hooked), [f"{b}__player_takeover" for b in sorted(sc.CONDITIONS["player_takeover"]["bases"])])
         for name, what in hooked.items():
             with self.subTest(name):
                 self.assertIn("mod:", what)
@@ -239,10 +242,19 @@ class Changed(unittest.TestCase):
             with self.subTest(tier=tier, changed=changed):
                 self.assertEqual(sc.select(SHEET, tier, changed, REGISTRY), want)
 
+    # (situation, git diff -U0 text) → changed lines per file → skills whose spans they touch
+    DIFFS = [("one hunk in chop, one elsewhere in the file", DIFF, {"bonobo/wood.py": [40, 41, 42, 201]}, {"chop"}),
+             ("nothing changed", "", {}, set()),
+             ("a deleted file only", "+++ /dev/null\n@@ -1,3 +0,0 @@\n", {}, set()),
+             ("two skills in two files", "+++ b/bonobo/wood.py\n@@ -300 +300 @@\n+++ b/bonobo/skills.py\n"
+              "@@ -450,2 +450,2 @@\n", {"bonobo/wood.py": [300], "bonobo/skills.py": [450, 451]}, {"far", "mine"}),
+             ("the line just past a span", "+++ b/bonobo/wood.py\n@@ -61 +61 @@\n", {"bonobo/wood.py": [61]}, set())]
+
     def test_diff_to_skills(self):
-        hunks = sc.diff_hunks(DIFF)
-        self.assertEqual(hunks, {"bonobo/wood.py": [40, 41, 42, 201]})
-        self.assertEqual(sc.touched_skills(hunks, SPANS), {"chop"})
+        for name, diff, hunks, touched in self.DIFFS:
+            with self.subTest(name):
+                self.assertEqual(sc.diff_hunks(diff), hunks)
+                self.assertEqual(sc.touched_skills(hunks, SPANS), touched)
 
     def test_real_registry_spans(self):
         spans = sc.skill_spans(skillkit.REGISTRY, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -320,7 +332,7 @@ class ThePoints(unittest.TestCase):
         row = sc.SCENARIOS[sc.ACCEPTANCE_D]
         for what, holds in self.ACCEPT:
             with self.subTest(what):
-                self.assertTrue(holds(row))
+                self.assertEqual(holds(row), True)
 
 
 if __name__ == "__main__":
