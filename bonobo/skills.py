@@ -1128,6 +1128,21 @@ def can_sleep(state):
     return "a bed only works at night (or in a thunderstorm)"
 
 
+def _day_now():
+    from .data import DAY_END, NIGHT_END
+    t = int(api.get("/state")["timeOfDay"]) % 24000
+    return not DAY_END <= t <= NIGHT_END
+
+
+@skill(done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
+def wait_for_day(ctx):
+    """Sit the night out where we are (the plan put us under cover first): wait in ten-second slices until the sun
+    is up. The other way to morning is a bed (`sleep`); the solver prices both."""
+    while True:
+        api.run({"type": "wait", "ticks": 200}, wait=15)
+        yield api.get("/state")["timeOfDay"]
+
+
 @skill(verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
        provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):

@@ -21,7 +21,8 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 """
 import math
 
-from .data import COVERED_SKY, GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid, seen_class
+from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
+                   seen_class)
 from .knowledge import GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
@@ -153,6 +154,11 @@ def consume(token, n):
 # This distinction is the whole reason there are two: with them merged, "I am swimming" made every column
 # unplannable, nothing could be planned, and the one column that could mend it competed against nothing.
 BODY_DIMS = ("footing", "hands_free")
+# Daylight, the same way: `day` is present while the sun is up. Work out in the open — gathering trees, hunting,
+# going to anything on the surface — requires it; sleeping and waiting under cover produce it. So a plan made at
+# dusk puts the mining first and the tree after the night, instead of walking into the dark for a log.
+DAY_DIM = "day"
+NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
 DROWNING_TICKS = 100          # about five seconds of air left: below this, getting a breath comes first
 
 
@@ -222,8 +228,30 @@ def state_of(snap, mem, extra=None, reachable=None):
     # same "no free spot" for itself. Treading water there is nothing to stand on and nothing to place against;
     # falling, riding or being held there is no body to work with.
     x.update(body_dims(getattr(snap, "state", None)))
+    night = _is_night(snap)
+    if not night:
+        x[DAY_DIM] = 1
+    else:
+        x["clock:dawn_s"] = _dawn_s(snap)
     x.update(extra or {})
     return {d: v for d, v in x.items() if v}
+
+
+def _is_night(snap):
+    night = getattr(snap, "night", None)
+    if night is not None:
+        return bool(night)
+    t = int((getattr(snap, "state", None) or {}).get("timeOfDay", 0)) % 24000
+    return DAY_END <= t <= NIGHT_END
+
+
+def _dawn_s(snap):
+    """Seconds until the sun is up again, from the snapshot's clock; a whole night when it cannot say."""
+    state = getattr(snap, "state", None) or {}
+    if "timeOfDay" not in state:
+        return NIGHT_S
+    t = int(state["timeOfDay"]) % 24000
+    return max(1.0, ((NIGHT_END - t) % 24000) / 20.0)
 
 
 # Close enough to work on it without walking: the skills' own reach.
@@ -338,6 +366,7 @@ def _seek(cost):
         go_s = cost.seek_s(kinds)
         chance = max(MIN_FIND_P, cost.find_p(kinds))
         out.append(Action(f"seek:{what}", {at(what): 1}, round(go_s / chance, 1), limit=1,
+                          requires={DAY_DIM: 1} if what in _SURFACE else {},
                           tag=("seek", what, kinds, cost.where(kinds))))
     return out
 
@@ -349,6 +378,17 @@ MIN_FIND_P = 0.02
 
 # What walks away on its own. A note about one of these decays at the mob half-life, not the block one.
 _MOBS = frozenset(sum((list(v) for v in HUNT.values()), []))
+
+
+def _surface():
+    """What is found on the surface, where the dark is dangerous: trees, animals, villages."""
+    out = {"tree"}
+    out |= {types[0] for types in HUNT.values()}
+    out |= {row["blocks"][0] for row in TAKEABLE.values()}
+    return frozenset(out)
+
+
+_SURFACE = _surface()
 
 
 def _findable():
@@ -367,7 +407,7 @@ def _findable():
 
 def _gather(cost):
     return [Action("gather:log", produce("log", 1), work_s(cost, "gather", "log"),
-                   requires={at("tree"): 1, "bag_free": 1, "hands_free": 1}, tag=("gather", "log"))]
+                   requires={at("tree"): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("gather", "log"))]
 
 
 def _mine(cost):
@@ -425,7 +465,7 @@ def _hunt(cost):
         if any(t in FIGHTERS for t in types):
             # It fights back, so it needs a weapon — the same fact the threat layer uses to refuse the fight.
             requires[tool_dim("sword", 1)] = 1
-        requires.update({"hands_free": 1})     # a fight can happen in water; placing cannot
+        requires.update({"hands_free": 1, DAY_DIM: 1})     # a fight can happen in water; not in the dark
         out.append(Action(f"hunt:{token}", produce(token, per), work_s(cost, "hunt", token), requires=requires,
                           tag=("hunt", token, types)))
     return out
@@ -544,8 +584,13 @@ def _shelter(cost, state):
         Action("shelter:hut", {"sheltered": 1, "stone": -14, "door": -1, "minecraft:torch": -1},
                work_s(cost, "shelter", "hut"), limit=1, tag=("shelter", "hut")),
     ]
-    out.append(Action("sleep", {"slept": 1, at("bed"): 0}, work_s(cost, "sleep", "bed"),
+    out.append(Action("sleep", {"slept": 1, at("bed"): 0, DAY_DIM: 1}, work_s(cost, "sleep", "bed"),
                       requires={"bed": 1, "sheltered": 1}, limit=1, tag=("sleep",)))
+    if not state.get(DAY_DIM):
+        # The other way to morning: sit it out under cover. Priced by what is left of the night, so a bed wins
+        # when there is one and waiting wins an hour before dawn.
+        out.append(Action("wait:day", {DAY_DIM: 1}, float(state.get("clock:dawn_s", NIGHT_S)),
+                          requires={"sheltered": 1}, limit=1, tag=("wait", "day")))
     return out
 
 
@@ -669,4 +714,6 @@ def _shape(action, times):
         return Step("room", tag[1], 1, {})
     if kind == "sleep":
         return Step("sleep", "bed", 1, {})
+    if kind == "wait":
+        return Step("wait", tag[1], 1, {})
     return Step("craft", action.name, times, {"times": times, "inputs": {}})
