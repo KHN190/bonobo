@@ -15,7 +15,6 @@ from . import beliefs
 from . import estimate
 from . import skill as skillkit
 from . import skillcore
-from .skillcore import mine_cell as skillkit_mine
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, TaskStuck, log
 from .data import BASE_MARKERS, GROUPS, HAND_MINEABLE_SUFFIX, TOOL_MATERIALS, bare, mid
 from . import knowledge
@@ -696,13 +695,9 @@ _EAT_REFLEX_FOOD = 4      # the floor: below this eat anything at once, without 
 # The recorder is wired from here, the top, so tape itself imports nothing above `paths`. Each entry says what
 # part of a decision belongs on the tape and who owns it.
 def _wire_threats(brain):
-    from . import perception, skills
-    def answer(option):
-        snap = Snapshot()
-        ctx = skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
-                             prices=brain.price_table)
-        brain.engage(option, snap.state, ctx)
-    perception.wire_answer(answer)
+    """Hostiles are the fight's (fight_loop.py); it borrows the agent's memory, movement policy and blacklist."""
+    from . import fight_loop
+    fight_loop.wire(brain.mem, lambda snap: brain.policy(snap, snap.night), brain.blacklist, prices=brain.price_table)
 
 
 def _wire_tape():
@@ -786,22 +781,8 @@ class Brain:
             s = api.get("/state")
         if s["screen"] == "class_433":
             api.post("/resume")
-        # Self-preservation outranks everything (Mindcraft's first mode): drowning or burning → get out now.
-        from . import perception as _pc
-        if _pc.drowning(s) or _pc.drowning_in(s) <= _pc.REFLEX_SLACK_S:
-            # The same clock perception watches, with more slack: between tasks there is room to surface early.
-            log(f"reflex: {_pc.drowning_in(s):.1f}s of air slack → swimming up")
-            api.post("/stop")
-            api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 6, "z": s["blockZ"], "range": 2,
-                     "partial": True, "useBoat": False}, wait=20)
-            raise McError("surfaced after running low on air")
-        if s["inLava"]:
-            log("reflex: in lava → leaving it")
-            api.post("/stop")
-            api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 3, "z": s["blockZ"], "range": 3,
-                     "partial": True}, wait=20)
-            raise McError("escaped lava")
-        # No threat decision here. `reflexes` runs first in every round and may not fail: a NotAvailable raised
+        # Lava, water and a buried head are L0's (hazard.handle, first thing in the round). No threat decision
+        # here either. `reflexes` runs first in every round and may not fail: a NotAvailable raised
         # from it (an evade with nowhere to go) aborted the whole round, so the agent never reached safety(), never
         # reached the pool, and therefore never fought back, never fled, never slept and never built. Answering a
         # threat is a choice with a price, and choices belong in the pool (_threat_candidates) — or, when there is
@@ -2616,34 +2597,10 @@ class Brain:
     LETHAL_NOW = ("unbury", "find air")
 
     def survival(self, snap, ctx):
-        """The hard floor: only what kills inside one decision round. Suffocation and drowning have no deliberation
-        time — by the time a pool round has scored thirty candidates the air is gone.
-
-        Everything else that used to live here (eat to heal, wall in, dig out, unstuck, leave the Nether) is now a
-        candidate. It was never true that they must pre-empt: "walk out of the Nether" is worth a few hundred
-        seconds and takes a few hundred, which is exactly the comparison the pool exists to make. As an if-chain
-        above the pool their order was their priority, and nobody could say what any of them was worth.
-        """
-        s = snap.state
-        rescues = []
-        if skills.head_buried(s):
-            rescues.append(("unbury", lambda: skills.unbury(ctx)))
-        if s["inWater"] and s["air"] < 150 and skills.head_underwater(s):
-            rescues.append(("find air", lambda: skills.find_air(ctx)))
-        # Threats are answered by the perception thread at its own cadence (perception.bid → arbiter lease), not
-        # here: this ran once a round, could pick `ignore` as if doing nothing were a rescue, and held the body
-        # while the real answer waited for a lease it could never get. One decider, not two.
-        for name, fn in rescues:
-            if self.ready(name):
-                intent.say("survival", f"survival: {name}")
-                api.INTERRUPT = None
-                api.MODE = "survival"      # the perception thread doesn't interrupt the rescue itself
-                try:
-                    self.attempt(name, fn, cooldown=10)
-                finally:
-                    api.MODE = "normal"
-                return True
-        return False
+        """L0, the hard floor: what the environment does to the body (hazard.py) — lava, water, a buried head. Its
+        rescue runs before anything else and voids the round. Hostiles are the fight's (fight_loop.py)."""
+        from . import hazard
+        return hazard.handle(ctx, snap.state, lambda name, fn: self.attempt(name, fn, cooldown=10), self.ready)
 
     def _rescue_candidates(self, ctx, snap, night, offer, filtered):
         """Staying alive, priced in seconds and offered to the pool: healing, food, shelter, sleep, getting unstuck,
@@ -2777,47 +2734,6 @@ class Brain:
         sstate = survival_state(snap, self.mem)
         per_hp = gates.marginal("blood", sstate=sstate)
         return lambda dhp: per_hp * float(dhp)
-
-    def engage(self, decision, s, ctx=None):
-        """Carry out one threat answer — an Option from the pool or a Decision from the emergency; both name a
-        `kind` and a `target`. May fail: it is called through `attempt`, never from `reflexes`."""
-        if decision.kind == "fight":
-            api.run({"type": "attack", "entity": decision.target}, wait=45)
-        elif decision.kind == "evade":
-            if not nav.go_to(decision.target, self.policy_cache, range_=3, attempts=1, min_hp=0):
-                raise NotAvailable(f"could not get away to {decision.target}")
-        elif decision.kind == "wall_in":
-            ctx = ctx or skills.Context(self.mem, self.policy_cache, s["dimension"], self.blacklist, prices=self.price_table)
-            skills.pod(ctx)
-        elif decision.kind == "eat":
-            skills.eat(raw_ok=True)
-        elif decision.kind == "shield":
-            skills.shield_to_offhand()
-            api.run({"type": "use_item", "hand": "offhand", "hold_ms": 1500}, wait=5)
-        elif decision.kind == "reshape":
-            self.reshape(decision, s)
-
-    def reshape(self, decision, s):
-        """Change the ground: block the way, stand a block up, or dig down. One answer, three places to put it."""
-        from . import perception          # the one authority on what is around us, asked where it is used
-        where, n = decision.target
-        feet = tuple(int(math.floor(s[k])) for k in ("x", "y", "z"))
-        if where == "down":
-            for i in range(n):
-                skillkit_mine(self.policy_cache, (feet[0], feet[1] - 1 - i, feet[2]), collect=False, wait=20)
-            return
-        item = next((b for b in skills.GROUPS["building"] if Inventory().count(b)), None)
-        if item is None:
-            raise NotAvailable("nothing to shape the ground with")
-        if where == "under":
-            for _ in range(n):
-                api.run({"type": "pillar", "item": item}, wait=20)
-            return
-        near = perception.threats_seen()[0]
-        toward = min(near, key=lambda h: math.dist(feet, h[0]))[0] if near else (feet[0] + 1, feet[1], feet[2])
-        step = [1 if toward[i] > feet[i] else (-1 if toward[i] < feet[i] else 0) for i in (0, 2)]
-        for i in range(n):
-            skills.place(item, (feet[0] + step[0], feet[1] + i, feet[2] + step[1]))
 
     def unstuck(self, ctx, snap):
         """No progress for a minute. One method per call, each skipped once it has failed in this state (retry.py):

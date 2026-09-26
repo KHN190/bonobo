@@ -1,16 +1,20 @@
-"""Perception thread: watches /state ~5 times a second and interrupts whatever long task is running when life is at
-risk. Reflexes used to run only between tasks and chain segments, so a 5-minute hunt or tunnel kept going while
-the agent burned or was beaten down. The mod still owns per-tick nets (LavaGuard, forced surfacing); this is the
-layer between those nets and the brain: stop the task, let the survival mode (brain.survival) act next round.
+"""Perception thread: watches /state ~5 times a second and sorts what it sees into two kinds of trouble.
 
-Only interrupts — never acts on the game itself beyond /stop, never while the player holds control, and never
-while the brain is already running a survival rescue (api.MODE == "survival")."""
+  environment (hazard.py)    lava, fire, water, a fall, a buried head: preempt at SAFETY with a /stop, and let the
+                             brain run the rescue at the top of its next round (hazard.handle).
+  hostiles (fight_loop.py)   critical health, dragon breath, a provoked enderman, mobs that would kill us before the
+                             planner decides again: the threat model chooses an answer and fight_loop carries it out.
+
+Hunger is not trouble here: eating belongs to the brain's upkeep. The mod still owns per-tick nets (LavaGuard,
+forced surfacing, WaterClutch); this is the layer between those nets and the brain. Never acts while the player
+holds control, and never interrupts a rescue already running (api.MODE == "survival")."""
 import math
 import threading
 import time
 
-from . import api, arbiter, paths
-from .survival import CONFIG as _CONFIG
+from . import api, arbiter, fight_loop, hazard, paths
+from .beliefs import CONFIG as _CONFIG
+from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE
 
 POLL_S = 0.2
@@ -137,53 +141,21 @@ def interrupt_within_s():
 REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let the rescue work)
 
 
-DANGERS = ("lava", "burning", "drowning", "critical_health", "breath", "enderman", "hostiles", "starving")
+HOSTILE = ("critical_health", "breath", "enderman", "hostiles")
+DANGERS = hazard.KINDS + HOSTILE
 
 
-TICKS_PER_S = 20.0
-REFLEX_SLACK_S = 2.0      # between tasks: surface while there is still room, rather than at the last moment
-_W = _CONFIG["water"]
-
-
-def drowning_in(state):
-    """Pure: seconds of slack before we must leave the water, or inf when not submerged. Zero or less = leave now.
-
-    Air is a clock, not a threshold: what matters is whether the breath left covers getting out plus the time it
-    takes us to notice and start. The old rule compared air to a constant AND required `not onGround` — so standing
-    on the bottom of a lake, which is where digging puts you, read as safe all the way to zero.
-    """
-    if not state.get("inWater"):
-        return float("inf")
-    air_s = state.get("air", 300) / TICKS_PER_S
-    return round(air_s - _W["surface_s"] - _W["reaction_s"], 2)
-
-
-def drowning(state):
-    """Pure: leave the water now? Either clock says so — the computed one, or a hard floor under it.
-
-    OR, not AND, and on purpose. The clock is the better rule but it rests on `air` meaning what we think it means
-    and on `surface_s` being roughly right; the floor costs an early surfacing when they are not. A death is not a
-    thing to be clever about twice.
-    """
-    if not state.get("inWater"):
-        return False
-    return drowning_in(state) <= 0.0 or state.get("air", 300) < _W["air_floor"]
-
-
-def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None):
-    """Pure: the danger kind to interrupt for (one of DANGERS), or None. `hostiles_within(r)` → nearest hostile distance or None; it is only
-    called when health is low (entity queries cost more than a state read)."""
+def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None,
+           buried=False, fallen=0.0):
+    """Pure: the danger kind to interrupt for (one of DANGERS), or None. The environment first (`hazard.kind`), then
+    the hostile kinds. `hostiles_within(r)` → nearest hostile distance or None; it is only called when health is low
+    (entity queries cost more than a state read)."""
     if state.get("dead") or state.get("control", {}).get("paused"):
         return None
-    hp, food = state.get("health", 20), state.get("food", 20)
-    if state.get("inLava"):
-        return "lava"
-    # A blaze fight sets you on fire every few seconds: interrupting at 14 hp made fight_blaze impossible (bench
-    # 04:06). Burning only interrupts when it has really hurt.
-    if state.get("onFire") and hp <= 8:
-        return "burning"
-    if drowning(state):
-        return "drowning"
+    env = hazard.kind(state, buried=buried, fallen=fallen)
+    if env is not None:
+        return env
+    hp = state.get("health", 20)
     # One breath or head butt in the End takes 10+ hp, so 4 is far too late there — and 10 still leaves no room for
     # the hit that is already on its way.
     if hp <= (12 if state.get("dimension") == "minecraft:the_end" else 4):
@@ -210,8 +182,6 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
         # Only what would kill us before the planner next decides is worth interrupting for.
         if t is not None and t <= interrupt_within_s():
             return "hostiles"
-    if food <= 2:
-        return "starving"
     return None
 
 
@@ -255,7 +225,7 @@ class Watcher(threading.Thread):
         self._seen = {}           # entity id -> (pos, when) for the threat layer's velocity differencing
         self._ttd_t, self._ttd = 0.0, None
         self.stopped = False
-        self.fall_top = None     # highest y since leaving the ground
+        self.hazard = hazard.Watch()     # how far we have fallen, whether the head is in a block
 
     def _hostiles_within(self, radius):
         """How close the nearest thing that can hurt us is, from THIS tick's reading.
@@ -319,7 +289,7 @@ class Watcher(threading.Thread):
         """
         from . import survival
         now = time.time()
-        if ANSWER is None:
+        if not fight_loop.wired():
             return observe(now, "unwired")
         if api.SOFT:
             return observe(now, "soft")
@@ -345,18 +315,8 @@ class Watcher(threading.Thread):
         if now - self.last.get(key, 0) < 1.0:
             return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at())
         self.last[key] = now
-        failure = {}
-
-        def run():
-            try:
-                ANSWER(option)
-            except Exception as e:
-                failure["failed"] = f"{type(e).__name__}: {e}"
-                raise
-
-        taken, refused = arbiter.BODY.preempt(
-            "tactic", run, key, worth_s=worth, now=now, clear_first=True,
-            release=lambda: lease_done(state, threats_seen()[0], price),
+        taken, refused, failure = fight_loop.offer(
+            option, worth, key, now, release=lambda: lease_done(state, threats_seen()[0], price),
             held=HELD, seen_at=seen_at() or now)
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
                 rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, **failure)
@@ -443,7 +403,8 @@ class Watcher(threading.Thread):
             reason = danger(s, None if fighting else self._hostiles_within,
                             None if fighting else self._breath_within,
                             None if fighting else self._enderman_after_us,
-                            None if fighting else (lambda: self._time_to_die(s)))
+                            None if fighting else (lambda: self._time_to_die(s)),
+                            buried=self.hazard.buried(s), fallen=self.hazard.fallen(s))
             now = time.time()
             if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
                 continue
@@ -469,7 +430,6 @@ class Watcher(threading.Thread):
             api.log(f"!! perception: {reason} → interrupting the current task")
 
 
-ANSWER = None
 LAST_HERE = None       # where we stood when the rows were read: the reading and the position are one observation
 OUTCOMES = ("answered", "refused", "nothing_pays", "quiet", "stale", "repeat", "eating", "soft", "unwired")
 ANSWERED = []
@@ -497,7 +457,7 @@ def answered_since(mark=0):
 def watching():
     """Is the layer that answers threats actually running? A bench that does not ask this measures nothing and
     says nothing: the body was never going to move."""
-    return ANSWER is not None and any(t.name == "perception" and t.is_alive()
+    return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
 GRID, GRID_AT, GRID_AT_POS = None, 0.0, None
 GRID_R = 8
@@ -539,11 +499,6 @@ def kit(signature):
             "blocks": inv.count("building")}
     _KIT_SIG = signature
     return _KIT
-
-
-def wire_answer(fn):
-    global ANSWER
-    ANSWER = fn
 
 
 HELD = None
