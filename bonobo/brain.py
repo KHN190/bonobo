@@ -34,6 +34,13 @@ from .planner import Unplannable, runnable
 from .upkeep import bag_signature
 from .world import Inventory, Snapshot, entities
 
+# Wiring from the top, so the lower layers never import the skill library: the L0 rescues hazard.py dispatches, and
+# pod's command batch as the fight answer "wall_in".
+hazard.SKILLS.update(find_air=lambda ctx: skills.find_air(ctx), unbury=lambda ctx: skills.unbury(ctx))
+from . import fight_loop  # noqa: E402
+fight_loop.lend("wall_in", lambda option, state: skills.pod_commands(state) if state.get("region") is not None else [],
+                region=skills._pod_region)
+
 IDLE_WAIT_TICKS = 100
 SCAN_EVERY_S = 20          # seconds between travel scans (explore.note_around)
 TRACK_FILE = paths.data("track.jsonl")
