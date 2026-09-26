@@ -162,6 +162,94 @@ class TheCrossProductIsWhole(unittest.TestCase):
                 self.assertIn("mod:", what)
 
 
+class Tiers(unittest.TestCase):
+    def test_every_row_has_a_tier(self):
+        for name, row in rows():
+            with self.subTest(name):
+                self.assertIn(row.get("tier"), sc.TIERS)
+                self.assertEqual(row["tier"], sc.tier_of(name, row))
+
+    def test_core_is_small_and_whole(self):
+        core = [n for n, r in rows() if r["tier"] == "core"]
+        self.assertLessEqual(len(core), 16, "core runs on every change: keep it small")
+        for base in sc.BASES:
+            with self.subTest(base=base):
+                self.assertIn(f"{base}__base", core)
+        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", sc.CHAIN_C[0], sc.CHAIN_C[1]):
+            with self.subTest(name):
+                self.assertIn(name, core)
+
+    def test_common_is_core_under_everyday_conditions(self):
+        for name, row in rows():
+            if row["tier"] == "common":
+                with self.subTest(name):
+                    self.assertIn(row["tags"]["base"], sc.BASES)
+                    self.assertTrue(set(row["tags"].values()) & set(sc.COMMON_CONDITIONS))
+
+
+class FakeContract:
+    def __init__(self, *provides):
+        self.provides = {p: None for p in provides}
+
+
+REGISTRY = {"chop": FakeContract("item:log"), "mine": FakeContract("mine"), "eat": FakeContract(),
+            "smelt": FakeContract("smelt"), "load_smelter": FakeContract("smelt")}
+SHEET = {"chop_row": {"tier": "core", "skills": ["item:log"]}, "mine_row": {"tier": "core", "skills": ["mine"]},
+         "eat_row": {"tier": "common", "skills": ["eat"]}, "smelt_row": {"tier": "exception", "skills": ["smelt"]},
+         "brain_row": {"tier": "exception", "skills": []}}
+# (tier, changed skills or None, rows selected)
+SELECT = [
+    ("core", None, ["chop_row", "mine_row"]),
+    ("common", None, ["eat_row"]),
+    ("all", None, list(SHEET)),
+    ("all", {"chop"}, ["chop_row"]),                       # by the effect the skill provides
+    ("all", {"eat"}, ["eat_row"]),                         # by name, for a skill that provides nothing
+    ("all", {"load_smelter"}, ["smelt_row"]),              # an effect shared by two skills: either proves it
+    ("core", {"eat"}, ["chop_row", "mine_row"]),           # nothing in this tier proves it: core stands in
+    ("all", {"a_skill_no_row_proves"}, ["chop_row", "mine_row"]),
+    ("all", set(), ["chop_row", "mine_row"]),              # a change that touched no skill: core
+]
+DIFF = """diff --git a/bonobo/wood.py b/bonobo/wood.py
+--- a/bonobo/wood.py
++++ b/bonobo/wood.py
+@@ -40,2 +40,3 @@ def chop(ctx, n):
+@@ -200 +201 @@ def other():
+diff --git a/bonobo/skills.py b/bonobo/skills.py
+--- a/bonobo/skills.py
++++ /dev/null
+"""
+SPANS = {"chop": ("bonobo/wood.py", 20, 60), "mine": ("bonobo/skills.py", 400, 500), "far": ("bonobo/wood.py", 300, 320)}
+
+
+class Changed(unittest.TestCase):
+    def test_selection(self):
+        for tier, changed, want in SELECT:
+            with self.subTest(tier=tier, changed=changed):
+                self.assertEqual(sc.select(SHEET, tier, changed, REGISTRY), want)
+
+    def test_diff_to_skills(self):
+        hunks = sc.diff_hunks(DIFF)
+        self.assertEqual(hunks, {"bonobo/wood.py": [40, 41, 42, 201]})
+        self.assertEqual(sc.touched_skills(hunks, SPANS), {"chop"})
+
+    def test_real_registry_spans(self):
+        spans = sc.skill_spans(skillkit.REGISTRY, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.assertEqual(set(spans), set(skillkit.REGISTRY))
+        for name, (path, lo, hi) in spans.items():
+            with self.subTest(name):
+                self.assertTrue(path.startswith("bonobo/") and lo <= hi)
+
+    def test_run_verdicts(self):
+        """Once; a failure re-runs; three at most; ≥ 2 of 3 passes."""
+        for oks, want in (([], None), ([True], "pass"), ([False], None), ([False, True], None),
+                          ([False, False], "fail"), ([True, True], "pass"), ([False, True, True], "pass"),
+                          ([False, True, False], "fail"), ([True, False, False], "fail"),
+                          ([False, False, True, True, True], "pass")):
+            with self.subTest(oks=oks):
+                self.assertEqual(sc.verdict_of(oks), want)
+        self.assertEqual(sc.MAX_RUNS, 3)
+
+
 class ThePoints(unittest.TestCase):
     def test_a_basics(self):
         for base in BASICS_A:

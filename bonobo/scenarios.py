@@ -1873,3 +1873,86 @@ for _name in ("slice_retreat",):
 for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one skill: they carry an empty list
     _row_.setdefault("skills", [])
     _row_.setdefault("point", "A")
+
+
+# ================================================================================================================
+# Tiers (docs/refactor.md §1). core: every basic action on the default arena, the three L0 hazards, the start of the
+# chain — run on every change. common: core × the conditions play meets daily — run when a related module changed.
+# exception: everything else — before a merge.
+TIERS = ("core", "common", "exception")
+CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
+                                             "slice_start_tools", "iron_ingots")
+COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work")
+
+
+def tier_of(name, row):
+    """Pure: the tier a row belongs to."""
+    if name in CORE:
+        return "core"
+    tags = row.get("tags", {})
+    if tags.get("base") in BASES and any(tags.get(ax) in COMMON_CONDITIONS for ax in ("terrain", "timing", "inventory")):
+        return "common"
+    return "exception"
+
+
+for _name, _row_ in SCENARIOS.items():
+    _row_["tier"] = tier_of(_name, _row_)
+
+
+def proves(entry, registry):
+    """The skill names a row's `skills` entry proves: a registered name, or every skill providing that effect."""
+    if entry in registry:
+        return {entry}
+    return {n for n, c in registry.items() if entry in getattr(c, "provides", {})}
+
+
+def select(rows, tier="core", changed=None, registry=None):
+    """Pure: the names to run. `tier` one of TIERS or "all". `changed` (skill names whose code changed; None = not
+    asked) narrows to the rows proving any of them, by name or by an effect they provide — and when a change touches
+    no skill any row proves, the core rows stand in for it."""
+    picked = [n for n, r in rows.items() if tier == "all" or r.get("tier") == tier]
+    if changed is None:
+        return picked
+    registry = registry or {}
+    changed = set(changed)
+    hit = [n for n in picked if any(proves(e, registry) & changed for e in rows[n].get("skills", ()))]
+    if hit:
+        return hit
+    return [n for n, r in rows.items() if r.get("tier") == "core"]
+
+
+def touched_skills(hunks, spans):
+    """Pure: skills whose function body a diff touched. `hunks` {path: [changed line numbers]} (new-file numbering);
+    `spans` {skill name: (path, first line, last line)}."""
+    out = set()
+    for name, (path, lo, hi) in spans.items():
+        if any(lo <= ln <= hi for ln in hunks.get(path, ())):
+            out.add(name)
+    return out
+
+
+def diff_hunks(diff_text):
+    """Pure: {path: [line numbers]} of lines added or changed, from `git diff -U0` output."""
+    out, path = {}, None
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("@@") and path:
+            m = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            start, n = int(m.group(1)), int(m.group(2) or 1)
+            out.setdefault(path, []).extend(range(start, start + max(n, 1)))
+    return out
+
+
+def skill_spans(registry, root):
+    """{skill name: (path relative to `root`, first line, last line)} of each registered skill's function."""
+    import inspect
+    out = {}
+    for name, c in registry.items():
+        try:
+            lines, first = inspect.getsourcelines(c.fn)
+            path = os.path.relpath(inspect.getsourcefile(c.fn), root)
+        except (OSError, TypeError):
+            continue
+        out[name] = (path, first, first + len(lines) - 1)
+    return out

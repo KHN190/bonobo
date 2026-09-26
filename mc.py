@@ -144,9 +144,10 @@ def cmd_scenario(a):
         print("scenario commands disabled")
         return
     point = getattr(a, "point", None)
+    selected = set(_scenario_selection(a, scenarios))
     if a.action == "list":
         for name, sc in scenarios.SCENARIOS.items():
-            if point and sc.get("point", "A") != point:
+            if (point and sc.get("point", "A") != point) or name not in selected:
                 continue
             print(f"{name:20} budget {sc['budget']:>3}s  {sc['doc']}")
         return
@@ -160,7 +161,8 @@ def cmd_scenario(a):
     from bonobo import perception
     from bonobo import skill as skillkit
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
-    names = [n for n, sc in scenarios.SCENARIOS.items() if not sc.get("release")] if a.action == "all" else a.names
+    names = [n for n, sc in scenarios.SCENARIOS.items() if not sc.get("release") and n in selected] \
+        if a.action == "all" else a.names
     if point:
         names = [n for n in names if scenarios.SCENARIOS[n].get("point", "A") == point]
     brain = Brain()
@@ -172,14 +174,14 @@ def cmd_scenario(a):
     # A scenario that SWEEPS (the arena) is its own sample: one pass writes dozens of rows, and running it three
     # times only re-measures the same code against the same cells. Yes/no scenarios still repeat until two
     # counted runs agree, because one of those is a coin toss about flaky execution, not a measurement.
+    # Each row runs once; a failure is re-run, three runs at most, ≥ 2 of 3 passes (runner.verdict_of). A row the
+    # current code already has a verdict for is not run again (unless --force, once).
     runs = [(name, attempt) for name in names
-            for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else 5)]
+            for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else scenarios.MAX_RUNS)]
     for name, attempt in runs:
-        # Run only until the current code has a verdict (2 agreeing counted runs): an already-decided scenario isn't
-        # run at all; setup/harness failures retry up to 5 times.
         table = scenarios.load_table()
-        decided = scenarios.settled(table, name) or scenarios.verdict(table, name, scenarios.code_for(name))
-        if (decided and not (a.force and attempt == 0)) or attempt >= 4:
+        decided = scenarios.verdict(table, name, scenarios.code_for(name))
+        if decided and not (a.force and attempt == 0):
             continue
         # Fresh memory per scenario: the real world's remembered pools/builds must not steer the test, and the
         # test must not write into the real world's notes.
@@ -198,6 +200,26 @@ def cmd_scenario(a):
                                   prices=brain.price_table)
         ok, seconds, note, cls, code = scenarios.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
+
+
+def _scenario_selection(a, scenarios):
+    """The rows `--tier` / `--changed` name (scenarios.select): the diff against the merge-base with main, mapped to
+    the skills whose functions it touched."""
+    import os
+    import subprocess
+    changed = None
+    if getattr(a, "changed", False):
+        from bonobo import brain  # noqa: F401  (every skill module registers)
+        from bonobo.skill import REGISTRY
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+        base = subprocess.run(["git", "merge-base", "HEAD", "main"], capture_output=True, text=True).stdout.strip()
+        diff = subprocess.run(["git", "diff", "-U0", base or "HEAD"], capture_output=True, text=True, cwd=root).stdout
+        changed = scenarios.touched_skills(scenarios.diff_hunks(diff), scenarios.skill_spans(REGISTRY, root))
+        print(f"changed skills: {', '.join(sorted(changed)) or 'none (core rows)'}")
+        from bonobo.skill import REGISTRY as registry
+    else:
+        registry = None
+    return scenarios.select(scenarios.SCENARIOS, getattr(a, "tier", "core") or "core", changed, registry)
 
 
 def cmd_interrupt(a):
@@ -291,6 +313,10 @@ def main():
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
     p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
+    p.add_argument("--tier", choices=["core", "common", "exception", "all"], default="core",
+                   help="which tier to run with `all` / list (default core)")
+    p.add_argument("--changed", action="store_true",
+                   help="only rows proving skills changed since the merge-base with main (else core)")
     p.set_defaults(fn=cmd_scenario)
     p = sub.add_parser("interrupt", help="end the running skill so the queue's head runs next")
     p.add_argument("--why", default="Claude redirected")
