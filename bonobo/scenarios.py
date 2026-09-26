@@ -1468,7 +1468,9 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass"):
 #             effect (token, n) for the at-success interrupt, work_s: when an interrupt lands mid-work)
 BASES = {
     "nav": dict(skills=["goto"], doc="walk 14 blocks east over the arena", point="A",
-                setup=_floor() + [_tp()], run=lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 2),
+                # The floor reaches the target: the arena is a sky platform, and a target over the void is unreachable.
+                setup=_floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(16, -1, 3))} stone", _tp()],
+                run=lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 2),
                 check=_at(at(14, 0, 0), 3.5), budget=30, work_s=3, arena=16),
     "chop": dict(skills=["item:log"], bound=("log", 4, 14), doc="a grove of two oaks → 4 logs", point="A",
                  setup=_grove((4, 0), (-4, 3)) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 4),
@@ -2102,7 +2104,8 @@ for _name, _what, _cells, (_dx, _dy, _dz) in START_ROWS:
                f"→ at the target",
         "module": "nav", "point": "A", "skills": ["goto"], "tier_fixed": "common",
         "tags": {"base": "nav", "start": _what},
-        "setup": _floor() + list(_cells) + [_tp(_dx, _dy, _dz)],
+        "setup": _floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(12, -1, 3))} stone"] + list(_cells)
+                 + [_tp(_dx, _dy, _dz)],
         "before": _start(_name), "run": lambda ctx: _skill("travel_to")(ctx, at(10, 0, 0), 2),
         "check": _at(at(10, 0, 0), 3.5), "budget": 30,
     }
