@@ -1697,4 +1697,4 @@ _fight_loop.lend("wall_in", lambda option, state: pod_commands(state) if state.g
                  region=_pod_region)
 # The rescues hazard.py runs are skills: lent to it, so the L0 detector never imports the skill library.
 from . import hazard as _hazard  # noqa: E402
-_hazard.SKILLS.update(find_air=find_air, unbury=unbury)
+_hazard.SKILLS.update(find_air=lambda ctx: find_air(ctx), unbury=lambda ctx: unbury(ctx))   # late-bound
