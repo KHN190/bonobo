@@ -13,7 +13,12 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import hazard, perception  # noqa: E402
+import tempfile  # noqa: E402
+from unittest import mock  # noqa: E402
+
+from bonobo import api, hazard, perception, retry, skills, upkeep  # noqa: E402
+from bonobo import brain as brainmod  # noqa: E402
+from bonobo.memory import Memory  # noqa: E402
 from tests.world import state  # noqa: E402
 
 W = hazard._W
@@ -118,6 +123,56 @@ class Falls(unittest.TestCase):
                 got = [round(watch.fallen(state(y=float(y), onGround=g, inWater=w, inLava=lv)), 2)
                        for y, g, w, lv in readings]
                 self.assertEqual(got, want)
+
+
+# (situation, /state changes, head buried?, what the rescue does, [rounds]) → per round: (used the round?, rescue
+# run?, /stop posted?). Rounds run back to back through the real Brain.attempt / Brain.ready (the failure policy).
+OK, FAILS, STOPPED = "ok", api.NavFailed("no path out of the lava"), api.Interrupted("perception: a new hazard")
+RESCUES = [
+    ("in lava: rescued, under survival mode", {"inLava": True}, False, OK, [(True, "lava", False)]),
+    ("buried: rescued", {}, True, OK, [(True, "suffocating", False)]),
+    ("drowning between tasks: rescued", {"inWater": True, "onGround": False, "air": 140}, False, OK,
+     [(True, "drowning", False)]),
+    ("burning: no rescue of our own, the round is not used", {"onFire": True, "health": 5.0}, False, OK,
+     [(False, None, False)]),
+    ("nothing wrong", {}, False, OK, [(False, None, False)]),
+    ("the rescue fails: /stop, and the cause cools here — the next round does not try again",
+     {"inLava": True}, False, FAILS, [(True, "lava", True), (False, None, False)]),
+    ("the rescue is interrupted: no /stop, no cooling, tried again next round",
+     {"inLava": True}, False, STOPPED, [(True, "lava", False), (True, "lava", False)]),
+]
+
+
+class Rescue(unittest.TestCase):
+    def test_rounds(self):
+        for name, changes, buried, does, rounds in RESCUES:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.mem, b.retry, b.place = Memory(tmp + "/notes.json"), retry.Retry(), ("here", False)
+                b.table, b.last_failure = upkeep.Upkeep(b), None
+                ran, modes, posted = [], [], []
+
+                def rescue(ctx, st, _k):
+                    ran.append(_k)
+                    modes.append(api.MODE)
+                    if does is not OK:
+                        raise does
+                table = {k: (lambda ctx, st, _k=k: rescue(ctx, st, _k)) for k in hazard.RESCUE}
+                with mock.patch.dict(hazard.RESCUE, table), \
+                        mock.patch.object(skills, "head_buried", return_value=buried), \
+                        mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path)), \
+                        mock.patch.object(api, "api", side_effect=AssertionError("L0 read the world")):
+                    for used, kind, stopped in rounds:
+                        ran.clear(), posted.clear()
+                        api.INTERRUPT, api.MODE = "perception: danger", "normal"
+                        self.assertEqual(hazard.handle(None, state(**changes), b.attempt, b.ready), used)
+                        self.assertEqual(ran[0] if ran else None, kind)
+                        self.assertEqual("/stop" in posted, stopped)
+                        self.assertEqual(api.MODE, "normal", "survival mode ends with the rescue")
+                        if kind:
+                            self.assertEqual(modes[-1], "survival", "the rescue runs protected from its own trigger")
+                            self.assertIsNone(api.INTERRUPT, "the interrupt it answers is consumed")
+                api.INTERRUPT, api.MODE = None, "normal"
 
 
 if __name__ == "__main__":
