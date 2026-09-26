@@ -69,18 +69,17 @@ class Scoring(unittest.TestCase):
 
 
 class Commitment(unittest.TestCase):
-    def test_commitment_defaults_to_the_whole_action(self):
-        """Unsaid means atomic — the safe direction to be wrong in."""
-        self.assertEqual(kernel.commitment(Act("a", after=0.0, cost_s=6.0)), 6.0)
+    # (cost_s, declared commitment or None) → what the kernel commits to: unsaid means atomic
+    ROWS = [(6.0, None, 6.0), (6.0, 0.8, 0.8), (0.0, None, 0.0), (6.0, 6.0, 6.0), (6.0, 0.0, 0.0)]
 
-    def test_an_interruptible_action_commits_only_to_its_segment(self):
-        self.assertEqual(kernel.commitment(Act("dig", after=0.0, cost_s=6.0, commitment_s=0.8)), 0.8)
-
-    def test_the_choice_carries_the_commitment_not_the_cost(self):
-        """The next decision point is when the atomic part ends, not when the action does."""
-        m = Model([Act("dig", after=50.0, cost_s=6.0, commitment_s=0.8)])
-        c = kernel.choose(m, {"price": 100.0})
-        self.assertEqual((c.cost_s, c.commitment_s), (6.0, 0.8))
+    def test_commitment_over_the_table(self):
+        for cost, commit, want in self.ROWS:
+            with self.subTest(cost=cost, commit=commit):
+                act = Act("a", after=50.0, cost_s=cost, commitment_s=commit)
+                self.assertEqual(kernel.commitment(act), want)
+                c = kernel.choose(Model([act]), {"price": 100.0})
+                self.assertEqual((c.cost_s, c.commitment_s), (cost, want),
+                                 "the choice carries the commitment, not the cost")
 
 
 class HoldingADecision(unittest.TestCase):
@@ -151,12 +150,21 @@ class HoldingADecision(unittest.TestCase):
         self.assertEqual(flips, 1239)
         self.assertEqual(self.sweep()[0], 379)
 
-    def test_a_broken_assumption_releases_it_at_once(self):
-        held = kernel.Held()
+    # (does the held choice's assumption still stand, seconds later) → why it was re-decided (None: it was kept)
+    RELEASE = [(True, 0.01, None), (False, 0.01, "assumption"), (True, 60.0, "commitment"),
+               (False, 60.0, "assumption"), (None, 0.01, None)]
+
+    def test_what_releases_a_held_decision(self):
         states = self.states(1)
-        held.decide(self.model(), states[0], now=0.0)
-        held.decide(self.model(), states[1], now=0.01, holds=lambda *_: False)
-        self.assertEqual(held.because, "assumption")
+        for holds, later, because in self.RELEASE:
+            with self.subTest(holds=holds, later=later):
+                held = kernel.Held()
+                first = held.decide(self.model(), states[0], now=0.0)
+                ask = None if holds is None else (lambda *_, h=holds: h)
+                again = held.decide(self.model(), states[1], now=later, holds=ask)
+                self.assertEqual(held.because, because)
+                if because is None:
+                    self.assertIs(again, first)
 
     def test_a_challenger_must_win_by_more_than_the_margin(self):
         """A wider margin holds longer: switches over the seeded sweep at margins 1.0, the kernel's, and 1.5."""
