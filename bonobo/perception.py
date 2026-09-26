@@ -18,7 +18,6 @@ from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: 
 from .threat import ENGAGE as _ENGAGE
 
 POLL_S = 0.2
-FIGHT_POLL_S = 0.1     # while arbiter.BODY is engaged: a window is 0.4 s at worst, a 0.2 s poll sees half of it
 # The operator's interrupt (mc.py interrupt): end the running skill so an override directive runs next round. /stop
 # alone only cancels the current mod task; a skill (a hunt exploring leg after leg) keeps going.
 FLAG = paths.data("interrupt")
@@ -193,10 +192,6 @@ def clutch_needed(fallen, gap, state, has_water_bucket):
     return fallen >= 5 and gap is not None and 2 <= gap <= 5
 
 
-FIGHT_SKILLS = ("fight_blaze", "fight_dragon", "slay_dragon", "build_bed_pit", "await_perch",
-                "bed_bomb_window", "break_caged_crystal", "station")
-
-
 def _running_skill():
     from .skill import HEARTBEAT
     try:
@@ -205,11 +200,6 @@ def _running_skill():
         return name if time.time() - float(t) < 5 else None
     except (OSError, ValueError):
         return None
-
-
-def _fighting():
-    """A fight skill is running (its heartbeat is fresh)."""
-    return _running_skill() in FIGHT_SKILLS
 
 
 def _eating():
@@ -307,7 +297,7 @@ class Watcher(threading.Thread):
             pass
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
         price = lambda dhp: threat.hp_seconds(sstate, dhp)
-        chosen = bid(state, rows, price)
+        chosen = fight_loop.bid(state, rows, price, ids=THREAT_IDS)
         if chosen is None:
             return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at())
         option, worth = chosen
@@ -316,8 +306,8 @@ class Watcher(threading.Thread):
             return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at())
         self.last[key] = now
         taken, refused, failure = fight_loop.offer(
-            option, worth, key, now, release=lambda: lease_done(state, threats_seen()[0], price),
-            held=HELD, seen_at=seen_at() or now)
+            option, worth, key, now, release=lambda: fight_loop.lease_done(state, threats_seen()[0], price, THREAT_IDS),
+            held=fight_loop.HELD, seen_at=seen_at() or now)
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
                 rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, **failure)
         if taken:
@@ -355,7 +345,7 @@ class Watcher(threading.Thread):
 
     def run(self):
         while not self.stopped:
-            time.sleep(FIGHT_POLL_S if arbiter.BODY.engaged else POLL_S)
+            time.sleep(fight_loop.FIGHT_POLL_S if fight_loop.active() else POLL_S)
             if api.MODE == "survival" or PAUSED:
                 continue
             try:
@@ -399,7 +389,7 @@ class Watcher(threading.Thread):
             # A fight skill deals with breath and endermen itself (pit, water, escape line): only give it the
             # life-or-death reasons, or every bomb window is interrupted before it starts.
             # api.SOFT is set for the whole run of a soft skill; the heartbeat can still name a nested one (eat).
-            fighting = _fighting() or api.SOFT
+            fighting = fight_loop.active() or api.SOFT
             reason = danger(s, None if fighting else self._hostiles_within,
                             None if fighting else self._breath_within,
                             None if fighting else self._enderman_after_us,
@@ -499,74 +489,6 @@ def kit(signature):
             "blocks": inv.count("building")}
     _KIT_SIG = signature
     return _KIT
-
-
-HELD = None
-
-
-def threat_state(state, rows, work_s=None):
-    """The threat model's state vector, read off a player state and the rows the watcher last saw.
-
-    One builder: the live bid and the bench have to ask the same question, and a bench that assembles its own
-    state vector is testing its own arithmetic.
-    """
-    from . import threat
-    from . import field as _field
-    st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
-          "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
-          "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
-          "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
-          "field": state.get("field") or _field.Field(), "ids": list(THREAT_IDS)}
-    if work_s is not None:
-        st["work_s"] = work_s
-    return st
-
-
-def bid(state, rows, price, work_s=None, now=None):
-    from . import threat
-    if not rows:
-        return None
-    st = threat_state(state, rows, work_s)
-    global HELD
-    from . import kernel
-    field_model = threat.Field(st, price)
-    if HELD is None:
-        HELD = kernel.Held()
-    horizon_now = threat.horizon_for(st)
-    choice = HELD.decide(field_model, field_model.state(), now if now is not None else time.time(),
-                         holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
-    option = choice.action.option if choice.action is not None else None
-    if option is None or option.kind == "ignore":
-        return None
-    worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
-    return (option, round(worth, 1)) if worth > 0 else None
-
-
-def lease_done(state, rows, price):
-    """Has answering stopped paying? The lease's release condition, and nothing else releases it.
-
-    Blind moments are NOT an answer: the entity read is a second old, the watcher was busy, the rows aged out. A
-    lease that reads "nothing visible" as "nothing to deal with" hands the body back in the middle of a fight, and
-    the planner's next mine task lands on top of the answer — which is what `BodyContested` was, all along.
-    """
-    if not rows:
-        return False
-    try:
-        fresh = bid(state, rows, price, now=time.time())
-    except Exception:
-        return False
-    return fresh is None or fresh[1] <= 0
-
-
-def still_worth(choice, field_model, price, horizon):
-    """The assumption behind a threat answer: that it still beats carrying on. A held answer that has stopped
-    paying (the sword broke, the crowd doubled) is not a commitment, it is a mistake with a timer."""
-    from . import threat as _threat
-    options = [a.option for a in field_model.opts]
-    same = next((o for o in options if o.kind == choice.name), None)
-    if same is None:
-        return False
-    return _threat.saves(same, options, price, horizon) > 0
 
 
 def start():

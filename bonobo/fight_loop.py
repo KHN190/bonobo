@@ -12,10 +12,7 @@ import threading
 import time
 
 from . import api, arbiter, nav
-from . import skill as skillkit
 from .api import NotAvailable
-from .skillcore import mine_cell
-from .world import Inventory
 
 ANSWER = None          # (option) -> None | {"id": task}: carries out one answer with the agent's memory and policy
 POLL_S = 0.5           # how often a running engagement looks at what perception now wants
@@ -116,50 +113,158 @@ def disengage(intent, stop=True):
     arbiter.BODY.hand_back(intent)
 
 
+# ------------------------------------------------------------------------------------------------ the decision
+
+FIGHT_POLL_S = 0.1     # while a fight holds the body: a window is 0.4 s at worst, a 0.2 s poll sees half of it
+HELD = None            # the threat layer's held decision (kernel.Held): kept while it pays, replaced when not
+
+
+def active():
+    """A fight is on: an engagement of ours is running, or a boss fight holds the body (`arbiter.BODY.engaged`).
+    Perception reads this to give a fight only the life-or-death interrupts."""
+    return engaged() is not None or bool(arbiter.BODY.engaged)
+
+
+def threat_state(state, rows, work_s=None, ids=()):
+    """The threat model's state vector, read off a player state and the rows the watcher last saw.
+
+    One builder: the live bid and the bench have to ask the same question, and a bench that assembles its own
+    state vector is testing its own arithmetic.
+    """
+    from . import field as _field
+    from . import threat
+    st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
+          "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
+          "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
+          "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
+          "field": state.get("field") or _field.Field(), "ids": list(ids)}
+    if work_s is not None:
+        st["work_s"] = work_s
+    return st
+
+
+def bid(state, rows, price, work_s=None, now=None, ids=()):
+    """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
+    global HELD
+    from . import kernel, threat
+    if not rows:
+        return None
+    st = threat_state(state, rows, work_s, ids)
+    field_model = threat.Field(st, price)
+    if HELD is None:
+        HELD = kernel.Held()
+    horizon_now = threat.horizon_for(st)
+    choice = HELD.decide(field_model, field_model.state(), now if now is not None else time.time(),
+                         holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
+    option = choice.action.option if choice.action is not None else None
+    if option is None or option.kind == "ignore":
+        return None
+    worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
+    return (option, round(worth, 1)) if worth > 0 else None
+
+
+def lease_done(state, rows, price, ids=()):
+    """Has answering stopped paying? The lease's release condition, and nothing else releases it.
+
+    Blind moments are NOT an answer: the entity read is a second old, the watcher was busy, the rows aged out. A
+    lease that reads "nothing visible" as "nothing to deal with" hands the body back in the middle of a fight, and
+    the planner's next mine task lands on top of the answer — which is what `BodyContested` was, all along.
+    """
+    if not rows:
+        return False
+    try:
+        fresh = bid(state, rows, price, now=time.time(), ids=ids)
+    except Exception:
+        return False
+    return fresh is None or fresh[1] <= 0
+
+
+def still_worth(choice, field_model, price, horizon):
+    """The assumption behind a threat answer: that it still beats carrying on. A held answer that has stopped
+    paying (the sword broke, the crowd doubled) is not a commitment, it is a mistake with a timer."""
+    from . import threat as _threat
+    options = [a.option for a in field_model.opts]
+    same = next((o for o in options if o.kind == choice.name), None)
+    if same is None:
+        return False
+    return _threat.saves(same, options, price, horizon) > 0
+
+
+# ------------------------------------------------------------------------------------------------ the batches
+
+RAW_OK = ("minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken")
+
+
+def batch(option, state):
+    """Pure: the command batch that carries out one answer, from a body state (`skillcore.body_state` plus
+    `threats`, the rows being answered). [] when the answer cannot be carried out from here — then it is not an
+    answer at all. One function per kind, the same batch the skill it borrows from would post."""
+    make = BATCH.get(option.kind)
+    return list(make(option, state)) if make else []
+
+
+def _fight(option, state):
+    return [{"type": "attack", "entity": option.target}]
+
+
+def _evade(option, state):
+    x, y, z = option.target
+    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": True, "place": True,
+             "placeBudget": int(state["inv"].count("building")), "avoid": []}]
+
+
+def _wall_in(option, state):
+    from .skills import pod_commands
+    return pod_commands(state) if state.get("region") is not None else []
+
+
+def _eat(option, state):
+    from .knowledge import ALL_FOOD
+    food = next((f for f in list(ALL_FOOD) + list(RAW_OK) if state["inv"].count(f)), None)
+    return [{"type": "eat", "item": food}] if food else []
+
+
+def _shield(option, state):
+    if state["inv"].offhand() != "minecraft:shield":
+        return []
+    return [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]
+
+
+def _reshape(option, state):
+    """Change the ground: dig down n, stand n blocks up, or put n blocks between us and the nearest threat."""
+    from .data import GROUPS
+    where, n = option.target
+    x, y, z = state["feet"]
+    if where == "down":
+        return [nav.mine_task((x, y - 1 - i, z)) for i in range(n)]
+    item = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
+    if item is None:
+        return []
+    if where == "under":
+        return [{"type": "pillar", "item": item} for _ in range(n)]
+    near = state.get("threats") or []
+    toward = min(near, key=lambda h: math.dist((x, y, z), h[0]))[0] if near else (x + 1, y, z)
+    step = [1 if toward[i] > (x, z)[j] else (-1 if toward[i] < (x, z)[j] else 0) for j, i in enumerate((0, 2))]
+    return [{"type": "place", "item": item, "x": x + step[0], "y": y + i, "z": z + step[1]} for i in range(n)]
+
+
+BATCH = {"fight": _fight, "evade": _evade, "wall_in": _wall_in, "eat": _eat, "shield": _shield,
+         "reshape": _reshape}
+
+
 def engage(decision, s, ctx):
     """Carry out one threat answer — an Option from perception or a Decision from the emergency; both name a `kind`
-    and a `target`. A fight is POSTED, not awaited: returns {"id": task} for the engagement to watch. Open-loop
-    answers post their skill's command batch (`skill.commands_of`), the one definition the skill itself runs."""
-    from . import skills
-    if decision.kind == "fight":
-        return api.post("/task?wait=0", {"type": "attack", "entity": decision.target})
-    if decision.kind == "evade":
-        if not nav.moved(nav.go_to(decision.target, ctx.policy, range_=3, attempts=1, min_hp=0)):
-            raise NotAvailable(f"could not get away to {decision.target}")
-    elif decision.kind == "wall_in":
-        here = skills.feet()
-        batch = skillkit.commands_of(skills.pod, skills.body_state(ctx, skills._pod_region(here)))
-        api.run_chain(batch)
-        if not skills.enclosed():
-            raise NotAvailable("walling in left an opening")
-    elif decision.kind == "eat":
-        skills.eat(raw_ok=True)
-    elif decision.kind == "shield":
-        skills.shield_to_offhand()
-        api.run({"type": "use_item", "hand": "offhand", "hold_ms": 1500}, wait=5)
-    elif decision.kind == "reshape":
-        reshape(decision, s, ctx)
-    return None
-
-
-def reshape(decision, s, ctx):
-    """Change the ground: block the way, stand a block up, or dig down. One answer, three places to put it."""
-    from . import perception, skills          # the one authority on what is around us, asked where it is used
-    where, n = decision.target
-    feet = tuple(int(math.floor(s[k])) for k in ("x", "y", "z"))
-    if where == "down":
-        for i in range(n):
-            mine_cell(ctx.policy, (feet[0], feet[1] - 1 - i, feet[2]), collect=False, wait=20)
-        return
-    item = next((b for b in skills.GROUPS["building"] if Inventory().count(b)), None)
-    if item is None:
-        raise NotAvailable("nothing to shape the ground with")
-    if where == "under":
-        for _ in range(n):
-            api.run({"type": "pillar", "item": item}, wait=20)
-        return
-    near = perception.threats_seen()[0]
-    toward = min(near, key=lambda h: math.dist(feet, h[0]))[0] if near else (feet[0] + 1, feet[1], feet[2])
-    step = [1 if toward[i] > feet[i] else (-1 if toward[i] < feet[i] else 0) for i in (0, 2)]
-    for i in range(n):
-        skills.place(item, (feet[0] + step[0], feet[1] + i, feet[2] + step[1]))
+    and a `target`: its batch (`batch`) is POSTED, not awaited. Returns {"id": last task} for the engagement to
+    watch; appending or re-posting is the engagement's call."""
+    from . import perception, skills
+    here = skills.feet()
+    region = skills._pod_region(here) if decision.kind == "wall_in" else None
+    state = skills.body_state(ctx, region, threats=perception.threats_seen()[0])
+    tasks = batch(decision, state)
+    if not tasks:
+        raise NotAvailable(f"{decision.kind}: nothing to do it with from here")
+    r = api.post("/task?wait=0", {"tasks": tasks})
+    queued = r.get("tasks") or []
+    if not queued:
+        raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")
+    return {"id": queued[-1]["id"]}

@@ -150,14 +150,14 @@ class TheFastLane(unittest.TestCase):
     """Threat answers are bid for the body at perception's cadence, not queued for the next ten-second round."""
 
     def setUp(self):
-        from bonobo import perception, threat as sv
-        self.perception, self.sv = perception, sv
-        perception.HELD = None      # each case is its own situation, not a continuation of the last
+        from bonobo import fight_loop, threat as sv
+        self.fight_loop, self.sv = fight_loop, sv
+        fight_loop.HELD = None      # each case is its own situation, not a continuation of the last
 
     def bid(self, rows, hp=20, sword=2, armor=8):
         ss = self.sv.price_state(hp=hp, sword=sword, armor=armor)
         state = {"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor, "sword_tier": sword, "blocks": 64}
-        return self.perception.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
+        return self.fight_loop.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
     # (rows in sight) → (answer, seconds it is worth), or None: no bid
     BIDS = [("nothing near", [], None),
@@ -168,21 +168,21 @@ class TheFastLane(unittest.TestCase):
     def test_bids_over_the_table(self):
         for name, rows, want in self.BIDS:
             with self.subTest(name):
-                self.perception.HELD = None
+                self.fight_loop.HELD = None
                 got = self.bid(rows)
                 self.assertEqual(None if got is None else (got[0].kind, got[1]), want)
 
     def test_the_bid_is_what_its_own_answer_saves(self):
         """Closed against the state the bid itself built, not against one reassembled here: a test that rebuilds
-        the state vector is a second copy of `perception.threat_state`, and the two drifted the moment the live
+        the state vector is a second copy of `fight_loop.threat_state`, and the two drifted the moment the live
         one started reading the ground and the kit.
         """
         rows = [row("minecraft:zombie", 5, 0)]
         ss = self.sv.price_state(hp=20, sword=2, armor=8)
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
         state = {"x": 0, "y": 64, "z": 0, "health": 20, "armor": 8, "sword_tier": 2, "blocks": 64}
-        option, worth = self.perception.bid(state, rows, price)
-        st = self.perception.threat_state(state, rows)
+        option, worth = self.fight_loop.bid(state, rows, price)
+        st = self.fight_loop.threat_state(state, rows)
         opts = threat.options(st)
         same = next(o for o in opts if o.kind == option.kind)
         self.assertAlmostEqual(worth, round(threat.saves(same, opts, price, threat.horizon_for(st)), 1), places=1)
@@ -194,9 +194,9 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
     the planner's next mine task lands on top of the answer. Only a real price says the answer is done."""
 
     def setUp(self):
-        from bonobo import perception, threat as sv
-        self.perception, self.sv = perception, sv
-        perception.HELD = None
+        from bonobo import fight_loop, threat as sv
+        self.fight_loop, self.sv = fight_loop, sv
+        fight_loop.HELD = None
 
     def release(self, rows):
         """The lease's own judgement, given what perception can see right now."""
@@ -205,7 +205,7 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
                  "food_items": 0, "shield": False, "blocks": 64, "field": field.Field()}
         ss = self.sv.price_state(hp=12, sword=2)
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
-        return self.perception.lease_done(state, rows, price)
+        return self.fight_loop.lease_done(state, rows, price)
 
     # (what perception sees now) → is the answer done (hand the body back)?
     LEASE = [("a blind moment: nothing visible", [], False),
