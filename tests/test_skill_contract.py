@@ -286,7 +286,8 @@ COMMANDS = {
                        t.assertEqual(cells(b)[-1], (0, 66, 0)))),
         ("too few blocks", body(world(), inv=inventory(cobblestone=3)), NotAvailable),
         ("grass in a wall cell is broken first", body(world(((1, 64, 0), "short_grass")), inv=inventory(cobblestone=16)),
-         lambda t, b: t.assertLess(types(b).index("mine"), cells(b).index((1, 64, 0)))),
+         lambda t, b: t.assertLess(types(b).index("mine"), next(i for i, x in enumerate(b) if x["type"] == "place"
+                                                                and (x["x"], x["y"], x["z"]) == (1, 64, 0)))),
         ("already walled in", body(hole(), inv=inventory(cobblestone=16)), lambda t, b: t.assertEqual(b, [])),
         ("on a pillar in deep water: supports rise from below first", body(river(), inv=inventory(cobblestone=64)),
          lambda t, b: (t.assertEqual(set(types(b)), {"place"}), t.assertGreater(len(b), 10),

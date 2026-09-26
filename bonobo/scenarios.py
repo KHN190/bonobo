@@ -1774,6 +1774,9 @@ for _name, _skills in COVERS.items():
     if _name in SCENARIOS:
         SCENARIOS[_name].setdefault("skills", list(_skills))
         SCENARIOS[_name].setdefault("point", "A")
+for _row_ in SHEET.values():              # the runner's setup signature: the box holds what the setup built
+    if not _row_.get("raw"):
+        _row_.setdefault("expect", [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)])
 SCENARIOS.update(SHEET)
 for _name in ("slice_retreat",):
     SCENARIOS[_name].setdefault("point", "C")
