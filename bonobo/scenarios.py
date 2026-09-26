@@ -1879,16 +1879,25 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
 # Tiers (docs/refactor.md §1). core: every basic action on the default arena, the three L0 hazards, the start of the
 # chain — run on every change. common: core × the conditions play meets daily — run when a related module changed.
 # exception: everything else — before a merge.
-TIERS = ("core", "common", "exception")
+# acceptance: test point D, its own layer (30 minutes from a fresh world) — never part of another tier's run.
+TIERS = ("core", "common", "exception", "acceptance")
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
-                                             "slice_start_tools", "iron_ingots")
+                                             "slice_start_tools", "iron_ingots", "bed_in_nether")
 COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work")
+# Upkeep's own rows and the test-point-B hazards: everyday, so common whatever their shape; the chain's last leg too.
+COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "water_clutch", "cross_lava_8", "cave_escape",
+          "slice_nether_kit")
+ACCEPTANCE = (ACCEPTANCE_D,)
 
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to."""
     if name in CORE:
         return "core"
+    if name in ACCEPTANCE:
+        return "acceptance"
+    if name in COMMON:
+        return "common"
     tags = row.get("tags", {})
     if tags.get("base") in BASES and any(tags.get(ax) in COMMON_CONDITIONS for ax in ("terrain", "timing", "inventory")):
         return "common"

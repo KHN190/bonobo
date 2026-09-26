@@ -313,7 +313,7 @@ def main():
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
     p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
-    p.add_argument("--tier", choices=["core", "common", "exception", "all"], default="core",
+    p.add_argument("--tier", choices=["core", "common", "exception", "acceptance", "all"], default="core",
                    help="which tier to run with `all` / list (default core)")
     p.add_argument("--changed", action="store_true",
                    help="only rows proving skills changed since the merge-base with main (else core)")

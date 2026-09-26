@@ -181,10 +181,25 @@ class Tiers(unittest.TestCase):
 
     def test_common_is_core_under_everyday_conditions(self):
         for name, row in rows():
-            if row["tier"] == "common":
+            if row["tier"] == "common" and name not in sc.COMMON:
                 with self.subTest(name):
                     self.assertIn(row["tags"]["base"], sc.BASES)
                     self.assertTrue(set(row["tags"].values()) & set(sc.COMMON_CONDITIONS))
+
+    # (row, tier it must be in): the rules the tiers exist for, stated per row.
+    PLACED = [("bed_in_nether", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
+              ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
+              ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance")]
+
+    def test_placed_rows(self):
+        for name, tier in self.PLACED:
+            with self.subTest(name):
+                self.assertEqual(sc.SCENARIOS[name]["tier"], tier)
+
+    def test_no_tier_run_includes_acceptance(self):
+        for tier in ("core", "common", "exception"):
+            with self.subTest(tier):
+                self.assertNotIn(sc.ACCEPTANCE_D, sc.select(sc.SCENARIOS, tier))
 
 
 class FakeContract:
