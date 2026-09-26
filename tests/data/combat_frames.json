@@ -1,0 +1,279 @@
+{
+ "source": "bench combat_arena, 2026-09-17 (bench/combat.jsonl): the threat state each run was decided from",
+ "frames": {
+  "none": {
+   "cell": {
+    "enemy": "none",
+    "count": "one",
+    "ground": "open",
+    "weapon": "iron",
+    "armour": "iron",
+    "blood": "whole",
+    "kit": "full",
+    "distance": "near"
+   },
+   "recorded_held": "ignore",
+   "state": null
+  },
+  "walker": {
+   "cell": {
+    "enemy": "walker",
+    "count": "one",
+    "ground": "open",
+    "weapon": "iron",
+    "armour": "iron",
+    "blood": "whole",
+    "kit": "full",
+    "distance": "near"
+   },
+   "recorded_held": "fight",
+   "state": {
+    "here": [
+     10002.152001066675,
+     200.0,
+     10000.82788411938
+    ],
+    "hp": 20.0,
+    "sword": 0,
+    "protection": 0.32,
+    "night": false,
+    "blocks": 0,
+    "hazards": [
+     [
+      [
+       10005.534812644675,
+       200.0,
+       10001.281684027777
+      ],
+      3.0,
+      [
+       0.05641238010657247,
+       0.0,
+       -0.3537715598245718
+      ],
+      "minecraft:zombie",
+      1.0,
+      3.0
+     ]
+    ],
+    "food_items": 0,
+    "shield": false,
+    "field": {
+     "bucket": "open",
+     "blocks": 0
+    },
+    "ids": [
+     18022
+    ]
+   }
+  },
+  "archer": {
+   "cell": {
+    "enemy": "archer",
+    "count": "one",
+    "ground": "open",
+    "weapon": "iron",
+    "armour": "iron",
+    "blood": "whole",
+    "kit": "full",
+    "distance": "near"
+   },
+   "recorded_held": "fight",
+   "state": {
+    "here": [
+     10000.701920912705,
+     200.0,
+     10000.623980602903
+    ],
+    "hp": 18.96,
+    "sword": 0,
+    "protection": 0.32,
+    "night": false,
+    "blocks": 0,
+    "hazards": [
+     [
+      [
+       10005.435102013342,
+       200.0,
+       10002.432918074726
+      ],
+      15.0,
+      [
+       -0.037395617785205615,
+       0.0,
+       -3.3273961892942103
+      ],
+      "minecraft:skeleton",
+      1.0,
+      2.0
+     ]
+    ],
+    "food_items": 0,
+    "shield": false,
+    "field": {
+     "bucket": "open",
+     "blocks": 0
+    },
+    "ids": [
+     19110
+    ]
+   }
+  },
+  "bomb": {
+   "cell": {
+    "enemy": "bomb",
+    "count": "one",
+    "ground": "open",
+    "weapon": "iron",
+    "armour": "iron",
+    "blood": "whole",
+    "kit": "full",
+    "distance": "near"
+   },
+   "recorded_held": "evade",
+   "state": {
+    "here": [
+     10000.747187562592,
+     200.0,
+     10000.524461297011
+    ],
+    "hp": 20.0,
+    "sword": 0,
+    "protection": 0.32,
+    "night": false,
+    "blocks": 0,
+    "hazards": [
+     [
+      [
+       9998.20401699456,
+       200.0,
+       9998.20400985007
+      ],
+      3.0,
+      [
+       2.915999887535897,
+       0.0,
+       2.9159876615237414
+      ],
+      "minecraft:creeper",
+      1.0,
+      28.666666666666668
+     ]
+    ],
+    "food_items": 0,
+    "shield": false,
+    "field": {
+     "bucket": "open",
+     "blocks": 0
+    },
+    "ids": [
+     22797
+    ]
+   }
+  },
+  "pack": {
+   "cell": {
+    "enemy": "pack",
+    "count": "one",
+    "ground": "open",
+    "weapon": "iron",
+    "armour": "iron",
+    "blood": "whole",
+    "kit": "full",
+    "distance": "near"
+   },
+   "recorded_held": "fight",
+   "state": {
+    "here": [
+     10000.5,
+     200.0,
+     9999.030678505918
+    ],
+    "hp": 20.0,
+    "sword": 0,
+    "protection": 0.32,
+    "night": false,
+    "blocks": 0,
+    "hazards": [
+     [
+      [
+       10000.5,
+       200.0,
+       9994.6796875
+      ],
+      3.0,
+      [
+       0.0,
+       0.0,
+       0.23825170470172066
+      ],
+      "minecraft:zombie",
+      1.0,
+      3.0
+     ]
+    ],
+    "food_items": 0,
+    "shield": false,
+    "field": {
+     "bucket": "open",
+     "blocks": 0
+    },
+    "ids": [
+     23537
+    ]
+   }
+  },
+  "mixed": {
+   "cell": {
+    "enemy": "mixed",
+    "count": "one",
+    "ground": "open",
+    "weapon": "iron",
+    "armour": "iron",
+    "blood": "whole",
+    "kit": "full",
+    "distance": "near"
+   },
+   "recorded_held": "fight",
+   "state": {
+    "here": [
+     10000.233919367385,
+     200.0,
+     10001.726214006238
+    ],
+    "hp": 17.78,
+    "sword": 0,
+    "protection": 0.32,
+    "night": false,
+    "blocks": 0,
+    "hazards": [
+     [
+      [
+       9999.611066627487,
+       200.1163677387058,
+       10003.705122302434
+      ],
+      3.0,
+      [
+       0.18710969708246616,
+       0.19604027629209703,
+       -3.023761771559424
+      ],
+      "minecraft:zombie",
+      1.0,
+      3.0
+     ]
+    ],
+    "food_items": 0,
+    "shield": false,
+    "field": {
+     "bucket": "open",
+     "blocks": 0
+    },
+    "ids": [
+     25391
+    ]
+   }
+  }
+ }
+}
