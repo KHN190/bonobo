@@ -1,5 +1,5 @@
 """Renewable food and wood: replant saplings after chopping, a 3×3 wheat plot around a water source, harvest when
-ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collected later by the priority pool.
+ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collected later by upkeep.
 Pure planners (`farm_plot`, `ripe_cells`, `breeding_pair`) are offline-tested; skills only execute them."""
 import math
 

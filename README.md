@@ -22,7 +22,6 @@ Most of this is testable without the game running:
 
 ```sh
 python3 -m unittest discover tests     # pure functions, geometry, the planner, recorded replays
-python3 mc.py decide diff              # replay recorded decisions against the current code
 python3 mc.py scenario run NAME        # one scenario in a disposable test world
 ```
 

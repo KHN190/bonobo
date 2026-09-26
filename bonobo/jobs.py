@@ -1,7 +1,7 @@
 """One model for everything that runs on its own after it is started: a furnace smelting, crops growing, a sapling
 turning into a tree, animals' breeding cooldown. A job is {id, kind, pos, dimension, item, count, ready_at, ...}
-in memory; the priority pool offers each ready job as a candidate (with a proximity bonus), and `collect` dispatches
-by kind. New long waits are new kinds here — never blocking loops."""
+in memory; the upkeep table collects the nearest ready one (`upkeep` "collect job"), and `collect` dispatches by
+kind. New long waits are new kinds here — never blocking loops."""
 import time
 
 from .api import NotAvailable, log
