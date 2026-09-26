@@ -127,8 +127,8 @@ SCENARIOS.update({
                                                                     "minecraft:iron_sword")),
         "budget": 120,
     },
-    "fight_blaze": {
-        "doc": "Nether platform, 3 blazes, sword + shield + iron armor → at least one blaze rod.",
+    "collect_blaze_rods": {
+        "doc": "Nether platform, 3 blazes, sword + shield + iron armor → fight_loop fights them, the step picks up at least one rod.",
         "module": "combat",
         "dimension": "minecraft:the_nether",
         "combat": True,
@@ -146,7 +146,7 @@ SCENARIOS.update({
                   f"summon blaze {_c(at(0, 1, -6))} {{PersistenceRequired:1b}}"],
         "expect": [(at(-8, -1, -8), at(8, -1, 8), "nether_bricks", 289, 289)],
         "expect_entities": [("minecraft:blaze", 3)],
-        "run": lambda ctx: __import__("bonobo.combat", fromlist=["fight_blaze"]).fight_blaze(ctx, 1),
+        "run": lambda ctx: __import__("bonobo.combat", fromlist=["collect_blaze_rods"]).collect_blaze_rods(ctx, 1),
         "check": lambda api, inv: inv.count("minecraft:blaze_rod") >= 1 and api.get("/state")["health"] > 0,
         "budget": 90,
     },
@@ -1015,7 +1015,7 @@ SCENARIOS["gather_logs_birch"] = {
 MILESTONE_SCENARIOS = {
     "stone tools": ["craft_stone_tools", "slice_start_tools"], "station kit": ["slice_start_tools"],
     "food": ["hunt_food"], "iron pickaxe": ["iron_ingots"], "water bucket": ["fill_water_bucket"],
-    "nether kit": ["slice_nether_kit"], "blaze rods": ["fight_blaze"], "eyes of ender": ["craft_eyes"],
+    "nether kit": ["slice_nether_kit"], "blaze rods": ["collect_blaze_rods"], "eyes of ender": ["craft_eyes"],
 }
 
 
@@ -2049,7 +2049,7 @@ COVERS = {
     "cross_lava_8": ["travel_to"], "gather_logs": ["chop"], "gather_logs_birch": ["chop"],
     "enter_nether": ["use_portal"], "relight_portal": ["use_portal"], "return_from_nether": ["use_portal"],
     "return_to_portal": ["use_portal"], "retreat_from_nether": ["use_portal"], "barter_piglin": ["barter_piglin"],
-    "fight_blaze": ["fight_blaze"], "activate_end_portal": ["activate_end_portal"], "enter_end": ["enter_end"],
+    "collect_blaze_rods": ["collect_blaze_rods"], "activate_end_portal": ["activate_end_portal"], "enter_end": ["enter_end"],
     "craft_stone_tools": ["craft", "mine", "chop"], "iron_ingots": ["mine", "load_smelter", "start_smelt_job", "smelt"],
     "hunt_food": ["hunt"], "craft_eyes": ["craft"], "locate_stronghold": ["locate_stronghold"],
     "find_portal_room_fresh": ["find_portal_room"], "fight_dragon": ["fight_dragon"], "loot_chest": ["loot_chest"],

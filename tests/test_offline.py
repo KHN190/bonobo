@@ -925,9 +925,9 @@ check("nav: a guessed target y is moved onto the real ground of its column",
       nav.ground_in_column(lambda p: p in _col, 5, 9, 87) == 71
       and nav.ground_in_column(lambda p: False, 5, 9, 87) is None)
 _tf = {}
-SC.record(_tf, "fight_blaze", "c", True, 10)
-SC.record(_tf, "fight_blaze", "c", True, 11)
-check("bench: fights never settle (they change run to run)", not SC.settled(_tf, "fight_blaze"))
+SC.record(_tf, "collect_blaze_rods", "c", True, 10)
+SC.record(_tf, "collect_blaze_rods", "c", True, 11)
+check("bench: fights never settle (they change run to run)", not SC.settled(_tf, "collect_blaze_rods"))
 _slog = [f"06:39:{s:02d} bucket/mine:minecraft:raw_iron: vein yielded nothing" for s in range(10, 15)] + \
         ["06:39:20   travel    succeeded arrived (1.0s)", "06:39:21 route: now 'portal'"]
 _spos = [(0, (0, 64, 0)), (1, (10, 64, 0)), (2, (4, 64, 0)), (3, (20, 64, 0))]

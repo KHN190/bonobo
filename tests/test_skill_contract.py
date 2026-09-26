@@ -282,7 +282,8 @@ class Readings:
     whether the body is walled in, the free spots around. Patched where each module reads them (readings, not a
     game); the skill's own `start` and `verify` run unchanged."""
 
-    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids", "brewing", "farming", "ui")
+    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids", "brewing", "farming", "ui",
+               "combat")
 
     def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=(), items=(),
                  obsidian=0, cast=None, mobs=()):
@@ -438,6 +439,15 @@ PRODUCTS += [
      (50, 30, 50), None, False),
     ("stronghold: the throws meet elsewhere", "locate_stronghold", (_stronghold_at((80, 30, 20), MEET),), R(), R(),
      (80, 30, 20), None, False),
+]
+
+
+PRODUCTS += [
+    ("blaze rods: none picked up", "collect_blaze_rods", (None, 2), R(), R(), None, None, False),
+    ("blaze rods: one of two", "collect_blaze_rods", (None, 2), R(), R(inv=inventory(blaze_rod=1)), None, None, False),
+    ("blaze rods: both", "collect_blaze_rods", (None, 2), R(), R(inv=inventory(blaze_rod=2)), None, None, True),
+    ("blaze rods: held before do not count", "collect_blaze_rods", (None, 2), R(inv=inventory(blaze_rod=5)),
+     R(inv=inventory(blaze_rod=5)), None, None, False),
 ]
 
 

@@ -339,6 +339,62 @@ class Daylight(unittest.TestCase):
                 self.assertEqual(vec.get("clock:dawn_s"), dawn)
 
 
+# ------------------------------------------------------------------------------------------ where a thing lives
+NETHER_T = "minecraft:the_nether"
+ROD = planner.Step("hunt", "minecraft:blaze_rod", 7, {"types": ["minecraft:blaze"], "kills": 14})
+LOG_STEP = planner.Step("gather", "log", 4)
+# (situation, dimension we are in, fortress remembered?, the steps planned) → the steps with the way there put first
+LIVES = [
+    ("rods from the Overworld, no fortress known: portal, find it, collect", OVER, False, [ROD],
+     [("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
+    ("rods in the Nether, no fortress known: find it, collect", NETHER_T, False, [ROD],
+     [("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
+    ("rods in the Nether, a fortress remembered: collect", NETHER_T, True, [ROD], [("hunt", "minecraft:blaze_rod")]),
+    ("rods from the Overworld, a fortress remembered: portal, collect", OVER, True, [ROD],
+     [("portal", NETHER_T), ("hunt", "minecraft:blaze_rod")]),
+    ("logs live anywhere: nothing put first", OVER, False, [LOG_STEP], [("gather", "log")]),
+    ("two rod steps: the way there once", OVER, False, [ROD, ROD],
+     [("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod"), ("hunt", "minecraft:blaze_rod")]),
+]
+
+
+class WhereItLives(unittest.TestCase):
+    def test_the_way_there_first(self):
+        for name, dim, fortress, steps, want in LIVES:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                if fortress:
+                    m.add_site("fortress", (200, 70, 40), NETHER_T, name="fortress")
+                snap = snapshot(state(dimension=dim))
+                got = decompose.where_it_lives(list(steps), cost(snap, mem=m))
+                self.assertEqual([(st.kind, st.token) for st in got], want)
+
+    # (situation, rods held, skills removed) → the plan for "have 7 blaze rods" from the Overworld, or why not
+    GOALS = [("none held: portal, fortress, collect", 0, (), [("portal", NETHER_T), ("seek", "fortress"),
+                                                              ("hunt", "minecraft:blaze_rod")]),
+             ("seven held: nothing to do", 7, (), []),
+             ("five held: still the way there, for two", 5, (), [("portal", NETHER_T), ("seek", "fortress"),
+                                                                ("hunt", "minecraft:blaze_rod")]),
+             ("nobody can use a portal: no plan, and says so", 0, ("use_portal",), Unplannable),
+             ("nobody collects rods (nor hunts): no plan", 0, ("collect_blaze_rods", "hunt"), Unplannable)]
+
+    def test_blaze_rods_as_a_goal(self):
+        for name, held, removed, want in self.GOALS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(skillkit.REGISTRY):
+                for n in removed:
+                    skillkit.REGISTRY.pop(n)
+                snap = snapshot(state(), inventory(("blaze_rod", held)) if held else inventory())
+                c = cost(snap, mem=Memory(os.path.join(tmp, "notes.json")))
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        decompose.decompose(snap.inv, goals.have(("minecraft:blaze_rod", 7)), c)
+                    continue
+                got = decompose.decompose(snap.inv, goals.have(("minecraft:blaze_rod", 7)), c)
+                # the way there and the collecting, in order (the sword a fight needs is the planner's own business)
+                self.assertEqual([(st.kind, st.token) for st in got if st.kind in ("portal", "seek", "hunt")], want)
+                self.assertEqual(sum(st.count for st in got if st.kind == "hunt"), 7 - held)
+
+
 # ------------------------------------------------------------------------------------------------- effect goals
 class EffectGoals(unittest.TestCase):
     def test_every_provided_effect_is_a_goal(self):
