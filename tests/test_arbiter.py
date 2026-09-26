@@ -170,7 +170,8 @@ class AHeldAnswerSettlesItsOwnLayer(unittest.TestCase):
     def test_a_faster_layer_is_never_asked_anything(self):
         self.hold("shield up")
         taken, why = self.body.preempt("safety", lambda: self.ran.append("lava"), "lava", now=0.5)
-        self.assertIsNotNone(taken, why)
+        self.assertEqual((taken, why), (("safety", "lava"), None))
+        self.assertEqual(self.ran, ["shield up", "lava"])
 
     def test_a_slower_layer_is_refused_on_the_layer(self):
         self.hold("shield up")
