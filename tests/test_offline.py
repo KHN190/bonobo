@@ -16,11 +16,13 @@ from bonobo import nav, skills  # noqa: E402
 from bonobo.planner import NullCost, Planner  # noqa: E402
 
 FAILS = []
+CHECKS = []            # every check, in order: (name, held?, detail) — the table the unittest walks
 ALL = {"pillar", "ladder_in_cell"}
 
 
 def check(name, cond, detail=""):
     print(("ok   " if cond else "FAIL ") + name + (f"  {detail}" if detail and not cond else ""))
+    CHECKS.append((name, bool(cond), detail))
     if not cond:
         FAILS.append(name + (f"  {detail}" if detail else ""))
 
@@ -1004,7 +1006,10 @@ print(f"\n{len(FAILS)} failed" if FAILS else "\nall offline checks passed")
 
 class Offline(unittest.TestCase):
     def test_every_offline_check(self):
-        self.assertEqual(FAILS, [], "failed offline checks")
+        self.assertGreater(len(CHECKS), 100, "the checks did not run")
+        for i, (name, held, detail) in enumerate(CHECKS):
+            with self.subTest(f"{i}: {name}"):
+                self.assertEqual((held, detail if not held else ""), (True, ""))
 
 
 if __name__ == "__main__":
