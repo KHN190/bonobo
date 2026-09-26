@@ -37,12 +37,9 @@ class LayeringIsHard(unittest.TestCase):
     """Subsumption is the architecture: a faster layer does not bid for the body, it takes it. Whatever the work
     below is worth, however long it has run, and whatever the answer above claims to save."""
 
-    def test_the_pairs_cover_the_order(self):
-        self.assertEqual(ORDER, ["reflex", "safety", "tactic", "plan"])
-        self.assertEqual(len(PAIRS), 6)
-        self.assertEqual(FASTER, ("reflex", "safety", "tactic"))
-
     def test_a_faster_layer_always_takes_the_body(self):
+        self.assertEqual((ORDER, len(PAIRS), FASTER), (["reflex", "safety", "tactic", "plan"], 6,
+                                                       ("reflex", "safety", "tactic")))
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
             for slow, fast in PAIRS:
                 if slow == "plan":
@@ -111,7 +108,7 @@ class ARefusalHasExactlyOneReason(unittest.TestCase):
                                        now=0.0, seen_at=0.0)
             if why == "held":
                 seen.add(layer)
-        self.assertFalse(seen - {"tactic"}, f"another layer was refused by a held answer: {sorted(seen)}")
+        self.assertEqual(seen, {"tactic"}, "only the held answer's own layer is refused as held")
 
 
 class HoldingIsADecisionNotALock(unittest.TestCase):
@@ -193,22 +190,23 @@ class TheArbiterJudgesAndNeverPrices(unittest.TestCase):
             self.assertEqual(asking.denials, [expected],
                              "a layer that was refused was never told, and will re-decide the same thing")
 
+    # (who holds the body, who asks) → the refusal, and whether the asker's own decision is released by it
+    REFUSED = [("safety", "plan", "layer"), ("safety", "tactic", "layer"), ("tactic", "plan", "layer"),
+               ("tactic", "tactic", "held"), ("tactic", "safety", None)]
+
     def test_being_refused_ends_the_assumption_it_was_made_under(self):
-        asking = FakeHeld()
-        body = arbiter.Motion()
-        body.preempt("safety", lambda: None, "emergency", worth_s=1e6, now=0.0, release=lambda: False)
-        body.preempt("plan", lambda: None, "mine", worth_s=1e6, now=0.1, held=asking)
-        self.assertTrue(asking.release(), "the refused layer still thinks its decision stands")
+        for holder, asker, why_want in self.REFUSED:
+            with self.subTest(holder=holder, asker=asker):
+                asking, body = FakeHeld(), arbiter.Motion()
+                body.preempt(holder, lambda: None, "held", worth_s=1e6, now=0.0, seen_at=0.0, release=lambda: False)
+                taken, why = body.preempt(asker, lambda: None, "ask", worth_s=1e6, now=0.1, seen_at=0.1, held=asking)
+                self.assertEqual(why, why_want)
+                self.assertEqual((asking.denials, asking.release()), ([why], True) if why else ([], False))
 
 
 class NothingIsComparedAcrossDifferentWorlds(unittest.TestCase):
     """Every reading carries when it was taken. Two layers polling the same world at different rates will hold
     readings of different ages, and a comparison between them is only honest while both are recent."""
-
-    def test_a_reading_says_when_it_was_taken(self):
-        for age in FRESHNESS.values():
-            self.assertFalse(arbiter.fresh_enough(seen_at=-age, now=0.0, within=1.0) and age > 1.0,
-                             f"a {age}s old reading passed as fresh")
 
     def test_freshness_is_a_property_of_the_reading_not_of_the_asker(self):
         for age in FRESHNESS.values():
@@ -217,13 +215,15 @@ class NothingIsComparedAcrossDifferentWorlds(unittest.TestCase):
                                  f"{age}s within {within}s")
 
     def test_a_decision_made_from_a_stale_reading_is_not_defended(self):
-        held, body = FakeHeld(), arbiter.Motion()
-        body.preempt("tactic", lambda: None, "held answer", worth_s=HELD_WORTH, now=0.0,
-                     release=held.release, held=held, seen_at=-FRESHNESS["stale"])
-        taken, why = body.preempt("tactic", lambda: None, "fresh answer", worth_s=1.0, now=0.0,
-                                  seen_at=0.0)
-        self.assertEqual((taken, why), (("tactic", "fresh answer"), None),
-                         f"a decision from a {FRESHNESS['stale']}s old world kept the body")
+        """Over every age of the held reading: within the arbiter's window it is defended, past it it is not."""
+        for age_name, age in FRESHNESS.items():
+            with self.subTest(age=age_name):
+                held, body = FakeHeld(), arbiter.Motion()
+                body.preempt("tactic", lambda: None, "held answer", worth_s=HELD_WORTH, now=0.0,
+                             release=held.release, held=held, seen_at=-age)
+                taken, why = body.preempt("tactic", lambda: None, "fresh answer", worth_s=1.0, now=0.0, seen_at=0.0)
+                defended = arbiter.fresh_enough(seen_at=-age, now=0.0, within=arbiter.FRESH_WITHIN_S)
+                self.assertEqual((taken, why), (None, "held") if defended else (("tactic", "fresh answer"), None))
 
 
 if __name__ == "__main__":
