@@ -82,7 +82,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
         import inspect
         from bonobo import dispatch
         src = inspect.getsource(dispatch.go_find)
-        known = min(src.index("mem.progress("), src.index("mem.resources("))
+        known = min(i for i in (src.find("mem.progress("), src.find("mem.resources(")) if i >= 0)
         for last in ("explore_for(", "seek_blocks("):
             self.assertLess(known, src.index(last), "exploring is the last resort, after what is already known")
 
