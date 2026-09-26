@@ -271,6 +271,91 @@ class Outcomes(unittest.TestCase):
         self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt))
 
 
+# ------------------------------------------------------------------------------------------------ the runner
+class Stats:
+    def __init__(self):
+        self.rows = []
+
+    def record_duration(self, key, seconds, units):
+        self.rows.append((key, units))
+
+    def duration(self, key):
+        return None
+
+
+def _missing_pick(c):
+    raise skillcore.ToolMissing("pickaxe", 1)
+
+
+# (situation, contract keywords, what the body does, expected: result or exception type, body ran?, stats recorded?)
+RUNS = [
+    ("a precondition fails: nothing runs", dict(pre=[_missing_pick]), lambda: 5, skillcore.ToolMissing, False, False),
+    ("already done: skipped, nothing runs", dict(done=lambda c: True), lambda: 5, None, False, False),
+    ("done and verified: the result, timed", dict(verify=lambda c: c.result == 5, units=lambda c: 3, key=lambda c: "k"),
+     lambda: 5, 5, True, [("k", 3)]),
+    ("finished without the effect: a failure, not timed", dict(verify=lambda c: False), lambda: 5, api.McError,
+     True, False),
+    ("verify defaults to done", dict(done=lambda c: c.result == 5 if c.result is not None else False), lambda: 5, 5,
+     True, True),
+    ("the body fails: that failure, not timed", dict(), lambda: (_ for _ in ()).throw(NotAvailable("none here")),
+     NotAvailable, True, False),
+    ("the body is interrupted: that interruption", dict(), lambda: (_ for _ in ()).throw(api.Interrupted("lava")),
+     api.Interrupted, True, False),
+]
+
+
+class Runner(unittest.TestCase):
+    def test_contract_runs(self):
+        for name, kw, body, want, ran, timed in RUNS:
+            calls, stats = [], Stats()
+
+            def fn(ctx, _body=body):
+                calls.append(1)
+                return _body()
+            fn.__name__ = f"bench_{abs(hash(name))}"
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), mock.patch.object(skillkit, "STATS", stats), \
+                    mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
+                    mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
+                runner = skillkit.skill(**kw)(fn)
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        runner(None)
+                else:
+                    self.assertEqual(runner(None), want)
+                self.assertEqual(bool(calls), ran)
+                self.assertEqual(stats.rows if timed not in (True, False) else bool(stats.rows), timed)
+
+    def test_can_run_asks_the_same_preconditions(self):
+        for pre, want in (([], (True, None)), ([_missing_pick], (False, "need a tier-1 pickaxe"))):
+            with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
+                runner = skillkit.skill(name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
+                self.assertEqual(skillkit.can_run(runner, None), want)
+
+    def test_step_keys_most_specific_first(self):
+        from bonobo.planner import Step
+        self.assertEqual(skillkit.step_keys(Step("mine", "minecraft:coal", 1)),
+                         ["mine:minecraft:coal", "item:minecraft:coal", "mine"])
+
+    # (providers: (name, effect, prefer, adapter result)), the step → the chosen (name, args) or None
+    PROVIDERS = [
+        ("the preferred one that can serve", [("p_a", "zz", 1, None), ("p_b", "zz", 0, (7,))], ("p_b", (7,))),
+        ("preference first", [("p_a", "zz", 1, (1,)), ("p_b", "zz", 0, (2,))], ("p_a", (1,))),
+        ("the specific effect before the generic", [("p_a", "zz", 5, (1,)), ("p_b", "zz:tok", 0, (2,))], ("p_b", (2,))),
+        ("nobody can serve here", [("p_a", "zz", 0, None)], None),
+    ]
+
+    def test_provider(self):
+        from bonobo.planner import Step
+        for name, provs, want in self.PROVIDERS:
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
+                for pname, effect, prefer, got in provs:
+                    skillkit.skill(name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
+                        lambda ctx, *a: None)
+                found = skillkit.provider(None, Step("zz", "tok", 1))
+                self.assertEqual(None if found is None else (found[0].contract.name, found[1]), want)
+                self.assertEqual(skillkit.handles(Step("zz", "tok", 1)), True)
+
+
 # ----------------------------------------------------------------------------------------------------- commands
 FEET = (0, 64, 0)
 
