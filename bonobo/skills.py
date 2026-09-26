@@ -876,7 +876,7 @@ def eat(ctx=None, raw_ok=False):
         api.run({"type": "eat", "item": food}, wait=30)
         took = time.time() - started
         if 0.05 <= took <= 30.0:        # a queued or interrupted bite times the queue, not the bite
-            beliefs.note("engage.eat_s", took, where="eat")
+            beliefs.note("engage.eat_s", round(took, 3), where="eat")
         return True
     return False
 
