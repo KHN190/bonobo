@@ -21,19 +21,20 @@ from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _report, _setup, _trace, c
 # name → module (for the readiness hash), setup commands (relative to ORIGIN), expected signature blocks
 # [(lo, hi, block or "*" for any non-air, min, max)], the skill call, the success check and a time budget (s).
 SCENARIOS.update({
-    "cast_obsidian": {
-        "doc": "A 5×5 still lava pool in a stone floor; water bucket in hand → obsidian appears.",
-        "module": "fluids",
-        "setup": [f"fill {_c(at(-6, -3, -6))} {_c(at(6, -1, 6))} stone",
-                  f"fill {_c(at(-2, -1, -2))} {_c(at(2, -1, 2))} lava",
-                  f"tp @p {_c(at(-5, 0, 0))}",
-                  "clear @p", "give @p water_bucket", "give @p diamond_pickaxe"],
-        "expect": [(at(-2, -1, -2), at(2, -1, 2), "lava", 25, 25),
-                   (at(-6, -1, -6), at(6, -1, 6), "stone", 144, 144),
-                   (at(-6, 0, -6), at(6, 4, 6), "*", 0, 0)],
-        "run": lambda ctx: __import__("bonobo.fluids", fromlist=["cast_obsidian"]).cast_obsidian(ctx),
-        "check": lambda api, inv: _count_blocks(api, at(-3, -2, -3), at(3, 0, 3), "obsidian") >= 10,
-        "budget": 90,
+    "cast_portal": {
+        "doc": "A 5×5 lava pool 3 blocks off a stone floor; water bucket, bucket, 16 cobblestone, flint and steel → "
+               "a portal frame cast in place and lit (no obsidian carried, no diamond pickaxe).",
+        "module": "building",
+        "setup": [f"fill {_c(at(-8, -3, -8))} {_c(at(8, -1, 8))} stone",
+                  f"fill {_c(at(4, -1, -2))} {_c(at(8, -1, 2))} lava",
+                  f"tp @p {_c(at(0, 0, 0))}",
+                  "clear @p", "give @p water_bucket", "give @p bucket", "give @p cobblestone 16",
+                  "give @p flint_and_steel"],
+        "expect": [(at(4, -1, -2), at(8, -1, 2), "lava", 25, 25),
+                   (at(-8, 0, -8), at(8, 4, 8), "*", 0, 0)],
+        "run": lambda ctx: __import__("bonobo.building", fromlist=["cast_portal"]).cast_portal(ctx),
+        "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
+        "budget": 180,
     },
     "build_light_portal": {
         "doc": "Flat stone ground, 10 obsidian + 4 cobblestone + flint and steel → a lit nether portal.",
@@ -2108,17 +2109,29 @@ SHEET["boat_across_the_lake"] = {
     "check": _all(_at(at(20, 0, 0), 3), lambda api, inv: not api.get("/state")["inWater"]), "budget": 90,
 }
 
+def _queue(goal):
+    """`before` hook: put a task at the head of the queue, as L3 would."""
+    def hook(ctx):
+        from . import tasks
+        tasks.add(goal, front=True, source="bench")
+    return hook
+
+
 # -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
-SHEET["obsidian_from_cast"] = {
-    "doc": "A lava pool memory knows, a water bucket and a diamond pickaxe → the plan casts, then breaks what formed",
-    "module": "decompose", "point": "C", "skills": ["cast:obsidian", "mine"], "tier_fixed": "exception",
+SHEET["portal_from_cast"] = {
+    "doc": "The queue asks for a portal: no obsidian, no diamond pickaxe, buckets, blocks and flint, a lava pool "
+           "memory knows 3 blocks off → the plan casts it in place, and it is lit",
+    "module": "decompose", "point": "C", "skills": ["cast:nether_portal"], "tier_fixed": "exception",
     "tags": {"base": "sources"},
-    "setup": list(SCENARIOS["cast_obsidian"]["setup"]),
-    "expect": list(SCENARIOS["cast_obsidian"]["expect"]),
-    "before": _hooks(_start("obsidian_from_cast"),
-                     lambda ctx: ctx.mem.note_seen("lava", at(0, -1, 0), "minecraft:overworld")),
-    "run": _achieve_needs([("minecraft:obsidian", 4)]),
-    "check": _all(_gain("minecraft:obsidian", 4), _alive(10)), "budget": 180,
+    "setup": list(SCENARIOS["cast_portal"]["setup"]),
+    "expect": list(SCENARIOS["cast_portal"]["expect"]),
+    "before": _hooks(_start("portal_from_cast"),
+                     lambda ctx: ctx.mem.note_seen("lava", at(6, -1, 0), "minecraft:overworld"),
+                     _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
+    "run": _brain_rounds(170, lambda: bool(__import__("bonobo.world", fromlist=["find"]).find(
+        ["nether_portal"], radius=12, limit=1))),
+    "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
+    "budget": 180,
 }
 SHEET["pearls_from_barter"] = {
     "doc": "In the Nether, 8 gold ingots and a gold helmet, piglins 4 blocks off, no enderman → the plan barters",
@@ -2132,14 +2145,6 @@ SHEET["pearls_from_barter"] = {
     # A barter's pearls are chance: what is proven is that the plan chose to trade and the gold went.
     "check": lambda api, inv: inv.count("minecraft:gold_ingot") <= 4 and _trades(inv) >= 1, "budget": 180,
 }
-
-def _queue(goal):
-    """`before` hook: put a task at the head of the queue, as L3 would."""
-    def hook(ctx):
-        from . import tasks
-        tasks.add(goal, front=True, source="bench")
-    return hook
-
 
 SHEET["bucket_before_the_shaft"] = {
     "doc": "An empty bucket, water 3 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
@@ -2422,7 +2427,7 @@ for _i, _name in enumerate(CHAIN_C):
 
 # -- what the hand-written rows prove (skills) and at which test point --------------------------------------------
 COVERS = {
-    "cast_obsidian": ["cast_obsidian"], "build_light_portal": ["build_blueprint"],
+    "cast_portal": ["cast_portal"], "build_light_portal": ["build_blueprint"],
     "fill_water_bucket": ["fill_water_bucket"], "cross_lava_lake": ["travel_to"], "cross_lava_3": ["travel_to"],
     "cross_lava_8": ["travel_to"], "gather_logs": ["chop"], "gather_logs_birch": ["chop"],
     "enter_nether": ["use_portal"], "relight_portal": ["use_portal"], "return_from_nether": ["use_portal"],

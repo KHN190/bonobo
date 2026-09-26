@@ -21,7 +21,7 @@ UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a searc
 # Work per unit when nothing has been measured yet, in ticks.
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 40,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
-               "withdraw": 100}
+               "withdraw": 100, "cast": 3000}      # cast: a portal frame, ten cells of lava and water
 # Planner step kind -> (skill statistics key, units): the same keys the skill runner records under.
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),

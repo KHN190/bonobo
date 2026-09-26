@@ -8,7 +8,7 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import skill
-from .skillcore import _collect_only, body_state, feet, snapshot, mine_cell
+from .skillcore import _collect_only, body_state, feet, snapshot, mine_cell, place
 from .world import Inventory, Region, add
 
 
@@ -467,3 +467,67 @@ def build_shelter(ctx):
     ctx.mem.update_site(site["name"], interior=interior, turns=turns)
     log(f"shelter {site['name']} ready")
     return site["name"]
+
+
+# ---- the portal cast in place (the speedrun way: no obsidian carried, no diamond pickaxe)
+_CAST = {}      # where the last frame was cast: what the verify looks at
+
+
+def _portal_cast(c):
+    from . import fluids
+    return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])
+
+
+@skill(needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
+       verify=_portal_cast, budget=900, stall=240, per_unit=600, provides={"cast:nether_portal": lambda ctx, s: ()})
+def cast_portal(ctx):
+    """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each
+    frame cell bottom-up wall it in with mould (`fluids.cast_frame_plan`), pour lava in, pour water on it, take the
+    water back; break the mould inside the frame, light it. The lava comes from a carried lava bucket or the nearest
+    source (`fluids._lava_bucket`)."""
+    from . import fluids
+    inv = Inventory()
+    for item in ("minecraft:water_bucket", "minecraft:flint_and_steel"):
+        if not inv.count(item):
+            raise NotAvailable(f"casting a portal needs a {item.split(':')[1]}")
+    block = nav.building_item()
+    if not block:
+        raise NotAvailable("no blocks to mould the frame with")
+    bp = blueprints.NETHER_PORTAL
+    here = feet()
+    origin, turns, prepare = plan_machine_spot(bp, here, ctx.policy, body=here)
+    prepare_spot(ctx, prepare)
+    _CAST.update(origin=origin)
+    for pos, part, *_ in blueprints.placed(bp, origin, turns):
+        if part.item != "minecraft:obsidian" and not Region(pos, pos).solid(pos):
+            place(block, pos)            # the corners: what the lava is held against
+    access = blueprints.access_spot(bp, origin, turns)
+    region = Region(add(origin, (-5, -2, -5)), add(origin, (5, 6, 5)))
+    placed = []
+    for cell, mould in fluids.cast_frame_plan(bp, origin, turns, region.solid):
+        fluids._lava_bucket(ctx, feet())
+        nav.arrive(access, ctx.policy, range_=1.5)
+        for m in mould:
+            if not Region(m, m).solid(m):
+                place(block, m)
+                placed.append(m)
+        fluids._use("minecraft:lava_bucket", fluids.floor_aim(cell), True)
+        fluids._use("minecraft:water_bucket", fluids.floor_aim(cell), True)
+        api.run({"type": "wait", "ticks": 10}, wait=5)
+        if Region(cell, cell).name(cell) != "obsidian":
+            raise McError(f"no obsidian formed at {cell}")
+        try:
+            fluids._use("minecraft:bucket", fluids.surface_aim(add(cell, (0, 1, 0))), False)   # the water back
+        except api.INTERRUPTIONS:
+            raise
+        except McError:
+            pass
+        if not Inventory().count("minecraft:water_bucket"):
+            fluids.fill_water_bucket(ctx)
+        for m in [m for m in fluids.mould_to_break(bp, origin, turns, placed) if Region(m, m).solid(m)]:
+            api.run(nav.mine_task(m), wait=20)
+        yield cell
+    nav.arrive(access, ctx.policy, range_=1.0)
+    fluids.light_portal(ctx, origin, turns)
+    ctx.mem.add_machine("nether_portal", origin, turns, ctx.dimension, bp.tags)
+    return origin

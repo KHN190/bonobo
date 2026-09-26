@@ -1,9 +1,9 @@
-"""Fluids and the Nether portal: fill a water bucket, cast obsidian on a lava pool, light a portal frame.
+"""Fluids and the Nether portal: fill a water bucket, cast a portal frame in place, light it.
 
-Route (community knowledge): no diamonds needed for obsidian placement, but with a diamond pickaxe the simplest
-reliable way is to pour water over a lava pool's surface (every lava source it flows onto turns to obsidian), take
-the water back, mine the obsidian, and build a 4×5 frame (corners any block) lit with flint and steel.
-Pure planners (`fill_spot`, `pour_plan`, `portal_light_aim`) are offline-tested; the skills only execute them."""
+Route (the speedrun way): no diamond pickaxe and no mining of obsidian — the frame is cast where it stands. Each
+frame cell is walled in by a mould of throwaway blocks, filled with lava from a bucket and turned to obsidian with
+water, bottom-up; the water is taken back, the mould inside the frame broken, and the frame lit with flint and steel.
+Pure planners (`fill_spot`, `cast_frame_plan`, `portal_light_aim`) are offline-tested; the skills only execute them."""
 import math
 
 from . import api, blueprints, nav
@@ -92,38 +92,6 @@ def fill_spot(region, here, fluid="water", reach=REACH):
     return None if best is None else (best[1], best[2])
 
 
-def pour_plan(region, here, reach=REACH):
-    """Pure: (stand, bank block, lava sources reached) to cast obsidian. The bank block sits at the lava surface
-    level next to a lava source, with air above (the water lands there and flows over the pool); the stand spot
-    reaches the bank's top face and keeps 3+ blocks from any lava. Most lava covered wins, then nearest."""
-    best = None
-    lava = [p for p in region.blocks if is_source(region, p, "lava")
-            and not region.solid(add(p, (0, 1, 0))) and not region.hazard(add(p, (0, 1, 0)))]
-    lava_set = set(lava)
-    banks = set()
-    for p in lava:
-        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            b = (p[0] + dx, p[1], p[2] + dz)
-            up = add(b, (0, 1, 0))
-            if region.solid(b) and not region.hazard(b) and not region.solid(up) and not region.hazard(up):
-                banks.add(b)
-    for b in banks:
-        covered = sum(1 for p in lava_set if p[1] == b[1] and math.dist(p, b) <= 4)
-        top = (b[0] + 0.5, b[1] + 1.0, b[2] + 0.5)
-        for dx in range(-4, 5):
-            for dz in range(-4, 5):
-                for dy in (1, 2):
-                    s = (b[0] + dx, b[1] + dy, b[2] + dz)
-                    if s == add(b, (0, 1, 0)) or not standable(region, s) or lava_within(region, s, 2):
-                        continue
-                    if math.dist(_eye(s), top) > reach or not clear_line(region, _eye(s), b, top):
-                        continue
-                    key = (-covered, math.dist(s, here))
-                    if best is None or key < best[0]:
-                        best = (key, s, b, covered)
-    return None if best is None else (best[1], best[2], best[3])
-
-
 def portal_light_aim(origin, turns):
     """Pure: the point to click with flint and steel — the top face of the frame's inner bottom obsidian."""
     d = blueprints.rotate_offset((1, 0, 0), turns)
@@ -174,102 +142,63 @@ def fill_water_bucket(ctx):
     raise NotAvailable("no still water with a clear line of sight within 48 blocks")
 
 
-def _obsidian_near(pos, radius=8):
-    """Obsidian blocks in a box around the pour spot (not around the player, and not capped by a find() limit):
-    a pour that turned 47 lava blocks into obsidian was once reported as "no obsidian formed"."""
-    if not pos:
-        return 0
-    region = Region(add(pos, (-radius, -2, -radius)), add(pos, (radius, 2, radius)))
-    return sum(1 for n in region.blocks.values() if n == "obsidian")
+def cast_frame_plan(bp, origin, turns, solid):
+    """Pure: [(cell, mould)] — the frame's obsidian cells bottom-up, each with the mould cells to fill first: every
+    neighbour a lava source would run into (the four sides and below) that `solid(cell)` says is open. Mould on a
+    future frame cell or inside the frame is broken again later (`mould_to_break`)."""
+    obs = [pos for pos, part, *_ in blueprints.placed(bp, origin, turns) if part.item == "minecraft:obsidian"]
+    frame = set(pos for pos, *_ in blueprints.placed(bp, origin, turns))
+    out, done = [], set()
+    for c in sorted(obs, key=lambda p: (p[1], p[0], p[2])):
+        mould = []
+        for d in ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, -1, 0)):
+            n = add(c, d)
+            if n in done or (n in frame and n not in obs):
+                continue           # obsidian already cast, or a corner block of the frame itself
+            if not solid(n):
+                mould.append(n)
+        out.append((c, mould))
+        done.add(c)
+    return out
 
 
-_CAST = {}      # where the last pour went: what the verify looks at
+def mould_to_break(bp, origin, turns, placed_mould):
+    """Pure: the mould blocks that must go again — inside the frame (the portal needs the air) or on a frame cell
+    still to be cast (the lava goes there)."""
+    inside = set(blueprints.clear_cells(bp, origin, turns))
+    frame = set(pos for pos, *_ in blueprints.placed(bp, origin, turns))
+    return [m for m in placed_mould if m in inside or m in frame]
 
 
-@skill(verify=lambda c: _obsidian_near(_CAST.get("bank")) > _CAST.get("before", 0), budget=900, stall=240, per_unit=120,
-       provides={"cast:obsidian": lambda ctx, s: ()})
-def cast_obsidian(ctx):
-    """Turn a lava pool's surface into obsidian: pour water from a safe bank, wait, take the water back.
-    Returns the number of new obsidian blocks near the pool (the mine skill collects them)."""
-    if not Inventory().count("minecraft:water_bucket"):
-        raise NotAvailable("need a water bucket to cast obsidian")
-    here = nav.feet_now()
-    pools = [h for h in find(["lava"], radius=48, limit=80) if not ctx.blocked((h["x"], h["y"], h["z"]))]
-    if pools:
-        ctx.mem.note_seen("lava", (pools[0]["x"], pools[0]["y"], pools[0]["z"]), ctx.dimension)
-        made = yield from _cast_pools(ctx, pools, here)
-        if made:
-            return made
-    # No castable lava here (each reason is logged): go to another remembered pool instead of retrying these.
-    known = sorted((r["pos"] for r in ctx.mem.seen("lava", ctx.dimension)
-                    if not ctx.blocked(tuple(p)) and math.dist(p, here) > 24), key=lambda p: math.dist(p, here))
-    if not known:
-        raise NotAvailable("no castable lava here and no other remembered pool")
-    target = tuple(known[0])
-    log(f"   no castable lava here; heading to the remembered pool at {target}")
-    if not nav.arrived((target[0], target[1] + 2, target[2]), ctx.policy, range_=8, attempts=1):
-        ctx.ban(target, 900)
-        raise api.NavFailed(f"remembered lava pool at {target} not reachable")
-    yield None
-    here = nav.feet_now()
-    pools = [h for h in find(["lava"], radius=48, limit=80) if not ctx.blocked((h["x"], h["y"], h["z"]))]
-    if not pools:
-        ctx.mem.forget_seen("lava", target, ctx.dimension, radius=16)
-        raise NotAvailable(f"the remembered lava pool at {target} is gone")
-    made = yield from _cast_pools(ctx, pools, here)
-    if made:
-        return made
-    raise NotAvailable("no lava pool could be cast into obsidian (reasons logged above)")
-
-
-def _cast_pools(ctx, pools, here):
-    """Try up to 5 distinct pools; returns the obsidian made (0 when none worked). Every failure logs its reason
-    and is banned for 10 min only — bans live in the agent's memory, so a restart after a mod fix clears them."""
-    tried = set()
-    for h in pools:
+def _lava_bucket(ctx, here):
+    """A lava bucket in hand: carried, or filled from the nearest lava source a stand spot reaches."""
+    if Inventory().count("minecraft:lava_bucket"):
+        return
+    if not Inventory().count("minecraft:bucket"):
+        raise NotAvailable("no bucket for lava")
+    for h in sorted(find(["lava"], radius=32, limit=40), key=lambda h: h["distance"])[:6]:
         c = (h["x"], h["y"], h["z"])
-        if any(math.dist(c, t) < 6 for t in tried):
+        spot = fill_spot(Region(add(c, (-5, -3, -5)), add(c, (5, 3, 5)), props=True), here, fluid="lava")
+        if spot is None or ctx.blocked(c):
             continue
-        tried.add(c)
-        if len(tried) > 5:
-            break
-        region = Region(add(c, (-7, -3, -7)), add(c, (7, 4, 7)), props=True)
-        plan = pour_plan(region, here)
-        if plan is None:
-            log(f"   lava at {c}: no bank next to still lava with a safe stand spot and a clear line of sight")
-            ctx.ban(c, 600)
-            continue
-        stand, bank, covered = plan
-        log(f"   casting obsidian: pouring water on {bank} from {stand} (~{covered} lava sources)")
-        if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
-            log(f"   lava at {c}: stand spot {stand} not reachable")
-            ctx.ban(c, 600)
-            continue
-        before = _obsidian_near(bank)
-        _CAST.update(bank=bank, before=before)
-        # Use the item, not use-on-block: the on-block path's interactItem fallback could fire a second use with the
-        # now-empty bucket and scoop the water straight back (bench 03:57: water for one poll, lava bucket after).
-        _use("minecraft:water_bucket", (bank[0] + 0.5, bank[1] + 1.0, bank[2] + 0.5), False)
-        if not gained(lambda: Inventory().count("minecraft:bucket"), 0):
-            # "used" isn't "poured": the click didn't place water. Logged with the hit block by _use.
-            log(f"   lava at {c}: the pour on {bank} placed no water (bucket still full)")
-            ctx.ban(c, 600)
-            continue
-        api.run({"type": "wait", "ticks": 80}, wait=15)   # water spreads ~1 block per 5 ticks: let it cover the pool
-        made = gained(lambda: _obsidian_near(bank), before) - before
-        try:
-            _use("minecraft:bucket", (bank[0] + 0.5, bank[1] + 1.5, bank[2] + 0.5), False)
-        except api.INTERRUPTIONS:
-            raise              # an interruption is not a failure to shrug off here
-        except McError as e:
-            log(f"   could not take the water back: {e}")
-        yield made
-        if made > 0:
-            log(f"cast {made} obsidian at {bank}")
-            return made
-        log(f"   lava at {c}: water poured but no obsidian formed")
-        ctx.ban(c, 600)
-    raise NotAvailable("no lava pool here could be cast into obsidian")
+        stand, source = spot
+        nav.arrive(stand, ctx.policy, range_=0.6)
+        _use("minecraft:bucket", surface_aim(source), False)
+        if gained(lambda: Inventory().count("minecraft:lava_bucket"), 0):
+            ctx.mem.note_seen("lava", source, ctx.dimension)
+            return
+        ctx.ban(c)
+    raise NotAvailable("no lava source within reach to fill a bucket from")
+
+
+def floor_aim(cell):
+    """The top face of the block under `cell`: a bucket clicked there empties into `cell`."""
+    return cell[0] + 0.5, cell[1] + 0.02, cell[2] + 0.5
+
+
+def portal_lit(origin):
+    """A nether_portal block inside the frame at `origin`: the one proof a portal stands."""
+    return any(n == "nether_portal" for n in Region(add(origin, (-3, 0, -3)), add(origin, (3, 4, 3))).blocks.values())
 
 
 def light_portal(ctx, origin, turns):
@@ -281,9 +210,7 @@ def light_portal(ctx, origin, turns):
             aim = (origin[0] + d[0] + 0.5, origin[1] + 1.0, origin[2] + d[2] + 0.5)
         _use("minecraft:flint_and_steel", aim, True)
         api.run({"type": "wait", "ticks": 10}, wait=5)
-        lo = add(origin, (-3, 0, -3))
-        hi = add(origin, (3, 4, 3))
-        if any(n == "nether_portal" for n in Region(lo, hi).blocks.values()):
+        if portal_lit(origin):
             log(f"nether portal lit at {origin}")
             return
     raise McError("the portal frame did not light")

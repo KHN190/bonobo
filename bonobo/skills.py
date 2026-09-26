@@ -497,11 +497,6 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             banned = sum(1 for h in raw if ctx.blocked((h["x"], h["y"], h["z"])))
             api.detail(f"   {len(raw)} {blocks[0]} in range but {banned} banned, {len(raw) - banned} protected")
         if not hits:
-            if radius >= 48 and drop == "minecraft:obsidian":
-                # Obsidian rarely exists: make it from a lava pool (water bucket), then mine what was cast.
-                from . import fluids
-                fluids.cast_obsidian(ctx)
-                continue
             if radius >= 48:
                 raise NotAvailable(f"no {blocks[0]} within 48 blocks")
             radius = 48

@@ -36,15 +36,19 @@ def kinds(steps):
 
 
 GOLD = [("gold_ingot", 8), ("golden_helmet", 1)]
+CAST_KIT = [("water_bucket", 1), ("bucket", 1), ("flint_and_steel", 1), ("cobblestone", 16)]
 
 # (situation, world, goal) → (steps that must be in the plan, steps that must not)
 ROWS = [
-    ("obsidian, a diamond pickaxe and no lava known: mined",
-     dict(items=[("diamond_pickaxe", 1)]), goals.have(("minecraft:obsidian", 4)),
-     [("mine", "minecraft:obsidian")], [("cast", "obsidian")]),
-    ("obsidian, a diamond pickaxe, a water bucket and a lava pool known: cast, then broken where it formed",
-     dict(items=[("diamond_pickaxe", 1), ("water_bucket", 1)], seen=[("lava", (6, 60, 0))]),
-     goals.have(("minecraft:obsidian", 4)), [("cast", "obsidian"), ("mine", "minecraft:obsidian")], []),
+    ("a portal, no obsidian, no diamond pickaxe, buckets and blocks, lava seen: cast in place",
+     dict(items=CAST_KIT, seen=[("lava", (6, 60, 0))]), goals.make("build", bp="nether_portal"),
+     [("cast", "nether_portal")], [("build", "nether_portal"), ("mine", "minecraft:obsidian")]),
+    ("a portal, no lava seen but a lava bucket carried: cast in place",
+     dict(items=CAST_KIT + [("lava_bucket", 1)]), goals.make("build", bp="nether_portal"),
+     [("cast", "nether_portal")], [("build", "nether_portal")]),
+    ("a portal, 10 obsidian and flint carried: built from what is carried",
+     dict(items=[("obsidian", 10), ("flint_and_steel", 1), ("cobblestone", 16)], seen=[("lava", (6, 60, 0))]),
+     goals.make("build", bp="nether_portal"), [("build", "nether_portal")], [("cast", "nether_portal")]),
     ("pearls, gold carried, no enderman anywhere: bartered, the portal first",
      dict(items=GOLD), goals.have(("minecraft:ender_pearl", 1)),
      [("portal", NETHER), ("barter", "piglin")], [("hunt", "minecraft:ender_pearl")]),
@@ -81,13 +85,21 @@ class Sources(unittest.TestCase):
                 if len(has) > 1:
                     self.assertEqual([s for s in got if s in has], has, "in this order")
 
+    # (situation, world) → the reasons a portal cannot be had, when carrying obsidian is not plannable either
+    NO_WAY = [("no lava seen and no lava bucket", dict(items=CAST_KIT), "cast: no lava known and no lava bucket"),
+              ("in the Nether: water cannot be poured", dict(dim=NETHER, items=CAST_KIT, seen=[("lava", (6, 60, 0))]),
+               "cast: water cannot be poured in the Nether")]
+
     def test_no_way_says_every_reason(self):
-        """Neither mining (no solver can plan it here) nor casting (no lava pool known): refused, both reasons named."""
-        inv, cost = world(items=[("water_bucket", 1)])
-        with self.assertRaises(Unplannable) as caught:
-            decompose.from_sources(inv, [("minecraft:obsidian", 4)], cost, solver="no such solver")
-        self.assertIn("default:", str(caught.exception))
-        self.assertIn("cast: no lava pool known", str(caught.exception))
+        def nothing():
+            raise Unplannable("no obsidian to be had here")
+        for name, w, reason in self.NO_WAY:
+            with self.subTest(name):
+                inv, cost = world(**w)
+                with self.assertRaises(Unplannable) as caught:
+                    decompose.cheapest("build:nether_portal", 1, nothing, inv, cost)
+                self.assertIn("default: no obsidian to be had here", str(caught.exception))
+                self.assertIn(reason, str(caught.exception))
 
     def test_the_end_portal_is_done_by_its_plan(self):
         inv, cost = world(items=[("ender_eye", 12)])
