@@ -6,6 +6,7 @@ import math
 from . import api, jobs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
+from .skillcore import gained
 from .world import Inventory, Region, add, entities, find
 
 SOIL = ("grass_block", "dirt", "coarse_dirt", "rooted_dirt")
@@ -123,7 +124,7 @@ def plant_farm(ctx):
     if centre is None:
         raise NotAvailable("no flat 3×3 soil nearby for a farm")
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
-    if not nav.go_to(stand, ctx.policy, range_=1.0, attempts=1):
+    if not nav.arrived(stand, ctx.policy, range_=1.0, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     api.run({"type": "mine", "x": centre[0], "y": centre[1], "z": centre[2], "collect": False,
              "requireDrops": False}, wait=30)
@@ -140,6 +141,8 @@ def plant_farm(ctx):
             _use_on_top(hoe, cell)
             _use_on_top("minecraft:wheat_seeds", cell)
             sown += 1
+        except api.INTERRUPTIONS:
+            raise              # an interruption is not a failure to shrug off here
         except McError as e:
             log(f"   farm cell {cell}: {e}")
         yield sown
@@ -159,17 +162,19 @@ def harvest(ctx, job):
     if not ripe:
         ctx.mem.postpone_job(job["id"], 5 * 60)
         raise NotAvailable(f"wheat at {centre} not ripe yet")
-    if not nav.go_to((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
+    if not nav.arrived((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
         raise api.NavFailed(f"farm at {centre} not reachable")
     before = Inventory().count("minecraft:wheat")
     api.run({"type": "mine_many", "collect": True, "requireDrops": False,
              "only": ["minecraft:wheat", "minecraft:wheat_seeds"],
              "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in ripe]}, wait=120)
-    got = Inventory().count("minecraft:wheat") - before
+    got = gained(lambda: Inventory().count("minecraft:wheat"), before) - before
     for p in ripe:
         if Inventory().count("minecraft:wheat_seeds"):
             try:
                 _use_on_top("minecraft:wheat_seeds", add(p, (0, -1, 0)))
+            except api.INTERRUPTIONS:
+                raise              # an interruption is not a failure to shrug off here
             except McError:
                 pass
     ctx.mem.finish_job(job["id"])
@@ -180,7 +185,12 @@ def harvest(ctx, job):
     return got
 
 
-@skill(budget=180, stall=60, per_unit=60)
+def _breed_food():
+    inv = Inventory()
+    return sum(inv.count(f) for f in set(BREED_FOOD.values()))
+
+
+@skill(start=lambda c: _breed_food(), verify=lambda c: _breed_food() < c.base, budget=180, stall=60, per_unit=60)
 def breed(ctx):
     """Feed two adults of one kind the food they breed on; a breed job marks the 5-minute cooldown there."""
     inv = Inventory()

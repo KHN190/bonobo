@@ -18,7 +18,8 @@ from .world import Inventory, Region, add, connected, dark_spots, entities, find
 from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VALUE_CAPS, STACK_VALUE, _stack_value, PROTECTED_IDS, PROTECTED_SUFFIX, _protected_stack, RAW_MEAT, SURPLUS_CAP, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
-                        free_spot, place, snapshot, mine_cell)   # (split out; re-exported for skills.X callers)
+                        free_spot, place, snapshot, mine_cell, gained, lost, settle, body_state,
+                        carried_total)   # (split out; re-exported for skills.X callers)
 from .explore import surface_first, explore_for, seek_blocks, approach_policy  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .wood import chop  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .building import _mod_at_least, _open_container, _empty_container_slot, _machine_roles, _go_to_machine, find_machine_spot, resolve_item, block_matches, place_oriented, materials_missing, _build_parts, build_blueprint, build_shelter  # noqa: F401,E402  (split out; re-exported for skills.X callers)
@@ -74,7 +75,7 @@ def move_to_open_space(ctx):
     if spot == (x, y, z):
         return spot
     log(f"   moving to open space at {spot} to sort the inventory")
-    if not nav.go_to(spot, ctx.policy, range_=0.8, attempts=2):
+    if not nav.arrived(spot, ctx.policy, range_=0.8, attempts=2):
         raise api.NavFailed(f"open space at {spot} not reachable")
     yield feet()
     return spot
@@ -99,6 +100,8 @@ class Station:
                     place(self.block, spot)
                     self.pos = spot
                     break
+                except api.INTERRUPTIONS:
+                    raise              # an interruption is not a failure to shrug off here
                 except McError as e:
                     last = str(e)
             if self.pos is None:
@@ -125,10 +128,11 @@ class Station:
         api.post("/close")
         if self.placed:
             before = Inventory().count(self.block)
+            held = lambda: Inventory().count(self.block)   # noqa: E731
             mine_cell(self.ctx.policy, self.pos, wanted=[self.block], require_drops=True, wait=60)
-            if Inventory().count(self.block) <= before:
+            if gained(held, before) <= before:
                 api.run({"type": "collect", "radius": 6}, wait=30)   # the drop can land out of the sweep
-            if Inventory().count(self.block) > before:
+            if gained(held, before) > before:
                 self.ctx.mem.remove_station(self.pos)
             else:
                 log(f"   !! lost the carried {bare(self.block)} while picking it up")
@@ -196,7 +200,7 @@ def craft(ctx, token, times):
     else:
         close_screen()
         r = api.run({"type": "craft", "pattern": concrete, "count": out * times}, wait=120)
-    if Inventory().count(item) <= before:
+    if gained(lambda: Inventory().count(item), before) <= before:
         raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
 
 
@@ -260,7 +264,10 @@ ASYNC_SMELT_MIN = 1
        budget=120, stall=40, per_unit=12)
 def start_smelt_job(ctx, output, input_token, count, fuel):
     """Multitasking: load a furnace (found nearby or placed from the inventory) with input + fuel and walk away.
-    The job is remembered with its expected finish time (10 s/item); its output counts as pending for the planner."""
+    The job is remembered with its expected finish time (10 s/item); its output counts as pending for the planner.
+
+    An ORDER, not the product: this skill's verify is only that the input left the bag. Nothing is done until the
+    output is held (`collect_job`'s verify) — callers that count finished work count the bag, never this return."""
     count = min(64, count)
     inv = Inventory()
     inputs = [m for m in members(input_token) if inv.count(m)]
@@ -275,8 +282,10 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
         yield count
     finally:
         api.post("/close")    # leave the furnace standing: that's the point
-    ctx.mem.add_job("furnace", station.pos, ctx.dimension, output, count, time.time() + 10 * count + 5, carried)
-    log(f"smelting {count}× {bare(output)} in the background at {station.pos} (ready in ~{10 * count + 5}s)")
+    ready_at = time.time() + 10 * count + 5
+    ctx.mem.add_job("furnace", station.pos, ctx.dimension, output, count, ready_at, carried)
+    log(f"ordered {count}× {bare(output)} smelting in the background at {station.pos} (ready in ~{10 * count + 5}s)")
+    return {"ordered": output, "count": count, "ready_at": ready_at}
 
 
 def job_ready(job):
@@ -292,7 +301,7 @@ def collect_job(ctx, job):
         # Picked back up, broken or never placed there: the job is stale, not a navigation problem.
         ctx.mem.finish_job(job["id"])
         raise NotAvailable(f"no furnace at {pos} any more; job dropped")
-    if not nav.go_to(pos, ctx.policy, range_=3, attempts=2):
+    if not nav.arrived(pos, ctx.policy, range_=3, attempts=2):
         raise api.NavFailed(f"furnace job at {pos} not reachable")
     before = Inventory().count(job["item"])
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40)
@@ -309,7 +318,7 @@ def collect_job(ctx, job):
         yield slots.get(2, 0)
     finally:
         api.post("/close")
-    got = Inventory().count(job["item"]) - before
+    got = gained(lambda: Inventory().count(job["item"]), before) - before
     if still_cooking:
         ctx.mem.postpone_job(job["id"], 10 * still_cooking + 5)
         job_left = job["count"] - got
@@ -413,6 +422,16 @@ def _reach_budget(spent, blocks, why=None):
         raise api.NavFailed(why or f"{blocks[0]}: {spent} unreachable in a row — not from this spot")
 
 
+def mine_segment_commands(state, args):
+    """Pure: one open-loop segment of mining — a single `mine_many` over `cells`, collecting `drop`, with the pickup
+    filter a nearly full bag needs. `mine` is closed-loop (it looks for the next vein as it goes); this is the part
+    of it a fight can post on its own."""
+    cells, drop, tier = args
+    only = pickup_whitelist(state["inv"].used_slots(), [drop])
+    return [{"type": "mine_many", "collect": True, "requireDrops": tier is not None, **({"only": only} if only else {}),
+             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}]
+
+
 @skill(pre=[lambda c: require_pickaxe(c.args[4])], start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
        per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}")
@@ -465,7 +484,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if region is None:
             # Too far to read the ground between us: walk closer, or make a way — the same two answers as
             # everywhere else. Only when neither works is the place itself the problem.
-            if not nav.go_to(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
+            if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             continue
@@ -490,7 +509,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # ban the whole vein the moment the mod said "no path", so ten coal two blocks inside a wall were
         # "unreachable in a row" forever while the tunneller sat right there, used only on jars without travel.
         near = min(vein, key=lambda p: math.dist(p, start))
-        walked = nav.go_to(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
+        walked = nav.arrived(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
             for p in vein:
                 ctx.ban(p)
@@ -506,7 +525,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
-            if not nav.go_to(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
+            if not nav.arrived(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
                 for p in vein:
                     ctx.ban(p)
                 unreachable += 1
@@ -528,9 +547,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         vein = set(in_reach[:12])
         before = Inventory().count(drop)
         try:
-            r = api.run({"type": "mine_many", "collect": True, "requireDrops": tier is not None,
-                         **_collect_only([drop]),
-                         "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in vein]}, wait=900)
+            r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)
         except api.Unreachable as out:
             # The door raises for the whole package ("3 of 4 steps failed: … cannot reach …"), which is right —
             # nobody may read that as success. Here, though, it is the ordinary case and it has an answer: the
@@ -548,7 +565,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             unreachable += 1
             _reach_budget(unreachable, blocks, str(out))
             continue
-        if Inventory().count(drop) <= before:
+        if gained(lambda: Inventory().count(drop), before) <= before:
             from .knowledge import MINE_YIELD
             if MINE_YIELD.get(mid(drop), 1) < 1 and "failed" not in r["message"]:
                 continue   # a chance drop (grass → seeds ~1 in 8): an empty break is expected, keep breaking
@@ -615,7 +632,7 @@ def strip_mine_step(ctx, length=16):
     depth = -54 if any(t >= 2 and d >= 20 for t, d, _ in tools) else 16
     if fy < depth - 3:
         # Drifted below the band (falls, ore pockets): staircase back up instead of tunnelling into bedrock.
-        if not nav.go_to((fx, depth, fz), ctx.policy, range_=2, attempts=1):
+        if not nav.arrived((fx, depth, fz), ctx.policy, range_=2, attempts=1):
             raise api.NavFailed(f"can't climb back up to mining depth {depth}")
         return "climbed"
     if fy > depth + 4:
@@ -628,7 +645,7 @@ def strip_mine_step(ctx, length=16):
             if not stone:
                 raise NotAvailable("no safe ground to dig down nearby")
             t = stone[0]
-            if not nav.go_to((t["x"], t["y"] + 1, t["z"]), ctx.policy, range_=2, attempts=1):
+            if not nav.arrived((t["x"], t["y"] + 1, t["z"]), ctx.policy, range_=2, attempts=1):
                 raise NotAvailable("can't reach safe ground to dig down")
         return
     dx, dz = [(0, 1), (-1, 0), (0, -1), (1, 0)][int(((s["yaw"] % 360) + 45) // 90) % 4]
@@ -708,7 +725,7 @@ def hunt(ctx, token, count, types, night):
         except api.TaskStuck:
             ctx.ban((prey[0]["id"], 0, 0), 600)  # unreachable (across water, on a ledge)
             raise api.NavFailed(f"the {bare(types[0])} is out of reach for attacks")
-        if Inventory().count(token) <= before:
+        if gained(lambda: Inventory().count(token), before) <= before:
             ctx.ban((prey[0]["id"], 0, 0), 120)
             raise NotAvailable(f"killing the {bare(types[0])} dropped no {bare(token)}")
     raise McError(f"could not hunt enough {bare(token)}")
@@ -716,61 +733,103 @@ def hunt(ctx, token, count, types, night):
 
 # ---------------------------------------------------------------- light, food, night
 
-@skill(budget=120, stall=30)
+def _open_lava(region, here):
+    """Pure: lava cells within reach of `here` with air beside them, nearest first."""
+    x, y, z = here
+    return sorted((p for p in region.blocks if region.name(p) == "lava"
+                   and math.dist(p, (x, y + 1, z)) <= 4.5
+                   and any(region.name(add(p, d)) in ("air", "cave_air") for d in nav.NEIGHBOURS6)),
+                  key=lambda p: math.dist(p, (x, y, z)))
+
+
+def _lava_region(here, radius):
+    x, y, z = here
+    return Region((x - radius - 1, y - radius - 1, z - radius - 1), (x + radius + 1, y + radius + 1, z + radius + 1))
+
+
+def _open_lava_now(ctx, radius=4):
+    """How many lava cells lie open within reach right now (0 without a world read when /find sees none)."""
+    if getattr(ctx.policy, "lava_ok", False) or not find(["lava"], radius=radius, limit=1):
+        return 0
+    here = feet()
+    return len(_open_lava(_lava_region(here, radius), here))
+
+
+def contain_lava_commands(state, args=()):
+    """Pure: one place task per open lava cell, nearest first, blocks taken from the bag in turn."""
+    radius = args[0] if args else 4
+    open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
+    inv = state["inv"]
+    stock = [[b, inv.count(b)] for b in GROUPS["building"] if inv.count(b)]
+    if open_lava and not stock:
+        raise NotAvailable("lava exposed and no blocks to cover it")
+    tasks = []
+    for p in open_lava:
+        while stock and stock[0][1] <= 0:
+            stock.pop(0)
+        if not stock:
+            break
+        stock[0][1] -= 1
+        tasks.append({"type": "place", "item": stock[0][0], "x": p[0], "y": p[1], "z": p[2]})
+    return tasks
+
+
+@skill(start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
+       verify=lambda c: c.base == 0 or _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4) < c.base,
+       commands=contain_lava_commands, budget=120, stall=30)
 def contain_lava(ctx, radius=4):
     """Cover lava exposed within reach (a dig broke into a pool or a flow reached us) with building blocks, nearest
     first — what players do before continuing a tunnel. Skipped when the goal wants lava. Returns cells covered."""
     if ctx.policy.lava_ok:
         return 0
-    x, y, z = feet()
     if not find(["lava"], radius=radius, limit=1):
         return 0
-    region = Region((x - radius - 1, y - radius - 1, z - radius - 1), (x + radius + 1, y + radius + 1, z + radius + 1))
-    open_lava = sorted((p for p in region.blocks if region.name(p) == "lava"
-                        and math.dist(p, (x, y + 1, z)) <= 4.5
-                        and any(region.name(add(p, d)) in ("air", "cave_air") for d in nav.NEIGHBOURS6)),
-                       key=lambda p: math.dist(p, (x, y, z)))
-    inv = Inventory()
-    blocks = [b for b in GROUPS["building"] if inv.count(b)]
-    if open_lava and not blocks:
-        raise NotAvailable("lava exposed and no blocks to cover it")
-    covered = 0
-    for p in open_lava:
-        item = next((b for b in blocks if Inventory().count(b)), None)
-        if item is None:
-            break
-        try:
-            place(item, p)
-            covered += 1
-        except McError as e:
-            log(f"   could not cover lava at {p}: {e}")
-        yield covered
+    here = feet()
+    tasks = contain_lava_commands(body_state(ctx, _lava_region(here, radius)), (radius,))
+    covered = sum(1 for r in api.run_chain(tasks) if r["status"] == "succeeded")
     if covered:
         log(f"covered {covered} exposed lava cells")
     return covered
 
 
-@skill(budget=40, stall=30)
-def place_torch_if_dark(ctx):
-    """Mobs spawn at block light 0. Light the darkest reachable floor spot nearby when we stand in darkness."""
-    s = api.get("/state")
+def torch_commands(state, args=()):
+    """Pure: [the one place task] that lights the darkest floor spot within reach, or [] when there is nothing to do
+    (not dark, no torch in the bag, no spot). `state["spots"]` is what /dark answered."""
+    s = state["state"]
     if "blockLight" not in s or s["blockLight"] > 0 or (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500):
-        return False
-    if Inventory().usable("minecraft:torch") == 0:   # a torch in the offhand can't be placed by tasks
-        return False
-    here = (s["blockX"], s["blockY"], s["blockZ"])
-    spots = [p for p in dark_spots(radius=4, max_light=0)
+        return []
+    if state["inv"].usable("minecraft:torch") == 0:   # a torch in the offhand can't be placed by tasks
+        return []
+    here = state["feet"]
+    spots = [p for p in state.get("spots") or ()
              if math.dist((p["x"], p["y"], p["z"]), here) <= 3.5
              and not (p["y"] in (here[1], here[1] + 1) and abs(p["x"] + 0.5 - s["x"]) < 0.8
                       and abs(p["z"] + 0.5 - s["z"]) < 0.8)]
     if not spots:
-        return False
+        return []
     p = spots[0]
+    return [{"type": "place", "item": "minecraft:torch", "x": p["x"], "y": p["y"], "z": p["z"]}]
+
+
+def _torch_at(pos):
+    return Region(pos, pos).name(pos) in ("torch", "wall_torch")
+
+
+@skill(verify=lambda c: not c.result or _torch_at(c.result), commands=torch_commands, budget=40, stall=30)
+def place_torch_if_dark(ctx):
+    """Mobs spawn at block light 0. Light the darkest reachable floor spot nearby when we stand in darkness.
+    Returns where the torch went, or False."""
+    s = api.get("/state")
+    if "blockLight" not in s or s["blockLight"] > 0 or (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500):
+        return False
+    tasks = torch_commands(body_state(ctx, spots=dark_spots(radius=4, max_light=0)))
+    if not tasks:
+        return False
     try:
-        r = api.run({"type": "place", "item": "minecraft:torch", "x": p["x"], "y": p["y"], "z": p["z"]}, wait=30)
+        r = api.run(tasks[0], wait=30)
     except api.TaskStuck:
         return False
-    return r["status"] == "succeeded"
+    return (tasks[0]["x"], tasks[0]["y"], tasks[0]["z"]) if r["status"] == "succeeded" else False
 
 
 RAW_MEAT = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken"]
@@ -852,7 +911,7 @@ def reach_land(ctx):
                  "useBoat": True}, wait=120)
     if r["status"] != "succeeded" and not _on_land():
         # The walker can't climb out (a 1-wide water shaft, a high bank): dig / pillar out instead.
-        if not nav.go_to(land, ctx.policy, range_=2, attempts=1):
+        if not nav.arrived(land, ctx.policy, range_=2, attempts=1):
             raise api.NavFailed(f"land at {land} not reachable")
     yield feet()
 
@@ -966,13 +1025,6 @@ def bed_spot():
     return None
 
 
-def _night_with_a_bed(c):
-    """Sleeping needs night and a bed. Both are known without reading the world — the bed from the bag, the hour
-    from the last snapshot — so the pool can refuse this before it prices walking to a bedroom."""
-    if Inventory().count("bed") <= 0 and not api.get("/state").get("dead"):
-        pass      # a bed may still be nearby; that half needs the world and stays in the body
-
-
 # When a bed works at all. Mojang's rule, not ours: outside this window (and outside a thunderstorm) using a bed
 # says "you can only sleep at night" and nothing happens. A rule about the WORLD, so it is stated once, here.
 SLEEP_FROM_TICKS, SLEEP_TO_TICKS = 12541, 23458
@@ -1022,7 +1074,7 @@ def sleep(ctx, night_policy):
     if not beds:
         raise NotAvailable("no bed carried or nearby")
     b = (beds[0]["x"], beds[0]["y"], beds[0]["z"])
-    if not nav.go_to(b, night_policy, range_=2.5, attempts=2):
+    if not nav.arrived(b, night_policy, range_=2.5, attempts=2):
         raise NotAvailable("bed not walkable tonight")
     for _ in range(3):
         api.run({"type": "use", "x": b[0], "y": b[1], "z": b[2]}, wait=30)
@@ -1034,7 +1086,22 @@ def sleep(ctx, night_policy):
     raise NotAvailable("could not fall asleep in the site bed")
 
 
-@skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1], budget=60, stall=30)
+DIG_IN_DEPTH = 3
+
+
+def dig_in_commands(state, args=()):
+    """Pure: dig up to DIG_IN_DEPTH straight down (`nav.dig_down_tasks`) and seal the opening over the head.
+    `state["region"]` is `nav.dig_down_region(feet, DIG_IN_DEPTH)`."""
+    x, y, z = state["feet"]
+    tasks, safe = nav.dig_down_tasks(state["region"], state["feet"], DIG_IN_DEPTH, state["protected"], False)
+    block = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
+    if block:
+        tasks.append({"type": "place", "item": block, "x": x, "y": y - safe + 2, "z": z})
+    return tasks
+
+
+@skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1], commands=dig_in_commands,
+       budget=60, stall=30)
 def dig_in(ctx):
     """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead.
 
@@ -1043,16 +1110,17 @@ def dig_in(ctx):
     only record of the work was the fact that this function had been called.
     """
     x, y, z = feet()
-    nav.dig_down(3, ctx.policy, use_ladders=False)
+    tasks = dig_in_commands(body_state(ctx, nav.dig_down_region((x, y, z), DIG_IN_DEPTH)))
+    api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
     fx, fy, fz = feet()
-    ctx.mem.note_progress("dig_in", (x, y, z), ctx.dimension, done=max(0, y - fy), of=3)
-    block = next((b for b in GROUPS["building"] if Inventory().count(b)), None)
-    if block and fy < y:
-        place(block, (x, fy + 2, z))
+    ctx.mem.note_progress("dig_in", (x, y, z), ctx.dimension, done=max(0, y - fy), of=DIG_IN_DEPTH)
+    if fy >= y:
+        raise NotAvailable("digging down stopped: a block couldn't be reached")
     log("dug in for the night")
 
 
-@skill(start=lambda c: Inventory().used_slots(), budget=180, stall=45, per_unit=8)
+@skill(start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+       budget=180, stall=45, per_unit=8)
 def take(ctx, token, count, blocks):
     """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops.
 
@@ -1071,7 +1139,7 @@ def take(ctx, token, count, blocks):
         if not hits:
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
         cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
-        if not nav.go_to(cell, ctx.policy, range_=3, attempts=2):
+        if not nav.arrived(cell, ctx.policy, range_=3, attempts=2):
             ctx.ban(cell)
             continue
         mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
@@ -1092,71 +1160,89 @@ def enclosed():
     return is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z))
 
 
-@skill(done=lambda c: enclosed(), budget=120, stall=40, per_unit=10)
-def pod(ctx):
-    """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at
-    feet and head height plus a roof. Mobs can't reach us; in the morning the navigator digs out."""
-    s = api.get("/state")
-    x, y, z = s["blockX"], s["blockY"], s["blockZ"]
-    region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
+def _pod_cells(feet_at):
+    """The walls at feet and head height on four sides, then the roof."""
+    x, y, z = feet_at
     cells = [(x + dx, y + dy, z + dz) for dy in (0, 1) for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
     cells.append((x, y + 2, z))
-    todo = [c for c in cells if not region.solid(c)]
-    inv = Inventory()
+    return cells
+
+
+def _pod_region(feet_at):
+    x, y, z = feet_at
+    return Region((x - 2, y - 3, z - 2), (x + 2, y + 2, z + 2))
+
+
+def pod_commands(state, args=()):
+    """Pure: the tasks that wall the body in — feet level first, head level next, the roof last. A cell nothing can
+    be clicked against gets a support first: a cap on a side wall for the roof, a column from below over water.
+    Blocks already placed by this batch count as solid for the ones after them."""
+    x, y, z = state["feet"]
+    region, inv = state["region"], state["inv"]
+    placed = set()
+
+    def solid(c):
+        return c in placed or region.solid(c)
+
+    cells = _pod_cells((x, y, z))
+    todo = sorted((c for c in cells if not region.solid(c)), key=lambda c: c[1])
     blocks = [b for b in GROUPS["building"] + GROUPS["planks"] if inv.count(b)]
     if sum(inv.count(b) for b in blocks) < len(todo):
         raise NotAvailable(f"need {len(todo)} blocks to wall in, not enough carried")
-    # Feet level first: head-level blocks and the roof need a neighbour to be placed against.
-    todo.sort(key=lambda c: c[1])
-    pool = [[b, inv.count(b)] for b in blocks]
+    stock = [[b, inv.count(b)] for b in blocks]
+    tasks = []
 
-    def next_block():
-        while pool and pool[0][1] == 0:
-            pool.pop(0)
-        if not pool:
-            raise NotAvailable("ran out of blocks while walling in")
-        pool[0][1] -= 1
-        return pool[0][0]
+    def put(cell):
+        while stock and stock[0][1] == 0:
+            stock.pop(0)
+        if not stock:
+            return False             # ran out: what is left open is the verify's to report
+        stock[0][1] -= 1
+        tasks.append({"type": "place", "item": stock[0][0], "x": cell[0], "y": cell[1], "z": cell[2]})
+        placed.add(cell)
+        return True
 
-    def has_support(cell, reg):
-        return any(reg.solid(add(cell, d)) for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)])
+    def has_support(cell):
+        return any(solid(add(cell, d)) for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)])
 
     for c in todo:
-        region = Region((x - 2, y - 3, z - 2), (x + 2, y + 2, z + 2))
-        if region.solid(c):
+        if solid(c):
             continue
         name = region.name(c)
-        if not name.endswith(("air", "water")) and not region.hazard(c):
+        if not name.endswith(("air", "water")) and not region.hazard(c) and c not in state["protected"]:
             # Torches, flowers, grass: something non-solid occupies the cell. Break it first.
-            mine_cell(ctx.policy, c)
-        if not has_support(c, region) and c == (x, y + 2, z):
+            tasks.append(nav.mine_task(c, collect=True))
+        if not has_support(c) and c == (x, y + 2, z):
             # The roof has nothing to click against: cap one of the side walls first (a block on top of a wall
             # beside the head), then the roof goes against that cap — how players close a 1×1 hole.
             for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
                 wall, cap = (x + dx, y + 1, z + dz), (x + dx, y + 2, z + dz)
-                if region.solid(wall) and not region.solid(cap):
-                    try:
-                        place(next_block(), cap)
-                        region = Region((x - 2, y - 3, z - 2), (x + 2, y + 2, z + 2))
-                        break
-                    except McError as e:
-                        log(f"pod: roof cap at {cap} failed: {e}")
-        if not has_support(c, region):
+                if solid(wall) and not solid(cap):
+                    put(cap)
+                    break
+        if not has_support(c):
             # Nothing to click against (water or air all around): build a support column up from below first.
             below = add(c, (0, -1, 0))
             stack = []
-            while not region.solid(below) and below[1] > y - 3:
+            while not solid(below) and below[1] > y - 3:
                 stack.append(below)
                 below = add(below, (0, -1, 0))
             for s_cell in reversed(stack):
-                try:
-                    place(next_block(), s_cell)
-                except McError as e:
-                    log(f"pod: support at {s_cell} failed: {e}")
-        try:
-            place(next_block(), c)
-        except McError as e:
-            log(f"pod: could not place at {c}: {e}")
+                put(s_cell)
+        put(c)
+    return tasks
+
+
+@skill(done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10)
+def pod(ctx):
+    """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at
+    feet and head height plus a roof. Mobs can't reach us; in the morning the navigator digs out."""
+    x, y, z = feet()
+    tasks = pod_commands(body_state(ctx, _pod_region((x, y, z))))
+    for r in api.run_chain(tasks):
+        if r["status"] != "succeeded":
+            log(f"pod: {r['type']} failed: {r.get('message')}")
+    cells = _pod_cells((x, y, z))
     region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
     open_cells = [c for c in cells if not region.solid(c)]
     # Either way the walls that went up are still there: record them, so finishing this pod is cheaper than
@@ -1176,7 +1262,12 @@ def _has_torches_to_spare(c):
         raise NotAvailable("no torches to spare")
 
 
-@skill(pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, budget=180, stall=60)
+def _torches_standing(radius=12):
+    return len(find(["torch", "wall_torch"], radius=radius, limit=64) or ())
+
+
+@skill(pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, start=lambda c: _torches_standing(),
+       verify=lambda c: _torches_standing() > c.base, budget=180, stall=60)
 def light_area(ctx, radius=10, limit=6):
     """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2.
 
@@ -1260,7 +1351,7 @@ def collect_machine(ctx, machine):
                 api.post("/click", {"slot": s["slot"], "button": 0, "action": "QUICK_MOVE"})
     finally:
         api.post("/close")
-    got = {item: Inventory().count(item) - n for item, n in before.items()}
+    got = {item: gained(lambda item=item: Inventory().count(item), n) - n for item, n in before.items()}
     ctx.mem.settle_pending(machine["name"], got)
     log(f"collected from {machine['name']}: {got}")
 
@@ -1353,6 +1444,8 @@ def _place_cache_chest(ctx):
     for spot in spots:
         try:
             place("minecraft:chest", spot)
+        except api.INTERRUPTIONS:
+            raise              # an interruption is not a failure to shrug off here
         except McError:
             continue
         site = ctx.mem.add_site("cache", spot, ctx.dimension)
@@ -1383,7 +1476,7 @@ def deposit(ctx, local_only=False):
             break
         if not site_trek_ok(site):
             continue
-        if not nav.go_to(tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
+        if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
             import time
             _TREK_FAILED[site.get("name")] = time.time()
             # A cache chest that stays unreachable is dead memory: forget it after 3 failed treks.
@@ -1417,13 +1510,22 @@ def deposit(ctx, local_only=False):
                 api.post("/click", {"slot": v["slot"], "button": 0, "action": "QUICK_MOVE"})
     finally:
         api.post("/close")
-    after = Inventory().used_slots()
+    after = lost(lambda: Inventory().used_slots(), before)
     log(f"stored {before - after} stacks in the home chest")
     if after >= before:
         raise NotAvailable("home chest full or nothing moved")
 
 
-@skill(budget=600, stall=90)
+def _site_missing(site):
+    """How many blocks of a site's structure snapshot the world no longer shows (0 without a snapshot)."""
+    snap = site.get("snapshot")
+    if not snap:
+        return 0
+    region = Region(tuple(snap["lo"]), tuple(snap["hi"]))
+    return sum(1 for key in snap["blocks"] if not region.solid(tuple(int(v) for v in key.split(","))))
+
+
+@skill(verify=lambda c: _site_missing(c.args[1]) == 0, budget=600, stall=90)
 def repair_site(ctx, site):
     """Rebuild missing blocks (and doors) of a site from its structure snapshot."""
     snap = site.get("snapshot")
@@ -1457,12 +1559,11 @@ def repair_site(ctx, site):
         stock[item] = stock.get(item, inv.count(item)) - 1
         blocks.append({"x": pos[0], "y": pos[1], "z": pos[2], "item": item})
     if blocks:
-        if not nav.go_to(tuple(site["pos"]), ctx.policy, range_=3, attempts=2):
+        if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=3, attempts=2):
             raise NotAvailable(f"{site['name']} not reachable")
         log(f"repairing {site['name']}: {len(blocks)} blocks")
         api.run({"type": "build", "blocks": blocks}, wait=600)
-    region = Region(tuple(snap["lo"]), tuple(snap["hi"]))
-    remaining = sum(1 for key in snap["blocks"] if not region.solid(tuple(int(v) for v in key.split(","))))
+    remaining = _site_missing(site)
     ctx.mem.update_site(site["name"], dirty=remaining > 0)
     if remaining:
         raise McError(f"{site['name']} still missing {remaining} blocks")

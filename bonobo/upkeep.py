@@ -5,6 +5,7 @@ import math
 from . import api, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
+from .skillcore import gained, lost
 from .world import Inventory
 
 
@@ -27,7 +28,16 @@ def repair_pair(slots, kind):
     return None if best is None else best[1:]
 
 
-@skill(budget=60, stall=30, per_unit=5)
+def _kind_of(c):
+    return c.args[1] if len(c.args) > 1 else c.kwargs.get("kind", "pickaxe")
+
+
+def _tools_of(kind):
+    return sum(1 for s in Inventory().slots if s["id"].endswith("_" + kind))
+
+
+@skill(start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
+       budget=60, stall=30, per_unit=5)
 def repair_tool(ctx, kind="pickaxe"):
     """Combine the two most worn tools of one kind in the 2×2 grid into one repaired tool."""
     pair = repair_pair(Inventory().slots, kind)
@@ -37,13 +47,19 @@ def repair_tool(ctx, kind="pickaxe"):
     before = sum(1 for s in Inventory().slots if s["id"] == item)
     r = api.run({"type": "craft", "pattern": [item, item, None, None], "count": 1}, wait=30)
     yield None
-    if sum(1 for s in Inventory().slots if s["id"] == item) >= before:
+    if lost(lambda: sum(1 for s in Inventory().slots if s["id"] == item), before) >= before:
         raise McError(f"repairing {item.split(':')[1]} failed: {r['message']}")
     log(f"repaired a {item.split(':')[1]} by combining two")
     return item
 
 
-@skill(budget=300, stall=90, per_unit=120)
+def _death_retired(c):
+    """The death note this call walked to is spent: what was there is carried, what was not is not coming back."""
+    death = c.args[0].mem.recent_death(api.get("/state")["dimension"])
+    return death is None or tuple(death["pos"]) != c.result
+
+
+@skill(verify=_death_retired, budget=300, stall=90, per_unit=120)
 def recover_items(ctx):
     """Go back to the last death spot within 5 minutes and pick up what dropped there."""
     s = api.get("/state")
@@ -52,15 +68,15 @@ def recover_items(ctx):
         raise NotAvailable("no recent death to recover from")
     pos = tuple(death["pos"])
     log(f"   recovering items at the death spot {pos}")
-    if not nav.go_to(pos, ctx.policy, range_=2, attempts=1):
+    if not nav.arrived(pos, ctx.policy, range_=2, attempts=1):
         raise api.NavFailed(f"death spot {pos} not reachable")
     before = Inventory().used_slots()
     nav.sweep(ctx, radius=10, wait=60)
     yield Inventory().used_slots()
-    got = Inventory().used_slots() - before
+    got = gained(lambda: Inventory().used_slots(), before) - before
     # Either way the note is spent: what is here is now carried, and what is not here is not coming back. A record
     # the world has already answered must be retired on arrival rather than left to expire on a timer, or the same
     # sixty-block walk is worth the same seconds again five minutes later.
     ctx.mem.forget_death(pos)
     log(f"recovered {got} stacks at {pos}" if got else f"nothing left at {pos}: the drops are gone")
-    return True
+    return pos

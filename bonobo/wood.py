@@ -6,7 +6,7 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS
 from .explore import seek_blocks
 from .skill import skill
-from .skillcore import _collect_only, feet
+from .skillcore import _collect_only, feet, gained, settle
 from .world import Inventory, find
 
 
@@ -32,7 +32,7 @@ def chop(ctx, n):
         if math.dist(feet(), (base["x"], base["y"], base["z"])) > 2.5:   # stand beside the trunk (3.5 m was too far)
             # The walker alone can't climb a mountain or tunnel to a tree 30 blocks up: get to the trunk with the
             # navigator (dig, pillar, ladder, bridge) first, then chop within reach.
-            if not nav.go_to((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
+            if not nav.arrived((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
                 # The walker gave up; that is not the same as there being no way. The game plans with the same
                 # pathfinder it moves with, so it is the one that knows whether digging or bridging gets there.
                 if nav.way_to(ctx, [(base["x"], base["y"], base["z"])], range_=2.0):
@@ -81,7 +81,8 @@ def chop(ctx, n):
             # Standing AND with no way to it — the second half is the game's answer, not a guess from here.
             if cell in still and not nav.reachable(cell, ctx.policy, 2.0)[0]:
                 ctx.ban(cell)
-        if Inventory().count("log") <= before:
+        logs_now = lambda: Inventory().count("log")   # noqa: E731
+        if gained(logs_now, before) <= before:
             # This trunk gave nothing (canopy, drops stuck): ban it and take the next tree in the same skill call.
             for t in trunk:
                 ctx.ban((t["x"], t["y"], t["z"]))
@@ -93,7 +94,9 @@ def chop(ctx, n):
         ctx.mem.note_resource("tree", base_pos, ctx.dimension)
         try:
             farming.replant(ctx, base_pos)
+        except api.INTERRUPTIONS:
+            raise              # an interruption is not a failure to shrug off here
         except McError as e:
             log(f"   replanting at {base_pos} failed: {e}")
-    if Inventory().count("log") < target:
+    if settle(lambda: Inventory().count("log"), lambda n: n >= target) < target:
         raise McError("could not chop enough logs")

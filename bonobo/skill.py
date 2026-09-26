@@ -9,6 +9,11 @@ A skill is a function (usually a generator) plus a contract:
   budget    max seconds for the whole skill
   stall     max seconds without progress; progress = the value the body yields changed, or, when it yields
             None, the inventory/position signature changed
+  commands  optional, pure: (state, args) -> [task]. The whole command batch an OPEN-LOOP skill would send, built
+            from a state dict and executed by nobody. The skill's own body runs that batch (`api.run_chain`) and
+            then its verify, so a fight can take the same batch and post it itself — append to it, or /stop and
+            post again — without a second definition of the skill. Closed-loop skills (seek, chop, hunt: they look
+            as they go) leave it None.
 
 Two levels of stuck detection: api.await_task watches one mod task (10 s without visible movement), the runner
 watches the skill's own goal metric across tasks (a hunt that walks around forever without closing in)."""
@@ -17,10 +22,11 @@ import inspect
 import os
 import time
 
-from . import api, paths
+from . import api, paths, skillcore
 from .api import McError, TaskStuck
 
 REGISTRY = {}
+VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
 
 
 class Call:
@@ -39,7 +45,9 @@ def world_signature():
 
 
 class Contract:
-    def __init__(self, name, fn, pre, start, done, verify, budget, stall, per_unit, units, key, soft=False):
+    def __init__(self, name, fn, pre, start, done, verify, budget, stall, per_unit, units, key, soft=False,
+                 commands=None):
+        self.commands = commands
         # soft: perception's interrupt is left standing for the body to read (`api.INTERRUPT`) instead of ending the
         # skill. A fight answers danger by taking cover and trying again — four "dragon breath close" interrupts in a
         # row otherwise killed whole bench runs before anything was built.
@@ -104,8 +112,15 @@ def can_run(fn, *args, **kwargs):
     return True, None
 
 
+def commands_of(fn, state, *args):
+    """The command batch this skill would send from `state`, or None when it is closed-loop. Pure: nothing runs."""
+    contract = getattr(fn, "contract", None)
+    make = getattr(contract, "commands", None)
+    return None if make is None else list(make(state, args))
+
+
 def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, budget=300, stall=45,
-          per_unit=None, units=None, key=None, soft=False):
+          per_unit=None, units=None, key=None, soft=False, commands=None):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
 
     A check can only answer "no". A dimension can be priced: `solve.reach_cost` walks the requirement graph and
@@ -114,7 +129,7 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
     """
     def wrap(fn):
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
-                            key, soft)
+                            key, soft, commands)
         contract.needs = dict(needs or {})
         REGISTRY[contract.name] = contract
 
@@ -137,7 +152,10 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
             finally:
                 api.SOFT = prev_soft
             c.result = out
-            if contract.verify and not contract.verify(c):
+            # The effect is judged once the world has caught up with it, not the instant the body returns: a drop
+            # still in the air, a slot that fills on the next update. Stops at the first reading that holds.
+            if contract.verify and not skillcore.settle(lambda: contract.verify(c), bool, timeout=VERIFY_SETTLE_S,
+                                                        stable_s=0):
                 raise McError(f"{contract.name}: finished without reaching its goal")
             if STATS is not None:
                 try:
@@ -178,9 +196,8 @@ def _drive(contract, c, gen):
                 return stop.value
             now = time.time()
             _heartbeat(contract.name)
-            if api.INTERRUPT and api.MODE != "survival" and not contract.soft:
-                api.take_interrupt()   # Python-side loops stop too, not only mod tasks
-            if api.get("/state").get("dead"):
+            api.check_interrupt(t0, contract.soft)   # Python-side loops stop too, not only mod tasks
+            if skillcore.dead():
                 # Dead ends every skill now: a dragon fight kept issuing 20+ "travel: no route" after dying.
                 raise McError(f"{contract.name}: died")
             if contract.done and contract.done(c):

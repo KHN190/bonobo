@@ -72,7 +72,7 @@ def activate_end_portal(ctx):
     # search order crossed the ring for every eye (bench 05:20, 79 s for 12 eyes).
     for stop, side in ring_stops(missing, centre, here):
         # Outside the ring, not on top of it: standing on a frame slid the player into the opening's lava once.
-        if not nav.go_to(stop, ctx.policy, range_=0.8, attempts=1):
+        if not nav.arrived(stop, ctx.policy, range_=0.8, attempts=1):
             raise api.NavFailed(f"the ring side at {stop} is not reachable")
         for f in side:
             r = api.run({"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,

@@ -7,6 +7,7 @@ from . import api, nav, tape
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
 from .skill import skill
+from .skillcore import carried_total
 from .world import Inventory, find
 
 def loot_plan(slots, prices, bag_free, stack=64):
@@ -78,14 +79,15 @@ def unlooted_chests_cached(mem, snap, ttl=60):
     return _CACHE["hits"]
 
 
-@skill(start=lambda c: Inventory().used_slots(), budget=240, stall=90, per_unit=60)
+@skill(start=lambda c: carried_total(), verify=lambda c: not c.result or carried_total() > c.base,
+       budget=240, stall=90, per_unit=60)
 def loot_chest(ctx):
     """Open the nearest chest that isn't ours and hasn't been looted, take the valuable stacks, remember it."""
     chests = unlooted_chests(ctx)
     if not chests:
         raise NotAvailable("no unlooted chest within 32 blocks")
     pos = chests[0]
-    if not nav.go_to(pos, ctx.policy, range_=3, attempts=1):
+    if not nav.arrived(pos, ctx.policy, range_=3, attempts=1):
         ctx.ban(pos, 1800)
         raise api.NavFailed(f"chest at {pos} not reachable")
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30)

@@ -8,7 +8,7 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import skill
-from .skillcore import _collect_only, feet, snapshot, mine_cell
+from .skillcore import _collect_only, body_state, feet, snapshot, mine_cell
 from .world import Inventory, Region, add
 
 
@@ -42,7 +42,7 @@ def _machine_roles(machine):
 def _go_to_machine(ctx, machine):
     bp = blueprints.REGISTRY[machine["blueprint"]]
     access = blueprints.access_spot(bp, tuple(machine["origin"]), machine["turns"])
-    if not nav.go_to(access, ctx.policy, range_=2, attempts=2):
+    if not nav.arrived(access, ctx.policy, range_=2, attempts=2):
         raise NotAvailable(f"{machine['name']} not reachable")
 
 
@@ -231,8 +231,94 @@ def materials_missing(bp):
     return {bare(k): n - inv.usable(k) for k, n in blueprints.materials(bp).items() if inv.usable(k) < n}
 
 
+def blueprint_region(bp, origin, turns):
+    """The box a build reads: every part, the access spot, and one block around them (foliage in the way)."""
+    cells = [p for p, *_ in blueprints.placed(bp, origin, turns)]
+    access = blueprints.access_spot(bp, origin, turns)
+    lo = tuple(min(min(c[i] for c in cells), access[i]) - 1 for i in range(3))
+    hi = tuple(max(max(c[i] for c in cells), access[i]) + 1 for i in range(3))
+    return Region(lo, hi)
+
+
+def blueprint_wrong(bp, origin, turns):
+    """[(cell, wanted)] for every part the world does not show where the blueprint puts it. Empty = built."""
+    cells = blueprints.placed(bp, origin, turns)
+    lo = tuple(min(p[0][i] for p in cells) for i in range(3))
+    hi = tuple(max(p[0][i] for p in cells) for i in range(3))
+    region = Region(lo, hi)
+    return [(pos, bare(part.item)) for pos, part, *_ in cells if not block_matches(region.name(pos), part.item)]
+
+
+def blueprint_commands(state, args):
+    """Pure: the whole build as one batch, from the access spot — clear the foliage in the way, then every part not
+    yet in place, bottom-up, pillaring under the body wherever a part's only face is above the eye.
+
+    `state` is `body_state` with `region` = `blueprint_region(...)` and `rules` = {token: orientation rule}; the body
+    is assumed to stand on the access spot (the skill walks there first). Items come out of `state["inv"]` as the
+    batch spends them, so a group token picks a member there will still be some of.
+    """
+    bp, origin, turns = args
+    region, inv, protected = state["region"], state["inv"], state["protected"]
+    access = blueprints.access_spot(bp, origin, turns)
+    spent = {}
+
+    def item_for(token):
+        if token not in GROUPS:
+            item = mid(token)
+        else:
+            held = [m for m in members(token) if inv.usable(m) - spent.get(m, 0) > 0]
+            if not held:
+                raise NotAvailable(f"no {token} in the inventory")
+            item = max(held, key=lambda m: inv.usable(m) - spent.get(m, 0))
+        spent[item] = spent.get(item, 0) + 1
+        return item
+
+    tasks = []
+    foliage = [p for p, n in region.blocks.items()
+               if (n.endswith("_leaves") or n in ("vine", "glow_lichen")) and p not in protected]
+    if foliage:
+        tasks.append({"type": "mine_many", "collect": False, "requireDrops": False,
+                      "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in foliage]})
+    fx, fy, fz = state["feet"]
+    for pos, part, facing, against in sorted(blueprints.placed(bp, origin, turns), key=lambda t: t[0][1]):
+        if block_matches(region.name(pos), part.item):
+            continue   # resuming an interrupted build: this part is already in place
+        if pos[1] - fy >= 2:
+            # The only face to click (the top of the part below) must be below the eye: stand on the access column
+            # and pillar straight up until the feet are at pos.y - 1.
+            if (fx, fz) != (access[0], access[2]):
+                tasks.append({"type": "goto", "x": access[0], "y": fy, "z": access[2], "range": 0.3,
+                              "partial": False})
+                fx, fz = access[0], access[2]
+            while pos[1] - fy >= 2:
+                tasks.append({"type": "pillar", "item": item_for("building")})
+                fy += 1
+        task = {"type": "place", "item": item_for(part.item), "x": pos[0], "y": pos[1], "z": pos[2]}
+        if against is not None:
+            task["against"] = {"x": against[0], "y": against[1], "z": against[2]}
+        elif facing is not None:
+            yaw, pitch = blueprints.look_for(facing, state["rules"].get(part.item, "toward_player"))
+            task["yaw"] = yaw if yaw is not None else state["state"]["yaw"]
+            task["pitch"] = pitch
+        tasks.append(task)
+    return tasks
+
+
+def _build_state(ctx, bp, origin, turns):
+    rules = {p.item: ctx.mem.orientation_rule(p.item) for p in bp.parts if p.facing is not None}
+    return body_state(ctx, blueprint_region(bp, origin, turns), rules=rules)
+
+
 def _build_parts(ctx, bp, origin, turns):
-    """Place every part bottom-up (list order within a layer), then verify the block ids."""
+    """Place every part bottom-up (list order within a layer), then verify the block ids.
+
+    The batch (`blueprint_commands`) goes first, as one chain. What it could not do — a pillar with leaves over it,
+    a body-oriented block that came out mirrored — is finished part by part below, where each placement is looked
+    at before the next."""
+    batch = blueprint_commands(_build_state(ctx, bp, origin, turns), (bp, origin, turns))
+    if batch:
+        api.run_chain(batch, stop_on_failure=True)
+        yield feet()
     cells = sorted(blueprints.placed(bp, origin, turns), key=lambda t: t[0][1])
     access = blueprints.access_spot(bp, origin, turns)
     done_region = Region(tuple(min(p[0][i] for p in cells) for i in range(3)),
@@ -253,7 +339,7 @@ def _build_parts(ctx, bp, origin, turns):
             continue   # resuming an interrupted build: this part is already in place
         # Stay at the build: the place task's own approach search is short (6 000 nodes), so a part 40 blocks away
         # (the agent wandered off between parts or rounds) failed with "no reachable face" — walk back first.
-        if math.dist(feet(), pos) > 4.5 and not nav.go_to(access, ctx.policy, range_=1.5, attempts=1):
+        if math.dist(feet(), pos) > 4.5 and not nav.arrived(access, ctx.policy, range_=1.5, attempts=1):
             raise api.NavFailed(f"can't get back to the {bp.name} build at {origin}")
         if pos[1] - feet()[1] >= 2:
             # The only face to click (the top of the part below, at y = pos.y) must be below the eye (feet + 1.62):
@@ -283,15 +369,38 @@ def _build_parts(ctx, bp, origin, turns):
                 yield feet()
         place_oriented(ctx, pos, part.item, facing, against, part.either_way)
         yield pos
-    lo = tuple(min(p[0][i] for p in cells) for i in range(3))
-    hi = tuple(max(p[0][i] for p in cells) for i in range(3))
-    region = Region(lo, hi)
-    wrong = [(pos, bare(part.item)) for pos, part, *_ in cells if not block_matches(region.name(pos), part.item)]
+    wrong = blueprint_wrong(bp, origin, turns)
     if wrong:
         raise McError(f"{bp.name} incomplete: {wrong}")
 
 
-@skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None, budget=900, stall=120)
+def _machine_built(ctx, name):
+    """Is the machine this name was given standing in the world, part for part?"""
+    m = next((m for m in ctx.mem.data.get("machines", ()) if m["name"] == name), None)
+    return m is not None and not blueprint_wrong(blueprints.REGISTRY[m["blueprint"]], tuple(m["origin"]), m["turns"])
+
+
+def _shelter_built(ctx, name):
+    s = next((s for s in ctx.mem.data.get("sites", ()) if s["name"] == name), None)
+    return s is not None and not blueprint_wrong(blueprints.SHELTER, tuple(s["pos"]), s.get("turns", 0))
+
+
+def _blueprint_commands_for(state, args):
+    """`commands` for build_blueprint(ctx, name, near): the batch for a build already started (memory's `builds`)."""
+    name, started = args[0], state.get("started")
+    if not started:
+        return []
+    return blueprint_commands(state, (blueprints.REGISTRY[name], tuple(started["origin"]), started["turns"]))
+
+
+def _shelter_commands_for(state, args):
+    """`commands` for build_shelter: the batch at the spot `state["spot"]` = (origin, turns)."""
+    origin, turns = state["spot"]
+    return blueprint_commands(state, (blueprints.SHELTER, origin, turns))
+
+
+@skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
+       commands=_blueprint_commands_for, budget=900, stall=120)
 def build_blueprint(ctx, name, near):
     """Build a machine from blueprints.REGISTRY near `near`: clear spot, bottom-up, oriented, verified, remembered."""
     bp = blueprints.REGISTRY[name]
@@ -309,7 +418,7 @@ def build_blueprint(ctx, name, near):
         builds[name] = {"origin": list(origin), "turns": turns, "dimension": ctx.dimension}
         ctx.mem.save()
     log(f"building {name} at {origin} (rotation {turns})")
-    if not nav.go_to(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
+    if not nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
         raise api.NavFailed(f"can't reach the build spot for {name}")
     yield from _build_parts(ctx, bp, origin, turns)
     if "portal" in bp.tags:
@@ -323,7 +432,8 @@ def build_blueprint(ctx, name, near):
     return machine
 
 
-@skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None, budget=360, stall=90, per_unit=60)
+@skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
+       commands=_shelter_commands_for, budget=360, stall=90, per_unit=60)
 def build_shelter(ctx):
     """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more
     safe place to sleep in the area being worked."""
@@ -333,12 +443,12 @@ def build_shelter(ctx):
         raise NotAvailable(f"missing for a shelter: {missing}")
     origin, turns, prepare = plan_machine_spot(bp, feet(), ctx.policy, radius=6)
     prepare_spot(ctx, prepare)
-    if not nav.go_to(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
+    if not nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
         raise api.NavFailed("can't reach the shelter spot")
     log(f"building a shelter at {origin} (rotation {turns})")
     yield from _build_parts(ctx, bp, origin, turns)
     interior = [list(c) for c in blueprints.clear_cells(bp, origin, turns) if c[1] == origin[1]]
     site = ctx.mem.add_site("shelter", origin, ctx.dimension, snapshot=snapshot(origin, half=2, down=1, up=3))
-    ctx.mem.update_site(site["name"], interior=interior)
+    ctx.mem.update_site(site["name"], interior=interior, turns=turns)
     log(f"shelter {site['name']} ready")
     return site["name"]

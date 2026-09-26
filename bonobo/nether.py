@@ -61,10 +61,10 @@ def use_portal(ctx, to_dimension):
     log(f"   heading into the portal at {cell} → {to_dimension}")
     # Long trips in legs: one travel plan over 110 blocks and a 55-block climb ran out of search nodes four times.
     for hop in waypoints(here, cell)[:-1]:
-        if not nav.go_to(hop, ctx.policy, range_=6, attempts=1):
+        if not nav.arrived(hop, ctx.policy, range_=6, attempts=1):
             raise api.NavFailed(f"stuck on the way to the portal near {hop}")
         yield hop
-    if not nav.go_to(cell, ctx.policy, range_=0.5, attempts=1):
+    if not nav.arrived(cell, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"portal at {cell} not reachable")
     # travel counts "within 1.5 blocks" as arrived — it once stopped one block beside the portal and waited there.
     # Step onto the exact cell.
@@ -97,7 +97,7 @@ def use_portal(ctx, to_dimension):
     raise McError("stood in the portal but the dimension didn't change")
 
 
-@skill(budget=900, stall=180, per_unit=600)
+@skill(verify=lambda c: bool(c.args[0].mem.sites(NETHER, kinds=["fortress"])), budget=900, stall=180, per_unit=600)
 def find_fortress(ctx, legs=8, leg=48):
     """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava). Remembers the
     fortress as a site so blaze hunting starts there."""
@@ -183,7 +183,12 @@ def barter_ready(inv, worn):
     return None
 
 
-@skill(start=lambda c: Inventory().count("minecraft:ender_pearl"), budget=600, stall=180, per_unit=15)
+def _not_gold():
+    """Everything carried except the gold being traded away: what a barter brings back raises this."""
+    return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
+
+
+@skill(start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15)
 def barter_piglin(ctx, ingots=8):
     """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect.
     Pearls, obsidian, string and fire resistance potions all come this way."""
@@ -205,7 +210,7 @@ def barter_piglin(ctx, ingots=8):
             raise NotAvailable("no piglin nearby")
         if piglins[0]["distance"] > 3:
             p = piglins[0]
-            if not nav.go_to((round(p["x"]), round(p["y"]), round(p["z"])), ctx.policy, range_=2.5, attempts=1):
+            if not nav.arrived((round(p["x"]), round(p["y"]), round(p["z"])), ctx.policy, range_=2.5, attempts=1):
                 ctx.ban((p["id"], 0, 0), 300)
                 raise api.NavFailed("could not get next to a piglin")
         # One ingot toward every piglin within reach, then one shared wait: each piglin inspects its own ingot in
@@ -242,7 +247,8 @@ def _eye_direction(timeout=3.0):
     return (last[0] - first[0]) / n, (last[1] - first[1]) / n
 
 
-@skill(budget=900, stall=240, per_unit=600)
+@skill(verify=lambda c: bool(c.args[0].mem.sites(OVERWORLD, kinds=["stronghold"])), budget=900, stall=240,
+       per_unit=600)
 def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])

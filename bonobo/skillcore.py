@@ -58,6 +58,7 @@ class ToolMissing(McError):
 
 
 _BAN_COUNTS = {}
+BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 
 
 class Context:
@@ -84,12 +85,75 @@ class Context:
         return exp is not None and exp > time.time()
 
     def ban(self, pos, seconds=600):
-        """Blacklist a cell. Repeats escalate: a place proven unreachable twice is banned twice as long, up to two
-        hours. A fixed ten minutes brought the same coal block back 37 times in one session."""
+        """Blacklist a cell after a FAILURE there (never after an interruption: nothing was learned about the place).
+        Repeats escalate, a place proven unreachable twice waits twice as long, but never past BAN_MAX_S: the world
+        changes (we dig, we bridge, the mob moves), and a two-hour ban outlived every one of those reasons."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1
         self.ban_counts[key] = count
-        self.blacklist[key] = time.time() + min(seconds * (2 ** (count - 1)), 7200)
+        self.blacklist[key] = time.time() + min(seconds * (2 ** (count - 1)), BAN_MAX_S)
+
+
+SETTLE_POLL_S = 0.25
+
+
+def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S):
+    """Poll `read()` until `ok(value)` has held for `stable_s`, or `timeout` runs out. Returns the last value read.
+
+    What an action did is seen after the world has caught up with it: a log drops, bounces and is picked up a tick
+    later; a furnace slot fills on the next update; a respawn reports `dead` for a frame. Counting once, right after
+    the action, called all of those failures. The caller still judges the value — `ok` only says when to stop
+    looking. A pending interrupt ends the wait (`api.check_interrupt`) unless `soft`.
+    """
+    began = time.time()
+    value = read()
+    held_since = began if ok(value) else None
+    while True:
+        now = time.time()
+        if held_since is not None and now - held_since >= stable_s:
+            return value
+        if now - began >= timeout:
+            return value
+        api.check_interrupt(began, soft)
+        time.sleep(poll)
+        value = read()
+        if ok(value):
+            held_since = held_since if held_since is not None else time.time()
+        else:
+            held_since = None
+
+
+def gained(read, before, timeout=3.0, stable_s=0.5):
+    """What `read()` says once it has settled above `before` (a count after picking up, crafting, taking out), or
+    what it says when time runs out. The caller compares; this only waits for the world to catch up."""
+    return settle(read, lambda v: v > before, timeout, stable_s)
+
+
+def lost(read, before, timeout=3.0, stable_s=0.5):
+    """The mirror of `gained`: a count that should have gone DOWN (thrown away, stored, loaded into a furnace)."""
+    return settle(read, lambda v: v < before, timeout, stable_s)
+
+
+def dead(state=None):
+    """Is the body really dead? One reading can say so for a frame while a chunk loads or the player respawns, so a
+    death is confirmed by readings that agree for a moment, never by a single one."""
+    first = (state if state is not None else api.get("/state")).get("dead")
+    if not first:
+        return False
+    return bool(settle(lambda: api.get("/state").get("dead"), bool, timeout=1.5, stable_s=0.5, soft=True))
+
+
+def body_state(ctx, region=None, **extra):
+    """The state dict a skill's `commands` are built from: where the body is, what it carries, what it may not
+    touch, and the blocks around it. Read once, here; `commands` itself reads nothing."""
+    s = api.get("/state")
+    return dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
+                 "protected": set(getattr(ctx.policy, "protected", ()) or ()), "region": region}, **extra)
+
+
+def carried_total():
+    """Every item in the bag, counted: what a pickup or a loot raises even when it only tops up existing stacks."""
+    return sum(int(s.get("count", 1)) for s in Inventory().slots)
 
 
 def feet():

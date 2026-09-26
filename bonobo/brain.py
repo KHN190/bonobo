@@ -776,7 +776,7 @@ class Brain:
         if s["control"].get("paused"):
             api.wait_for_handback()
             s = api.get("/state")
-        if s["dead"]:
+        if skillcore.dead(s):
             # What was on us is what makes the walk back worth anything; after the respawn it is unknowable.
             self.mem.log_death((s["blockX"], s["blockY"], s["blockZ"]), s["dimension"],
                                carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
@@ -880,7 +880,11 @@ class Brain:
 
     # -- failure policy
     def failed(self, name, err):
-        """Failures wait for the situation to change (retry.py), not for a timer: same state → growing backstop."""
+        """Failures wait for the situation to change (retry.py), not for a timer: same state → growing backstop.
+
+        An interruption is not a failure (`api.interrupted`): it is not counted, not cooled, and bans nothing."""
+        if api.interrupted(err):
+            return
         now = time.time()
         cause = retry.cause_of(err)
         if isinstance(err, NotAvailable) and self.seg_name:
@@ -933,16 +937,18 @@ class Brain:
         log(f"   → {step}")
         key = f"{step.kind}:{step.token}"
         try:
-            self._execute(ctx, step, night)
+            ordered = self._execute(ctx, step, night)
         except GameUnreachable:
             raise
-        except api.Interrupted:
-            raise   # stopped for a danger: no statistics
+        except api.INTERRUPTIONS:
+            raise   # stopped for a danger, or someone else took the body: no statistics
         except (McError, skills.ToolMissing) as e:
             # A path failure isn't the skill's fault: hunts that "fail" for lack of a route mustn't look hard.
             self.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
             self.fail_sig[key] = self.coarse
             raise
+        if ordered:
+            return          # a furnace was loaded: the step is done when its output is held, not now
         self.mem.record_outcome(key, True)
 
     def _execute(self, ctx, step, night):
@@ -954,9 +960,11 @@ class Brain:
                 # Drop the batch into the auto smelter and keep working; the output counts as pending.
                 skills.load_smelter(ctx, machine, step.detail["input"], step.count, step.detail["fuel"],
                                     mid(step.token))
+                return {"ordered": mid(step.token), "count": step.count}
             elif step.count >= skills.ASYNC_SMELT_MIN:
                 # Multitask: load a furnace and go on with other steps; collect when the estimate says it's done.
-                skills.start_smelt_job(ctx, mid(step.token), step.detail["input"], step.count, step.detail["fuel"])
+                return skills.start_smelt_job(ctx, mid(step.token), step.detail["input"], step.count,
+                                              step.detail["fuel"])
             else:
                 skills.smelt(ctx, mid(step.token), step.detail["input"], step.count, step.detail["fuel"])
         elif step.kind == "mine":
@@ -990,7 +998,7 @@ class Brain:
         elif step.kind == "resume":
             # Finish what is already half done, where it is. The skill is the same one; only the place is given.
             pos = tuple(step.detail["pos"])
-            if not nav.go_to(pos, self.policy_cache, range_=2, attempts=2):
+            if not nav.arrived(pos, self.policy_cache, range_=2, attempts=2):
                 raise NotAvailable(f"can't get back to the unfinished {step.token} at {pos}")
             {"dig_in": skills.dig_in, "pod": skills.pod, "hut": skills.build_shelter}[step.token](ctx)
         elif step.kind == "gather":
@@ -1703,7 +1711,7 @@ class Brain:
                 spot = self.remembered_spot(snap_kinds, ctx.dimension, here)
                 if spot is None:
                     return self.explore(ctx) or False
-                if not nav.go_to(spot, self.policy_cache, range_=4, attempts=2):
+                if not nav.arrived(spot, self.policy_cache, range_=4, attempts=2):
                     # Could not GET there. That is a fact about the route, not about the note: the place is banned
                     # (so the next round prices the next one) and what memory says about it still stands.
                     self.ban(spot)
@@ -1717,7 +1725,7 @@ class Brain:
                 if found:
                     self.mem.note_resource(snap_kinds[0], spot, ctx.dimension)
                 return found
-        if not nav.go_to(spot, self.policy_cache, range_=3, attempts=2):
+        if not nav.arrived(spot, self.policy_cache, range_=3, attempts=2):
             return False      # could not get there: the note may still be true, so it stands
         if note_kind:
             self.mem.confirm(note_kind, spot, ctx.dimension, found=True)
@@ -2411,7 +2419,7 @@ class Brain:
                     intent.say("safety", f"dusk in {dusk // 20}s, {site['name']} ~{eta // 20}s away → heading back")
 
                     def go_back():
-                        if not nav.go_to(tuple(site["pos"]), self.policy(snap, False), range_=4):
+                        if not nav.arrived(tuple(site["pos"]), self.policy(snap, False), range_=4):
                             raise NotAvailable(f"{site['name']} not reachable")
 
                     self.attempt("return to shelter", go_back)
@@ -2440,7 +2448,7 @@ class Brain:
             cell = tuple(hut["interior"][0])
 
             def enter():
-                if not nav.go_to(cell, self.policy(snap, True), range_=0.5, attempts=2):
+                if not nav.arrived(cell, self.policy(snap, True), range_=0.5, attempts=2):
                     raise NotAvailable(f"{hut['name']} not reachable")
 
             intent.say("safety", f"night: going into {hut['name']}")
@@ -2487,12 +2495,16 @@ class Brain:
             nav.go_to(spot[0], self.policy(snap, True), range_=0.5, attempts=2)
         try:
             skills.dig_in(ctx)
+        except api.INTERRUPTIONS:
+            raise
         except McError as e:
             log(f"dig-in failed: {e} → burrowing into a hillside, else walling in")
             try:
                 try:
                     skills.burrow(ctx)
                     return True
+                except api.INTERRUPTIONS:
+                    raise
                 except McError as e_burrow:
                     log(f"burrow failed: {e_burrow} → walling in instead")
                 skills.pod(ctx)
@@ -2558,6 +2570,8 @@ class Brain:
                 raise McError(f"unknown directive kind {d['kind']}")
         except PlayerTookControl:
             raise
+        except api.INTERRUPTIONS as e:
+            log(f"   {name} interrupted: {e}")      # still pending: an interruption is not a failed directive
         except (McError, skills.ToolMissing, AttributeError, TypeError) as e:
             items, _gave_up = directives.mark(directives.load(), d["id"], failed_reason=str(e))
             directives.save(items)
@@ -2728,7 +2742,7 @@ class Brain:
                         seconds=worth({"sheltered": True})))
 
     def _go_to_site(self, site, snap):
-        if not nav.go_to(tuple(site["pos"]), self.policy(snap, snap.night), range_=4):
+        if not nav.arrived(tuple(site["pos"]), self.policy(snap, snap.night), range_=4):
             # Not reachable is a fact about the PLACE. Written down, the next round prices the next shelter (or
             # digging one) instead of this same walk a minute from now.
             self.ban(tuple(site["pos"]))
@@ -2973,6 +2987,10 @@ class Brain:
             api.wait_for_handback()
         except GameUnreachable:
             api.wait_for_game()
+        except api.Interrupted as e:
+            # Interrupted, not failed: no retry count, no /stop (whoever interrupted already owns the body), no
+            # cooldown. The next round starts from what the world looks like now.
+            log(f"   {name} interrupted: {e}")
         except api.CommitmentExpired as e:
             log(f"   {e}")          # not a failure: the next round decides with what the world looks like now
         except api.BodyContested as e:

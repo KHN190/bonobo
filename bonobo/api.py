@@ -86,6 +86,28 @@ def take_interrupt():
         raise Interrupted(reason)
 
 
+def interrupt_due(since, soft=False):
+    """Should work that began at `since` stop for the pending interrupt? The one rule, for mod tasks, skill loops and
+    `settle` alike.
+
+    A soft skill reads the message itself. A survival rescue ignores perception's messages — it is the answer to
+    them — but not a SAFETY preemption made after it started: a rescue that walks into lava is stopped like anything
+    else.
+    """
+    if not INTERRUPT or soft:
+        return False
+    if MODE != "survival":
+        return True
+    from . import arbiter
+    return arbiter.BODY.preempted_at > since
+
+
+def check_interrupt(since, soft=False):
+    """Raise Interrupted when `interrupt_due`."""
+    if interrupt_due(since, soft):
+        take_interrupt()
+
+
 class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
@@ -94,6 +116,17 @@ class BodyContested(McError):
     """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second
     process) is driving the body. Standing down beats cycling through fallbacks against it — one burst of this
     ran dig-in, burrow and pod in three seconds, every step "replaced by a new task"."""
+
+
+# The three outcomes of any attempt: success, failure (with a cause), or interrupted. These are the interrupted ones:
+# something else took the body or the world asked for a decision. None of them says anything about the skill, so
+# none of them counts as a retry, bans a cell, sends /stop or cools anything down.
+INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, PlayerTookControl)
+
+
+def interrupted(err):
+    """Was this an interruption rather than a failure?"""
+    return isinstance(err, INTERRUPTIONS)
 
 
 def log(*parts):
@@ -265,12 +298,12 @@ def _raise_if_released(results, since=None):
 
 def await_task(task_id, wait, exempt=("wait",)):
     """Waits for a task, cancelling it when it makes no visible progress or exceeds `wait` seconds."""
-    deadline = time.time() + wait
-    last, since = None, time.time()
+    began = time.time()
+    deadline = began + wait
+    last, since = None, began
     while True:
         r = get(f"/task?id={task_id}&wait=2")
-        if INTERRUPT and MODE != "survival" and not SOFT:
-            take_interrupt()
+        check_interrupt(began, SOFT)
         # Where the seconds go: every long action here is a task and a wait on it, so this is where the body
         # changes hands. It changes hands when a faster layer is waiting for it — never because a clock ran out.
         from . import arbiter

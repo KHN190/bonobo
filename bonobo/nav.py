@@ -319,15 +319,53 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
     return _arrived(_from, pos, _began, False)
 
 
-def dig_down(depth, policy, use_ladders):
-    """Straight down under the feet, stopping above caves/lava/water. With ladders, hangs one on the shaft wall
-    above the head after each step so the way back is a climb."""
-    x, y, z = feet_now()
-    region = Region((x - 1, y - depth - 2, z - 1), (x + 1, y + 2, z + 1))
+ARRIVE_CALLS = 8          # go_to calls one `arrive` may chain while each keeps gaining ground
+
+
+def arrive(pos, policy, range_=1.5, **kw):
+    """Get there, or raise `api.NavFailed`. The call a skill makes when it needs to BE somewhere.
+
+    `go_to` answers in three ways — True (there), `Walked` (nearer, not there) and False (no nearer) — and `Walked`
+    is truthy, so a skill that asked "did it work" read a leg that stopped thirty blocks short as arrival and began
+    working on thin air. Here a leg that gained ground is followed by the next one, arrival returns True, and a leg
+    that gained nothing is the failure it is. A pending interrupt ends the walk between legs.
+    """
+    began = time.time()
+    got = False
+    for _ in range(ARRIVE_CALLS):
+        got = go_to(pos, policy, range_=range_, **kw)
+        if got is True:
+            return True
+        if not got:
+            raise api.NavFailed(f"could not get to {tuple(pos)} (no nearer after walking)")
+        api.check_interrupt(began, api.SOFT)
+    raise api.NavFailed(f"still {math.dist(feet_now(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks")
+
+
+def arrived(pos, policy, range_=1.5, **kw):
+    """`arrive` for a caller that handles not getting there itself (ban the spot, try the next one): True or False,
+    never a `Walked`."""
+    try:
+        return arrive(pos, policy, range_=range_, **kw)
+    except api.NavFailed:
+        return False
+
+
+def dig_down_region(feet, depth):
+    """The box `dig_down_tasks` reads: the shaft, its walls and what is under it."""
+    x, y, z = feet
+    return Region((x - 1, y - depth - 2, z - 1), (x + 1, y + 2, z + 1))
+
+
+def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False):
+    """Pure: (tasks, depth that is safe) for digging straight down from `feet`, stopping above caves, lava and
+    water. With ladders, one hangs on the shaft wall above the head after each step so the way back is a climb.
+    Raises NotAvailable when not even one block down is safe."""
+    x, y, z = feet
     safe = 0
     for i in range(1, depth + 1):
         cell, below = (x, y - i, z), (x, y - i - 1, z)
-        if (region.unbreakable(cell) or region.hazard(cell) or not region.solid(below) or (x, y - i, z) in policy.protected
+        if (region.unbreakable(cell) or region.hazard(cell) or not region.solid(below) or (x, y - i, z) in protected
                 or any(region.hazard(add(cell, d)) for d in NEIGHBOURS6)):
             break
         safe = i
@@ -345,6 +383,13 @@ def dig_down(depth, policy, use_ladders):
             if wall:
                 tasks.append({"type": "place", "item": "minecraft:ladder", "x": x, "y": y - i + 2, "z": z,
                               "against": {"x": wall[0], "y": wall[1], "z": wall[2]}})
+    return tasks, safe
+
+
+def dig_down(depth, policy, use_ladders):
+    """Straight down under the feet (`dig_down_tasks`), run as one chain. Returns how deep it went."""
+    here = feet_now()
+    tasks, safe = dig_down_tasks(dig_down_region(here, depth), here, depth, policy.protected, use_ladders)
     # Stop at the first failure: a mine that couldn't happen leaves stone where the next ladder would go, and the
     # rest of the chain then fails block by block ("position is occupied").
     results = api.run_chain(tasks, stop_on_failure=True, before_segment=policy.before_segment)
@@ -445,13 +490,13 @@ def way_to(ctx, cells, range_=2.0):
     if not cells:
         return False
     near = min(cells, key=lambda p: math.dist(p, feet_now()))
-    if go_to(near, ctx.policy, range_=range_, attempts=1) and reachable(near, ctx.policy, range_)[0]:
+    if arrived(near, ctx.policy, range_=range_, attempts=1) and reachable(near, ctx.policy, range_)[0]:
         return True                                    # the walk was enough
     if not (ctx.policy.allow_dig or ctx.policy.allow_build):
         return False
     # Making a way IS travel with a pickaxe: the mod breaks and places as it goes. There is nothing for this side
     # to plan — asking the body to walk there, with digging allowed, is the whole of it.
     for cell in sorted(cells)[:4]:
-        if go_to(cell, ctx.policy, range_=range_, attempts=1) and reachable(cell, ctx.policy, range_)[0]:
+        if arrived(cell, ctx.policy, range_=range_, attempts=1) and reachable(cell, ctx.policy, range_)[0]:
             return True
     return False

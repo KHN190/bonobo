@@ -6,6 +6,15 @@ from .api import log
 from .data import bare
 from .skill import skill
 from .skillcore import feet
+
+
+# What a search controls is the walking, not whether the world holds the thing: it succeeded when it found one, or
+# when it covered new ground looking. A search that neither found nor moved did nothing.
+SEARCH_MOVED_BLOCKS = 8
+
+
+def _searched(c):
+    return bool(c.result) or math.dist(feet(), c.base) >= SEARCH_MOVED_BLOCKS
 from .world import entities, find
 
 
@@ -22,7 +31,7 @@ def surface_first(ctx, max_climb=90):
         raise api.NavFailed(f"could not reach the surface from y={y}")
 
 
-@skill(budget=900, stall=120, per_unit=150)
+@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150)
 def explore_for(ctx, types, legs=6, leg=40):
     """Find entities of `types`: remembered sightings first, then an outward spiral over known land. Returns the
     matches (maybe empty); walking counts as progress, so only a body that stops moving stalls."""
@@ -69,7 +78,7 @@ def explore_for(ctx, types, legs=6, leg=40):
     return []
 
 
-@skill(budget=900, stall=120, per_unit=150)
+@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150)
 def seek_blocks(ctx, blocks, legs=6, leg=40):
     """Find a block type that isn't in range (trees, sand, clay): outward spiral over known land, checking /find
     after every leg. Returns the hits (maybe empty); walking counts as progress."""

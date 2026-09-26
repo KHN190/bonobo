@@ -44,7 +44,7 @@ def fill_bottles(ctx, count=3):
         if spot is None:
             continue
         stand, source = spot
-        if not nav.go_to(stand, ctx.policy, range_=0.6, attempts=1):
+        if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
             continue
         for _ in range(min(count, Inventory().count("minecraft:glass_bottle"))):
             api.run({"type": "use_item", "item": "minecraft:glass_bottle", "x": source[0] + 0.5,

@@ -9,6 +9,7 @@ import math
 from . import api, blueprints, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
+from .skillcore import gained
 from .world import Inventory, Region, add, find
 
 REACH = 4.0
@@ -159,12 +160,12 @@ def fill_water_bucket(ctx):
             ctx.ban(c)
             continue   # planning only (no game action): trying the next water cell is not a retry
         stand, source = spot
-        if not nav.go_to(stand, ctx.policy, range_=0.6, attempts=1):
+        if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
             ctx.ban(c)
             raise api.NavFailed(f"stand spot {stand} for water at {source} not reachable")
         _use("minecraft:bucket", surface_aim(source), False)     # the same point fill_spot checked
         yield Inventory().count("minecraft:water_bucket")
-        if Inventory().count("minecraft:water_bucket"):
+        if gained(lambda: Inventory().count("minecraft:water_bucket"), 0):
             return
         # "used" isn't "filled": one real attempt per call, then the retry policy decides.
         ctx.ban(c)
@@ -182,7 +183,10 @@ def _obsidian_near(pos, radius=8):
     return sum(1 for n in region.blocks.values() if n == "obsidian")
 
 
-@skill(budget=900, stall=240, per_unit=120)
+_CAST = {}      # where the last pour went: what the verify looks at
+
+
+@skill(verify=lambda c: _obsidian_near(_CAST.get("bank")) > 0, budget=900, stall=240, per_unit=120)
 def cast_obsidian(ctx):
     """Turn a lava pool's surface into obsidian: pour water from a safe bank, wait, take the water back.
     Returns the number of new obsidian blocks near the pool (the mine skill collects them)."""
@@ -202,7 +206,7 @@ def cast_obsidian(ctx):
         raise NotAvailable("no castable lava here and no other remembered pool")
     target = tuple(known[0])
     log(f"   no castable lava here; heading to the remembered pool at {target}")
-    if not nav.go_to((target[0], target[1] + 2, target[2]), ctx.policy, range_=8, attempts=1):
+    if not nav.arrived((target[0], target[1] + 2, target[2]), ctx.policy, range_=8, attempts=1):
         ctx.ban(target, 900)
         raise api.NavFailed(f"remembered lava pool at {target} not reachable")
     yield None
@@ -236,23 +240,26 @@ def _cast_pools(ctx, pools, here):
             continue
         stand, bank, covered = plan
         log(f"   casting obsidian: pouring water on {bank} from {stand} (~{covered} lava sources)")
-        if not nav.go_to(stand, ctx.policy, range_=0.6, attempts=1):
+        if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
             log(f"   lava at {c}: stand spot {stand} not reachable")
             ctx.ban(c, 600)
             continue
         before = _obsidian_near(bank)
+        _CAST["bank"] = bank
         # Use the item, not use-on-block: the on-block path's interactItem fallback could fire a second use with the
         # now-empty bucket and scoop the water straight back (bench 03:57: water for one poll, lava bucket after).
         _use("minecraft:water_bucket", (bank[0] + 0.5, bank[1] + 1.0, bank[2] + 0.5), False)
-        if not Inventory().count("minecraft:bucket"):
+        if not gained(lambda: Inventory().count("minecraft:bucket"), 0):
             # "used" isn't "poured": the click didn't place water. Logged with the hit block by _use.
             log(f"   lava at {c}: the pour on {bank} placed no water (bucket still full)")
             ctx.ban(c, 600)
             continue
         api.run({"type": "wait", "ticks": 80}, wait=15)   # water spreads ~1 block per 5 ticks: let it cover the pool
-        made = _obsidian_near(bank) - before
+        made = gained(lambda: _obsidian_near(bank), before) - before
         try:
             _use("minecraft:bucket", (bank[0] + 0.5, bank[1] + 1.5, bank[2] + 0.5), False)
+        except api.INTERRUPTIONS:
+            raise              # an interruption is not a failure to shrug off here
         except McError as e:
             log(f"   could not take the water back: {e}")
         yield made
@@ -261,7 +268,7 @@ def _cast_pools(ctx, pools, here):
             return made
         log(f"   lava at {c}: water poured but no obsidian formed")
         ctx.ban(c, 600)
-    return 0
+    raise NotAvailable("no lava pool here could be cast into obsidian")
 
 
 def light_portal(ctx, origin, turns):
