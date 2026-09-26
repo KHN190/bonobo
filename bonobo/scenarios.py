@@ -1194,7 +1194,8 @@ def _no_block_suffix(lo, hi, suffix):
 
 
 def _food_up():
-    return lambda api, inv: api.get("/state")["food"] > BASE["state"]["food"]
+    """The food bar above where it stood when the eating began (after the row made the body hungry)."""
+    return lambda api, inv: api.get("/state")["food"] > BASE.get("food_before", BASE["state"]["food"])
 
 
 def _is_day():
@@ -1505,7 +1506,8 @@ BASES = {
                  budget=45, work_s=4, entities=[("minecraft:cow", 3)]),
     "eat": dict(skills=["eat"], doc="hungry, bread carried → the food bar rises", point="A",
                 setup=_floor() + [_tp(), "give @p bread 4"],
-                pre=lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5)),
+                pre=lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5),
+                                 BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"])),
                 run=lambda ctx: _skill("eat")(), check=_food_up(), budget=20, work_s=1,
                 combat=True),        # hunger only drains off peaceful: the runner sets normal difficulty for combat rows
     "sleep": dict(skills=["sleep"], doc="night, a bed carried → morning", point="A",
@@ -1943,8 +1945,9 @@ SHEET["drowning_in_a_pit"] = {
     "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
     # The rounds run until exactly what the check judges: a looser stop (air ≥ 250) passed the run and failed the row.
-    "run": _brain_rounds(25, lambda: _breathing()(__import__("bonobo.api", fromlist=["get"]), None)),
-    "check": _all(_alive(8), _breathing()), "budget": 30,
+    # Air lasts ~15 s at the bottom before L0 must answer, then the breath refills: rounds for up to 50 s.
+    "run": _brain_rounds(50, lambda: _breathing()(__import__("bonobo.api", fromlist=["get"]), None)),
+    "check": _all(_alive(8), _breathing()), "budget": 60,
 }
 SHEET["interrupted_rescue_is_not_a_failure"] = {
     "doc": "Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
