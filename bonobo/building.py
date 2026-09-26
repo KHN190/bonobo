@@ -395,11 +395,28 @@ def _shelter_built(ctx, name):
 
 
 def _blueprint_commands_for(state, args):
-    """`commands` for build_blueprint(ctx, name, near): the batch for a build already started (memory's `builds`)."""
-    name, started = args[0], state.get("started")
-    if not started:
+    """`commands` for build_blueprint(ctx, name, near): the batch where the build stands — a build already started
+    (`state["started"]`, memory's `builds`), else the cheapest spot around `near` in `state["region"]`
+    (`spot_options`), its levelling first: break what is in the way, fill what nothing stands on."""
+    bp = blueprints.REGISTRY[args[0]]
+    started = state.get("started")
+    if started:
+        return blueprint_commands(state, (bp, tuple(started["origin"]), started["turns"]))
+    if state.get("region") is None:
         return []
-    return blueprint_commands(state, (blueprints.REGISTRY[name], tuple(started["origin"]), started["turns"]))
+    near = tuple(args[1]) if len(args) > 1 and args[1] is not None else tuple(state["feet"])
+    options = spot_options(bp, near, state["region"], nav.Policy(protected=set(state.get("protected") or ())),
+                           body=state.get("feet"))
+    if not options:
+        return []
+    _cost, origin, turns, prepare = options[0]
+    filler = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
+    level = [nav.mine_task(c) if kind == "break" else {"type": "place", "item": filler, "x": c[0], "y": c[1], "z": c[2]}
+             for kind, c in prepare if kind == "break" or filler]
+    try:
+        return level + blueprint_commands(state, (bp, origin, turns))
+    except NotAvailable:
+        return []
 
 
 def _shelter_commands_for(state, args):
