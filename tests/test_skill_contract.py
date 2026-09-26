@@ -276,6 +276,95 @@ class Outcomes(unittest.TestCase):
         self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt), "the attempt must ask this table")
 
 
+# ------------------------------------------------------------------------------------------ verify needs a product
+class Readings:
+    """What the world reads as, before and after a skill: the bag, where the feet are, the /state, what is found,
+    whether the body is walled in, the free spots around. Patched where each module reads them (readings, not a
+    game); the skill's own `start` and `verify` run unchanged."""
+
+    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids")
+
+    def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=()):
+        self.inv, self.feet, self.st, self.found = inv or inventory(), feet, st or state(), list(found)
+        self.enclosed, self.spots = enclosed, list(spots)
+
+    def patches(self):
+        import importlib
+        out = [mock.patch.object(api, "get", side_effect=lambda path: self.st if path == "/state" else
+                                 (_ for _ in ()).throw(AssertionError(f"verify read {path}")))]
+        values = {"Inventory": lambda data=None: bag(self.inv), "feet": lambda: self.feet,
+                  "enclosed": lambda: self.enclosed, "find": lambda *a, **k: list(self.found),
+                  "free_spots_here": lambda *a, **k: list(self.spots)}
+        for mod in self.MODULES:
+            m = importlib.import_module(f"bonobo.{mod}")
+            out += [mock.patch.object(m, name, fn) for name, fn in values.items() if hasattr(m, name)]
+        return out
+
+
+def _judge(name, args, before, after, result=None, between=None):
+    """start under `before`, verify under `after`: did the contract see a product?"""
+    c = skillkit.REGISTRY[name]
+    call = skillkit.Call(args, {})
+    for world in (before, after):
+        ps = world.patches()
+        for p in ps:
+            p.start()
+        try:
+            if world is before:
+                call.base = c.start(call) if c.start else None
+                if between:
+                    between(call)
+            else:
+                call.result = result
+                return bool(c.verify(call))
+        finally:
+            for p in reversed(ps):
+                p.stop()
+
+
+R = Readings
+MACHINE = lambda n: {"name": "m", "pending": [{"item": "minecraft:iron_ingot", "count": n, "ready_at": 0}]}  # noqa: E731
+HIT = {"block": "minecraft:nether_bricks", "x": 10, "y": 64, "z": 0, "distance": 10.0}
+# (situation, skill, args, world before, world after, the body's result, a change between) → verified?
+PRODUCTS = [
+    ("strip mine: nothing dug, nowhere gone", "strip_mine_step", (None, 8), R(), R(), None, None, False),
+    ("strip mine: went down a level", "strip_mine_step", (None, 8), R(), R(feet=(0, 29, 0)), None, None, True),
+    ("strip mine: stone in the bag", "strip_mine_step", (None, 8), R(), R(inv=inventory(cobblestone=5)), None, None,
+     True),
+    ("eat: the food bar did not move", "eat", (), R(st=state(food=10)), R(st=state(food=10)), True, None, False),
+    ("eat: it did", "eat", (), R(st=state(food=10)), R(st=state(food=16)), True, None, True),
+    ("eat: nothing eaten, and it said so — still no product", "eat", (), R(st=state(food=10)), R(st=state(food=10)),
+     False, None, False),
+    ("loot: the bag is as it was", "loot_chest", (None,), R(inv=inventory(dirt=5)), R(inv=inventory(dirt=5)), 0,
+     None, False),
+    ("loot: more carried", "loot_chest", (None,), R(inv=inventory(dirt=5)), R(inv=inventory(dirt=5, iron_ingot=3)),
+     1, None, True),
+    ("open space: there, but still boxed in", "move_to_open_space", (None,), R(), R(feet=(3, 30, 0), spots=[(4, 30, 0)]),
+     (3, 30, 0), None, False),
+    ("open space: there, room around", "move_to_open_space", (None,), R(),
+     R(feet=(3, 30, 0), spots=[(4, 30, 0), (5, 30, 0)]), (3, 30, 0), None, True),
+    ("dig in: lower but open to the sky", "dig_in", (None,), R(feet=(0, 64, 0)), R(feet=(0, 61, 0)), None, None, False),
+    ("dig in: lower and sealed", "dig_in", (None,), R(feet=(0, 64, 0)), R(feet=(0, 61, 0), enclosed=True), None, None,
+     True),
+    ("dig in: sealed where we stood", "dig_in", (None,), R(feet=(0, 64, 0)), R(feet=(0, 64, 0), enclosed=True), None,
+     None, False),
+    ("collect machine: nothing taken", "collect_machine", (None, MACHINE(8)), R(), R(), None, None, False),
+    ("collect machine: the order collected", "collect_machine", (None, MACHINE(8)), R(), R(), None,
+     lambda call: call.args[1].update(pending=[]), True),
+    ("fortress: no bricks in sight", "find_fortress", (None,), R(), R(), None, None, False),
+    ("fortress: bricks in sight", "find_fortress", (None,), R(), R(found=[HIT]), None, None, True),
+    ("search: walked, found nothing", "seek_blocks", (None, ["oak_log"]), R(), R(feet=(60, 30, 0)), None, None, False),
+    ("search: found one", "seek_blocks", (None, ["oak_log"]), R(), R(feet=(60, 30, 0)), (60, 30, 2), None, True),
+]
+
+
+class VerifyNeedsAProduct(unittest.TestCase):
+    def test_no_product_no_success(self):
+        for name, skill_name, args, before, after, result, between, want in PRODUCTS:
+            with self.subTest(name):
+                self.assertEqual(_judge(skill_name, args, before, after, result, between), want)
+
+
 # ------------------------------------------------------------------------------------------------ free spots
 def shaft():
     """The body at the bottom of a 1×1 shaft three deep in solid stone."""
