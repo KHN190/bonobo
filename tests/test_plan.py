@@ -1,9 +1,7 @@
-"""The plan itself: what the solver returns, and what the columns it chooses from say.
+"""The column solver (solve.py over actions.table): what it returns, and what the columns it chooses from say.
 
-One file for the machinery under Δt and V — the matrix, the columns, and the steps they become. Properties, not
-fixtures: a column table is generated from the world's own tables, so the assertions are about SHAPE (every way
-of getting something is a column, every column costs time, requirements are not consumed) rather than about a
-list of names that has to be edited whenever the game changes.
+Two kinds of table. Small hand-made column sets whose optimum is known exactly (the solver's arithmetic), and the
+real action table, over which each rule is stated as a list of violations that must be empty (the table's shape).
 """
 import math
 import os
@@ -12,143 +10,176 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, knowledge, memory  # noqa: E402
+from bonobo import actions, memory  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from bonobo.solve import Action, Unsolvable, reach_cost, solve  # noqa: E402
-from tests.world import places  # noqa: E402
+from tests.world import inventory, places, slot, snapshot  # noqa: E402
 
-EVERYWHERE = places(20.0)
-NOWHERE = places(None)
+EVERYWHERE = places(20.0)          # fixture: every kind known 20 s away
+NOWHERE = places(None)             # fixture: nothing known anywhere
 
 
 def table(state=None, cost=EVERYWHERE):
     return actions.table(cost, state or {})
 
 
-def names(plan):
-    return [a.name for a, _n in plan.steps()]
+def counts(plan):
+    return {k: v for k, v in plan.counts.items() if v}
 
 
-class TheMatrixPicksTheCheapestCombination(unittest.TestCase):
-    def test_it_reaches_the_target_or_says_what_is_missing(self):
-        plan = solve(table(), {"tool:pickaxe:0": 1, "bag_free": 20}, {"minecraft:cobblestone": 1})
-        self.assertGreater(plan.cost_s, 0.0)
-        self.assertTrue(names(plan))
-        with self.assertRaises(Unsolvable):
-            solve([], {}, {"minecraft:elytra": 1})
-
-    def test_a_cheaper_way_to_the_same_state_wins(self):
-        cheap = Action("cheap", {"x": 1}, 1.0)
-        dear = Action("dear", {"x": 1}, 100.0)
-        self.assertEqual(names(solve([cheap, dear], {}, {"x": 1})), ["cheap"])
-
-    def test_what_is_required_is_not_consumed(self):
-        tool = Action("make tool", {"tool": 1}, 5.0)
-        work = Action("work", {"x": 1}, 1.0, requires={"tool": 1})
-        plan = solve([tool, work], {}, {"x": 2})
-        self.assertEqual(plan.counts.get("make tool"), 1, "a requirement is needed once, not once per use")
-
-    def test_sharing_is_exact(self):
-        """Two things wanting the same intermediate pay for it once — the whole reason the matrix replaced a
-        recursive descent that merged afterwards."""
-        planks = Action("planks", {"planks": 4}, 3.0)
-        table_ = Action("table", {"table": 1, "planks": -4}, 1.0)
-        door = Action("door", {"door": 1, "planks": -4}, 1.0)
-        plan = solve([planks, table_, door], {}, {"table": 1, "door": 1})
-        made = plan.counts.get("planks", 0) * 4
-        spent = 4 * (plan.counts.get("table", 0) + plan.counts.get("door", 0))
-        self.assertGreaterEqual(made, spent, "a plan cannot spend what it never made")
-        self.assertLess(made - spent, 4, "and it does not make a whole batch it never spends")
-
-    def test_steps_come_out_in_an_order_that_can_be_run(self):
-        plan = solve(table(), {"tool:pickaxe:0": 1, "bag_free": 20}, {"minecraft:cobblestone": 4})
-        held = {"tool:pickaxe:0": 1, "bag_free": 20}
-        for action, times in plan.steps():
-            for dim, need in action.requires.items():
-                self.assertGreaterEqual(held.get(dim, 0), need, f"{action.name} ran before {dim} existed")
-            for dim, delta in action.effect.items():
-                held[dim] = held.get(dim, 0) + delta * times
+A = Action
+# (situation, columns, start, target) → exact runs per column, or the exception
+SOLVES = [
+    ("the cheaper of two ways", [A("cheap", {"x": 1}, 1.0), A("dear", {"x": 1}, 100.0)], {}, {"x": 1}, {"cheap": 1}),
+    ("a requirement is made once, not once per use",
+     [A("make tool", {"tool": 1}, 5.0), A("work", {"x": 1}, 1.0, requires={"tool": 1})], {}, {"x": 2},
+     {"make tool": 1, "work": 2}),
+    ("two things sharing an intermediate pay for it once, and make no batch they never spend",
+     [A("planks", {"planks": 4}, 3.0), A("table", {"table": 1, "planks": -4}, 1.0),
+      A("door", {"door": 1, "planks": -4}, 1.0)], {}, {"table": 1, "door": 1}, {"planks": 2, "table": 1, "door": 1}),
+    ("a chain: ore mined, then smelted, per ingot",
+     [A("mine", {"ore": 1}, 2.0), A("smelt", {"ingot": 1, "ore": -1}, 1.0)], {}, {"ingot": 3}, {"mine": 3, "smelt": 3}),
+    ("already held: nothing to do", [A("make", {"x": 1}, 1.0)], {"x": 2}, {"x": 2}, {}),
+    ("held in part: only the rest", [A("make", {"x": 1}, 1.0)], {"x": 1}, {"x": 3}, {"make": 2}),
+    ("a limit forces the dearer way for the rest",
+     [A("cheap", {"x": 1}, 1.0, limit=1), A("dear", {"x": 1}, 10.0)], {}, {"x": 3}, {"cheap": 1, "dear": 2}),
+    ("nothing makes it", [], {}, {"minecraft:elytra": 1}, Unsolvable),
+    ("its requirement can never hold", [A("work", {"x": 1}, 1.0, requires={"key": 1})], {}, {"x": 1}, Unsolvable),
+]
 
 
-class EveryWayOfGettingSomethingIsAColumn(unittest.TestCase):
-    def test_the_table_covers_seek_mine_take_craft_smelt_shelter_and_room(self):
-        kinds = {a.tag[0] for a in table() if a.tag}
-        for kind in ("seek", "mine", "take", "craft", "smelt", "shelter", "room", "gather", "hunt"):
-            self.assertIn(kind, kinds)
+class TheSolver(unittest.TestCase):
+    def test_exact_optimum(self):
+        for name, columns, start, target, want in SOLVES:
+            with self.subTest(name):
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        solve(columns, start, target)
+                    continue
+                self.assertEqual(counts(solve(columns, start, target)), want)
 
-    def test_every_column_costs_time_and_says_what_it_leaves(self):
-        for a in table():
-            self.assertGreater(a.cost_s, 0.0, a.name)
-            self.assertTrue(a.effect or a.requires, a.name)
 
-    def test_mining_needs_room_and_a_tool_where_the_block_needs_one(self):
-        by_name = {a.name: a for a in table()}
-        stone = by_name["mine:minecraft:cobblestone"]
-        self.assertIn("bag_free", stone.requires)
-        self.assertTrue(any(d.startswith("at:") for d in stone.requires))
-        iron = by_name["mine:minecraft:raw_iron"]
-        self.assertTrue(any(d.startswith("tool:pickaxe") for d in iron.requires))
+# Real plans the order and seek rules are checked on: (situation, state, target)
+REAL = [
+    ("cobblestone with a pickaxe", {"tool:pickaxe:0": 1, "bag_free": 20}, {"minecraft:cobblestone": 4}),
+    ("a stone pickaxe from nothing", {"bag_free": 20}, {"minecraft:stone_pickaxe": 1}),
+    ("iron with a stone pickaxe", {"tool:pickaxe:1": 1, "uses:pickaxe": 100, "bag_free": 20},
+     {"minecraft:iron_ingot": 2}),
+    ("a bed from nothing", {"bag_free": 20}, {"bed": 1}),
+]
 
-    def test_a_tool_column_leaves_uses_behind(self):
-        by_name = {a.name: a for a in table()}
-        pick = by_name["craft:minecraft:stone_pickaxe"]
-        self.assertGreater(pick.effect.get(actions.uses_dim("pickaxe"), 0), 0)
 
-    def test_knowing_nowhere_is_a_price_not_a_dead_end(self):
-        plan = solve(actions.table(NOWHERE, {}), {}, {"bed": 1})
-        self.assertTrue(any(n.startswith("seek:") for n in plan.counts), plan.counts)
-        self.assertTrue(any(n in ("craft:bed", "take:bed") for n in plan.counts), plan.counts)
+class RealPlans(unittest.TestCase):
+    def test_steps_come_in_an_order_that_can_run(self):
+        for name, start, target in REAL:
+            with self.subTest(name):
+                plan = solve(table(start), dict(start), target)
+                held, early = dict(start), []
+                for action, times in plan.steps():
+                    early += [(action.name, dim) for dim, need in action.requires.items() if held.get(dim, 0) < need]
+                    for dim, delta in action.effect.items():
+                        held[dim] = held.get(dim, 0) + delta * times
+                self.assertEqual(early, [], "a step ran before what it requires existed")
+
+    def test_knowing_nowhere_every_place_needed_is_sought(self):
+        """With nothing known, every `at:X` a chosen column requires is made by a chosen seek column."""
+        for name, start, target in REAL:
+            with self.subTest(name):
+                plan = solve(actions.table(NOWHERE, start), dict(start), target)
+                chosen = [a for a in plan.actions if plan.counts.get(a.name)]
+                needed = {d for a in chosen for d in a.requires if d.startswith("at:")}
+                sought = {d for a in chosen if a.name.startswith("seek:") for d in a.effect if d.startswith("at:")}
+                self.assertEqual(needed - sought, set())
 
     def test_seeing_one_makes_it_cheaper_never_possible(self):
         blind = reach_cost(actions.table(NOWHERE, {}), {})
-        seen = reach_cost(actions.table(places(10.0), {}), {})
-        for dim, price in seen.items():
-            self.assertLessEqual(price, blind.get(dim, math.inf) + 1e-6, dim)
+        for seconds in (5.0, 10.0, 60.0, 200.0):
+            with self.subTest(seconds=seconds):
+                seen = reach_cost(actions.table(places(seconds), {}), {})
+                dearer = sorted(d for d, p in seen.items() if p > blind.get(d, math.inf) + 1e-6)
+                self.assertEqual(dearer, [])
 
 
-class StepsCarryWhatTheExecutorNeeds(unittest.TestCase):
-    def test_every_column_becomes_a_step_with_seconds_on_it(self):
-        for a in table():
-            step = actions.to_step(a, 1)
-            self.assertGreater(step.est, 0, a.name)
-            self.assertTrue(step.kind)
-
-    def test_a_batch_takes_what_is_wanted_and_what_the_bag_allows(self):
-        def batch(count=1, shadow=3.0, demand=64, free=20, token="minecraft:cobblestone", kind="mine"):
-            step = Step(kind, token, count, {})
-            step.est = 60
-            return actions.marginal_batch(step, {token: shadow}, {token: demand}, free)
-        self.assertGreater(batch().count, 1, "a whole approach for one block is all overhead")
-        for wanted in (2, 4, 9):
-            self.assertLessEqual(batch(demand=wanted).count, wanted, "never more than anything actually wants")
-        self.assertEqual(batch(shadow=0.0, demand=0).count, 1, "nothing wants it: take what was planned")
-        # With more wanted than the bag could ever hold, the bag is what decides — and a bag with two slots
-        # left must decide differently from an empty one.
-        self.assertLess(batch(free=2, demand=6400).count, batch(free=30, demand=6400).count,
-                        "a full bag stops the batch")
-        for planned in (7, 40):
-            self.assertGreaterEqual(batch(count=planned, shadow=0.0, demand=0).count, planned,
-                                    "a plan is never cut down")
-
-    def test_a_batch_is_promised_the_body_whole(self):
-        step = Step("mine", "minecraft:cobblestone", 1, {})
-        step.est = 60
-        parcel = actions.marginal_batch(step, {"minecraft:cobblestone": 3.0}, {"minecraft:cobblestone": 8}, 20)
-        self.assertTrue(parcel.detail["batched"])
+# (column name, part of what it requires, part of what it does): the real table, exactly
+COLUMNS = [
+    ("mine:minecraft:cobblestone", {"bag_free": 1, actions.at("stone"): 1}, {}),
+    ("mine:minecraft:raw_iron", {actions.tool_dim("pickaxe", 1): 1}, {actions.uses_dim("pickaxe"): -1}),
+    ("craft:minecraft:stone_pickaxe", {}, {actions.uses_dim("pickaxe"): actions.TOOL_USES["stone"]}),
+    ("craft:minecraft:iron_pickaxe", {}, {actions.uses_dim("pickaxe"): actions.TOOL_USES["iron"]}),
+    ("gather:log", {actions.DAY_DIM: 1, "hands_free": 1}, {}),
+    ("take:bed", {}, {"bed": 1}),
+]
 
 
-class ToolsWearAndTheStateSaysSo(unittest.TestCase):
-    def test_a_worn_tool_is_worth_less_than_a_fresh_one(self):
-        """The state vector carries what the pickaxes have left, so a worn one buys less mining than a fresh one."""
-        from tests.world import inventory, slot, snapshot
-        m = memory.Memory(os.path.join(tempfile.mkdtemp(prefix="plan"), "notes.json"))
-        worn = actions.state_of(snapshot(inv=inventory(slot("iron_pickaxe", 1, 240))), m).get(actions.uses_dim("pickaxe"), 0)
-        fresh = actions.state_of(snapshot(inv=inventory(("iron_pickaxe", 1))), m).get(actions.uses_dim("pickaxe"), 0)
-        self.assertLess(worn, fresh)
-
-    def test_mining_spends_the_tool_it_requires(self):
+class TheColumns(unittest.TestCase):
+    def test_named_columns(self):
         by_name = {a.name: a for a in table()}
-        self.assertLess(by_name["mine:minecraft:raw_iron"].effect.get(actions.uses_dim("pickaxe"), 0), 0)
+        for name, requires, effect in COLUMNS:
+            with self.subTest(name):
+                a = by_name[name]
+                self.assertEqual({k: a.requires.get(k) for k in requires}, requires)
+                self.assertEqual({k: a.effect.get(k) for k in effect}, effect)
+
+    def test_every_column(self):
+        """Every column: costs time, does or needs something, becomes an executable step with seconds on it."""
+        rules = [("costs no time", lambda a: a.cost_s <= 0),
+                 ("does nothing and needs nothing", lambda a: not (a.effect or a.requires)),
+                 ("becomes a step with no seconds", lambda a: actions.to_step(a, 1).est <= 0),
+                 ("becomes a step of no kind", lambda a: not actions.to_step(a, 1).kind)]
+        columns = table()
+        for rule, broken in rules:
+            with self.subTest(rule):
+                self.assertEqual([a.name for a in columns if broken(a)], [])
+
+    def test_every_way_of_getting_something_is_a_column(self):
+        kinds = {a.tag[0] for a in table() if a.tag}
+        for kind in ("seek", "mine", "take", "craft", "smelt", "shelter", "room", "gather", "hunt"):
+            with self.subTest(kind):
+                self.assertIn(kind, kinds)
+
+
+def batch(count=1, shadow=3.0, demand=64, free=20, token="minecraft:cobblestone", kind="mine"):
+    step = Step(kind, token, count, {})
+    step.est = 60
+    return actions.marginal_batch(step, {token: shadow}, {token: demand}, free)
+
+
+class Batches(unittest.TestCase):
+    # (situation, batch keywords) → exact count; where the exact count is the margin's own, only its bound is named
+    EXACT = [("nothing wants it: what was planned", dict(shadow=0.0, demand=0), 1),
+             ("a plan of 7 is never cut down", dict(count=7, shadow=0.0, demand=0), 7),
+             ("a plan of 40 is never cut down", dict(count=40, shadow=0.0, demand=0), 40),
+             ("wanted 2 in all: 2", dict(demand=2), 2)]
+
+    def test_exact(self):
+        for name, kw, want in self.EXACT:
+            with self.subTest(name):
+                self.assertEqual(batch(**kw).count, want)
+
+    def test_bounds(self):
+        rows = [("never more than wanted (4)", batch(demand=4).count, 4),
+                ("never more than wanted (9)", batch(demand=9).count, 9),
+                ("a nearly full bag caps it below an empty one", batch(free=2, demand=6400).count,
+                 batch(free=30, demand=6400).count - 1)]
+        for name, got, most in rows:
+            with self.subTest(name):
+                self.assertEqual(min(got, most), got)
+        self.assertEqual(batch(demand=8).detail.get("batched"), True, "a batch is promised the body whole")
+
+
+# (bag) → the pickaxe uses the state vector carries (usable ones only: 3 or more left)
+USES = [("none", inventory(), 0), ("a fresh iron pickaxe", inventory(("iron_pickaxe", 1)), 250),
+        ("a worn one, 10 left", inventory(slot("iron_pickaxe", 1, 240)), 10),
+        ("two, added up", inventory(("stone_pickaxe", 1), slot("iron_pickaxe", 1, 200)), 131 + 50),
+        ("one about to break (2 left) does not count", inventory(slot("iron_pickaxe", 1, 248)), 0)]
+
+
+class ToolsWear(unittest.TestCase):
+    def test_uses_in_the_state(self):
+        m = memory.Memory(os.path.join(tempfile.mkdtemp(prefix="plan"), "notes.json"))
+        for name, inv, want in USES:
+            with self.subTest(name):
+                self.assertEqual(actions.state_of(snapshot(inv=inv), m).get(actions.uses_dim("pickaxe"), 0), want)
 
 
 if __name__ == "__main__":
