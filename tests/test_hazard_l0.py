@@ -187,6 +187,7 @@ ANSWERS = [
     ("reshape", ("under", 2), [("run", "pillar"), ("run", "pillar")]),
     ("reshape", ("down", 2), [("mine_cell", (0, 63, 0)), ("mine_cell", (0, 62, 0))]),
     ("ignore", None, []),
+    ("evade", "nowhere", api.NotAvailable),            # the walk got nowhere: the answer failed, and says so
 ]
 
 
@@ -200,7 +201,7 @@ class FightHandOff(unittest.TestCase):
                     mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"])) or
                                       {"status": "succeeded"}), \
                     mock.patch.object(fight_loop.nav, "go_to", side_effect=lambda pos, *a, **k: calls.append(
-                        ("go_to", pos)) or True), \
+                        ("go_to", pos)) or pos != "nowhere"), \
                     mock.patch.object(fight_loop, "mine_cell", side_effect=lambda pol, cell, **k: calls.append(
                         ("mine_cell", cell))), \
                     mock.patch.object(fight_loop, "Inventory", lambda: bag(inventory(cobblestone=8))), \
@@ -210,14 +211,12 @@ class FightHandOff(unittest.TestCase):
                                       side_effect=lambda: calls.append(("skill", "shield_to_offhand"))), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the answer read the world")):
                 ctx = type("Ctx", (), {"policy": None})()
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        fight_loop.engage(Decision(kind, target), state(x=0.5, y=64.0, z=0.5), ctx)
+                    continue
                 fight_loop.engage(Decision(kind, target), state(x=0.5, y=64.0, z=0.5), ctx)
                 self.assertEqual(calls, want)
-
-    def test_an_evade_that_gets_nowhere_fails(self):
-        from bonobo import fight_loop
-        with mock.patch.object(fight_loop.nav, "go_to", return_value=False):
-            with self.assertRaises(api.NotAvailable):
-                fight_loop.engage(Decision("evade", (9, 64, 0)), state(), type("Ctx", (), {"policy": None})())
 
     # (the answer raises?, taken by the arbiter?) → (taken, failure recorded)
     OFFERS = [(None, True, (True, {})), (api.NavFailed("cornered"), True, (True, {"failed": "NavFailed: cornered"})),

@@ -283,12 +283,16 @@ class ThePoints(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(sc.SCENARIOS[name]["point"], "C")
 
+    # (what the acceptance row must be) — test point D: 30 minutes, a real world, from nothing, its own tier
+    ACCEPT = [("point", lambda r: r["point"] == "D"), ("budget ≤ 30 min", lambda r: r["budget"] <= 30 * 60),
+              ("a real world", lambda r: bool(r.get("raw"))), ("from nothing", lambda r: "clear @p" in r["setup"]),
+              ("its own tier", lambda r: r["tier"] == "acceptance")]
+
     def test_d_acceptance(self):
         row = sc.SCENARIOS[sc.ACCEPTANCE_D]
-        self.assertEqual(row["point"], "D")
-        self.assertLessEqual(row["budget"], 30 * 60, "30 minutes from a fresh start to an iron pickaxe")
-        self.assertTrue(row.get("raw"), "a real world, not the bench box")
-        self.assertIn("clear @p", row["setup"], "from nothing")
+        for what, holds in self.ACCEPT:
+            with self.subTest(what):
+                self.assertTrue(holds(row))
 
 
 if __name__ == "__main__":

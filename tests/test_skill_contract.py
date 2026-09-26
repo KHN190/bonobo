@@ -265,10 +265,8 @@ class Outcomes(unittest.TestCase):
         for err, want in rows:
             with self.subTest(repr(err)):
                 self.assertEqual(brain.outcome_of(err), want)
-
-    def test_the_attempt_asks_outcome_of(self):
         import inspect
-        self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt))
+        self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt), "the attempt must ask this table")
 
 
 # ------------------------------------------------------------------------------------------------ free spots
@@ -381,8 +379,11 @@ class Runner(unittest.TestCase):
 
     def test_step_keys_most_specific_first(self):
         from bonobo.planner import Step
-        self.assertEqual(skillkit.step_keys(Step("mine", "minecraft:coal", 1)),
-                         ["mine:minecraft:coal", "item:minecraft:coal", "mine"])
+        for kind, token, want in (("mine", "minecraft:coal", ["mine:minecraft:coal", "item:minecraft:coal", "mine"]),
+                                  ("gather", "log", ["gather:log", "item:log", "gather"]),
+                                  ("shelter", "dig in", ["shelter:dig in", "item:dig in", "shelter"])):
+            with self.subTest(kind=kind, token=token):
+                self.assertEqual(skillkit.step_keys(Step(kind, token, 1)), want)
 
     # (providers: (name, effect, prefer, adapter result)), the step → the chosen (name, args) or None
     PROVIDERS = [
