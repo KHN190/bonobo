@@ -91,37 +91,27 @@ def callers_of(func, among=EXECUTING):
 
 
 class RulesAreWired(unittest.TestCase):
-    def test_the_planner_is_called_by_the_fight(self):
-        self.assertIn("end", callers_of("plan"), "the fight must ask the planner, not hold its own order")
+    # (rule, the functions that enforce it, exactly which executing modules call them). A rule reached from nowhere
+    # is written, not enforced; a new caller is a change of wiring someone should see.
+    WIRED = [
+        ("the fight asks the planner", ("plan",), {"end"}),
+        ("the recovery table is consulted", ("explain", "recovery_for"), {"end"}),
+        ("the bunker geometry is dug", ("mouth", "tunnel", "dig_plan"), {"end"}),
+        ("the threat model is used by the fight", ("threats", "tti", "exposure", "window_summary"), {"fight_plan"}),
+        ("every look is vetted for endermen (the funnel and the bow)", ("aim_hits_enderman",), {"api", "combat"}),
+        ("the safety choice is made by the model", ("best_step", "slack_at", "min_tti"), {"end", "fight_plan", "nav"}),
+        ("threats are bid for from perception", ("bid", "options"), {"perception", "threat"}),
+        ("perception interrupts on pressure, not health alone", ("pressure", "time_to_die"), {"perception", "threat"}),
+        ("the fight submits intents to one body", ("submit", "Motion"), {"end"}),
+        ("the funnels ask who owns the body", ("owns",), {"api", "nav"}),
+        ("preemption: perception, the fight, the end game", ("preempt",), {"end", "fight_loop", "perception"}),
+        ("threat rows are differenced in one place", ("rows",), {"end", "threat"}),
+    ]
 
-    def test_the_recovery_table_is_consulted(self):
-        # Not `_recover` — that is our own wrapper. The table itself must be reached.
-        wired = callers_of("explain") | callers_of("recovery_for")
-        self.assertTrue(wired, "the recovery table is written but nothing looks anything up in it")
-
-    def test_the_bunker_geometry_is_used_by_the_fight(self):
-        self.assertIn("end", callers_of("mouth") | callers_of("tunnel") | callers_of("dig_plan"),
-                      "bunker.py is geometry nobody digs")
-
-    def test_the_threat_model_is_used_by_something_that_runs(self):
-        # combat_model computes time-to-impact and phase statistics. If only the offline report imports it, the
-        # fight is not using the model the design is built on — and the documentation says otherwise.
-        self.assertTrue(callers_of("threats") | callers_of("tti") | callers_of("exposure")
-                        | callers_of("window_summary"),
-                        "combat_model is documented as part of the fight but no executing module calls it")
-
-    def test_every_look_is_vetted_for_endermen(self):
-        # The rule says looking at an enderman's head provokes it, so aims are checked. If only the bow checks,
-        # then digging, walking, placing and bombing all look wherever they like — which is what happened.
-        callers = callers_of("aim_hits_enderman")
-        self.assertGreater(len(callers), 1,
-                           f"only {callers or 'nothing'} checks its aim; every other action looks freely")
-
-    def test_the_safety_choice_is_made_by_the_model(self):
-        # best_step / slack_at are the closed-form safety rule. They have been written, deleted and rewritten;
-        # what keeps failing is not the algorithm but its call site.
-        self.assertTrue(callers_of("best_step") | callers_of("slack_at") | callers_of("min_tti"),
-                        "nothing on the execution path asks the model where it is safe to stand")
+    def test_rules_are_called_from_what_runs(self):
+        for rule, funcs, callers in self.WIRED:
+            with self.subTest(rule):
+                self.assertEqual(set().union(*(callers_of(f) for f in funcs)), callers)
 
     # (the entity's last reading (pos, seconds ago) or None, now) → the velocity its row carries
     VELOCITY = [("never seen before: at rest", None, (10.0, 64.0, 0.0), (0.0, 0.0, 0.0)),
@@ -143,23 +133,6 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
                 self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")
         self.assertIn("rows", GRAPH["end"], "the fight builds its rows with the shared differencing")
-
-    def test_ordinary_play_asks_the_threat_layer(self):
-        # "hostile within 5 → attack, hp ≤ 10 and within 6 → flee" was two literals pretending to be a policy. The
-        # answer comes from the threat model, and from ONE place: perception, at its own cadence. The brain had a
-        # second copy that ran once a round, could choose `ignore` as though doing nothing were a rescue, and held
-        # the body while the real answer waited for a lease. That cost a death.
-        self.assertIn("perception", callers_of("bid") | callers_of("options"),
-                      "nothing bids for the body when something is hitting us")
-        self.assertNotIn("brain", callers_of("decide"), "the brain answers threats again: one decider, not two")
-        self.assertIn("perception", callers_of("pressure") | callers_of("time_to_die"),
-                      "perception interrupts on health alone: deaths by arrows are invisible to it")
-
-    def test_the_body_has_one_exit(self):
-        # Written and wired in the same turn, and watched from the same turn, because every other rule in this
-        # suite was written first and wired later — or never.
-        self.assertTrue(callers_of("submit") | callers_of("Motion"),
-                        "nothing submits intents: the fight is driving the body from several places again")
 
     def test_perception_does_not_halt_the_body_itself(self):
         # The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's. Two direct stops here were
@@ -284,14 +257,18 @@ class OneDecisionPoint(unittest.TestCase):
 class SafetyIsNotOptIn(unittest.TestCase):
     """A guard that each call site must remember to ask for is a guard whose coverage decays."""
 
-    def test_travel_health_guard_is_not_per_call(self):
-        src = source("nav")
-        tree = ast.parse(src)
-        go_to = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "go_to")
-        default = dict(zip([a.arg for a in go_to.args.args][-len(go_to.args.defaults):],
-                           go_to.args.defaults)).get("min_hp")
-        self.assertFalse(isinstance(default, ast.Constant) and default.value is None,
-                         "min_hp defaults to None: every walk is unguarded unless the caller remembers")
+    def test_guards_are_on_by_default(self):
+        """A guard each caller must remember to ask for is a guard whose coverage decays: the safe value is the
+        default, stated exactly."""
+        import inspect
+        from bonobo import api, nav, skillcore
+        rows = [("every walk guards health", nav.go_to, "min_hp", nav.MIN_WALK_HP),
+                ("every walk avoids hazards", nav.go_to, "avoid_hazards", True),
+                ("every wait for the world yields to an interrupt", skillcore.settle, "soft", False),
+                ("every interrupt check applies to hard work", api.check_interrupt, "soft", False)]
+        for name, fn, param, want in rows:
+            with self.subTest(name):
+                self.assertEqual(inspect.signature(fn).parameters[param].default, want)
 
 
 if __name__ == "__main__":
