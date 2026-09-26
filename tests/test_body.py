@@ -20,7 +20,10 @@ from bonobo import arbiter  # noqa: E402
 from tests.world import (CHALLENGE, CHALLENGES, ELAPSED, FRESHNESS, FakeHeld, HELD_WORTH, HOLDER, INTENT,
                          LAYERS, WORTH, faster_than, intent)  # noqa: E402
 
-FASTER = ("reflex", "safety", "tactic")
+# Every (slower, faster) pair of layers in the subsumption order, not only "something over plan".
+ORDER = sorted(arbiter.SCALES, key=lambda name: arbiter.SCALES[name])
+PAIRS = [(slow, fast) for i, slow in enumerate(ORDER) for fast in ORDER[:i]]
+FASTER = tuple(fast for slow, fast in PAIRS if slow == "plan")
 
 
 def body_with(running, now=0.0):
@@ -34,13 +37,20 @@ class LayeringIsHard(unittest.TestCase):
     """Subsumption is the architecture: a faster layer does not bid for the body, it takes it. Whatever the work
     below is worth, however long it has run, and whatever the answer above claims to save."""
 
+    def test_the_pairs_cover_the_order(self):
+        self.assertEqual(ORDER, ["reflex", "safety", "tactic", "plan"])
+        self.assertEqual(len(PAIRS), 6)
+        self.assertEqual(FASTER, ("reflex", "safety", "tactic"))
+
     def test_a_faster_layer_always_takes_the_body(self):
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
-            for fast in FASTER:
-                body = body_with(intent(kind, layer="plan", at=-ELAPSED[elapsed]))
+            for slow, fast in PAIRS:
+                body = arbiter.Motion()
+                body.preempt(slow, lambda: None, "held", now=0.0, release=lambda: False) if slow != "plan" else None
+                body.pending = [intent(kind, layer="plan", at=-ELAPSED[elapsed])] if slow == "plan" else []
                 taken, why = body.preempt(fast, lambda: None, "answer", worth_s=WORTH[worth], now=0.0)
-                self.assertIsNotNone(taken, f"{fast} over plan/{kind}/{elapsed}/{worth}: refused ({why})")
-                self.assertIsNone(why, f"{fast} over plan/{kind}: taken with a reason {why!r}")
+                self.assertIsNotNone(taken, f"{fast} over {slow}/{kind}/{elapsed}/{worth}: refused ({why})")
+                self.assertIsNone(why, f"{fast} over {slow}/{kind}: taken with a reason {why!r}")
 
     def test_a_slower_layer_never_takes_the_body_from_a_faster_one(self):
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
