@@ -405,7 +405,8 @@ class Row:
 
     def __init__(self, name, row, queued=(), time_of_day=DAY, inv=WELL_FED, seen=None, enclosed=False,
                  bed_seen=False, last_round=None, blocked=None, stuck=False, died=False, cooling=(), place=None,
-                 **st):
+                 job=None, machine=None, **st):
+        self.job, self.machine = job, machine        # (pos, seconds until ready): a furnace job / a smelter order
         # `queued`: the exact set of goals put in front, or a check(set) for rows whose tier is the planner's call
         self.name, self.row = name, row
         self.queued = queued if callable(queued) else {tuple(map(tuple, q)) for q in queued}
@@ -468,6 +469,15 @@ UPKEEP = [
     Row("starving slowly, cows far away: food to the front (LEAD)", None, queued=[[("food", 8)]], food=3,
         inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 45, "oak_log": 10, "stone": 2}),
     Row("full stomach, no meals, cows near: no hurry", None, food=20, inv=[("white_bed", 1), ("stone_pickaxe", 1)]),
+    Row("a furnace job is done nearby", "collect job", job=((6, 64, 0), -5)),
+    Row("the furnace job is still cooking", None, job=((6, 64, 0), 60)),
+    Row("a finished job too far away to go back for", None, job=((400, 64, 0), -5)),
+    Row("the auto smelter's order is due", "collect machine", machine=((8, 64, 0), -5)),
+    Row("the smelter's order is not due", None, machine=((8, 64, 0), 120)),
+    Row("the same block for 90 s at night, sheltered underground: resting, not stuck", None, stuck=True,
+        time_of_day=NIGHT, skyLight=0, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
+    Row("the same block for 90 s at night in a sealed pod: resting, not stuck", None, stuck=True, enclosed=True,
+        time_of_day=NIGHT, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
 ]
 
 
@@ -483,6 +493,11 @@ def run_upkeep(row, tmp):
         b.retry.failed(name, "error", "failed here", now, PLACE)
     if row.died:
         b.mem.log_death((6, 64, 0), row.state["dimension"])
+    if row.job:
+        b.mem.add_job("smelt", row.job[0], row.state["dimension"], "minecraft:iron_ingot", 3, now + row.job[1], [])
+    if row.machine:
+        name = b.mem.add_machine("auto_smelter", row.machine[0], 0, row.state["dimension"], ["smelting"])
+        b.mem.add_pending(name, "minecraft:iron_ingot", 8, now + row.machine[1])
     snap = snapshot(row.state, row.inv)
     if row.last_round is not None:
         table.observe(snapshot(row.state, inventory(*row.last_round)))
