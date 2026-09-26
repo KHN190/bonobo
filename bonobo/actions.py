@@ -21,7 +21,7 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 """
 import math
 
-from .data import COVERED_SKY, GROUPS, TOOL_MATERIAL_FOR_TIER, bare, mid, seen_class
+from .data import COVERED_SKY, GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid, seen_class
 from .knowledge import GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
@@ -186,7 +186,7 @@ def state_of(snap, mem, extra=None, reachable=None):
         for group, members in GROUPS.items():
             if item in members or bare(item) in members:
                 x[group] = x.get(group, 0) + n
-    for kind in ("pickaxe", "axe", "sword", "shovel", "hoe"):
+    for kind in TOOL_KINDS:
         usable = [(t, d) for t, d, _ in inv.tools(kind) if d >= 3]
         best = max((t for t, _d in usable), default=None)
         if best is not None:
@@ -463,7 +463,7 @@ def _craft_specs():
         kind = bare(name).rpartition("_")[2]
         material = bare(name).rpartition("_")[0]
         tier = next((t for t, m in TOOL_MATERIAL_FOR_TIER.items() if m == material), None)
-        if tier is None or kind not in ("pickaxe", "axe", "sword", "shovel", "hoe"):
+        if tier is None or kind not in TOOL_KINDS:
             continue
         spec = by_name.get(f"craft:{name}")
         if spec is None:

@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from .api import McError
-from .data import GROUPS, TIER_OF_MATERIAL, TOOL_MATERIAL_FOR_TIER, bare, mid
+from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
 from .knowledge import COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, STATIONS, members, source
 
 MAX_DEPTH = 14
@@ -86,11 +86,7 @@ class Planner:
             s = inv.equipment.get(slot) or {}
             if s.get("count"):
                 counts[s["id"]] += 1
-        tools = []
-        for s in inv.slots:
-            material, _, kind = bare(s["id"]).rpartition("_")
-            if material in TIER_OF_MATERIAL:
-                tools.append((kind, TIER_OF_MATERIAL[material], s.get("maxDamage", 0) - s.get("damage", 0)))
+        tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)] if hasattr(inv, "tools") else []
         return cls(counts, tools, cost)
 
     # ---- public

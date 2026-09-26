@@ -12,7 +12,7 @@ import time
 from . import api, blueprints, decompose, goals, nav, nether, skills, tape, tasks
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import BASE_MARKERS, COVERED_SKY, TOOL_MATERIAL_FOR_TIER
+from .data import BASE_MARKERS, COVERED_SKY, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
 from .knowledge import food_count
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -28,7 +28,6 @@ JOB_RANGE = 96
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
-TOOL_KINDS = ("pickaxe", "axe", "shovel", "sword")    # every kind a plan asks for (goals, planner tool needs)
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 BRIDGE_MIN = 8             # building blocks worth starting a bridge with
 BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN

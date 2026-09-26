@@ -25,7 +25,6 @@ This module imports one thing, `paths`, which is where a filesystem layout lives
 decision: facts do not depend on decisions.
 """
 import json
-import math
 import os
 import tomllib
 

@@ -1477,16 +1477,12 @@ def can_store_here(ctx, local_only=False):
     if local_only:
         return bool(find(["chest", "barrel"], radius=6, limit=1))
     here = feet()
-    return any(math.dist(s["pos"], here) <= 96 and site_trek_ok(s) for s in ctx.mem.sites(ctx.dimension))
+    return any(math.dist(s["pos"], here) <= 96 and site_trek_ok(ctx, s) for s in ctx.mem.sites(ctx.dimension))
 
 
-_TREK_FAILED = {}      # site name -> when a storage trek there failed
-TREK_RETRY = 600       # seconds before trying that trek again (a failed trek costs a minute of travel replans)
-
-
-def site_trek_ok(site, now=None):
-    import time
-    return (now or time.time()) - _TREK_FAILED.get(site.get("name"), 0) >= TREK_RETRY
+def site_trek_ok(ctx, site):
+    """A storage trek there has not just failed: the site's cell is not banned (the one ban list, `Context.ban`)."""
+    return not ctx.blocked(tuple(site["pos"]))
 
 
 def _place_cache_chest(ctx):
@@ -1552,11 +1548,10 @@ def deposit(ctx, local_only=False):
     for site in ([] if local_only else sorted(ctx.mem.sites(ctx.dimension), key=lambda s: math.dist(s["pos"], here))):
         if math.dist(site["pos"], here) > 96:
             break
-        if not site_trek_ok(site):
+        if not site_trek_ok(ctx, site):
             continue
         if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
-            import time
-            _TREK_FAILED[site.get("name")] = time.time()
+            ctx.ban(tuple(site["pos"]))      # a failed trek costs a minute of travel replans: not again soon
             # A cache chest that stays unreachable is dead memory: forget it after 3 failed treks.
             if site.get("kind") == "cache":
                 misses = site.get("misses", 0) + 1
