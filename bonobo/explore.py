@@ -31,7 +31,8 @@ def surface_first(ctx, max_climb=90):
         raise api.NavFailed(f"could not reach the surface from y={y}")
 
 
-@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150)
+@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,
+       provides={"explore:mobs": lambda ctx, s: (list(s.detail["types"]),)})
 def explore_for(ctx, types, legs=6, leg=40):
     """Find entities of `types`: remembered sightings first, then an outward spiral over known land. Returns the
     matches (maybe empty); walking counts as progress, so only a body that stops moving stalls."""
@@ -78,7 +79,8 @@ def explore_for(ctx, types, legs=6, leg=40):
     return []
 
 
-@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150)
+@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,
+       provides={"explore:blocks": lambda ctx, s: (list(s.detail["blocks"]),)})
 def seek_blocks(ctx, blocks, legs=6, leg=40):
     """Find a block type that isn't in range (trees, sand, clay): outward spiral over known land, checking /find
     after every leg. Returns the hits (maybe empty); walking counts as progress."""
@@ -135,7 +137,8 @@ def seek(ctx, kinds, pos=None):
     return [target]
 
 
-@skill(provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", 2))}, budget=900, stall=120)
+@skill(provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", 2))}, budget=900, stall=120,
+       verify=lambda c: math.dist(feet(), c.args[1]) <= (c.args[2] if len(c.args) > 2 else 2) + 1)
 def travel_to(ctx, pos, range_=2):
     """Be at `pos` (within `range_`): walk, dig and bridge there leg by leg (`nav.arrive`)."""
     return nav.arrive(tuple(pos), ctx.policy, range_=range_)

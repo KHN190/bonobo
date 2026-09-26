@@ -30,7 +30,9 @@ def brew_steps(have):
     return steps
 
 
-@skill(budget=180, stall=60, per_unit=10)
+@skill(start=lambda c: Inventory().count("minecraft:potion"),
+       verify=lambda c: Inventory().count("minecraft:potion") > c.base, budget=180, stall=60, per_unit=10,
+       provides={"fill:minecraft:potion": lambda ctx, s: (s.count,)})
 def fill_bottles(ctx, count=3):
     """Fill glass bottles at water (use the bottle while looking at a water source)."""
     from . import fluids
@@ -55,7 +57,9 @@ def fill_bottles(ctx, count=3):
     raise NotAvailable("no reachable still water for bottles")
 
 
-@skill(budget=300, stall=120, per_unit=60)
+@skill(start=lambda c: Inventory().count("minecraft:magma_cream"),
+       verify=lambda c: Inventory().count("minecraft:magma_cream") < c.base, budget=300, stall=120, per_unit=60,
+       provides={"brew:fire_resistance": lambda ctx, s: ()})
 def brew_fire_resistance(ctx):
     """At a brewing stand (found or placed from the bag): 3 water bottles + nether wart → awkward, + magma cream →
     fire resistance, blaze powder as fuel. Each ingredient takes 20 s."""

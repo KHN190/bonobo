@@ -83,6 +83,12 @@ def go_find(ctx, step):
             return nav.arrive((here[0], depth, here[2]), ctx.policy, range_=3)
         except api.NavFailed:
             pass
+    if step.kind == "mine" and depth is not None and dim == "minecraft:overworld":
+        try:                                    # at the richest depth and nothing in sight: tunnel to reveal ore
+            skills.strip_mine_step(ctx)
+            return True
+        except NotAvailable:
+            pass
     if step.kind == "hunt":
         return bool(skills.explore_for(ctx, list(step.detail["types"])))
     return bool(skills.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))

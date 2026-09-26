@@ -137,6 +137,8 @@ class Upkeep:
              lambda: skills.sleep(ctx, b.policy(snap, True))),
             ("shelter", lambda: over and snap.night and not self.sheltered(snap), lambda: self.shelter(snap, ctx)),
             ("collect job", lambda: self.ready_job(snap) is not None, lambda: self.collect_job(snap, ctx)),
+            ("collect machine", lambda: self.ready_machine(snap) is not None,
+             lambda: skills.collect_machine(ctx, self.ready_machine(snap))),
             ("empty the bag", lambda: inv.used_slots() >= BAG_FULL, lambda: self.empty_bag(snap, ctx)),
             ("path blocked", lambda: blocked is not None and inv.count("building") >= BRIDGE_MIN,
              lambda: self.bridge(ctx, blocked)),
@@ -226,6 +228,12 @@ class Upkeep:
                 if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
         return min(near, key=lambda j: math.dist(j["pos"], snap.feet), default=None)
 
+    def ready_machine(self, snap):
+        """The nearest machine (auto smelter) whose loaded order is due, within JOB_RANGE."""
+        near = [m for m in self.brain.mem.machines(snap.dimension)
+                if skills.pending_ready(m) and math.dist(m["origin"], snap.feet) <= JOB_RANGE]
+        return min(near, key=lambda m: math.dist(m["origin"], snap.feet), default=None)
+
     def collect_job(self, snap, ctx):
         from . import jobs
         job = self.ready_job(snap)
@@ -312,7 +320,8 @@ def _tools_of(kind):
 
 
 @skill(start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
-       budget=60, stall=30, per_unit=5)
+       budget=60, stall=30, per_unit=5, prefer=1,
+       provides={"repair": lambda ctx, s: (s.token,) if repair_pair(Inventory().slots, s.token) else None})
 def repair_tool(ctx, kind="pickaxe"):
     """Combine the two most worn tools of one kind in the 2×2 grid into one repaired tool."""
     pair = repair_pair(Inventory().slots, kind)

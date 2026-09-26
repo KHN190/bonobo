@@ -134,9 +134,14 @@ class Brain:
         if s["screen"] == "none" and skills.shield_wanted_in_offhand() and time.time() - self.last_offhand > 30:
             self.last_offhand = time.time()
             skills.shield_to_offhand()
-        if time.time() - self.last_light > 5 and not skills.enclosed():
-            if skills.place_torch_if_dark(self.context(s["dimension"])):
-                self.last_light = time.time()
+        if time.time() - self.last_light > 5 and skills.dark_here(s) and not skills.enclosed():
+            self.last_light = time.time()
+            try:
+                skills.light_area(self.context(s["dimension"]), 4, 1)     # one torch where we stand in the dark
+            except api.INTERRUPTIONS:
+                raise
+            except McError:
+                pass
 
     # -- failure policy (retry.py)
     def failed(self, name, err):

@@ -186,7 +186,8 @@ def _obsidian_near(pos, radius=8):
 _CAST = {}      # where the last pour went: what the verify looks at
 
 
-@skill(verify=lambda c: _obsidian_near(_CAST.get("bank")) > 0, budget=900, stall=240, per_unit=120)
+@skill(verify=lambda c: _obsidian_near(_CAST.get("bank")) > 0, budget=900, stall=240, per_unit=120,
+       provides={"cast:obsidian": lambda ctx, s: ()})
 def cast_obsidian(ctx):
     """Turn a lava pool's surface into obsidian: pour water from a safe bank, wait, take the water back.
     Returns the number of new obsidian blocks near the pool (the mine skill collects them)."""

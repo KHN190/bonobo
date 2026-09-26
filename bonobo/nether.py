@@ -43,7 +43,8 @@ def triangulate(p1, d1, p2, d2):
     return round(x1 + a1 * t), round(z1 + b1 * t)
 
 
-@skill(done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90, per_unit=60)
+@skill(done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90, per_unit=60,
+       provides={"portal": lambda ctx, s: (s.token,)})
 def use_portal(ctx, to_dimension):
     """Walk into the nearest known lit portal and stand in it until the dimension changes. In the Overworld the
     portal is the remembered machine; in the Nether it's the arrival portal (remembered on arrival) or any in sight."""
@@ -97,7 +98,8 @@ def use_portal(ctx, to_dimension):
     raise McError("stood in the portal but the dimension didn't change")
 
 
-@skill(verify=lambda c: bool(c.args[0].mem.sites(NETHER, kinds=["fortress"])), budget=900, stall=180, per_unit=600)
+@skill(verify=lambda c: bool(c.args[0].mem.sites(NETHER, kinds=["fortress"])), budget=900, stall=180, per_unit=600,
+       provides={"seek:fortress": lambda ctx, s: ()})
 def find_fortress(ctx, legs=8, leg=48):
     """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava). Remembers the
     fortress as a site so blaze hunting starts there."""
@@ -188,7 +190,8 @@ def _not_gold():
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
 
-@skill(start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15)
+@skill(start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15,
+       provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)})
 def barter_piglin(ctx, ingots=8):
     """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect.
     Pearls, obsidian, string and fire resistance potions all come this way."""
@@ -248,7 +251,7 @@ def _eye_direction(timeout=3.0):
 
 
 @skill(verify=lambda c: bool(c.args[0].mem.sites(OVERWORLD, kinds=["stronghold"])), budget=900, stall=240,
-       per_unit=600)
+       per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
 def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])

@@ -8,6 +8,7 @@ import math
 
 from . import api, nav
 from .api import McError, NotAvailable, log
+from .data import mid
 from .skill import skill
 from .world import Inventory, container, entities, find
 
@@ -61,7 +62,8 @@ def _put(item, target_slot, count_button=0):
         api.post("/click", {"slot": src["slot"], "button": 0, "action": "PICKUP"})   # put the rest back
 
 
-@skill(budget=180, stall=60, per_unit=30)
+@skill(start=lambda c: api.get("/state").get("xpLevel", 0),
+       verify=lambda c: api.get("/state").get("xpLevel", 0) < c.base, budget=180, stall=60, per_unit=30, provides={"enchant": lambda ctx, s: (mid(s.token),)})
 def enchant_item(ctx, item):
     """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option,
     take the item back."""
@@ -92,7 +94,7 @@ def enchant_item(ctx, item):
 
 
 @skill(start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=60, per_unit=30)
+       budget=180, stall=60, per_unit=30, provides={"trade": lambda ctx, s: (mid(s.token),)})
 def trade(ctx, want):
     """Buy `want` from a nearby villager: open its trades, pick an affordable offer, take the result."""
     villagers = [e for e in entities(24) if e["type"] == "minecraft:villager" and not ctx.blocked((e["id"], 0, 0))]
@@ -120,7 +122,27 @@ def trade(ctx, want):
     return index
 
 
-@skill(budget=180, stall=60, per_unit=30)
+def _worn(item):
+    """Damage on the most worn one of `item` carried (0 when none)."""
+    return max((s.get("damage", 0) for s in Inventory().slots if s["id"] == item), default=0)
+
+
+def _anvil_args(ctx, step):
+    """(most worn tool of the step's kind, the material an anvil repairs it with), when both are carried."""
+    from .data import MATERIAL_TOKEN
+    from .knowledge import members
+    inv = Inventory()
+    tools = [s for s in inv.slots if s["id"].endswith("_" + step.token) and s.get("damage")]
+    if not tools:
+        return None
+    item = max(tools, key=lambda s: s["damage"])["id"]
+    token = MATERIAL_TOKEN.get(item.split(":")[-1].rpartition("_")[0])
+    material = next((m for m in members(token) if inv.count(m)), None) if token else None
+    return (item, material) if material else None
+
+
+@skill(start=lambda c: _worn(c.args[1]), verify=lambda c: _worn(c.args[1]) < c.base,
+       budget=180, stall=60, per_unit=30, prefer=-1, provides={"repair": _anvil_args})
 def anvil_repair(ctx, item, material):
     """At an anvil: the damaged item + its repair material (e.g. diamond pickaxe + diamonds), take the result when
     the level cost is affordable."""

@@ -106,7 +106,8 @@ def _plot_growing(centre):
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
 
-@skill(verify=lambda c: bool(c.result) and _plot_growing(c.result), budget=300, stall=90, per_unit=120)
+@skill(verify=lambda c: bool(c.result) and _plot_growing(c.result), budget=300, stall=90, per_unit=120,
+       provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
     """Make a 3×3 wheat plot here: dig the centre, pour the water bucket in (and take nothing back — it stays as
     the plot's source), till the 8 neighbours with a hoe, sow seeds, start a crop job."""
@@ -190,7 +191,8 @@ def _breed_food():
     return sum(inv.count(f) for f in set(BREED_FOOD.values()))
 
 
-@skill(start=lambda c: _breed_food(), verify=lambda c: _breed_food() < c.base, budget=180, stall=60, per_unit=60)
+@skill(start=lambda c: _breed_food(), verify=lambda c: _breed_food() < c.base, budget=180, stall=60, per_unit=60,
+       provides={"breed": lambda ctx, s: ()})
 def breed(ctx):
     """Feed two adults of one kind the food they breed on; a breed job marks the 5-minute cooldown there."""
     inv = Inventory()

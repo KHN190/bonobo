@@ -65,7 +65,8 @@ def openable_container(pos):
 
 
 @skill(budget=120, stall=45, per_unit=20,
-       verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2)
+       verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2,
+       provides={"reach:open": lambda ctx, s: ()})
 def move_to_open_space(ctx):
     """Full bag in a shaft or tunnel: walk to the nearest spot with room to throw and to put down a chest."""
     x, y, z = feet()
@@ -823,44 +824,26 @@ def contain_lava(ctx, radius=4):
     return covered
 
 
-def torch_commands(state, args=()):
-    """Pure: [the one place task] that lights the darkest floor spot within reach, or [] when there is nothing to do
-    (not dark, no torch in the bag, no spot). `state["spots"]` is what /dark answered."""
+def dark_here(s):
+    """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
+    return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
+
+
+def torch_commands(state, args=(4, 1)):
+    """Pure: place tasks for up to `limit` of the darkest floor spots within `radius` (args = (radius, limit)),
+    never the body's own cells; [] when no torch is placeable or nothing is dark. `state["spots"]` is what /dark
+    answered."""
+    radius, limit = (tuple(args) + (4, 1)[len(args):])[:2]
     s = state["state"]
-    if "blockLight" not in s or s["blockLight"] > 0 or (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500):
-        return []
     if state["inv"].usable("minecraft:torch") == 0:   # a torch in the offhand can't be placed by tasks
         return []
     here = state["feet"]
     spots = [p for p in state.get("spots") or ()
-             if math.dist((p["x"], p["y"], p["z"]), here) <= 3.5
+             if math.dist((p["x"], p["y"], p["z"]), here) <= radius
              and not (p["y"] in (here[1], here[1] + 1) and abs(p["x"] + 0.5 - s["x"]) < 0.8
                       and abs(p["z"] + 0.5 - s["z"]) < 0.8)]
-    if not spots:
-        return []
-    p = spots[0]
-    return [{"type": "place", "item": "minecraft:torch", "x": p["x"], "y": p["y"], "z": p["z"]}]
-
-
-def _torch_at(pos):
-    return Region(pos, pos).name(pos) in ("torch", "wall_torch")
-
-
-@skill(verify=lambda c: not c.result or _torch_at(c.result), commands=torch_commands, budget=40, stall=30)
-def place_torch_if_dark(ctx):
-    """Mobs spawn at block light 0. Light the darkest reachable floor spot nearby when we stand in darkness.
-    Returns where the torch went, or False."""
-    s = api.get("/state")
-    if "blockLight" not in s or s["blockLight"] > 0 or (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500):
-        return False
-    tasks = torch_commands(body_state(ctx, spots=dark_spots(radius=4, max_light=0)))
-    if not tasks:
-        return False
-    try:
-        r = api.run(tasks[0], wait=30)
-    except api.TaskStuck:
-        return False
-    return (tasks[0]["x"], tasks[0]["y"], tasks[0]["z"]) if r["status"] == "succeeded" else False
+    return [{"type": "place", "item": "minecraft:torch", "x": p["x"], "y": p["y"], "z": p["z"]}
+            for p in spots[:limit]]
 
 
 RAW_MEAT = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken"]
@@ -873,8 +856,9 @@ def edible_carried(inv):
 
 
 @skill(start=lambda c: api.get("/state")["food"],
-       verify=lambda c: not c.result or api.get("/state")["food"] > c.base, budget=30, stall=30)
-def eat(raw_ok=False):
+       verify=lambda c: not c.result or api.get("/state")["food"] > c.base, budget=30, stall=30,
+       provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
+def eat(ctx=None, raw_ok=False):
     """Eat the best food carried (raw meat too when starving). Returns False when there is none."""
     from .knowledge import ALL_FOOD
     inv = Inventory()
@@ -909,15 +893,6 @@ def can_work_here(state):
 
 def _on_land():
     return not swimming(api.get("/state"))
-
-
-@skill(done=lambda c: _on_land(), budget=180, stall=45, per_unit=30, provides={"reach:air": lambda ctx, s: ()})
-def surface(ctx):
-    """Straight up for a breath. The nearest air is the sky above, not the shore: a body four blocks under water
-    was swimming twenty-two seconds toward a bank while it had eight seconds of air."""
-    x, y, z = feet()
-    api.run({"type": "goto", "x": x, "y": y + 3, "z": z, "range": 1.0, "partial": True}, wait=30)
-    return not swimming(api.get("/state")) or api.get("/state").get("air", 300) > 200
 
 
 @skill(done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
@@ -1011,13 +986,20 @@ def reach_land(ctx):
     yield feet()
 
 
-@skill(done=lambda c: enclosed(), budget=90, stall=40, per_unit=20)
+def _burrow_here(ctx):
+    """A solid hillside beside the body to tunnel into (terrain.choose_burrow), or None."""
+    x, y, z = feet()
+    return choose_burrow(Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4)), (x, y, z), ctx.policy.protected)
+
+
+@skill(done=lambda c: enclosed(), budget=90, stall=40, per_unit=20,
+       provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
+                 "shelter:burrow": lambda ctx, s: ()})
 def burrow(ctx):
     """Night shelter in a hillside: tunnel 2 blocks into solid ground, step to the end, seal the entrance behind
     (feet block on the floor, head block on top of it — both faces are visible from inside)."""
     x, y, z = feet()
-    region = Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4))
-    d = choose_burrow(region, (x, y, z), ctx.policy.protected)
+    d = _burrow_here(ctx)
     if d is None:
         raise NotAvailable("no solid hillside to burrow into here")
     dx, dz = d
@@ -1040,7 +1022,8 @@ def burrow(ctx):
     log(f"burrowed into the hillside at {end}")
 
 
-@skill(done=lambda c: not enclosed(), budget=90, stall=45, per_unit=15)
+@skill(done=lambda c: not enclosed(), budget=90, stall=45, per_unit=15,
+       provides={"reach:outside": lambda ctx, s: ()})
 def dig_out(ctx):
     """Morning in a sealed pod: open one side (by hand if no pickaxe — slower, same result) and step out."""
     x, y, z = feet()
@@ -1088,9 +1071,10 @@ def _breathing():
     return not head_underwater(s) or s["air"] >= 280
 
 
-@skill(done=lambda c: _breathing(), budget=45, stall=12)
+@skill(done=lambda c: _breathing(), budget=45, stall=12, provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
-    """Out of breath underwater: swim to the nearest air (straight up first); water capped by blocks → dig the cap."""
+    """Out of breath underwater: swim to the nearest air (straight up first — the nearest air is the sky above, not
+    the shore); water capped by blocks → dig the cap."""
     for _ in range(4):
         x, y, z = feet()
         region = Region((x - 8, y - 2, z - 8), (x + 8, y + 16, z + 8))
@@ -1356,9 +1340,11 @@ def _torches_standing(radius=12):
 
 
 @skill(pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, start=lambda c: _torches_standing(),
-       verify=lambda c: _torches_standing() > c.base, budget=180, stall=60)
+       verify=lambda c: _torches_standing() > c.base, commands=torch_commands, budget=180, stall=60,
+       provides={"light": lambda ctx, s: (int(s.detail.get("radius", 10)), max(1, s.count))})
 def light_area(ctx, radius=10, limit=6):
     """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2.
+    The reflex's one torch in the dark is this with (4, 1) (brain.reflexes, when `dark_here`).
 
     The torch check is a declared precondition, not a line in the body: the pool asks it (skill.can_run) before it
     prices this work. As a line it could only be discovered by failing, and the idle rule kept thawing the
@@ -1368,16 +1354,16 @@ def light_area(ctx, radius=10, limit=6):
     if enclosed():
         raise NotAvailable("sealed in: nothing outside to light")
     spots = [p for p in dark_spots(radius=radius, max_light=0, limit=40) if not ctx.blocked((p["x"], p["y"], p["z"]))]
-    if not spots:
+    tasks = torch_commands(body_state(ctx, spots=spots), (radius, limit * 2))
+    if not tasks:
         raise NotAvailable("nothing dark nearby")
     lit, misses = 0, 0
-    for p in spots[: limit * 2]:
+    for task in tasks:
         if lit >= limit or Inventory().usable("minecraft:torch") <= 2 or misses >= 3:
             break   # three unreachable spots in a row: the rest are behind walls too
-        pos = (p["x"], p["y"], p["z"])
+        pos = (task["x"], task["y"], task["z"])
         try:
-            r = api.run({"type": "place", "item": "minecraft:torch", "x": pos[0], "y": pos[1], "z": pos[2]},
-                        wait=40)
+            r = api.run(task, wait=40)
         except api.Unreachable:
             misses += 1                    # a dark spot behind a wall: the next one, as before
             continue
@@ -1615,7 +1601,12 @@ def _site_missing(site):
     return sum(1 for key in snap["blocks"] if not region.solid(tuple(int(v) for v in key.split(","))))
 
 
-@skill(verify=lambda c: _site_missing(c.args[1]) == 0, budget=600, stall=90)
+def _site_named(ctx, step):
+    site = next((x for x in ctx.mem.sites() if x.get("name") == step.detail.get("site", step.token)), None)
+    return (site,) if site is not None else None
+
+
+@skill(verify=lambda c: _site_missing(c.args[1]) == 0, budget=600, stall=90, provides={"repair:site": _site_named})
 def repair_site(ctx, site):
     """Rebuild missing blocks (and doors) of a site from its structure snapshot."""
     snap = site.get("snapshot")
