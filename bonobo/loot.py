@@ -106,6 +106,7 @@ def loot_chest(ctx):
             api.post("/click", {"slot": slot, "button": 0, "action": "QUICK_MOVE"})
             taken += 1
             yield taken
+        ctx.mem.note_container(pos, ctx.dimension, container()["slots"])
     finally:
         api.post("/close")
     ctx.mem.data.setdefault("looted", []).append(list(pos))

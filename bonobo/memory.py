@@ -522,6 +522,29 @@ class Memory:
             self.forget_seen(kind, pos, dimension)
         return False
 
+    # ---- what containers hold, as last seen open: the planner's "take it from a chest" source (decompose)
+    def note_container(self, pos, dimension, slots):
+        """Record what a container held when it was last open (`slots`: /container rows; the player's own skipped)."""
+        items = {}
+        for s in slots:
+            if s.get("owner") != "player" and s.get("id") not in (None, "minecraft:air"):
+                items[s["id"]] = items.get(s["id"], 0) + int(s.get("count", 1))
+        key = ",".join(str(int(c)) for c in pos)
+        self.data.setdefault("containers", {})[key] = {"pos": [int(c) for c in pos], "dimension": dimension,
+                                                      "items": items, "t": self.clock}
+        self.save()
+
+    def forget_container(self, pos):
+        if self.data.setdefault("containers", {}).pop(",".join(str(int(c)) for c in pos), None) is not None:
+            self.save()
+
+    def stored(self, token, dimension):
+        """[(pos, item id, count)] of `token` (an item or a group) in containers seen here."""
+        from .knowledge import members
+        ids = set(members(token))
+        return [(tuple(c["pos"]), item, n) for c in self.data.get("containers", {}).values()
+                if c["dimension"] == dimension for item, n in c["items"].items() if item in ids and n > 0]
+
     def log_death(self, pos, dimension, carried=()):
         """Record a death and WHAT WAS ON US. The pile on the ground is the only thing that says whether walking
         back is worth it: a flat cost priced a corpse holding two blocks of dirt the same as one holding iron."""

@@ -11,31 +11,38 @@ offline-testable."""
 
 NAV_MARKERS = ("no path", "unreachable", "not reachable", "no reachable face", "gave up after", "could not get",
                "cannot reach", "can't reach", "positions explored")
-BACKSTOP = {"tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
+BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
 # The ceiling the doubling runs into, by what went wrong. "The world does not offer this here" ages fast (mobs
 # wander, the sun moves, we walk); a bug does not.
-MAX_BACKSTOP = {"unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "error": 900}
+MAX_BACKSTOP = {"game": 60, "unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "error": 900}
 MAX_BACKSTOP_DEFAULT = 900
 SOURCES_TRIED = 3          # failures of one (task, cause) — each after changing source — before reporting upward
 LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
 
 
+# The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
+INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "PlayerTookControl")
+
+
 def cause_of(err):
-    from . import api
-    name = type(err).__name__
+    """The cause a failure is counted and cooled under, from the exception's class (and, for bare mod task
+    messages, its text)."""
+    names = {c.__name__ for c in type(err).__mro__}
     text = str(err).lower()
-    if isinstance(err, api.CommitmentExpired):
+    if "CommitmentExpired" in names:
         return "replan"      # the plan grew stale mid-action: nothing failed, decide again now
-    if api.interrupted(err):
+    if names & set(INTERRUPTION_NAMES):
         return "interrupt"   # a danger or another commander stopped it: not the skill's fault
-    if name == "ToolMissing":
+    if "GameUnreachable" in names:
+        return "game"        # the game is down or restarting: nothing about the place or the task
+    if "ToolMissing" in names:
         return "tool"
-    if name == "NavFailed" or any(m in text for m in NAV_MARKERS):   # text only for mod task messages
+    if "NavFailed" in names or "Unreachable" in names or any(m in text for m in NAV_MARKERS):
         return "nav"
-    if name == "NotAvailable":
+    if "NotAvailable" in names:
         return "unavailable"
-    if name == "TaskStuck":
+    if "TaskStuck" in names:
         return "stuck"
     return "error"
 

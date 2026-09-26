@@ -19,7 +19,8 @@ WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a b
 UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
 # Work per unit when nothing has been measured yet, in ticks.
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 40,
-               "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200}
+               "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
+               "withdraw": 100}
 # Planner step kind -> (skill statistics key, units): the same keys the skill runner records under.
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
@@ -154,7 +155,7 @@ class Cost:
         if k == "fill":
             d = self._known(["water"])
             return walk_ticks(d) if d is not None else 1200
-        if k == "goto":
+        if k in ("goto", "withdraw"):
             return walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return 0
 

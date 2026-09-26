@@ -9,7 +9,10 @@ solver gets the same cost model (cost.Cost), so their steps are priced in the sa
 
 Pure apart from what the cost model reads (one cached /find per kind).
 """
+import math
+
 from . import blueprints, goals
+from .cost import TICKS_PER_S
 from .planner import Planner, Step, Unplannable
 
 SOLVERS = {}          # name -> fn(inv, needs, cost, pending) -> [Step]
@@ -70,6 +73,38 @@ def solve_needs(inv, needs, cost, solver=None, pending=None):
     raise last or Unplannable("no solver could plan this")
 
 
+def from_containers(inv, needs, cost, solver=None, pending=None):
+    """Take what containers hold (memory.stored) where that is cheaper than making it: (withdraw steps, pending).
+    What is taken counts as on its way (`pending`) for whatever is planned after it."""
+    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
+    extra = dict(pending or {})
+    if mem is None or snap is None or not hasattr(mem, "stored"):
+        return [], extra
+    from .knowledge import members
+    steps = []
+    for need in needs:
+        if need[0] == "tool":
+            continue
+        token, n = need[0], int(need[1])
+        ids = set(members(token))
+        short = n - goals.held(inv, token) - sum(v for k, v in extra.items() if k in ids)
+        for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
+            if short <= 0:
+                break
+            take = min(short, have)
+            step = _action("withdraw", item, cost, pos=list(pos))
+            step.count = take
+            try:
+                make = cost.plan_s(solve_needs(inv, [(token, take)], cost, solver, extra)) * TICKS_PER_S
+            except Unplannable:
+                make = math.inf
+            if step.est < make:
+                steps.append(step)
+                extra[item] = extra.get(item, 0) + take
+                short -= take
+    return steps, extra
+
+
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)
     step.est = cost.estimate(step)
@@ -90,7 +125,9 @@ def decompose(inv, goal, cost, solver=None, pending=None):
 def _decompose(inv, goal, cost, solver, pending):
     template, args = goal["goal"], goal.get("args", {})
     if template in goals.ITEM_GOALS:
-        return solve_needs(inv, goals.needs(goal, inv), cost, solver, pending)
+        needs = goals.needs(goal, inv)
+        taken, pending = from_containers(inv, needs, cost, solver, pending)
+        return taken + solve_needs(inv, needs, cost, solver, pending)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":

@@ -1117,6 +1117,8 @@ def can_sleep(state):
     the precondition — which is exactly what stopped "could not fall asleep in the site bed" from repeating every
     sixty seconds all morning.
     """
+    if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
+        return "a bed explodes outside the Overworld"
     if state.get("thundering"):
         return None
     t = int(state.get("timeOfDay", 0)) % 24000
@@ -1584,12 +1586,40 @@ def deposit(ctx, local_only=False):
             v = view.get(s["slot"])
             if v and v["id"] == s["id"]:
                 api.post("/click", {"slot": v["slot"], "button": 0, "action": "QUICK_MOVE"})
+        ctx.mem.note_container(c, ctx.dimension, world.container()["slots"])
     finally:
         api.post("/close")
     after = lost(lambda: Inventory().used_slots(), before)
     log(f"stored {before - after} stacks in the home chest")
     if after >= before:
         raise NotAvailable("home chest full or nothing moved")
+
+
+@skill(start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+       budget=180, stall=60, per_unit=10,
+       provides={"withdraw": lambda ctx, s: (s.token, s.count, tuple(s.detail["pos"]))})
+def withdraw(ctx, item, count, pos):
+    """Take `count` of `item` out of the container at `pos` (memory said it held them: memory.stored), and write
+    down what is left in it."""
+    nav.arrive(pos, ctx.policy, range_=3)
+    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30)
+    if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
+        ctx.mem.forget_container(pos)
+        raise NotAvailable(f"the container at {pos} did not open")
+    left = int(count)
+    try:
+        for s in world.container()["slots"]:
+            if left <= 0:
+                break
+            if s["owner"] != "player" and s["id"] == item:
+                api.post("/click", {"slot": s["slot"], "button": 0, "action": "QUICK_MOVE"})
+                left -= int(s.get("count", 1))
+        ctx.mem.note_container(pos, ctx.dimension, world.container()["slots"])
+    finally:
+        api.post("/close")
+    if left >= int(count):
+        raise NotAvailable(f"no {bare(item)} left in the container at {pos}")
+    log(f"took {int(count) - max(0, left)}× {bare(item)} from the container at {pos}")
 
 
 def _site_missing(site):
