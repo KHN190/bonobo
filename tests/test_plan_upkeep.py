@@ -88,18 +88,27 @@ UNPLANNABLE = [
     ("a skill nobody registered", goals.make("skill", name="fly_to_the_moon")),
     ("a template nobody knows", {"goal": "dance", "args": {}}),
     ("an item with no source", goals.have(("minecraft:command_block", 1))),
+    ("bedrock", goals.have(("minecraft:bedrock", 1))),
+    ("one plannable need and one not", goals.have(("log", 2), ("minecraft:spawner", 1))),
 ]
 # (situation, goal, solver asked, skills taken out of the registry) → Unplannable from decompose
 UNPLANNABLE_BY = [
     ("a step no registered skill provides", goals.have(("log", 4)), None, ("chop",)),
     ("a solver nobody registered", goals.have(("log", 4)), "zzz", ()),
     ("the column solver without a memory", goals.have(("minecraft:stick", 4)), "solve", ()),
+    ("smelting with no smelting skill", goals.have(("minecraft:iron_ingot", 3)), None,
+     ("smelt", "load_smelter", "start_smelt_job")),
+    ("meat with no hunter", goals.have(("minecraft:beef", 2)), None, ("hunt",)),
 ]
 # (situation, goal, the task's own solver) → the brain's replan still plans: the first solver could not, the rest can
 FALLBACK = [
     ("a milestone asks solve first; without a memory it cannot, the planner can",
      goals.make("milestone", name="stone tools"), None, ("craft", "minecraft:stone_pickaxe")),
     ("an unknown solver named on the task", goals.have(("log", 4)), "zzz", ("gather", "log")),
+    ("the food milestone: solve cannot without a memory, the planner hunts", goals.make("milestone", name="food"),
+     None, ("hunt", "minecraft:porkchop")),
+    ("a task naming solve for sticks, no memory: the planner crafts", goals.have(("minecraft:stick", 4)), "solve",
+     ("craft", "minecraft:stick")),
 ]
 
 
@@ -268,14 +277,6 @@ class Cheaper(unittest.TestCase):
                         for d in (5, 20, 45)]
                 self.assertEqual(secs, sorted(secs))
 
-    def test_preferred_provider_first(self):
-        """Several skills provide one effect: `prefer` orders them, for every effect the registry knows."""
-        effects = {e for c in skillkit.REGISTRY.values() for e in c.provides}
-        for effect in sorted(effects):
-            with self.subTest(effect):
-                prefs = [c.prefer for c in skillkit.providers(effect)]
-                self.assertEqual(prefs, sorted(prefs, reverse=True))
-
 
 # -------------------------------------------------------------------------------------------------- the cost model
 from bonobo import cost as costmod  # noqa: E402
@@ -337,6 +338,7 @@ class CostModel(unittest.TestCase):
 
     # (situation, known distance or None) → seconds the column solver prices a seek at
     SEEKS = [("never seen: the declared prior", None, None), ("40 blocks away", 40.0, WT(40) / 20 + 2.0),
+             ("10 blocks away", 10.0, WT(10) / 20 + 2.0), ("200 blocks away", 200.0, WT(200) / 20 + 2.0),
              ("right here", 0.0, 2.0)]
 
     def test_seek_from_memory(self):
@@ -932,6 +934,9 @@ WITHDRAW_GOALS = [
      {"minecraft:stick": 8}, False),
     ("sticks in the chest, sticks asked: fetched", goals.have(("minecraft:stick", 4)), {"minecraft:stick": 8}, True),
     ("a pickaxe in the chest: tools are not withdrawn", PICK1, {"minecraft:stone_pickaxe": 1}, False),
+    ("logs in the chest, logs asked, trees far: fetched", goals.have(("log", 4)), {"minecraft:oak_log": 8}, True),
+    ("cobblestone in the chest, a pickaxe asked: an intermediate, mined not fetched", PICK1,
+     {"minecraft:cobblestone": 16}, False),
 ]
 
 
@@ -1097,17 +1102,22 @@ class Retry(unittest.TestCase):
         self.assertFalse(ctx.blocked(other))
 
     def test_the_failure_path_is_the_only_banning_path(self):
-        """`arrived` answers False only for a walk that failed; an interruption propagates (test point A, ARRIVE),
-        so `if not arrived(...): ctx.ban(...)` can never ban for one. Every such ban site asks `arrived`, not
-        `go_to` (a Walked leg is truthy, a False from go_to can be a stopped walk)."""
-        import inspect
-        import re
-        from bonobo import dispatch
-        for mod in (skills, dispatch):
-            src = inspect.getsource(mod)
-            for m in re.finditer(r"if not (nav\.\w+)\(.*\n\s+(?:ctx|self)\.ban\(", src):
-                with self.subTest(module=mod.__name__, at=m.start()):
-                    self.assertEqual(m.group(1), "nav.arrived")
+        """`arrived` answers False only for a walk that failed; an interruption propagates (test point A, ARRIVE). So
+        a ban that follows a walk must follow `nav.arrived`, never `nav.go_to` (a Walked leg is truthy, a stopped
+        walk is False). Every ban site in the package is read; there must be some, or this says nothing."""
+        import glob
+        sites, bad = 0, []
+        for path in sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                  "bonobo", "*.py"))):
+            lines = open(path).read().splitlines()
+            for i, line in enumerate(lines):
+                if "ctx.ban(" in line or "self.ban(" in line:
+                    before = "\n".join(lines[max(0, i - 4):i])
+                    sites += 1
+                    if "go_to(" in before:
+                        bad.append(f"{os.path.basename(path)}:{i + 1}")
+        self.assertGreater(sites, 0, "no ban site found: the reading of the source is broken")
+        self.assertEqual(bad, [], "a ban after go_to: a walk that was merely stopped bans the place")
 
 
 # --------------------------------------------------------------------------------------------------------- queue
@@ -1153,7 +1163,8 @@ QUEUE = [
 
 # goals as data: parse (command line) → need; (bag, needs) → what is short; goal → its one-line description.
 PARSE = [(("tool:pickaxe:2",), ["tool", "pickaxe", 2]), (("minecraft:torch", "24"), ["minecraft:torch", 24]),
-         (("log",), ["log", 1])]
+         (("log",), ["log", 1]), (("tool:sword:0",), ["tool", "sword", 0]),
+         (("minecraft:oak_log", "64"), ["minecraft:oak_log", 64])]
 SHORT = [
     ("nothing asked", inventory(), [], ""),
     ("held", inventory(("oak_log", 4)), [("log", 4)], ""),

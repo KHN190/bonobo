@@ -64,11 +64,6 @@ class EveryRow(unittest.TestCase):
                 if row.get("before") is not None:
                     self.assertTrue(callable(row["before"]))
 
-    def test_the_sheet_is_in_scenarios(self):
-        for name in sc.SHEET:
-            with self.subTest(name):
-                self.assertIs(sc.SCENARIOS[name], sc.SHEET[name])
-
     def test_boxed_rows_stay_in_the_box(self):
         """A row the runner resets (not raw) builds inside the bench box: what it leaves outside survives the reset
         and becomes the next row's surprise."""

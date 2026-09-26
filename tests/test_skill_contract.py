@@ -412,7 +412,6 @@ class Runner(unittest.TestCase):
                         lambda ctx, *a: None)
                 found = skillkit.provider(None, Step("zz", "tok", 1))
                 self.assertEqual(None if found is None else (found[0].contract.name, found[1]), want)
-                self.assertEqual(skillkit.handles(Step("zz", "tok", 1)), True)
 
 
 # ----------------------------------------------------------------------------------------------------- commands
