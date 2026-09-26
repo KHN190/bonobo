@@ -45,7 +45,6 @@ def chop(ctx, n):
                     raise api.NavFailed(f"no way to the tree at {(base['x'], base['y'], base['z'])}")
         before = Inventory().count("log")
         base_pos = (base["x"], base["y"], base["z"])
-        ctx.mem.note_progress("tree", base_pos, ctx.dimension, done=0)   # half-chopped until this trunk is done
         # Base log from outside, then stand in its cell and take the logs overhead: every bottom face is right above
         # the eye, no approach search. From outside, logs 1–2 up behind leaves failed "no path found (267 positions)"
         # after a 3 s walk (bench 05:14), and mine_many's top-down order hit the canopy first (bench 03:43).
@@ -90,11 +89,9 @@ def chop(ctx, n):
             for t in trunk:
                 ctx.ban((t["x"], t["y"], t["z"]))
             log(f"   trunk at {(base['x'], base['y'], base['z'])} yielded no logs ({r['message']}); next tree")
-            ctx.mem.clear_progress("tree", base_pos)
             continue
         # Renewable wood: remember the grove, put a sapling back where the trunk stood.
         from . import farming
-        ctx.mem.clear_progress("tree", base_pos)
         ctx.mem.note_resource("tree", base_pos, ctx.dimension)
         try:
             farming.replant(ctx, base_pos)

@@ -2,7 +2,7 @@
 death, repair a worn tool by combining two in the crafting grid).
 
 The table: the first row that applies takes the round. Rows that only QUEUE work put a task at the front of the
-queue instead (a pickaxe when none works, a tool that broke, food before it runs out, a bed before dark, blocks
+queue instead (a pickaxe when none works, a tool that broke — at the best tier the bag can craft — food before it runs out, a bed before dark, blocks
 when the path is blocked and there is nothing to bridge with). Pure `repair_pair`, `dusk_s`, `nether_retreat` are
 offline-tested."""
 import json
@@ -14,7 +14,7 @@ from .api import McError, NotAvailable, log
 from .cost import Cost
 from .data import BASE_MARKERS, COVERED_SKY
 from .knowledge import food_count
-from .planner import Unplannable, tool_ok
+from .planner import NullCost, Planner, Unplannable
 from .skill import skill
 from .skillcore import gained, lost
 from .world import Inventory, find
@@ -76,6 +76,20 @@ def working_tiers(inv):
     return out
 
 
+def craftable_tier(inv, kind):
+    """The best tier of `kind` this bag can craft outright — a plan of crafting steps only, nothing to gather, mine
+    or smelt — or 0 (wood: the plan gathers the logs). Pure over the bag. A higher tier a plan needs is that plan's
+    own business, not the replacement's."""
+    for tier in (3, 2, 1):
+        try:
+            steps = Planner.from_inventory(inv, NullCost()).plan([("tool", kind, tier)])
+        except Unplannable:
+            continue
+        if all(s.kind == "craft" for s in steps):
+            return tier
+    return 0
+
+
 class Upkeep:
     """The table, and what it remembers between rounds: where the body has been (stuck), which tools worked last
     round (broken), where the last path failure was going (blocked). `brain` supplies the failure policy
@@ -87,7 +101,7 @@ class Upkeep:
         self.history = []             # (time, feet, bag signature) for "stuck in place"
         self.escalated = {}
         self.working = {}             # tool kind -> tier that worked last round
-        self.broken = {}              # tool kind -> tier to replace
+        self.broken = set()           # tool kinds that broke and are not replaced yet
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
 
     # -- what the rounds tell it
@@ -96,11 +110,8 @@ class Upkeep:
         self.history = [h for h in self.history if now - h[0] <= STUCK_LIMIT + 30]
         self.history.append((now, snap.feet, bag_signature(snap.inv)))
         tiers = working_tiers(snap.inv)
-        for kind, tier in self.working.items():
-            if kind not in tiers:
-                self.broken[kind] = max(tier, self.broken.get(kind, 0))
-        for kind in [k for k, t in self.broken.items() if tool_ok(snap.inv, k, t, WORKING)]:
-            del self.broken[kind]
+        self.broken |= {kind for kind in self.working if kind not in tiers}
+        self.broken -= set(tiers)
         self.working = tiers
 
     def failed(self, cause, err, place):
@@ -137,8 +148,8 @@ class Upkeep:
         # Rows that only queue work: the queue does it, at the front.
         if "pickaxe" not in self.working:
             self.urgent(goals.have(("tool", "pickaxe", 0)), "no working pickaxe")
-        for kind, tier in self.broken.items():
-            self.urgent(goals.have(("tool", kind, tier)), f"the {kind} broke")
+        for kind in sorted(self.broken):
+            self.urgent(goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
             self.urgent(goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))

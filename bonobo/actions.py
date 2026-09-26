@@ -322,12 +322,12 @@ def table(cost, state, wants=()):
     empty means everything.
     """
     return Table(base_table(cost) + [with_exposure(a) for a in
-                                     _shelter(cost, state) + _room(cost, state) + _resume(cost, state)
+                                     _shelter(cost, state) + _room(cost, state)
                                      + _body(cost, state)])
 
 
 def base_table(cost):
-    """The columns that do NOT depend on what we hold — everything but shelter, room and a resumed step.
+    """The columns that do NOT depend on what we hold — everything but shelter and room.
 
     Pricing the future asks for a table once per imagined state, and rebuilding all of it every time is most of
     what that costs (63 of 69 ms of a solve). These columns answer to the WORLD, which is not what the
@@ -562,37 +562,6 @@ def _body(cost, state):
     return out
 
 
-def _resume(cost, state):
-    """One column per piece of half-finished work: the same effect, priced by what is LEFT to do.
-
-    This is where inertia comes from. A commitment is not defended by the time already sunk into it (that would
-    weld the agent to whatever it happened to start); it wins because finishing a hole that is two thirds dug is
-    cheap. Nothing remembers "I was digging that" — the hole is in the world, and the column is re-derived from it
-    every round, so any goal that wants shelter can pick the work up.
-    """
-    out = []
-    for half in cost.half_finished():
-        kind, pos = half["kind"], tuple(half["pos"])
-        if kind not in RESUMES:
-            continue
-        done, of = float(half.get("done", 0)), float(half.get("of", 0) or 0)
-        if of <= 0 or done >= of:
-            continue
-        remaining = (of - done) / of
-        where = f"{int(pos[0])},{int(pos[1])},{int(pos[2])}"
-        walk = cost.walk_to(pos) or 0.0
-        out.append(Action(f"resume:{kind}@{where}", {RESUMES[kind]: 1},
-                          max(0.5, work_s(cost, "shelter", kind) * remaining + walk), limit=1,
-                          tag=("resume", kind, pos)))
-    return out
-
-
-# What finishing a piece of half-done work produces. Its own dimension, so an unfinished hole is not "sheltered".
-# Only kinds a skill resumes (skills.resume_work) and that note their progress (memory.note_progress); other
-# progress notes (a trunk left standing, a vein left open) are where-to-look hints, not columns.
-RESUMES = {"dig_in": "sheltered", "pod": "sheltered"}
-
-
 def _room(cost, state):
     """Ways to free bag space. Without these the requirement above would simply make a full bag unplannable."""
     return [
@@ -735,8 +704,6 @@ def _shape(action, times):
         return Step("shelter", tag[1], 1, {})
     if kind == "room":
         return Step("room", tag[1], 1, {})
-    if kind == "resume":
-        return Step("resume", tag[1], 1, {"pos": list(tag[2])})
     if kind == "sleep":
         return Step("sleep", "bed", 1, {})
     return Step("craft", action.name, times, {"times": times, "inputs": {}})
@@ -834,14 +801,6 @@ class Costs:
     def work_s(self, kind, token):
         return self.WORK.get((kind, token), self.WORK.get((kind, None), 10.0))
 
-    def half_finished(self):
-        """Half-done work the planner may resume. Empty unless the cost oracle knows a memory."""
-        return []
-
-    def walk_to(self, pos):
-        """Seconds to reach a known position, or None."""
-        return None
-
 
 class LiveCosts(Costs):
     """The cost oracle over the brain's existing distance estimates, so the numbers keep coming from the same place
@@ -902,19 +861,6 @@ class LiveCosts(Costs):
         seen = [mem.search_distance(k) for k in kinds]
         seen = [d for d in seen if d]
         return sum(seen) / len(seen) if seen else None
-
-    def half_finished(self):
-        mem, snap = getattr(self.model, "mem", None), getattr(self.model, "snap", None)
-        if mem is None or snap is None or not hasattr(mem, "progress"):
-            return []
-        return mem.progress(snap.dimension, near=snap.feet)
-
-    def walk_to(self, pos):
-        import math as _m
-        snap = getattr(self.model, "snap", None)
-        if snap is None:
-            return None
-        return max(0.0, _m.dist(pos, snap.feet)) / 4.3
 
     def _position(self, kinds):
         import math as _m

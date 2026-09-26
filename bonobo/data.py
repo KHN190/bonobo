@@ -161,6 +161,11 @@ UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")
 # Blocks that break quickly without a pickaxe (suffix match on the bare id). Everything else solid needs one.
+# Rare blocks worth remembering where they were seen (memory.sightings): the travel scan notes them, "where to
+# find" walks to them before searching, and a note older than RARE_SIGHTING_TTL_S is no longer trusted.
+RARE_SIGHTINGS = ("diamond_ore", "deepslate_diamond_ore", "obsidian", "ancient_debris")
+RARE_SIGHTING_TTL_S = 6 * 3600
+
 HAND_MINEABLE_SUFFIX = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_block", "leaves", "log", "wood",
                         "planks", "mud", "farmland", "dirt_path", "mycelium", "podzol", "soul_soil", "air", "water",
                         "torch", "crafting_table", "_bed", "_door", "ladder", "chest", "wool", "melon", "pumpkin")

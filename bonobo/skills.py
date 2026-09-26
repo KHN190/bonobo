@@ -574,8 +574,6 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         open_faced = [p for p in in_reach if p in exposed_cells]
         in_reach = open_faced or in_reach
         vein = set(in_reach[:12])
-        # An open vein is half-done work: if this batch is interrupted, "where to find" comes back here first.
-        ctx.mem.note_progress(f"vein:{blocks[0]}", seed, ctx.dimension, done=0)
         before = Inventory().count(drop)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)
@@ -633,7 +631,6 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         elif tier:
             ctx.mem.log_vein(blocks[0], seed, len(vein), ctx.dimension)
-        ctx.mem.clear_progress(f"vein:{blocks[0]}", seed)
     raise McError(f"could not mine enough {bare(drop)}")
 
 
@@ -1203,17 +1200,11 @@ def dig_in_commands(state, args=()):
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30)
 def dig_in(ctx):
-    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead.
-
-    Records how deep it got. The hole is in the world whether or not this call finished, so the planner can price
-    finishing it (actions._resume) instead of starting a new one somewhere else — which is what it did when the
-    only record of the work was the fact that this function had been called.
-    """
+    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead."""
     x, y, z = feet()
     tasks = dig_in_commands(body_state(ctx, nav.dig_down_region((x, y, z), DIG_IN_DEPTH)))
     api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
     fx, fy, fz = feet()
-    ctx.mem.note_progress("dig_in", (x, y, z), ctx.dimension, done=max(0, y - fy), of=DIG_IN_DEPTH)
     if fy >= y:
         raise NotAvailable("digging down stopped: a block couldn't be reached")
     log("dug in for the night")
@@ -1346,27 +1337,9 @@ def pod(ctx):
     cells = _pod_cells((x, y, z))
     region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
     open_cells = [c for c in cells if not region.solid(c)]
-    # Either way the walls that went up are still there: record them, so finishing this pod is cheaper than
-    # starting another one two blocks away.
-    ctx.mem.note_progress("pod", (x, y, z), ctx.dimension, done=len(cells) - len(open_cells), of=len(cells))
     if open_cells:
         raise McError(f"pod left {len(open_cells)} openings")
-    ctx.mem.clear_progress("pod", (x, y, z))
     log("walled in for the night")
-
-
-# Half-done work a plan may finish (actions._resume prices it; its kinds are actions.RESUMES): the skill that
-# started it, run again where it stands.
-RESUMERS = {"dig_in": dig_in, "pod": pod}
-
-
-@skill(budget=240, stall=90, provides={"resume": lambda ctx, s: (s.token, tuple(s.detail["pos"]))
-                                       if s.token in RESUMERS else None})
-def resume_work(ctx, kind, pos):
-    """Go back to the half-done work at `pos` and finish it with the skill that started it; that skill's own
-    verify says whether it is done."""
-    nav.arrive(pos, ctx.policy, range_=1)
-    return RESUMERS[kind](ctx)
 
 
 # ---------------------------------------------------------------- machines (blueprints.py)

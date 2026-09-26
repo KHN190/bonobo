@@ -3,7 +3,7 @@ import math
 
 from . import api, nav
 from .api import log
-from .data import bare
+from .data import RARE_SIGHTINGS, bare
 from .skill import skill
 from .skillcore import feet
 
@@ -147,7 +147,8 @@ def approach_policy(policy):
     return dataclasses.replace(policy, allow_dig=False)
 
 
-# What the travel scan notes: the nearest of each kind in 48 blocks, the takeable blocks, and the animals in sight.
+# What the travel scan notes: the nearest of each kind in 48 blocks, the takeable blocks, the rare blocks
+# (data.RARE_SIGHTINGS, as sightings that expire) and the animals in sight.
 SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
                "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"],
                "coal": ["coal_ore", "deepslate_coal_ore"]}
@@ -156,7 +157,7 @@ SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chi
 
 def note_around(mem, dimension):
     """Map resources while travelling, so "where to find" starts from known places: the nearest tree, water, lava,
-    iron and coal in 48 blocks, the takeable blocks (beds, chests…) and the animals in sight."""
+    iron and coal in 48 blocks, the takeable blocks (beds, chests…), the rare blocks and the animals in sight."""
     from .knowledge import takeable_blocks
     try:
         for kind, blocks in SCAN_BLOCKS.items():
@@ -169,6 +170,8 @@ def note_around(mem, dimension):
                     mem.note_resource(kind, (h["x"], h["y"], h["z"]), dimension)
         for h in find(takeable_blocks(), radius=48, limit=16) or ():
             mem.note_resource(bare(h["block"]), (h["x"], h["y"], h["z"]), dimension)
+        for h in find(list(RARE_SIGHTINGS), radius=48, limit=8) or ():
+            mem.add_sighting(bare(h["block"]), (h["x"], h["y"], h["z"]), dimension)
         for e in entities(48, list(SCAN_MOBS)):
             mem.add_sighting(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
     except api.McError as e:

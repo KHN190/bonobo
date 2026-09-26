@@ -8,6 +8,7 @@ import math
 import os
 import time
 from . import beliefs, paths
+from .data import RARE_SIGHTINGS, RARE_SIGHTING_TTL_S
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
@@ -81,6 +82,8 @@ class Memory:
             if len(unique) != len(d[key]):
                 d[key] = unique
                 changed = True
+        if d.pop("progress", None) is not None:      # half-finished work is no longer kept: re-plan by search
+            changed = True
         if changed:
             self.save()
 
@@ -98,36 +101,6 @@ class Memory:
 
     def home(self):
         return next((s for s in self.data["sites"] if s["kind"] == "home"), None)
-
-    # ---- half-finished work. Progress belongs in the world, not in the planner: a task is re-derived from
-    # scratch every round, so anything it got done must be readable from outside it or it is lost on the first
-    # interruption. Items record themselves (they are in the bag); holes, tunnels and half-built huts do not.
-
-    def note_progress(self, kind, pos, dimension, done, of=None):
-        """Record that `done` units of `kind` are finished at `pos` (out of `of`, when the size is known)."""
-        key = f"{kind}:{int(pos[0])},{int(pos[1])},{int(pos[2])}"
-        entries = self.data.setdefault("progress", {})
-        entry = entries.setdefault(key, {"kind": kind, "pos": [int(c) for c in pos], "dimension": dimension})
-        entry["done"] = max(float(entry.get("done", 0)), float(done))
-        if of:
-            entry["of"] = float(of)
-        entry["t"] = _now()
-        self.save()
-        return entry
-
-    def clear_progress(self, kind, pos):
-        key = f"{kind}:{int(pos[0])},{int(pos[1])},{int(pos[2])}"
-        if self.data.get("progress", {}).pop(key, None) is not None:
-            self.save()
-
-    def progress(self, dimension, kind=None, near=None, within=64.0):
-        """Half-finished work in this dimension, nearest first. `near` is a position to measure from."""
-        out = [e for e in self.data.get("progress", {}).values()
-               if e.get("dimension") == dimension and (kind is None or e.get("kind") == kind)]
-        if near is not None:
-            out = [e for e in out if math.dist(e["pos"], near) <= within]
-            out.sort(key=lambda e: math.dist(e["pos"], near))
-        return out
 
     def note_search(self, kind, distance):
         """Record how far away one of these actually turned out to be. The geometric growth used when nothing is
@@ -444,7 +417,15 @@ class Memory:
 
     # ---- sightings, veins, deaths
     def add_sighting(self, kind, pos, dimension):
-        self.data["sightings"].setdefault(kind, []).append({"pos": list(pos), "dimension": dimension, "at": _now()})
+        """Where one of `kind` (a mob type, or a block in `data.RARE_SIGHTINGS`) was seen. Seeing it again at the
+        same spot refreshes the note instead of adding another."""
+        rows = self.data["sightings"].setdefault(kind, [])
+        for row in rows:
+            if row["dimension"] == dimension and math.dist(row["pos"], pos) <= 1:
+                row["at"] = _now()
+                break
+        else:
+            rows.append({"pos": list(pos), "dimension": dimension, "at": _now()})
         self.save()
 
     def sightings(self, kind, dimension, max_age_min=None):
@@ -456,6 +437,9 @@ class Memory:
         priced in seconds now (`gates.marginal("staleness")`), where the pool can weigh it against everything else.
         """
         rows = [s for s in self.data["sightings"].get(kind, []) if s["dimension"] == dimension]
+        if kind in RARE_SIGHTINGS:
+            # A rare block's note expires: it was mined, or the chunk was never what the scan thought.
+            max_age_min = min(max_age_min or math.inf, RARE_SIGHTING_TTL_S / 60)
         if max_age_min is not None:
             cutoff = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() - max_age_min * 60))
             rows = [s for s in rows if s.get("at", "") >= cutoff]
@@ -531,6 +515,12 @@ class Memory:
                                       if not (r["kind"] == kind and r["dimension"] == dimension
                                               and math.dist(r["pos"], pos) <= self.CONFIRM_R)]
             changed = len(self.data.get("resources", [])) != before
+            seen = self.data["sightings"].get(kind)
+            if seen:
+                kept = [x for x in seen if not (x["dimension"] == dimension
+                                                and math.dist(x["pos"], pos) <= self.CONFIRM_R)]
+                changed = changed or len(kept) != len(seen)
+                self.data["sightings"][kind] = kept
         if changed:
             self.save()
         return False

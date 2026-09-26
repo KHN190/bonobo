@@ -5,8 +5,9 @@ import math
 from . import api, nav, retry, skills
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log
-from .data import GROUPS, bare, mid
+from .data import GROUPS, RARE_SIGHTINGS, bare, mid
 from .knowledge import FIND_AT
+from .world import find
 
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
 
@@ -53,19 +54,25 @@ def run_step(ctx, step, night, seek=True):
 
 
 def go_find(ctx, step):
-    """Where to look when nothing is in range, in a fixed order: half-done work (a trunk left standing, a vein
-    left open), what memory says is there, the depth the kind is richest at (knowledge.FIND_AT), a spiral.
+    """Where to look when nothing is in range, in a fixed order: a rare block seen before (data.RARE_SIGHTINGS,
+    checked on arrival), what memory says is there, the depth the kind is richest at (knowledge.FIND_AT), a spiral.
+    Half-done work is not remembered: the search from wherever the body is (/find sees 48 blocks) finds it again.
     True when the body got somewhere new to look."""
     here, dim, mem = nav.feet_now(), ctx.dimension, ctx.mem
     blocks = list(step.detail.get("blocks", ()))
-    partial = {"gather": ["tree"], "mine": [f"vein:{b}" for b in blocks[:1]]}.get(step.kind, [])
-    for kind in partial:
-        for spot in mem.progress(dim, kind=kind, near=here, within=128):
-            if math.dist(spot["pos"], here) > 4 and nav.arrived(tuple(spot["pos"]), ctx.policy, range_=4):
-                return True
+    rare = sorted(((bare(b), tuple(x["pos"])) for b in blocks if bare(b) in RARE_SIGHTINGS
+                   for x in mem.sightings(bare(b), dim)), key=lambda kp: math.dist(kp[1], here))
+    for kind, spot in rare[:2]:
+        if ctx.blocked(spot):
+            continue
+        if not nav.arrived(spot, ctx.policy, range_=4):
+            ctx.ban(spot)
+            continue
+        if mem.confirm(kind, spot, dim, bool(find([kind], radius=8, limit=1))):
+            return True
     names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ()))}.get(step.kind, [])
     spots = [tuple(p) for n in names for p in mem.resources(bare(n), dim)]
-    spots += [tuple(x["pos"]) for n in names for x in mem.sightings(n, dim)]
+    spots += [tuple(x["pos"]) for n in names if bare(n) not in RARE_SIGHTINGS for x in mem.sightings(n, dim)]
     spots = sorted((p for p in spots if not ctx.blocked(p) and math.dist(p, here) > 4),
                    key=lambda p: math.dist(p, here))
     for spot in spots[:2]:
