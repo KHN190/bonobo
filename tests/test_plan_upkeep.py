@@ -739,6 +739,62 @@ RETRY = [
 ]
 
 
+# Retry as a pure ledger over time. ops: ("fail", task, cause, t) / ("hold", name, s, t) / ("cap", name, s, t) /
+# ("release", name) / ("ok", task). Then, at `now`: ready?, exhausted, last failure, what is cooling.
+P = ("here", False)
+NAV_S = retry.BACKSTOP["nav"]
+LEDGER = [
+    ("three sources failed: exhausted, with the last message", [("fail", "t", "nav", 0), ("fail", "t", "nav", 1),
+                                                               ("fail", "t", "nav", 2)],
+     3, {"ready": False, "exhausted": ("nav", "m2"), "last": 2, "cooling": ["nav@('here', False)"]}),
+    ("two sources: not yet", [("fail", "t", "nav", 0), ("fail", "t", "nav", 1)], 2,
+     {"exhausted": None, "last": 1}),
+    ("the worst cause is the one reported", [("fail", "t", "tool", 0), ("fail", "t", "nav", 1), ("fail", "t", "nav", 2),
+                                             ("fail", "t", "nav", 3)], 4, {"exhausted": ("nav", "m3")}),
+    ("cooled out: ready again after the wait", [("fail", "t", "nav", 0)], NAV_S + 1,
+     {"ready": True, "cooling": [], "exhausted": None}),
+    ("a hold throttles a name without a failure", [("hold", "deposit", 60, 0)], 30,
+     {"ready_of": ("deposit", False), "exhausted": None, "cooling": []}),
+    ("a hold ends", [("hold", "deposit", 60, 0)], 61, {"ready_of": ("deposit", True)}),
+    ("cap shortens the hold and the cooling", [("fail", "t", "nav", 0), ("hold", "t", 500, 0), ("cap", "t", 5, 0)],
+     6, {"ready": True}),
+    ("release forgets the counts and the hold", [("fail", "t", "nav", 0), ("fail", "t", "nav", 1),
+                                                 ("fail", "t", "nav", 2), ("hold", "t", 500, 2), ("release", "t")],
+     3, {"exhausted": None, "last": None}),
+    ("a success forgets the counts, not the cooling at the place", [("fail", "t", "nav", 0), ("ok", "t")], 1,
+     {"exhausted": None, "last": None, "cooling": ["nav@('here', False)"], "ready_of": ("u", True)}),
+]
+
+
+class Ledger(unittest.TestCase):
+    def test_sequences(self):
+        for name, ops, now, want in LEDGER:
+            r, n = retry.Retry(), 0
+            with self.subTest(name):
+                for op_, *a in ops:
+                    if op_ == "fail":
+                        r.failed(a[0], a[1], f"m{n}", a[2], P)
+                        n += 1
+                    elif op_ == "hold":
+                        r.hold(a[0], a[1], a[2])
+                    elif op_ == "cap":
+                        r.cap(a[0], a[1], a[2], P)
+                    elif op_ == "release":
+                        r.release(a[0])
+                    elif op_ == "ok":
+                        r.succeeded(a[0])
+                if "ready" in want:
+                    self.assertEqual(r.ready("t", now, P), want["ready"])
+                if "ready_of" in want:
+                    self.assertEqual(r.ready(want["ready_of"][0], now, P), want["ready_of"][1])
+                if "exhausted" in want:
+                    self.assertEqual(r.exhausted("t"), want["exhausted"])
+                if "last" in want:
+                    self.assertEqual(r.last_failure("t"), want["last"])
+                if "cooling" in want:
+                    self.assertEqual(r.cooling_now(now), want["cooling"])
+
+
 def new_brain(tmp):
     b = brainmod.Brain.__new__(brainmod.Brain)
     b.mem = Memory(os.path.join(tmp, "notes.json"))
