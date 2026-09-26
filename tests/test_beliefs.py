@@ -12,7 +12,6 @@ Beliefs also carry how much they are worth trusting: `(value, n)`, where `n` is 
 it. Every number starts at n=0 — a declared guess — and `fit` raises it from the tape. Nothing reads the count
 yet; the shape is here so that when it is read, it does not mean changing every call site again.
 """
-import inspect
 import json
 import os
 import sys
@@ -167,45 +166,65 @@ class AMeasurementSurvivesTheProcessThatTookIt(unittest.TestCase):
 
 
 class EveryCounterTellsTheHistory(unittest.TestCase):
-    """The connection between what the agent DOES and what it believes, stated once and swept over every place it
-    is made.
+    """The connection between what the agent DOES and what it believes, run rather than read: each counter is
+    called with a measured span, and what it files (or refuses to file) is the row's answer.
 
-    Each row is: the function that watches something happen, and the belief it is a measurement of. Written this
-    way, adding a measurement is a row — not a new test — and the rules (it names a real belief, it says what
-    counts as a sample, it never moves the number by itself) are asked of all of them at once.
+    A timing is only a measurement while the clock was measuring the thing — a queued task, a stall, an interrupted
+    break time the harness. So every counter's rows include spans it must refuse: one thousand-second outlier would
+    drag a belief the pseudo-counts are meant to protect.
     """
 
-    WIRED = (("memory", "Memory", "forget_death", "time.death_cost_s"),
-             ("skillcore", None, "_note_break", "tools.mine_time_stone"),
-             ("skillcore", None, "_note_break", "tools.mine_time_no_pickaxe"),
-             ("skills", None, "eat", "engage.eat_s"))
+    def _break(self, took, pickaxe):
+        from unittest import mock
+        from bonobo import skillcore
+        inv = type("Inv", (), {"tools": lambda self, k: [(1, 100, "minecraft:stone_pickaxe")] if pickaxe else []})
+        with mock.patch.object(skillcore.time, "time", return_value=1000.0 + took), \
+                mock.patch.object(skillcore, "Inventory", inv):
+            skillcore._note_break(1000.0)
 
-    def source(self, module, owner, func):
-        import importlib
-        mod = importlib.import_module(f"bonobo.{module}")
-        holder = getattr(mod, owner) if owner else mod
-        return inspect.getsource(getattr(holder, func))
+    def _death(self, took):
+        import tempfile
+        from unittest import mock
+        from bonobo import memory
+        m = memory.Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
+        m.data["deaths"].append({"pos": [0, 64, 0], "dimension": "minecraft:overworld", "t": 1000.0})
+        with mock.patch.object(memory.time, "time", return_value=1000.0 + took):
+            self.assertIsNotNone(m.forget_death())
 
-    def test_each_counter_notes_a_belief_that_exists(self):
-        for module, owner, func, path in self.WIRED:
-            with self.subTest(where=f"{module}.{func}", belief=path):
-                src = self.source(module, owner, func)
-                self.assertIn("beliefs.note(", src, "keeps its measurement to itself")
-                self.assertIn(path.rstrip("."), src, f"does not name {path}")
-                if not path.endswith("."):
-                    beliefs.value(path)        # KeyError here: filed under a typo
+    def _eat(self, took):
+        from unittest import mock
+        from bonobo import brain, skills  # noqa: F401  (brain registers every skill module)
+        inv = type("Inv", (), {"count": lambda self, item: 1})
+        with mock.patch.object(skills.time, "time", side_effect=[1000.0, 1000.0 + took]), \
+                mock.patch.object(skills, "Inventory", inv), \
+                mock.patch.object(skills.api, "run", return_value={"status": "succeeded"}):
+            self.assertTrue(skills.eat.__wrapped__(None, raw_ok=False))
 
-    def test_each_timer_says_what_counts_as_a_sample(self):
-        """A queued task, a stall, an interrupted break time the harness rather than the world. Every place that
-        times something states a window it will accept — otherwise one thousand-second outlier drags a belief the
-        pseudo-counts exist to protect."""
-        import re as _re
-        for module, owner, func, _path in self.WIRED:
-            with self.subTest(where=f"{module}.{func}"):
-                src = self.source(module, owner, func)
-                bounded = (_re.search(r"<=\s*\w+\s*<=", src) or _re.search(r"[<>]=?\s*(self\.)?[A-Z_]*SAMPLE", src)
-                           or _re.search(r"if\s+\w+\s*[<>]", src) or "floor" in src)
-                self.assertTrue(bounded, "times something without saying what counts as a sample")
+    # (counter, how it is run, span in seconds) → the belief it files, or None when the span is not a sample
+    ROWS = [("break with a pickaxe", "_break", (2.0, True), "tools.mine_time_stone"),
+            ("break by hand", "_break", (6.0, False), "tools.mine_time_no_pickaxe"),
+            ("break: a queued task, too quick to be one", "_break", (0.01, True), None),
+            ("break: a stall", "_break", (45.0, True), None),
+            ("death walked back", "_death", (120.0,), "time.death_cost_s"),
+            ("death: recovered in under a second (a replay)", "_death", (0.5,), None),
+            ("death: over an hour (the session slept)", "_death", (7200.0,), None),
+            ("a bite", "_eat", (1.6,), "engage.eat_s"),
+            ("a bite that timed the queue", "_eat", (0.01,), None),
+            ("a bite interrupted for a minute", "_eat", (60.0,), None)]
+
+    def test_each_counter_files_its_span_or_refuses_it(self):
+        from unittest import mock
+        for name, how, args, path in self.ROWS:
+            with self.subTest(name), mock.patch.object(beliefs, "note") as note:
+                getattr(self, how)(*args)
+                filed = [(c.args[0], c.args[1]) for c in note.call_args_list]
+                self.assertEqual(filed, [(path, args[0])] if path else [])
+
+    def test_every_belief_filed_exists(self):
+        for name, _how, _args, path in self.ROWS:
+            if path:
+                with self.subTest(name):
+                    beliefs.value(path)        # KeyError here: a measurement filed under a typo
 
 
 class MeasurementsMoveTheNumber(unittest.TestCase):
@@ -284,58 +303,6 @@ class MeasurementsMoveTheNumber(unittest.TestCase):
         self.assertEqual(gaps, sorted(gaps, reverse=True), "each observation narrows the doubt")
 
 
-class EveryMeasurementHasABound(unittest.TestCase):
-    """A timing is only a measurement while the clock was measuring the thing.
-
-    A queued task, a stall, an interrupted break: all of them time the harness rather than the world, and a single
-    one of them at a thousand seconds would drag a belief the pseudo-counts are meant to protect. Every place that
-    times something therefore states a window it will accept.
-    """
-
-    TIMERS = (("skillcore", "_note_break"), ("skills", "eat"), ("memory", "forget_death"))
-
-    def test_each_timer_states_what_it_will_accept(self):
-        import importlib
-        import re as _re
-        for module, func in self.TIMERS:
-            mod = importlib.import_module(f"bonobo.{module}")
-            owner = getattr(mod, "Brain", None) or getattr(mod, "Memory", None) or mod
-            src = inspect.getsource(getattr(owner, func, None) or getattr(mod, func))
-            bounded = _re.search(r"<=\s*\w+\s*<=", src) or _re.search(r"[<>]=?\s*(self\.)?[A-Z_]*SAMPLE", src) \
-                or _re.search(r"if\s+\w+\s*[<>]", src)
-            self.assertTrue(bounded, f"{module}.{func} times something without saying what counts as a sample")
-
-
-class TheWorldsCountersAlsoTellTheHistory(unittest.TestCase):
-    """Every counter the agent already keeps is a measurement of a declared guess.
-
-    `memory` counted exposure and yields, `brain` watched health and food every round, and the beliefs those
-    numbers are about stayed at their priors — two records of one fact, one of them never consulted. The rules
-    here are about the CONNECTION, not about any value: it exists, it names a real belief, and a stretch too
-    short to mean anything is not a sample.
-    """
-
-    WIRED = (("memory", "forget_death", "time.death_cost_s"),
-             ("skillcore", "_note_break", "tools.mine_time_stone"),
-             ("skillcore", "_note_break", "tools.mine_time_no_pickaxe"),
-             ("skills", "eat", "engage.eat_s"))
-
-    def test_each_counter_notes_the_belief_it_measures(self):
-        import importlib
-        for module, func, path in self.WIRED:
-            mod = importlib.import_module(f"bonobo.{module}")
-            owner = getattr(mod, "Brain", None) or getattr(mod, "Memory", None) or mod
-            src = inspect.getsource(getattr(owner, func, None) or getattr(mod, func))
-            self.assertIn("beliefs.note(", src, f"{module}.{func} keeps its measurement to itself")
-            self.assertIn(path.rstrip("."), src, f"{module}.{func} does not name {path}")
-
-    def test_every_belief_named_that_way_exists(self):
-        for _module, _func, path in self.WIRED:
-            if path.endswith("."):
-                continue
-            beliefs.value(path)          # KeyError here means a measurement is being filed under a typo
-
-
 class TheHistoryIsNeverLost(unittest.TestCase):
     """Measurements arrive at the speed of the world, so they are written in batches — and a batch is a place
     where a history can be lost. The rules: the buffer counts as part of the history, something empties it, and
@@ -358,11 +325,17 @@ class TheHistoryIsNeverLost(unittest.TestCase):
             beliefs.LOG = log
 
     def test_the_end_of_the_process_writes_what_is_queued(self):
-        import atexit
-        registered = [f for f, *_ in getattr(atexit, "_ncallbacks", lambda: None) and []] or None
-        src = inspect.getsource(beliefs)
-        self.assertIn("atexit.register(flush)", src)
-        self.assertIsNone(registered)          # nothing to assert about CPython's private list; the source says it
+        """A process that notes one measurement and exits without flushing still leaves it on disk (atexit)."""
+        import subprocess
+        import tempfile
+        log = os.path.join(tempfile.mkdtemp(), "beliefs.jsonl")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        code = "from bonobo import beliefs; beliefs.note('nav.unit_s', 0.9, where='exit test')"
+        subprocess.run([sys.executable, "-c", code], cwd=root, env={**os.environ, "MC_BELIEFS": log},
+                       check=True, timeout=60)
+        with open(log) as f:
+            rows = [json.loads(line) for line in f]
+        self.assertEqual([(r["path"], r["measured"], r["where"]) for r in rows], [("nav.unit_s", 0.9, "exit test")])
 
     def test_a_batch_has_a_size_and_an_age(self):
         self.assertGreater(beliefs.FLUSH_EVERY, 1)
