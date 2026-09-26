@@ -105,6 +105,45 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
     return steps, extra
 
 
+def effect_detail(kind, token, count):
+    """What an effect step's skill reads from `detail`, filled from the tables where the tables know it: what a
+    hunt chases, what a mine breaks, what a take breaks, how many times a craft runs. The rest comes from the goal."""
+    from . import knowledge
+    from .data import mid
+    if kind == "hunt" and token in knowledge.HUNT:
+        return {"types": list(knowledge.HUNT[token])}
+    if kind == "mine" and mid(token) in knowledge.MINE:
+        blocks, tier = knowledge.MINE[mid(token)]
+        return {"blocks": list(blocks), "tier": tier}
+    if kind == "take" and token in knowledge.TAKEABLE:
+        return {"blocks": list(knowledge.TAKEABLE[token]["blocks"])}
+    if kind == "craft":
+        return {"times": count, "inputs": {}}
+    return {}
+
+
+def missing_detail(step):
+    """The detail key the step's providers ask for and the step lacks, or None. Asked of each provider's adapter
+    offline: a KeyError on `detail` is a missing argument; anything that needs the world is the skill's own check."""
+    from . import skill
+
+    class _Detail(dict):
+        def __missing__(self, key):
+            raise LookupError(key)
+    probe = Step(step.kind, step.token, step.count, _Detail(step.detail))
+    missing = None
+    for effect in skill.step_keys(step):
+        for contract in skill.providers(effect):
+            try:
+                contract.provides[effect](None, probe)
+                return None                  # one provider can serve it from what the step carries
+            except LookupError as e:
+                missing = missing or str(e.args[0])
+            except Exception:
+                return None                  # it needs the world (ctx) to say: not refusable offline
+    return missing
+
+
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)
     step.est = cost.estimate(step)
@@ -148,8 +187,13 @@ def _decompose(inv, goal, cost, solver, pending):
         # Any effect a skill provides, asked for by name: "breed" → Step("breed", "breed"), "repair:pickaxe" →
         # Step("repair", "pickaxe"). `decompose` refuses it when no registered skill provides it (skill.handles).
         kind, _, token = args["effect"].partition(":")
-        step = _action(kind, token or kind, cost, **dict(args.get("detail") or {}))
-        step.count = int(args.get("count", 1))
+        count = int(args.get("count", 1))
+        detail = dict(effect_detail(kind, token or kind, count), **dict(args.get("detail") or {}))
+        step = Step(kind, token or kind, count, detail)
+        missing = missing_detail(step)
+        if missing:
+            raise Unplannable(f"effect {args['effect']} needs {missing} in its detail")
+        step.est = cost.estimate(step)
         return [step]
     raise Unplannable(f"no way to decompose a {template!r} goal")
 
