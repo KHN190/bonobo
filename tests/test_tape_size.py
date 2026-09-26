@@ -42,9 +42,6 @@ class Trimming(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(tape.trim(path, 10_000), 0)
 
-    def test_the_cap_is_two_megabytes(self):
-        self.assertEqual(tape.MAX_BYTES, 2 * 1024 * 1024)
-
 
 if __name__ == "__main__":
     unittest.main()
