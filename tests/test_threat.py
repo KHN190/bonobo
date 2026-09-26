@@ -188,6 +188,56 @@ class TheFastLane(unittest.TestCase):
         self.assertAlmostEqual(worth, round(threat.saves(same, opts, price, threat.horizon_for(st)), 1), places=1)
 
 
+class TheSkillsBatches(unittest.TestCase):
+    """combat's shoot / guard / strike, as the pure batches the skills post."""
+
+    class Bag:
+        def __init__(self, items=(), offhand="minecraft:air"):
+            self.items, self.hand = set(items), offhand
+
+        def count(self, item):
+            return 1 if item in self.items else 0
+
+        def offhand(self):
+            return self.hand
+
+    # (offhand, swords carried) → the guard batch
+    GUARD = [("minecraft:shield", ["minecraft:iron_sword"],
+              [{"type": "use_item", "item": "minecraft:iron_sword", "yaw": 90.0, "pitch": 0, "holdTicks": 30}]),
+             ("minecraft:shield", ["minecraft:stone_sword", "minecraft:diamond_sword"],
+              [{"type": "use_item", "item": "minecraft:diamond_sword", "yaw": 90.0, "pitch": 0, "holdTicks": 30}]),
+             ("minecraft:shield", [], []), ("minecraft:air", ["minecraft:iron_sword"], [])]
+
+    def test_guard_batch(self):
+        from bonobo import combat
+        for hand, swords, want in self.GUARD:
+            with self.subTest(hand=hand, swords=swords):
+                self.assertEqual(combat.guard_batch(self.Bag(swords, hand), 90.0), want)
+
+    def test_strike_and_shoot_batches(self):
+        from bonobo import combat
+        e = {"id": 9, "x": 10.0, "y": 64.0, "z": 0.0}
+        self.assertEqual(combat.strike_batch(e), [{"type": "attack", "entity": 9}])
+        (shot,) = combat.shoot_batch(e, (0.0, 65.62, 0.0))
+        aim = combat.bow_aim((0.0, 65.62, 0.0), (10.0, 64.0, 0.0), height=0.6)
+        self.assertEqual(shot, {"type": "use_item", "item": "minecraft:bow", "x": aim[0], "y": aim[1], "z": aim[2],
+                                "holdTicks": 22})
+
+    def test_a_fight_is_on_while_the_body_is_engaged(self):
+        from bonobo import arbiter, fight_loop
+        rows = [(False, False), (True, True)]
+        for engaged, want in rows:
+            with self.subTest(engaged=engaged):
+                body = arbiter.Motion()
+                if engaged:
+                    body.engage()
+                saved, arbiter.BODY = arbiter.BODY, body
+                try:
+                    self.assertEqual(fight_loop.active(), want)
+                finally:
+                    arbiter.BODY = saved
+
+
 def nav_mine(cell):
     from bonobo import nav
     return nav.mine_task(cell)
