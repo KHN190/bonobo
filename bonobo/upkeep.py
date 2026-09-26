@@ -360,7 +360,13 @@ def _death_retired(c):
     return death is None or tuple(death["pos"]) != c.result
 
 
-@skill(verify=_death_retired, budget=300, stall=90, per_unit=120)
+def _drops_gone(c):
+    """World evidence, not our own note: no dropped items left around the death spot we walked to."""
+    from .world import entities
+    return _death_retired(c) and not entities(10, ["minecraft:item"])
+
+
+@skill(verify=_drops_gone, budget=300, stall=90, per_unit=120)
 def recover_items(ctx):
     """Go back to the last death spot within 5 minutes and pick up what dropped there."""
     s = api.get("/state")

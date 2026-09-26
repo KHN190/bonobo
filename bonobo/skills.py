@@ -66,7 +66,8 @@ def openable_container(pos):
 
 
 @skill(budget=120, stall=45, per_unit=20,
-       verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2,
+       verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
+       and len(free_spots_here(limit=2)) >= 2,
        provides={"reach:open": lambda ctx, s: ()})
 def move_to_open_space(ctx):
     """Full bag in a shaft or tunnel: walk to the nearest spot with room to throw and to put down a chest."""
@@ -645,14 +646,19 @@ STRIP_ORES = [("minecraft:diamond", ["diamond_ore", "deepslate_diamond_ore"], 2)
               ("coal", ["coal_ore", "deepslate_coal_ore"], 0)]
 
 
+def _stone_held():
+    """What a tunnel yields whatever else it finds: stone of any kind in the bag."""
+    return Inventory().count("stone") + Inventory().count("minecraft:cobbled_deepslate")
+
+
 def _not_in_water(c):
     if api.get("/state")["inWater"]:
         raise NotAvailable("standing in water: no strip mining here")
 
 
 @skill(pre=[lambda c: require_pickaxe(0), _not_in_water], needs={"tool:pickaxe:0": 1},
-       start=lambda c: world_signature(),
-       verify=lambda c: world_signature() != c.base, budget=300, stall=60)
+       start=lambda c: (feet()[1], _stone_held()),
+       verify=lambda c: feet()[1] != c.base[0] or _stone_held() > c.base[1], budget=300, stall=60)
 def strip_mine_step(ctx, length=16):
     """Always-available work: descend toward iron depth (diamond depth once an iron pickaxe exists), then drive a
     2-high tunnel and take any ore it reveals. Light comes from reflexes between segments."""
@@ -857,7 +863,7 @@ def edible_carried(inv):
 
 
 @skill(start=lambda c: api.get("/state")["food"],
-       verify=lambda c: not c.result or api.get("/state")["food"] > c.base, budget=30, stall=30,
+       verify=lambda c: api.get("/state")["food"] > c.base, budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
     """Eat the best food carried (raw meat too when starving). Returns False when there is none."""
@@ -1198,7 +1204,7 @@ def dig_in_commands(state, args=()):
     return tasks
 
 
-@skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1], commands=dig_in_commands,
+@skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30)
@@ -1430,7 +1436,7 @@ def pending_ready(machine):
 
 
 @skill(start=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])),
-       verify=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])) < c.base or c.base == 0,
+       verify=lambda c: sum(p["count"] for p in c.args[1].get("pending", [])) < c.base,
        budget=300, stall=60)
 def collect_machine(ctx, machine):
     """Empty a machine's output chest into the inventory and settle its pending outputs."""

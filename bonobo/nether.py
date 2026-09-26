@@ -98,7 +98,7 @@ def use_portal(ctx, to_dimension):
     raise McError("stood in the portal but the dimension didn't change")
 
 
-@skill(verify=lambda c: bool(c.args[0].mem.sites(NETHER, kinds=["fortress"])), budget=900, stall=180, per_unit=600,
+@skill(verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180, per_unit=600,
        provides={"seek:fortress": lambda ctx, s: ()})
 def find_fortress(ctx, legs=8, leg=48):
     """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava). Remembers the

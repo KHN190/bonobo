@@ -102,6 +102,11 @@ def go_find(ctx, step):
             return True
         except NotAvailable:
             pass
-    if step.kind == "hunt":
-        return bool(skills.explore_for(ctx, list(step.detail["types"])))
-    return bool(skills.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))
+    try:           # a search that found nothing fails its verify: that is "nowhere new", not a crash
+        if step.kind == "hunt":
+            return bool(skills.explore_for(ctx, list(step.detail["types"])))
+        return bool(skills.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))
+    except api.INTERRUPTIONS:
+        raise
+    except McError:
+        return False

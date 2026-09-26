@@ -186,7 +186,7 @@ def _obsidian_near(pos, radius=8):
 _CAST = {}      # where the last pour went: what the verify looks at
 
 
-@skill(verify=lambda c: _obsidian_near(_CAST.get("bank")) > 0, budget=900, stall=240, per_unit=120,
+@skill(verify=lambda c: _obsidian_near(_CAST.get("bank")) > _CAST.get("before", 0), budget=900, stall=240, per_unit=120,
        provides={"cast:obsidian": lambda ctx, s: ()})
 def cast_obsidian(ctx):
     """Turn a lava pool's surface into obsidian: pour water from a safe bank, wait, take the water back.
@@ -246,7 +246,7 @@ def _cast_pools(ctx, pools, here):
             ctx.ban(c, 600)
             continue
         before = _obsidian_near(bank)
-        _CAST["bank"] = bank
+        _CAST.update(bank=bank, before=before)
         # Use the item, not use-on-block: the on-block path's interactItem fallback could fire a second use with the
         # now-empty bucket and scoop the water straight back (bench 03:57: water for one poll, lava bucket after).
         _use("minecraft:water_bucket", (bank[0] + 0.5, bank[1] + 1.0, bank[2] + 0.5), False)

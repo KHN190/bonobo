@@ -8,13 +8,11 @@ from .skill import skill
 from .skillcore import feet
 
 
-# What a search controls is the walking, not whether the world holds the thing: it succeeded when it found one, or
-# when it covered new ground looking. A search that neither found nor moved did nothing.
-SEARCH_MOVED_BLOCKS = 8
 
 
 def _searched(c):
-    return bool(c.result) or math.dist(feet(), c.base) >= SEARCH_MOVED_BLOCKS
+    """A search succeeded when it found one: walking without finding is not the product."""
+    return bool(c.result)
 from .world import entities, find
 
 
