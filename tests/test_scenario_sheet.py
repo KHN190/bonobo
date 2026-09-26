@@ -209,9 +209,20 @@ class Tiers(unittest.TestCase):
 
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
-LONG = {"escape", "fight_dragon", "combat_arena", "siege", "locate_stronghold", "find_portal_room_fresh",
-        "bed_bomb_kill"}
-LIMIT_S = {"core": 30, "common": 180, "brain": 180, "exception": 180}
+LONG = {  # over the 60 s limit, still to be cut down by setup (may only shrink)
+    "ban_needs_a_failure", "ban_then_other_source", "barter_piglin", "bed_bomb_kill", "boat_across_the_lake",
+    "brew_fire_resistance_stand", "broken_tool_best_tier", "broken_tool_nothing_better", "bucket_before_the_shaft",
+    "build_shelter_flat", "cast_portal", "chop__pickup_lag", "chop_without_interrupt", "collect_blaze_rods",
+    "combat_arena", "dead_flicker_on_respawn", "escape", "explore_for_animals_real", "fight_blaze_3", "fight_dragon",
+    "fight_zombie_3", "find_fortress_far", "find_portal_room_fresh", "food_lead", "hunt__pickup_lag",
+    "interrupted_rescue_is_not_a_failure", "l3_order_swapped", "l3_two_goals_in_order", "locate_stronghold",
+    "loot__inventory_lag", "loot__pickup_lag", "mine_iron__pickup_lag", "mine_stone__pickup_lag",
+    "pearls_from_barter", "plan_repair_on_event", "plan_without_events", "plant_wheat", "portal_from_cast",
+    "resume_after_combat", "road_reuse", "seek_blocks_real", "seen_store_goes_back", "siege", "slice_nether_kit",
+    "slice_retreat", "smelt__inventory_lag", "smelt_in_background", "strip_mine_real", "trek_nether_150",
+    "trek_overworld_200", "upkeep_preempts_task", "upkeep_waits_in_daylight", "wait_out_the_night",
+}
+LIMIT_S = {"core": 30, "common": 60, "brain": 60, "exception": 60}
 
 
 def over_limit(rows_):
@@ -224,7 +235,9 @@ class Budgets(unittest.TestCase):
     ROWS = [("the real sheet: only the long list", None, None),
             ("a core row at 31 s", {"x": {"tier": "core", "budget": 31}}, ["x"]),
             ("a core row at 30 s", {"x": {"tier": "core", "budget": 30}}, []),
-            ("an exception row at 181 s", {"x": {"tier": "exception", "budget": 181}}, ["x"]),
+            ("an exception row at 61 s", {"x": {"tier": "exception", "budget": 61}}, ["x"]),
+            ("a brain row at 61 s", {"x": {"tier": "brain", "budget": 61}}, ["x"]),
+            ("a common row at 60 s", {"x": {"tier": "common", "budget": 60}}, []),
             ("acceptance is its own limit", {"x": {"tier": "acceptance", "budget": 1800}}, [])]
 
     def test_budget_limits(self):
@@ -311,8 +324,8 @@ class Changed(unittest.TestCase):
              ("died (McError: failed)", False), ("NavFailed: could not get to (1, 2, 3)", False)]
 
     # (reached?, seconds, budget, crashed?) → ok, and the note says why not
-    JUDGE = [(True, 30, 45, False, True, None), (True, 67, 45, False, True, None),
-             (True, 68, 45, False, False, "over budget"), (False, 10, 45, False, False, "not reached"),
+    JUDGE = [(True, 30, 45, False, True, None), (True, 45, 45, False, True, None),
+             (True, 46, 45, False, False, "over budget"), (False, 10, 45, False, False, "not reached"),
              (True, 10, 45, True, False, "crash"), (False, 500, 45, True, False, "not reached")]
 
     def test_budget_and_crash_judgment(self):
@@ -334,7 +347,9 @@ class Changed(unittest.TestCase):
         for oks, want in (([], None), ([True], "pass"), ([False], None), ([False, True], None),
                           ([False, False], "fail"), ([True, True], "pass"), ([False, True, True], "pass"),
                           ([False, True, False], "fail"), ([True, False, False], "fail"),
-                          ([False, False, True, True, True], "pass")):
+                          ([False, False, True, True, True], "pass"),
+                          # stopped at the limit: slow every time, never re-run
+                          ([sc.TIMEOUT], "fail"), ([False, sc.TIMEOUT], "fail"), ([sc.TIMEOUT, True], None)):
             with self.subTest(oks=oks):
                 self.assertEqual(sc.verdict_of(oks), want)
         self.assertEqual(sc.MAX_RUNS, 3)

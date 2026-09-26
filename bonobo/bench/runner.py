@@ -66,7 +66,26 @@ def classify(exc, ok):
     return "skill"
 
 
-BUDGET_SLACK = 1.5      # a row may run to 1.5× its budget before a reached outcome stops counting
+BUDGET_SLACK = 1.0      # the budget is a hard limit: the row is stopped there (`_watchdog`) and fails
+ROW_LIMIT_S = 60        # no row outside acceptance may ask for more (speedrun standard; target ≤ 30 s)
+TIMEOUT = "TIMEOUT"     # the note's prefix for a row stopped at its limit: deterministic slowness, never re-run
+
+
+def _watchdog(limit, fired):
+    """Arm a timer: at `limit` s stop the body (/stop) and interrupt the row's run in the main thread."""
+    import _thread
+
+    def fire():
+        fired.set()
+        try:
+            api.post("/stop")
+        except Exception:
+            pass
+        _thread.interrupt_main()
+    t = threading.Timer(limit, fire)
+    t.daemon = True
+    t.start()
+    return t
 
 
 def judge(reached, seconds, budget, crashed=False):
@@ -283,7 +302,10 @@ MAX_RUNS = 3      # a row runs once; a failure is re-run, three runs at most, an
 def verdict_of(oks):
     """Pure: the verdict of a row's counted runs, in order (the last MAX_RUNS). One pass is a pass; two failures are a
     fail; one of each needs the third run, which decides (≥ 2 of 3). None = run again."""
-    oks = [bool(o) for o in oks][-MAX_RUNS:]
+    oks = list(oks)[-MAX_RUNS:]
+    if oks and oks[-1] == TIMEOUT:
+        return "fail"                  # stopped at the limit: slow every time, a re-run only costs the limit again
+    oks = [o is True or (bool(o) and o != TIMEOUT) for o in oks]
     if not oks:
         return None
     if len(oks) == 1:
@@ -296,7 +318,7 @@ def verdict_of(oks):
 def verdict(table, name, code):
     """Pure: 'pass' / 'fail' for the current code's counted runs (`verdict_of`), else None."""
     counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
-    return verdict_of([r["ok"] for r in counted])
+    return verdict_of([TIMEOUT if r.get("note", "").startswith(TIMEOUT) else r["ok"] for r in counted])
 
 
 # ---------------------------------------------------------------- readiness table (pure helpers are tested offline)
@@ -537,7 +559,11 @@ def run(name, make_ctx):
             result = None
             crashed = False
             LAST_FEEDBACK[:] = feedback
+            fired = threading.Event()
+            limit = sc["budget"]
+            timer = _watchdog(limit, fired)
             try:
+              try:
                 ctx = make_ctx()
                 if sc.get("before"):
                     sc["before"](ctx)
@@ -547,6 +573,13 @@ def run(name, make_ctx):
                     # Dead before the skill began (a dragon fight started at 0 hp): the setup is invalid, not the skill.
                     raise SetupInvalid("player dead before the skill started")
                 result = sc["run"](ctx)
+              finally:
+                timer.cancel()
+            except KeyboardInterrupt:
+                if not fired.is_set():
+                    raise                      # the user's ^C, not the limit
+                exc = McError(f"{TIMEOUT}: stopped at the {limit}s limit")
+                note = str(exc)
             except Exception as e:     # the skill's own failure is a result, not a crash of the bench
                 exc, note = e, f"{type(e).__name__}: {e}"
                 if not isinstance(e, (api.McError, api.NotAvailable, SetupInvalid)):
@@ -562,6 +595,7 @@ def run(name, make_ctx):
                 reached = bool(sc["check"](api, inv_after))
                 # A crash (IndexError from our own code) passed the check once and was recorded as PASS.
                 ok, why = judge(reached, seconds, sc["budget"], crashed)
+                ok = ok and not fired.is_set()
                 if reached and not ok:
                     # The outcome happened, just too slowly (or through a crash of ours): say so.
                     exc = exc or McError(why)
