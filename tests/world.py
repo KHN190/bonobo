@@ -75,8 +75,8 @@ def slot(item, count=1, worn=0, i=0):
     """One `/inventory` slot. A tool carries damage/maxDamage like the mod reports it; `worn` = uses already spent."""
     item = item if ":" in item else f"minecraft:{item}"
     out = {"id": item, "count": int(count), "slot": i}
-    material = item.split(":")[1].rsplit("_", 1)[0]
-    if material in TOOL_MAX and item.rsplit("_", 1)[1] in ("pickaxe", "axe", "sword", "shovel", "hoe"):
+    material, _, kind = item.split(":")[1].rpartition("_")
+    if material in TOOL_MAX and kind in ("pickaxe", "axe", "sword", "shovel", "hoe"):
         out.update(damage=int(worn), maxDamage=TOOL_MAX[material])
     return out
 
