@@ -1906,7 +1906,7 @@ for _name, _row_ in {
 SHEET["dead_flicker_on_respawn"] = {
     "doc": "Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
            "respawn, not call every skill dead, and still chop its 4 logs",
-    "module": "brain", "point": "A", "skills": ["item:log"], "tags": {"base": "chop", "timing": "dead_flicker"},
+    "module": "brain", "point": "A", "skills": ["item:log"], "tags": {"base": "chop", "surprise": "dead_flicker"},
     "setup": _grove((4, 0), (-4, 3)) + [_tp()],
     "before": _hooks(_start("dead_flicker_on_respawn"), lambda ctx: _chat("kill @p")),
     "run": lambda ctx: (_brain_rounds(15, lambda: not __import__("bonobo.api", fromlist=["get"]).get("/state")["dead"])(ctx),
@@ -2026,7 +2026,7 @@ for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
     SHEET[_name] = {
         "doc": f"Walled platform, iron kit: {_n} {_mob} → " + ("all dead" if _clear else "left alone (neutral)") +
                f", health ≥ {_hp}, a threat decision every ≤ 1.5 × FIGHT_POLL_S while engaged",
-        "module": "fight_loop", "combat": True, "point": "B", "skills": [], "tier": _tier,
+        "module": "fight_loop", "combat": True, "point": "B", "skills": [], "tier_fixed": _tier,
         "tags": {"base": "fight", "enemy": _mob, "count": _n},
         "setup": list(_ARENA) + [f"summon {_mob} {_c(at(x, y, z))} {{PersistenceRequired:1b}}" for x, y, z in _spots],
         "expect_entities": [(f"minecraft:{_mob}", _n)],
@@ -2035,6 +2035,76 @@ for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
         "check": _all(_hp_kept(_hp), _gone(_kinds), _decision_gaps_ok()) if _clear
         else _all(_hp_kept(_hp), lambda api, inv, k=_kinds: bool(_hostiles(24, set(k)))),
         "budget": _secs,
+    }
+
+# -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells --------------------------------------------------
+def _placed_facing(pos, facing):
+    """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""
+    def check(api, inv):
+        from .world import Region
+        r = Region(pos, pos, props=True)
+        return r.name(pos) != "air" and r.prop(pos, "facing") == facing
+    return check
+
+
+def _place_facing(item, pos, facing):
+    def run(ctx):
+        from .building import place_oriented
+        return place_oriented(ctx, pos, item, facing) or True
+    return run
+
+
+PLACE_ROWS = [   # (name, item, facing asked, facing the block must report, tier)
+    ("place_furnace_north", "minecraft:furnace", "north", "north", "common"),
+    ("place_furnace_south", "minecraft:furnace", "south", "south", "common"),
+    ("place_furnace_east", "minecraft:furnace", "east", "east", "common"),
+    ("place_furnace_west", "minecraft:furnace", "west", "west", "common"),
+    ("place_observer_up", "minecraft:observer", "up", "up", "exception"),
+    ("place_observer_down", "minecraft:observer", "down", "down", "exception"),
+    ("place_stairs_east", "minecraft:oak_stairs", "east", "east", "exception"),
+    # A block without a facing property: the asked facing is ignored and the place still succeeds.
+    ("place_cobblestone_facing_ignored", "minecraft:cobblestone", "north", None, "exception"),
+]
+for _name, _item, _asked, _want, _tier in PLACE_ROWS:
+    _pos = at(3, 0, 0)
+    SHEET[_name] = {
+        "doc": f"Place {_item.split(':')[1]} asking facing={_asked} (the jar turns the body by the block's own rule) "
+               f"→ the block reports facing={_want}",
+        "module": "building", "point": "A", "skills": [], "tier_fixed": _tier, "tags": {"base": "place"},
+        "setup": _floor() + [_tp(), f"give @p {_item.split(':')[1]} 2"],
+        "before": _start(_name), "run": _place_facing(_item, _pos, _asked),
+        "check": _placed_facing(_pos, _want), "budget": 20,
+    }
+
+SHEET["boat_across_the_lake"] = {
+    "doc": "A 19-block lake between two shores, a boat carried → across to the far shore (the jar's BoatDriver)",
+    "module": "nav", "point": "A", "skills": ["goto"], "tier_fixed": "exception", "tags": {"base": "nav", "terrain": "lake"},
+    "setup": [f"fill {_c(at(-4, -4, -6))} {_c(at(20, -4, 6))} stone",
+              f"fill {_c(at(-4, -3, -6))} {_c(at(-1, -1, 6))} stone", f"fill {_c(at(19, -3, -6))} {_c(at(20, -1, 6))} stone",
+              f"fill {_c(at(0, -3, -6))} {_c(at(18, -1, 6))} water", _tp(-2, 0, 0), "give @p oak_boat"],
+    "before": _start("boat_across_the_lake"),
+    "run": lambda ctx: _skill("travel_to")(ctx, at(20, 0, 0), 2),
+    "check": _all(_at(at(20, 0, 0), 3), lambda api, inv: not api.get("/state")["inWater"]), "budget": 90,
+}
+
+START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)
+    ("nav_from_stairs", "a stair step", [f"setblock {_c(at(0, 0, 0))} oak_stairs[facing=east]"], (0, 0.5, 0)),
+    ("nav_from_slab", "a bottom slab", [f"setblock {_c(at(0, 0, 0))} stone_slab"], (0, 0.5, 0)),
+    ("nav_from_farmland", "farmland", [f"setblock {_c(at(0, -1, 0))} farmland"], (0, 0, 0)),
+    ("nav_from_ladder", "a ladder on a wall",
+     [f"fill {_c(at(1, 0, 0))} {_c(at(1, 3, 0))} stone", f"fill {_c(at(0, 0, 0))} {_c(at(0, 3, 0))} ladder[facing=west]"],
+     (0, 2, 0)),
+    ("nav_from_water", "a pool one deep", [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 0, 1))} water"], (0, 0, 0)),
+]
+for _name, _what, _cells, (_dx, _dy, _dz) in START_ROWS:
+    SHEET[_name] = {
+        "doc": f"Walk 10 blocks starting on {_what} (GotoTask's start cell: '1 positions explored' reproduces here) "
+               f"→ at the target",
+        "module": "nav", "point": "A", "skills": ["goto"], "tier_fixed": "common",
+        "tags": {"base": "nav", "start": _what},
+        "setup": _floor() + list(_cells) + [_tp(_dx, _dy, _dz)],
+        "before": _start(_name), "run": lambda ctx: _skill("travel_to")(ctx, at(10, 0, 0), 2),
+        "check": _at(at(10, 0, 0), 3.5), "budget": 30,
     }
 
 # -- test point D: acceptance ------------------------------------------------------------------------------------
@@ -2098,8 +2168,8 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if row.get("tier") in ("core", "common", "exception") and name.startswith("fight_"):
-        return row["tier"]
+    if row.get("tier_fixed") in ("core", "common", "exception"):
+        return row["tier_fixed"]
     if name in CORE:
         return "core"
     if name in ACCEPTANCE:

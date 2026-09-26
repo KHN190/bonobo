@@ -163,7 +163,9 @@ def cmd_scenario(a):
     from bonobo import perception
     from bonobo import skill as skillkit
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
-    names = [n for n, sc in scenarios.SCENARIOS.items() if not sc.get("release") and n in selected] \
+    # `all` skips release-only rows (minutes each) unless a tier was named: a tier's rows are the tier, all of them.
+    tiered = getattr(a, "tier", "core") not in (None, "all")
+    names = [n for n, sc in scenarios.SCENARIOS.items() if (tiered or not sc.get("release")) and n in selected] \
         if a.action == "all" else a.names
     if point:
         names = [n for n in names if scenarios.SCENARIOS[n].get("point", "A") == point]
