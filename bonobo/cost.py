@@ -1,5 +1,6 @@
-"""What a step costs, in ticks: the walk to where it happens plus how long the work takes. Shared by every solver
-(decompose.py). No survival model, no prices of health: distance and measured durations, nothing else.
+"""What a step costs, in ticks: the walk to where it happens plus how long the work takes. The one cost model, shared
+by every solver (decompose.py): the planner asks `estimate`, the column solver (actions.table) asks the seconds
+methods at the bottom (`work_s`, `seek_s`, `find_p`, `where`). One walk-time estimate: `walk_ticks`. No survival model, no prices of health: distance and measured durations, nothing else.
 
 Durations are measured (`memory.duration`, the same keys the skill runner records under) once a key has
 `skill.MIN_SAMPLES` runs; until then the priors below stand. Distances come from memory (the resource map, sightings,
@@ -9,6 +10,7 @@ the same way.
 import math
 
 from .api import McError
+from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
 from .world import entities, find
 
@@ -33,10 +35,12 @@ class Cost:
     """The cost model a planner is given. `snap` is this round's snapshot; `mem` and `blacklist` are optional (a
     test passes neither and gets the priors and straight lines)."""
 
-    def __init__(self, snap, mem=None, blacklist=None):
+    def __init__(self, snap, mem=None, blacklist=None, known=None):
+        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world)."""
         self.snap, self.mem = snap, mem
         self.blacklist = blacklist or {}
         self.cache = {}
+        self._known_fn = known
 
     # -- where things are
     def _banned(self, key):
@@ -44,20 +48,23 @@ class Cost:
         exp = self.blacklist.get(tuple(key))
         return exp is not None and exp > time.time()
 
-    def _known(self, kinds):
-        """Distance to the nearest remembered one of these (resource map, sightings), or None."""
-        if self.mem is None:
+    def _nearest(self, kinds):
+        """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None.
+        Memory only, never a fresh query, so a recorded round replays the same."""
+        if self.mem is None or self.snap is None:
             return None
+        kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
-        best = None
-        for kind in kinds:
-            spots = [r["pos"] for r in self.mem.seen(kind, dim)]
-            for p in spots:
-                if self._banned(p):
-                    continue
-                d = math.dist(tuple(p), here)
-                best = d if best is None else min(best, d)
-        return best
+        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not self._banned(r["pos"])]
+        best = min(spots, key=lambda p: math.dist(p, here), default=None)
+        return (best, math.dist(best, here)) if best is not None else None
+
+    def _known(self, kinds):
+        """Distance to the nearest remembered one of these, or None."""
+        if self._known_fn is not None:
+            return self._known_fn(list(kinds))
+        hit = self._nearest(kinds)
+        return hit[1] if hit else None
 
     def distance(self, blocks, radius=48):
         """Blocks to the nearest one of these: in sight now (one cached /find), else remembered, else None."""
@@ -154,6 +161,60 @@ class Cost:
     def plan_s(self, steps):
         """Seconds a whole plan takes: Σ Step.est."""
         return sum(s.est for s in steps) / TICKS_PER_S
+
+    # -- what the column solver asks (actions.table), in seconds
+    WORK_S = {("gather", None): 4.0, ("craft", None): 3.0, ("smelt", None): 10.0, ("mine", None): 3.0,
+              ("hunt", None): 15.0, ("shelter", "dig in"): 25.0, ("shelter", "wall in"): 40.0,
+              ("shelter", "hut"): 120.0, ("sleep", "bed"): 8.0,
+              ("room", "tidy"): 15.0, ("room", "deposit"): 60.0}
+
+    def work_s(self, kind, token):
+        """Seconds per unit of work once there."""
+        return self.WORK_S.get((kind, token), self.WORK_S.get((kind, None), 10.0))
+
+    def where(self, kinds):
+        """The position of the nearest known one, or None: what "on the way" is judged by."""
+        hit = self._nearest(kinds)
+        return hit[0] if hit else None
+
+    def seek_s(self, kinds):
+        """Seconds to go to one of these: what the game already said the route takes, else the known distance, else
+        how far one was found at before, walked (`walk_ticks`); else the declared prior."""
+        seconds = self.route_s(kinds)
+        if seconds is not None:
+            return max(1.0, round(float(seconds), 1))
+        known = self._known(kinds)
+        if known is None:
+            known = self.searched(kinds)
+        if known is None:
+            return float(_PLAY["pool"]["seek_prior_s"])
+        return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
+
+    def route_s(self, kinds):
+        """The game's own estimate for walking to the nearest known one, when it has already been asked this round
+        (nav's route cache; read, never added to — whoever is about to act asks the game)."""
+        from . import nav
+        where = self.where(kinds)
+        if where is None:
+            return None
+        policy = nav.Policy()
+        key = (tuple(int(v) for v in where), bool(policy.allow_dig), bool(policy.allow_build), 2.0, 6000)
+        found, seconds = nav._ROUTES.get(key, (None, None))
+        return seconds if found else None
+
+    def searched(self, kinds):
+        """How far one of these was found at on average, from experience; None until it has happened."""
+        if self.mem is None:
+            return None
+        seen = [d for d in (self.mem.search_distance(k) for k in kinds) if d]
+        return sum(seen) / len(seen) if seen else None
+
+    def find_p(self, kinds):
+        """The chance a look for one of these finds it: memory's count over the declared prior."""
+        prior = float(_PLAY["pool"]["exists_prior"])
+        if self.mem is None or not kinds:
+            return prior
+        return max(self.mem.exists_rate(k, prior) for k in kinds)
 
 
 class Prices:

@@ -41,10 +41,9 @@ def _solve(inv, needs, cost, pending=None):
         return []
     if getattr(cost, "snap", None) is None or getattr(cost, "mem", None) is None:
         raise Unplannable("the column solver needs a snapshot and a memory")
-    columns = act.LiveCosts(cost)
     vector = act.state_of(cost.snap, cost.mem)
     try:
-        found = solve(act.table(columns, vector), vector, target)
+        found = solve(act.table(cost, vector), vector, target)
     except Unsolvable as e:
         raise Unplannable(str(e))
     return [act.to_step(a, n) for a, n in found.steps()]

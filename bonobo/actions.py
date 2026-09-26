@@ -1,4 +1,4 @@
-"""The action table: every column the solver may use, and the state vector it acts on. Pure given a cost oracle.
+"""The action table: every column the solver may use, and the state vector it acts on. Pure given a cost model (cost.Cost).
 
 This is the layer that used to be `knowledge.source()` plus `planner.need()`'s recursive descent. The difference is
 not the data — the recipes are the same — but the shape: each way of changing the world is one column, and the
@@ -22,7 +22,6 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 import math
 
 from .data import COVERED_SKY, GROUPS, TOOL_MATERIAL_FOR_TIER, bare, mid, seen_class
-from .beliefs import CONFIG as _PLAY
 from .knowledge import GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
@@ -217,7 +216,7 @@ def state_of(snap, mem, extra=None, reachable=None):
     # Being AT something means being able to work on it, not being near it in a straight line. Standing on the rim
     # of a flooded pit is five blocks from the coal and no route to it, and the radius alone said "at: coal" — so
     # the plan's next step was to mine, the mine failed for want of a way there, and the round repeated. `reachable`
-    # is whoever can price a route (`Brain.LiveCost.reach_s`); without one this is the old radius test.
+    # is whoever can price a route; without one this is the radius test.
     for what, kinds in _findable():
         if _standing_at(kinds, snap, mem) and (reachable is None or reachable(kinds)):
             x[at(what)] = 1
@@ -296,9 +295,8 @@ class Table(list):
 
 
 def table(cost, state, wants=()):
-    """Every action available in this world, as solver columns. `cost` answers the two questions an estimate needs:
-    `walk_s(kinds)` (seconds to reach the nearest of these blocks/mobs, or None when none is known) and
-    `work_s(kind, token)` (seconds per unit of work once there). `wants` narrows the table to what is relevant;
+    """Every action available in this world, as solver columns. `cost` (cost.Cost) answers what an estimate needs:
+    `seek_s(kinds)`, `find_p(kinds)`, `where(kinds)` and `work_s(kind, token)` (seconds per unit of work once there). `wants` narrows the table to what is relevant;
     empty means everything.
     """
     return Table(base_table(cost) + [with_exposure(a) for a in
@@ -345,13 +343,7 @@ def _seek(cost):
     """
     out = []
     for what, kinds in _findable():
-        reach = cost.reach_s(kinds)
-        if reach is None:
-            go_s = cost.seek_s(kinds)                  # nobody priced a route: the straight line, as before
-        elif reach == math.inf:
-            go_s = cost.seek_s(kinds, ignore_known=True)   # no route to that one: this errand is another one
-        else:
-            go_s = max(1.0, round(reach, 1))
+        go_s = cost.seek_s(kinds)
         chance = max(MIN_FIND_P, cost.find_p(kinds))
         out.append(Action(f"seek:{what}", {at(what): 1}, round(go_s / chance, 1), limit=1,
                           tag=("seek", what, kinds, cost.where(kinds))))
@@ -687,214 +679,3 @@ def _shape(action, times):
     if kind == "sleep":
         return Step("sleep", "bed", 1, {})
     return Step("craft", action.name, times, {"times": times, "inputs": {}})
-
-
-# ------------------------------------------------------------------------------------------------- default costs
-
-class Costs:
-    """The cost oracle the table needs, over the brain's existing estimates. Distances come from the resource map
-    and the snapshot, never from a fresh world query: an estimate that touches the world breaks decision replays."""
-
-    WORK = {("gather", None): 4.0, ("craft", None): 3.0, ("smelt", None): 10.0, ("mine", None): 3.0,
-            ("hunt", None): 15.0, ("shelter", "dig in"): 25.0, ("shelter", "wall in"): 40.0,
-            ("shelter", "hut"): 120.0, ("sleep", "bed"): 8.0,
-            ("room", "tidy"): 15.0, ("room", "deposit"): 60.0}
-
-    def __init__(self, find_distance, unknown_walk_s=300.0):
-        self._distance = find_distance
-        self.unknown = unknown_walk_s
-
-    def distance(self, kinds):
-        """How far the nearest of these is, or None. A FACT about the world, not a duration: `seek_s` and
-        `walk_s` turn it into seconds."""
-        return self._distance(list(kinds))
-
-    def seek_s(self, kinds, ignore_known=False):
-        """Seconds to go to one of these: what the game says the route takes, else distance over speed, else the
-        declared prior.
-
-        `ignore_known` prices going to ANOTHER one — the nearest has no route from here, so its distance says
-        nothing about what this errand costs.
-
-        Distance over speed is a guess about physics: it is the time a walk WOULD take if the ground were flat,
-        empty and level. The game plans the real one (`nav.route_s`), and where the two disagree — a hill, a
-        river, a wall, three blocks of rock — the guess is wrong in the direction that matters.
-        """
-        speed = float(_PLAY["player"]["speed"])
-        if not ignore_known:
-            seconds = self.route_s(list(kinds))
-            if seconds is not None:
-                return max(1.0, round(float(seconds), 1))
-        known = None if ignore_known else self.distance(list(kinds))
-        if known is None:
-            known = self.searched(list(kinds))
-        if known is None:
-            return float(_PLAY["pool"]["seek_prior_s"])
-        return max(1.0, round(float(known) / speed + 2.0, 1))
-
-    def route_s(self, kinds):
-        """What the GAME says walking to the nearest of these takes, or None when it cannot answer. Base: never —
-        a cost model with no world is exactly the case the straight line exists for."""
-        return None
-
-    def walk_s(self, kinds, misses=0):
-        """Seconds to reach the nearest KNOWN one, or None. Each "nothing of this kind here" widens the radius the
-        next look must cover, so the errand never dies — it stops being the cheapest thing to do."""
-        d = self.distance(list(kinds))
-        if d is None:
-            return None
-        if misses:
-            measured = self.searched(list(kinds))
-            d = max(d, measured * misses) if measured else d * float(_PLAY["pool"]["search_growth"]) ** int(misses)
-        return max(1.0, round(float(d) / float(_PLAY["player"]["speed"]) + 2.0, 1))
-
-    def searched(self, kinds):
-        """How far one of these was found at on average, from experience. None until it has happened."""
-        return None
-
-    def where(self, kinds):
-        """The position of the nearest known one, or None. Distance alone cannot say whether two errands are in the
-        same direction, which is what "on the way" means — and "on the way" is most of a speedrun's saving."""
-        return None
-
-    def find_p(self, kinds):
-        """The chance a look for one of these finds it. 1.0 here: a cost model with no memory knows of no reason
-        to doubt."""
-        return 1.0
-
-    def note_age_s(self, kinds):
-        """How old the note about the nearest of these is, in seconds. Zero when nobody has looked (a guess is not
-        stale, it is a guess)."""
-        return 0.0
-
-    def reach_s(self, kinds):
-        """Seconds to get within working reach of the nearest one, route-aware, asked through the cost oracle
-        because the columns hold the oracle.
-
-        A number, `math.inf` when there is no route from here, or None when nobody has looked.
-
-        This is the one answer "I can see it but cannot get to it" needs. Water, lava, a wall, a drop, nothing to
-        bridge with — every reason is already priced by the moves a route is allowed to make, so the planner never
-        has to enumerate them, and a dear route simply loses to a cheaper errand."""
-        return None
-
-    def work_s(self, kind, token):
-        return self.WORK.get((kind, token), self.WORK.get((kind, None), 10.0))
-
-
-class LiveCosts(Costs):
-    """The cost oracle over the brain's existing distance estimates, so the numbers keep coming from the same place
-    (resource map, snapshot, learned durations) and no estimate touches the world."""
-
-    def __init__(self, cost_model):
-        super().__init__(self._distance_from(cost_model))
-        self.model = cost_model
-
-    # Aliases memory notes under (memory.note_seen), and the blocks that count as each.
-    MAPPED = {"tree": "log"}
-
-    def where(self, kinds):
-        return self._position(list(kinds))
-
-    def reach_s(self, kinds):
-        ask = getattr(self.model, "reach_s", None)
-        return ask(list(kinds)) if ask else None
-
-    def route_s(self, kinds):
-        """The game's own estimate for walking to the nearest known one of these, when it has already been asked.
-
-        Reads the round's route cache and never adds to it: building the action table prices dozens of columns,
-        and a pathfinding search each would cost the round more than the walk it is pricing. The few questions
-        worth putting to the game are put by whoever is about to ACT (`nav.way_to`, the chosen candidate); what
-        they learn lands in the same cache and this reads it.
-        """
-        from . import nav
-        where = self._position(list(kinds))
-        if where is None:
-            return None
-        policy = getattr(self.model, "policy", None) or nav.Policy()
-        key = (tuple(int(v) for v in where), bool(policy.allow_dig), bool(policy.allow_build), 2.0, 6000)
-        found, seconds = nav._ROUTES.get(key, (None, None))
-        return seconds if found else None
-
-    def find_p(self, kinds):
-        """The chance a look for one of these finds it: how often looking for them has, in this world (memory's
-        count over the declared prior). No route to the nearest one means no chance from here."""
-        if self.reach_s(kinds) == math.inf:
-            return 0.0
-        mem = getattr(self.model, "mem", None)
-        prior = float(_PLAY["pool"]["exists_prior"])
-        if mem is None or not hasattr(mem, "exists_rate"):
-            return prior
-        return max(mem.exists_rate(k, prior) for k in kinds) if kinds else prior
-
-    def note_age_s(self, kinds):
-        mem, snap = getattr(self.model, "mem", None), getattr(self.model, "snap", None)
-        if mem is None or snap is None or not hasattr(mem, "note_age_s"):
-            return 0.0
-        return mem.note_age_s(list(kinds), snap.dimension)
-
-    def searched(self, kinds):
-        mem = getattr(self.model, "mem", None)
-        if mem is None or not hasattr(mem, "search_distance"):
-            return None
-        seen = [mem.search_distance(k) for k in kinds]
-        seen = [d for d in seen if d]
-        return sum(seen) / len(seen) if seen else None
-
-    def _position(self, kinds):
-        import math as _m
-        mem, snap = getattr(self.model, "mem", None), getattr(self.model, "snap", None)
-        if mem is None or snap is None:
-            return None
-        here, dim = snap.feet, snap.dimension
-        best, best_d = None, None
-        for kind, marker in LiveCosts.MAPPED.items():
-            if any(marker in k for k in kinds):
-                for p in (r["pos"] for r in mem.seen(kind, dim)):
-                    d = _m.dist(p, here)
-                    if best_d is None or d < best_d:
-                        best, best_d = tuple(p), d
-        for k in kinds:
-            for sighting in mem.seen(k, dim):
-                p = sighting["pos"]
-                d = _m.dist(p, here)
-                if best_d is None or d < best_d:
-                    best, best_d = tuple(p), d
-        return best
-
-    @staticmethod
-    def _distance_from(model):
-        """Distances from memory only: the resource map and remembered sightings, never a fresh query.
-
-        An estimate that touches the world cannot be replayed — a recorded round then misses a /find it never made
-        — and this runs for every column of every goal, so it would also be the round's whole HTTP budget.
-        """
-        import math as _m
-
-        def distance(kinds):
-            mem, snap = getattr(model, "mem", None), getattr(model, "snap", None)
-            if mem is None or snap is None:
-                return None
-            here, dim = snap.feet, snap.dimension
-            best = None
-            for kind, marker in LiveCosts.MAPPED.items():
-                if any(marker in k for k in kinds):
-                    for p in (r["pos"] for r in mem.seen(kind, dim)):
-                        d = _m.dist(p, here)
-                        best = d if best is None else min(best, d)
-            for k in kinds:
-                for sighting in mem.seen(k, dim):
-                    p = sighting["pos"]
-                    d = _m.dist(p, here)
-                    best = d if best is None else min(best, d)
-            return best
-        return distance
-
-    def work_s(self, kind, token):
-        learned = getattr(self.model, "per_unit_s", None)
-        if learned:
-            got = learned(kind, token)
-            if got:
-                return got
-        return super().work_s(kind, token)
