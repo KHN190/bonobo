@@ -16,22 +16,33 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import estimate, kernel, threat  # noqa: E402
 from tests.world import dangers, fights  # noqa: E402
 
-SHAPES = ("reshape", "wall_in")
+SHAPES = ("reshape", "wall_in")          # the answers that change the ground; a squeezer walks past both
+NOT_SHAPES = ("ignore", "fight", "evade", "eat", "shield")
+
+
+# Every way fight_plan.admissible refuses, as the start of its reason: a refusal outside this set is unexplained.
+REFUSAL = (r"^(no health: nothing is admissible|wrong phase \(|needs \d|needs \S+ ≥|needs terrain\.|committing "
+           r"[\d.]+s, first threat|expects \d+ damage)")
 
 
 class TheRuleItself(unittest.TestCase):
-    def test_it_is_a_difference_less_a_cost(self):
-        price = lambda s: 10.0 * s
-        self.assertAlmostEqual(estimate.saved_s(price, 5.0, 2.0, 7.0), 50.0 - 20.0 - 7.0, places=6)
+    # (price per unit of state, before, after, cost) → seconds saved = price(before) − price(after) − cost
+    ROWS = [("a difference less a cost", 10.0, 5.0, 2.0, 7.0, 23.0),
+            ("no change, no cost: nothing", 3.0, 4.0, 4.0, 0.0, 0.0),
+            ("no change, a cost: a loss of exactly the cost", 3.0, 4.0, 4.0, 2.5, -2.5),
+            ("the same change, dearer: saves less", 2.0, 8.0, 1.0, 5.0, 9.0),
+            ("the same change, cheaper", 2.0, 8.0, 1.0, 1.0, 13.0),
+            ("making things worse is negative", 1.0, 2.0, 6.0, 0.0, -4.0),
+            ("a free price is worth nothing whatever changes", 0.0, 9.0, 0.0, 1.0, -1.0)]
 
-    def test_changing_nothing_and_paying_nothing_saves_nothing(self):
-        price = lambda s: 3.0 * s
-        for state in (0.0, 4.0, 19.0):
-            self.assertEqual(estimate.saved_s(price, state, state), 0.0)
+    def test_saved_over_the_table(self):
+        for name, slope, before, after, cost, want in self.ROWS:
+            with self.subTest(name):
+                self.assertAlmostEqual(estimate.saved_s(lambda s, k=slope: k * s, before, after, cost), want,
+                                       places=9)
 
-    def test_a_dearer_action_saves_less(self):
-        price = lambda s: 2.0 * s
-        self.assertGreater(estimate.saved_s(price, 8.0, 1.0, 1.0), estimate.saved_s(price, 8.0, 1.0, 5.0))
+    def test_cost_defaults_to_nothing(self):
+        self.assertEqual(estimate.saved_s(lambda s: 3.0 * s, 4.0, 1.0), 9.0)
 
 
 class EveryLayerSpellsItTheSameWay(unittest.TestCase):
@@ -103,9 +114,9 @@ class TheVetoRefusesAndNeverRanks(unittest.TestCase):
             for action in model.actions:
                 allowed, why = model.admissible(state, action)
                 if not allowed:
-                    self.assertTrue(why, f"{cell}: {action.name} refused silently")
+                    self.assertRegex(why, REFUSAL, f"{cell}: {action.name}")
             for _name, why in model.plan(state)["rejected"]:
-                self.assertTrue(why, cell)
+                self.assertRegex(why, REFUSAL, str(cell))
 
     def test_a_dead_agent_admits_nothing_but_its_default(self):
         for cell in fights(fight_body="dying"):
@@ -145,10 +156,13 @@ class TheDecisionIsTheRuleAtItsBest(unittest.TestCase):
                 self.assertTrue(chosen.default or plan["benefit_s"] > 0, f"{cell}: {plan}")
 
     def test_there_is_always_an_answer(self):
+        """Always one of the actions the model declares, never an empty or invented name."""
         for cell in fights():
-            self.assertTrue(cell.model().plan(cell.fight_state())["intent"], cell)
+            model = cell.model()
+            self.assertIn(model.plan(cell.fight_state())["intent"], {a.name for a in model.actions}, cell)
         for cell in dangers():
-            self.assertTrue(threat.decide(cell.threat_state(), cell.price()).kind, cell)
+            state = cell.threat_state()
+            self.assertIn(threat.decide(state, cell.price()).kind, {o.kind for o in threat.options(state)}, cell)
 
 
 class EveryColumnIsOfferedWhenItCanWork(unittest.TestCase):
@@ -169,9 +183,11 @@ class EveryColumnIsOfferedWhenItCanWork(unittest.TestCase):
         for cell in dangers():
             for option in threat.options(cell.threat_state()):
                 if option.kind == "eat":
+                    hp = float(cell.threat_state()["hp"])
+                    self.assertEqual(option.heals, min(float(threat.ENGAGE["eat_heals"]), 20.0 - hp), cell)
                     self.assertGreater(option.heals, 0.0, cell)
                 if option.kind == "shield":
-                    self.assertGreater(option.protects, 0.0, cell)
+                    self.assertEqual(option.protects, float(threat.ENGAGE["shield_protects"]), cell)
 
     def test_ground_worth_building_against_offers_the_wall(self):
         for cell in dangers():
@@ -225,6 +241,14 @@ class WhatAnAnswerIsFor(unittest.TestCase):
                 if option.kind in SHAPES:
                     self.assertLessEqual(threat.saves(option, options, price, horizon), 0.0,
                                          f"{cell}: {option.kind} {option.target}")
+
+    def test_every_answer_is_either_a_shape_or_not(self):
+        """A new kind of answer has to be placed on one side: shapes are what squeezing mobs make worthless."""
+        offered = set()
+        for cell in dangers():
+            offered |= {o.kind for o in threat.options(cell.threat_state())}
+        self.assertEqual(offered, set(SHAPES) | set(NOT_SHAPES))
+        self.assertFalse(set(SHAPES) & set(NOT_SHAPES))
 
     def test_a_wall_is_only_offered_where_the_ground_says_it_is_worth_placing(self):
         """`field.blocks_worth_placing` is the one authority on whether there is anything to build against; the
