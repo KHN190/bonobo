@@ -32,19 +32,32 @@ def execute(ctx, step, night):
         ctx.mem.record_outcome(key, True)   # a furnace loaded is not a step done: that is when it is held
 
 
+def runner_for(ctx, step):
+    """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
+    if step.kind == "skill":
+        contract = skillkit.REGISTRY.get(step.token)
+        return None if contract is None else (contract.runner, tuple(step.detail.get("args", ())))
+    return skillkit.provider(ctx, step)
+
+
+def can_start(ctx, step):
+    """Would the skill for `step` pass its own preconditions right now (`skill.can_run`)? Asked before the step is
+    offered, so a refusal the skill already knows about is not discovered by failing."""
+    found = runner_for(ctx, step)
+    if found is None:
+        return False
+    runner, args = found
+    return skillkit.can_run(runner, ctx, *args)[0]
+
+
 def run_step(ctx, step, night, seek=True):
     """Carry out one step with the skill that provides it. A seeking step that finds nothing in range returns the
     NotAvailable instead of raising it, so `execute` can look elsewhere first."""
     ctx.night = night
-    if step.kind == "skill":
-        if step.token not in skillkit.REGISTRY:
-            raise McError(f"{step.token} is not a registered skill")
-        runner, args = skillkit.REGISTRY[step.token].runner, tuple(step.detail.get("args", ()))
-    else:
-        found = skillkit.provider(ctx, step)
-        if found is None:
-            raise McError(f"no skill provides {step.kind} {step.token}")
-        runner, args = found
+    found = runner_for(ctx, step)
+    if found is None:
+        raise McError(f"no skill provides {step.kind} {step.token}")
+    runner, args = found
     try:
         return runner(ctx, *args)
     except NotAvailable as e:

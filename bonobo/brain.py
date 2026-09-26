@@ -289,11 +289,11 @@ class Brain:
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
-        step = next((s for s in held["steps"] if self.valid(s, snap)), None)
+        step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None)
         if step is None:
             held["event"] = True
             held = self.repair(task, goal, snap, held)
-            step = next((s for s in held["steps"] if self.valid(s, snap)), None) if held else None
+            step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None) if held else None
             if step is None:
                 if held is not None:
                     self.fail_step(task, NotAvailable("no step of the plan can run from here"))
@@ -304,9 +304,10 @@ class Brain:
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
         return Act("task", f"task {task['id']}", lambda: dispatch.execute(ctx, step, snap.night), task=task, step=step)
 
-    def valid(self, step, snap):
-        """The cheap check made every round: the step's own preconditions hold in this bag."""
-        return runnable(step, snap.inv)
+    def valid(self, step, snap, ctx=None):
+        """The cheap check made every round: the step's inputs are in this bag, and the skill that would carry it
+        out passes its own declared preconditions (`dispatch.can_start` → `skill.can_run`)."""
+        return runnable(step, snap.inv) and (ctx is None or dispatch.can_start(ctx, step))
 
     def repair(self, task, goal, snap, held):
         """Bring the held plan up to date with the world. Run-once goals keep what is left of theirs (a road half
