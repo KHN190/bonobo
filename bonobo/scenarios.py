@@ -1299,6 +1299,19 @@ def _contest_after(delay):
     return hook
 
 
+def _player_takes_over(delay, hold=3):
+    """`before` hook: the player presses the toggle key mid-run (jar /control, as the key does), then hands back."""
+    def hook(ctx):
+        def fire():
+            from . import api
+            time.sleep(delay)
+            api.api("POST", "/control", {"paused": True})
+            time.sleep(hold)
+            api.api("POST", "/control", {"paused": False})
+        _threading.Thread(target=fire, daemon=True).start()
+    return hook
+
+
 def _unless_done(check, run):
     """Resume only what is not done: an interruption that landed at the moment of success leaves nothing to redo."""
     def go(ctx):
@@ -1349,11 +1362,6 @@ def _sprint_after(delay, ticks):
         _threading.Thread(target=fire, daemon=True).start()
     return hook
 
-
-def _missing_hook(what):
-    def run(ctx):
-        raise SetupInvalid(f"missing hook: {what}")
-    return run
 
 
 def _hooks(*hooks):
@@ -1552,7 +1560,7 @@ CONDITIONS = {
     "contested": dict(axis="timing", doc="another commander posts a task mid-run (BodyContested), then resume",
                       bases={"chop", "mine_stone", "nav"}, interrupt="contested"),
     "player_takeover": dict(axis="timing", doc="the player takes control mid-run: stand down, no failure counted",
-                            bases={"chop", "nav"}, hook="mod: POST /control {paused} to simulate the player"),
+                            bases={"chop", "nav"}, interrupt="player"),
     # hazards mid-job: L0 takes the body, rescues it, and the job resumes by what is still missing
     "buried_by_sand": dict(axis="hazard", doc="sand drops on the head mid-job", hazard="sand",
                            bases={"nav", "chop", "mine_stone", "craft", "smelt"}),
@@ -1653,6 +1661,8 @@ def _row(name, base, cond=None, extra=None):
             hooks.append(_interrupt_when(*b["effect"]))
         elif kind == "contested":
             hooks.append(_contest_after(b.get("work_s", 3)))
+        elif kind == "player":
+            hooks.append(_player_takes_over(b.get("work_s", 3)))
         run = _resume(name, run, resume)
         if kind == "success" and b.get("bound"):
             check = _gain(*b["bound"])       # the effect once: an interruption at success is not a reason to redo it
@@ -1664,8 +1674,6 @@ def _row(name, base, cond=None, extra=None):
         run = _after_l0(name, run, resume)
         check = _all(check, _alive(8), lambda api, inv: _head_clear(),
                      lambda api, inv: not api.get("/state")["inLava"])
-    if c.get("hook"):
-        run = _missing_hook(c["hook"])
     if fails:
         run = _expect_failure(name, run, fails)
         effect = x.get("check") or (c["fails_check"](base) if c.get("fails_check") else _same_bag())
@@ -1683,8 +1691,6 @@ def _row(name, base, cond=None, extra=None):
             row[key] = x.get(key) or c.get(key) or b.get(key)
     if b.get("entities"):
         row["expect_entities"] = list(b["entities"])
-    if c.get("hook"):
-        row["hook"] = c["hook"]
     return row
 
 

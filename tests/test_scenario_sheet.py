@@ -147,17 +147,19 @@ class TheCrossProductIsWhole(unittest.TestCase):
 
     def test_interrupted_rows_resume_and_count(self):
         for name, row in sorted(sc.SHEET.items()):
-            if row["tags"].get("timing", "").startswith("interrupt"):
+            if sc.CONDITIONS.get(row["tags"].get("timing"), {}).get("interrupt"):
                 with self.subTest(name):
                     self.assertEqual(row["budget"], 2 * sc.BASES[row["tags"]["base"]]["budget"],
                                      "an interrupted run gets twice the base's time, to resume")
 
-    def test_missing_hooks_are_rows_not_silence(self):
-        hooked = {n: r["hook"] for n, r in sc.SHEET.items() if "hook" in r}
-        self.assertEqual(sorted(hooked), [f"{b}__player_takeover" for b in sorted(sc.CONDITIONS["player_takeover"]["bases"])])
-        for name, what in hooked.items():
-            with self.subTest(name):
-                self.assertIn("mod:", what)
+    def test_every_timing_row_runs(self):
+        """No row stands in for a missing hook: every timing condition injects its interruption for real."""
+        for name, row in sc.SHEET.items():
+            if row["tags"].get("timing"):
+                with self.subTest(name):
+                    self.assertNotIn("hook", row)
+                    self.assertTrue(sc.CONDITIONS[row["tags"]["timing"]].get("interrupt")
+                                    or sc.CONDITIONS[row["tags"]["timing"]].get("tick_rate"), name)
 
 
 class Tiers(unittest.TestCase):
