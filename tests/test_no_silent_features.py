@@ -22,8 +22,9 @@ PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 DECIDING = ("brain.py", "actions.py", "solve.py", "memory.py", "decompose.py", "cost.py", "goals.py", "tasks.py")
 WORLD = {"find", "entities", "region_around", "Region", "Snapshot", "Inventory", "status", "container",
          "dark_spots", "mod_features"}
-# Read-only bookkeeping: failing to read these changes nothing about what is chosen.
-ALLOWED = {"note_yield_of"}
+# Read-only bookkeeping that may fail quietly because it changes nothing about what is chosen. Empty: every
+# function it once named is gone, and a name that matches nothing would silently exempt the next one given it.
+ALLOWED = set()
 
 
 def quiet_handlers(path):
