@@ -102,16 +102,26 @@ def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None
     and hid nothing still priced better than standing still.
     """
     horizon = horizon_s(horizon)
-    total = 0.0
+    total, hardest = 0.0, 0.0
     for hazard in hazards:
         mob = MOBS.get(hazard[3])
         if not mob or mob.get("burst"):
             continue
         when = arrival_s(here, hazard, ground, horizon)
-        if when == float("inf"):
+        # Further out than a decision takes to act on is the next decision's: perception looks again every tick,
+        # and pricing now what arrives in ten seconds made a zombie across the field worth stopping work for.
+        if when == float("inf") or when > float(ENGAGE["react_s"]):
             continue
         total += hazard[5] * hazard[4] * (max(0.0, horizon - when) / horizon) * reaches_share(shape, mob)
-    return total * (1.0 - prot)
+        hardest = max(hardest, float(mob.get("attack", 0.0)))
+    return min(total, incoming_cap(hardest)) * (1.0 - prot)
+
+
+def incoming_cap(hardest_hit):
+    """The most health per second anything can take off us: after a hit the game ignores damage for
+    `hurt_immunity_s`, so a crowd does not add up — three zombies land what one zombie's hit allows every 10 ticks.
+    Summing them made any pack unwinnable and any flight pointless."""
+    return float(hardest_hit) / float(PLAYER["hurt_immunity_s"]) if hardest_hit > 0 else float("inf")
 
 
 def burst_hp(spot, hazards, prot=0.0, fuse_s=None):
@@ -180,6 +190,11 @@ def leaving_hp(press, seconds):
     return round(float(press) * float(seconds) * 0.5, 2)
 
 
+def _row_dps(row):
+    """A threat row's damage rate: its own (`threat.row` puts it at [5]) where it carries one, else the table's."""
+    return float(row[5]) if len(row) > 5 and row[5] is not None else float(MOBS[row[3]]["dps"])
+
+
 def fight_cost(here, hazards, sword, prot, speed=None):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting.
 
@@ -195,8 +210,10 @@ def fight_cost(here, hazards, sword, prot, speed=None):
         mob = MOBS[hazard[3]]
         walk = max(0.0, math.dist(pos, hazard[0]) - float(PLAYER["melee_reach"])) / speed
         kill = float(mob["hp"]) / dps
-        under_fire = sum(float(MOBS[r[3]]["dps"]) for r in order[i:] if MOBS[r[3]].get("ranged"))
-        under_everything = sum(float(MOBS[r[3]]["dps"]) for r in order[i:])
+        # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
+        cap = incoming_cap(max(float(MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
+        under_fire = min(cap, sum(_row_dps(r) for r in order[i:] if MOBS[r[3]].get("ranged")))
+        under_everything = min(cap, sum(_row_dps(r) for r in order[i:]))
         lost += (walk * under_fire + kill * under_everything) * (1.0 - prot)
         seconds += walk + kill
         pos = hazard[0]

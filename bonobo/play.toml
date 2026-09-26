@@ -89,6 +89,7 @@ dps = { "0" = 3.0, "1" = 12.0, "2" = 18.0, "3" = 24.0 }   # by sword tier: fist,
 protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
 protection_cap = 0.8
+hurt_immunity_s = 0.5       # the game ignores further damage for 10 ticks after a hit: incoming dps has a ceiling
 
 [engage]
 horizon_s = 4.0             # how far ahead arrival is predicted, like the fight
@@ -97,10 +98,10 @@ evade_blocks = 16.0
 wall_in_blocks = 9          # blocks needed to pod
 wall_in_s = 8.0             # seconds exposed while building the pod
 notice_r = 16.0            # how far a hostile mob notices us; beyond it awareness fades over the same distance
-follow_p = 0.6             # of a threat's pressure that follows us when we walk away instead of killing it
+follow_p = 0.35            # of a threat's pressure that follows us when we walk away instead of killing it
 work_horizon_s = 20.0      # how long we would stay in their reach if we simply carried on working
+react_s = 3.0              # a threat further out than this is the next decision's: nothing is owed to it yet
 no_go_margin = 2.0         # blocks added to a mob's reach before ordinary planning refuses to route through it
-flee_leaves = 0.35         # a threat walked away from is not gone: this much of its pressure comes back
 fuse_s = 1.5               # a creeper's fuse: how long we have to be out of its blast
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after
 eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed

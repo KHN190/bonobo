@@ -161,9 +161,9 @@ class TheFastLane(unittest.TestCase):
 
     # (rows in sight) → (answer, seconds it is worth), or None: no bid
     BIDS = [("nothing near", [], None),
-            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 195.9)),
+            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 197.2)),
             ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),
-            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 173.3))]
+            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 173.1))]
 
     def test_bids_over_the_table(self):
         for name, rows, want in self.BIDS:
@@ -316,8 +316,9 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
     # (what perception sees now) → is the answer done (hand the body back)?
     LEASE = [("a blind moment: nothing visible", [], False),
              ("a zombie still at 4", [row("minecraft:zombie", 4, 0)], False),
-             ("a zombie at 20", [row("minecraft:zombie", 20, 0)], False),
-             ("a zombie at 30", [row("minecraft:zombie", 30, 0)], False),
+             ("a zombie at 20: further than one decision takes, nothing owed yet", [row("minecraft:zombie", 20, 0)],
+              True),
+             ("a zombie at 30", [row("minecraft:zombie", 30, 0)], True),
              ("a skeleton at 10", [row("minecraft:skeleton", 10, 0)], False),
              ("the zombie is 60 away: stopped paying", [row("minecraft:zombie", 60, 0)], True)]
 

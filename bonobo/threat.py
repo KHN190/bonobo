@@ -291,8 +291,9 @@ def options(state):
                   + (f" and a {blast_here:.0f} hp blast" if blast_here else ""),
                   leaves=press, blast_after=blast_here)]
     # Fighting: kill them, then nothing is coming. Creepers are never traded with — the burst is not a rate.
-    if not any(MOBS[h[3]].get("burst") for h in hazards):
-        t_fight, lost = fight_cost(here, hazards, state.get("sword", 0), prot)
+    t_fight, lost = fight_cost(here, hazards, state.get("sword", 0), prot)
+    # A fight we expect to lose is not an answer (打不过就走): what it takes has to leave us standing.
+    if not any(MOBS[h[3]].get("burst") for h in hazards) and lost + blast_here < hp:
         nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(hazards)} in ~{t_fight}s for ~{lost} hp"))
