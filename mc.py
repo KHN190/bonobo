@@ -113,6 +113,8 @@ def cmd_task(a):
     elif template == "skill":
         goal = goals.make("skill", name=rest[0],
                           args=[int(v) if v.lstrip("-").isdigit() else v for v in rest[1:]])
+    elif template == "effect":
+        goal = goals.make("effect", effect=rest[0], count=int(rest[1]) if len(rest) > 1 else 1)
     else:
         raise McError(f"unknown goal {template}: one of {', '.join(goals.TEMPLATES)}")
     t = tasks.add(goal, expires_s=a.expires_s, front=a.front)

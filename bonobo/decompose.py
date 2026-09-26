@@ -144,6 +144,13 @@ def _decompose(inv, goal, cost, solver, pending):
         return [_action("sleep", "bed", cost)]
     if template == "skill":
         return [_action("skill", args["name"], cost, args=list(args.get("args", [])))]
+    if template == "effect":
+        # Any effect a skill provides, asked for by name: "breed" → Step("breed", "breed"), "repair:pickaxe" →
+        # Step("repair", "pickaxe"). `decompose` refuses it when no registered skill provides it (skill.handles).
+        kind, _, token = args["effect"].partition(":")
+        step = _action(kind, token or kind, cost, **dict(args.get("detail") or {}))
+        step.count = int(args.get("count", 1))
+        return [step]
     raise Unplannable(f"no way to decompose a {template!r} goal")
 
 

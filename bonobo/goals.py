@@ -10,6 +10,8 @@ A goal is `{"goal": template, "args": {...}}` — JSON, because it lives in task
     build(bp, at)        a blueprint standing at `at` (or near home / here)              done = memory has the machine
     sleep()              skip the night in a bed                                         done = it is day
     skill(name, args)    run one registered skill                                        done = its plan ran
+    effect(effect, n)    whatever skill provides `effect` (skill.providers: "breed", "light", "repair:pickaxe",
+                         "state:sheltered", …), with `detail` for its adapter                done = its plan ran
 
 Done is asked of the WORLD (bag, position, memory of what was built), never of a plan: a plan can be empty because
 the work is finished, because it is under way somewhere else (a furnace), or because nothing can be planned.
@@ -20,14 +22,14 @@ from .data import bare
 from .knowledge import DRAGON_BEDS, food_count, kit_needs
 from .planner import tool_ok
 
-TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill")
+TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
 # Which solver a goal is planned by when its task names none: combined goals (a milestone is a set of things to hold
 # at once) go to the column solver, which orders them together; the rest to the default. Either falls back to
 # every registered solver when it cannot plan.
 SOLVER_FOR = {"milestone": "solve"}
 # Goals whose "done" is that their plan ran: nothing in the world says a skill was run or a road walked.
-RUN_ONCE = ("road", "skill")
+RUN_ONCE = ("road", "skill", "effect")
 
 # The run, as named sets of things to hold, in the order the old goal list reached for them (brain.goals).
 MILESTONES = {
@@ -144,4 +146,6 @@ def describe(goal):
         return f"build {args['bp']}" + (f" at {tuple(args['at'])}" if args.get("at") else "")
     if template == "skill":
         return f"skill {args['name']}" + (f" {args.get('args')}" if args.get("args") else "")
+    if template == "effect":
+        return f"effect {args['effect']}" + (f" ×{args['count']}" if args.get("count", 1) != 1 else "")
     return template
