@@ -255,6 +255,144 @@ class Repairs(unittest.TestCase):
                 self.assertIsNone(goals.done(goal, snap, None))
 
 
+# ----------------------------------------------------------------------------------------------- held plans
+# The brain's queue work (task_act / repair / after_step / finish / prepare) on an unstarted Brain: the cost model it
+# builds answers from the row's look-around, the bag after a step from the row's readings; any other request fails.
+TREES = {"oak_log": 6, "stone": 2}
+
+
+class Queue_:
+    """One brain, one task file, the row's readings."""
+
+    def __init__(self, tmp, seen=TREES):
+        self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
+        b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b.mem = Memory(os.path.join(tmp, "notes.json"))
+        b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
+        b.table, b.last_failure, b.committed, b.last_hold_log = upkeep.Upkeep(b), None, None, 0
+        self.patches = [mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")),
+                        mock.patch.object(brainmod, "Cost", lambda snap, mem=None, bl=None: cost(snap, mem=mem,
+                                                                                               **self.seen)),
+                        mock.patch.object(brainmod, "Inventory", lambda: bag(self.after_inv)),
+                        mock.patch.object(api, "api", side_effect=AssertionError("the queue read the world"))]
+
+    def __enter__(self):
+        from bonobo import bag as bagmod
+        self._reserved = bagmod.RESERVED
+        for p in self.patches:
+            p.start()
+        return self
+
+    def __exit__(self, *exc):
+        from bonobo import bag as bagmod
+        for p in reversed(self.patches):
+            p.stop()
+        bagmod.RESERVED = self._reserved      # task_act sets the module-wide reservation
+
+    def task(self, goal, plan=None):
+        t = tasks.add(goal)
+        if plan is not None:
+            tasks.update(t["id"], plan=plan)
+        return tasks.load()[0]
+
+    def state(self, task_id="t1"):
+        return next((t["state"], t["reason"]) for t in tasks.load() if t["id"] == task_id)
+
+
+def _round(q, inv, st=None):
+    snap = snapshot(st or state(), inv)
+    task = next((t for t in tasks.load() if t["state"] in tasks.LIVE), None)
+    return q.b.task_act(task, snap, ctx=None) if task else None
+
+
+# (situation, goal, [(op, args...)]). ops: ("round", inv) → the act, kept as q.act; ("ok", bag after) / ("interrupted",)
+# / ("failed", n failures of cause nav): the step's outcome; ("check", fn(test, q)).
+HELD = [
+    ("a fresh task: plan, hold, first step", goals.have(("log", 4)), [
+        ("round", inventory()),
+        ("check", lambda t, q: (t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log")),
+                                t.assertEqual(q.state(), ("running", "")),
+                                t.assertTrue(tasks.load()[0]["plan"], "the plan is saved with the task")))]),
+    ("the goal is met already: done, no act", goals.have(("log", 4)), [
+        ("round", inventory(("oak_log", 4))),
+        ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
+    ("a step done: removed, the rest kept without replanning", PICK1, [
+        ("round", inventory()), ("ok", inventory(("oak_log", 3))),
+        ("check", lambda t, q: t.assertNotIn(q.first, q.b.held["t1"]["steps"])),
+        ("round", inventory(("oak_log", 3))),
+        ("check", lambda t, q: t.assertNotEqual((q.act.step.kind, q.act.step.token), ("gather", "log")))]),
+    ("interrupted: the next round repairs from the bag", goals.have(("log", 8)), [
+        ("round", inventory()), ("interrupted",),
+        ("check", lambda t, q: t.assertTrue(q.b.held["t1"]["event"])),
+        ("round", inventory(("oak_log", 5))),
+        ("check", lambda t, q: (t.assertFalse(q.b.held["t1"]["event"]), t.assertEqual(q.act.step.count, 3)))]),
+    ("failed on the third source: the task is failed with its cause", goals.have(("log", 4)), [
+        ("round", inventory()), ("failed", 3),
+        ("check", lambda t, q: (t.assertEqual(q.state()[0], "failed"), t.assertTrue(q.state()[1].startswith("nav"))))]),
+    ("failed once: kept, repaired next round", goals.have(("log", 4)), [
+        ("round", inventory()), ("failed", 1),
+        ("check", lambda t, q: (t.assertEqual(q.state()[0], "running"), t.assertTrue(q.b.held["t1"]["event"])))]),
+    ("a saved plan after a restart is checked against the bag", goals.have(("log", 6)), [
+        ("saved", [{"kind": "gather", "token": "log", "count": 6, "detail": {}, "est": 100}]),
+        ("round", inventory(("oak_log", 4))),
+        ("check", lambda t, q: t.assertEqual(q.act.step.count, 2))]),
+    ("unplannable: failed, and says why", goals.make("skill", name="fly_to_the_moon"), [
+        ("round", inventory()),
+        ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state()[0], "failed"),
+                                t.assertIn("unplannable", q.state()[1])))]),
+    ("a road walks on from where it stopped", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
+        ("round", inventory()), ("ok", inventory()),
+        ("round", inventory()),
+        ("check", lambda t, q: t.assertEqual(q.act.step.detail["pos"], [40, 64, 0])),
+        ("ok", inventory()), ("round", inventory()),
+        ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
+    ("ingots cooking in a furnace: wait, don't fail", IRON3, [
+        ("job", "minecraft:iron_ingot", 3), ("round", stone_tools()),
+        ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state()[0], "running")))]),
+]
+
+
+class HeldPlans(unittest.TestCase):
+    def test_event_sequences(self):
+        for name, goal, ops in HELD:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+                plan = next((o[1] for o in ops if o[0] == "saved"), None)
+                q.task(goal, plan)
+                q.act = q.first = None
+                for op_, *a in ops:
+                    if op_ == "round":
+                        q.act = _round(q, a[0])
+                        q.first = q.act.step if q.act else None
+                    elif op_ == "ok":
+                        q.after_inv = a[0]
+                        q.b.after_step(q.act, "ok")
+                    elif op_ == "interrupted":
+                        q.b.after_step(q.act, "interrupted")
+                    elif op_ == "failed":
+                        for _ in range(a[0]):
+                            q.b.last_failure = q.b.failed(q.act.name, api.NavFailed("no path found"))
+                        q.b.after_step(q.act, "failed")
+                    elif op_ == "job":
+                        q.b.mem.add_job("smelt", (3, 64, 0), OVER, a[0], a[1], time.time() + 60, [])
+                    elif op_ == "check":
+                        a[0](self, q)
+
+    # (bag, what idle prepares first, or None when everything is held)
+    PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
+               (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),
+               (inventory(("stone_pickaxe", 1), ("stone_sword", 1)), ("food", 8)),
+               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8)), ("minecraft:torch", 8)),
+               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), None)]
+
+    def test_prepare(self):
+        for inv, want in self.PREPARE:
+            with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+                act = q.b.prepare(snapshot(inv=inv))
+                queued = [tuple(t["args"]["needs"][0]) for t in tasks.load()]
+                self.assertEqual(queued, [want] if want else [])
+                self.assertEqual(act is None, want is None)
+
+
 # -------------------------------------------------------------------------------------------------------- upkeep
 PLACE = retry.place_signature((0, 64, 0), False)
 DAY, DUSK, NIGHT = 2000, 11500, 18000
