@@ -43,11 +43,17 @@ class Lookup(unittest.TestCase):
                 self.assertEqual(recovery.recovery_for(kind), act)
         self.assertEqual(len({k for k, _, _ in recovery.TABLE}), len(recovery.TABLE), "a kind listed twice")
 
-    def test_the_default_is_cover_and_an_enderman_is_never_answered_with_the_hole(self):
-        # A 2.9-block enderman does not fit in a 1×2 corridor, but it teleports and reaches into the mouth: the
-        # answer is to break the aggro, never to climb into a hole beside it — a bench run died doing exactly that.
+    # A 2.9-block enderman does not fit in a 1×2 corridor, but it teleports and reaches into the mouth: the
+    # answer is to break the aggro, never to climb into a hole beside it — a bench run died doing exactly that.
+    # (kind) → is it answered by the corridor (the default)?
+    COVER = [("enderman", False), ("airborne", False), ("critical_health", False), ("breath", True),
+             ("hostiles", True), ("stale", True), ("unheard of", True)]
+
+    def test_which_kinds_are_answered_with_cover(self):
         self.assertEqual(recovery.DEFAULT, "retreat_to_cover")
-        self.assertNotEqual(recovery.recovery_for("enderman"), recovery.DEFAULT)
+        for kind, cover in self.COVER:
+            with self.subTest(kind):
+                self.assertEqual(recovery.recovery_for(kind) == recovery.DEFAULT, cover)
 
 
 # (fight action) → its abort conditions, exactly: when to give up, and what to do instead
