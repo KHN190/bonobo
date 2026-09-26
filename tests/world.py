@@ -158,10 +158,10 @@ SELF = {
     "hurt": {"health": 7.0},
     "swimming": {"inWater": True, "onGround": False},
     "underground": {"skyLight": 0, "y": 20.0},
-    "dusk": {"timeOfDay": 11800},
-    "night": {"timeOfDay": 18000},
     "nether": {"dimension": "minecraft:the_nether", "skyLight": 0},
 }
+# The clock, as its own dimension: what upkeep's lead time (bed before dark) is judged against.
+TIME = {"day": 2000, "dusk_near": 11700, "night": 18000}
 STOCK = {
     "none": {},
     "logs": {"oak_log": 3},
@@ -182,7 +182,7 @@ def stock_inventory(name):
     return inventory(*[v if isinstance(v, tuple) else (k, v) for k, v in rows.items()])
 
 
-PLANNER_DIMS = ("resource", "self_", "stock")
+PLANNER_DIMS = ("resource", "self_", "stock", "time")
 
 
 class World:
@@ -210,7 +210,7 @@ class World:
 
     # -- the planner's reading: the game's own answers ---------------------------------------------------------
     def game_state(self):
-        return state(**SELF[self.dims["self_"]])
+        return state(**dict({"timeOfDay": TIME[self.dims["time"]]}, **SELF[self.dims["self_"]]))
 
     def inventory(self):
         return stock_inventory(self.dims["stock"])
@@ -335,7 +335,7 @@ def sweep(**fixed):
 
 
 def worlds(**fixed):
-    """The planner's slice of the sweep: around × body × bag."""
+    """The planner's slice of the sweep: around × body × bag × clock."""
     for name in PLANNER_DIMS:
         fixed.setdefault(name, list(DIMS[name]))
     return sweep(**fixed)
@@ -550,7 +550,7 @@ def intent(kind="walk", layer="plan", elapsed="just_started", at=0.0, **kw):
 
 DIMS = {
     # what the planner reads: the game's answers
-    "resource": RESOURCES, "self_": SELF, "stock": STOCK,
+    "resource": RESOURCES, "self_": SELF, "stock": STOCK, "time": TIME,
     # what is coming at us
     "enemy": ENEMIES, "distance": RANGE, "ground": GROUND,
     "weapon": WEAPON, "armour": ARMOUR, "blood": BLOOD, "kit": KIT,
@@ -558,7 +558,7 @@ DIMS = {
     "phase": PHASES, "boss": BOSS, "built": BUILT, "carry": CARRY, "fight_body": FIGHT_BODY,
 }
 
-DEFAULTS = {"resource": "bare", "self_": "ready", "stock": "none",
+DEFAULTS = {"resource": "bare", "self_": "ready", "stock": "none", "time": "day",
             "enemy": "walker", "distance": "near", "ground": "open",
             # The combat baseline carries everything, so that moving ONE dimension can reach every column.
             "weapon": "stone", "armour": "leather", "blood": "whole", "kit": "full",

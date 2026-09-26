@@ -30,6 +30,7 @@ from bonobo import api, decompose, goals, planner, retry, skillcore, skills, tas
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import bare  # noqa: E402
+from bonobo.knowledge import food_count  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, slot, snapshot, state,  # noqa: E402
@@ -336,12 +337,13 @@ def run_upkeep(row, tmp):
         table.history = [(now - 90 + i * 10, snap.feet, sig) for i in range(10)]
     if row.blocked is not None:
         table.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
-    c = cost(snap, **row.seen)
+    c, plan_s = cost(snap, **row.seen), {}
     for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):
         try:
             secs = c.plan_s(decompose.decompose(snap.inv, goal, c))
         except Unplannable:
             secs = float("inf")
+        plan_s[goal["args"]["needs"][0][0]] = secs
         table.plan_s_cache[(json.dumps(goal, sort_keys=True), upkeep.bag_signature(snap.inv))] = (now + 60, secs)
     bed_hits = [{"block": "minecraft:red_bed", "x": 5, "y": 64, "z": 0, "distance": 5.0}] if row.bed_seen else []
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
@@ -350,23 +352,52 @@ def run_upkeep(row, tmp):
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
         got = table.act(snap, ctx=None)
         queued = [tuple(tuple(n) for n in t["args"]["needs"]) for t in tasks.load() if t["state"] in tasks.LIVE]
-    return (got[0] if got else None), queued
+    return (got[0] if got else None), queued, plan_s
 
 
 class Upkeep(unittest.TestCase):
     def test_state_to_choice(self):
         for row in UPKEEP:
             with self.subTest(row.name), tempfile.TemporaryDirectory() as tmp:
-                chosen, queued = run_upkeep(row, tmp)
+                chosen, queued, _ = run_upkeep(row, tmp)
                 self.assertEqual(chosen, row.row)
                 if callable(row.queued):
                     self.assertTrue(row.queued(set(queued)), f"queued {queued}")
                 else:
                     self.assertEqual(set(queued), row.queued)
 
-    def test_lead_is_one_number(self):
-        self.assertEqual(upkeep.LEAD, 1.5)
-        self.assertGreater(upkeep.LEAD, 1.0, "upkeep starts before the plan's own time, never after")
+    def test_lead_time_over_the_sweep(self):
+        """Bed and food go to the front exactly when the time left (dusk_s, food_lasts_s) is shorter than the plan
+        that would get them (Σ est) × LEAD — swept over around × body × bag × clock, and for three values of LEAD so
+        the table cannot be reading a constant of its own."""
+        from tests.world import RESOURCES
+        cells = worlds(resource=["bare", "herd", "village"], self_=["ready", "hungry", "underground", "nether"],
+                       stock=["none", "logs", "stone_tools", "kit"])
+        for w, lead in ((w, lead) for w in cells for lead in (1.0, upkeep.LEAD, 3.0)):
+            row = Row(repr(w), None)
+            row.state, row.inv, row.seen = w.game_state(), w.inventory(), RESOURCES[w.dims["resource"]]
+            snap = snapshot(row.state, row.inv)
+            with self.subTest(world=w, lead=lead), tempfile.TemporaryDirectory() as tmp, \
+                    mock.patch.object(upkeep, "LEAD", lead):
+                chosen, queued, plan_s = run_upkeep(row, tmp)
+                if chosen is not None:
+                    continue                                # a row took the round: nothing is queued this round
+                over = snap.dimension == OVER
+                bed = over and not snap.night and snap.inv.count("bed") == 0 \
+                    and upkeep.dusk_s(snap) < plan_s["bed"] * lead
+                food = food_count(snap.inv) < 8 and upkeep.food_lasts_s(snap) < plan_s["food"] * lead
+                self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {upkeep.dusk_s(snap)} s, bed plan "
+                                                                  f"{plan_s['bed']:.0f} s × {lead}")
+                self.assertEqual(((("food", 8),) in queued), food, f"food lasts {upkeep.food_lasts_s(snap):.0f} s, "
+                                                                    f"plan {plan_s['food']:.0f} s × {lead}")
+
+    def test_lead_moves_the_verdict(self):
+        """The same dusk, the same bag: a longer lead inserts the bed, a shorter one does not."""
+        for lead, want in ((0.1, set()), (50.0, {(("bed", 1),)})):
+            row = Row(f"lead {lead}", None, time_of_day=DUSK, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)])
+            with self.subTest(lead=lead), tempfile.TemporaryDirectory() as tmp, mock.patch.object(upkeep, "LEAD", lead):
+                _, queued, _ = run_upkeep(row, tmp)
+                self.assertEqual(set(queued) & {(("bed", 1),)}, want)
 
     def test_dusk_clock(self):
         for tod, secs in ((0, 600.0), (6000, 300.0), (11500, 25.0), (12000, 0.0), (18000, 0.0), (24000 + 6000, 300.0)):
@@ -500,8 +531,9 @@ RETRY = [
      {("task t1", "nav"): 3}, {"task t1"}, {}),
     ("two causes are counted apart", [("task t1", NAV, HERE), ("task t1", GONE, HERE), ("task t1", NAV, HERE)],
      {("task t1", "nav"): 2, ("task t1", "unavailable"): 1}, set(), {}),
-    ("the cause cools at the place: another task stopped by it waits", [("task t1", TOOL, HERE)],
-     {("task t1", "tool"): 1}, set(), {"task t1": False}),
+    ("the cause cools at the place: another task stopped by it waits here, not elsewhere",
+     [("task t1", TOOL, HERE)], {("task t1", "tool"): 1}, set(),
+     {"task t1": False, ("task t2", "tool", HERE): False, ("task t2", "tool", THERE): True}),
     ("a success clears the count", [("task t1", NAV, HERE), ("task t1", NAV, HERE), ("task t1", "ok", HERE),
                                     ("task t1", NAV, HERE)], {("task t1", "nav"): 1}, set(), {}),
 ]
@@ -531,20 +563,12 @@ class Retry(unittest.TestCase):
                         up.add(task)
                 self.assertEqual({k: e["n"] for k, e in b.retry.entries.items()}, counts)
                 self.assertEqual(up, escalated)
-                b.place = HERE
-                for task, want in ready.items():
-                    self.assertEqual(b.ready(task), want)
+                for key, want in ready.items():       # task, or (task, the cause that would stop it, place)
+                    task, cause, b.place = key if isinstance(key, tuple) else (key, None, HERE)
+                    self.assertEqual(b.ready(task, cause=cause), want, key)
                 if not counts:
                     self.assertEqual(b.retry.cooling, {}, "an interruption cooled something")
                     self.assertIsNone(b.table.blocked, "an interruption was taken for a blocked path")
-
-    def test_a_cause_cools_by_place(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            b = new_brain(tmp)
-            b.failed("task t1", TOOL)
-            self.assertFalse(b.ready("task t2", cause="tool"), "the same wall stops every task that walks into it")
-            b.place = THERE
-            self.assertTrue(b.ready("task t2", cause="tool"), "somewhere else it is not in the way")
 
     def test_cooldown_doubles_up_to_its_ceiling(self):
         r, now = retry.Retry(), 1000.0

@@ -108,13 +108,21 @@ class Settle(_Clean):
             with self.subTest(attempt=_), self.assertRaises(api.Interrupted):
                 skillcore.settle(reader([3, 3], interrupt_at=0), GAINED, **FAST)
 
-    def test_gained_and_lost_are_settle(self):
-        for fn, seq, want in ((skillcore.gained, [3, 5], 5), (skillcore.lost, [3, 1], 1)):
-            with self.subTest(fn.__name__):
-                self.assertEqual(fn(reader(seq), BEFORE, timeout=0.2, stable_s=0.01), want)
-
-    def test_one_alive_reading_is_not_a_death(self):
-        self.assertFalse(skillcore.dead(state(dead=False)))
+    def test_judgments_built_on_settle(self):
+        """gained / lost / dead: the same wait, each with its own verdict. (dead: one alive reading is never a death,
+        and asks nothing more of the world.)"""
+        rows = [("gained", lambda: skillcore.gained(reader([3, 5]), BEFORE, timeout=0.2, stable_s=0.01), 5),
+                ("lost", lambda: skillcore.lost(reader([3, 1]), BEFORE, timeout=0.2, stable_s=0.01), 1),
+                ("dead: alive reading", lambda: skillcore.dead(state(dead=False)), False),
+                ("dead: no dead field at all", lambda: skillcore.dead({k: v for k, v in state().items() if k != "dead"}),
+                 False)]
+        with mock.patch.object(api, "api", side_effect=AssertionError("judged an alive reading by asking again")):
+            for name, call, want in rows[2:]:
+                with self.subTest(name):
+                    self.assertEqual(call(), want)
+        for name, call, want in rows[:2]:
+            with self.subTest(name):
+                self.assertEqual(call(), want)
 
 
 # ------------------------------------------------------------------------------------------------------- arrive
@@ -165,9 +173,10 @@ OUTCOMES = [
     (api.BodyContested("another commander posted a task"), "interrupt", "interrupted"),
     (api.PlayerTookControl(), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
-    (api.GameUnreachable("connection to the game lost (OSError)"), "error", "waits"),
+    (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
     (skillcore.ToolMissing("pickaxe", 1), "tool", "failure"),
     (api.NavFailed("could not get to (1, 2, 3)"), "nav", "failure"),
+    (api.Unreachable("the item landed where nothing can stand"), "nav", "failure"),
     (api.McError("travel: no path found"), "nav", "failure"),
     (api.McError("goto failed: 1 positions explored"), "nav", "failure"),
     (NotAvailable("cannot reach the tree"), "nav", "failure"),
@@ -307,15 +316,9 @@ COMMANDS = {
          lambda t, b: t.assertEqual(b, [])),
         ("no region read", body(None, inv=inventory(cobblestone=8)), lambda t, b: t.assertEqual(b, [])),
     ],
-    "place_torch_if_dark": [
-        ("dark cave, a torch, a spot in reach", dict(body(inv=inventory(torch=4)), state=dark(), spots=[SPOT]),
+    "light_area": [
+        ("a torch, a dark spot in reach", dict(body(inv=inventory(torch=4)), state=dark(), spots=[SPOT]),
          lambda t, b: t.assertEqual(b, [{"type": "place", "item": "minecraft:torch", "x": 1, "y": 64, "z": 1}])),
-        ("lit already", dict(body(inv=inventory(torch=4)), state=dark(blockLight=9), spots=[SPOT]),
-         lambda t, b: t.assertEqual(b, [])),
-        ("daylight on the surface", dict(body(inv=inventory(torch=4)), state=dark(skyLight=15), spots=[SPOT]),
-         lambda t, b: t.assertEqual(b, [])),
-        ("night on the surface", dict(body(inv=inventory(torch=4)), state=dark(skyLight=15, timeOfDay=18000),
-                                      spots=[SPOT]), lambda t, b: t.assertEqual(len(b), 1)),
         ("the only torch is in the offhand", dict(body(inv=inventory(offhand="torch")), state=dark(), spots=[SPOT]),
          lambda t, b: t.assertEqual(b, [])),
         ("the only dark spot is where we stand", dict(body(inv=inventory(torch=4)), state=dark(),
@@ -323,6 +326,12 @@ COMMANDS = {
          lambda t, b: t.assertEqual(b, [])),
         ("the dark spot is out of reach", dict(body(inv=inventory(torch=4)), state=dark(),
                                                spots=[{"x": 5, "y": 64, "z": 0}]), lambda t, b: t.assertEqual(b, [])),
+        ("a room: radius 10, three at most, darkest first",
+         dict(body(inv=inventory(torch=8)), state=dark(), _args=(10, 3),
+              spots=[{"x": x, "y": 64, "z": 0} for x in (2, 4, 6, 8, 12)]),
+         lambda t, b: t.assertEqual(cells(b), [(2, 64, 0), (4, 64, 0), (6, 64, 0)])),
+        ("nothing dark answered", dict(body(inv=inventory(torch=8)), state=dark(), spots=[]),
+         lambda t, b: t.assertEqual(b, [])),
     ],
     "bridge_toward": [
         ("a gap with no floor: lay, step, lay, step", body(world(*[((x, 63, 0), "air") for x in (1, 2, 3)]),

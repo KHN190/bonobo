@@ -21,13 +21,12 @@ from bonobo import brain, fight_loop, scenarios as sc  # noqa: E402,F401  (brain
 from bonobo import skill as skillkit  # noqa: E402
 
 # Skills without a real verify (the runner judges them by nothing). May only shrink.
-VERIFY_GAPS = {"anvil_repair", "await_perch", "bed_bomb_window", "break_caged_crystal", "brew_fire_resistance",
-               "build_bed_pit", "enchant_item", "fight_dragon", "fill_bottles", "shake_enderman", "slay_dragon",
-               "station", "travel_to"}
+VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "fight_dragon",
+               "shake_enderman", "slay_dragon", "station"}
 # Skills no scenario row proves in the world yet. May only shrink.
 SCENARIO_GAPS = {"anvil_repair", "await_perch", "bed_bomb_window", "break_caged_crystal", "brew_fire_resistance",
                  "build_bed_pit", "collect_machine", "enchant_item", "shake_enderman", "station", "trade"}
-CEILING = 13        # neither list grows past this; lower it as they shrink
+CEILING = 11        # neither list grows past this; lower it as they shrink
 
 COMMANDS = {"fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",
             "spreadplayers", "locate", "execute", "gamerule", "difficulty", "forceload", "data", "damage"}
@@ -136,7 +135,8 @@ class TheCrossProductIsWhole(unittest.TestCase):
 
     def test_every_axis_is_covered(self):
         axes = {spec["axis"] for spec in sc.CONDITIONS.values()}
-        self.assertEqual(axes, {"terrain", "timing", "inventory"})
+        self.assertEqual(axes, {"terrain", "timing", "inventory", "hazard"})
+        self.assertTrue({"buried_by_sand", "lava_edge"} <= {c for c, s in sc.CONDITIONS.items() if s["axis"] == "hazard"})
         terrains = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "terrain"}
         self.assertTrue({"canopy", "cave", "underwater", "pillar", "cliff_edge", "nether", "night", "rain"} <= terrains)
         timing = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "timing"}

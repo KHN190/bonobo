@@ -1251,6 +1251,38 @@ def _unless_done(check, run):
     return go
 
 
+def _sand_on_head_after(delay):
+    """`before` hook: `delay` s into the run, three blocks of sand land where the head is."""
+    def hook(ctx):
+        def fire():
+            from . import api
+            time.sleep(delay)
+            s = api.get("/state")
+            x, y, z = s["blockX"], s["blockY"], s["blockZ"]
+            _chat(f"fill {x} {y + 1} {z} {x} {y + 3} {z} sand")
+        _threading.Thread(target=fire, daemon=True).start()
+    return hook
+
+
+def _after_l0(name, run, resume, tries=4):
+    """Run; when an interruption stops it (L0 preempted for a hazard), let the brain's own rounds rescue the body —
+    L0 goes first in every round — then resume by what is still missing. The interruption is counted, never failed."""
+    def go(ctx):
+        from . import api, hazard
+        fn = run
+        for _ in range(tries):
+            try:
+                return fn(ctx)
+            except api.INTERRUPTIONS:
+                INTERRUPTS[name] = INTERRUPTS.get(name, 0) + 1
+                t0 = time.time()
+                while time.time() - t0 < 20 and hazard.due(api.get("/state")) is not None:
+                    core.BRAIN.round()
+                fn = resume
+        raise api.McError(f"still interrupted after {tries} tries")
+    return go
+
+
 def _missing_hook(what):
     def run(ctx):
         raise SetupInvalid(f"missing hook: {what}")
@@ -1436,6 +1468,12 @@ CONDITIONS = {
                       bases={"chop", "mine_stone", "nav"}, interrupt="contested"),
     "player_takeover": dict(axis="timing", doc="the player takes control mid-run: stand down, no failure counted",
                             bases={"chop", "nav"}, hook="mod: POST /control {paused} to simulate the player"),
+    # hazards mid-job: L0 takes the body, rescues it, and the job resumes by what is still missing
+    "buried_by_sand": dict(axis="hazard", doc="sand drops on the head mid-job", hazard="sand",
+                           bases={"nav", "chop", "mine_stone", "craft", "smelt"}),
+    "lava_edge": dict(axis="hazard", doc="a lava channel runs along the arena, one block beside the work", hazard="lava",
+                      bases={"nav", "chop", "mine_stone", "hunt", "loot"},
+                      setup=[f"fill {_c(at(-8, -1, 2))} {_c(at(15, -1, 2))} lava"]),
     # inventory
     "full_bag": dict(axis="inventory", doc="every slot full of dirt: nothing new can be picked up",
                      bases={"chop", "mine_stone", "hunt", "loot"}, setup=["give @p dirt 2304"],
@@ -1521,6 +1559,13 @@ def _row(name, base, cond=None, extra=None):
             hooks.append(_contest_after(b.get("work_s", 3)))
         run = _resume(name, run, resume)
         check = _all(check, _interrupted(2 if kind == "twice" else 1)) if kind != "success" else check
+    if c.get("hazard"):
+        resume = _unless_done(b["check"], _achieve_needs(b["needs"]) if b.get("needs") else b["run"])
+        if c["hazard"] == "sand":
+            hooks.append(_sand_on_head_after(b.get("work_s", 3)))
+        run = _after_l0(name, run, resume)
+        check = _all(check, _alive(8), lambda api, inv: _head_clear(),
+                     lambda api, inv: not api.get("/state")["inLava"])
     if c.get("hook"):
         run = _missing_hook(c["hook"])
     if fails:
@@ -1528,7 +1573,7 @@ def _row(name, base, cond=None, extra=None):
         check = _all(_failed_as_expected(), x.get("check", _alive()))
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check,
-           "budget": int(b["budget"] * (2 if kind else 1) * (3 if c.get("tick_rate") == 8 else 1)),
+           "budget": int(b["budget"] * (2 if kind or c.get("hazard") else 1) * (3 if c.get("tick_rate") == 8 else 1)),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: next(k for k, v in CONDITIONS.items() if v is c)} if c else {}),
                     **({"surprise": name} if x else {})}}
@@ -1590,10 +1635,10 @@ _ONE = {
     "contain_lava_pool": (["contain_lava"], "an open lava pool beside the body → covered", _floor() +
                           [f"fill {_c(at(2, -1, -1))} {_c(at(3, -1, 1))} lava", _tp(), "give @p cobblestone 16"],
                           lambda ctx: _skill("contain_lava")(ctx), _blocks(at(2, -1, -1), at(3, -1, 1), "lava", 0, 0), 30),
-    "torch_in_the_dark": (["place_torch_if_dark"], "a dark room, torches carried → one torch placed",
+    "torch_in_the_dark": (["light"], "a dark room, torches carried → one torch placed",
                           _floor() + [f"fill {_c(at(-4, 0, -4))} {_c(at(4, 3, 4))} stone hollow",
                                       f"fill {_c(at(-3, 0, -3))} {_c(at(3, 2, 3))} air", _tp(), "give @p torch 4"],
-                          lambda ctx: _skill("place_torch_if_dark")(ctx),
+                          lambda ctx: _skill("light_area")(ctx, 4, 1),
                           _blocks(at(-3, 0, -3), at(3, 2, 3), "torch", 1), 20),
     "light_the_room": (["light_area"], "a dark 9×9 room, 8 torches → several placed",
                        _floor() + [f"fill {_c(at(-6, 0, -6))} {_c(at(6, 3, 6))} stone hollow",
@@ -1643,6 +1688,10 @@ _ONE = {
                                       f"fill {_c(at(2, 0, 0))} {_c(at(2, 1, 0))} air", _tp(), "give @p cobblestone 8"],
                           lambda ctx: _skill("repair_site")(ctx, _broken_hut(ctx)),
                           _blocks(at(2, 0, 0), at(2, 1, 0), "cobblestone", 2), 60),
+    "withdraw_from_chest": (["withdraw"], "a chest of iron beside the body → 4 ingots taken out",
+                            _floor() + _chest(at(2, 0, 0), "iron_ingot 9") + [_tp()],
+                            lambda ctx: _skill("withdraw")(ctx, "minecraft:iron_ingot", 4, at(2, 0, 0)),
+                            _gain("minecraft:iron_ingot", 4), 30),
     "bridge_the_gap": (["bridge_toward"], "a 6-block gap in the floor toward the target, blocks carried → across",
                        _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
                        lambda ctx: _skill("bridge_toward")(ctx, at(9, 0, 0)), _at(at(9, 0, 0), 4), 45),
