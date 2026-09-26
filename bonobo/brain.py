@@ -430,8 +430,8 @@ def replan(task, goal, snap, cost, pending=None):
     """Pure given the cost model: a fresh held plan for `goal` from this bag — the task's solver, else every
     registered one. (held, None), or (None, why) when nothing can plan it."""
     try:
-        steps = decompose.decompose(snap.inv, goal, cost, solver=task.get("solver") or decompose.ORDER[0],
-                                    pending=pending)
+        solver = task.get("solver") or goals.SOLVER_FOR.get(goal["goal"]) or decompose.ORDER[0]
+        steps = decompose.decompose(snap.inv, goal, cost, solver=solver, pending=pending)
     except Unplannable:
         try:
             steps = decompose.decompose(snap.inv, goal, cost, solver=None, pending=pending)

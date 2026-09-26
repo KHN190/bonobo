@@ -22,6 +22,10 @@ from .planner import tool_ok
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill")
 ITEM_GOALS = ("have", "craft", "milestone")
+# Which solver a goal is planned by when its task names none: combined goals (a milestone is a set of things to hold
+# at once) go to the column solver, which orders them together; the rest to the default. Either falls back to
+# every registered solver when it cannot plan.
+SOLVER_FOR = {"milestone": "solve"}
 # Goals whose "done" is that their plan ran: nothing in the world says a skill was run or a road walked.
 RUN_ONCE = ("road", "skill")
 
