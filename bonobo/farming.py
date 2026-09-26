@@ -186,12 +186,12 @@ def harvest(ctx, job):
     return got
 
 
-def _breed_food():
-    inv = Inventory()
-    return sum(inv.count(f) for f in set(BREED_FOOD.values()))
+def _babies():
+    """Young animals of the kinds we breed within 24 blocks: what a breeding makes (the jar reports `baby`)."""
+    return sum(1 for e in entities(24, list(BREED_FOOD)) if e.get("baby"))
 
 
-@skill(start=lambda c: _breed_food(), verify=lambda c: _breed_food() < c.base, budget=180, stall=60, per_unit=60,
+@skill(start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
        provides={"breed": lambda ctx, s: ()})
 def breed(ctx):
     """Feed two adults of one kind the food they breed on; a breed job marks the 5-minute cooldown there."""

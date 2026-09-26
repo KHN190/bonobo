@@ -250,8 +250,21 @@ def _eye_direction(timeout=3.0):
     return (last[0] - first[0]) / n, (last[1] - first[1]) / n
 
 
-@skill(verify=lambda c: bool(c.args[0].mem.sites(OVERWORLD, kinds=["stronghold"])), budget=900, stall=240,
-       per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
+def _thrown_there(c):
+    """World evidence for the estimate: the eye flights it was triangulated from (kept with the site) meet at it."""
+    if c.result is None:
+        return False
+    xz = (c.result[0], c.result[-1])          # (x, z) fresh, or the remembered (x, y, z)
+    site = next((s for s in c.args[0].mem.sites(OVERWORLD, kinds=["stronghold"])
+                 if math.dist((s["pos"][0], s["pos"][2]), xz) <= 1), None)
+    throws = (site or {}).get("throws") or []
+    if len(throws) < 2:
+        return False
+    spot = triangulate(*throws[0], *throws[1])
+    return spot is not None and math.dist(spot, (site["pos"][0], site["pos"][2])) <= 1
+
+
+@skill(verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
 def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])
@@ -282,5 +295,6 @@ def locate_stronghold(ctx):
     if spot is None:
         raise McError("the two throws don't intersect (too parallel)")
     ctx.mem.add_site("stronghold", (spot[0], 30, spot[1]), OVERWORLD, name="stronghold")
+    ctx.mem.update_site("stronghold", throws=[[list(p), list(d)] for p, d in throws])
     log(f"stronghold estimated near {spot}")
     return spot

@@ -62,8 +62,12 @@ def _put(item, target_slot, count_button=0):
         api.post("/click", {"slot": src["slot"], "button": 0, "action": "PICKUP"})   # put the rest back
 
 
-@skill(start=lambda c: api.get("/state").get("xpLevel", 0),
-       verify=lambda c: api.get("/state").get("xpLevel", 0) < c.base, budget=180, stall=60, per_unit=30, provides={"enchant": lambda ctx, s: (mid(s.token),)})
+def _enchanted(item):
+    """How many of `item` carried are enchanted (the jar reports `enchanted` on a stack from 0.1.39)."""
+    return sum(1 for s in Inventory().slots if s["id"] == item and s.get("enchanted"))
+
+
+@skill(start=lambda c: _enchanted(c.args[1]), verify=lambda c: _enchanted(c.args[1]) > c.base, budget=180, stall=60, per_unit=30, provides={"enchant": lambda ctx, s: (mid(s.token),)})
 def enchant_item(ctx, item):
     """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option,
     take the item back."""
