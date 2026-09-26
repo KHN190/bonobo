@@ -1123,10 +1123,66 @@ def _at(pos, r):
     return lambda api, inv: _near(api, pos, r)
 
 
+TORCHES = ("torch", "wall_torch")          # a torch on a wall is the same light, and reads as another block
+
+
 def _blocks(lo, hi, name, least, most=None):
+    """`name` blocks (or any of a tuple of names) in the box: at least `least`, at most `most`."""
+    names = (name,) if isinstance(name, str) else tuple(name)
+
     def check(api, inv):
-        n = _count_blocks(api, lo, hi, name)
+        n = sum(_count_blocks(api, lo, hi, nm) for nm in names)
         return n >= least and (most is None or n <= most)
+    return check
+
+
+def _same_bag():
+    """Nothing taken, nothing spent: the bag reads as it did at the start."""
+    def check(api, inv):
+        from .world import Inventory
+        before = sorted((s_["id"], s_["count"]) for s_ in Inventory(BASE["inv"]).slots)
+        return before == sorted((s_["id"], s_["count"]) for s_ in inv.slots)
+    return check
+
+
+def _not(check):
+    return lambda api, inv: not check(api, inv)
+
+
+def _slot_has(item, *words):
+    """A carried `item` whose slot mentions all of `words` (enchantments, potion contents), as the mod reports it."""
+    def check(api, inv):
+        return any(s_["id"] == item and all(w in json.dumps(s_) for w in words) for s_ in inv.slots)
+    return check
+
+
+def _mobs_near(kind, least, r=16):
+    def check(api, inv):
+        from .world import entities
+        return len(entities(r, [kind])) >= least
+    return check
+
+
+def _under_feet(*names):
+    def check(api, inv):
+        from .world import Region
+        s_ = api.get("/state")
+        p = (s_["blockX"], s_["blockY"] - 1, s_["blockZ"])
+        return Region(p, p).name(p) in names
+    return check
+
+
+def _room_to_work():
+    def check(api, inv):
+        from .skillcore import free_spots_here
+        return bool(free_spots_here())
+    return check
+
+
+def _dropped_nothing():
+    def check(api, inv):
+        from .world import entities
+        return not entities(8, ["minecraft:item"])
     return check
 
 
@@ -1395,10 +1451,10 @@ BASES = {
     "nav": dict(skills=["goto"], doc="walk 14 blocks east over the arena", point="A",
                 setup=_floor() + [_tp()], run=lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 2),
                 check=_at(at(14, 0, 0), 3.5), budget=30, work_s=3, arena=16),
-    "chop": dict(skills=["item:log"], doc="a grove of two oaks → 4 logs", point="A",
+    "chop": dict(skills=["item:log"], bound=("log", 4, 14), doc="a grove of two oaks → 4 logs", point="A",
                  setup=_grove((4, 0), (-4, 3)) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 4),
                  check=_gain("log", 4), needs=[("log", 4)], effect=("log", 1), budget=45, work_s=4),
-    "mine_stone": dict(skills=["mine"], doc="stone floor, a wooden pickaxe → 6 cobblestone", point="A",
+    "mine_stone": dict(skills=["mine"], bound=("minecraft:cobblestone", 6, 8), doc="stone floor, a wooden pickaxe → 6 cobblestone", point="A",
                        setup=_floor() + [_tp(), "give @p wooden_pickaxe"],
                        run=lambda ctx: _skill("mine")(ctx, "minecraft:cobblestone", 6, ["stone"], 0),
                        check=_gain("minecraft:cobblestone", 6), needs=[("minecraft:cobblestone", 6)],
@@ -1410,12 +1466,12 @@ BASES = {
                       run=lambda ctx: _skill("mine")(ctx, "minecraft:raw_iron", 2, ["iron_ore"], 1),
                       check=_gain("minecraft:raw_iron", 2), needs=[("minecraft:raw_iron", 2)],
                       effect=("minecraft:raw_iron", 1), budget=45, work_s=3),
-    "craft": dict(skills=["craft"], doc="planks, sticks, a table carried → a wooden pickaxe", point="A",
+    "craft": dict(skills=["craft"], bound=("minecraft:wooden_pickaxe", 1, 1), doc="planks, sticks, a table carried → a wooden pickaxe", point="A",
                   setup=_floor() + [_tp(), "give @p oak_planks 8", "give @p stick 4", "give @p crafting_table"],
                   run=lambda ctx: _skill("craft")(ctx, "minecraft:wooden_pickaxe", 1),
                   check=_gain("minecraft:wooden_pickaxe", 1, at_most=1), needs=[("minecraft:wooden_pickaxe", 1)],
                   effect=("minecraft:wooden_pickaxe", 1), budget=20, work_s=1),
-    "smelt": dict(skills=["smelt"], doc="a furnace, 3 raw iron, coal → 3 iron ingots", point="A",
+    "smelt": dict(skills=["smelt"], bound=("minecraft:iron_ingot", 3, 3), doc="a furnace, 3 raw iron, coal → 3 iron ingots", point="A",
                   setup=_floor() + [_tp(), "give @p furnace", "give @p raw_iron 3", "give @p coal 2"],
                   run=lambda ctx: _skill("smelt")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 3, "coal"),
                   check=_gain("minecraft:iron_ingot", 3, at_most=3), needs=[("minecraft:iron_ingot", 3)],
@@ -1432,7 +1488,7 @@ BASES = {
     "sleep": dict(skills=["sleep"], doc="night, a bed carried → morning", point="A",
                   setup=_floor() + [_tp(), "give @p white_bed", "time set 18000"],
                   run=lambda ctx: _skill("sleep")(ctx, ctx.policy), check=_is_day(), budget=40, work_s=3),
-    "loot": dict(skills=["loot_chest"], doc="a chest of iron and bread 5 blocks away → the iron", point="A",
+    "loot": dict(skills=["loot_chest"], bound=("minecraft:iron_ingot", 5, 5), doc="a chest of iron and bread 5 blocks away → the iron", point="A",
                  setup=_floor() + _chest(at(5, 0, 1), "iron_ingot 5", "bread 4") + [_tp(-1, 0, 0)],
                  run=lambda ctx: _skill("loot_chest")(ctx), check=_gain("minecraft:iron_ingot", 5),
                  effect=("minecraft:iron_ingot", 1), budget=25, work_s=2),
@@ -1492,12 +1548,15 @@ CONDITIONS = {
     # inventory
     "full_bag": dict(axis="inventory", doc="every slot full of dirt: nothing new can be picked up",
                      bases={"chop", "mine_stone", "hunt", "loot"}, setup=["give @p dirt 2304"],
-                     fails=r"bag|full|room|slot"),
+                     fails=r"bag|full|room|slot", fails_check=lambda base: _same_bag()),
     "tool_one_use": dict(axis="inventory", doc="the pickaxe has one use left", bases={"mine_stone", "mine_iron"},
                          setup=["clear @p", "give @p wooden_pickaxe[damage=58]", "give @p stone_pickaxe[damage=130]"],
-                         fails=r"pickaxe|tier"),
+                         fails=r"pickaxe|tier",
+                         fails_check=lambda base: (_gain("minecraft:cobblestone", 0, at_most=2) if base == "mine_stone"
+                                                   else _blocks(at(4, 0, 0), at(4, 1, 0), "iron_ore", 1))),
     "wrong_tool": dict(axis="inventory", doc="only a wooden pickaxe for iron ore", bases={"mine_iron"},
-                       setup=["clear @p", "give @p wooden_pickaxe"], fails=r"tier-1 pickaxe|tier 1|pickaxe"),
+                       setup=["clear @p", "give @p wooden_pickaxe"], fails=r"tier-1 pickaxe|tier 1|pickaxe",
+                       fails_check=lambda base: _all(_same_bag(), _blocks(at(4, 0, 0), at(4, 1, 0), "iron_ore", 2))),
     "goal_met": dict(axis="inventory", doc="the bag already holds the goal: plan nothing, do nothing",
                      bases={"chop", "mine_stone", "mine_iron", "craft", "smelt", "hunt"}, goal_met=True),
 }
@@ -1513,12 +1572,15 @@ SURPRISES = {
                                  "give @p dirt 16"], replace_setup=True, check=_gain("log", 2), run_n=2),
     "empty_chest": dict(base="loot", doc="the only chest is empty", replace_setup=True,
                         setup=_floor() + [f"setblock {_c(at(5, 0, 1))} chest", _tp(-1, 0, 0)],
-                        fails=r"empty|nothing|worth|no unlooted"),
+                        fails=r"empty|nothing|worth|no unlooted",
+                        check=_all(_same_bag(), _blocks(at(5, 0, 1), at(5, 0, 1), "chest", 1, 1))),
     "bed_obstructed": dict(base="sleep", doc="a bed carried, the body boxed in a 1×1 cell", replace_setup=True,
                            setup=_floor() + [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 2, 1))} stone",
                                              f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air", _tp(),
                                              "give @p white_bed", "time set 18000"],
-                           fails=r"no flat 2-block spot|no room|obstruct"),
+                           fails=r"no flat 2-block spot|no room|obstruct",
+                           check=_all(_same_bag(), _not(_is_day()),
+                                      _no_block_suffix(at(-3, -1, -3), at(3, 3, 3), "_bed"))),
     "bed_in_nether": dict(base="sleep", doc="night in the Nether, a bed carried: must refuse (it explodes)",
                           dimension="minecraft:the_nether", replace_setup=True,
                           setup=_floor("netherrack") + [_tp(), "give @p white_bed", "time set 18000"],
@@ -1578,7 +1640,9 @@ def _row(name, base, cond=None, extra=None):
         elif kind == "contested":
             hooks.append(_contest_after(b.get("work_s", 3)))
         run = _resume(name, run, resume)
-        check = _all(check, _interrupted(2 if kind == "twice" else 1)) if kind != "success" else check
+        if kind == "success" and b.get("bound"):
+            check = _gain(*b["bound"])       # the effect once: an interruption at success is not a reason to redo it
+        check = _all(check, _interrupted(2 if kind == "twice" else 1))
     if c.get("hazard"):
         resume = _unless_done(b["check"], _achieve_needs(b["needs"]) if b.get("needs") else b["run"])
         if c["hazard"] == "sand":
@@ -1590,7 +1654,8 @@ def _row(name, base, cond=None, extra=None):
         run = _missing_hook(c["hook"])
     if fails:
         run = _expect_failure(name, run, fails)
-        check = _all(_failed_as_expected(), x.get("check", _alive()))
+        effect = x.get("check") or (c["fails_check"](base) if c.get("fails_check") else _same_bag())
+        check = _all(_failed_as_expected(), _alive(), effect)
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check,
            "budget": int(b["budget"] * (2 if kind or c.get("hazard") else 1) * (3 if c.get("tick_rate") == 8 else 1)),
@@ -1628,15 +1693,16 @@ _ONE = {
                            _floor() + [f"setblock {_c(at(2, 0, 0))} chest", _tp(), "give @p cobblestone 1280",
                                        "give @p dirt 640"],
                            lambda ctx: (ctx.mem.add_site("home", at(2, 0, 0), "minecraft:overworld", name="home"),
-                                        _skill("deposit")(ctx))[1], _free_slots(8), 60),
+                                        _skill("deposit")(ctx))[1], _all(_free_slots(8), _dropped_nothing()), 60),
     "dig_in_night": (["shelter:dig in"], "night on stone, a pickaxe → three down, sealed", _floor(depth=4) +
                      [_tp(), "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
-                     lambda ctx: _skill("dig_in")(ctx), lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1],
+                     lambda ctx: _skill("dig_in")(ctx),
+                     _all(lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1], lambda api, inv: _enclosed()),
                      40),
     "dig_out_morning": (["dig_out"], "morning, sealed in a 1×1 pocket → out", _floor() +
                         [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 2, 1))} stone", f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air",
                          _tp(), "give @p stone_pickaxe"],
-                        lambda ctx: _skill("dig_out")(ctx), lambda api, inv: not _near(api, at(0.5, 0, 0.5), 0.9), 40),
+                        lambda ctx: _skill("dig_out")(ctx), lambda api, inv: not _enclosed(), 40),
     "pod_open_ground": (["shelter:wall in"], "night, open ground, 16 blocks → walled in", _floor() +
                         [_tp(), "give @p cobblestone 16", "time set 18000"], lambda ctx: _skill("pod")(ctx),
                         _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9), 40),
@@ -1647,7 +1713,9 @@ _ONE = {
     "build_shelter_flat": (["build:shelter"], "flat stone, the hut's materials → a shelter standing",
                            _floor() + [_tp(), "give @p cobblestone 32", "give @p oak_door", "give @p torch 2"],
                            lambda ctx: _skill("build_shelter")(ctx),
-                           _blocks(at(-6, 0, -6), at(6, 3, 6), "cobblestone", 14), 120),
+                           _all(_blocks(at(-6, 0, -6), at(6, 3, 6), "cobblestone", 14),
+                                _blocks(at(-6, 0, -6), at(6, 3, 6), "oak_door", 1),
+                                _blocks(at(-6, 0, -6), at(6, 3, 6), TORCHES, 1)), 120),
     "burrow_hillside": (["burrow"], "night, a stone hillside beside the body → tunnelled in and sealed",
                         _floor() + [f"fill {_c(at(2, 0, -4))} {_c(at(8, 4, 4))} stone", _tp(),
                                     "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
@@ -1659,11 +1727,11 @@ _ONE = {
                           _floor() + [f"fill {_c(at(-4, 0, -4))} {_c(at(4, 3, 4))} stone hollow",
                                       f"fill {_c(at(-3, 0, -3))} {_c(at(3, 2, 3))} air", _tp(), "give @p torch 4"],
                           lambda ctx: _skill("light_area")(ctx, 4, 1),
-                          _blocks(at(-3, 0, -3), at(3, 2, 3), "torch", 1), 20),
+                          _blocks(at(-3, 0, -3), at(3, 2, 3), TORCHES, 1), 20),
     "light_the_room": (["light_area"], "a dark 9×9 room, 8 torches → several placed",
                        _floor() + [f"fill {_c(at(-6, 0, -6))} {_c(at(6, 3, 6))} stone hollow",
                                    f"fill {_c(at(-5, 0, -5))} {_c(at(5, 2, 5))} air", _tp(), "give @p torch 8"],
-                       lambda ctx: _skill("light_area")(ctx, 6, 4), _blocks(at(-5, 0, -5), at(5, 2, 5), "torch", 2), 60),
+                       lambda ctx: _skill("light_area")(ctx, 6, 4), _blocks(at(-5, 0, -5), at(5, 2, 5), TORCHES, 2), 60),
     "find_air_capped": (["find_air"], "under water with a stone cap, out of breath → air",
                         [f"fill {_c(at(-4, -4, -4))} {_c(at(4, 3, 4))} stone", f"fill {_c(at(-3, -3, -3))} {_c(at(3, 2, 3))} water",
                          _tp(0, -3, 0), "give @p stone_pickaxe"],
@@ -1679,7 +1747,7 @@ _ONE = {
     "footing_in_water": (["reach:footing"], "treading water, cobblestone carried → a block underfoot",
                          _tank(-4, 4, -4, 4, 0, water_top=-1) + [_tp(), "give @p cobblestone 8"],
                          lambda ctx: _skill("stand_on_a_block")(ctx),
-                         lambda api, inv: api.get("/state")["onGround"], 20),
+                         _all(lambda api, inv: api.get("/state")["onGround"], _under_feet("cobblestone")), 20),
     "unbury_sand": (["unbury"], "sand dropped on the head → dug out", _floor() + [_tp()],
                     lambda ctx: (_chat(f"fill {_c(at(0, 1, 0))} {_c(at(0, 3, 0))} sand"), time.sleep(1),
                                  _skill("unbury")(ctx))[2], lambda api, inv: _head_clear() and _alive(10)(api, inv), 20),
@@ -1698,11 +1766,13 @@ _ONE = {
                               _floor(depth=4) + [f"fill {_c(at(0, -3, 0))} {_c(at(0, -1, 0))} air", _tp(0, -3, 0),
                                                   "give @p dirt 2304", "give @p stone_pickaxe"],
                               lambda ctx: _skill("move_to_open_space")(ctx),
-                              lambda api, inv: api.get("/state")["blockY"] >= at(0, -1, 0)[1], 60),
+                              _room_to_work(), 60),
     "repair_two_pickaxes": (["repair_tool"], "two worn stone pickaxes → one", _floor() +
                             [_tp(), "give @p stone_pickaxe[damage=100]", "give @p stone_pickaxe[damage=100]"],
                             lambda ctx: _skill("repair_tool")(ctx, "pickaxe"),
-                            lambda api, inv: inv.count("minecraft:stone_pickaxe") == 1, 20),
+                            lambda api, inv: inv.count("minecraft:stone_pickaxe") == 1 and any(
+                                s_["id"] == "minecraft:stone_pickaxe" and s_.get("damage", 999) < 100 for s_ in inv.slots),
+                            20),
     "repair_broken_hut": (["repair_site"], "a remembered hut with two wall blocks knocked out → rebuilt",
                           _floor() + [f"fill {_c(at(2, 0, -2))} {_c(at(6, 2, 2))} cobblestone hollow",
                                       f"fill {_c(at(2, 0, 0))} {_c(at(2, 1, 0))} air", _tp(), "give @p cobblestone 8"],
@@ -1723,7 +1793,8 @@ _ONE = {
                         _floor() + [f"setblock {_c(at(2, 0, 0))} enchanting_table", _tp(), "give @p iron_pickaxe",
                                     "give @p lapis_lazuli 6", "experience add @p 30 levels"],
                         lambda ctx: _skill("enchant_item")(ctx, "minecraft:iron_pickaxe"),
-                        lambda api, inv: inv.count("minecraft:lapis_lazuli") < 6, 60),
+                        _all(lambda api, inv: inv.count("minecraft:lapis_lazuli") < 6,
+                             _slot_has("minecraft:iron_pickaxe", "enchant")), 60),
     "trade_bread": (["trade"], "a farmer selling bread for an emerald, 3 emeralds → bread",
                     _floor() + [_tp(), "give @p emerald 3",
                                 f'summon villager {_c(at(3, 0, 0))} {{NoAI:1b,VillagerData:{{profession:"minecraft:farmer",'
@@ -1736,7 +1807,7 @@ _ONE = {
                                                'give @p potion[potion_contents={potion:"minecraft:water"}] 3',
                                                "give @p nether_wart", "give @p magma_cream", "give @p blaze_powder 2"],
                                    lambda ctx: _skill("brew_fire_resistance")(ctx),
-                                   lambda api, inv: inv.count("minecraft:magma_cream") == 0, 120),
+                                   _slot_has("minecraft:potion", "fire_resistance"), 120),
     "collect_auto_smelter": (["collect_machine"], "a remembered auto smelter whose output chest holds 8 ingots → "
                                                   "taken",
                              _floor() + _chest(at(3, 0, 0), "iron_ingot 8") + [_tp()],
@@ -1750,11 +1821,11 @@ _ONE = {
                     lambda ctx: _skill("plant_farm")(ctx), _blocks(at(-4, 0, -4), at(4, 0, 4), "wheat", 4), 90),
     "breed_cows": (["breed"], "two cows in a pen, wheat carried → wheat spent on them",
                    _floor("grass_block") + _pen("cow", 2) + [_tp(), "give @p wheat 4"],
-                   lambda ctx: _skill("breed")(ctx), lambda api, inv: inv.count("minecraft:wheat") < 4, 45),
+                   lambda ctx: _skill("breed")(ctx), _mobs_near("minecraft:cow", 3), 45),
     "fill_bottles_at_pond": (["fill_bottles"], "a pond, 3 glass bottles → 3 water bottles",
                              _floor() + [f"fill {_c(at(2, -1, -1))} {_c(at(3, -1, 1))} water", _tp(),
                                          "give @p glass_bottle 3"], lambda ctx: _skill("fill_bottles")(ctx, 3),
-                             lambda api, inv: inv.count("minecraft:glass_bottle") == 0, 30),
+                             _gain("minecraft:potion", 3), 30),
 }
 
 
@@ -1797,7 +1868,9 @@ for _name, _row_ in {
                                  lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
                                      24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), 240),
     "strip_mine_real": (["strip_mine_step"], "real terrain, a stone pickaxe → a mining tunnel started",
-                        lambda ctx: _skill("strip_mine_step")(ctx, 8), _gain("minecraft:cobblestone", 1), 300),
+                        lambda ctx: _skill("strip_mine_step")(ctx, 8),
+                        _all(_gain("minecraft:cobblestone", 8),
+                             lambda api, inv: api.get("/state")["blockY"] <= BASE["state"]["blockY"] - 5), 300),
 }.items():
     _skills_, _doc_, _run_, _check_, _budget_ = _row_
     SHEET[_name] = {"doc": _doc_, "module": "skills", "raw": True, "release": True,
