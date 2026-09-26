@@ -84,6 +84,14 @@ class Snapshot:
         self.state = api.get("/state")
         self.inv = Inventory()
 
+    @classmethod
+    def from_readings(cls, state, inventory):
+        """A snapshot of recorded readings (/state dict, /inventory dict or Inventory): no world read."""
+        snap = cls.__new__(cls)
+        snap.state = dict(state)
+        snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
+        return snap
+
     @property
     def feet(self):
         s = self.state

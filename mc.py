@@ -143,8 +143,11 @@ def cmd_scenario(a):
             os.remove(scenarios.FLAG)
         print("scenario commands disabled")
         return
+    point = getattr(a, "point", None)
     if a.action == "list":
         for name, sc in scenarios.SCENARIOS.items():
+            if point and sc.get("point", "A") != point:
+                continue
             print(f"{name:20} budget {sc['budget']:>3}s  {sc['doc']}")
         return
     if a.action == "table":
@@ -158,6 +161,8 @@ def cmd_scenario(a):
     from bonobo import skill as skillkit
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
     names = [n for n, sc in scenarios.SCENARIOS.items() if not sc.get("release")] if a.action == "all" else a.names
+    if point:
+        names = [n for n in names if scenarios.SCENARIOS[n].get("point", "A") == point]
     brain = Brain()
     scenarios.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
     perception.start()   # same danger interrupts as a real run
@@ -285,6 +290,7 @@ def main():
     p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all"])
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
+    p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
     p.set_defaults(fn=cmd_scenario)
     p = sub.add_parser("interrupt", help="end the running skill so the queue's head runs next")
     p.add_argument("--why", default="Claude redirected")

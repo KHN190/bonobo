@@ -90,6 +90,19 @@ def craftable_tier(inv, kind):
     return 0
 
 
+def _once(reads, key, read):
+    """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
+    box = {}
+    if reads and key in reads:
+        box["v"] = reads[key]
+
+    def get():
+        if "v" not in box:
+            box["v"] = read()
+        return box["v"]
+    return get
+
+
 class Upkeep:
     """The table, and what it remembers between rounds: where the body has been (stuck), which tools worked last
     round (broken), where the last path failure was going (blocked). `brain` supplies the failure policy
@@ -120,9 +133,13 @@ class Upkeep:
             self.blocked = {"t": time.time(), "place": place, "pos": getattr(err, "pos", None)}
 
     # -- the table
-    def act(self, snap, ctx):
-        """(name, run) of the first row that applies, or None; rows that only queue work are applied on the way."""
+    def act(self, snap, ctx, reads=None):
+        """(name, run) of the first row that applies, or None; rows that only queue work are applied on the way.
+        `reads` = {"enclosed": bool, "bed_near": bool} stands in for the world reads the rows make (offline);
+        whatever is missing is read from the world, once, when a row first asks."""
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
+        enclosed = _once(reads, "enclosed", skills.enclosed)
+        bed_near = _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1)))
         blocked = self.blocked_here(b.place)
         rows = [
             ("recover items", lambda: b.mem.recent_death(snap.dimension) is not None, lambda: recover_items(ctx)),
@@ -131,18 +148,19 @@ class Upkeep:
             ("reach land", lambda: skills.swimming(s), lambda: skills.reach_land(ctx)),
             ("leave the Nether", lambda: nether_retreat(snap) is not None,
              lambda: nether.use_portal(ctx, "minecraft:overworld")),
-            ("dig out", lambda: not snap.night and skills.enclosed(), lambda: skills.dig_out(ctx)),
+            ("dig out", lambda: not snap.night and enclosed(), lambda: skills.dig_out(ctx)),
             ("sleep", lambda: over and snap.night and skills.can_sleep(s) is None
-             and bool(inv.count("bed") > 0 or find(BASE_MARKERS["bed"], radius=48, limit=1)),
+             and (inv.count("bed") > 0 or bed_near()),
              lambda: skills.sleep(ctx, b.policy(snap, True))),
-            ("shelter", lambda: over and snap.night and not self.sheltered(snap), lambda: self.shelter(snap, ctx)),
+            ("shelter", lambda: over and snap.night and not self.sheltered(snap, enclosed),
+             lambda: self.shelter(snap, ctx)),
             ("collect job", lambda: self.ready_job(snap) is not None, lambda: self.collect_job(snap, ctx)),
             ("collect machine", lambda: self.ready_machine(snap) is not None,
              lambda: skills.collect_machine(ctx, self.ready_machine(snap))),
             ("empty the bag", lambda: inv.used_slots() >= BAG_FULL, lambda: self.empty_bag(snap, ctx)),
             ("path blocked", lambda: blocked is not None and inv.count("building") >= BRIDGE_MIN,
              lambda: self.bridge(ctx, blocked)),
-            ("unstuck", lambda: self.stuck_in_place(snap), lambda: self.unstuck(snap, ctx)),
+            ("unstuck", lambda: self.stuck_in_place(snap, enclosed), lambda: self.unstuck(snap, ctx)),
         ]
         for name, due, run in rows:
             if b.ready(name) and due():
@@ -211,11 +229,11 @@ class Upkeep:
             return skills.build_shelter(ctx)
         return skills.pod(ctx)
 
-    def sheltered(self, snap):
+    def sheltered(self, snap, enclosed=None):
         if snap.get("skyLight", 15) <= COVERED_SKY:
             return True
         try:
-            if skills.enclosed():
+            if (enclosed or skills.enclosed)():
                 return True
         except (tape.ReplayMiss, McError):
             pass
@@ -246,9 +264,9 @@ class Upkeep:
         return skills.tidy_inventory(ctx)
 
     # -- stuck
-    def stuck_in_place(self, snap):
+    def stuck_in_place(self, snap, enclosed=None):
         """Same block and the same bag for STUCK_LIMIT seconds (sheltered at night excluded)."""
-        if snap.night and self.sheltered(snap):
+        if snap.night and self.sheltered(snap, enclosed):
             return False
         old = [h for h in self.history if time.time() - h[0] >= STUCK_LIMIT]
         if not old:

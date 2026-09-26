@@ -161,34 +161,36 @@ class Brain:
         return self.retry.ready(name, time.time(), self.place, cause)
 
     def attempt(self, name, fn):
-        """Run fn under the failure policy. Returns "ok", "failed" or "interrupted"."""
+        """Run fn under the failure policy (`outcome_of`). Returns "ok", "failed" or "interrupted"."""
         self.last_failure = None
         try:
             fn()
+            err = None
+        except Exception as e:
+            err, trace = e, traceback.format_exc()
+        outcome, then = outcome_of(err)
+        if outcome == "ok":
             self.retry.succeeded(name)
             self.mem.record_outcome(name, True)
-            return "ok"
-        except PlayerTookControl:
+        elif then == "handback":
             api.wait_for_handback()
-        except GameUnreachable:
+        elif then == "wait_game":
             api.wait_for_game()
-        except api.BodyContested as e:
-            log(f"?? {e}; standing down 10 s")
+        elif then == "stand_down":
+            log(f"?? {err}; standing down 10 s")
             time.sleep(10)
-        except api.INTERRUPTIONS as e:
-            log(f"   {name} interrupted: {e}")     # no count, no /stop, no cooldown
-        except (McError, skills.ToolMissing) as e:
-            self.last_failure = self.failed(name, e)
+        elif then is None:
+            log(f"   {name} interrupted: {err}")     # no count, no /stop, no cooldown
+        elif then == "stop":
+            self.last_failure = self.failed(name, err)
             try:
                 api.post("/stop")
             except McError:
                 pass
-            return "failed"
-        except Exception:
-            log("!! crash in " + name + "\n" + traceback.format_exc())
+        else:
+            log("!! crash in " + name + "\n" + trace)
             self.retry.hold(name, 300, time.time())
-            return "failed"
-        return "interrupted"
+        return outcome
 
     # -- one round
     def round(self):
@@ -314,18 +316,12 @@ class Brain:
             held.update(event=False, sig=bag_signature(snap.inv), dim=snap.dimension)
             self.held[task["id"]] = held
             return held
-        cost = Cost(snap, self.mem, self.blacklist)
-        pending = self.mem.pending_outputs(snap.dimension)
-        try:
-            steps = decompose.decompose(snap.inv, goal, cost, solver=task.get("solver") or decompose.ORDER[0],
-                                        pending=pending)
-        except Unplannable:
-            try:
-                steps = decompose.decompose(snap.inv, goal, cost, solver=None, pending=pending)
-            except Unplannable as e:
-                self.fail_task(task, f"unplannable: {e}")
-                return None
-        held = {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension}
+        held, why = replan(task, goal, snap, Cost(snap, self.mem, self.blacklist),
+                           self.mem.pending_outputs(snap.dimension))
+        if held is None:
+            self.fail_task(task, why)
+            return None
+        steps = held["steps"]
         self.held[task["id"]] = held
         tasks.update(task["id"], state="running", plan=[decompose.to_dict(s) for s in steps])
         tape.event(f"task {task['id']}", "plan", " → ".join(map(str, steps)))
@@ -410,6 +406,38 @@ class Brain:
     def survival(self, snap, ctx):
         """The bench's L0 entry (scenarios): the rescue for whatever hazard is on the body now."""
         return hazard.handle(ctx, snap.state, self.attempt, self.ready)
+
+
+def outcome_of(err):
+    """Pure: what an exception out of an attempt means — (outcome, what to do about it). Interruptions are not
+    failures: no count, no /stop, no cooldown."""
+    if err is None:
+        return "ok", None
+    if isinstance(err, PlayerTookControl):
+        return "interrupted", "handback"
+    if isinstance(err, GameUnreachable):
+        return "interrupted", "wait_game"
+    if isinstance(err, api.BodyContested):
+        return "interrupted", "stand_down"
+    if isinstance(err, api.INTERRUPTIONS):
+        return "interrupted", None
+    if isinstance(err, (McError, skills.ToolMissing)):
+        return "failed", "stop"
+    return "failed", "crash"
+
+
+def replan(task, goal, snap, cost, pending=None):
+    """Pure given the cost model: a fresh held plan for `goal` from this bag — the task's solver, else every
+    registered one. (held, None), or (None, why) when nothing can plan it."""
+    try:
+        steps = decompose.decompose(snap.inv, goal, cost, solver=task.get("solver") or decompose.ORDER[0],
+                                    pending=pending)
+    except Unplannable:
+        try:
+            steps = decompose.decompose(snap.inv, goal, cost, solver=None, pending=pending)
+        except Unplannable as e:
+            return None, f"unplannable: {e}"
+    return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension}, None
 
 
 def code_version():

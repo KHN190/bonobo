@@ -97,32 +97,33 @@ class Context:
 SETTLE_POLL_S = 0.25
 
 
-def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S):
+def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S, clock=time.time, sleep=time.sleep):
     """Poll `read()` until `ok(value)` has held for `stable_s`, or `timeout` runs out. Returns the last value read.
 
     What an action did is seen after the world has caught up with it: a log drops, bounces and is picked up a tick
     later; a furnace slot fills on the next update; a respawn reports `dead` for a frame. Counting once, right after
     the action, called all of those failures. The caller still judges the value — `ok` only says when to stop
-    looking. A pending interrupt ends the wait (`api.check_interrupt`) unless `soft`.
+    looking. A pending interrupt ends the wait (`api.check_interrupt`) unless `soft`. `clock`/`sleep` are
+    injectable, so a recorded reading sequence can be judged offline.
     """
     from . import tape
-    began = time.time()
+    began = clock()
     value = read()
     seq = [(0.0, value)]
     held_since = began if ok(value) else None
     try:
         while True:
-            now = time.time()
+            now = clock()
             if held_since is not None and now - held_since >= stable_s:
                 return value
             if now - began >= timeout:
                 return value
             api.check_interrupt(began, soft)
-            time.sleep(poll)
+            sleep(poll)
             value = read()
-            seq.append((time.time() - began, value))
+            seq.append((clock() - began, value))
             if ok(value):
-                held_since = held_since if held_since is not None else time.time()
+                held_since = held_since if held_since is not None else clock()
             else:
                 held_since = None
     finally:
@@ -140,9 +141,26 @@ def lost(read, before, timeout=3.0, stable_s=0.5):
     return settle(read, lambda v: v < before, timeout, stable_s)
 
 
-def dead(state=None):
+def confirmed(readings, stable_s=0.5):
+    """Pure: [(seconds, reading)] → did the reading (a bool, or a /state dict's `dead`) hold from the first one for
+    `stable_s`? One reading never confirms anything."""
+    if not readings:
+        return False
+    t0 = readings[0][0]
+    for t, v in readings:
+        if not (v.get("dead") if isinstance(v, dict) else v):
+            return False
+        if t - t0 >= stable_s:
+            return True
+    return False
+
+
+def dead(state=None, readings=None):
     """Is the body really dead? One reading can say so for a frame while a chunk loads or the player respawns, so a
-    death is confirmed by readings that agree for a moment, never by a single one."""
+    death is confirmed by readings that agree for a moment, never by a single one. With `readings` ([(s, state)])
+    this is the pure judgment (`confirmed`)."""
+    if readings is not None:
+        return confirmed(readings)
     first = (state if state is not None else api.get("/state")).get("dead")
     if not first:
         return False

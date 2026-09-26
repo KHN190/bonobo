@@ -36,12 +36,14 @@ class Cost:
     """The cost model a planner is given. `snap` is this round's snapshot; `mem` and `blacklist` are optional (a
     test passes neither and gets the priors and straight lines)."""
 
-    def __init__(self, snap, mem=None, blacklist=None, known=None):
-        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world)."""
+    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None):
+        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
+        `finds`: {block or mob type: distance} standing in for /find and /entities (offline: nothing is queried)."""
         self.snap, self.mem = snap, mem
         self.blacklist = blacklist or {}
         self.cache = {}
         self._known_fn = known
+        self._finds = finds
 
     # -- where things are
     def _banned(self, key):
@@ -70,6 +72,9 @@ class Cost:
     def distance(self, blocks, radius=48):
         """Blocks to the nearest one of these: in sight now (one cached /find), else remembered, else None."""
         key = ("find", tuple(blocks), radius)
+        if key not in self.cache and self._finds is not None:
+            got = [self._finds[b] for b in blocks if b in self._finds and self._finds[b] <= radius]
+            self.cache[key] = min(got) if got else self._known(blocks)
         if key not in self.cache:
             try:
                 hits = [h for h in find(list(blocks), radius=radius, limit=20)
@@ -81,6 +86,9 @@ class Cost:
 
     def _entity(self, types):
         key = ("ent", tuple(types))
+        if key not in self.cache and self._finds is not None:
+            got = [self._finds[t] for t in types if t in self._finds]
+            self.cache[key] = min(got) if got else self._known(types)
         if key not in self.cache:
             try:
                 es = [e for e in entities(64, list(types)) if not self._banned((e["id"], 0, 0))]
