@@ -37,16 +37,25 @@ def decide(hazards, **kw):
 
 
 class Rows(unittest.TestCase):
-    def test_velocity_is_differenced_between_rounds(self):
-        mem = {}
-        e = {"id": 7, "type": "minecraft:zombie", "x": 10.0, "y": 64.0, "z": 0.0}
-        threat.rows([e], mem, 100.0, {"minecraft:zombie": 3.0})
-        e2 = dict(e, x=8.0)
-        (r,) = threat.rows([e2], mem, 101.0, {"minecraft:zombie": 3.0})
-        self.assertEqual(r[2], (-2.0, 0.0, 0.0))
+    ZOMBIE = {"minecraft:zombie": 3.0}
 
-    def test_unknown_kinds_are_not_rows(self):
-        self.assertEqual(threat.rows([{"id": 1, "type": "minecraft:cow", "x": 1, "y": 64, "z": 1}], {}, 0, {}), [])
+    # (last reading of entity 7 or None, this reading, kinds asked for) → the rows built: (centre, velocity)
+    ROWS = [("first sight: at rest", None, {"type": "minecraft:zombie", "x": 10.0}, ZOMBIE,
+             [((10.0, 64.0, 0.0), (0.0, 0.0, 0.0))]),
+            ("two blocks nearer in a second", ((10.0, 64.0, 0.0), 100.0), {"type": "minecraft:zombie", "x": 8.0},
+             ZOMBIE, [((8.0, 64.0, 0.0), (-2.0, 0.0, 0.0))]),
+            ("the last reading is 3 s old: at rest, not a teleport", ((20.0, 64.0, 0.0), 98.0),
+             {"type": "minecraft:zombie", "x": 8.0}, ZOMBIE, [((8.0, 64.0, 0.0), (0.0, 0.0, 0.0))]),
+            ("a kind nobody asked about is not a row", None, {"type": "minecraft:cow", "x": 1.0}, ZOMBIE, []),
+            ("nothing asked for, nothing built", None, {"type": "minecraft:zombie", "x": 1.0}, {}, [])]
+
+    def test_rows_over_the_table(self):
+        for name, prev, reading, kinds, want in self.ROWS:
+            with self.subTest(name):
+                mem = {} if prev is None else {7: prev}
+                e = dict({"id": 7, "y": 64.0, "z": 0.0}, **reading)
+                got = threat.rows([e], mem, 101.0 if prev else 100.0, kinds)
+                self.assertEqual([(r[0], tuple(r[2])) for r in got], want)
 
 
 class Answers(unittest.TestCase):
@@ -64,19 +73,31 @@ class Answers(unittest.TestCase):
         return {o.kind: o for o in threat.options(state)}
 
 
-    def test_escape_goes_away_from_the_group_not_between_them(self):
-        hz = [row("minecraft:skeleton", 10, 2), row("minecraft:skeleton", 10, -2)]
-        self.assertLess(threat.escape_spot(HERE, hz)[0], -8)
+    # (threats) → where to run: 16 blocks away from them, never between two of them
+    ESCAPE = [("two archers flanking east", [("minecraft:skeleton", 10, 2), ("minecraft:skeleton", 10, -2)],
+               (-16, 64, 0)),
+              ("one zombie east", [("minecraft:zombie", 5, 0)], (-16, 64, 0)),
+              ("nothing", [], (16, 64, 0))]
+
+    def test_escape_spot_over_the_table(self):
+        for name, hz, want in self.ESCAPE:
+            with self.subTest(name):
+                self.assertEqual(threat.escape_spot(HERE, [row(k, x, z) for k, x, z in hz]), want)
 
 
 class Interrupt(unittest.TestCase):
+    # (seconds until dead at this pressure, the task under way) → the interrupt. Closer than one planning round
+    # (4 s) stops the task; an attack is its own answer and is never interrupted for being hit.
+    ROWS = [(2.0, "mine", "hostiles"), (4.0, "mine", "hostiles"), (4.01, "mine", None), (30.0, "mine", None),
+            (None, "mine", None), (2.0, "attack", None)]
+
     def test_perception_stops_a_task_when_arrows_would_kill_soon(self):
         from bonobo import perception
-        state = {"health": 12, "food": 20, "x": 0.0, "y": 64.0, "z": 0.0, "control": {"task": {"type": "mine"}}}
-        # Perception interrupts only for what is closer than one planning round; everything slower is the pool's
-        # call, priced against the work it would interrupt.
-        self.assertEqual(perception.danger(state, time_to_die=lambda: 2.0), "hostiles")
-        self.assertIsNone(perception.danger(state, time_to_die=lambda: 30.0))
+        self.assertEqual(perception.interrupt_within_s(), 4.0)
+        for ttd, task, want in self.ROWS:
+            with self.subTest(ttd=ttd, task=task):
+                state = {"health": 12, "food": 20, "x": 0.0, "y": 64.0, "z": 0.0, "control": {"task": {"type": task}}}
+                self.assertEqual(perception.danger(state, time_to_die=lambda: ttd), want)
 
 
 class OneComparison(unittest.TestCase):
@@ -104,14 +125,21 @@ class PricesForTheOtherPlanner(unittest.TestCase):
         return dict(here=(0, 0, 0), hp=20.0, sword=1, protection=0.0, hazards=list(hazards))
 
 
-    def test_no_go_is_a_circle_wider_than_the_reach(self):
-        zones = threat.no_go(self.rows(threat.row((10, 0, 0), 2.0, (0, 0, 0), "minecraft:zombie")))
-        self.assertEqual(len(zones), 1)
-        (centre, radius), = zones
-        self.assertEqual(centre, (10, 0, 0))
-        self.assertGreater(radius, 2.0)
-        self.assertTrue(threat.inside_no_go((10, 0, 1), zones))
-        self.assertFalse(threat.inside_no_go((0, 0, 0), zones))
+    # (the threat) → the circle not to walk into: its reach plus a margin
+    NO_GO = [("a zombie, reach 2", threat.row((10, 0, 0), 2.0, (0, 0, 0), "minecraft:zombie"), [((10, 0, 0), 4.0)]),
+             ("a skeleton, reach 15", threat.row((10, 0, 0), 15.0, (0, 0, 0), "minecraft:skeleton"),
+              [((10, 0, 0), 17.0)]),
+             ("a creeper, reach 3", threat.row((10, 0, 0), 3.0, (0, 0, 0), "minecraft:creeper"), [((10, 0, 0), 5.0)])]
+
+    def test_no_go_over_the_table(self):
+        self.assertEqual(threat.no_go(self.rows()), [])
+        for name, hazard, want in self.NO_GO:
+            with self.subTest(name):
+                zones = threat.no_go(self.rows(hazard))
+                self.assertEqual(zones, want)
+                (centre, radius), = zones
+                outside = (centre[0], centre[1], centre[2] + radius + 1)
+                self.assertEqual([threat.inside_no_go(p, zones) for p in (centre, outside)], [True, False])
 
 
 class TheFastLane(unittest.TestCase):
@@ -127,9 +155,18 @@ class TheFastLane(unittest.TestCase):
         state = {"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor, "sword_tier": sword, "blocks": 64}
         return self.perception.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
-    def test_nothing_near_is_no_bid(self):
-        self.assertIsNone(self.bid([]))
+    # (rows in sight) → (answer, seconds it is worth), or None: no bid
+    BIDS = [("nothing near", [], None),
+            ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 195.9)),
+            ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),
+            ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 173.3))]
 
+    def test_bids_over_the_table(self):
+        for name, rows, want in self.BIDS:
+            with self.subTest(name):
+                self.perception.HELD = None
+                got = self.bid(rows)
+                self.assertEqual(None if got is None else (got[0].kind, got[1]), want)
 
     def test_the_bid_is_what_its_own_answer_saves(self):
         """Closed against the state the bid itself built, not against one reassembled here: a test that rebuilds
@@ -166,15 +203,18 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
         return self.perception.lease_done(state, rows, price)
 
-    def test_a_blind_moment_does_not_hand_the_body_back(self):
-        self.assertFalse(self.release([]), "an empty perception read released the lease mid-answer")
+    # (what perception sees now) → is the answer done (hand the body back)?
+    LEASE = [("a blind moment: nothing visible", [], False),
+             ("a zombie still at 4", [row("minecraft:zombie", 4, 0)], False),
+             ("a zombie at 20", [row("minecraft:zombie", 20, 0)], False),
+             ("a zombie at 30", [row("minecraft:zombie", 30, 0)], False),
+             ("a skeleton at 10", [row("minecraft:skeleton", 10, 0)], False),
+             ("the zombie is 60 away: stopped paying", [row("minecraft:zombie", 60, 0)], True)]
 
-    def test_a_threat_still_there_keeps_it(self):
-        self.assertFalse(self.release([row("minecraft:zombie", 4, 0)]))
-
-    def test_an_answer_that_stopped_paying_gives_it_back(self):
-        self.assertTrue(self.release([row("minecraft:zombie", 60, 0)]),
-                        "nothing worth answering, yet the body was still held")
+    def test_the_lease_over_the_table(self):
+        for name, rows, done in self.LEASE:
+            with self.subTest(name):
+                self.assertEqual(self.release(rows), done)
 
 
 if __name__ == "__main__":
