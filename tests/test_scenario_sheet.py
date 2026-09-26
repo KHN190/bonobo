@@ -189,7 +189,12 @@ class Tiers(unittest.TestCase):
     # (row, tier it must be in): the rules the tiers exist for, stated per row.
     PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
               ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
-              ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance")]
+              ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance"),
+              ("upkeep_preempts_task", "brain"), ("upkeep_waits_in_daylight", "brain"), ("food_lead", "brain"),
+              ("broken_tool_best_tier", "brain"), ("plan_repair_on_event", "brain"), ("ban_then_other_source", "brain"),
+              ("resume_after_combat", "brain"), ("seen_store_goes_back", "brain"), ("l3_two_goals_in_order", "brain"),
+              ("ban_needs_a_failure", "brain"), ("chop_without_interrupt", "brain"), ("seen_store_forgotten", "brain"),
+              ("l3_order_swapped", "brain"), ("upkeep_waits_in_daylight", "brain"), ("plan_without_events", "brain")]
 
     def test_placed_rows(self):
         for name, tier in self.PLACED:
@@ -206,7 +211,7 @@ class Tiers(unittest.TestCase):
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
 LONG = {"escape", "fight_dragon", "combat_arena", "siege", "locate_stronghold", "find_portal_room_fresh",
         "bed_bomb_kill"}
-LIMIT_S = {"core": 30, "common": 180, "exception": 180}
+LIMIT_S = {"core": 30, "common": 180, "brain": 180, "exception": 180}
 
 
 def over_limit(rows_):

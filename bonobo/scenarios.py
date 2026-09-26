@@ -2230,11 +2230,15 @@ def _remove_table_when_placed(ctx):
 
 
 def _banned(pos):
-    return lambda api, inv: core.BRAIN.banned(pos)
+    return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) > time.time()
 
 
 def _not_banned(pos):
-    return lambda api, inv: not core.BRAIN.banned(pos)
+    return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) <= time.time()
+
+
+def _clear_bans(ctx):
+    core.BRAIN.blacklist.clear()
 
 
 def _seen(kind, pos):
@@ -2244,7 +2248,14 @@ def _seen(kind, pos):
 
 
 def _not_remembered(kind):
-    return lambda api, inv: not core.BRAIN.mem.seen(kind, "minecraft:overworld")
+    return lambda api, inv: core.BRAIN.mem.seen(kind, "minecraft:overworld") == []
+
+
+def _forget_all(kind):
+    def before(ctx):
+        for r in core.BRAIN.mem.seen(kind, "minecraft:overworld"):
+            core.BRAIN.mem.forget_seen(kind, r["pos"], "minecraft:overworld")
+    return before
 
 
 def _tasks_done_in_order(*descs):
@@ -2308,13 +2319,26 @@ BRAIN_ROWS = {
         _floor() + [f"fill {_c(at(-7, -1, -1))} {_c(at(-5, 1, 1))} barrier", f"setblock {_c(IRON_ORE_CAGED)} iron_ore",
                     f"setblock {_c(IRON_ORE_FREE)} iron_ore", _tp(), "give @p stone_pickaxe"],
         [_have(("minecraft:raw_iron", 1))], _count("minecraft:raw_iron", 1), 2,
-        _all(_gain("minecraft:raw_iron", 1), _blocks(IRON_ORE_CAGED, IRON_ORE_CAGED, "iron_ore", 1, 1))),
+        _all(_gain("minecraft:raw_iron", 1), _blocks(IRON_ORE_CAGED, IRON_ORE_CAGED, "iron_ore", 1, 1),
+             _blocks(IRON_ORE_FREE, IRON_ORE_FREE, "iron_ore", 0, 0))),
+    "ban_needs_a_failure": (
+        "Two free iron ores, the walk interrupted once (a zombie) → nothing banned: an interruption teaches nothing "
+        "about the place (control)",
+        _floor() + [f"setblock {_c(IRON_ORE_CAGED)} iron_ore", f"setblock {_c(IRON_ORE_FREE)} iron_ore", _tp(),
+                    "give @p stone_pickaxe", "give @p iron_sword"],
+        [_have(("minecraft:raw_iron", 2))], _count("minecraft:raw_iron", 2), 2,
+        _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE))),
     "resume_after_combat": (
         "Chopping 6 logs, a zombie summoned mid-way → fight_loop answers it, then the chopping resumes for what is "
         "still missing",
         _grove((3, 0), (-3, 2)) + [_tp(), "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate"],
         [_have(("log", 6))], _count("log", 6), 2,
-        _all(_gain("log", 6), _gone(["minecraft:zombie"]), _alive(10))),
+        _all(_gain("log", 6, at_most=9), _gone(["minecraft:zombie"]), _alive(10))),
+    "chop_without_interrupt": (
+        "The same with no zombie → no fight is logged, the same 6 logs (control)",
+        _grove((3, 0), (-3, 2)) + [_tp(), "give @p iron_sword"],
+        [_have(("log", 6))], _count("log", 6), 2,
+        _all(_gain("log", 6), _log_lacks("fight"))),
     "seen_store_goes_back": (
         "Diamond ore remembered 10 blocks away (not in sight: behind stone) → walked to and mined; the note is "
         "retired once it is gone",
@@ -2322,18 +2346,34 @@ BRAIN_ROWS = {
                            _tp(), "give @p iron_pickaxe"],
         [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 2,
         _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"))),
+    "seen_store_forgotten": (
+        "The same ore, no note → the brain cannot know it: 1 minute passes without the diamond (must-fail control)",
+        _floor(depth=4) + [f"fill {_c(at(8, 0, -2))} {_c(at(12, 3, 2))} stone", f"setblock {_c(at(10, 0, 0))} diamond_ore",
+                           _tp(), "give @p iron_pickaxe"],
+        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 1,
+        _all(_blocks(at(10, 0, 0), at(10, 0, 0), "diamond_ore", 1, 1), _gain("minecraft:diamond", 0, at_most=0))),
     "l3_two_goals_in_order": (
         "Two goals queued (logs, then cobblestone) → both done, in queue order",
         _grove((3, 0)) + [f"fill {_c(at(-6, 0, 3))} {_c(at(-4, 1, 5))} stone", _tp(), "give @p wooden_pickaxe"],
         [_have(("log", 3)), _have(("minecraft:cobblestone", 3))],
         lambda: _count("log", 3)() and _count("minecraft:cobblestone", 3)(), 2,
         _all(_tasks_done_in_order("have log", "have cobblestone"), _gain("log", 3), _gain("minecraft:cobblestone", 3))),
+    "l3_order_swapped": (
+        "The same goals queued the other way → done the other way (control: the queue decides, not the cost)",
+        _grove((3, 0)) + [f"fill {_c(at(-6, 0, 3))} {_c(at(-4, 1, 5))} stone", _tp(), "give @p wooden_pickaxe"],
+        [_have(("minecraft:cobblestone", 3)), _have(("log", 3))],
+        lambda: _count("log", 3)() and _count("minecraft:cobblestone", 3)(), 2,
+        _all(_tasks_done_in_order("have cobblestone", "have log"), _gain("log", 3), _gain("minecraft:cobblestone", 3))),
 }
 _BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
            "plan_without_events": [_count_replans],
            "resume_after_combat": [lambda ctx: _threading.Timer(4.0, lambda: _chat(
                f"summon zombie {_c(at(4, 0, 4))} {{PersistenceRequired:1b}}")).start()],
-           "seen_store_goes_back": [_seen("diamond_ore", at(10, 0, 0))]}
+           "ban_then_other_source": [_clear_bans],
+           "ban_needs_a_failure": [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
+               f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()],
+           "seen_store_goes_back": [_seen("diamond_ore", at(10, 0, 0))],
+           "seen_store_forgotten": [_forget_all("diamond_ore")]}
 for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items():
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
