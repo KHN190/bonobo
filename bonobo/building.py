@@ -197,33 +197,23 @@ def block_matches(name, token):
 
 
 def place_oriented(ctx, pos, token, facing=None, against=None, either_way=False):
-    """Place a blueprint part and verify its `facing` state. A body-oriented block that comes out mirrored teaches
-    the token's rule (memory) and is placed again; `either_way` accepts the opposite facing (doors)."""
-    for attempt in range(2):
-        item = resolve_item(token)
-        task = {"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]}
-        if against is not None:
-            task["against"] = {"x": against[0], "y": against[1], "z": against[2]}
-        elif facing is not None:
-            yaw, pitch = blueprints.look_for(facing, ctx.mem.orientation_rule(token))
-            task["yaw"] = yaw if yaw is not None else api.get("/state")["yaw"]
-            task["pitch"] = pitch
-        r = api.run(task, wait=90)
-        if r["status"] != "succeeded":
-            raise McError(f"placing {bare(item)} at {pos} failed: {r['message']}")
-        if facing is None:
-            return
-        actual = Region(pos, pos, props=True).prop(pos, "facing")
-        if actual is None or actual == facing or (either_way and actual == blueprints.OPPOSITE[facing]):
-            return
-        if against is None and attempt == 0 and actual == blueprints.OPPOSITE[facing]:
-            rule = ctx.mem.orientation_rule(token)
-            ctx.mem.set_orientation_rule(token, "away_from_player" if rule == "toward_player" else "toward_player")
-            log(f"   {bare(item)} came out facing {actual}; learned the other orientation rule, placing again")
-            api.run({"type": "mine", "x": pos[0], "y": pos[1], "z": pos[2], "collect": True, **_collect_only([item]), "requireDrops": True},
-                    wait=60)
-            continue
-        raise McError(f"{bare(item)} at {pos} faces {actual}, wanted {facing}")
+    """Place a blueprint part and verify its `facing` state. The jar turns the body so the block's own placement rule
+    gives `facing`; `either_way` accepts the opposite facing (doors)."""
+    item = resolve_item(token)
+    task = {"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]}
+    if against is not None:
+        task["against"] = {"x": against[0], "y": against[1], "z": against[2]}
+    elif facing is not None:
+        task["facing"] = facing
+    r = api.run(task, wait=90)
+    if r["status"] != "succeeded":
+        raise McError(f"placing {bare(item)} at {pos} failed: {r['message']}")
+    if facing is None:
+        return
+    actual = Region(pos, pos, props=True).prop(pos, "facing")
+    if actual is None or actual == facing or (either_way and actual == blueprints.OPPOSITE[facing]):
+        return
+    raise McError(f"{bare(item)} at {pos} faces {actual}, wanted {facing}")
 
 
 def materials_missing(bp):
@@ -253,7 +243,7 @@ def blueprint_commands(state, args):
     """Pure: the whole build as one batch, from the access spot — clear the foliage in the way, then every part not
     yet in place, bottom-up, pillaring under the body wherever a part's only face is above the eye.
 
-    `state` is `body_state` with `region` = `blueprint_region(...)` and `rules` = {token: orientation rule}; the body
+    `state` is `body_state` with `region` = `blueprint_region(...)`; the body
     is assumed to stand on the access spot (the skill walks there first). Items come out of `state["inv"]` as the
     batch spends them, so a group token picks a member there will still be some of.
     """
@@ -297,16 +287,13 @@ def blueprint_commands(state, args):
         if against is not None:
             task["against"] = {"x": against[0], "y": against[1], "z": against[2]}
         elif facing is not None:
-            yaw, pitch = blueprints.look_for(facing, state["rules"].get(part.item, "toward_player"))
-            task["yaw"] = yaw if yaw is not None else state["state"]["yaw"]
-            task["pitch"] = pitch
+            task["facing"] = facing
         tasks.append(task)
     return tasks
 
 
 def _build_state(ctx, bp, origin, turns):
-    rules = {p.item: ctx.mem.orientation_rule(p.item) for p in bp.parts if p.facing is not None}
-    return body_state(ctx, blueprint_region(bp, origin, turns), rules=rules)
+    return body_state(ctx, blueprint_region(bp, origin, turns))
 
 
 def _build_parts(ctx, bp, origin, turns):

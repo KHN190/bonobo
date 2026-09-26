@@ -1,5 +1,5 @@
 """Machines as data: what a build is for, its parts (relative cells, items, intended orientation, role) and the
-orientation rules needed to place them. Pure data + geometry; the build/use skills live in skills.py.
+facing each needs (the jar turns the body to get it). Pure data + geometry; the build/use skills live in skills.py.
 
 Orientation (vanilla Java):
   - Hoppers output into the block that was clicked (`against`); clicking a top/bottom face outputs down.
@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 DIRS = {"north": (0, 0, -1), "south": (0, 0, 1), "east": (1, 0, 0), "west": (-1, 0, 0), "up": (0, 1, 0),
         "down": (0, -1, 0)}
 OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east", "up": "down", "down": "up"}
-YAW = {"south": 0.0, "west": 90.0, "north": 180.0, "east": -90.0}
 CLOCKWISE = {"north": "east", "east": "south", "south": "west", "west": "north", "up": "up", "down": "down"}
 
 
@@ -156,13 +155,3 @@ def access_spot(bp, origin, turns=0):
     d = rotate_offset(bp.access, turns)
     return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
 
-
-def look_for(facing, rule):
-    """Body orientation (yaw, pitch) that should give `facing` under a rule: "toward_player" (the block faces the
-    player, so look the opposite way) or "away_from_player" (the block faces where the player looks)."""
-    look = OPPOSITE[facing] if rule == "toward_player" else facing
-    if look == "up":
-        return None, -90.0
-    if look == "down":
-        return None, 90.0
-    return YAW[look], 0.0

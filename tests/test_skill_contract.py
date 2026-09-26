@@ -790,9 +790,10 @@ def blueprint_cases():
                 region.blocks[(pos[0], top + 1, pos[2])] = "oak_leaves"
         carried = inventory(*[(members(tok)[0], min(64, n + 8)) for tok, n in blueprints.materials(bp).items()],
                             cobblestone=64)
-        st = body(region, feet=blueprints.access_spot(bp, origin, turns), inv=carried, rules={})
+        st = body(region, feet=blueprints.access_spot(bp, origin, turns), inv=carried)
         missing = {pos for pos, _, _, _ in parts} - {pos for pos, _, _, _ in done}
-        check = _blueprint_check(missing, progress == "canopy", st)
+        facing = {pos: f if against is None else None for pos, _, f, against in parts}
+        check = _blueprint_check(missing, progress == "canopy", st, facing)
         label = f"{name} turns={turns} {progress}"
         if name == "shelter":
             out["build_shelter"].append((label, dict(st, spot=(origin, turns)), check))
@@ -800,7 +801,7 @@ def blueprint_cases():
                                                    _args=(name, origin)), check))
         if turns == 0 and progress == "bare":
             # Nothing started: the batch is planned where the region has room — every part placed, somewhere.
-            fresh = body(world(), feet=(0, 64, 0), inv=carried, rules={})
+            fresh = body(world(), feet=(0, 64, 0), inv=carried)
             out["build_blueprint"].append((f"{name}: nothing started, open ground", dict(fresh, _args=(name, (0, 64, 4))),
                                            lambda t, b, n=len(parts): t.assertEqual(len(cells(b)), n)))
             out["build_blueprint"].append((f"{name}: nothing started, no region read", dict(fresh, region=None,
@@ -809,12 +810,12 @@ def blueprint_cases():
             walled = world(*[((x, y, z), "bedrock") for x in range(-12, 13) for z in range(-8, 17) for y in (64, 65, 66, 67)
                              if (x, z) != (0, 0)])
             out["build_blueprint"].append((f"{name}: nothing started, nowhere to build", dict(
-                body(walled, feet=(0, 64, 0), inv=carried, rules={}), _args=(name, (0, 64, 4))),
+                body(walled, feet=(0, 64, 0), inv=carried), _args=(name, (0, 64, 4))),
                 lambda t, b: t.assertEqual(b, [])))
     return out
 
 
-def _blueprint_check(missing, canopy, st):
+def _blueprint_check(missing, canopy, st, facing):
     def check(t, batch):
         t.assertEqual(set(cells(batch)), missing, "one place per missing part, none for a part already standing")
         t.assertEqual(len(cells(batch)), len(missing))
@@ -827,6 +828,9 @@ def _blueprint_check(missing, canopy, st):
             if task["type"] == "place":
                 t.assertLess(task["y"] - fy, 2, f"{task}: the face is above the eye")
                 t.assertIn(task["item"], carried)
+                # The jar turns the body from the block's own rule: the batch names the facing, never a rotation.
+                t.assertEqual(task.get("facing"), facing[(task["x"], task["y"], task["z"])], task)
+                t.assertFalse({"yaw", "pitch"} & set(task), task)
     return check
 
 
@@ -853,7 +857,7 @@ class BlueprintBatch(unittest.TestCase):
                 ("nothing started, nowhere to build", dict(region=walled), lambda t, b: t.assertEqual(b, [])),
                 ("a blueprint nobody drew", dict(_bp="castle"), KeyError)]
         for name, extra, want in rows:
-            st = dict(body(world(), inv=carried, rules={}), **{k: v for k, v in extra.items() if k != "_bp"})
+            st = dict(body(world(), inv=carried), **{k: v for k, v in extra.items() if k != "_bp"})
             args = (extra.get("_bp", "nether_portal"), (0, 64, 4))
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("read the world")):
                 if isinstance(want, type):

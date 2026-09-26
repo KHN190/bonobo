@@ -29,7 +29,7 @@ class Memory:
         self.clock = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
-                             ("orientation", {}), ("stats", {}), ("durations", {}), ("jobs", [])):
+                             ("stats", {}), ("durations", {}), ("jobs", [])):
             d.setdefault(key, default)
         self._migrate()
 
@@ -249,14 +249,6 @@ class Memory:
         if not s:
             return 1.0
         return (s["ok"] + 1) / (s["ok"] + s["fail"] + 1)
-
-    def orientation_rule(self, item):
-        """How an item's `facing` follows the body at placement: learned per item, default toward the player."""
-        return self.data["orientation"].get(item, "toward_player")
-
-    def set_orientation_rule(self, item, rule):
-        self.data["orientation"][item] = rule
-        self.save()
 
     def mark_dirty_near(self, positions, dimension, radius=6):
         """Our own digging: sites near it are dirty (repair checks them), slow notes near it are to-verify, and a
