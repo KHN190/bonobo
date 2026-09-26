@@ -188,15 +188,13 @@ class Cost:
 
     def seek_s(self, kinds):
         """Seconds to go to one of these: what the game already said the route takes, else the known distance, else
-        how far one was found at before, walked (`walk_ticks`); else the declared prior."""
+        walked (`walk_ticks`); else the declared prior."""
         seconds = self.route_s(kinds)
         if seconds is not None:
             return max(1.0, round(float(seconds), 1))
         known = self._known(kinds)
         if known is None:
-            known = self.searched(kinds)
-        if known is None:
-            return float(_PLAY["pool"]["seek_prior_s"])
+            return float(_PLAY["plan"]["seek_prior_s"])
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
@@ -211,19 +209,9 @@ class Cost:
         found, seconds = nav._ROUTES.get(key, (None, None))
         return seconds if found else None
 
-    def searched(self, kinds):
-        """How far one of these was found at on average, from experience; None until it has happened."""
-        if self.mem is None:
-            return None
-        seen = [d for d in (self.mem.search_distance(k) for k in kinds) if d]
-        return sum(seen) / len(seen) if seen else None
-
     def find_p(self, kinds):
-        """The chance a look for one of these finds it: memory's count over the declared prior."""
-        prior = float(_PLAY["pool"]["exists_prior"])
-        if self.mem is None or not kinds:
-            return prior
-        return max(self.mem.exists_rate(k, prior) for k in kinds)
+        """The chance a look for one of these finds it: the declared prior."""
+        return float(_PLAY["plan"]["exists_prior"])
 
 
 class Prices:

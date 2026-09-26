@@ -5,7 +5,7 @@ bridging, pillaring, ladders), and one in this file, which planned routes the bo
 disagreement between them became a bug: water in the floor priced as flat ground, ore two blocks inside rock
 "unreachable", a village room behind a door the walker would have opened. Physics is the world's, so:
 
-    route_s(cell, policy)   /plan — is there a way, and how many seconds (the one door for both questions)
+    route_s(cell, policy)   /plan — is there a way, and how many seconds
     go_to(pos, policy)      travel — the mod walks, digs and bridges its own way there
     way_to(ctx, cells)      the answer to "could not get to it": walk with digging allowed, then check
 

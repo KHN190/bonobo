@@ -61,13 +61,6 @@ def exposure_of(action, state):
     return press * action.cost_s
 
 
-# The rate beliefs live at the bottom (`beliefs`), where the cost model can reach them without importing this module.
-# These names stay because the columns read them.
-use_rate = beliefs.use_rate
-expected_uses = beliefs.expected_uses
-encounter_prior = beliefs.encounter_prior
-
-
 def with_exposure(action):
     """Teach one column how to price its own exposure. Returns it, so it can wrap a construction."""
     action._exposure = exposure_of
@@ -79,8 +72,8 @@ def facility_dims(actions):
 
     Leaving one of these behind is a gift to whatever comes next — nobody uses it up, so its lower price is a real
     saving to every later goal. Materials are the opposite: a plan that ends holding less wood has not left wood
-    behind, it has spent it, and treating that fall as generosity charges the same work twice (it blew the live
-    pool up to a hundred and seventy thousand seconds).
+    behind, it has spent it, and treating that fall as generosity charges the same work twice (it blew plan prices
+    up to a hundred and seventy thousand seconds).
 
     Read off the actions rather than listed here, so a facility added tomorrow is covered tomorrow.
     """
@@ -158,7 +151,7 @@ def consume(token, n):
 #                player holding the controls.
 #
 # This distinction is the whole reason there are two: with them merged, "I am swimming" made every column
-# unplannable, the pool emptied, and the one column that could mend it competed against nothing.
+# unplannable, nothing could be planned, and the one column that could mend it competed against nothing.
 BODY_DIMS = ("footing", "hands_free")
 DROWNING_TICKS = 100          # about five seconds of air left: below this, getting a breath comes first
 
@@ -338,8 +331,7 @@ def _seek(cost):
 
     Time over chance, and nothing else. Without the division a thing that
     is not in this biome cost exactly what one underfoot costs: "could not find white_wool" sixty times, at nine
-    seconds a try, winning the round every time. Each failed look lowers `p` (`memory.note_look`), so the errand
-    prices itself out and the hunt takes over, without anything being banned.
+    seconds a try, winning the round every time.
     """
     out = []
     for what, kinds in _findable():
@@ -590,7 +582,7 @@ def marginal_batch(step, shadow, demand, bag_free, stack=64):
         return step
     per_tick = step.est / step.count if step.count else 0
     step.est = int(round(per_tick * want))
-    step.detail["batched"] = True        # one task chain: the body is busy for all of it (priority.step_commitment)
+    step.detail["batched"] = True        # one task chain: the body is busy for all of it
     if step.kind == "mine" and step.detail.get("breaks"):
         step.detail["breaks"] = int(math.ceil(step.detail["breaks"] * want / step.count))
     step.count = want
@@ -640,8 +632,7 @@ def _shape(action, times):
     tag = action.tag or ()
     kind = tag[0] if tag else "craft"
     if kind == "seek":
-        # The position, when one is known, is what lets an errand be priced as an offset from this leg of the
-        # journey rather than as a round trip from where we stand (priority.detour_s).
+        # The position, when one is known: the seek skill walks there (explore.seek).
         return Step("seek", tag[1], 1, {"kinds": list(tag[2]),
                                         "pos": list(tag[3]) if len(tag) > 3 and tag[3] else None})
     if kind == "reach":

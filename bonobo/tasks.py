@@ -7,7 +7,7 @@ be pending, and the first live one in the list is the one worked on. The brain m
 `plan` is the plan the brain holds for the task, as step dicts: it is saved with the task so work half done
 survives a restart, and it is only ever a hint — on resume the brain checks it against the bag and repairs it
 (steps are amounts to hold, not "chop this tree").
-Replaces want.py, directives.py, route.py and the priority weights: one door in, and it is a queue.
+One door in, and it is a queue.
 """
 import json
 import os

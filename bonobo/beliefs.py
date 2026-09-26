@@ -252,13 +252,13 @@ def slot_cost_s(bag_free):
     A belief, so it lives at the bottom of the package where anything may ask it — the looter and the planner have
     to agree about what a slot is worth, and a copy in each would drift.
 
-    Emptying the bag costs a trip (`pool.slot_fill_s` is that trip's seconds); with `free` slots left, taking one
+    Emptying the bag costs a trip (`plan.slot_fill_s` is that trip's seconds); with `free` slots left, taking one
     more brings that trip forward by about 1/free of it, and the next one again — so the marginal cost goes as
     1/free². Roomy: 90/36² ≈ 0.07 s, nothing. Six left: 2.5 s, noticeable. Two left: 22 s, and only what is really
     worth carrying still is. Nobody has to choose a "keep some slots free" rule; the curve is the rule.
     """
     free = max(1.0, float(bag_free))
-    return float(CONFIG["pool"]["slot_fill_s"]) / (free * free)
+    return float(CONFIG["plan"]["slot_fill_s"]) / (free * free)
 
 
 def cautious(path, direction="benefit"):
@@ -277,28 +277,6 @@ def cautious(path, direction="benefit"):
     return float(v) * (0.5 + 0.5 * trust)
 
 
-def staleness_s(age_s):
-    """Seconds to add because the note about something is old: the drift per doubling of age.
-
-    Lives at the bottom with the other beliefs, so the table that reads notes (`actions`) and the door that
-    prices scarcity (`gates.marginal`) can both ask without either importing the other.
-    """
-    fresh = float(CONFIG["memory"]["fresh_s"])
-    drift = float(CONFIG["memory"]["drift_s_per_log2"])
-    return round(drift * math.log2(1.0 + max(0.0, float(age_s)) / fresh), 2)
-
-
-def still_there(age_s, moving=False):
-    """The chance a note that old is still TRUE: a half-life, not a cutoff.
-
-    A note is not evidence that decays into nothing — it decays into a coin flip and then into noise, and the two
-    kinds decay at very different speeds. `staleness_s` is what an old note COSTS; this is how likely it is to be
-    right at all, which is what a seek divides by.
-    """
-    half = float(CONFIG["memory"]["mob_half_life_s" if moving else "block_half_life_s"])
-    return 0.5 ** (max(0.0, float(age_s)) / half)
-
-
 def slots_cost_s(slots, free):
     """What `slots` more occupied slots cost, each priced against the bag as it will be by then.
 
@@ -309,54 +287,6 @@ def slots_cost_s(slots, free):
     return sum(slot_cost_s(max(1.0, free - i)) for i in range(int(slots)))
 
 
-def use_rate(kind, mem=None):
-    """Uses per second for this kind of tool: the declared belief, corrected by what this world does with it."""
-    rates = CONFIG["tool_use"]
-    per_day = float(rates.get(kind, rates["other"]))
-    prior = per_day / float(CONFIG["time"]["day_s"])
-    return prior if mem is None else mem.tool_use_rate(kind, prior)
-
-
-def expected_uses(kind, mem, left, horizon_s):
-    """How many times this tool will still save us something within the horizon:
-
-        min(uses per second × horizon, uses left in the tool)
-
-    Both halves are needed. Frequency alone says a pickaxe with four blocks left is worth as much as a new one;
-    durability alone makes a diamond pickaxe the answer to everything, because nobody can see 1561 uses ahead.
-    """
-    if left <= 0:
-        return 0.0
-    return round(min(use_rate(kind, mem) * float(horizon_s), float(left)), 2)
-
-
-def encounter_prior(dark):
-    """Hostiles per second of being out there, believed before anything has been observed in that bin.
-
-    Three a day, most of them after dark, and the dark is about a third of the day — declared here, with the other
-    beliefs, so the door that asks (`gates.p("encounter")`) need not import the table of actions to find out.
-    """
-    risk = CONFIG["risk"]
-    per_day, day_s = float(risk["encounters_per_day"]), float(CONFIG["time"]["day_s"])
-    share, hours = float(risk["night_encounter_share"]), float(risk["night_share_of_day"])
-    if not dark:
-        share, hours = 1.0 - share, 1.0 - hours
-    return (per_day * share) / (day_s * hours)
-
-
 TICKS_PER_S = 20.0      # the game's clock, in one place
 
 
-def detour_s(distance, here=None, there=None, via=None):
-    """Seconds going out of the way ADDS to a journey we were making anyway.
-
-    Something we pass on the way is nearly free; something in the opposite direction costs the trip out and back.
-    Geometry, so it belongs with the other facts rather than with whoever happens to be ranking errands.
-    """
-    import math as _m
-    straight = max(0.0, float(distance)) / float(CONFIG["player"]["speed"])
-    if not (here and there and via):
-        return straight
-    direct = _m.dist(here, via)
-    detoured = _m.dist(here, there) + _m.dist(there, via)
-    return max(0.0, (detoured - direct)) / float(CONFIG["player"]["speed"])

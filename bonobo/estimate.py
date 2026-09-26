@@ -11,7 +11,7 @@ The five (docs/architect.md):
     pressure_hp_s(here, rows, ...)      how fast health comes off while it can
     act_cost_s(seconds, hp, price)      an action's health and time, as one number
     price(dhp)                          what health is worth in seconds — the CALLER's, because it depends on the
-                                        state being priced (`survival.hp_seconds`), which is why it arrives as an
+                                        state being priced (`threat.hp_seconds`), which is why it arrives as an
                                         argument here and is never re-implemented
     state_price_s(model, state)         what the future costs from a state, in the model that owns it
 
@@ -25,7 +25,7 @@ off at once, which is not a rate), `fatal_chance`, `time_to_die_s`, `fight_cost`
 one number or the quantities cannot be compared).
 
 Nothing here decides anything, nothing here reads the world, and nothing here knows what a planner is: give it
-rows and it gives numbers back. `threat`, `survival`, `fight_plan` and `perception` hold the adapters that put
+rows and it gives numbers back. `threat`, `fight_plan` and `perception` hold the adapters that put
 their own vocabulary on these — aliases and one-line wrappers, never a second arithmetic.
 
 A row is `(centre, reach, velocity, kind, aware, dps)` and `row()` is the only way to make one.

@@ -463,7 +463,7 @@ def inside_no_go(spot, zones):
     return any(math.dist(spot, centre) <= radius for centre, radius in zones)
 
 
-# ------------------------------------------------------------------------------- the price of health (was survival.py)
+# ------------------------------------------------------------------------------- the price of health
 # What losing health costs in seconds depends on the state it is lost from: a chance of dying plus a loss of margin
 # against a day of ordinary risk. The threat layer prices every answer through `hp_seconds`; nothing else here is a
 # planner any more — the survival brain runs a fixed order and does not score.
