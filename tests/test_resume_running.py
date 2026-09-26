@@ -93,20 +93,33 @@ class RunChainAttachesOrPosts(unittest.TestCase):
                 self.assertEqual(len(posted), posts)
                 self.assertEqual(awaited, [waited])
 
+    # (a faster layer waiting?, an intent holding the body?, the task's status) → what the waiter does; never a /stop
+    EXPIRY = [("a faster layer waits, the task runs: expire, the task keeps running", True, True, "running",
+               api.CommitmentExpired),
+              ("a faster layer waits, the task already ended: its result", True, True, "succeeded", "succeeded"),
+              ("nobody waits, the task ended: its result", False, True, "succeeded", "succeeded"),
+              ("nobody waits, the task failed: its result, the caller decides", False, True, "failed", "failed"),
+              ("no intent holds the body (outside the arbiter): its result", True, False, "succeeded", "succeeded")]
+
     def test_expiry_raises_without_stopping_the_body(self):
-        """The other half of the same rule: when a faster layer wants the body, the waiter raises
-        CommitmentExpired and posts no /stop — the task keeps running for whoever decides next."""
+        """When a faster layer wants the body, the waiter raises CommitmentExpired and posts no /stop — the task
+        keeps running for whoever decides next."""
         from bonobo import arbiter
-        posts = []
-        intent = arbiter.Intent("plan", lambda: None, "walk")
-        with mock.patch.object(api, "get", return_value={"status": "running", "type": "goto"}), \
-                mock.patch.object(api, "post", side_effect=lambda path, body=None: posts.append(path)), \
-                mock.patch.object(arbiter.BODY, "current", return_value=intent), \
-                mock.patch.object(arbiter, "wants_body", return_value=True), \
-                mock.patch.object(api, "check_interrupt"):
-            with self.assertRaises(api.CommitmentExpired):
-                api.await_task(273, wait=60)
-        self.assertEqual(posts, [])
+        for name, waiting, holding, status, want in self.EXPIRY:
+            posts = []
+            intent = arbiter.Intent("plan", lambda: None, "walk") if holding else None
+            with self.subTest(name), \
+                    mock.patch.object(api, "get", return_value={"status": status, "type": "goto"}), \
+                    mock.patch.object(api, "post", side_effect=lambda path, body=None: posts.append(path)), \
+                    mock.patch.object(arbiter.BODY, "current", return_value=intent), \
+                    mock.patch.object(arbiter, "wants_body", return_value=waiting), \
+                    mock.patch.object(api, "check_interrupt"):
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        api.await_task(273, wait=60)
+                else:
+                    self.assertEqual(api.await_task(273, wait=60)["status"], want)
+                self.assertEqual(posts, [])
 
 
 if __name__ == "__main__":
