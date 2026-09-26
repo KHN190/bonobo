@@ -175,7 +175,7 @@ class Tiers(unittest.TestCase):
         for base in sc.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", core)
-        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", sc.CHAIN_C[0], sc.CHAIN_C[1]):
+        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", sc.CHAIN_C[1]):
             with self.subTest(name):
                 self.assertIn(name, core)
 
@@ -187,7 +187,7 @@ class Tiers(unittest.TestCase):
                     self.assertTrue(set(row["tags"].values()) & set(sc.COMMON_CONDITIONS))
 
     # (row, tier it must be in): the rules the tiers exist for, stated per row.
-    PLACED = [("bed_in_nether", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
+    PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "common"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
               ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
               ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance")]
 

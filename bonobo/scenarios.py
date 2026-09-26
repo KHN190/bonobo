@@ -2157,12 +2157,14 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
 # exception: everything else — before a merge.
 # acceptance: test point D, its own layer (30 minutes from a fresh world) — never part of another tier's run.
 TIERS = ("core", "common", "exception", "acceptance")
+# The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
+# what every change can afford to run.
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
-                                             "slice_start_tools", "iron_ingots", "bed_in_nether")
+                                             "iron_ingots", "bed_in_nether")
 COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work")
 # Upkeep's own rows and the test-point-B hazards: everyday, so common whatever their shape; the chain's last leg too.
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "water_clutch", "cross_lava_8", "cave_escape",
-          "slice_nether_kit")
+          "slice_start_tools", "slice_nether_kit")
 ACCEPTANCE = (ACCEPTANCE_D,)
 
 
