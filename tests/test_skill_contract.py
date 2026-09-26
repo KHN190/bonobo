@@ -19,7 +19,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, arbiter, blueprints, brain, nav, retry, skillcore, tape  # noqa: E402,F401  (brain: every skill module)
+from bonobo import api, arbiter, blueprints, brain, nav, retry, skillcore, skills, tape  # noqa: E402,F401  (brain: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
@@ -322,6 +322,26 @@ COMMANDS = {
          lambda t, b: t.assertEqual(b, [])),
         ("the dark spot is out of reach", dict(body(inv=inventory(torch=4)), state=dark(),
                                                spots=[{"x": 5, "y": 64, "z": 0}]), lambda t, b: t.assertEqual(b, [])),
+    ],
+    "bridge_toward": [
+        ("a gap with no floor: lay, step, lay, step", body(world(*[((x, 63, 0), "air") for x in (1, 2, 3)]),
+                                                           inv=inventory(cobblestone=16), _args=((4, 64, 0),)),
+         lambda t, b: (t.assertEqual(cells(b), [(1, 63, 0), (2, 63, 0), (3, 63, 0)]),
+                       t.assertEqual(cells(b, "goto")[-1], (4, 64, 0)))),
+        ("a wall in the way is dug, feet and head", body(world(((2, 64, 0), "stone"), ((2, 65, 0), "stone")),
+                                                         inv=inventory(cobblestone=16), _args=((4, 64, 0),)),
+         lambda t, b: t.assertEqual(cells(b, "mine"), [(2, 64, 0), (2, 65, 0)])),
+        ("our own wall stops the bridge before it", body(world(((2, 64, 0), "stone")), protected={(2, 64, 0)},
+                                                         inv=inventory(cobblestone=16), _args=((4, 64, 0),)),
+         lambda t, b: (t.assertNotIn((2, 64, 0), cells(b, "mine")),
+                       t.assertTrue(all(x < 2 for x, _, _ in cells(b, "goto"))))),
+        ("the target is above: pillar first", body(world(), inv=inventory(cobblestone=16), _args=((3, 66, 0),)),
+         lambda t, b: t.assertEqual(types(b)[:2], ["pillar", "pillar"])),
+        ("no blocks: no bridge", body(world(((1, 63, 0), "air")), _args=((4, 64, 0),)),
+         lambda t, b: t.assertEqual(b, [])),
+        ("never further than its reach", body(world(*[((x, 63, 0), "air") for x in range(1, 60)]),
+                                              inv=inventory(cobblestone=64), _args=((60, 64, 0),)),
+         lambda t, b: t.assertLessEqual(len(cells(b, "goto")), skills.BRIDGE_REACH)),
     ],
 }
 
