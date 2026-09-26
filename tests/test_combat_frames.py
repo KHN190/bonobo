@@ -17,10 +17,14 @@ DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "combat_
 FRAMES = json.load(open(DATA))["frames"]
 
 
-def frame(name, hp=None, hazards=None, away=None):
-    """A recorded threat state, with the one thing a row changes: health, what is coming, or how far it is."""
+def frame(name, hp=None, hazards=None, away=None, more=0):
+    """A recorded threat state, with the one thing a row changes: health, what is coming, how far it is, or `more`
+    copies of the recorded mob beside it (the arena's pack frames recorded only the nearest of the three)."""
     rec = dict(FRAMES[name]["state"])
     rows = [tuple(tuple(v) if isinstance(v, list) else v for v in r) for r in rec["hazards"]]
+    for i in range(more):
+        p, *rest = rows[0]
+        rows.append(((p[0] + 1.5 * (i + 1), p[1], p[2] - 1.5 * (i + 1)), *rest))
     if hazards is not None:
         rows = hazards
     if away is not None:
@@ -47,10 +51,10 @@ ROWS = [
     ("a skeleton close, full health: close in and kill it", lambda: frame("archer"), "fight"),
     ("a creeper close: get out of its blast", lambda: frame("bomb"), "evade"),
     ("a creeper close at 2 hp: get out, no question", lambda: frame("bomb", hp=2), "evade"),
-    ("three zombies, full health and kit: fight", lambda: frame("pack"), "fight"),
-    ("three zombies at 4 hp: give it up and leave", lambda: frame("pack", hp=4), "evade"),
-    ("zombies and a skeleton, full health: fight", lambda: frame("mixed"), "fight"),
-    ("zombies and a skeleton at 3 hp: give it up and leave", lambda: frame("mixed", hp=3), "evade"),
+    ("three zombies, full health and kit: fight", lambda: frame("pack", more=2), "fight"),
+    ("three zombies at 4 hp: give it up and leave", lambda: frame("pack", hp=4, more=2), "evade"),
+    ("the nearest of a mixed group, full health: fight", lambda: frame("mixed"), "fight"),
+    ("zombies close at 3 hp: give it up and leave", lambda: frame("mixed", hp=3, more=2), "evade"),
 ]
 
 

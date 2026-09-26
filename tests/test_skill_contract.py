@@ -476,39 +476,40 @@ def lava_floor():
 
 
 RING2 = {(x, 64, z) for x in range(-2, 3) for z in range(-2, 3) if max(abs(x), abs(z)) == 2}
-# (situation, region, /state, keywords) → check(spots)
-SPOTS = [
-    ("open ground: level, two blocks off, open above", world(), state(), {},
-     lambda t, sp: (t.assertEqual(len(sp), 5), t.assertTrue(all(p in RING2 for p in sp)))),
-    ("never where the body stands", world(), state(), {"reach": 1},
-     lambda t, sp: t.assertNotIn((0, 64, 0), sp)),
-    ("reach 1: the eight around", world(), state(), {"reach": 1, "limit": 20},
-     lambda t, sp: t.assertEqual({p for p in sp if p[1] == 64},
-                                 {(x, 64, z) for x in (-1, 0, 1) for z in (-1, 0, 1)} - {(0, 64, 0)})),
-    ("cells to avoid are avoided", world(), state(), {"avoid": RING2},
-     lambda t, sp: t.assertFalse(set(sp) & RING2)),
-    ("a lava floor gives no footing", lava_floor(), state(), {},
-     lambda t, sp: t.assertTrue(all(p[1] != 64 for p in sp))),
-    ("no floor needed: over nothing is fine", FakeRegion((-5, 55, -5), (5, 70, 5), {}), state(),
-     {"block_under": False}, lambda t, sp: t.assertEqual(len(sp), 5)),
-    ("sealed in a shaft: nowhere", shaft()[0], shaft()[1], {}, lambda t, sp: t.assertEqual(sp, [])),
-    ("never the head's cell either", world(), state(), {"reach": 1, "limit": 30},
-     lambda t, sp: t.assertFalse({(0, 64, 0), (0, 65, 0)} & set(sp))),
-    ("avoiding all but one: that one", world(), state(), {"reach": 1, "avoid": {(x, 64, z) for x in (-1, 0, 1)
-                                                                               for z in (-1, 0, 1)} - {(1, 64, 1)}},
-     lambda t, sp: t.assertEqual(sp[0], (1, 64, 1))),
-    ("lava beside the body: that cell's floor is no footing", world(((1, 63, 0), "lava")), state(),
-     {"reach": 1, "limit": 30}, lambda t, sp: t.assertNotIn((1, 64, 0), sp)),
-    ("far from the origin, negative coordinates", world(), state(x=-7.5, y=64.0, z=-11.5), {},
-     lambda t, sp: (t.assertEqual(len(sp), 5),
-                    t.assertTrue(all(max(abs(p[0] + 8), abs(p[2] + 12)) == 2 for p in sp)))),
-]
+# (situation, region, /state, keywords) → check(spots); built when asked (the region helpers come later in the file)
+def spots_rows():
+    return [
+            ("open ground: level, two blocks off, open above", world(), state(), {},
+         lambda t, sp: (t.assertEqual(len(sp), 5), t.assertTrue(all(p in RING2 for p in sp)))),
+            ("never where the body stands", world(), state(), {"reach": 1},
+         lambda t, sp: t.assertNotIn((0, 64, 0), sp)),
+            ("reach 1: the eight around", world(), state(), {"reach": 1, "limit": 20},
+         lambda t, sp: t.assertEqual({p for p in sp if p[1] == 64},
+                                     {(x, 64, z) for x in (-1, 0, 1) for z in (-1, 0, 1)} - {(0, 64, 0)})),
+            ("cells to avoid are avoided", world(), state(), {"avoid": RING2},
+         lambda t, sp: t.assertFalse(set(sp) & RING2)),
+            ("a lava floor gives no footing", lava_floor(), state(), {},
+         lambda t, sp: t.assertTrue(all(p[1] != 64 for p in sp))),
+            ("no floor needed: over nothing is fine", FakeRegion((-5, 55, -5), (5, 70, 5), {}), state(),
+         {"block_under": False}, lambda t, sp: t.assertEqual(len(sp), 5)),
+            ("sealed in a shaft: nowhere", shaft()[0], shaft()[1], {}, lambda t, sp: t.assertEqual(sp, [])),
+            ("never the head's cell either", world(), state(), {"reach": 1, "limit": 30},
+         lambda t, sp: t.assertFalse({(0, 64, 0), (0, 65, 0)} & set(sp))),
+            ("avoiding all but one: that one", world(), state(), {"reach": 1, "avoid": {(x, 64, z) for x in (-1, 0, 1)
+                                                                                   for z in (-1, 0, 1)} - {(1, 64, 1)}},
+         lambda t, sp: t.assertEqual(sp[0], (1, 64, 1))),
+            ("lava beside the body: that cell's floor is no footing", world(((1, 63, 0), "lava")), state(),
+         {"reach": 1, "limit": 30}, lambda t, sp: t.assertNotIn((1, 64, 0), sp)),
+            ("far from the origin, negative coordinates", world(), state(x=-7.5, y=64.0, z=-11.5), {},
+         lambda t, sp: (t.assertEqual(len(sp), 5),
+                        t.assertTrue(all(max(abs(p[0] + 8), abs(p[2] + 12)) == 2 for p in sp)))),
+    ]
 
 
 class FreeSpots(unittest.TestCase):
     def test_region_to_spots(self):
         with mock.patch.object(api, "api", side_effect=AssertionError("free_spots read the world")):
-            for name, region, st, kw, check in SPOTS:
+            for name, region, st, kw, check in spots_rows():
                 with self.subTest(name):
                     spots = skillcore.free_spots(region, st, **kw)
                     check(self, spots)

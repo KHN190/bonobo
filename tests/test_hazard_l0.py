@@ -17,7 +17,7 @@ import tempfile  # noqa: E402
 import time  # noqa: E402
 from unittest import mock  # noqa: E402
 
-from bonobo import api, hazard, perception, retry, skills, upkeep  # noqa: E402
+from bonobo import api, hazard, perception, retry, skillcore, skills, upkeep  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from tests.world import state  # noqa: E402
@@ -163,6 +163,7 @@ class Rescue(unittest.TestCase):
         for name, changes, buried, does, rounds in RESCUES:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.mem, b.retry, b.place = Memory(tmp + "/notes.json"), retry.Retry(), ("here", False)
                 b.table, b.last_failure = upkeep.Upkeep(b), None
                 ran, modes, posted = [], [], []
@@ -207,9 +208,9 @@ class Burning(unittest.TestCase):
         from tests.world import bag, inventory
         for name, bucket, water, want, raises in BURNING:
             calls = []
-            inv = inventory(("water_bucket", 1)) if bucket else inventory()
+            inv = bag(inventory(("water_bucket", 1)) if bucket else inventory())       # built before the patch
             with self.subTest(name), \
-                    mock.patch.object(world, "Inventory", lambda data=None, _i=inv: bag(_i)), \
+                    mock.patch.object(world, "Inventory", lambda data=None, _i=inv: _i), \
                     mock.patch.object(world, "find", lambda *a, _w=water, **k: list(_w)), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(("post", path))), \
                     mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"])) or
@@ -307,8 +308,8 @@ class FightBatches(unittest.TestCase):
         for name, option, queued, want in self.ENGAGE:
             posted = []
             with self.subTest(name), \
-                    mock.patch.object(skills, "feet", lambda: (0, 64, 0)), \
-                    mock.patch.object(skills, "body_state", lambda ctx, region=None, **k: dict(
+                    mock.patch.object(skillcore, "feet", lambda: (0, 64, 0)), \
+                    mock.patch.object(skillcore, "body_state", lambda ctx, region=None, **k: dict(
                         fight_body(_inv(cobblestone=4)), **k)), \
                     mock.patch.object(perception, "threats_seen", lambda: ([], None)), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or

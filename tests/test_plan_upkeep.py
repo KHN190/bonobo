@@ -402,7 +402,10 @@ class EffectGoals(unittest.TestCase):
         same skill (or another provider) carries out."""
         effects = sorted({e for c in skillkit.REGISTRY.values() for e in c.provides})
         self.assertTrue(effects)
-        detail = {"goto": {"pos": [5, 64, 0]}, "withdraw": {"pos": [3, 64, 0]}}   # effects that name a place
+        detail = {"goto": {"pos": [5, 64, 0]}, "withdraw": {"pos": [3, 64, 0]},       # effects that name a place
+                  "explore:blocks": {"blocks": ["oak_log"]}, "explore:mobs": {"types": ["minecraft:cow"]},
+                  "hunt": {"types": ["minecraft:cow"]}, "mine": {"blocks": ["stone"], "tier": 0},
+                  "seek": {"kinds": ["stone"]}, "take": {"blocks": ["red_bed"]}}
         for effect in effects:
             goal = goals.make("effect", effect=effect, count=2, **({"detail": detail[effect]} if effect in detail else {}))
             with self.subTest(effect):
@@ -413,6 +416,14 @@ class EffectGoals(unittest.TestCase):
                 self.assertTrue(skillkit.providers(effect))
                 self.assertIsNone(goals.done(goal, snapshot(), None), "done when its plan ran")
                 self.assertTrue(goals.describe(goal).startswith(f"effect {effect}"))
+
+    def test_effects_missing_their_detail(self):
+        """An effect whose provider needs an argument the goal did not give is refused, and the refusal names it."""
+        for effect, key in (("hunt", "types"), ("mine", "blocks"), ("take", "blocks"), ("seek", "kinds"),
+                            ("explore:mobs", "types")):
+            with self.subTest(effect), self.assertRaises(Unplannable) as caught:
+                decompose.decompose(snapshot().inv, goals.make("effect", effect=effect), cost())
+            self.assertEqual(str(caught.exception), f"effect {effect} needs {key} in its detail")
 
     def test_effects_nobody_provides(self):
         for effect in ("teleport", "item:unobtainium", "dragons:breed"):
@@ -452,6 +463,7 @@ class CanStart(unittest.TestCase):
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
                 b = brainmod.Brain.__new__(brainmod.Brain)
+                b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
                 self.assertEqual(b.valid(step, snapshot(inv=bag_), ctx), want)
                 self.assertEqual(dispatch.can_start(ctx, step), all(_passes(p) for p in pre))
@@ -700,12 +712,13 @@ class Queue_:
     def __init__(self, tmp, seen=TREES):
         self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
         b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
         b.mem = Memory(os.path.join(tmp, "notes.json"))
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
         b.table, b.last_failure, b.committed, b.last_hold_log = upkeep.Upkeep(b), None, None, 0
         self.patches = [mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")),
-                        mock.patch.object(brainmod, "Cost", lambda snap, mem=None, bl=None: cost(snap, mem=mem,
-                                                                                               **self.seen)),
+                        mock.patch.object(brainmod, "Cost", lambda snap, mem=None, bl=None, **k: cost(snap, mem=mem,
+                                                                                                    **self.seen)),
                         mock.patch.object(brainmod, "Inventory", lambda: bag(self.after_inv)),
                         mock.patch.object(api, "api", side_effect=AssertionError("the queue read the world"))]
 
@@ -938,7 +951,8 @@ UPKEEP = [
         queued=lambda q: any(n[0][:2] == ("tool", "axe") for n in q)),
     Row("the stone shovel broke: a shovel back", None, inv=WELL_FED, last_round=WELL_FED + [("stone_shovel", 1)],
         queued=lambda q: any(n[0][:2] == ("tool", "shovel") for n in q)),
-    Row("a hoe is no tool upkeep replaces", None, inv=WELL_FED, last_round=WELL_FED + [("stone_hoe", 1)]),
+    Row("the stone hoe broke: a hoe back", None, inv=WELL_FED, last_round=WELL_FED + [("stone_hoe", 1)],
+        queued=lambda q: any(n[0][:2] == ("tool", "hoe") for n in q)),
     Row("hungry at night with a bed: eat first, then sleep", "eat", food=10, time_of_day=NIGHT),
     Row("the bag full and the path blocked: empty the bag first", "empty the bag", inv=full_bag("cobblestone"),
         blocked=(40, 64, 0)),
@@ -966,6 +980,7 @@ UPKEEP = [
 def run_upkeep(row, tmp):
     """The real upkeep table, one round, on a real unstarted Brain. Returns (row name, [queued needs])."""
     b = brainmod.Brain.__new__(brainmod.Brain)
+    b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist = retry.Retry(), {}
     b.place = PLACE
@@ -1317,6 +1332,7 @@ class Ledger(unittest.TestCase):
 
 def new_brain(tmp):
     b = brainmod.Brain.__new__(brainmod.Brain)
+    b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist, b.place = retry.Retry(), {}, HERE
     b.table = upkeep.Upkeep(b)
@@ -1499,7 +1515,8 @@ class Queue(unittest.TestCase):
         """Extensible: a new template in goals.TEMPLATES needs a decompose branch (or a clear Unplannable)."""
         args = {"have": {"needs": [["log", 1]]}, "craft": {"needs": [["minecraft:stick", 4]]},
                 "milestone": {"name": "food"}, "goto": {"pos": [5, 64, 0]}, "road": {"a": [0, 64, 0], "b": [5, 64, 0]},
-                "build": {"bp": "shelter"}, "sleep": {}, "skill": {"name": "chop", "args": [1]}}
+                "build": {"bp": "shelter"}, "sleep": {}, "skill": {"name": "chop", "args": [1]},
+                "effect": {"effect": "breed"}}
         self.assertEqual(set(args), set(goals.TEMPLATES), "a template without a row here")
         for template, a in args.items():
             with self.subTest(template):
