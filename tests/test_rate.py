@@ -21,8 +21,7 @@ def rate(cell, **kw):
 
 class ItIsARateAndNeverNegative(unittest.TestCase):
     def test_over_every_cell(self):
-        for cell in dangers():
-            self.assertGreaterEqual(rate(cell), 0.0, cell)
+        self.assertEqual([repr(c) for c in dangers() if rate(c) < 0.0], [], "a negative pressure")
 
     def test_nothing_there_presses_nothing(self):
         for cell in dangers(enemy="none"):
@@ -31,8 +30,8 @@ class ItIsARateAndNeverNegative(unittest.TestCase):
 
 class MoreOfIt(unittest.TestCase):
     def test_a_crowd_presses_harder_than_one(self):
-        for cell in dangers(enemy="walker"):
-            self.assertGreaterEqual(rate(cell.with_(enemy="pack")) + 1e-9, rate(cell), cell)
+        self.assertEqual([repr(c) for c in dangers(enemy="walker") if rate(c.with_(enemy="pack")) + 1e-9 < rate(c)], [],
+                         "a pack pressing less than one of its members")
 
     def test_closer_presses_harder(self):
         for cell in dangers(enemy="walker", distance="touching"):
@@ -79,8 +78,9 @@ class TheGroundAndTheShape(unittest.TestCase):
             plain = estimate.pressure_hp_s(cell.here, rows, 0.0, ground=ground)
             if plain == 0.0:
                 continue
-            self.assertLess(estimate.pressure_hp_s(cell.here, rows, 0.0, ground=ground, shape=("under", 2)),
-                            plain, cell)
+            with self.subTest(cell=repr(cell)):
+                self.assertEqual(estimate.pressure_hp_s(cell.here, rows, 0.0, ground=ground, shape=("under", 2)), 0.0,
+                                 "two blocks up, nothing that walks can reach")
 
     def test_no_shape_helps_against_what_the_beliefs_say_squeezes_past(self):
         for cell in dangers(distance="touching", ground="corridor"):
@@ -144,8 +144,8 @@ class ABlastIsNotARate(unittest.TestCase):
             self.assertEqual(rate(cell), 0.0, cell)
 
     def test_but_it_is_owed_at_once_while_it_can_reach_us(self):
-        for cell in self.bursting(distance="touching", ground="open"):
-            self.assertGreater(estimate.burst_hp(cell.here, cell.rows()), 0.0, cell)
+        self.assertEqual([repr(c) for c in self.bursting(distance="touching", ground="open")
+                          if estimate.burst_hp(c.here, c.rows()) <= 0.0], [], "a burst in reach owed nothing")
 
     def test_and_owed_nothing_once_it_cannot(self):
         for cell in self.bursting(distance="far", ground="open"):
@@ -168,11 +168,10 @@ class TheTaxTheOtherPlannerReads(unittest.TestCase):
         """There is no second name for it any more: what ordinary play charges per second is this function, and
         the only thing the live reader adds is the measured twin (`perception.pressure_now`)."""
         from bonobo import perception
-        for cell in dangers():
-            rows, ground = cell.rows(), cell.ground()
-            modelled = estimate.pressure_hp_s(cell.here, rows, cell.armour, ground=ground)
-            self.assertGreaterEqual(perception.pressure_now(cell.here, rows, cell.armour, field=ground),
-                                    modelled - 1e-9, cell)
+        under = [repr(c) for c in dangers()
+                 if perception.pressure_now(c.here, c.rows(), c.armour, field=c.ground())
+                 < estimate.pressure_hp_s(c.here, c.rows(), c.armour, ground=c.ground()) - 1e-9]
+        self.assertEqual(under, [], "the live reading below the model it is built on")
 
     def test_every_threat_is_a_zone_and_the_zone_is_wider_than_its_reach(self):
         for cell in dangers():

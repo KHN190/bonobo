@@ -24,10 +24,9 @@ def soonest(cell):
 
 class ItIsSecondsAndNeverNegative(unittest.TestCase):
     def test_over_every_cell(self):
-        for cell in dangers():
-            for hazard in cell.rows():
-                seconds = estimate.arrival_s(cell.here, hazard, cell.ground())
-                self.assertGreaterEqual(seconds, 0.0, f"{cell}: {seconds}")
+        negative = [(repr(cell), s_) for cell in dangers() for hazard in cell.rows()
+                    for s_ in [estimate.arrival_s(cell.here, hazard, cell.ground())] if s_ < 0.0]
+        self.assertEqual(negative, [], "an arrival in the past")
 
     def test_what_is_already_inside_its_own_reach_is_here_now(self):
         """Inside its reach means now, and the world decides who is inside it — a test that knows where the sweep
@@ -97,16 +96,15 @@ class TheGroundOnlySlowsThingsDown(unittest.TestCase):
                 if delayed == INF:
                     continue
                 (climbers if cell.mob_of(hazard).get("squeezes") else walkers).append(delayed / plain)
-        if walkers and climbers:
-            self.assertGreater(min(walkers), max(climbers))
+        self.assertEqual((bool(walkers), bool(climbers)), (True, True), "the sweep has both kinds to compare")
+        self.assertEqual([w for w in walkers if w <= max(climbers)], [], "a walker delayed no more than a climber")
 
     def test_nothing_the_ground_does_can_make_it_arrive_sooner(self):
-        for cell in dangers(distance="across"):
-            for hazard in cell.rows():
-                over_nothing = estimate.arrival_s(cell.here, hazard, None)
-                for world in cell.along("ground"):
-                    self.assertGreaterEqual(estimate.arrival_s(world.here, hazard, world.ground()),
-                                            over_nothing - 1e-9, world)
+        sooner = [repr(world) for cell in dangers(distance="across") for hazard in cell.rows()
+                  for world in cell.along("ground")
+                  if estimate.arrival_s(world.here, hazard, world.ground())
+                  < estimate.arrival_s(cell.here, hazard, None) - 1e-9]
+        self.assertEqual(sooner, [], "ground made something arrive sooner than over nothing")
 
 
 class OneJourney(unittest.TestCase):
@@ -185,19 +183,15 @@ class WhereToPutABlock(unittest.TestCase):
     worlds, so what "between" means is the world's geometry rather than a pair of coordinates written here."""
 
     def test_the_choke_lies_between_us_and_what_is_coming(self):
-        for cell in dangers():
-            for hazard in cell.rows():
-                spot = cell.ground().choke(cell.here, hazard[0])
-                if spot is None:
-                    continue
-                self.assertLess(math.dist(cell.here, spot), math.dist(cell.here, hazard[0]) + 1e-9, cell)
-                self.assertGreater(math.dist(cell.here, spot), 0.0, cell)
+        outside = [repr(cell) for cell in dangers() for hazard in cell.rows()
+                   for spot in [cell.ground().choke(cell.here, hazard[0])] if spot is not None
+                   and not 0.0 < math.dist(cell.here, spot) < math.dist(cell.here, hazard[0]) + 1e-9]
+        self.assertEqual(outside, [], "a choke not strictly between us and the mob")
 
     def test_there_is_nothing_to_block_when_it_is_already_on_us(self):
-        for cell in dangers(distance="touching"):
-            for hazard in cell.rows():
-                if math.dist(cell.here, hazard[0]) < 2.0:
-                    self.assertIsNone(cell.ground().choke(cell.here, hazard[0]), cell)
+        chokes = [repr(cell) for cell in dangers(distance="touching") for hazard in cell.rows()
+                  if math.dist(cell.here, hazard[0]) < 2.0 and cell.ground().choke(cell.here, hazard[0]) is not None]
+        self.assertEqual(chokes, [], "a choke offered against something already on us")
 
     def test_placing_a_block_leaves_the_ground_it_came_from_alone(self):
         for cell in dangers():

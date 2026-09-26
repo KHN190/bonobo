@@ -104,8 +104,8 @@ class AFight(unittest.TestCase):
             pack = cell.with_(enemy="pack")
             one = estimate.fight_cost(cell.here, cell.rows(), cell.sword, cell.armour)
             many = estimate.fight_cost(pack.here, pack.rows(), pack.sword, pack.armour)
-            self.assertGreater(many[0], one[0], cell)
-            self.assertGreater(many[1], one[1], cell)
+            with self.subTest(cell=repr(cell)):
+                self.assertEqual((many[0] > one[0], many[1] > one[1]), (True, True), f"{many} vs {one}")
 
     def test_armour_buys_health_and_not_speed(self):
         for cell in dangers(enemy="archer", distance="across", armour="skin"):
@@ -129,8 +129,9 @@ class WalkingAway(unittest.TestCase):
             for seconds in SECONDS:
                 if press == 0.0 or seconds == 0.0:
                     continue
-                self.assertLess(estimate.leaving_hp(press, seconds), press * seconds)
-                self.assertGreater(estimate.leaving_hp(press, seconds), 0.0)
+                with self.subTest(press=press, seconds=seconds):
+                    got = estimate.leaving_hp(press, seconds)
+                    self.assertEqual(0.0 < got < press * seconds, True, got)
 
     def test_it_grows_along_both_ladders(self):
         for seconds in SECONDS[1:]:
@@ -154,7 +155,8 @@ class WalkingAway(unittest.TestCase):
             spot = threat.escape_spot(cell.here, rows)
             before = estimate.pressure_hp_s(cell.here, rows, 0.0)
             after = estimate.pressure_hp_s(spot, rows, 0.0)
-            self.assertLessEqual(after, before + 1e-9, f"{cell}: walked into it")
+            with self.subTest(cell=repr(cell)):
+                self.assertEqual(max(after - before, 0.0) <= 1e-9, True, f"walked into it: {after} > {before}")
 
 
 class EveryColumnIsPricedThroughIt(unittest.TestCase):
