@@ -284,9 +284,11 @@ class Readings:
 
     MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids")
 
-    def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=()):
+    def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=(), items=(),
+                 obsidian=0, cast=None):
         self.inv, self.feet, self.st, self.found = inv or inventory(), feet, st or state(), list(found)
-        self.enclosed, self.spots = enclosed, list(spots)
+        self.enclosed, self.spots, self.items, self.obsidian = enclosed, list(spots), list(items), obsidian
+        self.cast = cast or {}          # what the pour remembered (fluids._CAST): where, and what stood there before
 
     def patches(self):
         import importlib
@@ -298,6 +300,10 @@ class Readings:
         for mod in self.MODULES:
             m = importlib.import_module(f"bonobo.{mod}")
             out += [mock.patch.object(m, name, fn) for name, fn in values.items() if hasattr(m, name)]
+        from bonobo import fluids, world
+        out += [mock.patch.object(world, "entities", lambda *a, **k: list(self.items)),
+                mock.patch.object(fluids, "_obsidian_near", lambda pos, radius=8: self.obsidian),
+                mock.patch.dict(fluids._CAST, self.cast, clear=True)]
         return out
 
 
@@ -355,6 +361,37 @@ PRODUCTS = [
     ("fortress: bricks in sight", "find_fortress", (None,), R(), R(found=[HIT]), None, None, True),
     ("search: walked, found nothing", "seek_blocks", (None, ["oak_log"]), R(), R(feet=(60, 30, 0)), None, None, False),
     ("search: found one", "seek_blocks", (None, ["oak_log"]), R(), R(feet=(60, 30, 0)), (60, 30, 2), None, True),
+]
+
+
+def _died_at(pos, recovered):
+    """A context whose memory holds a death at `pos` (recovered or not): what recover_items walked back to."""
+    import tempfile
+    from bonobo.memory import Memory
+    m = Memory(os.path.join(tempfile.mkdtemp(prefix="death"), "notes.json"))
+    m.log_death(pos, "minecraft:overworld", carried=[("minecraft:diamond", 3)])
+    if recovered:
+        m.forget_death(pos)
+    return type("Ctx", (), {"mem": m})()
+
+
+DROP = {"id": 9, "type": "minecraft:item", "x": 6, "y": 64, "z": 0, "distance": 1.0}
+PRODUCTS += [
+    ("recover: the drops still lie there", "recover_items", (_died_at((6, 64, 0), True),), R(), R(items=[DROP]),
+     (6, 64, 0), None, False),
+    ("recover: the note says done but items remain", "recover_items", (_died_at((6, 64, 0), False),), R(), R(),
+     (6, 64, 0), None, False),
+    ("recover: picked up, nothing left", "recover_items", (_died_at((6, 64, 0), True),), R(), R(), (6, 64, 0), None,
+     True),
+    ("cast obsidian: no new obsidian", "cast_obsidian", (None,), R(), R(cast={"bank": (0, 64, 0), "before": 0}),
+     None, None, False),
+    ("cast obsidian: obsidian that was already there is not ours", "cast_obsidian", (None,), R(),
+     R(obsidian=5, cast={"bank": (0, 64, 0), "before": 5}), None, None, False),
+    ("cast obsidian: the pool turned", "cast_obsidian", (None,), R(),
+     R(obsidian=14, cast={"bank": (0, 64, 0), "before": 5}), None, None, True),
+    ("search for mobs: found none", "explore_for", (None, ["minecraft:sheep"]), R(), R(feet=(80, 30, 0)), None, None,
+     False),
+    ("search for mobs: found", "explore_for", (None, ["minecraft:sheep"]), R(), R(), (20, 64, 3), None, True),
 ]
 
 
