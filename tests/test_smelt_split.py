@@ -1,0 +1,48 @@
+"""One batch, every free furnace in reach: `skills.split_smelt` — (furnaces, items, fuel, items a fuel burns) →
+[(furnace, items, fuel)]. Pure; the skill only walks the plan."""
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from bonobo import skills  # noqa: E402
+from bonobo.api import NotAvailable  # noqa: E402
+
+A, B, C = (0, 64, 0), (2, 64, 0), (4, 64, 0)
+FREE3 = [(A, "free"), (B, "free"), (C, "free")]
+
+# (situation, furnaces, items, fuel, items per fuel) → the plan
+ROWS = [
+    ("three free furnaces, three items, coal to spare: one each", FREE3, 3, 3, 8, [(A, 1, 1), (B, 1, 1), (C, 1, 1)]),
+    ("one furnace: all of it there", [(A, "free")], 3, 1, 8, [(A, 3, 1)]),
+    ("one furnace busy with something else: skipped", [(A, "free"), (B, "busy"), (C, "free")], 3, 2, 8,
+     [(A, 2, 1), (C, 1, 1)]),
+    ("one coal lights one furnace: all three items in it", FREE3, 3, 1, 8, [(A, 3, 1)]),
+    ("planks burn 1.5 items each: two planks cannot split three items, one furnace takes them", [(A, "free"),
+     (B, "free")], 3, 2, 1.5, [(A, 3, 2)]),
+    ("not enough fuel for all: as many as it burns", [(A, "free")], 5, 2, 1.5, [(A, 3, 2)]),
+    ("more furnaces than items: only as many as items", FREE3, 2, 4, 8, [(A, 1, 1), (B, 1, 1)]),
+    ("ten items over three: 4, 3, 3", FREE3, 10, 3, 8, [(A, 4, 1), (B, 3, 1), (C, 3, 1)]),
+]
+# (situation, furnaces, items, fuel, per) → the reason nothing is loaded
+FAILS = [("no furnace at all", [], 3, 3, 8, "no free furnace within reach"),
+         ("every furnace busy", [(A, "busy"), (B, "busy")], 3, 3, 8, "no free furnace within reach"),
+         ("no fuel", FREE3, 3, 0, 8, "no fuel to burn")]
+
+
+class SplitSmelt(unittest.TestCase):
+    def test_split_over_the_table(self):
+        for name, furnaces, n, fuel, per, want in ROWS:
+            with self.subTest(name):
+                self.assertEqual(skills.split_smelt(furnaces, n, fuel, per), want)
+
+    def test_nothing_loaded_says_why(self):
+        for name, furnaces, n, fuel, per, why in FAILS:
+            with self.subTest(name):
+                with self.assertRaises(NotAvailable) as caught:
+                    skills.split_smelt(furnaces, n, fuel, per)
+                self.assertEqual(str(caught.exception), why)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -264,33 +264,88 @@ def smelt(ctx, output, input_token, count, fuel):
 ASYNC_SMELT_MIN = 1
 
 
+FURNACE_REACH = 16          # every furnace this close shares a batch
+ITEMS_PER_FUEL = {"coal": 8, "charcoal": 8, "planks": 1.5, "log": 1.5}
+
+
+def split_smelt(furnaces, n, fuel, per):
+    """Pure: [(pos, items, fuel items)] — `n` items spread evenly over the free furnaces ([(pos, "free"|"busy")]),
+    each given the fuel its share burns (`per` items a fuel item), as many furnaces as the fuel can light. Fewer
+    items when the fuel cannot burn them all. Raises NotAvailable with the reason when nothing can be loaded."""
+    free = [pos for pos, state in furnaces if state == "free"]
+    if not free:
+        raise NotAvailable("no free furnace within reach")
+    total = min(int(n), int(fuel * per))
+    if total < 1:
+        raise NotAvailable("no fuel to burn")
+    for used in range(min(len(free), total, int(fuel)), 0, -1):
+        shares = [total // used + (1 if i < total % used else 0) for i in range(used)]
+        burns = [math.ceil(k / per) for k in shares]
+        if sum(burns) <= fuel:
+            return [(pos, k, f) for pos, k, f in zip(free, shares, burns)]
+    return [(free[0], total, math.ceil(total / per))]
+
+
+def _furnace_state(pos, input_ids, output):
+    """Open a furnace and say whether this batch can go in: its input slot empty or the same input, its output
+    slot empty or the same output."""
+    from .building import _open_container
+    _open_container(pos)
+    try:
+        slots = {x["slot"]: x["id"] for x in world.container()["slots"] if x["owner"] != "player"}
+    finally:
+        api.post("/close")
+    inp, out = slots.get(0, "minecraft:air"), slots.get(2, "minecraft:air")
+    ok = inp in ("minecraft:air", *input_ids) and out in ("minecraft:air", output)
+    return "free" if ok else "busy"
+
+
 @skill(start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
-       budget=120, stall=40, per_unit=12,
+       budget=180, stall=40, per_unit=12,
        provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
 def start_smelt_job(ctx, output, input_token, count, fuel):
-    """Multitasking: load a furnace (found nearby or placed from the inventory) with input + fuel and walk away.
-    The job is remembered with its expected finish time (10 s/item); its output counts as pending for the planner.
+    """Multitasking: spread the batch over every free furnace within FURNACE_REACH (placing the carried one when
+    there is none), fuel each for its share (`split_smelt`), and walk away. Each furnace is its own job with its
+    expected finish time (10 s/item); its output counts as pending for the planner.
 
     An ORDER, not the product: this skill's verify is only that the input left the bag. Nothing is done until the
     output is held (`collect_job`'s verify) — callers that count finished work count the bag, never this return."""
+    from .building import _open_container
     count = min(64, count)
     inv = Inventory()
     inputs = [m for m in members(input_token) if inv.count(m)]
     fuels = [m for m in members(fuel) if inv.count(m)]
-    fuel_n = math.ceil(count / 8) if fuel == "coal" else math.ceil(count / 1.5)
-    station = Station(ctx, "minecraft:furnace")
-    station.__enter__()
-    carried = station.placed
-    try:
-        move_into(inputs, 0, count)
-        move_into(fuels, 1, fuel_n)
-        yield count
-    finally:
-        api.post("/close")    # leave the furnace standing: that's the point
-    ready_at = time.time() + 10 * count + 5
-    ctx.mem.add_job("furnace", station.pos, ctx.dimension, output, count, ready_at, carried)
-    log(f"ordered {count}× {bare(output)} smelting in the background at {station.pos} (ready in ~{10 * count + 5}s)")
-    return {"ordered": output, "count": count, "ready_at": ready_at}
+    per = ITEMS_PER_FUEL.get(bare(fuel), 1.5)
+    placed = None
+    near = [(h["x"], h["y"], h["z"]) for h in find(["furnace"], radius=FURNACE_REACH, limit=8)
+            if not ctx.blocked((h["x"], h["y"], h["z"]))]
+    if not near:
+        station = Station(ctx, "minecraft:furnace")          # places the carried furnace
+        station.__enter__()
+        api.post("/close")
+        near, placed = [station.pos], station.pos
+    states = []
+    for pos in near:
+        if nav.arrived(pos, ctx.policy, range_=3, attempts=1):
+            states.append((pos, _furnace_state(pos, inputs, output)))
+    plan = split_smelt(states, count, sum(inv.count(f) for f in fuels), per)
+    ready = []
+    for pos, k, f in plan:
+        nav.arrive(pos, ctx.policy, range_=3)
+        _open_container(pos)
+        try:
+            move_into(inputs, 0, k)
+            move_into(fuels, 1, f)
+        finally:
+            api.post("/close")    # leave the furnace standing: that's the point
+        ready_at = time.time() + 10 * k + 5
+        ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed)
+        ready.append(ready_at)
+        yield k
+    total = sum(k for _, k, _ in plan)
+    log(f"ordered {total}× {bare(output)} smelting in the background in {len(plan)} furnace(s) "
+        f"(ready in ~{int(max(ready) - time.time())}s)")
+    return {"ordered": output, "count": total, "ready_at": max(ready)}
 
 
 def _smelt_args(s):
