@@ -21,79 +21,83 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import beliefs, combat_model, fight_plan, threat  # noqa: E402
 
 
+class Clean:
+    """The measured history emptied for a test and put back after: counts and values are then the declared ones."""
+
+    def __enter__(self):
+        import tempfile
+        beliefs.flush()
+        self.kept = (dict(beliefs.COUNTS), {k: list(v) for k, v in beliefs.OBSERVED.items()}, beliefs.LOG)
+        beliefs.COUNTS.clear(), beliefs.OBSERVED.clear()
+        beliefs.LOG = os.path.join(tempfile.mkdtemp(), "beliefs.jsonl")
+        return self
+
+    def __exit__(self, *exc):
+        beliefs.flush()
+        counts, observed, log = self.kept
+        beliefs.COUNTS.clear(), beliefs.OBSERVED.clear()
+        beliefs.COUNTS.update(counts), beliefs.OBSERVED.update(observed)
+        beliefs.LOG = log
+
+
 class OneTable(unittest.TestCase):
-    def test_reach_and_keep_out_are_different_questions_in_one_row(self):
+    # (fact, where one layer reads it, where the other reads it): the same number, from the one table
+    def rows(self):
         archer = beliefs.mob("minecraft:skeleton")
-        self.assertGreater(archer["reach"], archer["keep_out"])
+        return [
+            ("the hazard radii are a view of the table", combat_model.HAZARD_R,
+             {k: m["keep_out"] for k, m in beliefs.MOBS.items() if m.get("keep_out")}),
+            ("a death costs the same in a fight", fight_plan.CONFIG["combat"]["death_cost_s"],
+             beliefs.value("time.death_cost_s")),
+            ("reach and keep-out are two questions in one row", (archer["reach"], archer["keep_out"]), (15.0, 3.0)),
+            ("the End's entities are in the one table",
+             {"minecraft:ender_dragon", "minecraft:enderman", "minecraft:area_effect_cloud"} - set(beliefs.MOBS), set()),
+            ("armour: none", threat.protection(0, False), beliefs.protection(0, False)),
+            ("armour: 8 and a shield", threat.protection(8, True), beliefs.protection(8, True)),
+            ("armour: 20, no shield", threat.protection(20, False), beliefs.protection(20, False)),
+            ("armour through the price state", threat._protection(threat.price_state(armor=8, shield=True)),
+             beliefs.protection(8, True)),
+        ]
 
-    def test_the_hazard_radii_are_a_view_of_the_table(self):
-        """`HAZARD_R` is a view, not a second copy."""
-        self.assertEqual(combat_model.HAZARD_R,
-                         {k: m["keep_out"] for k, m in beliefs.MOBS.items() if m.get("keep_out")})
-
-    def test_the_end_entities_are_in_the_same_table(self):
-        for kind in ("minecraft:ender_dragon", "minecraft:enderman", "minecraft:area_effect_cloud"):
-            self.assertIn(kind, beliefs.MOBS, f"{kind} was only in the fight's own table")
-
-    def test_a_death_costs_the_same_in_a_fight_as_out_of_one(self):
-        self.assertEqual(fight_plan.CONFIG["combat"]["death_cost_s"], beliefs.value("time.death_cost_s"))
-
-    def test_armour_is_one_function(self):
-        """There were two protection functions over two different units, so the same chestplate was worth two
-        different things. Both layers now reach the table's one function."""
-        self.assertAlmostEqual(threat.protection(8, True), beliefs.protection(8, True))
-        self.assertAlmostEqual(threat._protection(threat.price_state(armor=8, shield=True)),
-                               beliefs.protection(8, True))
-
-
-class Trust(unittest.TestCase):
-    def test_every_belief_carries_a_count(self):
-        value, n = beliefs.belief("time.death_cost_s")
-        self.assertIsInstance(n, int)
-        self.assertEqual(value, beliefs.value("time.death_cost_s"))
-
-    def test_guesses_start_at_no_observations(self):
-        for name in beliefs.UNMEASURED:
-            self.assertEqual(beliefs.count(name), 0, f"{name} is listed unmeasured but claims observations")
-
-    def test_an_unknown_belief_is_an_error_not_a_default(self):
-        with self.assertRaises(KeyError):
-            beliefs.value("time.no_such_number")
+    def test_one_fact_one_place(self):
+        for name, a, b in self.rows():
+            with self.subTest(name):
+                self.assertEqual(a, b)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class Counts(unittest.TestCase):
+    # (belief, observations behind it with nothing measured): a guess is 0, what the game publishes is WIKI_N
+    ROWS = [("time.death_cost_s", 0), ("risk.encounters_per_day", 0), ("mobs.minecraft:zombie.attack_s", 0),
+            ("mobs.minecraft:zombie.hp", beliefs.WIKI_N), ("mobs.minecraft:zombie.attack", beliefs.WIKI_N),
+            ("mobs.minecraft:zombie.notice_r", beliefs.WIKI_N)]
+
+    def test_counts(self):
+        with Clean():
+            for path, n in self.ROWS:
+                with self.subTest(path):
+                    self.assertEqual(beliefs.belief(path), (beliefs.value(path), n))
+            for name in beliefs.UNMEASURED:
+                with self.subTest(unmeasured=name):
+                    self.assertEqual(beliefs.count(name), 0)
+
+    def test_unknown_beliefs_are_errors(self):
+        for path in ("time.no_such_number", "mobs.minecraft:zombie.no_such_field", "mobs.minecraft:unicorn.hp",
+                     "no_section.x"):
+            with self.subTest(path), self.assertRaises(KeyError):
+                beliefs.value(path)
 
 
 class FromTheWiki(unittest.TestCase):
-    def test_published_numbers_count_as_observed(self):
-        self.assertGreater(beliefs.count("mobs.minecraft:zombie.hp"), 0)
-        self.assertGreater(beliefs.count("mobs.minecraft:zombie.attack"), 0)
-        self.assertGreater(beliefs.count("mobs.minecraft:zombie.notice_r"), 0)
+    # (mob) → (hp, attack, notice_r, dps = attack / attack_s): published numbers, and the one derived from them
+    MOBS = [("minecraft:zombie", 20, 3.0, 35.0), ("minecraft:skeleton", 20, 4.0, 16.0),
+            ("minecraft:enderman", 40, 7.0, 64.0), ("minecraft:wither_skeleton", 20, 8.0, 16.0)]
 
-    def test_what_the_wiki_does_not_say_is_never_published_knowledge(self):
-        """It may have been MEASURED — that is the point of the log — but it can never count as published.
-
-        This used to assert the counts were zero, which stopped being true the moment ordinary play started
-        writing measurements down. What must hold is the relation: only a wiki field is known the way Mojang
-        knows it, everything else carries however many observations we have actually taken.
-        """
-        for path in ("mobs.minecraft:zombie.attack_s", "risk.encounters_per_day"):
-            self.assertLess(beliefs.count(path), beliefs.WIKI_N, path)
-
-    def test_the_published_values_are_the_published_values(self):
-        z, s, e = beliefs.mob("minecraft:zombie"), beliefs.mob("minecraft:skeleton"), beliefs.mob("minecraft:enderman")
-        self.assertEqual((z["hp"], z["attack"], z["notice_r"]), (20, 3.0, 35.0))
-        self.assertEqual((s["hp"], s["attack"], s["notice_r"]), (20, 4.0, 16.0))
-        self.assertEqual((e["hp"], e["attack"], e["notice_r"]), (40, 7.0, 64.0))
-
-    def test_damage_per_second_is_derived_not_stored(self):
-        z = beliefs.mob("minecraft:zombie")
-        self.assertAlmostEqual(z["dps"], z["attack"] / z["attack_s"])
-
-    def test_a_mob_notices_from_its_own_distance(self):
-        self.assertGreater(beliefs.mob("minecraft:enderman")["notice_r"],
-                           beliefs.mob("minecraft:skeleton")["notice_r"])
+    def test_published_values(self):
+        for kind, hp, attack, notice in self.MOBS:
+            m = beliefs.mob(kind)
+            with self.subTest(kind):
+                self.assertEqual((m["hp"], m["attack"], m["notice_r"]), (hp, attack, notice))
+                self.assertAlmostEqual(m["dps"], attack / m["attack_s"])
 
 
 class AMeasurementSurvivesTheProcessThatTookIt(unittest.TestCase):
@@ -137,23 +141,23 @@ class AMeasurementSurvivesTheProcessThatTookIt(unittest.TestCase):
         beliefs.load(self.log)
         self.assertEqual(beliefs.COUNTS, counts)
 
-    def test_a_line_naming_no_belief_is_not_counted_against_another(self):
-        beliefs.note(self.PATH, 4.0, where="test")
-        beliefs.flush()
-        with open(self.log, "a") as out:
-            out.write('{"path": "risk.no_such_belief", "measured": 1.0, "at": 0}\n')
-        beliefs.COUNTS.clear(), beliefs.OBSERVED.clear()
-        self.assertEqual(beliefs.load(self.log), 1)
-        self.assertEqual(set(beliefs.COUNTS), {self.PATH})
+    # (lines in the log) → (lines loaded, the beliefs they count against)
+    LOGS = [("one real line", [{"path": PATH, "measured": 4.0, "at": 0}], 1, {PATH: 1}),
+            ("a line naming no belief is not counted", [{"path": PATH, "measured": 4.0, "at": 0},
+                                                        {"path": "risk.no_such_belief", "measured": 1.0, "at": 0}],
+             1, {PATH: 1}),
+            ("two of one belief", [{"path": PATH, "measured": 4.0, "at": 0}, {"path": PATH, "measured": 5.0, "at": 1}],
+             2, {PATH: 2}),
+            ("an empty log", [], 0, {})]
 
-    def test_one_measurement_barely_moves_the_belief(self):
-        """A sample is evidence, not an answer: with the prior worth PRIOR_STRENGTH observations, the first one
-        can move the number at most halfway to itself — and the history, not the last line, is what it reads."""
-        before = beliefs.value(self.PATH)
-        beliefs.note(self.PATH, before * 3, where="test")
-        moved = beliefs.value(self.PATH)
-        self.assertLessEqual(abs(moved - before), abs(before * 3 - before) / 2 + 1e-9)
-        self.assertEqual(beliefs.declared(self.PATH), before, "what is written down is never rewritten")
+    def test_loading_a_log(self):
+        for name, lines, loaded, counts in self.LOGS:
+            with self.subTest(name):
+                with open(self.log, "w") as out:
+                    out.writelines(json.dumps(l) + "\n" for l in lines)
+                beliefs.COUNTS.clear(), beliefs.OBSERVED.clear()
+                self.assertEqual(beliefs.load(self.log), loaded)
+                self.assertEqual(dict(beliefs.COUNTS), counts)
 
     def test_what_took_it_is_written_down(self):
         beliefs.note(self.PATH, 4.0, where="bench:decision_arena")
@@ -252,37 +256,24 @@ class MeasurementsMoveTheNumber(unittest.TestCase):
         for v in values:
             beliefs.note(path, v, where="test")
 
-    def test_with_nothing_measured_it_is_the_declared_number(self):
-        for path in (self.PATH, self.WIKI, "risk.regen_s_per_hp"):
-            self.assertEqual(beliefs.value(path), beliefs.declared(path), path)
+    # (situation, path, measurements as multiples of the declared number) → the believed number, exactly:
+    # (W·prior + n·median) / (W + n) with W = PRIOR_STRENGTH for a guess; a published number never moves
+    def rows(self):
+        p, w = beliefs.declared(self.PATH), beliefs.PRIOR_STRENGTH
+        wiki = beliefs.declared(self.WIKI)
+        return [("nothing measured: the declared number", self.PATH, [], p),
+                ("one sample at 2×: halfway there at W = 1", self.PATH, [2], (w * p + 2 * p) / (w + 1)),
+                ("six samples at 2×: most of the way, never past", self.PATH, [2] * 6, (w * p + 6 * 2 * p) / (w + 6)),
+                ("eight at 1× and one wild 1000×: the median holds", self.PATH, [1] * 8 + [1000],
+                 (w * p + 9 * p) / (w + 9)),
+                ("a published number measured at 5×: unmoved", self.WIKI, [5, 5, 5], wiki)]
 
-    def test_it_moves_toward_the_measurements_and_never_past_them(self):
-        prior = beliefs.declared(self.PATH)
-        seen = [prior * 2] * 6
-        self._measure(self.PATH, *seen)
-        got = beliefs.value(self.PATH)
-        self.assertGreater(got, prior)
-        self.assertLessEqual(got, max(seen) + 1e-9)
-
-    def test_more_of_the_same_moves_it_further(self):
-        prior = beliefs.declared(self.PATH)
-        steps = []
-        for _ in range(6):
-            self._measure(self.PATH, prior * 3)
-            steps.append(beliefs.value(self.PATH))
-        self.assertEqual(steps, sorted(steps), "each consistent measurement moves it further, never back")
-
-    def test_one_wild_sample_cannot_carry_it(self):
-        prior = beliefs.declared(self.PATH)
-        self._measure(self.PATH, *([prior] * 8))
-        steady = beliefs.value(self.PATH)
-        self._measure(self.PATH, prior * 1000)
-        self.assertLess(abs(beliefs.value(self.PATH) - steady), abs(prior), "the median, not the last sample")
-
-    def test_what_the_game_publishes_never_moves(self):
-        published = beliefs.declared(self.WIKI)
-        self._measure(self.WIKI, published * 5, published * 5, published * 5)
-        self.assertEqual(beliefs.value(self.WIKI), published)
+    def test_exact_values(self):
+        for name, path, multiples, want in self.rows():
+            with self.subTest(name):
+                beliefs.OBSERVED.clear(), beliefs.COUNTS.clear()
+                self._measure(path, *[m * beliefs.declared(path) for m in multiples])
+                self.assertAlmostEqual(beliefs.value(path), want)
 
     def test_only_what_play_toml_calls_a_guess_can_move(self):
         self.assertTrue(beliefs.is_unmeasured(self.PATH))
@@ -337,6 +328,18 @@ class TheHistoryIsNeverLost(unittest.TestCase):
             rows = [json.loads(line) for line in f]
         self.assertEqual([(r["path"], r["measured"], r["where"]) for r in rows], [("nav.unit_s", 0.9, "exit test")])
 
-    def test_a_batch_has_a_size_and_an_age(self):
-        self.assertGreater(beliefs.FLUSH_EVERY, 1)
-        self.assertGreater(beliefs.FLUSH_AFTER_S, 0)
+    def test_a_batch_is_written_when_it_fills(self):
+        """Notes queue; the batch reaches the disk when it holds FLUSH_EVERY (the age clock held still here)."""
+        from unittest import mock
+        for n, on_disk in ((1, 0), (beliefs.FLUSH_EVERY - 1, 0), (beliefs.FLUSH_EVERY, beliefs.FLUSH_EVERY),
+                           (beliefs.FLUSH_EVERY + 1, beliefs.FLUSH_EVERY)):
+            with self.subTest(n=n), Clean(), mock.patch.object(beliefs, "_last_flush", 1e12):
+                for _ in range(n):
+                    beliefs.note("nav.unit_s", 0.9, where="test")
+                lines = open(beliefs.LOG).read().splitlines() if os.path.exists(beliefs.LOG) else []
+                self.assertEqual(len(lines), on_disk)
+
+
+
+if __name__ == "__main__":
+    unittest.main()
