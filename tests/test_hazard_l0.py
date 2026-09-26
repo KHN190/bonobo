@@ -175,7 +175,7 @@ class Rescue(unittest.TestCase):
                         raise does
                 table = {k: (lambda ctx, st, _k=k: rescue(ctx, st, _k)) for k in hazard.RESCUE}
                 with mock.patch.dict(hazard.RESCUE, table), \
-                        mock.patch.object(skills, "head_buried", return_value=buried), \
+                        mock.patch.object(hazard, "head_buried", return_value=buried), \
                         mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path)), \
                         mock.patch.object(api, "api", side_effect=AssertionError("L0 read the world")):
                     for used, kind, stopped in rounds:
