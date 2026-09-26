@@ -175,7 +175,7 @@ class Tiers(unittest.TestCase):
         for base in sc.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", core)
-        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", sc.CHAIN_C[1]):
+        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", sc.CHAIN_C[0], sc.CHAIN_C[1]):
             with self.subTest(name):
                 self.assertIn(name, core)
 
@@ -187,7 +187,7 @@ class Tiers(unittest.TestCase):
                     self.assertTrue(set(row["tags"].values()) & set(sc.COMMON_CONDITIONS))
 
     # (row, tier it must be in): the rules the tiers exist for, stated per row.
-    PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "common"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
+    PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
               ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
               ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance")]
 
@@ -200,6 +200,36 @@ class Tiers(unittest.TestCase):
         for tier in ("core", "common", "exception"):
             with self.subTest(tier):
                 self.assertNotIn(sc.ACCEPTANCE_D, sc.select(sc.SCENARIOS, tier))
+
+
+# Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
+# sweeps included) that no setup can shorten without changing what they measure. May only shrink.
+LONG = {"escape", "fight_dragon", "combat_arena", "siege", "locate_stronghold", "find_portal_room_fresh",
+        "bed_bomb_kill"}
+LIMIT_S = {"core": 30, "common": 180, "exception": 180}
+
+
+def over_limit(rows_):
+    """Names of rows whose budget is over their tier's limit (acceptance has its own 30 minutes)."""
+    return sorted(n for n, r in rows_.items() if r["tier"] in LIMIT_S and r["budget"] > LIMIT_S[r["tier"]])
+
+
+class Budgets(unittest.TestCase):
+    # (situation, a sheet) → the rows over their limit
+    ROWS = [("the real sheet: only the long list", None, None),
+            ("a core row at 31 s", {"x": {"tier": "core", "budget": 31}}, ["x"]),
+            ("a core row at 30 s", {"x": {"tier": "core", "budget": 30}}, []),
+            ("an exception row at 181 s", {"x": {"tier": "exception", "budget": 181}}, ["x"]),
+            ("acceptance is its own limit", {"x": {"tier": "acceptance", "budget": 1800}}, [])]
+
+    def test_budget_limits(self):
+        for name, sheet, want in self.ROWS:
+            with self.subTest(name):
+                if sheet is None:
+                    self.assertEqual(sorted(set(over_limit(sc.SCENARIOS)) - LONG), [])
+                    self.assertEqual(sorted(LONG - set(over_limit(sc.SCENARIOS))), [], "fixed: drop it from LONG")
+                else:
+                    self.assertEqual(over_limit(sheet), want)
 
 
 class FakeContract:
