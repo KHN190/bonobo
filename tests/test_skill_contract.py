@@ -282,13 +282,14 @@ class Readings:
     whether the body is walled in, the free spots around. Patched where each module reads them (readings, not a
     game); the skill's own `start` and `verify` run unchanged."""
 
-    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids")
+    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids", "brewing", "farming", "ui")
 
     def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=(), items=(),
-                 obsidian=0, cast=None):
+                 obsidian=0, cast=None, mobs=()):
         self.inv, self.feet, self.st, self.found = inv or inventory(), feet, st or state(), list(found)
         self.enclosed, self.spots, self.items, self.obsidian = enclosed, list(spots), list(items), obsidian
         self.cast = cast or {}          # what the pour remembered (fluids._CAST): where, and what stood there before
+        self.mobs = list(mobs)          # what /entities answers where a module asks it by name
 
     def patches(self):
         import importlib
@@ -296,7 +297,8 @@ class Readings:
                                  (_ for _ in ()).throw(AssertionError(f"verify read {path}")))]
         values = {"Inventory": lambda data=None: bag(self.inv), "feet": lambda: self.feet,
                   "enclosed": lambda: self.enclosed, "find": lambda *a, **k: list(self.found),
-                  "free_spots_here": lambda *a, **k: list(self.spots)}
+                  "free_spots_here": lambda *a, **k: list(self.spots),
+                  "entities": lambda *a, **k: list(self.mobs)}
         for mod in self.MODULES:
             m = importlib.import_module(f"bonobo.{mod}")
             out += [mock.patch.object(m, name, fn) for name, fn in values.items() if hasattr(m, name)]
@@ -392,6 +394,50 @@ PRODUCTS += [
     ("search for mobs: found none", "explore_for", (None, ["minecraft:sheep"]), R(), R(feet=(80, 30, 0)), None, None,
      False),
     ("search for mobs: found", "explore_for", (None, ["minecraft:sheep"]), R(), R(), (20, 64, 3), None, True),
+]
+
+
+def _stronghold_at(pos, throws):
+    """A context whose memory holds the stronghold estimate at `pos` (x, y, z) with the eye throws behind it."""
+    import tempfile
+    from bonobo.memory import Memory
+    m = Memory(os.path.join(tempfile.mkdtemp(prefix="sh"), "notes.json"))
+    m.add_site("stronghold", pos, "minecraft:overworld", name="stronghold")
+    if throws is not None:
+        m.update_site("stronghold", throws=throws)
+    return type("Ctx", (), {"mem": m})()
+
+
+FIRE = {"id": "minecraft:potion", "count": 1, "potion": "minecraft:fire_resistance"}
+WATER = {"id": "minecraft:potion", "count": 3, "potion": "minecraft:water"}
+PICK = {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 0, "maxDamage": 250}
+CALF = {"id": 5, "type": "minecraft:cow", "x": 3, "y": 64, "z": 0, "distance": 3.0, "baby": True}
+COW = {"id": 6, "type": "minecraft:cow", "x": 4, "y": 64, "z": 0, "distance": 4.0}
+MEET = [[[0, 0], [1, 1]], [[100, 0], [-1, 1]]]          # two throws meeting at (50, 50)
+PRODUCTS += [
+    ("brew: only water bottles", "brew_fire_resistance", (None,), R(inv=inventory(WATER)), R(inv=inventory(WATER)),
+     None, None, False),
+    ("brew: a fire resistance potion", "brew_fire_resistance", (None,), R(inv=inventory(WATER)),
+     R(inv=inventory(FIRE, dict(WATER, count=2))), None, None, True),
+    ("brew: a potion of something else", "brew_fire_resistance", (None,), R(),
+     R(inv=inventory(dict(FIRE, potion="minecraft:swiftness"))), None, None, False),
+    ("breed: adults only", "breed", (None,), R(mobs=[COW, COW]), R(mobs=[COW, COW]), None, None, False),
+    ("breed: a calf", "breed", (None,), R(mobs=[COW, COW]), R(mobs=[COW, COW, CALF]), None, None, True),
+    ("breed: the calf was already there", "breed", (None,), R(mobs=[CALF]), R(mobs=[CALF]), None, None, False),
+    ("enchant: the pickaxe as it was", "enchant_item", (None, "minecraft:iron_pickaxe"), R(inv=inventory(PICK)),
+     R(inv=inventory(PICK)), None, None, False),
+    ("enchant: enchanted", "enchant_item", (None, "minecraft:iron_pickaxe"), R(inv=inventory(PICK)),
+     R(inv=inventory(dict(PICK, enchanted=True))), None, None, True),
+    ("enchant: something else enchanted", "enchant_item", (None, "minecraft:iron_pickaxe"), R(inv=inventory(PICK)),
+     R(inv=inventory(PICK, {"id": "minecraft:book", "count": 1, "enchanted": True})), None, None, False),
+    ("stronghold: no estimate", "locate_stronghold", (_stronghold_at((50, 30, 50), MEET),), R(), R(), None, None,
+     False),
+    ("stronghold: an estimate the throws meet at", "locate_stronghold", (_stronghold_at((50, 30, 50), MEET),), R(),
+     R(), (50, 30, 50), None, True),
+    ("stronghold: one throw only", "locate_stronghold", (_stronghold_at((50, 30, 50), MEET[:1]),), R(), R(),
+     (50, 30, 50), None, False),
+    ("stronghold: the throws meet elsewhere", "locate_stronghold", (_stronghold_at((80, 30, 20), MEET),), R(), R(),
+     (80, 30, 20), None, False),
 ]
 
 
