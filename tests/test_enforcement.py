@@ -53,7 +53,7 @@ GRAPH = call_graph()
 # `api` is the funnel every task passes through; `fight_plan` decides once per fight round. Both are execution,
 # and leaving either out makes this check blind to the wiring it exists to guard.
 EXECUTING = {"end", "combat", "brain", "skills", "nav", "perception", "skillcore", "skill", "nether", "api",
-             "fight_plan", "threat"}
+             "fight_plan", "threat", "hazard", "fight_loop"}
 
 
 def callers_of(func, among=EXECUTING):
@@ -182,28 +182,27 @@ class RulesAreWired(unittest.TestCase):
 
 
 class OneDecisionPoint(unittest.TestCase):
-    """Staying alive is priced, not sequenced.
+    """A fixed order, no scores: the first layer that has something to do takes the round (brain.py docstring).
 
-    `_round` used to be four layers of if: survival, then night safety, then directives, then the pool — each
-    returning early, so the order of the ifs WAS the priority and nothing could say what any layer was worth. Both
-    survival and safety already had a model in seconds; they just had no way to say it. The only thing that may
-    still jump the queue is what kills inside one round, because a round is the deliberation time.
+    The order IS the policy now, so it is read off the source: the player, then L0 (a hazard, a fight holding the
+    body), then upkeep, then the queue's head, then prepare. A layer moved or a scoring door grown back is a
+    change of policy that no unit test of any single layer would see.
     """
 
-    def test_only_what_kills_inside_a_round_pre_empts_the_pool(self):
+    ORDER = ("hazard.due(", "self.upkeep(", "tasks.load(", "self.task_act(", "self.prepare(")
+
+    def test_decide_asks_the_layers_in_their_fixed_order(self):
         import inspect
         from bonobo.brain import Brain
-        src = inspect.getsource(Brain._round)
-        early = [ln.strip() for ln in src.splitlines() if ln.strip() == "return" or ln.strip().startswith("return ")]
-        # Three, and each is named: the survival floor (dead inside a round), an operator directive (a person
-        # saying what to do is authority, not a bid, so it does not get priced), and the pool's own "nothing
-        # runnable" hold. Everything about staying alive that used to sit here is now a priced candidate.
-        self.assertLessEqual(len(early), 3, f"_round still decides by the order of its ifs: {early}")
-        self.assertIn("self.survival(snap, ctx)", src)
-        self.assertNotIn("self.safety(snap, ctx)", src, "night safety must be priced in the pool, not sequenced")
+        src = inspect.getsource(Brain.decide)
+        at = [src.find(call) for call in self.ORDER]
+        for call, i in zip(self.ORDER, at):
+            self.assertGreaterEqual(i, 0, f"decide no longer asks {call}")
+        self.assertEqual(at, sorted(at), f"layers out of order: {dict(zip(self.ORDER, at))}")
 
-    def test_the_rescues_are_offered_as_candidates(self):
-        self.assertIn("_rescue_candidates", GRAPH["brain"])
+    def test_nothing_is_scored(self):
+        for word in ("score", "candidates(", "choose(", "worth_of"):
+            self.assertNotIn(word, source("brain"), f"brain.py scores again ({word})")
 
 
 class SafetyIsNotOptIn(unittest.TestCase):

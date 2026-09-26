@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
-# Where a silent failure changes a DECISION rather than an action: the brain's pricing and the value module.
-DECIDING = ("brain.py", "value.py", "actions.py", "priority.py", "pool.py", "solve.py", "memory.py")
+# Where a silent failure changes a DECISION rather than an action: the brain, the planners and their cost model.
+DECIDING = ("brain.py", "actions.py", "solve.py", "memory.py", "decompose.py", "cost.py", "goals.py", "tasks.py")
 WORLD = {"find", "entities", "region_around", "Region", "Snapshot", "Inventory", "status", "container",
          "dark_spots", "mod_features"}
 # Read-only bookkeeping: failing to read these changes nothing about what is chosen.

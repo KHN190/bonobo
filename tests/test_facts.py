@@ -23,7 +23,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import actions, brain, knowledge, loot, memory, nav, skillcore  # noqa: E402
 from bonobo.solve import solve  # noqa: E402
-from tests.world import DIMS, FakeRegion, PricingSnap, flat, worlds  # noqa: E402
+from tests.world import FakeRegion, bag, flat, inventory  # noqa: E402
 
 
 def mem():
@@ -37,7 +37,7 @@ class Snap:
 
     def __init__(self, feet=(0, 64, 0)):
         self.feet = feet
-        self.inv = PricingSnap().inv
+        self.inv = bag(inventory())
 
     def get(self, key, default=None):
         return {"skyLight": 15, "health": 20, "food": 20}.get(key, default)
@@ -329,6 +329,13 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
              "gather:log": ("hands_free",),                          # cutting a tree needs no floor
              "hunt:wool": ("hands_free",)}                           # a fight can happen in the water
 
+    # The body as the solver's state vector: the three values of the body that lose a precondition, and the one
+    # that has them all. (The planner sweep in tests/world.py is readings now; this vector is the solver's own.)
+    BODIES = {"ready": {"bag_free": 30, "food": 16, "lever:hp": 20, "footing": 1, "hands_free": 1},
+              "swimming": {"bag_free": 30, "food": 16, "lever:hp": 20, "hands_free": 1},
+              "drowning": {"bag_free": 30, "food": 16, "lever:hp": 20},
+              "falling": {"bag_free": 30, "food": 16, "lever:hp": 16}}
+
     def columns(self, state):
         from bonobo import actions
         return {a.name: a for a in actions.table(actions.Costs(lambda kinds: 6.0), state)}
@@ -345,9 +352,8 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         """For every way of losing a precondition, the table offers a way of getting it back — and the pool is
         never empty because of it. Swept over the `self` dimension rather than written out per case."""
         from bonobo import actions, solve
-        for w in worlds(self_=list(DIMS["self_"]), resource="bare", stock="none"):
-            state = w.state()
-            with self.subTest(body=w.dims["self_"]):
+        for body, state in self.BODIES.items():
+            with self.subTest(body=body):
                 table = self.columns(state)
                 missing = [d for d in actions.BODY_DIMS if not state.get(d)]
                 mends = [a for a in table.values() if a.tag and a.tag[0] == "reach"]

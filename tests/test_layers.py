@@ -23,19 +23,67 @@ PKG = pathlib.Path(__file__).resolve().parent.parent / "bonobo"
 # The two modules that decide things. Nothing may import them: they are where the wiring is done, not a library.
 TOP = {"brain", "scenarios"}
 # Replaying and reviewing a decision means building the decider — that is the whole job, not a layering slip.
-MAY_IMPORT_TOP = {"brain", "scenarios", "decide", "review"}
+MAY_IMPORT_TOP = {"brain", "scenarios", "review"}
 
 # How many modules each one drags in, frozen. A ratchet, not a target: these may fall, never rise. When one rises
 # the bench's re-run key has just got coarser, and this is the only place that will say so. Rebased when the belief
 # table was introduced: one leaf module that genuinely belongs in every closure raises them all by one.
-CLOSURE = {"actions": 22, "api": 9, "arbiter": 9, "bag": 11, "beliefs": 2, "value": 8, "gates": 7, "blueprints": 1, "brain": 57,   # +want: the cerebrum's door is a thing the planner must know about
-    "brewing": 30, "building": 23, "bunker": 35, "combat": 35, "combat_model": 3, "combat_tape": 10, "data": 1,
-    "decide": 58, "directives": 2, "end": 35, "explore": 21, "farming": 29, "field": 1, "fight_plan": 6, "estimate": 4, "fit": 1, "fresh": 2, "measure": 7,
-    "fluids": 19, "intent": 10, "jobs": 29, "kernel": 5, "knowledge": 2, "lookahead": 2, "loot": 18, "memory": 4,
-    "nav": 17, "nether": 21, "paths": 1, "perception": 15, "planner": 13, "pool": 1, "priority": 6, "recovery": 1,
-    "retry": 1, "review": 41, "roads": 1, "route": 4, "scenarios": 41, "skill": 10, "skillcore": 12, "skills": 29,
-    "solve": 1, "survival": 5, "tape": 2, "terrain": 20, "threat": 6, "ui": 30, "upkeep": 18, "want": 15, "wood": 29,
+CLOSURE = {
+    "actions": 22,
+    "api": 9,
+    "arbiter": 9,
+    "bag": 11,
+    "beliefs": 2,
+    "blueprints": 1,
+    "brain": 57,
+    "brewing": 30,
+    "building": 23,
+    "bunker": 35,
+    "combat": 35,
+    "combat_model": 3,
+    "combat_tape": 10,
+    "data": 1,
+    "end": 35,
+    "explore": 21,
+    "farming": 29,
+    "field": 1,
+    "fight_plan": 6,
+    "estimate": 4,
+    "fresh": 2,
+    "fluids": 19,
+    "intent": 10,
+    "jobs": 29,
+    "kernel": 5,
+    "knowledge": 2,
+    "loot": 18,
+    "memory": 4,
+    "nav": 17,
+    "nether": 21,
+    "paths": 1,
+    "perception": 15,
+    "planner": 13,
+    "recovery": 1,
+    "retry": 1,
+    "review": 41,
+    "roads": 1,
+    "scenarios": 41,
+    "skill": 10,
+    "skillcore": 12,
+    "skills": 29,
+    "solve": 1,
+    "tape": 2,
+    "terrain": 20,
+    "threat": 6,
+    "ui": 30,
+    "upkeep": 18,
+    "wood": 29,
     "world": 9,
+    "cost": 17,
+    "decompose": 35,
+    "fight_loop": 30,
+    "goals": 14,
+    "hazard": 30,
+    "tasks": 15,
 }
 
 # And by one again when the arbiter stopped holding the body with a lock and started holding a DECISION: keeping
@@ -47,8 +95,8 @@ CLOSURE = {"actions": 22, "api": 9, "arbiter": 9, "bag": 11, "beliefs": 2, "valu
 # read from wherever it is needed, rather than re-derived by each caller.
 
 # The bottom: pure facts and pure functions over them. Anything here that grows an import has stopped being a fact.
-FACTS = {"data", "kernel", "pool", "solve", "combat_model", "recovery", "retry", "roads", "blueprints",
-         "paths", "fit", "beliefs", "field", "estimate"}
+FACTS = {"data", "kernel", "solve", "combat_model", "recovery", "retry", "roads", "blueprints",
+         "paths", "beliefs", "field", "estimate"}
 
 
 def imports_of(module):

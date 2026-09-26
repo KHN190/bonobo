@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import estimate, field  # noqa: E402
-from tests.world import WALKS, dangers, learner  # noqa: E402
+from tests.world import WALKS, dangers  # noqa: E402
 
 INF = float("inf")
 
@@ -137,7 +137,7 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
     STRAIGHT = 10.0
 
     def learned(self, ratio, times=1, bucket="open"):
-        ground = learner()
+        ground = field.Terrain(prior=1.0, memory=0.5)
         for _ in range(times):
             ground.observed(bucket, straight_s=self.STRAIGHT, actual_s=self.STRAIGHT * ratio)
         return ground.of(bucket)
@@ -161,7 +161,7 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
             self.assertLessEqual(self.learned(ratio, times=20), field.MAX_FACTOR, name)
 
     def test_each_kind_of_ground_learns_on_its_own(self):
-        ground = learner()
+        ground = field.Terrain(prior=1.0, memory=0.5)
         for _ in range(10):
             ground.observed("underground", self.STRAIGHT, self.STRAIGHT * WALKS["much_slower"])
         self.assertGreater(ground.of("underground"), ground.of("open"))
@@ -175,7 +175,7 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
         from unittest import mock
         from bonobo import nav
         for ok in (True, False):
-            ground = learner()
+            ground = field.Terrain(prior=1.0, memory=0.5)
             with mock.patch.object(field, "TERRAIN", ground), \
                  mock.patch.object(nav.api, "get", return_value={"skyLight": 15, "y": 64}):
                 nav._arrived((0, 64, 0), (43, 64, 0), began=nav.time.time() - 30.0, ok=ok)

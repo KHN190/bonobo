@@ -298,8 +298,7 @@ class EveryMeasurementHasABound(unittest.TestCase):
     times something therefore states a window it will accept.
     """
 
-    TIMERS = (("skillcore", "_note_break"), ("skills", "eat"),
-              ("brain", "note_walk_of"), ("brain", "note_body_of"), ("memory", "forget_death"))
+    TIMERS = (("skillcore", "_note_break"), ("skills", "eat"), ("memory", "forget_death"))
 
     def test_each_timer_states_what_it_will_accept(self):
         import importlib
@@ -325,10 +324,6 @@ class TheWorldsCountersAlsoTellTheHistory(unittest.TestCase):
     WIRED = (("memory", "note_exposure", "risk.encounters_per_day"),
              ("memory", "note_yield", "yield_s."),
              ("memory", "forget_death", "time.death_cost_s"),
-             ("brain", "note_body_of", "risk.regen_s_per_hp"),
-             ("brain", "note_body_of", "risk.food_drain_s"),
-             ("brain", "note_body_of", "pool.slot_fill_s"),
-             ("brain", "note_walk_of", "nav.unit_s"),
              ("skillcore", "_note_break", "tools.mine_time_stone"),
              ("skillcore", "_note_break", "tools.mine_time_no_pickaxe"),
              ("skills", "eat", "engage.eat_s"))
@@ -349,17 +344,9 @@ class TheWorldsCountersAlsoTellTheHistory(unittest.TestCase):
             beliefs.value(path)          # KeyError here means a measurement is being filed under a typo
 
     def test_a_stretch_too_short_is_not_a_sample(self):
-        from bonobo import brain, memory
-        self.assertGreater(brain.Brain.BODY_SAMPLE_S, 0)
+        from bonobo import memory
         self.assertGreater(memory.Memory.EXPOSURE_SAMPLE_S, 0)
-        self.assertIn("BODY_SAMPLE_S", inspect.getsource(brain.Brain.note_body_of))
         self.assertIn("EXPOSURE_SAMPLE_S", inspect.getsource(memory.Memory.note_exposure))
-
-    def test_health_going_down_is_not_regeneration(self):
-        """The one direction that matters: a fight must never be filed as a regeneration rate."""
-        src = inspect.getsource(__import__("bonobo.brain", fromlist=["brain"]).Brain.note_body_of)
-        self.assertIn("hp > was_hp", src)
-        self.assertIn("regen_food_floor", src, "and it is only regeneration while there is food to do it with")
 
 
 class TheHistoryIsNeverLost(unittest.TestCase):

@@ -52,12 +52,14 @@ class TwoClocks(unittest.TestCase):
 
 
 class OneDefinition(unittest.TestCase):
-    def test_the_brain_reflex_asks_the_same_function(self):
+    def test_the_brain_asks_the_same_function(self):
+        """L0 answers drowning (hazard.due → drowning_in); the brain's reflexes keep no air threshold of their own."""
         import inspect
-        from bonobo import brain
-        src = inspect.getsource(brain.Brain.reflexes)
-        self.assertIn("drowning", src)
-        self.assertNotIn('s["air"] < 150', src, "a second air threshold is a second opinion about the same death")
+        from bonobo import brain, hazard
+        self.assertIn("drowning_in(", inspect.getsource(hazard.due))
+        self.assertIn("hazard.due(", inspect.getsource(brain.Brain.decide))
+        self.assertNotIn('s["air"] <', inspect.getsource(brain.Brain.reflexes),
+                         "a second air threshold is a second opinion about the same death")
 
 
 if __name__ == "__main__":
