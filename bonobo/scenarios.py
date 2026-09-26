@@ -797,7 +797,7 @@ def _has_tools_and_furnace():
 
 
 def _nether_kit_ready():
-    from .route import nether_kit_missing
+    from .knowledge import nether_kit_missing
     from .world import Inventory
     return not nether_kit_missing(Inventory())
 

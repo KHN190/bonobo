@@ -1,10 +1,15 @@
-"""Decision tape: the world queries one brain round reads, recorded live and replayed offline.
+"""Round tape: what one brain round saw, held and did — recorded live, read offline.
 
-Live (autoplay, decision scenarios): a round that reaches the scored pool writes one line to decisions.jsonl — the
-GET responses it read, the inputs the brain holds (retry state, committed goal, idle clock, blacklist, the files it
-reads) and what it picked. Offline (`decide.py`): the round runs again with every GET served from that line — new
-code, old world — so a changed decision shows up as a diff without the game. A decision never acts: a POST during
-replay is an error, and so is a query the recording doesn't have (new code asking something new).
+Each line: the snapshot (state + bag), the world GETs the round made, the memory it held, the task and the plan it
+worked from, the act it chose, the EVENTS of the round (plan made or repaired, step ok / failed / interrupted), and
+every post-action READING SEQUENCE a skill judged (`settle`: what the counter said, poll by poll, and the verdict).
+
+The reading sequences are what gets replayed: the judgment layer (settle, death, outcome classification) run again
+on the very numbers the game gave, so a timing bug seen once is reproduced forever — and they are real conditions
+for the scenario tables. Decisions are not replayed: the brain is a fixed order now, and a change to it would only
+invalidate the recordings.
+
+`recorded`/`replayed` keep serving world reads from a line (`REPLAY`) for whoever wants a round's world back.
 """
 import hashlib
 import json
@@ -12,10 +17,10 @@ import os
 import time
 from . import paths
 
-FILE = paths.data("decisions.jsonl", env="MC_DECISIONS")
+FILE = paths.data("rounds.jsonl", env="MC_TAPE")
 MEM_DIR = paths.data("decisions-mem")
 MAX_BYTES = 2 * 1024 * 1024        # one file, 2 MB: the newest rounds are kept, older ones dropped
-MIN_GAP_S = 20          # record at most one round per 20 s unless the pick changed (regions make lines big)
+MIN_GAP_S = 20          # a quiet round with the same act as the last is recorded at most every 20 s
 
 _calls = None
 _last = {"t": 0, "pick": None}
@@ -55,32 +60,6 @@ def replayed(method, path):
             return dict(_EMPTY)
         raise ReplayMiss(path)
     return REPLAY[path]
-
-
-# -- encoding of the brain's own decision inputs (tuples and frozensets aren't JSON)
-def encode_sig(sig):
-    if sig is None:
-        return None
-    pos, ids, night, bans = sig
-    return [list(pos), sorted(ids), night, bans]
-
-
-def decode_sig(v):
-    """Recordings made before signatures dropped the blacklist size carry it in slot 4; replays normalise it to 0 so
-    a cooling step isn't mistaken for a changed state (13 of 51 replayed picks differed only because of that)."""
-    if v is None:
-        return None
-    return tuple(v[0]), frozenset(v[1]), v[2], 0
-
-
-def encode_retry(r):
-    return {"entries": {k: {**e, "state": encode_sig(e.get("state"))} for k, e in r.entries.items()},
-            "holds": dict(r.holds)}
-
-
-def decode_retry(d, r):
-    r.entries = {k: {**e, "state": decode_sig(e.get("state"))} for k, e in d["entries"].items()}
-    r.holds = dict(d["holds"])
 
 
 def store_mem(data):
@@ -136,22 +115,38 @@ def _files():
     return out
 
 
-def row_for(brain, pick, pool, filtered, force, now=None):
-    """The decision line (pure apart from reading the files the pool reads)."""
-    files = _files()
+_events = []
+_readings = []
+SKILL = None           # the skill running now (skill.py sets it): whose readings these are
+
+
+def event(name, outcome, detail=""):
+    """Something that happened this round: a plan made or repaired, a step's outcome."""
+    _events.append({"t": round(time.time(), 2), "name": name, "outcome": outcome, "detail": detail})
+
+
+def reading(seq, verdict, label=None):
+    """One post-action reading sequence [(seconds since the action, value)] and what it was judged to mean."""
+    _readings.append({"skill": label or SKILL, "seq": [[round(dt, 2), _plain(v)] for dt, v in seq],
+                      "verdict": _plain(verdict)})
+
+
+def _plain(v):
+    return v if isinstance(v, (int, float, str, bool, type(None))) else str(v)
+
+
+def row_for(brain, act, snap, now=None):
+    """The round's line (pure apart from reading the memory it stores)."""
+    task = getattr(act, "task", None)
+    held = brain.held.get(task["id"]) if task else None
     return {
-        "t": now or time.time(), "calls": dict(_calls or {}), "mem": store_mem(brain.mem.data), "files": files,
-        # Cached world reads the round didn't re-query (chest scan once a minute): without them 33 of 36 replays
-        # missed "/find?blocks=minecraft:chest…". The replay restores the cache instead of querying.
+        "t": now or time.time(), "calls": dict(_calls or {}), "mem": store_mem(brain.mem.data),
         **_extras(),
-        "retry": encode_retry(brain.retry), "committed": brain.committed, "idle_since": brain.idle_since,
-        "stalled": brain.stalled_seconds(), "force": force,
-        "recent_fail": list(brain.recent_fail) if brain.recent_fail else None,
-        "fail_sig": {k: encode_sig(v) for k, v in brain.fail_sig.items()},
+        "snap": {"state": snap.state, "slots": snap.inv.slots, "equipment": snap.inv.equipment} if snap else None,
+        "task": task, "plan": [str(s) for s in held["steps"]] if held else None,
+        "act": repr(act) if act else None, "step": str(act.step) if act is not None and act.step else None,
+        "events": list(_events), "readings": list(_readings),
         "blacklist": [[list(k), v] for k, v in brain.blacklist.items()],
-        "pick": pick.name if pick else None,
-        "top": [(c.name, round(c.score, 6)) for c in sorted(pool, key=lambda c: c.score, reverse=True)[:5]],
-        "filtered": filtered,
     }
 
 
@@ -180,18 +175,21 @@ def trim(path, keep_bytes):
     return len(kept)
 
 
-def end(brain, pick, pool, filtered, force, path=None, always=False):
-    """Write this round's decision line (throttled). Returns the row, or None when skipped."""
+def end(brain, act, snap, path=None, always=False):
+    """Write this round's line (throttled: the same act with nothing new to say is skipped). Returns the row."""
     global _calls
     if _calls is None:
         return None
     now = time.time()
-    name = pick.name if pick else None
-    if not always and now - _last["t"] < MIN_GAP_S and name == _last["pick"]:
+    name = repr(act) if act else None
+    quiet = not _events and not _readings
+    if not always and quiet and now - _last["t"] < MIN_GAP_S and name == _last["pick"]:
         _calls = None
         return None
-    row = row_for(brain, pick, pool, filtered, force, now)
+    row = row_for(brain, act, snap, now)
     _calls = None
+    _events.clear()
+    _readings.clear()
     _last.update(t=now, pick=name)
     path = path or FILE
     try:

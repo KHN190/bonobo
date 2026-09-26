@@ -7,10 +7,10 @@ import time
 
 from bonobo import api, skills
 from bonobo.api import McError, log
-from bonobo.brain import Brain, LiveCost, autoplay, goals
+from bonobo.brain import Brain, autoplay
 from bonobo.data import bare
 from bonobo.memory import Memory
-from bonobo.planner import Planner, Unplannable
+from bonobo.planner import Unplannable
 from bonobo.world import Inventory, Snapshot, find
 
 
@@ -28,18 +28,23 @@ def cmd_inv(_):
 
 
 def cmd_plan(_):
-    """Shows every goal, whether it's done, and the plan the brain would follow for open ones."""
+    """Every live task, whether it is done, and the plan the brain would follow for it from this bag."""
+    from bonobo import decompose, goals, tasks
+    from bonobo.cost import Cost
     snap = Snapshot()
     mem = Memory()
-    for g in goals(snap, mem):
-        if g.done():
-            print(f"✔ [p{g.phase}] {g.name}")
+    for t in tasks.load():
+        if t["state"] not in tasks.LIVE:
+            continue
+        goal = tasks.goal_of(t)
+        if goals.done(goal, snap, mem):
+            print(f"✔ {tasks.describe(t)}")
             continue
         try:
-            plan = Planner.from_inventory(snap.inv, LiveCost(snap)).plan(g.needs)
-            print(f"· [p{g.phase}] {g.name} (value {g.value}): " + (" → ".join(str(s) for s in plan) or "finish"))
+            plan = decompose.decompose(snap.inv, goal, Cost(snap, mem))
+            print(f"· {tasks.describe(t)}: " + (" → ".join(str(s) for s in plan) or "finish"))
         except Unplannable as e:
-            print(f"✗ [p{g.phase}] {g.name}: {e}")
+            print(f"✗ {tasks.describe(t)}: {e}")
 
 
 def cmd_step(_):
@@ -69,71 +74,58 @@ def cmd_skills(_):
         print(c.describe(mem))
 
 
-def cmd_direct(a):
-    """Claude's instructions to the script (above normal goals, below survival)."""
-    from bonobo import directives
+def cmd_task(a):
+    """The task queue (tasks.json): what the cerebrum wants done, in order. The only door in."""
+    from bonobo import goals, tasks
     if a.action == "list":
-        for d in directives.load():
-            print(d["id"], directives.describe(d))
-    elif a.action == "clear":
-        directives.save([d for d in directives.load() if d["status"] != "pending"])
-        print("pending directives cleared")
-    else:
-        # Dependency graph + mode: --after ID... waits for those directives; --mode boost/background joins the pool.
-        common = {"note": a.note, "requires": a.after or [], "mode": a.mode}
-        if a.x is not None:
-            common["x"] = a.x
-        if a.action == "goal":
-            pairs = [[a.args[i], int(a.args[i + 1])] for i in range(0, len(a.args) - 1, 2)]
-            d = directives.add("goal", needs=pairs, **common)
-        elif a.action == "goto":
-            d = directives.add("goto", target=[int(v) for v in a.args[:3]], **common)
-        else:
-            args = [int(v) if v.lstrip("-").isdigit() else v for v in a.args[1:]]
-            d = directives.add("skill", name=a.args[0], args=args, **common)
-        print(d["id"], directives.describe(d))
-
-
-def cmd_want(a):
-    """The cerebrum's door (docs/api.md): a wanted state and what it is worth in seconds. Nothing else gets in."""
-    from bonobo import want
-    want.load()
-    if a.action == "list":
-        for w in want.list(active=a.all is False):
-            print(w)
-    elif a.action == "status":
-        print(json.dumps(want.status(a.args[0] if a.args else None), indent=1))
-    elif a.action == "stop":
-        for w in want.stop(a.args[0] if a.args else None, hard=a.hard, reason=a.note):
-            print("stopped", w)
-    else:
-        pairs = {a.args[i]: float(a.args[i + 1]) for i in range(0, len(a.args) - 1, 2)}
-        w = want.offer(pairs, a.worth_s, deadline_s=a.deadline_s, expires_s=a.expires_s,
-                       scope=a.scope, note=a.note, id=a.id)
-        print(w.id, w.state, json.dumps(want.status(w.id)[0]))
-
-
-def cmd_prio(a):
-    """Claude's priority adjustments (priorities.json): hot-reloaded every round, always expiring."""
-    from bonobo import priority
-    if a.action == "list":
-        for target, w in priority.load().items():
-            print(target, {k: v for k, v in w.items() if k != "target"})
+        for t in tasks.load():
+            if a.all or t["state"] in tasks.LIVE:
+                print(tasks.describe(t))
+        return
+    if a.action == "cancel":
+        tasks.cancel(a.args[0] if a.args else None)
+        print("cancelled", a.args[0] if a.args else "every live task")
         return
     if a.action == "clear":
-        with open(priority.FILE, "w") as f:
-            json.dump({"weights": []}, f)
-        print("priorities cleared")
+        tasks.clear()
+        print("finished tasks cleared")
         return
-    if a.action == "profile":
-        print(f"{priority.apply_profile(a.target, ttl=a.ttl)} weights from profile {a.target}")
+    if a.action == "milestones":
+        for name, needs in goals.MILESTONES.items():
+            print(f"{name:16} {needs}")
         return
-    fields = {"ttl": a.ttl, "why": a.why}
-    if a.action == "set":
-        fields["x"] = float(a.value)
+    template, rest = a.args[0], a.args[1:]
+    if template in ("have", "craft"):
+        needs = [goals.parse_need(rest[i], rest[i + 1] if i + 1 < len(rest) and not rest[i].startswith("tool:")
+                                  else 1)
+                 for i in _need_starts(rest)]
+        goal = goals.make(template, needs=needs)
+    elif template == "milestone":
+        goal = goals.make("milestone", name=" ".join(rest))
+    elif template == "goto":
+        goal = goals.make("goto", pos=[int(v) for v in rest[:3]], range=float(rest[3]) if len(rest) > 3 else 2)
+    elif template == "road":
+        goal = goals.make("road", a=[int(v) for v in rest[:3]], b=[int(v) for v in rest[3:6]])
+    elif template == "build":
+        goal = goals.make("build", bp=rest[0], at=[int(v) for v in rest[1:4]] if len(rest) >= 4 else None)
+    elif template == "sleep":
+        goal = goals.make("sleep")
+    elif template == "skill":
+        goal = goals.make("skill", name=rest[0],
+                          args=[int(v) if v.lstrip("-").isdigit() else v for v in rest[1:]])
     else:
-        fields[a.action] = True       # ban | pin
-    print(priority.add_weight(a.target, **fields))
+        raise McError(f"unknown goal {template}: one of {', '.join(goals.TEMPLATES)}")
+    t = tasks.add(goal, expires_s=a.expires_s, front=a.front)
+    print(tasks.describe(t))
+
+
+def _need_starts(rest):
+    """Indexes where each need begins in `TOKEN N TOKEN N tool:KIND:TIER ...`."""
+    out, i = [], 0
+    while i < len(rest):
+        out.append(i)
+        i += 1 if rest[i].startswith("tool:") else 2
+    return out
 
 
 def cmd_scenario(a):
@@ -203,53 +195,8 @@ def cmd_scenario(a):
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
 
 
-def cmd_decide(a):
-    """Decisions without the game: diff recorded rounds against the current code, list golden cases, simulate loops."""
-    from bonobo import decide
-    if a.action == "golden":
-        for name, ok, msg in decide.golden_results():
-            print(f"{'ok  ' if ok else 'FAIL'} {name}: {msg}")
-        return
-    rows = decide.load(last=a.last)
-    if a.action == "diff":
-        changed = decide.diff(rows)
-        for t, old, new, top in changed:
-            print(f"{time.strftime('%H:%M:%S', time.localtime(t))}  {old} → {new}  {top or ''}")
-        print(f"{len(changed)} of {len(rows)} recorded rounds decide differently now")
-    elif a.action == "simulate":
-        row = rows[-1]
-        fails = set(a.fail or [])
-        picks = decide.simulate(row, lambda name, i: McError("scripted failure") if name in fails else True,
-                                rounds=a.rounds)
-        names = [p for _, p in picks]
-        for n in sorted(set(names), key=names.count, reverse=True):
-            print(f"{names.count(n):4}× {n} (longest run {decide.longest_run(picks, n)})")
-
-
-def cmd_route(a):
-    """Follow a route (speedrun) or turn routes off; shows the active segment."""
-    from bonobo import route
-    from bonobo.world import Snapshot
-    mem = Memory()
-    if a.name == "off":
-        route.choose(None)
-    elif a.name != "show":
-        if a.name not in route.ROUTES:
-            raise McError(f"unknown route {a.name}; have {sorted(route.ROUTES)}")
-        route.choose(a.name)
-    name = route.current()
-    if name:
-        snap = Snapshot()
-        seg = route.active_segment(route.ROUTES[name], snap.inv, mem, snap.dimension)
-        print(f"route {name}: active segment {seg['name'] if seg else 'finished'}")
-        if seg and seg["name"] == "nether kit":
-            print("  kit missing:", route.nether_kit_missing(snap.inv))
-    else:
-        print("no route")
-
-
 def cmd_interrupt(a):
-    """End the running skill now (via the perception thread) so override directives run next round."""
+    """End the running skill now (via the perception thread) so the queue's head runs next round."""
     from bonobo import perception
     with open(perception.FLAG, "w") as f:
         f.write(a.why)
@@ -326,48 +273,20 @@ def main():
     p.set_defaults(fn=cmd_home)
     sub.add_parser("notes").set_defaults(fn=cmd_notes)
     sub.add_parser("skills", help="list skill contracts").set_defaults(fn=cmd_skills)
-    p = sub.add_parser("direct", help="Claude directives: list | clear | goal TOKEN N ... | goto X Y Z | skill NAME ARGS")
-    p.add_argument("action", choices=["list", "clear", "goal", "goto", "skill"])
+    p = sub.add_parser("task", help="task queue: add have|craft|milestone|goto|road|build|sleep|skill ... | list | "
+                                     "cancel [id] | clear | milestones")
+    p.add_argument("action", choices=["add", "list", "cancel", "clear", "milestones"])
     p.add_argument("args", nargs="*")
-    p.add_argument("--note", default="")
-    p.add_argument("--after", nargs="*", help="directive ids this one waits for")
-    p.add_argument("--mode", choices=["override", "boost", "background"], default="override")
-    p.add_argument("--x", type=float, default=None, help="boost multiplier")
-    p.set_defaults(fn=cmd_direct)
-    p = sub.add_parser("want", help="LLM door: offer TOKEN N --worth-s S | stop [id] | status [id] | list")
-    p.add_argument("action", choices=["offer", "stop", "status", "list"])
-    p.add_argument("args", nargs="*")
-    p.add_argument("--worth-s", dest="worth_s", type=float, default=None, help="seconds the wanted state is worth")
-    p.add_argument("--deadline-s", dest="deadline_s", type=float, default=None, help="only steepens the discount")
-    p.add_argument("--expires-s", dest="expires_s", type=float, default=600.0)
-    p.add_argument("--scope", default=None, help="narrows the candidate pool; never widens it")
-    p.add_argument("--note", default="")
-    p.add_argument("--id", default=None, help="re-offering an id re-prices that want")
-    p.add_argument("--hard", action="store_true", help="stop: take the body now (arbiter), not at the next round")
-    p.add_argument("--all", action="store_true", help="list: include expired, stopped and refused")
-    p.set_defaults(fn=cmd_want)
-    p = sub.add_parser("prio", help="priority weights: list | clear | set TARGET X | ban TARGET | pin TARGET")
-    p.add_argument("action", choices=["list", "clear", "set", "ban", "pin", "profile"])
-    p.add_argument("target", nargs="?")
-    p.add_argument("value", nargs="?")
-    p.add_argument("--ttl", type=int, default=1800)
-    p.add_argument("--why", default="")
-    p.set_defaults(fn=cmd_prio)
+    p.add_argument("--front", action="store_true", help="put it at the head of the queue")
+    p.add_argument("--expires-s", dest="expires_s", type=float, default=None)
+    p.add_argument("--all", action="store_true", help="list: include finished tasks")
+    p.set_defaults(fn=cmd_task)
     p = sub.add_parser("scenario", help="scenario bench (test world only): enable|disable|list|table|run NAME|all")
     p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all"])
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
     p.set_defaults(fn=cmd_scenario)
-    p = sub.add_parser("decide", help="decision tests offline: diff | golden | simulate")
-    p.add_argument("action", choices=["diff", "golden", "simulate"])
-    p.add_argument("--last", type=int, default=200)
-    p.add_argument("--rounds", type=int, default=200)
-    p.add_argument("--fail", nargs="*", help="candidate names that always fail in the simulation")
-    p.set_defaults(fn=cmd_decide)
-    p = sub.add_parser("route", help="follow a route: speedrun | off | show")
-    p.add_argument("name")
-    p.set_defaults(fn=cmd_route)
-    p = sub.add_parser("interrupt", help="end the running skill so a directive runs next")
+    p = sub.add_parser("interrupt", help="end the running skill so the queue's head runs next")
     p.add_argument("--why", default="Claude redirected")
     p.set_defaults(fn=cmd_interrupt)
     p = sub.add_parser("review", help="review packet for the last N minutes")

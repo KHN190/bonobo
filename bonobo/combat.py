@@ -220,7 +220,8 @@ def _strike(entity, seconds=8):
 
 @skill(start=lambda c: Inventory().count("minecraft:blaze_rod"),
        done=lambda c: Inventory().count("minecraft:blaze_rod") >= c.base + c.args[1],
-       budget=900, stall=180, per_unit=90, units=lambda c: c.args[1], key=lambda c: "fight_blaze")
+       budget=900, stall=180, per_unit=90, units=lambda c: c.args[1], key=lambda c: "fight_blaze",
+       provides={"hunt:minecraft:blaze_rod": lambda ctx, s: (s.count,)})
 def fight_blaze(ctx, rods):
     """Blazes near a fortress: shoot them when a bow and arrows are carried, otherwise wait behind cover (shield up)
     until one comes within reach and hit it; collect the rods."""

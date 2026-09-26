@@ -1,5 +1,5 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
-from .data import COLORS, FOOD, GROUPS, RECIPES, SMELTS, WOODS, mid
+from .data import COLORS, FOOD, GROUPS, RECIPES, SMELTS, WOODS, bare, mid
 
 # Group-level recipes: output type follows the input variant (spruce logs → spruce planks, white wool → white bed).
 # The craft skill resolves each group token to ONE owned member with enough items.
@@ -105,6 +105,56 @@ STATIONS = {"minecraft:crafting_table", "minecraft:furnace"}
 COOKABLE_FOOD = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraft:cooked_mutton",
                  "minecraft:cooked_chicken", "minecraft:cooked_rabbit"]
 ALL_FOOD = [mid(f) for f in FOOD]
+
+# One definition of "enough food for the Nether trip". Six, not twelve: a speedrun crosses on a handful of steaks,
+# while twelve cooked items means a dozen kills plus smelting.
+KIT_FOOD = 6
+# Beds carried into the End. Human runners take 8–10 and call five the bare minimum: each perch window is worth one
+# or two blasts, and a wasted bed must not end the fight.
+DRAGON_BEDS = 8
+
+
+def food_count(inv):
+    """The one definition of 'food carried': cooked/ready food only (raw meat must be cooked first)."""
+    return sum(inv.count(f) for f in ALL_FOOD)
+
+
+def nether_kit_missing(inv):
+    """Pure: what a Nether trip still lacks (empty = ready): cooked food, building blocks for bridges/shelter, a gold
+    helmet for piglins, bag room for the loot. No bow required (first trip: shield + melee)."""
+    missing = []
+    if food_count(inv) < KIT_FOOD:
+        missing.append(f"food {food_count(inv)}/{KIT_FOOD}")
+    if inv.count("building") < 32:
+        missing.append(f"blocks {inv.count('building')}/32")
+    if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
+        missing.append("gold helmet")
+    # Two free slots for the first loot: a stricter target flickered with every pickup.
+    if 36 - inv.used_slots() < 2:
+        missing.append(f"bag room {36 - inv.used_slots()}/2 free")
+    return missing
+
+
+def kit_needs(inv):
+    """Planner needs that close the kit's gaps."""
+    needs = []
+    if food_count(inv) < KIT_FOOD:
+        needs.append(("food", KIT_FOOD))     # the same constant the readiness check uses
+    if inv.count("building") < 32:
+        needs.append(("stone", 32))
+    if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
+        needs.append(("minecraft:golden_helmet", 1))
+    return needs
+
+
+# Where to look when nothing is known nearby: the height band a kind is richest in (None = the surface). The one
+# fixed table the brain consults before spiralling out (`explore`).
+FIND_AT = {
+    "minecraft:raw_iron": 16, "minecraft:coal": 48, "minecraft:raw_copper": 48, "minecraft:raw_gold": -16,
+    "minecraft:diamond": -58, "minecraft:redstone": -58, "minecraft:lapis_lazuli": 0,
+    "log": None, "minecraft:sand": None, "minecraft:clay_ball": None, "food": None,
+}
+
 
 # Step kinds that are safe underground / at night.
 UNDERGROUND_KINDS = {"craft", "smelt", "mine"}

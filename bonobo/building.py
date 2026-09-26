@@ -374,6 +374,15 @@ def _build_parts(ctx, bp, origin, turns):
         raise McError(f"{bp.name} incomplete: {wrong}")
 
 
+def _build_args(ctx, s):
+    """(blueprint, near) for a build step: where it asked, else home (never for a portal), else here."""
+    at = s.detail.get("at")
+    if at:
+        return s.token, tuple(at)
+    home = ctx.mem.home()
+    return s.token, tuple(home["pos"]) if home and s.token != "nether_portal" else feet()
+
+
 def _machine_built(ctx, name):
     """Is the machine this name was given standing in the world, part for part?"""
     m = next((m for m in ctx.mem.data.get("machines", ()) if m["name"] == name), None)
@@ -400,7 +409,7 @@ def _shelter_commands_for(state, args):
 
 
 @skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
-       commands=_blueprint_commands_for, budget=900, stall=120)
+       commands=_blueprint_commands_for, budget=900, stall=120, provides={"build": lambda ctx, s: _build_args(ctx, s)})
 def build_blueprint(ctx, name, near):
     """Build a machine from blueprints.REGISTRY near `near`: clear spot, bottom-up, oriented, verified, remembered."""
     bp = blueprints.REGISTRY[name]
@@ -433,7 +442,8 @@ def build_blueprint(ctx, name, near):
 
 
 @skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
-       commands=_shelter_commands_for, budget=360, stall=90, per_unit=60)
+       commands=_shelter_commands_for, budget=360, stall=90, per_unit=60,
+       provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: ()})
 def build_shelter(ctx):
     """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more
     safe place to sleep in the area being worked."""

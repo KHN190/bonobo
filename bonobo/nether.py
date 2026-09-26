@@ -146,7 +146,7 @@ def in_portal(state):
 def must_leave():
     """Stop exploring when food or health run low (survival then retreats through the portal)."""
     from .world import Inventory
-    from .route import food_count
+    from .knowledge import food_count
     s = api.get("/state")
     food = food_count(Inventory())
     return food < 6 or s.get("health", 20) <= 10

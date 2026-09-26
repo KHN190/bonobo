@@ -113,6 +113,12 @@ def seek_blocks(ctx, blocks, legs=6, leg=40):
     return find(blocks, radius=48, limit=5)
 
 
+@skill(provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", 2))}, budget=900, stall=120)
+def travel_to(ctx, pos, range_=2):
+    """Be at `pos` (within `range_`): walk, dig and bridge there leg by leg (`nav.arrive`)."""
+    return nav.arrive(tuple(pos), ctx.policy, range_=range_)
+
+
 def approach_policy(policy):
     """Movement for chasing mobs: walk, swim, bridge — no digging (animals move; tunnels toward them are waste)."""
     import dataclasses

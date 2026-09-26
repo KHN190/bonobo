@@ -9,6 +9,12 @@ A skill is a function (usually a generator) plus a contract:
   budget    max seconds for the whole skill
   stall     max seconds without progress; progress = the value the body yields changed, or, when it yields
             None, the inventory/position signature changed
+  provides  {effect: adapter}: what running this skill makes true, and how a plan step asks for it. An effect is
+            "<step kind>:<token>", "item:<token>" or "<step kind>" (most specific first, see `step_keys`); the adapter
+            is (ctx, step) -> the arguments after ctx, or None when this skill cannot serve that step here. Adding a
+            skill is one decorated function in any imported module: the brain finds it here (`provider`), never
+            through a switch of its own.
+  prefer    order among skills that provide the same effect (higher first)
   commands  optional, pure: (state, args) -> [task]. The whole command batch an OPEN-LOOP skill would send, built
             from a state dict and executed by nobody. The skill's own body runs that batch (`api.run_chain`) and
             then its verify, so a fight can take the same batch and post it itself — append to it, or /stop and
@@ -22,7 +28,7 @@ import inspect
 import os
 import time
 
-from . import api, paths, skillcore
+from . import api, paths, skillcore, tape
 from .api import McError, TaskStuck
 
 REGISTRY = {}
@@ -46,8 +52,10 @@ def world_signature():
 
 class Contract:
     def __init__(self, name, fn, pre, start, done, verify, budget, stall, per_unit, units, key, soft=False,
-                 commands=None):
+                 commands=None, provides=None, prefer=0):
         self.commands = commands
+        self.provides = dict(provides or {})
+        self.prefer = prefer
         # soft: perception's interrupt is left standing for the body to read (`api.INTERRUPT`) instead of ending the
         # skill. A fight answers danger by taking cover and trying again — four "dragon breath close" interrupts in a
         # row otherwise killed whole bench runs before anything was built.
@@ -119,8 +127,33 @@ def commands_of(fn, state, *args):
     return None if make is None else list(make(state, args))
 
 
+def step_keys(step):
+    """The effects a plan step asks for, most specific first."""
+    return [f"{step.kind}:{step.token}", f"item:{step.token}", step.kind]
+
+
+def providers(effect):
+    """Contracts that provide `effect`, preferred first."""
+    return sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer)
+
+
+def provider(ctx, step):
+    """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
+    for effect in step_keys(step):
+        for contract in providers(effect):
+            args = contract.provides[effect](ctx, step)
+            if args is not None:
+                return contract.runner, tuple(args)
+    return None
+
+
+def handles(step):
+    """Does any registered skill provide what this step asks for? (No world read: decompose asks it.)"""
+    return step.kind == "skill" and step.token in REGISTRY or any(providers(e) for e in step_keys(step))
+
+
 def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, budget=300, stall=45,
-          per_unit=None, units=None, key=None, soft=False, commands=None):
+          per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
 
     A check can only answer "no". A dimension can be priced: `solve.reach_cost` walks the requirement graph and
@@ -129,7 +162,7 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
     """
     def wrap(fn):
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
-                            key, soft, commands)
+                            key, soft, commands, provides, prefer)
         contract.needs = dict(needs or {})
         REGISTRY[contract.name] = contract
 
@@ -143,19 +176,25 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
             if contract.done and contract.done(c):
                 return None
             t0 = time.time()
-            prev_soft = api.SOFT
+            prev_soft, prev_skill = api.SOFT, tape.SKILL
             api.SOFT = contract.soft or prev_soft     # nested skills (eat inside a fight) inherit the protection
+            tape.SKILL = contract.name                # whose post-action readings the tape is recording
             try:
                 out = fn(*args, **kwargs)
                 if inspect.isgenerator(out):
                     out = _drive(contract, c, out)
             finally:
-                api.SOFT = prev_soft
+                api.SOFT, tape.SKILL = prev_soft, prev_skill
             c.result = out
             # The effect is judged once the world has caught up with it, not the instant the body returns: a drop
             # still in the air, a slot that fills on the next update. Stops at the first reading that holds.
-            if contract.verify and not skillcore.settle(lambda: contract.verify(c), bool, timeout=VERIFY_SETTLE_S,
-                                                        stable_s=0):
+            prev_skill, tape.SKILL = tape.SKILL, contract.name
+            try:
+                verified = not contract.verify or skillcore.settle(lambda: contract.verify(c), bool,
+                                                                   timeout=VERIFY_SETTLE_S, stable_s=0)
+            finally:
+                tape.SKILL = prev_skill
+            if not verified:
                 raise McError(f"{contract.name}: finished without reaching its goal")
             if STATS is not None:
                 try:

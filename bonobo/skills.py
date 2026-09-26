@@ -178,7 +178,7 @@ def _craft_output(c):
 
 
 @skill(start=_craft_output, verify=lambda c: Inventory().count(c.base[0]) > c.base[1], budget=90, stall=60,
-       per_unit=4, key=lambda c: "craft")
+       per_unit=4, key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])})
 def craft(ctx, token, times):
     """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
     pattern, out = GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
@@ -229,7 +229,8 @@ def _furnace_slots():
 
 
 @skill(start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=900, stall=30, per_unit=10.5, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt")
+       budget=900, stall=30, per_unit=10.5, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
+       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1)
 def smelt(ctx, output, input_token, count, fuel):
     """One furnace session: load input + fuel, watch the output slot fill (10 s/item), take everything out."""
     count = min(64, count)
@@ -261,7 +262,8 @@ ASYNC_SMELT_MIN = 1
 
 
 @skill(start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
-       budget=120, stall=40, per_unit=12)
+       budget=120, stall=40, per_unit=12,
+       provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
 def start_smelt_job(ctx, output, input_token, count, fuel):
     """Multitasking: load a furnace (found nearby or placed from the inventory) with input + fuel and walk away.
     The job is remembered with its expected finish time (10 s/item); its output counts as pending for the planner.
@@ -286,6 +288,31 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
     ctx.mem.add_job("furnace", station.pos, ctx.dimension, output, count, ready_at, carried)
     log(f"ordered {count}× {bare(output)} smelting in the background at {station.pos} (ready in ~{10 * count + 5}s)")
     return {"ordered": output, "count": count, "ready_at": ready_at}
+
+
+def _smelt_args(s):
+    return mid(s.token), s.detail["input"], s.count, s.detail["fuel"]
+
+
+def _night_policy(ctx):
+    import dataclasses
+    return dataclasses.replace(ctx.policy, allow_surface=False)
+
+
+def require_pickaxe_ok():
+    return any(d >= 3 for _, d, _ in Inventory().tools("pickaxe"))
+
+
+def _smelter_for(ctx, s):
+    """(machine, input, count, fuel, output) when an auto smelter within 64 blocks can take this batch, else None."""
+    if s.count < 8:
+        return None
+    here = feet()
+    near = [m for m in ctx.mem.machines(ctx.dimension, "smelting") if math.dist(m["origin"], here) <= 64]
+    if not near:
+        return None
+    machine = min(near, key=lambda m: math.dist(m["origin"], here))
+    return machine, s.detail["input"], s.count, s.detail["fuel"], mid(s.token)
 
 
 def job_ready(job):
@@ -434,7 +461,9 @@ def mine_segment_commands(state, args):
 
 @skill(pre=[lambda c: require_pickaxe(c.args[4])], start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
-       per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}")
+       per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
+       provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
+                                          s.detail.get("breaks"))})
 def mine(ctx, token, count, blocks, tier, breaks=None):
     """Tunnel to the nearest reachable vein of `blocks` and mine it until `count` more `token` are held."""
     drop = token
@@ -545,6 +574,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         open_faced = [p for p in in_reach if p in exposed_cells]
         in_reach = open_faced or in_reach
         vein = set(in_reach[:12])
+        # An open vein is half-done work: if this batch is interrupted, "where to find" comes back here first.
+        ctx.mem.note_progress(f"vein:{blocks[0]}", seed, ctx.dimension, done=0)
         before = Inventory().count(drop)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)
@@ -602,6 +633,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         elif tier:
             ctx.mem.log_vein(blocks[0], seed, len(vein), ctx.dimension)
+        ctx.mem.clear_progress(f"vein:{blocks[0]}", seed)
     raise McError(f"could not mine enough {bare(drop)}")
 
 
@@ -684,7 +716,8 @@ def _hunt_progress(token, types):
 
 
 @skill(start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
-       budget=480, stall=60, per_unit=30, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}")
+       budget=480, stall=60, per_unit=30, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
+       provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))})
 def hunt(ctx, token, count, types, night):
     """Kill animals of `types` (reach them with the navigator first) until `count` more `token` drops are held."""
     target = Inventory().count(token) + count
@@ -1046,7 +1079,8 @@ def can_sleep(state):
     return "a bed only works at night (or in a thunderstorm)"
 
 
-@skill(verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60)
+@skill(verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
+       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):
     """Sleep through the night: carried bed first (placed next to us, picked up after), then a nearby site bed."""
     why = can_sleep(api.get("/state"))
@@ -1101,6 +1135,7 @@ def dig_in_commands(state, args=()):
 
 
 @skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1], commands=dig_in_commands,
+       provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None}, prefer=1,
        budget=60, stall=30)
 def dig_in(ctx):
     """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead.
@@ -1120,7 +1155,7 @@ def dig_in(ctx):
 
 
 @skill(start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=45, per_unit=8)
+       budget=180, stall=45, per_unit=8, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])})
 def take(ctx, token, count, blocks):
     """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops.
 
@@ -1233,7 +1268,8 @@ def pod_commands(state, args=()):
     return tasks
 
 
-@skill(done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10)
+@skill(done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
+       provides={"state:sheltered": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at
     feet and head height plus a roof. Mobs can't reach us; in the morning the navigator digs out."""
@@ -1304,7 +1340,7 @@ def light_area(ctx, radius=10, limit=6):
 
 
 @skill(start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
-       budget=300, stall=60)
+       budget=300, stall=60, provides={"smelt": _smelter_for}, prefer=1)
 def load_smelter(ctx, machine, input_token, count, fuel, output):
     """Put up to a stack of input into an auto smelter's input chest and matching fuel into its fuel chest, and note
     the expected output as pending so the planner treats it as on its way."""
@@ -1329,6 +1365,7 @@ def load_smelter(ctx, machine, input_token, count, fuel, output):
     ready = 10 * count + 20
     ctx.mem.add_pending(machine["name"], output, count, time.time() + ready)
     log(f"loaded {count}× {bare(input_token)} into {machine['name']} (ready in ~{ready}s)")
+    return {"ordered": output, "count": count}      # an order: done when the output is held
 
 
 def pending_ready(machine):

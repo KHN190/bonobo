@@ -105,22 +105,28 @@ def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S):
     the action, called all of those failures. The caller still judges the value — `ok` only says when to stop
     looking. A pending interrupt ends the wait (`api.check_interrupt`) unless `soft`.
     """
+    from . import tape
     began = time.time()
     value = read()
+    seq = [(0.0, value)]
     held_since = began if ok(value) else None
-    while True:
-        now = time.time()
-        if held_since is not None and now - held_since >= stable_s:
-            return value
-        if now - began >= timeout:
-            return value
-        api.check_interrupt(began, soft)
-        time.sleep(poll)
-        value = read()
-        if ok(value):
-            held_since = held_since if held_since is not None else time.time()
-        else:
-            held_since = None
+    try:
+        while True:
+            now = time.time()
+            if held_since is not None and now - held_since >= stable_s:
+                return value
+            if now - began >= timeout:
+                return value
+            api.check_interrupt(began, soft)
+            time.sleep(poll)
+            value = read()
+            seq.append((time.time() - began, value))
+            if ok(value):
+                held_since = held_since if held_since is not None else time.time()
+            else:
+                held_since = None
+    finally:
+        tape.reading(seq, held_since is not None)     # the numbers the verdict came from, for replaying it
 
 
 def gained(read, before, timeout=3.0, stable_s=0.5):

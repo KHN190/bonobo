@@ -31,48 +31,7 @@ def choose(name, path=None):
 NETHER = "minecraft:the_nether"
 OVERWORLD = "minecraft:overworld"
 
-
-# One definition of "enough food for the Nether trip". Six, not twelve: a speedrun crosses on a handful of steaks,
-# while twelve cooked items means a dozen kills plus smelting — in a landing spot with no animals within 48 blocks
-# that stalled the whole route (a slice sat at food 0/12 for 8 minutes with everything else in the kit ready).
-KIT_FOOD = 6
-# Beds carried into the End. Human runners take 8–10 and call five the bare minimum: each perch window is worth one
-# or two blasts, and a wasted bed (bad angle, destroyed by its neighbour's blast) must not end the fight.
-DRAGON_BEDS = 8
-
-
-def food_count(inv):
-    """The one definition of 'food carried' for the route: cooked/ready food only (raw meat must be cooked first)."""
-    return sum(inv.count(f) for f in ALL_FOOD)
-
-
-def nether_kit_missing(inv):
-    """Pure: what a Nether trip still lacks (empty = ready): cooked food, building blocks for bridges/shelter, a gold
-    helmet for piglins, bag room for the loot. No bow required (first trip: shield + melee)."""
-    missing = []
-    if food_count(inv) < KIT_FOOD:
-        missing.append(f"food {food_count(inv)}/{KIT_FOOD}")
-    if inv.count("building") < 32:
-        missing.append(f"blocks {inv.count('building')}/32")
-    if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
-        missing.append("gold helmet")
-    # Two free slots for the first loot. A stricter target (8, then 5) flickered with every pickup and held the trip
-    # back while tidy and the kit check disagreed; the bag keeps its own target (FREE_SLOTS_TARGET) anyway.
-    if 36 - inv.used_slots() < 2:
-        missing.append(f"bag room {36 - inv.used_slots()}/2 free")
-    return missing
-
-
-def kit_needs(inv):
-    """Planner needs that close the kit's gaps (not subject to stock-goal bans)."""
-    needs = []
-    if food_count(inv) < KIT_FOOD:
-        needs.append(("food", KIT_FOOD))     # the same constant the readiness check uses
-    if inv.count("building") < 32:
-        needs.append(("stone", 32))
-    if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
-        needs.append(("minecraft:golden_helmet", 1))
-    return needs
+from .knowledge import DRAGON_BEDS, KIT_FOOD, food_count, kit_needs, nether_kit_missing  # noqa: E402,F401  (moved)
 
 
 # Goals any segment may run: losing a tool, a death, a missing station must never be blocked by the route.
