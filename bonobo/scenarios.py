@@ -1327,6 +1327,21 @@ def _brain_rounds(seconds, until):
     return run
 
 
+def _enclosed():
+    """Walled in, feet and head, and covered: what a burrow, a pod or a dug-in hole must leave."""
+    from . import skills
+    return skills.enclosed()
+
+
+def _breathing(least=280):
+    """Out of the water's grip: the air bar back near full and the head out of the water."""
+    def check(api, inv):
+        from . import skills
+        s = api.get("/state")
+        return s["air"] >= least and not skills.head_underwater(s)
+    return check
+
+
 def _head_clear():
     from . import skills
     return not skills.head_buried()
@@ -1636,7 +1651,7 @@ _ONE = {
     "burrow_hillside": (["burrow"], "night, a stone hillside beside the body → tunnelled in and sealed",
                         _floor() + [f"fill {_c(at(2, 0, -4))} {_c(at(8, 4, 4))} stone", _tp(),
                                     "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
-                        lambda ctx: _skill("burrow")(ctx), _alive(18), 60),
+                        lambda ctx: _skill("burrow")(ctx), _all(_alive(18), lambda api, inv: _enclosed()), 60),
     "contain_lava_pool": (["contain_lava"], "an open lava pool beside the body → covered", _floor() +
                           [f"fill {_c(at(2, -1, -1))} {_c(at(3, -1, 1))} lava", _tp(), "give @p cobblestone 16"],
                           lambda ctx: _skill("contain_lava")(ctx), _blocks(at(2, -1, -1), at(3, -1, 1), "lava", 0, 0), 30),
@@ -1652,10 +1667,10 @@ _ONE = {
     "find_air_capped": (["find_air"], "under water with a stone cap, out of breath → air",
                         [f"fill {_c(at(-4, -4, -4))} {_c(at(4, 3, 4))} stone", f"fill {_c(at(-3, -3, -3))} {_c(at(3, 2, 3))} water",
                          _tp(0, -3, 0), "give @p stone_pickaxe"],
-                        lambda ctx: _skill("find_air")(ctx), _alive(10), 45),
+                        lambda ctx: _skill("find_air")(ctx), _all(_alive(10), _breathing()), 45),
     "surface_from_lake": (["reach:air"], "4 blocks down in open water → up to breathe",
                           _tank(-5, 5, -5, 5, 8, water_top=7) + [_tp(0, -3, 0)], lambda ctx: _skill("find_air")(ctx),
-                          lambda api, inv: api.get("/state")["air"] >= 200, 30),
+                          _breathing(), 30),
     "reach_land_swim": (["reach:land"], "night, treading water 10 blocks from shore → on dry land",
                         _tank(-8, 9, -8, 8, 1, water_top=-1) + [f"fill {_c(at(10, -3, -8))} {_c(at(14, -1, 8))} stone",
                                                                _tp(), "time set 18000"],
@@ -1815,7 +1830,7 @@ SHEET["drowning_in_a_pit"] = {
     "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
     "run": _brain_rounds(25, lambda: __import__("bonobo.api", fromlist=["get"]).get("/state")["air"] >= 250),
-    "check": _alive(8), "budget": 30,
+    "check": _all(_alive(8), _breathing()), "budget": 30,
 }
 SHEET["interrupted_rescue_is_not_a_failure"] = {
     "doc": "Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "

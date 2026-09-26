@@ -250,9 +250,13 @@ class Changed(unittest.TestCase):
     def test_real_registry_spans(self):
         spans = sc.skill_spans(skillkit.REGISTRY, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.assertEqual(set(spans), set(skillkit.REGISTRY))
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for name, (path, lo, hi) in spans.items():
             with self.subTest(name):
                 self.assertTrue(path.startswith("bonobo/") and lo <= hi)
+                with open(os.path.join(root, path)) as f:
+                    body = "".join(f.readlines()[lo - 1:hi])
+                self.assertIn(f"def {skillkit.REGISTRY[name].fn.__name__}(", body, "the span is the skill's own body")
 
     def test_run_verdicts(self):
         """Once; a failure re-runs; three at most; ≥ 2 of 3 passes."""

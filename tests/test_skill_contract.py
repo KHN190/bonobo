@@ -303,6 +303,16 @@ SPOTS = [
     ("no floor needed: over nothing is fine", FakeRegion((-5, 55, -5), (5, 70, 5), {}), state(),
      {"block_under": False}, lambda t, sp: t.assertEqual(len(sp), 5)),
     ("sealed in a shaft: nowhere", shaft()[0], shaft()[1], {}, lambda t, sp: t.assertEqual(sp, [])),
+    ("never the head's cell either", world(), state(), {"reach": 1, "limit": 30},
+     lambda t, sp: t.assertFalse({(0, 64, 0), (0, 65, 0)} & set(sp))),
+    ("avoiding all but one: that one", world(), state(), {"reach": 1, "avoid": {(x, 64, z) for x in (-1, 0, 1)
+                                                                               for z in (-1, 0, 1)} - {(1, 64, 1)}},
+     lambda t, sp: t.assertEqual(sp[0], (1, 64, 1))),
+    ("lava beside the body: that cell's floor is no footing", world(((1, 63, 0), "lava")), state(),
+     {"reach": 1, "limit": 30}, lambda t, sp: t.assertNotIn((1, 64, 0), sp)),
+    ("far from the origin, negative coordinates", world(), state(x=-7.5, y=64.0, z=-11.5), {},
+     lambda t, sp: (t.assertEqual(len(sp), 5),
+                    t.assertTrue(all(max(abs(p[0] + 8), abs(p[2] + 12)) == 2 for p in sp)))),
 ]
 
 
@@ -469,6 +479,10 @@ COMMANDS = {
         ("a cave right under the first cell", body(world(((0, 62, 0), "air"))), NotAvailable),
         ("the floor is our own", body(world(), protected={(0, 63, 0)}), NotAvailable),
         ("bedrock underfoot", body(world(((0, 63, 0), "bedrock"))), NotAvailable),
+        ("a start at negative coordinates", body(world(), feet=(-7, 64, -11), inv=inventory(cobblestone=4)),
+         lambda t, b: (t.assertEqual(types(b), ["mine", "wait"] * 3 + ["place"]),
+                       t.assertEqual(cells(b, "mine"), [(-7, 63, -11), (-7, 62, -11), (-7, 61, -11)]),
+                       t.assertEqual(cells(b), [(-7, 63, -11)]))),
     ],
     "pod": [
         ("open ground: eight walls, a cap, the roof", body(world(), inv=inventory(cobblestone=16)),
@@ -482,6 +496,9 @@ COMMANDS = {
         ("on a pillar in deep water: supports rise from below first", body(river(), inv=inventory(cobblestone=64)),
          lambda t, b: (t.assertEqual(set(types(b)), {"place"}), t.assertGreater(len(b), 10),
                        t.assertTrue(any(y < 64 for _, y, _ in cells(b))))),
+        ("a start at negative coordinates", body(world(), feet=(-7, 64, -11), inv=inventory(cobblestone=16)),
+         lambda t, b: (t.assertEqual(len(b), 10), t.assertEqual(cells(b)[-1], (-7, 66, -11)),
+                       t.assertIn((-8, 64, -11), cells(b)))),
         ("planks count as walls", body(world(), inv=inventory(oak_planks=12)),
          lambda t, b: t.assertEqual({x["item"] for x in b}, {"minecraft:oak_planks"})),
     ],
