@@ -144,6 +144,29 @@ def missing_detail(step):
     return missing
 
 
+# Things that are only found in one place: (step kind, token) → [(step kind, token, detail)] to put before it —
+# the dimension it lives in, then the structure — unless the snapshot / memory says we are already there.
+LIVES_IN = {("hunt", "minecraft:blaze_rod"): [("portal", "minecraft:the_nether", {}), ("seek", "fortress", {})]}
+
+
+def where_it_lives(steps, cost):
+    """Put the way to where a thing lives before the step that gets it: blaze rods come from a Nether fortress,
+    so "have blaze_rod" is the portal, the fortress, then collecting (fighting is fight_loop's)."""
+    snap, mem = getattr(cost, "snap", None), getattr(cost, "mem", None)
+    out = []
+    for step in steps:
+        for kind, token, detail in LIVES_IN.get((step.kind, step.token), ()):
+            if kind == "portal" and snap is not None and getattr(snap, "dimension", None) == token:
+                continue
+            if kind == "seek" and mem is not None and mem.sites("minecraft:the_nether", kinds=[token]):
+                continue
+            if any((s.kind, s.token) == (kind, token) for s in out):
+                continue
+            out.append(_action(kind, token, cost, **detail))
+        out.append(step)
+    return out
+
+
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)
     step.est = cost.estimate(step)
@@ -166,7 +189,7 @@ def _decompose(inv, goal, cost, solver, pending):
     if template in goals.ITEM_GOALS:
         needs = goals.needs(goal, inv)
         taken, pending = from_containers(inv, needs, cost, solver, pending)
-        return taken + solve_needs(inv, needs, cost, solver, pending)
+        return where_it_lives(taken + solve_needs(inv, needs, cost, solver, pending), cost)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":

@@ -204,16 +204,6 @@ def shoot(entity, hold_ticks=22, near=None):
         raise McError(f"shooting failed: {r['message']}")
 
 
-def guard(ticks=30):
-    """Raise the shield for a moment: hold 'use' with the weapon in hand (swords have no use action in 1.21, so the
-    offhand shield blocks)."""
-    batch = guard_batch(Inventory(), api.get("/state")["yaw"], ticks)
-    if not batch:
-        return False
-    api.run(batch[0], wait=5)
-    return True
-
-
 def _strike(entity, seconds=8):
     """A short melee burst: the attack task is stopped after `seconds` (a blaze rising out of reach isn't a failure,
     the fight loop looks again)."""
@@ -223,59 +213,42 @@ def _strike(entity, seconds=8):
         pass
 
 
+BLAZE_QUIET_S = 30      # no blaze and no rod in sight for this long: this is not a spawner
+
+
+def _rods_on_floor():
+    return [e for e in entities(16, ["minecraft:item"]) if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]
+
+
 @skill(start=lambda c: Inventory().count("minecraft:blaze_rod"),
        done=lambda c: Inventory().count("minecraft:blaze_rod") >= c.base + c.args[1],
-       budget=900, stall=180, per_unit=90, units=lambda c: c.args[1], key=lambda c: "fight_blaze",
+       budget=900, stall=180, per_unit=90, units=lambda c: c.args[1], key=lambda c: "collect_blaze_rods",
        provides={"hunt:minecraft:blaze_rod": lambda ctx, s: (s.count,)})
-def fight_blaze(ctx, rods):
-    """Blazes near a fortress: shoot them when a bow and arrows are carried, otherwise wait behind cover (shield up)
-    until one comes within reach and hit it; collect the rods."""
-    waited = 0
-    none_since = None
-    for _ in range(rods * 12):     # most rounds are short shield-up waits for a blaze to come down
-        blazes = [e for e in entities(24) if e["type"] == "minecraft:blaze" and not ctx.blocked((e["id"], 0, 0))]
-        if not blazes:
-            # A moment without one in the list isn't "none here" (sync, one behind a pillar): 3 s before giving up.
-            none_since = none_since or time.time()
-            if time.time() - none_since >= 3:
-                raise NotAvailable("no blazes nearby")
-            api.run({"type": "wait", "ticks": 10}, wait=5)
-            yield Inventory().count("minecraft:blaze_rod")
-            continue
-        none_since = None
-        s = api.get("/state")
-        here = (s["blockX"], s["blockY"], s["blockZ"])
-        b = min(blazes, key=lambda e: e["distance"])
-        if Inventory().count("minecraft:bow") and Inventory().count("minecraft:arrow") and b["distance"] > 5:
-            shoot(b)
-        elif b["distance"] <= 4 and b["y"] - here[1] <= 3:
-            waited = 0
-            _strike(b)
-        elif (b["distance"] <= 12 and b["y"] - here[1] <= 3) or waited >= 3:
-            # No bow (the speedrun kit): close in and strike — a sword reaches 3 up with a jump. A 1.5-block height
-            # limit left 10 of 12 rounds shield-up while blazes hovered 2–4 up in a 5-high hall (bench 05:49); after
-            # 3 waits, go for the nearest one anyway. Chasing one far up in the open ate fireballs (bench 04:19).
-            waited = 0
-            nav.arrived((round(b["x"]), here[1], round(b["z"])), ctx.policy, range_=2.5, attempts=1)
-            _strike(b)
+def collect_blaze_rods(ctx, rods):
+    """The rod-collecting step of "have blaze_rod" (L2 puts the fortress first: decompose). Fighting is not here:
+    blazes are hostiles, and perception bids them to fight_loop, which takes the body at TACTIC. This step stays by
+    the spawner and picks up what falls — walking to a rod the pickup cannot reach."""
+    quiet_since = None
+    for _ in range(rods * 40):
+        blazes = [e for e in entities(24, ["minecraft:blaze"]) if not ctx.blocked((e["id"], 0, 0))]
+        floor = _rods_on_floor()
+        if not blazes and not floor:
+            quiet_since = quiet_since or time.time()
+            if time.time() - quiet_since >= BLAZE_QUIET_S:
+                raise NotAvailable("no blazes here: not a spawner")
         else:
-            waited += 1
-            guard(30)   # shield up until it drops to our height (blazes descend to shoot)
-        try:
-            api.run({"type": "collect", "radius": 6, "only": ["minecraft:blaze_rod"]}, wait=20)
-            unreachable = False
-        except api.Unreachable:
-            unreachable = True
-        if unreachable:
-            # A rod fell where the pickup walk can't go (bench 06:20): walk to it with the navigator, then collect.
-            rods_on_floor = [e for e in entities(16, ["minecraft:item"])
-                             if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]
-            if rods_on_floor:
-                e = rods_on_floor[0]
+            quiet_since = None
+        if floor:
+            try:
+                api.run({"type": "collect", "radius": 6, "only": ["minecraft:blaze_rod"]}, wait=20)
+            except api.Unreachable:
+                e = floor[0]
                 nav.arrived((round(e["x"]), round(e["y"]), round(e["z"])), ctx.policy, range_=1.0, attempts=1)
                 api.run({"type": "collect", "radius": 3, "only": ["minecraft:blaze_rod"]}, wait=10)
-        yield Inventory().count("minecraft:blaze_rod")
-    raise McError("blaze fight made no progress")
+        else:
+            api.run({"type": "wait", "ticks": 20}, wait=5)
+        yield Inventory().count("minecraft:blaze_rod"), len(blazes)
+    raise McError("no rods collected")
 
 
 @skill(budget=1800, stall=300, per_unit=900)
