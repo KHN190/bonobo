@@ -80,18 +80,32 @@ class Hazards(unittest.TestCase):
     def test_due_only_names_what_has_a_rescue(self):
         for name, changes, buried, fallen, _kind, due in HAZARDS:
             with self.subTest(name):
-                self.assertTrue(due is None or due in hazard.RESCUE)
+                self.assertIn(due, set(hazard.RESCUE) | {None})
 
-    def test_less_air_is_never_less_danger(self):
-        ladder = [hazard.drowning_in(state(inWater=True, air=a)) for a in range(300, -1, -20)]
-        self.assertEqual(ladder, sorted(ladder, reverse=True))
-        self.assertEqual(hazard.drowning_in(state(air=0)), float("inf"), "dry land has no clock")
+    # (situation, /state changes) → seconds of slack before the water must be left (air/20 − surfacing − reaction)
+    CLOCK = [("dry land has no clock", {"air": 0}, float("inf")),
+             ("full lungs under water", {"inWater": True, "air": 300}, 300 / 20 - W["surface_s"] - W["reaction_s"]),
+             ("half a breath", {"inWater": True, "air": 150}, 150 / 20 - W["surface_s"] - W["reaction_s"]),
+             ("at the clock's zero", {"inWater": True, "air": DROWN_AIR}, 0.0),
+             ("no air at all: overdue", {"inWater": True, "air": 0}, -(W["surface_s"] + W["reaction_s"]))]
+
+    def test_the_drowning_clock(self):
+        for name, changes, want in self.CLOCK:
+            with self.subTest(name):
+                self.assertAlmostEqual(hazard.drowning_in(state(**changes)), round(want, 2), places=2)
 
 
 class HostilesAreNotL0(unittest.TestCase):
-    def test_the_two_families_do_not_overlap(self):
-        self.assertFalse(set(hazard.KINDS) & set(perception.HOSTILE))
-        self.assertEqual(set(perception.DANGERS), set(hazard.KINDS) | set(perception.HOSTILE))
+    # every danger kind perception can name, and the family that answers it
+    FAMILY = {"lava": "L0", "burning": "L0", "drowning": "L0", "suffocating": "L0", "falling": "L0",
+              "critical_health": "fight", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
+
+    def test_each_danger_has_exactly_one_family(self):
+        self.assertEqual(set(perception.DANGERS), set(self.FAMILY), "a danger kind without a family row")
+        for kind, family in self.FAMILY.items():
+            with self.subTest(kind):
+                self.assertEqual(("L0" if kind in hazard.KINDS else "") + ("fight" if kind in perception.HOSTILE
+                                                                             else ""), family)
 
     def test_hostile_situations_reach_the_fight_not_the_rescue(self):
         for name, changes, callbacks, want in HOSTILE:
@@ -230,7 +244,7 @@ ANSWERS = [
     ("wall_in", None, [("chain", 10)]),                       # pod's own command batch, posted as one chain
     ("ignore", None, []),
 ]
-LEGS = {"partway": W(4.0), "nowhere": False}
+LEGS = {"partway": W(4.0), "nowhere": False}       # fixture: what go_to answers for the evade targets
 
 
 class FightHandOff(unittest.TestCase):
