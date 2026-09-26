@@ -120,7 +120,28 @@ def _unbury(ctx, s):
     skills.unbury(ctx)
 
 
-RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury}
+def _extinguish(ctx, s):
+    """On fire and hurting: put water on it — pour the bucket at the feet and take it back — else step into water
+    within 8 blocks. Without either the fire burns out on its own; the rescue says so instead of standing still."""
+    from .world import Inventory, find
+    api.post("/stop")
+    x, y, z = s["blockX"], s["blockY"], s["blockZ"]
+    if Inventory().count("minecraft:water_bucket"):
+        api.run({"type": "use_item", "item": "minecraft:water_bucket", "x": x + 0.5, "y": y, "z": z + 0.5}, wait=5)
+        api.run({"type": "use_item", "item": "minecraft:bucket", "x": x + 0.5, "y": y, "z": z + 0.5}, wait=5)
+        return
+    water = find(["water"], radius=8, limit=1)
+    if not water:
+        raise api.NotAvailable("on fire with no water to put it out")
+    w = water[0]
+    api.run({"type": "goto", "x": w["x"], "y": w["y"], "z": w["z"], "range": 0.5, "partial": True}, wait=10)
+
+
+RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury, "burning": _extinguish}
+# Hazards answered by stopping the work and nothing more: a fall is over before a round could act, and the landing
+# belongs to the jar's WaterClutch (and to perception's clutch, `perception.clutch_needed`).
+STOP_ONLY = ("falling",)
+assert set(RESCUE) | set(STOP_ONLY) == set(KINDS), "every hazard kind is rescued or declared stop-only"
 
 
 def due(state, buried=None):
