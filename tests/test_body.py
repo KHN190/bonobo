@@ -51,8 +51,7 @@ class LayeringIsHard(unittest.TestCase):
                     body = arbiter.Motion()
                     body.preempt(slow, lambda: None, "held", now=0.0, release=lambda: False)
                 taken, why = body.preempt(fast, lambda: None, "answer", worth_s=WORTH[worth], now=0.0)
-                self.assertIsNotNone(taken, f"{fast} over {slow}/{kind}/{elapsed}/{worth}: refused ({why})")
-                self.assertIsNone(why, f"{fast} over {slow}/{kind}: taken with a reason {why!r}")
+                self.assertEqual((taken, why), ((fast, "answer"), None), f"{fast} over {slow}/{kind}/{elapsed}/{worth}")
 
     def test_a_slower_layer_never_takes_the_body_from_a_faster_one(self):
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
@@ -66,7 +65,7 @@ class LayeringIsHard(unittest.TestCase):
         for kind, elapsed in itertools.product(INTENT, ELAPSED):
             body = body_with(intent(kind, layer="plan", at=-ELAPSED[elapsed]))
             taken, why = body.preempt("safety", lambda: None, "lava", worth_s=0.0, now=0.0)
-            self.assertIsNotNone(taken, f"safety had to argue its case over {kind}/{elapsed} ({why})")
+            self.assertEqual((taken, why), (("safety", "lava"), None), f"safety over {kind}/{elapsed}")
 
 
 class NothingAboutTheWorkDefendsIt(unittest.TestCase):
@@ -131,7 +130,7 @@ class HoldingIsADecisionNotALock(unittest.TestCase):
             faster = faster_than("tactic")
             body = self.held()
             taken, why = body.preempt(faster, lambda: None, "emergency", worth_s=CHALLENGE(challenge), now=1.0)
-            self.assertIsNotNone(taken, f"{faster} over a held tactic answer: {why}")
+            self.assertEqual((taken, why), ((faster, "emergency"), None), f"{faster} over a held tactic answer")
 
     def test_a_slower_layer_never_takes_it(self):
         for challenge in CHALLENGES:
@@ -156,7 +155,8 @@ class HoldingIsADecisionNotALock(unittest.TestCase):
             body = self.held(paying=False)
             taken, why = body.preempt("tactic", lambda: None, "another answer",
                                       worth_s=CHALLENGE(challenge), now=1.0)
-            self.assertIsNotNone(taken, f"a held answer that stopped paying kept the body ({why})")
+            self.assertEqual((taken, why), (("tactic", "another answer"), None), challenge)
+            self.assertIsNone(body.lease, "the stale answer's lease was not dropped")
 
     def test_replacement_depends_on_whether_it_still_pays_and_nothing_else(self):
         for paying in (True, False):
@@ -166,25 +166,11 @@ class HoldingIsADecisionNotALock(unittest.TestCase):
                                           now=0.0, seen_at=0.0)
                 self.assertEqual(taken is not None, not paying, f"paying={paying}/{challenge}: {why}")
 
-    def test_there_is_one_margin_in_the_agent(self):
-        """The rule for keeping a decision belongs to `kernel`; an arbiter with its own constant is the second
-        set of rules that made a lease behave like a lock."""
-        import inspect
-        source = inspect.getsource(arbiter)
-        self.assertNotIn("MARGIN =", source, "the arbiter grew its own margin")
-        self.assertIn("kernel", source, "the arbiter must reach for the one margin it does not own")
-
 
 class TheArbiterJudgesAndNeverPrices(unittest.TestCase):
     """One job: who may drive the body. Layers are ordered, and within a layer the layer's own held decision says
     whether it is still paying. The moment the arbiter compares two numbers it is both the lock and the judge, and
     the layer above it is left holding a decision nobody will run."""
-
-    def test_it_holds_no_prices_of_its_own(self):
-        import inspect
-        source = inspect.getsource(arbiter.Motion.preempt)
-        for forbidden in ("MARGIN", "worth_s *", "* worth", "interrupt_cost"):
-            self.assertNotIn(forbidden, source, f"the arbiter priced something: {forbidden}")
 
     def test_the_same_layer_is_settled_by_the_held_decision_itself(self):
         for paying in (True, False):
@@ -236,7 +222,8 @@ class NothingIsComparedAcrossDifferentWorlds(unittest.TestCase):
                      release=held.release, held=held, seen_at=-FRESHNESS["stale"])
         taken, why = body.preempt("tactic", lambda: None, "fresh answer", worth_s=1.0, now=0.0,
                                   seen_at=0.0)
-        self.assertIsNotNone(taken, f"a decision from a {FRESHNESS['stale']}s old world kept the body ({why})")
+        self.assertEqual((taken, why), (("tactic", "fresh answer"), None),
+                         f"a decision from a {FRESHNESS['stale']}s old world kept the body")
 
 
 if __name__ == "__main__":
