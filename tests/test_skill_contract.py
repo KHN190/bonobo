@@ -408,12 +408,12 @@ def _stronghold_at(pos, throws):
     return type("Ctx", (), {"mem": m})()
 
 
-FIRE = {"id": "minecraft:potion", "count": 1, "potion": "minecraft:fire_resistance"}
-WATER = {"id": "minecraft:potion", "count": 3, "potion": "minecraft:water"}
+FIRE = {"id": "minecraft:potion", "count": 1, "potion": "minecraft:fire_resistance"}          # fixture: a fire-resistance potion stack
+WATER = {"id": "minecraft:potion", "count": 3, "potion": "minecraft:water"}          # fixture: water bottles
 PICK = {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 0, "maxDamage": 250}
 CALF = {"id": 5, "type": "minecraft:cow", "x": 3, "y": 64, "z": 0, "distance": 3.0, "baby": True}
 COW = {"id": 6, "type": "minecraft:cow", "x": 4, "y": 64, "z": 0, "distance": 4.0}
-MEET = [[[0, 0], [1, 1]], [[100, 0], [-1, 1]]]          # two throws meeting at (50, 50)
+MEET = [[[0, 0], [1, 1]], [[100, 0], [-1, 1]]]          # fixture: two throws meeting at (50, 50)
 PRODUCTS += [
     ("brew: only water bottles", "brew_fire_resistance", (None,), R(inv=inventory(WATER)), R(inv=inventory(WATER)),
      None, None, False),

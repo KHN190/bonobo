@@ -44,7 +44,7 @@ class OneCurrency(unittest.TestCase):
             self.assertEqual(seen, sorted(seen), f"{cell}: {seen}")
 
 
-HERE = (0, 64, 0)
+HERE = (0, 64, 0)          # fixture: where we stand
 
 
 def mob(kind, x):

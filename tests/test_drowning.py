@@ -23,7 +23,7 @@ DRY = {"health": 20, "food": 20, "control": {}, "inWater": False, "air": 300, "o
        "dimension": "minecraft:overworld", "blockX": 0, "blockY": 64, "blockZ": 0, "timeOfDay": 2000}
 # The water beliefs the table below is computed from (play.toml [water]): 4.0 s to surface, 1.5 s to notice, a floor
 # at 120 ticks. Slack = air / 20 − 5.5; inside a task: slack ≤ 0 or air < 120; between tasks: slack ≤ 2.0.
-WATER = {"surface_s": 4.0, "reaction_s": 1.5, "air_floor": 120}
+WATER = {"surface_s": 4.0, "reaction_s": 1.5, "air_floor": 120}          # fixture: the water beliefs the clock uses
 
 
 def wet(air, on_ground=False):

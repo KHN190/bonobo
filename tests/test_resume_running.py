@@ -22,13 +22,13 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api  # noqa: E402
 
-WALK = [{"type": "goto", "x": 10, "y": 64, "z": -3}]
-WALK_ON = [{"type": "goto", "x": 11, "y": 64, "z": -3}]
-DIG = [{"type": "mine", "x": 10, "y": 63, "z": -3}]
+WALK = [{"type": "goto", "x": 10, "y": 64, "z": -3}]          # fixture: a one-task walk
+WALK_ON = [{"type": "goto", "x": 11, "y": 64, "z": -3}]          # fixture: the same walk, a block further
+DIG = [{"type": "mine", "x": 10, "y": 63, "z": -3}]          # fixture: a one-task dig
 DIG_THEN_WALK = DIG + WALK
 WALK_THEN_DIG = WALK + DIG
-RUNNING = {"id": 273, "type": "goto", "status": "running"}
-POSTED_WALK = (api.chain_signature(WALK), 273)
+RUNNING = {"id": 273, "type": "goto", "status": "running"}          # fixture: the task the mod reports running
+POSTED_WALK = (api.chain_signature(WALK), 273)          # fixture: what we posted last
 
 # (what we would post now, what the mod is running, what we posted last) → the id to attach to, or None to post
 RESUME = [

@@ -233,7 +233,7 @@ diff --git a/bonobo/skills.py b/bonobo/skills.py
 --- a/bonobo/skills.py
 +++ /dev/null
 """
-SPANS = {"chop": ("bonobo/wood.py", 20, 60), "mine": ("bonobo/skills.py", 400, 500), "far": ("bonobo/wood.py", 300, 320)}
+SPANS = {"chop": ("bonobo/wood.py", 20, 60), "mine": ("bonobo/skills.py", 400, 500), "far": ("bonobo/wood.py", 300, 320)}          # fixture: three skill spans the diff rows touch
 
 
 class Changed(unittest.TestCase):
