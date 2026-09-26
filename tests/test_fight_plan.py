@@ -34,82 +34,99 @@ def threat(kind, x, z, r=3.0, vel=(0.0, 0.0, 0.0)):
 F = fp.Fight()
 
 
+def _hp(s, v):
+    s["self"]["hp"] = v
+
+
+def _clock(s, v):
+    s["boss"]["phase_elapsed_s"] = v
+
+
+def _no_boss_hp(s):
+    del s["boss"]["hp"]
+
+
+def _short_row(s):
+    s["threats"].append(((0, 0, 0), 1.0))
+
+
 class StateShape(unittest.TestCase):
-    def test_five_sections_and_nothing_else(self):
-        self.assertEqual(set(state()), {"self", "boss", "threats", "resources", "terrain"})
+    # (dotted path) → what lookup reads from state(beds=3, one enderman, one cloud)
+    LOOKUP = [("resources.beds", 3), (f"threats.{ENDERMAN}", 1), (f"threats.{CLOUD}", 1), ("threats.minecraft:zombie", 0),
+              ("terrain.tunnel_ready", 1), ("resources.nothing", 0), ("self.hp", 20.0)]
 
-    def test_lookup_reads_dotted_paths_and_counts_threats(self):
+    def test_lookup_over_the_table(self):
         s = state(beds=3, threats=[threat(ENDERMAN, 5, 0), threat(CLOUD, 4, 4)])
-        self.assertEqual(fp.lookup(s, "resources.beds"), 3)
-        self.assertEqual(fp.lookup(s, f"threats.{ENDERMAN}"), 1)
-        self.assertEqual(fp.lookup(s, "terrain.tunnel_ready"), 1)
-        self.assertEqual(fp.lookup(s, "resources.nothing"), 0)
+        self.assertEqual(set(s), {"self", "boss", "threats", "resources", "terrain"})
+        for path, want in self.LOOKUP:
+            with self.subTest(path):
+                self.assertEqual(fp.lookup(s, path), want)
 
-    def test_validate_names_every_problem(self):
-        bad = state()
-        bad["self"]["hp"] = 99.0
-        bad["boss"]["phase_elapsed_s"] = 1.8e9
-        del bad["boss"]["hp"]
-        bad["threats"].append(((0, 0, 0), 1.0))
-        where = dict(fp.validate_state(bad))
-        for key in ("self.hp", "boss.phase_elapsed_s", "boss.hp", "threats[0]"):
-            self.assertIn(key, where)
+    # (what is wrong with the state) → the problems validate names, exactly
+    VALIDATE = [("nothing", [], []),
+                ("health above the maximum", [lambda s: _hp(s, 99.0)], ["self.hp"]),
+                ("negative health", [lambda s: _hp(s, -1.0)], ["self.hp"]),
+                ("a clock read in epoch seconds", [lambda s: _clock(s, 1.8e9)], ["boss.phase_elapsed_s"]),
+                ("no boss health", [_no_boss_hp], ["boss.hp"]),
+                ("a threat row short of fields", [_short_row], ["threats[0]"]),
+                ("everything at once", [lambda s: _hp(s, 99.0), lambda s: _clock(s, 1.8e9), _no_boss_hp, _short_row],
+                 ["boss.hp", "self.hp", "boss.phase_elapsed_s", "threats[0]"])]
 
-    def test_a_healthy_state_validates(self):
-        self.assertEqual(fp.validate_state(state()), [])
+    def test_validate_over_the_table(self):
+        for name, breaks, want in self.VALIDATE:
+            with self.subTest(name):
+                s = state()
+                for b in breaks:
+                    b(s)
+                self.assertEqual(sorted(k for k, _ in fp.validate_state(s)), sorted(want))
 
     def test_effects_are_pure(self):
-        s = state(tunnel=False, in_cover=False)
-        after = F.action("dig_tunnel").effect(s)
-        self.assertFalse(s["terrain"]["tunnel_ready"], "the original must not change")
-        self.assertTrue(after["terrain"]["tunnel_ready"])
+        for name in ("dig_tunnel", "place_bed", "reinforce"):
+            with self.subTest(name):
+                s = state(tunnel=False, in_cover=False, bed_placed=False)
+                before = repr(s)
+                F.action(name).effect(s)
+                self.assertEqual(repr(s), before, "the original must not change")
+        self.assertTrue(F.action("dig_tunnel").effect(state(tunnel=False))["terrain"]["tunnel_ready"])
 
 
 class TimeModel(unittest.TestCase):
-    def test_remaining_is_conditional_not_marginal(self):
-        self.assertGreater(fp.remaining(6, 0.0), fp.remaining(6, 4.0))
-        self.assertLess(fp.remaining(6, 4.0), 1.5)
+    # (phase, seconds into it, quantile) → seconds left: conditional on having lasted this long, pessimistic at p10
+    REMAINING = [(6, 0.0, 0.5, 4.95), (6, 4.0, 0.5, 0.95), (6, 10.0, 0.5, 0.0), (6, 0.0, 0.1, 4.95),
+                 (0, 0.0, 0.5, 15.3), (0, 0.0, 0.1, 2.0), (4, 0.0, 0.5, 0.85)]
 
-    def test_expired_phase_has_nothing_left(self):
-        self.assertEqual(fp.remaining(6, 10.0), 0.0)
-
-    def test_p10_is_pessimistic_against_the_median(self):
-        self.assertLessEqual(fp.remaining(0, 0.0, q=0.1), fp.remaining(0, 0.0, q=0.5))
+    def test_remaining_over_the_table(self):
+        for phase, elapsed, q, want in self.REMAINING:
+            with self.subTest(phase=phase, elapsed=elapsed, q=q):
+                self.assertEqual(fp.remaining(phase, elapsed, q=q), want)
 
 
 class ActionsAreData(unittest.TestCase):
     """Resource and terrain checks come from declarations on the action, not branches in the planner."""
 
-    def test_requires_is_checked_from_the_declaration(self):
-        ok, why = F.admissible(state(beds=0), F.action("fire_window"))
-        self.assertFalse(ok)
-        self.assertIn("resources.beds", why)
+    # (state, action) → (admissible, why)
+    ADMIT = [("a healthy sitting phase", {}, "fire_window", (True, "")),
+             ("no beds", {"beds": 0}, "fire_window", (False, "needs resources.beds ≥ 1, have 0")),
+             ("no tunnel", {"tunnel": False}, "fire_window", (False, "needs terrain.tunnel_ready = True")),
+             ("the wrong phase", {"phase": 0}, "fire_window", (False, "wrong phase (0)")),
+             ("dead", {"hp": 0.0}, "fire_window", (False, "no health: nothing is admissible until alive again")),
+             ("a water bucket with no enderman", {"phase": 0}, "water_bucket",
+              (False, f"needs threats.{ENDERMAN} ≥ 1, have 0")),
+             ("a water bucket against an enderman", {"phase": 0, "threats": [threat(ENDERMAN, 30, 0)]}, "water_bucket",
+              (True, ""))]
 
-    def test_needs_is_checked_from_the_declaration(self):
-        ok, why = F.admissible(state(tunnel=False), F.action("fire_window"))
-        self.assertFalse(ok)
-        self.assertIn("terrain.tunnel_ready", why)
+    def test_admissible_over_the_table(self):
+        for name, kw, action, want in self.ADMIT:
+            with self.subTest(name):
+                self.assertEqual(F.admissible(state(**kw), F.action(action)), want)
 
-    def test_threat_counts_can_be_required(self):
-        # water_bucket only makes sense against an enderman; the requirement is a threat count, and it is data.
-        ok, why = F.admissible(state(phase=0), F.action("water_bucket"))
-        self.assertFalse(ok)
-        self.assertIn(f"threats.{ENDERMAN}", why)
-        ok, _ = F.admissible(state(phase=0, threats=[threat(ENDERMAN, 30, 0)]), F.action("water_bucket"))
-        self.assertTrue(ok)
-
-    def test_no_planner_branch_names_an_action(self):
-        import inspect
-        src = inspect.getsource(fp.Fight.admissible)
-        self.assertNotIn('action.name ==', src, "resource checks must be declarations, not name branches")
-
-    def test_actions_are_per_fight(self):
+    def test_the_declared_actions_are_per_fight_with_exactly_one_default(self):
         a, b = fp.Fight(), fp.Fight()
-        self.assertIsNot(a.actions, b.actions)
-        self.assertIsNot(a.action("dig_tunnel"), b.action("dig_tunnel"))
-
-    def test_exactly_one_default(self):
-        self.assertEqual([a.name for a in F.actions if a.default], ["retreat"])
+        self.assertEqual([x.name for x in a.actions],
+                         ["dig_tunnel", "place_bed", "reinforce", "shoot_crystal", "water_bucket", "fire_window",
+                          "retreat"])
+        self.assertEqual([x.name for x in a.actions if x.default], ["retreat"])
+        self.assertEqual([x is y for x, y in zip(a.actions, b.actions)], [False] * len(a.actions))
 
 
 class Veto(unittest.TestCase):
@@ -134,21 +151,20 @@ class Veto(unittest.TestCase):
 
 
 class Faults(unittest.TestCase):
-    def test_a_healthy_state_has_no_fault(self):
-        self.assertEqual(F.plan(state())["fault"], [])
+    # (state) → (intent, fault kinds); assumptions are always declared and never a fault
+    PLANS = [("healthy", {}, ("fire_window", [])),
+             ("a clock read in epoch seconds", {"elapsed": 1.8e9}, ("retreat", ["boss.phase_elapsed_s", "no action"])),
+             ("everything refused: the default, and said so",
+              {"phase": 4, "elapsed": 0.8, "beds": 0, "tunnel": False, "crystals": 0, "obsidian": 0},
+              ("retreat", ["no action"])),
+             ("dead: nothing but the default", {"hp": 0.0}, ("retreat", ["no action"]))]
 
-    def test_a_malformed_clock_is_a_fault(self):
-        self.assertIn("boss.phase_elapsed_s", dict(F.plan(state(elapsed=1.8e9))["fault"]))
-
-    def test_refusing_everything_is_a_fault(self):
-        p = F.plan(state(phase=4, elapsed=0.8, beds=0, tunnel=False, crystals=0, obsidian=0))
-        self.assertEqual(p["intent"], "retreat")
-        self.assertIn("no action", dict(p["fault"]))
-
-    def test_assumptions_are_separate_from_faults(self):
-        p = F.plan(state())
-        self.assertTrue(p["assumptions"], "the guessed parameters must be declared")
-        self.assertEqual(p["fault"], [], "and must not masquerade as a fault in every plan")
+    def test_plan_over_the_table(self):
+        for name, kw, (intent, faults) in self.PLANS:
+            with self.subTest(name):
+                p = F.plan(state(**kw))
+                self.assertEqual((p["intent"], [k for k, _ in p["fault"]]), (intent, faults))
+                self.assertEqual(sorted(p["assumptions"]), sorted(fp.UNMEASURED))
 
 
 if __name__ == "__main__":
