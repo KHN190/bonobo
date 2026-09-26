@@ -132,22 +132,28 @@ class ActionsAreData(unittest.TestCase):
 class Veto(unittest.TestCase):
 
 
-    def test_the_pincer_is_refused(self):
-        # Two clouds closing from either side: each alone leaves an escape, together they do not. The veto asks
-        # the field (earliest arrival over the union), so it sees what a per-threat or distance test cannot.
+    # Clouds closing on place_bed's spot (it commits 0.5 s + 1.0 s back). The veto asks the field — earliest
+    # arrival over the union — so an open flank stays open and a closed ring is refused, which a per-threat or
+    # distance test cannot see. (clouds as (x, z, velocity)) → (admissible, why)
+    PINCER = [("no clouds", [], (True, "")),
+              ("one closing from the west", [(-4.0, 0, (4.0, 0, 0))], (True, "")),
+              ("two on one axis: a sidestep across it escapes", [(-4.0, 0, (4.0, 0, 0)), (4.0, 0, (-4.0, 0, 0))],
+               (True, "")),
+              ("three sides", [(-4.0, 0, (4.0, 0, 0)), (4.0, 0, (-4.0, 0, 0)), (0, -4.0, (0, 0, 4.0))],
+               (False, "committing 1.5s, first threat arrives in 1.5s")),
+              ("the ring closed", [(-4.0, 0, (4.0, 0, 0)), (4.0, 0, (-4.0, 0, 0)), (0, -4.0, (0, 0, 4.0)),
+                                   (0, 4.0, (0, 0, -4.0))], (False, "committing 1.5s, first threat arrives in 1.4s")),
+              ("a still ring twenty out", [(-20, 0, (0, 0, 0)), (20, 0, (0, 0, 0)), (0, -20, (0, 0, 0)),
+                                           (0, 20, (0, 0, 0))], (True, ""))]
+
+    def test_the_pincer_over_the_table(self):
         here = (0.0, 65.0, 0.0)
-        # Two clouds converging along x are escapable by a step across in z, and the model correctly says so.
-        # Closing the pincer needs the perpendicular covered too: four from the cardinal directions.
-        axis = [threat(CLOUD, -4.0, 0, r=3.0, vel=(4.0, 0, 0)), threat(CLOUD, 4.0, 0, r=3.0, vel=(-4.0, 0, 0))]
-        ring = axis + [threat(CLOUD, 0, -4.0, r=3.0, vel=(0, 0, 4.0)), threat(CLOUD, 0, 4.0, r=3.0, vel=(0, 0, -4.0))]
-        # bed_placed=False, or place_bed's own `needs` refuses before the field is ever consulted.
-        s_axis = state(phase=0, pos=here, tunnel=False, in_cover=False, threats=axis, cover=None, bed_placed=False)
-        s_ring = state(phase=0, pos=here, tunnel=False, in_cover=False, threats=ring, cover=None, bed_placed=False)
-        # place_bed commits 0.5 s + 1.0 s back.
-        self.assertTrue(F.admissible(s_axis, F.action("place_bed"))[0], "a sidestep escapes two on one axis")
-        ok, why = F.admissible(s_ring, F.action("place_bed"))
-        self.assertFalse(ok, "converging from every side must veto what an open flank allows")
-        self.assertIn("first threat arrives", why)
+        for name, clouds, want in self.PINCER:
+            with self.subTest(name):
+                # bed_placed=False, or place_bed's own `needs` refuses before the field is ever consulted.
+                s = state(phase=0, pos=here, tunnel=False, in_cover=False, cover=None, bed_placed=False,
+                          threats=[threat(CLOUD, x, z, r=3.0, vel=v) for x, z, v in clouds])
+                self.assertEqual(F.admissible(s, F.action("place_bed")), want)
 
 
 class Faults(unittest.TestCase):
