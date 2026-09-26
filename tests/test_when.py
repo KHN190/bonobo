@@ -142,29 +142,26 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
             ground.observed(bucket, straight_s=self.STRAIGHT, actual_s=self.STRAIGHT * ratio)
         return ground.of(bucket)
 
-    def test_it_follows_the_walks_it_has_seen(self):
-        seen = [self.learned(ratio) for ratio in WALKS.values()]
-        self.assertEqual(seen, sorted(seen), f"{list(WALKS)}: {seen}")
+    # (walk as a multiple of the straight line, samples) → the factor learned, from a prior of 1 at memory 0.5:
+    # it moves halfway to each sample, never below the straight line (1.0), never past the bound (12.0).
+    LEARNED = [(0.5, 1, 1.0), (0.5, 20, 1.0),                     # quicker than straight is not believed
+               (1.0, 1, 1.0), (1.0, 20, 1.0),
+               (2.0, 1, 1.5), (2.0, 20, 1.9999990463256836),
+               (4.0, 1, 2.5), (4.0, 20, 3.999997138977051),
+               (10000.0, 1, 6.5), (10000.0, 20, 11.99998950958252)]   # absurd walks stop at the bound
 
-    def test_it_settles_on_what_walking_costs(self):
-        for name, ratio in WALKS.items():
-            if ratio < 1.0 or ratio > field.MAX_FACTOR:
-                continue
-            self.assertAlmostEqual(self.learned(ratio, times=20), ratio, places=1, msg=name)
-
-    def test_no_route_is_ever_shorter_than_the_straight_line(self):
-        for name, ratio in WALKS.items():
-            self.assertGreaterEqual(self.learned(ratio, times=20), 1.0, name)
-
-    def test_no_walk_however_absurd_leaves_the_bound(self):
-        for name, ratio in WALKS.items():
-            self.assertLessEqual(self.learned(ratio, times=20), field.MAX_FACTOR, name)
+    def test_it_learns_exactly_this(self):
+        self.assertEqual(field.MAX_FACTOR, 12.0)
+        for ratio, times, want in self.LEARNED:
+            with self.subTest(ratio=ratio, times=times):
+                self.assertEqual(self.learned(ratio, times=times), want)
 
     def test_each_kind_of_ground_learns_on_its_own(self):
         ground = field.Terrain(prior=1.0, memory=0.5)
         for _ in range(10):
             ground.observed("underground", self.STRAIGHT, self.STRAIGHT * WALKS["much_slower"])
-        self.assertGreater(ground.of("underground"), ground.of("open"))
+        self.assertEqual({b: ground.of(b) for b in ("underground", "open", "enclosed")},
+                         {"underground": 3.9970703125, "open": 1.0, "enclosed": 1.0})
 
     def test_a_state_picks_the_ground_it_is_standing_on(self):
         for state, bucket in (({"skyLight": 15, "y": 70}, "open"), ({"skyLight": 0, "y": 30}, "underground"),
