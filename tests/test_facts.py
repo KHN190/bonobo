@@ -66,16 +66,20 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 ask = None if reachable is None else (lambda kinds, _r=reachable: _r)
                 self.assertEqual(self.vector(reachable=ask, pos=pos).get(actions.at("stone")), want)
 
+    # (where memory has stone, if anywhere) → does the plan for one cobblestone still walk to stone?
+    ARRIVALS = [("nothing known", None, True), ("stone under our feet", (1, 64, 1), False),
+                ("stone at arm's length", (3, 64, 3), False), ("stone across the valley", (300, 64, 300), True)]
+
     def test_arriving_removes_the_walk_from_the_plan(self):
-        m = mem()
         cost = places(40.0)
-        far = solve(actions.table(cost, {}), {"tool:pickaxe:0": 1}, {"minecraft:cobblestone": 1})
-        self.assertIn("seek:stone", far.counts)
-        m.note_seen("stone", (1, 64, 1), "minecraft:overworld")
-        state = actions.state_of(Snap(), m) | {"tool:pickaxe:0": 1}
-        near = solve(actions.table(cost, state), state, {"minecraft:cobblestone": 1})
-        self.assertNotIn("seek:stone", near.counts, "we are standing on it; walking to it is not work")
-        self.assertLess(near.cost_s, far.cost_s)
+        for name, pos, walks in self.ARRIVALS:
+            with self.subTest(name):
+                m = mem()
+                if pos:
+                    m.note_seen("stone", pos, "minecraft:overworld")
+                state = actions.state_of(Snap(), m) | {"tool:pickaxe:0": 1}
+                plan = solve(actions.table(cost, state), state, {"minecraft:cobblestone": 1})
+                self.assertEqual(bool(plan.counts.get("seek:stone")), walks)
 
 
 # ----------------------------------------------------------------------------------- what memory is for
@@ -159,26 +163,21 @@ class AStationStandingThereIsOneWeHave(unittest.TestCase):
 class WhatExistsCanBeTaken(unittest.TestCase):
     """A village is a bag of finished goods. Taking one is a column like any other, priced like any other."""
 
-    def test_every_takeable_thing_has_a_column_that_produces_what_it_gives(self):
-        table = {a.name: a for a in actions.table(places(20.0), {})}
-        for token, row in knowledge.TAKEABLE.items():
-            action = table.get(f"take:{token}")
-            self.assertIsNotNone(action, token)
-            self.assertGreater(action.cost_s, 0.0, token)
-            self.assertTrue(any(v > 0 for v in action.effect.values()), token)
-            self.assertTrue(any(d.startswith("at:") for d in action.requires), token)
-
-    def test_the_tool_a_block_needs_is_required_and_no_other(self):
-        table = {a.name: a for a in actions.table(places(20.0), {})}
-        self.assertTrue(any(d.startswith("tool:pickaxe") for d in table["take:minecraft:furnace"].requires))
-        self.assertFalse(any(d.startswith("tool:") for d in table["take:bed"].requires))
-
-    def test_what_it_gives_is_something_the_planner_can_use(self):
+    def test_every_takeable_thing(self):
+        """Over knowledge.TAKEABLE: a take column exists, costs time, produces exactly what the row gives, needs
+        standing at it, and needs exactly the tool the row names (or none)."""
         from bonobo.data import GROUPS, RECIPES
+        table = {a.name: a for a in actions.table(places(20.0), {})}
         for token, row in knowledge.TAKEABLE.items():
-            for given in row["gives"]:
-                self.assertTrue(given in GROUPS or given in RECIPES or given.startswith("minecraft:"),
-                                f"{token} gives {given}, which nothing else names")
+            with self.subTest(token):
+                action = table[f"take:{token}"]
+                self.assertEqual(action.cost_s > 0, True)
+                self.assertEqual({k: action.effect.get(k) for k in row["gives"]}, dict(row["gives"]))
+                self.assertEqual(len([d for d in action.requires if d.startswith("at:")]), 1)
+                tools = {d for d in action.requires if d.startswith("tool:")}
+                self.assertEqual(tools, {actions.tool_dim(*row["tool"])} if row["tool"] else set())
+                self.assertEqual([g for g in row["gives"] if not (g in GROUPS or g in RECIPES
+                                                                  or g.startswith("minecraft:"))], [])
 
     def test_memory_can_see_them(self):
         """The travel scan asks for every takeable block and notes every hit (the fake answers them all, so this is
@@ -193,9 +192,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
                                                                                       return_value=[]):
             explore.note_around(m, "minecraft:overworld")
         seen = {r["kind"] for r in m.data["seen"]}
-        for token, row in knowledge.TAKEABLE.items():
-            with self.subTest(token):
-                self.assertTrue(set(row["blocks"]) & seen, f"{token}: the scan never notes it")
+        self.assertEqual(sorted(t for t, row in knowledge.TAKEABLE.items() if not set(row["blocks"]) & seen), [])
 
     def test_near_is_taken_and_far_is_made(self):
         village = set(knowledge.TAKEABLE["bed"]["blocks"])
@@ -254,10 +251,28 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
         def __init__(self, protected=()):
             self.protected = set(protected)
 
+    # (what is ours, the cell asked for) → refused, or the one mine task posted to the game
+    DOOR = [("our own wall", {(1, 64, 1)}, (1, 64, 1), None),
+            ("the block beside our wall", {(1, 64, 1)}, (2, 64, 1), (2, 64, 1)),
+            ("nothing of ours anywhere", set(), (1, 64, 1), (1, 64, 1)),
+            ("one of many cells of ours", {(x, 64, 1) for x in range(5)}, (3, 64, 1), None)]
+
     def test_the_door_refuses_our_own_blocks(self):
+        from unittest import mock
         from bonobo.api import NotAvailable
-        with self.assertRaises(NotAvailable):
-            skillcore.mine_cell(self.Policy({(1, 64, 1)}), (1, 64, 1))
+        from tests.world import bag, inventory
+        for name, ours, cell, posted in self.DOOR:
+            sent = []
+            with self.subTest(name), mock.patch.object(skillcore.api, "run", side_effect=lambda t, wait=0: sent.append(
+                    (t["type"], (t["x"], t["y"], t["z"]))) or {"status": "succeeded"}), \
+                    mock.patch.object(skillcore, "Inventory", lambda: bag(inventory())):
+                if posted is None:
+                    with self.assertRaises(NotAvailable):
+                        skillcore.mine_cell(self.Policy(ours), cell)
+                    self.assertEqual(sent, [])
+                else:
+                    skillcore.mine_cell(self.Policy(ours), cell)
+                    self.assertEqual(sent, [("mine", posted)])
 
     def test_no_module_posts_a_bare_mine_task(self):
         import ast
@@ -286,21 +301,19 @@ class WhatIsWorthTakingIsDecidedByPrice(unittest.TestCase):
     PRICES = {"minecraft:iron_ingot": 120.0, "minecraft:wheat": 6.0, "minecraft:stick": 0.2,
               "minecraft:diamond": 900.0}
 
-    def test_value_decides_and_the_dearest_comes_first(self):
-        plan = loot.loot_plan(self.slots(("minecraft:wheat", 20, "chest"), ("minecraft:diamond", 1, "chest")),
-                              self.PRICES, bag_free=20)
-        self.assertEqual(plan, [1, 0])
+    # (situation, chest slots (item, count, owner), free slots) → the slot indices taken, dearest first
+    LOOT = [("value decides, the dearest first", [("minecraft:wheat", 20, "chest"), ("minecraft:diamond", 1, "chest")],
+             20, [1, 0]),
+            ("worth less than the slot it eats, when slots are tight", [("minecraft:stick", 1, "chest")], 2, []),
+            ("the same stick with room to spare", [("minecraft:stick", 1, "chest")], 30, [0]),
+            ("our own slots are never loot", [("minecraft:diamond", 1, "player")], 30, []),
+            ("what has no price is left", [("minecraft:mystery", 4, "chest")], 30, []),
+            ("an empty chest", [], 30, [])]
 
-    def test_what_is_worth_less_than_the_slot_it_eats_is_left(self):
-        tight = loot.loot_plan(self.slots(("minecraft:stick", 1, "chest")), self.PRICES, bag_free=2)
-        roomy = loot.loot_plan(self.slots(("minecraft:stick", 1, "chest")), self.PRICES, bag_free=30)
-        self.assertEqual(tight, [])
-        self.assertEqual(roomy, [0])
-
-    def test_our_own_slots_and_unpriced_things_are_left(self):
-        self.assertEqual(loot.loot_plan(self.slots(("minecraft:diamond", 1, "player")), self.PRICES, 30), [])
-        self.assertEqual(loot.loot_plan(self.slots(("minecraft:mystery", 4, "chest")), self.PRICES, 30), [])
-
+    def test_loot_plan(self):
+        for name, items, free, want in self.LOOT:
+            with self.subTest(name):
+                self.assertEqual(loot.loot_plan(self.slots(*items), self.PRICES, bag_free=free), want)
 
 
 class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
@@ -364,10 +377,9 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         from bonobo import actions, solve
         swimming = {"bag_free": 30, "hands_free": 1, "building": 8}
         table = list(self.columns(swimming).values())
-        ways = [a for a in table if a.effect.get("footing")]
-        self.assertGreater(len(ways), 1, "one way back is not a choice")
-        cheapest = min(a.cost_s for a in ways)
-        self.assertLessEqual(solve.reach_cost(table, swimming).get("footing", 1e9), cheapest + 1e-6)
+        ways = {a.name: a.cost_s for a in table if a.effect.get("footing")}
+        self.assertEqual(sorted(ways), ["place:footing", "reach:land"], "two ways back: swim ashore, or a block")
+        self.assertAlmostEqual(solve.reach_cost(table, swimming)["footing"], min(ways.values()))
 
 
 if __name__ == "__main__":
