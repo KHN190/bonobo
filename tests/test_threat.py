@@ -188,6 +188,62 @@ class TheFastLane(unittest.TestCase):
         self.assertAlmostEqual(worth, round(threat.saves(same, opts, price, threat.horizon_for(st)), 1), places=1)
 
 
+def nav_mine(cell):
+    from bonobo import nav
+    return nav.mine_task(cell)
+
+
+class EachAnswerIsABatch(unittest.TestCase):
+    """`fight_loop.batch`: what one answer posts, from a body state. Pure; [] means it cannot be done from here."""
+
+    class Bag:
+        def __init__(self, counts=None, offhand="minecraft:air"):
+            self.counts, self.hand = dict(counts or {}), offhand
+
+        def count(self, item):
+            return self.counts.get(item, 0)
+
+        def offhand(self):
+            return self.hand
+
+    @staticmethod
+    def option(kind, target=None):
+        return type("Option", (), {"kind": kind, "target": target})()
+
+    def state(self, **bag):
+        return {"feet": (0, 64, 0), "inv": self.Bag(**bag), "region": None, "protected": set(),
+                "threats": [row("minecraft:zombie", 5, 0)]}
+
+    ROWS = [("fight: attack the target", ("fight", 42), {}, [{"type": "attack", "entity": 42}]),
+            ("evade: travel there, bridging with what we carry", ("evade", (-16, 64, 0)),
+             {"counts": {"building": 12}},
+             [{"type": "travel", "x": -16, "y": 64, "z": 0, "range": 3, "break": True, "place": True,
+               "placeBudget": 12, "avoid": []}]),
+            ("eat the first food carried", ("eat",), {"counts": {"minecraft:cooked_beef": 3}},
+             [{"type": "eat", "item": "minecraft:cooked_beef"}]),
+            ("eat with nothing to eat: not an answer", ("eat",), {}, []),
+            ("shield up with a shield in hand", ("shield",), {"offhand": "minecraft:shield"},
+             [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]),
+            ("shield up without one: not an answer", ("shield",), {}, []),
+            ("dig down two", ("reshape", ("down", 2)), {},
+             [nav_mine((0, 63, 0)), nav_mine((0, 62, 0))]),
+            ("stand two up", ("reshape", ("under", 2)), {"counts": {"minecraft:cobblestone": 5}},
+             [{"type": "pillar", "item": "minecraft:cobblestone"}] * 2),
+            ("a wall toward the zombie in the east", ("reshape", ("between", 2)),
+             {"counts": {"minecraft:cobblestone": 5}},
+             [{"type": "place", "item": "minecraft:cobblestone", "x": 1, "y": 64 + i, "z": 0} for i in range(2)]),
+            ("no blocks to stand on: not an answer", ("reshape", ("under", 1)), {}, []),
+            ("walling in with no region read: not an answer", ("wall_in",), {}, []),
+            ("ignoring is no batch", ("ignore",), {}, [])]
+
+    def test_batch_over_the_table(self):
+        from bonobo import fight_loop
+        for name, (kind, *target), bag, want in self.ROWS:
+            with self.subTest(name):
+                got = fight_loop.batch(self.option(kind, target[0] if target else None), self.state(**bag))
+                self.assertEqual(got, want)
+
+
 class TheLeaseSurvivesBlindMoments(unittest.TestCase):
     """Perception goes blind for a moment all the time: the entity read is a second old, the thread was busy, the
     rows aged out. A lease that reads "nothing visible" as "nothing to answer" hands the body back mid-fight, and
