@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Offline checks for the parts of bonobo that decide without the game: routes, blueprints, planning, inventory
-hygiene. Run before starting autoplay: `python3 tests/test_offline.py` (exit code 1 on failure)."""
+"""Offline checks for the parts of bonobo that decide without the game: blueprints, planning, inventory hygiene,
+terrain readers, bench bookkeeping. Run standalone (`python3 tests/test_offline.py`, exit code 1 on failure) or
+under unittest, where `Offline` fails with every failing check named. `same(name, got, want)` is the exact form:
+a failure shows both values."""
+import unittest
 import os
 import tempfile
 import shutil
@@ -19,7 +22,12 @@ ALL = {"pillar", "ladder_in_cell"}
 def check(name, cond, detail=""):
     print(("ok   " if cond else "FAIL ") + name + (f"  {detail}" if detail and not cond else ""))
     if not cond:
-        FAILS.append(name)
+        FAILS.append(name + (f"  {detail}" if detail else ""))
+
+
+def same(name, got, want):
+    """An exact check: `got == want`, and on failure both values."""
+    check(name, got == want, f"got {got!r}, want {want!r}")
 
 
 class FakeRegion:
@@ -48,33 +56,24 @@ class FakeRegion:
         return self.name(p).endswith("door")
 
 
+_BUILDING_ITEM = nav.building_item            # restored at the end: the stub must not outlive this module
 nav.building_item = lambda: "minecraft:cobblestone"
 WALK_ONLY = nav.Policy(allow_dig=False)
 
-
-# ---- routes
-# Routes are planned by the game now (`nav.route_s` → /plan, and `travel` with break/place), so the checks that
-# used to live here — what this package's own pathfinder would dig, bridge, pillar or ladder — are testing code
-# that no longer exists. A second pathfinder on this side is exactly what produced the bugs they were written
-# for: water in the floor priced as flat ground, ore two blocks inside rock called unreachable, a village room
-# behind a door the walker would have opened. What is asserted instead, offline, is the CONTRACT around the one
-# question we ask the world (`tests/test_time.py`): its seconds come through in order, "no way" is dear but
-# finite, and with no answer this side invents nothing about the ground.
 
 # ---- blueprints
 for bp in B.REGISTRY.values():
     for t in range(4):
         cells = B.placed(bp, (0, 64, 0), t)
         pos = [c[0] for c in cells]
-        check(f"{bp.name} rot{t}: no overlapping parts", len(pos) == len(set(pos)))
+        same(f"{bp.name} rot{t}: no overlapping parts", len(pos), len(set(pos)))
         clear = B.clear_cells(bp, (0, 64, 0), t)
         check(f"{bp.name} rot{t}: clear cells aren't parts (except a torch)",
               all(c not in pos or any(p[0] == c and p[1].item == "minecraft:torch" for p in cells) for c in clear))
         for p, part, facing, against in cells:
             if against is not None and part.facing:
                 d = tuple(against[i] - p[i] for i in range(3))
-                check(f"{bp.name} rot{t}: {part.item} at {part.offset} outputs into its against",
-                      B.DIRS[facing] == d)
+                same(f"{bp.name} rot{t}: {part.item} at {part.offset} outputs into its against", B.DIRS[facing], d)
 hut = B.placed(B.SHELTER, (0, 0, 0), 0)
 solid = {c[0] for c in hut if c[1].item != "minecraft:torch"} | {(0, 1, -1)}   # door top counts as solid
 interior = [c for c in B.clear_cells(B.SHELTER, (0, 0, 0), 0) if c != (0, 1, -1)]
@@ -82,8 +81,7 @@ leaks = [(c, d) for c in interior for d in B.DIRS.values()
          if (c[0] + d[0], c[1] + d[1], c[2] + d[2]) not in solid and (c[0] + d[0], c[1] + d[1], c[2] + d[2]) not in interior
          and d != (0, -1, 0)]
 check("shelter interior is sealed (floor aside)", not leaks, leaks)
-check("shelter needs 14 stone + door + torch", B.materials(B.SHELTER) == {"stone": 14, "door": 1, "minecraft:torch": 1},
-      B.materials(B.SHELTER))
+same("shelter needs 14 stone + door + torch", B.materials(B.SHELTER), {"stone": 14, "door": 1, "minecraft:torch": 1})
 
 
 # ---- planning
@@ -101,8 +99,8 @@ no_pick = Inv([{"id": "minecraft:cobblestone", "count": 20}, {"id": "minecraft:s
 plan = Planner.from_inventory(no_pick, NullCost()).plan([("tool", "pickaxe", 1)])
 check("no pickaxe, cobble in the bag → stone pickaxe is crafted directly",
       plan and plan[0].kind == "craft" and plan[-1].token == "minecraft:stone_pickaxe", [str(s) for s in plan])
-check("pending output satisfies a need",
-      Planner.from_inventory(inv, NullCost(), {"minecraft:hopper": 3}).plan([("minecraft:hopper", 3)]) == [])
+same("pending output satisfies a need",
+     Planner.from_inventory(inv, NullCost(), {"minecraft:hopper": 3}).plan([("minecraft:hopper", 3)]), [])
 
 # ---- inventory hygiene
 slots = [{"id": "minecraft:rotten_flesh", "count": 30, "slot": 10}, {"id": "minecraft:gravel", "count": 64, "slot": 11},
@@ -111,12 +109,12 @@ slots = [{"id": "minecraft:rotten_flesh", "count": 30, "slot": 10}, {"id": "mine
          {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 7, "maxDamage": 250, "slot": 15},
          {"id": "minecraft:granite", "count": 64, "slot": 16}, {"id": "minecraft:cobblestone", "count": 64, "slot": 17}]
 thrown = sorted(s["slot"] for s in skills.tidy_plan(slots))
-check("tidy throws junk, gravel beyond the cap and the broken pickaxe", thrown == [10, 12, 14], thrown)
+same("tidy throws junk, gravel beyond the cap and the broken pickaxe", thrown, [10, 12, 14])
 check("tidy never throws working tools, building blocks or ingots", not {13, 15, 16, 17} & set(thrown), thrown)
 hoard = [{"id": "minecraft:andesite", "count": 64, "slot": 20 + k} for k in range(4)] + \
         [{"id": "minecraft:cobblestone", "count": 64, "slot": 30}, {"id": "minecraft:cobblestone", "count": 64, "slot": 31}]
 thrown = sorted(s["slot"] for s in skills.tidy_plan(hoard))
-check("tidy caps building blocks at 128, keeping plain cobblestone", thrown == [20, 21, 22, 23], thrown)
+same("tidy caps building blocks at 128, keeping plain cobblestone", thrown, [20, 21, 22, 23])
 bag = [{"id": "minecraft:cobblestone", "count": 64, "slot": 1}, {"id": "minecraft:cobblestone", "count": 40, "slot": 2},
        {"id": "minecraft:beef", "count": 5, "slot": 3}, {"id": "minecraft:cooked_beef", "count": 12, "slot": 4},
        {"id": "minecraft:spruce_log", "count": 30, "slot": 5}, {"id": "minecraft:iron_ingot", "count": 9, "slot": 6},
@@ -124,10 +122,10 @@ bag = [{"id": "minecraft:cobblestone", "count": 64, "slot": 1}, {"id": "minecraf
        {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 125, "maxDamage": 131, "slot": 8},
        {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 10, "maxDamage": 250, "slot": 9}]
 plan = [s["slot"] for s in skills.free_slots_plan(bag, need=1)]
-check("free 1 slot → the small building stack beyond 64 goes first", plan == [2], plan)
+same("free 1 slot → the small building stack beyond 64 goes first", plan, [2])
 plan = [s["slot"] for s in skills.free_slots_plan(bag, need=3)]
-check("free 3 slots → building surplus, raw meat, then the cheapest unprotected stack (a single log stack stays)",
-      plan == [2, 3, 1], plan)
+same("free 3 slots → building surplus, raw meat, then the cheapest unprotected stack (a single log stack stays)",
+     plan, [2, 3, 1])
 plan = [s["slot"] for s in skills.free_slots_plan(bag, need=9)]
 check("never drops ingots, torches, cooked food or any pickaxe (spares included)", not {4, 6, 7, 8, 9} & set(plan),
       plan)
@@ -193,7 +191,7 @@ torch_gap[(1, 1, 0)] = "torch"
 r = FakeRegion(torch_gap, (-3, -2, -3), (3, 4, 3))
 check("a torch in a side cell under a solid block is still enclosed", skills.is_enclosed(r, (0, 1, 0)))
 ex = skills.choose_exit(r, (0, 1, 0))
-check("dig out through the torch side mines only the head cell", ex == ([(1, 2, 0)], (1, 1, 0)), ex)
+same("dig out through the torch side mines only the head cell", ex, ([(1, 2, 0)], (1, 1, 0)))
 open_side = dict(podw)
 del open_side[(1, 1, 0)], open_side[(1, 2, 0)]
 r = FakeRegion(open_side, (-3, -2, -3), (3, 4, 3))
@@ -212,8 +210,7 @@ for xx in (-3, -2, -1):
         tunnel.pop((xx, yy, 0))
 tunnel.pop((0, 0, 1)), tunnel.pop((0, 1, 1))          # a 1-block niche to the south
 r = FakeRegion(tunnel, (-3, -1, -3), (3, 2, 3))
-check("throw: in a tunnel → back along the tunnel, not into a niche", skills.throw_direction(r, (0, 0, 0)) == (-1, 0),
-      skills.throw_direction(r, (0, 0, 0)))
+same("throw: in a tunnel → back along the tunnel, not into a niche", skills.throw_direction(r, (0, 0, 0)), (-1, 0))
 niche_only = dict(shaft)
 niche_only.pop((1, 0, 0)), niche_only.pop((1, 1, 0))          # a single 1-block niche beside a ladder shaft
 r = FakeRegion(niche_only, (-3, -1, -3), (3, 2, 3))
@@ -227,10 +224,9 @@ check("last resort keeps building blocks while they are 64 or fewer", not {"cobb
 # ---- clock
 from bonobo.world import ticks_until_dusk  # noqa: E402
 
-check("dusk: morning counts down to 12500", ticks_until_dusk(1000) == 11500, ticks_until_dusk(1000))
-check("dusk: night is 0", ticks_until_dusk(18000) == 0)
-check("dusk: dawn (after 23400) has a whole day ahead, not 0", ticks_until_dusk(23600) == 12900,
-      ticks_until_dusk(23600))
+same("dusk: morning counts down to 12500", ticks_until_dusk(1000), 11500)
+same("dusk: night is 0", ticks_until_dusk(18000), 0)
+same("dusk: dawn (after 23400) has a whole day ahead, not 0", ticks_until_dusk(23600), 12900)
 
 # ---- night burrow into a hillside
 hill = {(x, y, z): "stone" for x in range(-4, 5) for y in range(-2, 4) for z in range(-4, 5)}
@@ -242,7 +238,7 @@ for yy in range(0, 4):
         for xx in range(-4, 0):
             hill.pop((xx, yy, zz), None)
 r = FakeRegion(hill, (-4, -2, -4), (4, 3, 4))
-check("burrow: faces the solid hill", skills.choose_burrow(r, (0, 0, 0)) == (1, 0), skills.choose_burrow(r, (0, 0, 0)))
+same("burrow: faces the solid hill", skills.choose_burrow(r, (0, 0, 0)), (1, 0))
 wet_hill = dict(hill)
 wet_hill[(3, 0, 1)] = "water"
 wet_hill[(1, 1, -1)] = "water"
@@ -274,8 +270,7 @@ check("shelter: nothing works on top of a thin pillar", skills.shelter_method_at
 found = skills.find_shelter_spot(r, (0, 6, 0))
 check("shelter: finds a spot on the ground nearby instead", found is not None and found[0][1] == 0 and found[1] in
       ("dig", "pod", "burrow"), found)
-check("shelter: flat solid ground allows digging in", skills.shelter_method_at(r, (3, 0, 3)) == "dig",
-      skills.shelter_method_at(r, (3, 0, 3)))
+same("shelter: flat solid ground allows digging in", skills.shelter_method_at(r, (3, 0, 3)), "dig")
 r = FakeRegion({(x, 0, z): "water" for x in range(-5, 6) for z in range(-5, 6)}, (-6, -3, -6), (6, 3, 6))
 check("shelter: open water → no spot", skills.find_shelter_spot(r, (0, 1, 0), radius=5) is None)
 
@@ -328,15 +323,13 @@ from bonobo.memory import Memory  # noqa: E402
 
 tmp = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
 skillkit.STATS = tmp
-check("estimate: prior before any measurement", skillkit.expected(skills.chop, None, 10) == 60,
-      skillkit.expected(skills.chop, None, 10))
+same("estimate: prior before any measurement", skillkit.expected(skills.chop, None, 10), 60)
 for secs in (40, 40, 40):
     tmp.record_duration("chop", secs, 10)
 check("estimate: measured per-unit time replaces the prior after 3 runs",
       abs(skillkit.expected(skills.chop, None, 10) - 40) < 1e-6, skillkit.expected(skills.chop, None, 10))
 tmp.record_duration("mine:minecraft:raw_iron", 100, 5)
-check("estimate: one sample isn't trusted yet", skillkit.expected(skills.mine, None, "minecraft:raw_iron", 5, [], 1)
-      == 40, skillkit.expected(skills.mine, None, "minecraft:raw_iron", 5, [], 1))
+same("estimate: one sample isn't trusted yet", skillkit.expected(skills.mine, None, "minecraft:raw_iron", 5, [], 1), 40)
 tmp.record_duration("chop", 100, 10)
 check("estimate: moving average of seconds per unit leans on history", 4 < tmp.duration("chop") < 10,
       tmp.duration("chop"))
@@ -346,14 +339,14 @@ skillkit.STATS = None
 import time as _time  # noqa: E402
 
 tmp.add_job("furnace", (1, 2, 3), "minecraft:overworld", "minecraft:iron_ingot", 8, _time.time() + 85, True)
-check("job: its output counts as pending for the planner",
-      tmp.pending_outputs("minecraft:overworld").get("minecraft:iron_ingot") == 8, tmp.pending_outputs("minecraft:overworld"))
+same("job: its output counts as pending for the planner",
+     tmp.pending_outputs("minecraft:overworld").get("minecraft:iron_ingot"), 8)
 job = tmp.jobs()[0]
 check("job: not ready before its estimate", not skills.job_ready(job))
 tmp.postpone_job(job["id"], -1)
 check("job: ready once the estimate has passed", skills.job_ready(tmp.jobs()[0]))
 tmp.finish_job(job["id"])
-check("job: finished jobs stop counting", tmp.pending_outputs("minecraft:overworld") == {})
+same("job: finished jobs stop counting", tmp.pending_outputs("minecraft:overworld"), {})
 
 
 from bonobo.planner import Step  # noqa: E402
@@ -423,7 +416,7 @@ check("farm: wheat seeds aren't junk any more", "minecraft:wheat_seeds" not in _
 _frame = {(-367, 119, 191): "cobblestone", (-364, 119, 191): "cobblestone", (-366, 119, 191): "obsidian",
           (-365, 119, 191): "obsidian", (-367, 120, 191): "obsidian", (-367, 121, 191): "obsidian"}
 _need = B.remaining(B.NETHER_PORTAL, (-367, 119, 191), 0, lambda p: _frame.get(p, "air"))
-check("build: a started portal needs only its missing parts", _need == {"minecraft:obsidian": 6, "stone": 2}, _need)
+same("build: a started portal needs only its missing parts", _need, {"minecraft:obsidian": 6, "stone": 2})
 _bm = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
 _bm.data["builds"] = {"nether_portal": {"origin": [-367, 119, 191], "turns": 0, "dimension": "minecraft:overworld"}}
 check("build: cells of an unfinished build are protected from mining",
@@ -431,7 +424,7 @@ check("build: cells of an unfinished build are protected from mining",
 
 broken ={"id": "minecraft:stone_pickaxe", "count": 1, "slot": 3, "damage": 130, "maxDamage": 131}
 worn_ok = {"id": "minecraft:stone_pickaxe", "count": 1, "slot": 4, "damage": 100, "maxDamage": 131}
-check("tidy: broken tools go, worn ones stay", skills.tidy_plan([broken, worn_ok]) == [broken])
+same("tidy: broken tools go, worn ones stay", skills.tidy_plan([broken, worn_ok]), [broken])
 
 _tctx = __import__("bonobo.skillcore", fromlist=["Context"]).Context(None, None, "minecraft:overworld", blacklist={})
 _tctx.ban_counts = {}
@@ -506,8 +499,8 @@ _walled.update({(_x, _y, 308): "stone" for _x in range(-74, -67) for _y in (12, 
 _walled.update({(_x, _y, _z): "water" for _x in range(-74, -67) for _y in (12, 13) for _z in (309, 310)})
 _ws = FL.fill_spot(FakeRegion(_walled, (-74, 10, 304), (-68, 15, 311)), (-71, 12, 307))
 check("portal: never fill through a wall (line of sight)", _ws is None or _ws[0][2] >= 309 or _ws[0][1] >= 14, _ws)
-check("portal: blueprint uses 10 obsidian + 4 stone",
-      B.materials(B.NETHER_PORTAL) == {"stone": 4, "minecraft:obsidian": 10})
+same("portal: blueprint uses 10 obsidian + 4 stone",
+     B.materials(B.NETHER_PORTAL), {"stone": 4, "minecraft:obsidian": 10})
 _cells = {pos: part.item for pos, part, *_ in B.placed(B.NETHER_PORTAL, (0, 64, 0), 1)}
 _aim = FL.portal_light_aim((0, 64, 0), 1)
 check("portal: light aim is the top face of an inner bottom obsidian (rotated)",
@@ -518,7 +511,7 @@ from bonobo import perception as PC  # noqa: E402
 
 _ok = {"health": 20, "food": 20, "air": 300, "control": {"paused": False}}
 check("perception: healthy → no interrupt", PC.danger(_ok, lambda r: 2) is None)
-check("perception: lava interrupts", PC.danger({**_ok, "inLava": True}) == "lava")
+same("perception: lava interrupts", PC.danger({**_ok, "inLava": True}), "lava")
 check("perception: drowning is a clock, and standing on the bottom counts",
       PC.drowning({**_ok, "inWater": True, "air": 60, "onGround": True})
       and not PC.drowning({**_ok, "inWater": True, "air": 300, "onGround": False}))
@@ -527,9 +520,9 @@ check("perception: hurt + hostile close interrupts, hurt alone doesn't",
       and PC.danger({**_ok, "health": 9}, lambda r: None) is None)
 check("perception: never while the player holds control",
       PC.danger({**_ok, "inLava": True, "control": {"paused": True}}) is None)
-check("perception: an interrupt is its own cause, never a failure",
-      __import__("bonobo.retry", fromlist=["cause_of"]).cause_of(
-          __import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("lava")) == "interrupt")
+same("perception: an interrupt is its own cause, never a failure",
+     __import__("bonobo.retry", fromlist=["cause_of"]).cause_of(
+          __import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("lava")), "interrupt")
 
 # -- farming: plots, ripe wheat, breeding pairs, resource map
 from bonobo import farming as FM  # noqa: E402
@@ -552,7 +545,7 @@ class _PropRegion(FakeRegion):
 
 _wheat = _PropRegion({(0, 64, 0): "wheat", (1, 64, 0): "wheat"}, {(0, 64, 0): {"age": "7"}, (1, 64, 0): {"age": "3"}},
                      (-1, 63, -1), (1, 65, 1))
-check("farm: only age-7 wheat is ripe", FM.ripe_cells(_wheat) == [(0, 64, 0)])
+same("farm: only age-7 wheat is ripe", FM.ripe_cells(_wheat), [(0, 64, 0)])
 _herd = [{"id": 1, "type": "minecraft:cow", "x": 0, "y": 64, "z": 0}, {"id": 2, "type": "minecraft:cow", "x": 3, "y": 64, "z": 2},
          {"id": 3, "type": "minecraft:sheep", "x": 40, "y": 64, "z": 0}]
 check("farm: breeding pair = two close adults of one kind", FM.breeding_pair(_herd, "minecraft:cow") == (1, 2)
@@ -561,13 +554,13 @@ _rm = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
 _rm.clock = 0
 _rm.note_seen("tree", (10, 64, 10), "overworld")
 _rm.forget_seen("tree", (10, 64, 10), "overworld")
-check("seen: a grove we felled is forgotten, not walked to again", _rm.seen("tree", "overworld") == [])
+same("seen: a grove we felled is forgotten, not walked to again", _rm.seen("tree", "overworld"), [])
 check("recipes: hoes exist for the farm", "minecraft:stone_hoe" in __import__("bonobo.data", fromlist=["RECIPES"]).RECIPES)
 
 # -- nether / stronghold helpers
 from bonobo import nether as NT  # noqa: E402
 
-check("stronghold: two throws triangulate", NT.triangulate((0, 0), (1, 0), (100, -100), (0, 1)) == (100, 0))
+same("stronghold: two throws triangulate", NT.triangulate((0, 0), (1, 0), (100, -100), (0, 1)), (100, 0))
 check("stronghold: parallel throws don't", NT.triangulate((0, 0), (1, 0), (0, 50), (1, 0)) is None)
 check("stronghold: rays meeting behind a thrower don't count",
       NT.triangulate((0, 0), (1, 0), (-100, -100), (0, 1)) is None)
@@ -582,8 +575,8 @@ _a = CB.bow_aim((0, 65.6, 0), (30, 64, 0), height=1.0)
 check("bow: aims above the target to cover the drop", _a[1] > 65.0 and _a[0] == 30, _a)
 check("bow: farther targets need more lift", CB.bow_aim((0, 65.6, 0), (60, 64, 0))[1] > _a[1])
 _cr = [{"x": 40, "y": 100, "z": 0}, {"x": 10, "y": 70, "z": 0}, {"x": 5, "y": 110, "z": 0}]
-check("dragon: open crystals nearest first, caged high ones last",
-      [c["x"] for c in CB.crystal_order(_cr, (0, 64, 0))] == [10, 5, 40])
+same("dragon: open crystals nearest first, caged high ones last",
+     [c["x"] for c in CB.crystal_order(_cr, (0, 64, 0))], [10, 5, 40])
 _fort = {(x, 64, z): "nether_bricks" for x in range(-5, 6) for z in range(-5, 6)}
 _fort.update({(2, 65, 0): "nether_bricks", (2, 66, 0): "nether_bricks"})
 _cover = CB.blaze_cover(FakeRegion(_fort, (-5, 60, -5), (5, 70, 5)), (0, 65, 0), (5, 66, 0))
@@ -591,21 +584,22 @@ check("blaze: cover puts a solid block between us and the blaze", _cover is not 
 _chest = [{"owner": "chest", "slot": 0, "id": "minecraft:rotten_flesh"}, {"owner": "chest", "slot": 1, "id": "minecraft:obsidian"},
           {"owner": "chest", "slot": 2, "id": "minecraft:gold_ingot"}, {"owner": "player", "slot": 30, "id": "minecraft:diamond"}]
 _chest_prices = {"minecraft:obsidian": 300.0, "minecraft:gold_ingot": 500.0, "minecraft:rotten_flesh": 0.0}
-check("loot: takes what is worth a slot, dearest first, and never the player's own",
-      LT.loot_plan(_chest, _chest_prices, 30) == [2, 1], LT.loot_plan(_chest, _chest_prices, 30))
+same("loot: takes what is worth a slot, dearest first, and never the player's own",
+     LT.loot_plan(_chest, _chest_prices, 30), [2, 1])
 _frames = _PropRegion({(0, 30, 0): "end_portal_frame", (1, 30, 0): "end_portal_frame", (4, 30, 4): "end_portal_frame"},
                       {(0, 30, 0): {"eye": "true"}, (1, 30, 0): {"eye": "false"}, (4, 30, 4): {"eye": "false"}},
                       (-1, 29, -1), (5, 31, 5))
-check("end: frames without an eye", sorted(EN.frames_missing_eye(_frames)) == [(1, 30, 0), (4, 30, 4)])
-check("end: portal centre of the frame ring", EN.portal_centre([(0, 30, 1), (4, 30, 3), (2, 30, 0), (2, 30, 4)]) == (2, 30, 2))
-check("brewing: full chain when inputs are there",
-      BW.brew_steps({"minecraft:potion:water": 3, "minecraft:nether_wart": 1, "minecraft:magma_cream": 1,
-                     "minecraft:blaze_powder": 1}) == ["minecraft:nether_wart", "minecraft:magma_cream"])
+same("end: frames without an eye", sorted(EN.frames_missing_eye(_frames)), [(1, 30, 0), (4, 30, 4)])
+same("end: portal centre of the frame ring",
+     EN.portal_centre([(0, 30, 1), (4, 30, 3), (2, 30, 0), (2, 30, 4)]), (2, 30, 2))
+same("brewing: full chain when inputs are there",
+     BW.brew_steps({"minecraft:potion:water": 3, "minecraft:nether_wart": 1, "minecraft:magma_cream": 1,
+                     "minecraft:blaze_powder": 1}), ["minecraft:nether_wart", "minecraft:magma_cream"])
 check("brewing: missing magma cream → can't brew", BW.brew_steps({"minecraft:potion:water": 3, "minecraft:nether_wart": 1}) is None)
 _tools = [{"id": "minecraft:stone_pickaxe", "slot": 3, "damage": 120, "maxDamage": 131},
           {"id": "minecraft:stone_pickaxe", "slot": 4, "damage": 110, "maxDamage": 131},
           {"id": "minecraft:diamond_pickaxe", "slot": 5, "damage": 100, "maxDamage": 1561}]
-check("repair: two worn stone pickaxes combine", UK.repair_pair(_tools, "pickaxe") == ("minecraft:stone_pickaxe", 3, 4))
+same("repair: two worn stone pickaxes combine", UK.repair_pair(_tools, "pickaxe"), ("minecraft:stone_pickaxe", 3, 4))
 check("repair: a single tool can't", UK.repair_pair(_tools[2:], "pickaxe") is None)
 check("piglins: gold armor first, then ingots", NT.barter_ready(LInv({"minecraft:gold_ingot": 5}), [None, None, None, None])
       == "wear a piece of gold armor first"
@@ -625,14 +619,15 @@ check("recipes: golden helmet, brewing stand, glass bottles, magma cream",
 from bonobo import ui as UI  # noqa: E402
 
 _opts = [{"cost": 3}, {"cost": 12}, {"cost": 30}]
-check("enchant: best affordable option", UI.choose_enchant(_opts, 15, 3) == 1)
-check("enchant: lapis limits the button", UI.choose_enchant(_opts, 40, 1) == 0)
+same("enchant: best affordable option", UI.choose_enchant(_opts, 15, 3), 1)
+same("enchant: lapis limits the button", UI.choose_enchant(_opts, 40, 1), 0)
 check("enchant: nothing affordable", UI.choose_enchant(_opts, 2, 3) is None)
 _offers = [{"sell": "minecraft:ender_pearl", "buy": "minecraft:emerald", "buyCount": 9},
            {"sell": "minecraft:ender_pearl", "buy": "minecraft:emerald", "buyCount": 5},
            {"sell": "minecraft:ender_pearl", "buy": "minecraft:emerald", "buyCount": 3, "disabled": True},
            {"sell": "minecraft:bread", "buy": "minecraft:emerald", "buyCount": 1}]
-check("trade: cheapest enabled affordable offer", UI.choose_trade(_offers, "minecraft:ender_pearl", {"minecraft:emerald": 6}) == 1)
+same("trade: cheapest enabled affordable offer",
+     UI.choose_trade(_offers, "minecraft:ender_pearl", {"minecraft:emerald": 6}), 1)
 check("trade: can't pay → none", UI.choose_trade(_offers, "minecraft:ender_pearl", {"minecraft:emerald": 2}) is None)
 check("anvil: affordable and not too expensive", UI.anvil_ok(8, 10) and not UI.anvil_ok(12, 10) and not UI.anvil_ok(40, 50))
 _R2 = __import__("bonobo.data", fromlist=["RECIPES"]).RECIPES
@@ -667,10 +662,10 @@ class _KitInv(LInv):
         return self._head if slot == "head" else None
 
 
-check("nether kit: the real bag (4 food, no gold helmet, 35 slots) isn't ready",
-      len(nether_kit_missing(_KitInv({"minecraft:cooked_beef": 4}, 35))) == 4)   # food, blocks, helmet, room
-check("nether kit: enough food + 32 blocks + gold helmet worn + room → ready",
-      nether_kit_missing(_KitInv({"minecraft:cooked_beef": 12, "building": 40}, 28, head="minecraft:golden_helmet")) == [])
+same("nether kit: the real bag (4 food, no gold helmet, 35 slots) isn't ready",
+     len(nether_kit_missing(_KitInv({"minecraft:cooked_beef": 4}, 35))), 4)   # food, blocks, helmet, room
+same("nether kit: enough food + 32 blocks + gold helmet worn + room → ready",
+     nether_kit_missing(_KitInv({"minecraft:cooked_beef": 12, "building": 40}, 28, head="minecraft:golden_helmet")), [])
 check("nether kit: no blocks → not ready (bridges, shelter from fireballs)",
       any("blocks" in m for m in nether_kit_missing(_KitInv({"minecraft:cooked_beef": 12}, 20, head="minecraft:golden_helmet"))))
 check("nether: exploration legs stay above the lava sea", 50 <= NT.EXPLORE_Y <= 100)
@@ -695,12 +690,12 @@ from bonobo import scenarios as SC  # noqa: E402
 _tb = {}
 for ok, s in ((True, 40), (False, 90), (True, 50)):
     SC.record(_tb, "cast_obsidian", "abc", ok, s)
-check("readiness: 2 of the last 3 passed → scenario-ready, median of passes",
-      SC.status(_tb, "cast_obsidian", "abc") == ("scenario", 50))
-check("readiness: per code version (a new hash starts untested)", SC.status(_tb, "cast_obsidian", "new")[0] == "untested")
+same("readiness: 2 of the last 3 passed → scenario-ready, median of passes",
+     SC.status(_tb, "cast_obsidian", "abc"), ("scenario", 50))
+same("readiness: per code version (a new hash starts untested)", SC.status(_tb, "cast_obsidian", "new")[0], "untested")
 SC.record(_tb, "cast_obsidian", "abc", False, 99)
 SC.record(_tb, "cast_obsidian", "abc", False, 99)
-check("readiness: recent failures demote a skill", SC.status(_tb, "cast_obsidian", "abc")[0] == "failing")
+same("readiness: recent failures demote a skill", SC.status(_tb, "cast_obsidian", "abc")[0], "failing")
 check("scenarios: every scenario has setup, run, check and a budget",
       all({"setup", "run", "check", "budget", "doc"} <= set(sc) for sc in SC.SCENARIOS.values()))
 def _raises(fn):
@@ -719,34 +714,32 @@ check("scenarios: every scenario names its module and a signature",
 # Real case 03:38: every /fill answered "That position is not loaded" and the bench ran skills in natural terrain.
 _fb = ["Set the time to 1000", "No entity was found", "That position is not loaded", "Incorrect argument for command",
        "gamerule doMobSpawning false<--[HERE]", "Target has no effects to remove", "No blocks were filled"]
-check("bench: command feedback errors are caught, harmless replies aren't",
-      SC.feedback_errors(_fb) == _fb[2:5])
+same("bench: command feedback errors are caught, harmless replies aren't", SC.feedback_errors(_fb), _fb[2:5])
 _pool = {SC.at(dx, -1, dz): "lava" for dx in range(-2, 3) for dz in range(-2, 3)}
 _nat = {SC.at(3, 0, 1): "grass_block"}
 check("bench: exact signature — natural terrain in the box is a mismatch",
       not SC.setup_mismatches(_pool, [(SC.at(-2, -1, -2), SC.at(2, -1, 2), "lava", 25, 25)])
       and SC.setup_mismatches(_nat, [(SC.at(-6, 0, -6), SC.at(6, 4, 6), "*", 0, 0)]))
 from bonobo.api import NavFailed  # noqa: E402
-check("bench: failure classes", (SC.classify(SC.SetupInvalid("x"), False), SC.classify(NavFailed("x"), False),
-                                 SC.classify(ValueError("x"), False), SC.classify(None, True))
-      == ("setup", "nav", "skill", "pass"))
+same("bench: failure classes", (SC.classify(SC.SetupInvalid("x"), False), SC.classify(NavFailed("x"), False),
+                                 SC.classify(ValueError("x"), False), SC.classify(None, True)), ("setup", "nav", "skill", "pass"))
 _tb2 = {}
 for _ in range(3):
     SC.record(_tb2, "fill_water_bucket", "h", False, 0, "SETUP_INVALID", cls="setup")
 SC.record(_tb2, "fill_water_bucket", "h", True, 2, cls="pass")
 SC.record(_tb2, "fill_water_bucket", "h", True, 3, cls="pass")
 SC.record(_tb2, "fill_water_bucket", "h", False, 0, "SETUP_INVALID", cls="setup")
-check("readiness: setup/harness failures don't count against a skill",
-      SC.status(_tb2, "fill_water_bucket", "h") == ("scenario", 3))
+same("readiness: setup/harness failures don't count against a skill",
+     SC.status(_tb2, "fill_water_bucket", "h"), ("scenario", 3))
 _tv = {}
 SC.record(_tv, "s", "c", True, 1)
 check("bench: one pass is no verdict yet", SC.verdict(_tv, "s", "c") is None)
 SC.record(_tv, "s", "c", True, 1)
-check("bench: two passes → verdict, no more runs", SC.verdict(_tv, "s", "c") == "pass")
+same("bench: two passes → verdict, no more runs", SC.verdict(_tv, "s", "c"), "pass")
 SC.record(_tv, "f", "c", False, 1, cls="setup")
 SC.record(_tv, "f", "c", False, 1)
 SC.record(_tv, "f", "c", False, 1)
-check("bench: two counted fails → verdict (setup failures ignored)", SC.verdict(_tv, "f", "c") == "fail")
+same("bench: two counted fails → verdict (setup failures ignored)", SC.verdict(_tv, "f", "c"), "fail")
 # A throwaway source tree, so this tests the tag logic rather than whether a checkout of the mod happens to sit
 # next to this repository (without one, every digest collapses to the same "no sources" fallback).
 _modsrc = tempfile.mkdtemp(prefix="bonobo-modsrc-")
@@ -835,8 +828,8 @@ _near = [{"type": "minecraft:ender_dragon", "x": 0, "y": 64, "z": 0, "health": 2
          {"type": "minecraft:item", "x": 8, "y": 64, "z": 0}]
 _hz = CM.hazard_points(_near)
 _spot = CB.safe_stand(_Flat(), (9, 64, 0), _hz, (0, 0), band=(8, 12), clear=1.0)
-check("combat: hazards carry their own reach — head 8, breath 6 — and items are not hazards",
-      _hz == [((0, 64, 0), 8.0), ((5, 66, 0), 8.0), ((7, 64, 0), 6.0)], _hz)
+same("combat: hazards carry their own reach — head 8, breath 6 — and items are not hazards",
+     _hz, [((0, 64, 0), 8.0), ((5, 66, 0), 8.0), ((7, 64, 0), 6.0)])
 check("combat: standing in front of the head is inside its reach (negative margin)",
       CB.clearance((9, 64, 0), _hz) < 0, CB.clearance((9, 64, 0), _hz))
 check("combat: the wait spot clears every hazard's reach and stays inside the band",
@@ -905,9 +898,8 @@ check("end: a crystal high above us is caged, one at our level is not",
 _ender = [{"type": "minecraft:enderman", "id": 7, "x": 6, "y": 64, "z": 0, "angry": True},
           {"type": "minecraft:enderman", "id": 8, "x": 3, "y": 64, "z": 0},
           {"type": "minecraft:end_crystal", "id": 9, "x": 0, "y": 80, "z": 20}]
-check("combat: only provoked endermen count as a threat, neutral ones are left alone",
-      [e["id"] for e in CB.angry_endermen(_ender, (0, 64, 0), 16.0)] == [7],
-      [e["id"] for e in CB.angry_endermen(_ender, (0, 64, 0), 16.0)])
+same("combat: only provoked endermen count as a threat, neutral ones are left alone",
+     [e["id"] for e in CB.angry_endermen(_ender, (0, 64, 0), 16.0)], [7])
 check("combat: only an aim through an enderman's head provokes it — level or low aims are fine",
       CM.aim_hits_enderman((12, 69, 0), (0, 64, 0), _ender)          # rising line crosses the head band
       and not CM.aim_hits_enderman((12, 64, 0), (0, 64, 0), _ender)  # same direction, below the head
@@ -916,20 +908,17 @@ check("combat: the crosshair sitting on an enderman is seen (mod lookingAt)",
       CB.looking_at_enderman({"lookingAt": {"kind": "entity", "entity": 7}}, _ender)
       and not CB.looking_at_enderman({"lookingAt": {"kind": "entity", "entity": 9}}, _ender)
       and not CB.looking_at_enderman({"lookingAt": {"kind": "block"}}, _ender))
-check("combat: endermen close by are handled before the boss, nearest first",
-      [round(e["x"]) for e in CB.endermen_near(
+same("combat: endermen close by are handled before the boss, nearest first", [round(e["x"]) for e in CB.endermen_near(
           [{"type": "minecraft:enderman", "x": 4, "y": 64, "z": 0},
            {"type": "minecraft:enderman", "x": 2, "y": 64, "z": 0},
            {"type": "minecraft:enderman", "x": 30, "y": 64, "z": 0},
-           {"type": "minecraft:ender_dragon", "x": 1, "y": 64, "z": 0, "health": 200.0}], (0, 64, 0), 6.0)] == [2, 4])
-check("combat: engage holds while hurt and attacks only in an open window",
-      (CB.engage(20, True), CB.engage(20, False), CB.engage(14, True), CB.engage(8, True))
-      == ("attack", "hold", "hold", "retreat"))
+           {"type": "minecraft:ender_dragon", "x": 1, "y": 64, "z": 0, "health": 200.0}], (0, 64, 0), 6.0)], [2, 4])
+same("combat: engage holds while hurt and attacks only in an open window",
+     (CB.engage(20, True), CB.engage(20, False), CB.engage(14, True), CB.engage(8, True)), ("attack", "hold", "hold", "retreat"))
 # Real case 08:07: a 200-block trek over y 63–70 terrain (no water) bridged small dips until all 64 cobblestone were
 # gone and travel failed "no building blocks to bridge with".
-check("travel: a full bag keeps a block reserve, a small kit still gets half",
-      [nav.place_budget(n) for n in (64, 40, 33, 16, 8, 0)] == [48, 24, 17, 8, 4, 0],
-      [nav.place_budget(n) for n in (64, 40, 33, 16, 8, 0)])
+same("travel: a full bag keeps a block reserve, a small kit still gets half",
+     [nav.place_budget(n) for n in (64, 40, 33, 16, 8, 0)], [48, 24, 17, 8, 4, 0])
 # Real case 07:59: a trip kept the start's y (87) over ground at 71–79 and travel answered "no route" in 0 s.
 _col = {(5, y, 9) for y in range(40, 71)}          # solid up to y 70, open above
 check("nav: a guessed target y is moved onto the real ground of its column",
@@ -945,10 +934,9 @@ _spos = [(0, (0, 64, 0)), (1, (10, 64, 0)), (2, (4, 64, 0)), (3, (20, 64, 0))]
 _srep = SC.slice_report(_slog, _spos, (100, 64, 0), 22.4)
 check("bench: server-side entity count parsed",
       SC.server_count(["Test passed. Count: 3"]) == 3 and SC.server_count(["Test failed"]) == 0)
-check("bench: /locate reply parsed",
-      SC.locate_reply([{"cmd": "execute in minecraft:overworld run locate structure minecraft:stronghold",
-                        "reply": ["The nearest minecraft:stronghold is at [10456, ~, 9832] (484 blocks away)"]}])
-      == (10456, 9832))
+same("bench: /locate reply parsed",
+     SC.locate_reply([{"cmd": "execute in minecraft:overworld run locate structure minecraft:stronghold",
+                        "reply": ["The nearest minecraft:stronghold is at [10456, ~, 9832] (484 blocks away)"]}]), (10456, 9832))
 from bonobo import end as END  # noqa: E402
 check("dragon: perched only near the island centre (its body sits a few blocks off the pillar)",
       END.perched({"x": 1.0, "z": -2.0}) and END.perched({"x": 6.0, "z": 3.0})
@@ -1012,7 +1000,14 @@ ROADS.add_leg(_rd, (0, 70, 0), (200, 70, 0), 45.0, 2)          # a slower repeat
 check("roads: a repeated leg keeps its fastest time", len(_rd) == 1 and _rd[0]["s"] == 30.0)
 ROADS.add_leg(_rd, (0, 70, 0), (0, 70, 300), 900.0, 3)          # a terrible known leg north (a mountain tunnel)
 
+nav.building_item = _BUILDING_ITEM
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall offline checks passed")
+
+
+class Offline(unittest.TestCase):
+    def test_every_offline_check(self):
+        self.assertEqual(FAILS, [], "failed offline checks")
+
 
 if __name__ == "__main__":
     sys.exit(1 if FAILS else 0)
