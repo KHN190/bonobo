@@ -461,8 +461,5 @@ class Memory:
         self.data["night"]["missed"] = 0
         self.save()
 
-    @property
-    def nights_missed(self):
-        return self.data["night"]["missed"]
 
 

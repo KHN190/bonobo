@@ -30,9 +30,7 @@ def saves_dir(instance=None):
 
 
 def world_id(instance=None):
-    """The world being played, as `folder:created`, or None when there is no save to look at. Not `signature`:
-    `retry.signature` is the coarse world state a failure is counted against, and one name for two facts is how a
-    caller ends up asking the wrong module.
+    """The world being played, as `folder:created`, or None when there is no save to look at.
 
     Created, not modified: a world is written to constantly while it is played, so mtime says only that somebody
     is playing. Birth time is what makes "the same world as last round" a question with an answer.

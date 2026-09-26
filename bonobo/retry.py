@@ -47,12 +47,6 @@ def cause_of(err):
     return "error"
 
 
-def signature(feet, item_ids, night, bans=0, bin_size=4):
-    """Coarse world state: moving a few blocks or a new kind of item counts as a change. `bans` is accepted for
-    callers and ignored (bans expiring read as "the world changed")."""
-    return tuple(int(c) // bin_size for c in feet), frozenset(item_ids), bool(night), 0
-
-
 def place_signature(feet, night, bin_size=16):
     """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""
     return tuple(int(c) // bin_size for c in feet), bool(night)
