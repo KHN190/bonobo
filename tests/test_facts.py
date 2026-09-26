@@ -13,7 +13,6 @@ that turns a world into a state:
 
 Property-shaped and parameterised where the sweep applies, so each of these is one statement rather than a file.
 """
-import inspect
 import math
 import os
 import sys
@@ -54,14 +53,18 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
         m.note_seen(kind, pos, "minecraft:overworld")
         return actions.state_of(Snap(), m, reachable=reachable)
 
-    def test_within_reach_and_reachable_is_arrival(self):
-        self.assertEqual(self.vector(reachable=lambda kinds: True).get(actions.at("stone")), 1)
+    # (can the body get to it?, where the note is) → at:stone in the state vector
+    AT = [("within reach, reachable", True, (1, 64, 1), 1),
+          ("within reach, unreachable (the rim of a flooded pit)", False, (1, 64, 1), None),
+          ("far away, however reachable", True, (300, 64, 300), None),
+          ("far away and unreachable", False, (300, 64, 300), None),
+          ("no one asked about the route: the radius alone", None, (1, 64, 1), 1)]
 
-    def test_within_reach_but_unreachable_is_not(self):
-        self.assertIsNone(self.vector(reachable=lambda kinds: False).get(actions.at("stone")))
-
-    def test_far_away_is_not_arrival_however_reachable(self):
-        self.assertIsNone(self.vector(reachable=lambda kinds: True, pos=(300, 64, 300)).get(actions.at("stone")))
+    def test_being_at_over_the_table(self):
+        for name, reachable, pos, want in self.AT:
+            with self.subTest(name):
+                ask = None if reachable is None else (lambda kinds, _r=reachable: _r)
+                self.assertEqual(self.vector(reachable=ask, pos=pos).get(actions.at("stone")), want)
 
     def test_arriving_removes_the_walk_from_the_plan(self):
         m = mem()
@@ -78,13 +81,41 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
 # ----------------------------------------------------------------------------------- what memory is for
 
 class WhatWasWrittenDownIsReadBack(unittest.TestCase):
-    def test_the_seek_walks_to_what_memory_knows_before_exploring(self):
-        import inspect
+    # (a tree noted?, does the walk there arrive?, is a log there on arrival?) →
+    #   (went somewhere new, where it walked first, explored, the note kept, the spot banned)
+    GO_FIND = [("a noted tree, reached, still there", True, True, True, (True, (30, 64, 0), False, True, False)),
+               ("a noted tree, reached, felled since: retired, then look around", True, True, False,
+                (True, (30, 64, 0), True, False, False)),
+               ("a noted tree that cannot be reached: the route banned, the note kept", True, False, False,
+                (True, (30, 64, 0), True, True, True)),
+               ("nothing noted: look around", False, None, None, (True, None, True, False, False))]
+
+    def test_where_to_look_reads_memory_before_exploring(self):
+        from unittest import mock
         from bonobo import dispatch
-        src = inspect.getsource(dispatch.go_find)
-        known = min(i for i in (src.find("mem.seen("), src.find(".seen(")) if i >= 0)
-        for last in ("explore_for(", "seek_blocks("):
-            self.assertLess(known, src.index(last), "exploring is the last resort, after what is already known")
+        from bonobo.planner import Step
+        for name, noted, arrives, there, (want_new, want_first, want_explore, want_kept, want_ban) in self.GO_FIND:
+            with self.subTest(name):
+                m = mem()
+                if noted:
+                    m.note_seen("tree", (30, 64, 0), "minecraft:overworld")
+                ctx = skillcore.Context(m, None, "minecraft:overworld", blacklist={})
+                ctx.ban_counts = {}
+                walks = []
+
+                def arrived(pos, policy, range_=1.5, **kw):
+                    walks.append(tuple(pos))
+                    return arrives
+                with mock.patch.object(dispatch.nav, "feet_now", return_value=(0, 64, 0)), \
+                        mock.patch.object(dispatch.nav, "arrived", side_effect=arrived), \
+                        mock.patch.object(dispatch, "find", return_value=[{"x": 30}] if there else []), \
+                        mock.patch.object(dispatch.skills, "seek_blocks", return_value=[(5, 64, 5)]) as explore:
+                    got = dispatch.go_find(ctx, Step("gather", "log", 4))
+                self.assertEqual(got, want_new)
+                self.assertEqual(walks[0] if walks else None, want_first)
+                self.assertEqual(explore.called, want_explore)
+                self.assertEqual(bool(m.seen("tree", "minecraft:overworld")), want_kept)
+                self.assertEqual(ctx.blocked((30, 64, 0)), want_ban)
 
     def test_one_look_retires_one_note(self):
         """Retiring every note within a radius is how "could not find stone" survived a memory holding fourteen
@@ -97,27 +128,20 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
         left = {tuple(r["pos"]) for r in m.seen("stone", "minecraft:overworld")}
         self.assertEqual(before - left, {(10, 64, 10)}, "exactly the note we stood on, and no other")
 
-    def test_a_walk_that_failed_bans_the_route_and_keeps_the_note(self):
-        import inspect
-        from bonobo import dispatch
-        src = inspect.getsource(dispatch.go_find)
-        failed = src[src.index("for spot in spots"):src.index("FIND_AT")]
-        self.assertIn("ctx.ban(", failed, "could not get there is about the route, not about the note")
-        self.assertNotIn("confirm(", failed, "a note is retired by looking, not by failing to walk there")
 
 
 class AStationStandingThereIsOneWeHave(unittest.TestCase):
-    def test_a_furnace_within_reach_counts(self):
-        m = mem()
-        m.add_machine("furnace-1", (2, 64, 0), 0, "minecraft:overworld", ("smelting",))
-        self.assertEqual(actions.state_of(Snap(), m).get("minecraft:furnace"), 1)
+    # (where the furnace was built, in which world) → minecraft:furnace in the state vector
+    ROWS = [("two blocks away", (2, 64, 0), "minecraft:overworld", 1),
+            ("across the valley", (300, 64, 300), "minecraft:overworld", None),
+            ("two blocks away, in another world", (2, 64, 0), "minecraft:the_nether", None)]
 
-    def test_one_across_the_valley_or_in_another_world_does_not(self):
-        far, elsewhere = mem(), mem()
-        far.add_machine("furnace-1", (300, 64, 300), 0, "minecraft:overworld", ("smelting",))
-        elsewhere.add_machine("furnace-1", (2, 64, 0), 0, "minecraft:the_nether", ("smelting",))
-        self.assertIsNone(actions.state_of(Snap(), far).get("minecraft:furnace"))
-        self.assertIsNone(actions.state_of(Snap(), elsewhere).get("minecraft:furnace"))
+    def test_a_station_standing_there(self):
+        for name, pos, dim, want in self.ROWS:
+            with self.subTest(name):
+                m = mem()
+                m.add_machine("furnace-1", pos, 0, dim, ("smelting",))
+                self.assertEqual(actions.state_of(Snap(), m).get("minecraft:furnace"), want)
 
 
 # --------------------------------------------------------------------------- what the world already has made
@@ -147,12 +171,21 @@ class WhatExistsCanBeTaken(unittest.TestCase):
                                 f"{token} gives {given}, which nothing else names")
 
     def test_memory_can_see_them(self):
-        import inspect
+        """The travel scan asks for every takeable block and notes every hit (the fake answers them all, so this is
+        about what is asked and kept, not about how many one real /find returns)."""
+        from unittest import mock
         from bonobo import explore
-        self.assertIn("takeable_blocks()", inspect.getsource(explore.note_around), "the travel scan notes them")
-        scanned = set(knowledge.takeable_blocks())
+
+        def find(blocks, radius=48, limit=1):
+            return [{"x": i * 20, "y": 64, "z": 0, "block": f"minecraft:{b}"} for i, b in enumerate(blocks)]
+        m = mem()
+        with mock.patch.object(explore, "find", side_effect=find), mock.patch.object(explore, "entities",
+                                                                                      return_value=[]):
+            explore.note_around(m, "minecraft:overworld")
+        seen = {r["kind"] for r in m.data["seen"]}
         for token, row in knowledge.TAKEABLE.items():
-            self.assertTrue(set(row["blocks"]) & scanned, f"{token}: nothing in the scan ever notes it")
+            with self.subTest(token):
+                self.assertTrue(set(row["blocks"]) & seen, f"{token}: the scan never notes it")
 
     def test_near_is_taken_and_far_is_made(self):
         village = set(knowledge.TAKEABLE["bed"]["blocks"])
@@ -173,36 +206,34 @@ class GroundIsSomethingYouMake(unittest.TestCase):
         from bonobo import blueprints, building
         return building.spot_options(blueprints.SHELTER, (0, 64, 0), region, nav.Policy(), radius=radius)
 
-    def test_ready_ground_costs_nothing_and_wins(self):
-        best = self.options(flat())
-        self.assertTrue(best)
-        self.assertEqual(best[0][0], 0)
-        self.assertEqual(best[0][3], ())
-
-    def test_something_in_the_way_is_a_price(self):
+    def region(self, change):
         region = flat()
-        for y in (64, 65, 66):
-            region.blocks[(1, y, 0)] = "oak_log"
-        best = self.options(region, radius=0)
-        self.assertTrue(best)
-        self.assertGreater(best[0][0], 0)
-        self.assertTrue(any(kind == "break" for kind, _cell in best[0][3]))
+        if change == "logs":
+            for y in (64, 65, 66):
+                region.blocks[(1, y, 0)] = "oak_log"
+        elif change == "hole":
+            for x in range(0, 2):
+                del region.blocks[(x, 63, 0)]
+        elif change == "bedrock":
+            for x in range(-8, 9):
+                for z in range(-8, 9):
+                    for y in (64, 65, 66):
+                        region.blocks[(x, y, z)] = "bedrock"
+        return region
 
-    def test_a_hole_is_filled_rather_than_avoided(self):
-        region = flat()
-        for x in range(0, 2):
-            del region.blocks[(x, 63, 0)]
-        best = self.options(region, radius=0)
-        self.assertTrue(best)
-        self.assertTrue(any(kind == "fill" for kind, _cell in best[0][3]))
+    # (the ground, search radius) → the best option (price, spot, turns, work), or None when nothing is offered
+    GROUND = [("ready ground: free, no work", None, 6, (0, (0, 64, 0), 0, ())),
+              ("a trunk in the way: three breaks", "logs", 0,
+               (3, (0, 64, 0), 0, (("break", (1, 66, 0)), ("break", (1, 64, 0)), ("break", (1, 65, 0))))),
+              ("a two-block hole: filled, not avoided", "hole", 0,
+               (2, (0, 64, 0), 0, (("fill", (0, 63, 0)), ("fill", (1, 63, 0))))),
+              ("bedrock everywhere: nothing offered", "bedrock", 6, None)]
 
-    def test_what_cannot_be_broken_is_not_offered(self):
-        region = flat()
-        for x in range(-8, 9):
-            for z in range(-8, 9):
-                for y in (64, 65, 66):
-                    region.blocks[(x, y, z)] = "bedrock"
-        self.assertEqual(self.options(region), [])
+    def test_ground_over_the_table(self):
+        for name, change, radius, want in self.GROUND:
+            with self.subTest(name):
+                got = self.options(self.region(change), radius=radius)
+                self.assertEqual(got[0] if got else None, want)
 
 
 class WhatWeBuiltIsNotAResource(unittest.TestCase):
@@ -260,13 +291,6 @@ class WhatIsWorthTakingIsDecidedByPrice(unittest.TestCase):
         self.assertEqual(loot.loot_plan(self.slots(("minecraft:diamond", 1, "player")), self.PRICES, 30), [])
         self.assertEqual(loot.loot_plan(self.slots(("minecraft:mystery", 4, "chest")), self.PRICES, 30), [])
 
-    def test_no_hand_written_list_survives(self):
-        import inspect
-        self.assertNotIn("WANTED_SUFFIX", inspect.getsource(loot))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
@@ -336,3 +360,5 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         self.assertLessEqual(solve.reach_cost(table, swimming).get("footing", 1e9), cheapest + 1e-6)
 
 
+if __name__ == "__main__":
+    unittest.main()
