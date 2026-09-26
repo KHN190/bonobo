@@ -131,17 +131,27 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
 
 
 class AStationStandingThereIsOneWeHave(unittest.TestCase):
-    # (where the furnace was built, in which world) → minecraft:furnace in the state vector
-    ROWS = [("two blocks away", (2, 64, 0), "minecraft:overworld", 1),
-            ("across the valley", (300, 64, 300), "minecraft:overworld", None),
-            ("two blocks away, in another world", (2, 64, 0), "minecraft:the_nether", None)]
+    # (where the machine was built, in which world, its tags) → {station: value} it puts in the state vector
+    ROWS = [("a smelter two blocks away", (2, 64, 0), "minecraft:overworld", ("smelting",),
+             {"minecraft:furnace": 1, "minecraft:crafting_table": None}),
+            ("at the edge of reach (8 blocks)", (8, 64, 0), "minecraft:overworld", ("smelting",),
+             {"minecraft:furnace": 1}),
+            ("just past it (9 blocks)", (9, 64, 0), "minecraft:overworld", ("smelting",), {"minecraft:furnace": None}),
+            ("across the valley", (300, 64, 300), "minecraft:overworld", ("smelting",), {"minecraft:furnace": None}),
+            ("two blocks away, in another world", (2, 64, 0), "minecraft:the_nether", ("smelting",),
+             {"minecraft:furnace": None}),
+            ("a crafting machine", (3, 64, 0), "minecraft:overworld", ("crafting",),
+             {"minecraft:crafting_table": 1, "minecraft:furnace": None}),
+            ("a machine that provides no station", (2, 64, 0), "minecraft:overworld", ("storage",),
+             {"minecraft:furnace": None, "minecraft:crafting_table": None})]
 
     def test_a_station_standing_there(self):
-        for name, pos, dim, want in self.ROWS:
+        for name, pos, dim, tags, want in self.ROWS:
             with self.subTest(name):
                 m = mem()
-                m.add_machine("furnace-1", pos, 0, dim, ("smelting",))
-                self.assertEqual(actions.state_of(Snap(), m).get("minecraft:furnace"), want)
+                m.add_machine("machine-1", pos, 0, dim, tags)
+                x = actions.state_of(Snap(), m)
+                self.assertEqual({k: x.get(k) for k in want}, want)
 
 
 # --------------------------------------------------------------------------- what the world already has made
