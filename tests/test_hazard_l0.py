@@ -14,6 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tempfile  # noqa: E402
+import time  # noqa: E402
 from unittest import mock  # noqa: E402
 
 from bonobo import api, hazard, perception, retry, skills, upkeep  # noqa: E402
@@ -29,7 +30,7 @@ HAZARDS = [
     ("standing on stone, all well", {}, False, 0.0, None, None),
     ("in lava", {"inLava": True, "onFire": True, "health": 18.0}, False, 0.0, "lava", "lava"),
     ("lava edge: burning, health still high", {"onFire": True, "health": 18.0}, False, 0.0, None, None),
-    ("burning and hurt", {"onFire": True, "health": 6.0}, False, 0.0, "burning", None),
+    ("burning and hurt", {"onFire": True, "health": 6.0}, False, 0.0, "burning", "burning"),
     ("swimming, lungs full", {"inWater": True, "onGround": False, "air": 300}, False, 0.0, None, None),
     ("under water, air at the clock's zero", {"inWater": True, "onGround": False, "air": DROWN_AIR},
      False, 0.0, "drowning", "drowning"),
@@ -133,8 +134,8 @@ RESCUES = [
     ("buried: rescued", {}, True, OK, [(True, "suffocating", False)]),
     ("drowning between tasks: rescued", {"inWater": True, "onGround": False, "air": 140}, False, OK,
      [(True, "drowning", False)]),
-    ("burning: no rescue of our own, the round is not used", {"onFire": True, "health": 5.0}, False, OK,
-     [(False, None, False)]),
+    ("burning: rescued (water on it)", {"onFire": True, "health": 5.0}, False, OK, [(True, "burning", False)]),
+    ("falling: stop-only, the round is not used", {"onGround": False}, False, OK, [(False, None, False)]),
     ("nothing wrong", {}, False, OK, [(False, None, False)]),
     ("the rescue fails: /stop, and the cause cools here — the next round does not try again",
      {"inLava": True}, False, FAILS, [(True, "lava", True), (False, None, False)]),
@@ -175,37 +176,88 @@ class Rescue(unittest.TestCase):
                 api.INTERRUPT, api.MODE = None, "normal"
 
 
-# Hostiles go to the fight (fight_loop), never to L0. What each answer sends, recorded rather than sent: the batch of
-# one decision. (kind, target, the calls it makes: api.run task types / skill names)
+# The burning rescue, over what the world reads (the bag, water within 8): what it posts, or why it cannot.
+BURNING = [
+    ("a water bucket: pour it and take it back", True, [], [("run", "use_item"), ("run", "use_item")], None),
+    ("no bucket, water 5 away: step into it", False, [{"block": "minecraft:water", "x": 5, "y": 64, "z": 0,
+                                                      "distance": 5.0}], [("run", "goto")], None),
+    ("neither: says so, does not stand still", False, [], [], api.NotAvailable),
+    ("both: the bucket first", True, [{"block": "minecraft:water", "x": 5, "y": 64, "z": 0, "distance": 5.0}],
+     [("run", "use_item"), ("run", "use_item")], None),
+]
+
+
+class Burning(unittest.TestCase):
+    def test_rescue(self):
+        from bonobo import world
+        from tests.world import bag, inventory
+        for name, bucket, water, want, raises in BURNING:
+            calls = []
+            inv = inventory(("water_bucket", 1)) if bucket else inventory()
+            with self.subTest(name), \
+                    mock.patch.object(world, "Inventory", lambda data=None, _i=inv: bag(_i)), \
+                    mock.patch.object(world, "find", lambda *a, _w=water, **k: list(_w)), \
+                    mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(("post", path))), \
+                    mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"])) or
+                                      {"status": "succeeded"}):
+                if raises:
+                    with self.assertRaises(raises):
+                        hazard.RESCUE["burning"](None, state(onFire=True, health=5.0))
+                else:
+                    hazard.RESCUE["burning"](None, state(onFire=True, health=5.0))
+                self.assertEqual(calls[0], ("post", "/stop"), "the work stops first")
+                self.assertEqual(calls[1:], want)
+
+    def test_every_kind_is_rescued_or_stop_only(self):
+        for kind in hazard.KINDS:
+            with self.subTest(kind):
+                self.assertNotEqual(kind in hazard.RESCUE, kind in hazard.STOP_ONLY)
+
+
+# Hostiles go to the fight (fight_loop), never to L0. What each answer sends, recorded at the game's door (api), the
+# answer itself run for real. (kind, target, the calls it makes, or the exception it must end in)
 Decision = __import__("collections").namedtuple("Decision", "kind target")
+W = __import__("bonobo.nav", fromlist=["Walked"]).Walked
 ANSWERS = [
-    ("fight", 42, [("run", "attack")]),
+    ("fight", 42, [("post", "attack")]),
     ("evade", (10, 64, 0), [("go_to", (10, 64, 0))]),
-    ("wall_in", None, [("skill", "pod")]),
+    ("evade", "partway", [("go_to", "partway")]),            # a leg that gained ground is a move away
+    ("evade", "nowhere", api.NotAvailable),                   # no ground gained: the answer failed, and says so
     ("eat", None, [("skill", "eat")]),
     ("shield", None, [("skill", "shield_to_offhand"), ("run", "use_item")]),
     ("reshape", ("under", 2), [("run", "pillar"), ("run", "pillar")]),
     ("reshape", ("down", 2), [("mine_cell", (0, 63, 0)), ("mine_cell", (0, 62, 0))]),
+    ("wall_in", None, [("chain", 10)]),                       # pod's own command batch, posted as one chain
     ("ignore", None, []),
-    ("evade", "nowhere", api.NotAvailable),            # the walk got nowhere: the answer failed, and says so
 ]
+LEGS = {"partway": W(4.0), "nowhere": False}
 
 
 class FightHandOff(unittest.TestCase):
     def test_answer_to_calls(self):
         from bonobo import fight_loop
-        from tests.world import bag, inventory
+        from tests.world import bag, flat, inventory
         for kind, target, want in ANSWERS:
             calls = []
+            region = flat()
             with self.subTest(kind=kind, target=target), \
+                    mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(
+                        ("post", (body or {}).get("type"))) or {"id": 1}), \
                     mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"])) or
                                       {"status": "succeeded"}), \
+                    mock.patch.object(api, "run_chain", side_effect=lambda tasks, **k: calls.append(
+                        ("chain", len(tasks))) or []), \
                     mock.patch.object(fight_loop.nav, "go_to", side_effect=lambda pos, *a, **k: calls.append(
-                        ("go_to", pos)) or pos != "nowhere"), \
+                        ("go_to", pos)) or LEGS.get(pos, True)), \
                     mock.patch.object(fight_loop, "mine_cell", side_effect=lambda pol, cell, **k: calls.append(
                         ("mine_cell", cell))), \
                     mock.patch.object(fight_loop, "Inventory", lambda: bag(inventory(cobblestone=8))), \
-                    mock.patch.object(skills, "pod", side_effect=lambda ctx: calls.append(("skill", "pod"))), \
+                    mock.patch.object(skills, "feet", lambda: (0, 64, 0)), \
+                    mock.patch.object(skills, "_pod_region", lambda feet_at: region), \
+                    mock.patch.object(skills, "body_state", lambda ctx, region_=None, **k: {
+                        "state": state(), "feet": (0, 64, 0), "inv": bag(inventory(cobblestone=16)),
+                        "protected": set(), "region": region}), \
+                    mock.patch.object(skills, "enclosed", lambda: True), \
                     mock.patch.object(skills, "eat", side_effect=lambda **k: calls.append(("skill", "eat"))), \
                     mock.patch.object(skills, "shield_to_offhand",
                                       side_effect=lambda: calls.append(("skill", "shield_to_offhand"))), \
@@ -218,66 +270,83 @@ class FightHandOff(unittest.TestCase):
                 fight_loop.engage(Decision(kind, target), state(x=0.5, y=64.0, z=0.5), ctx)
                 self.assertEqual(calls, want)
 
-    # (the answer raises?, taken by the arbiter?) → (taken, failure recorded)
-    OFFERS = [(None, True, (True, {})), (api.NavFailed("cornered"), True, (True, {"failed": "NavFailed: cornered"})),
-              (None, False, (False, {})),
-              (api.NavFailed("cornered"), False, (False, {}))]     # refused: the answer never ran, nothing failed
 
-    def test_offer_takes_the_body_at_tactic(self):
-        from bonobo import fight_loop
-        for raises, taken, (want_taken, want_failure) in self.OFFERS:
-            seen = {}
+def _until(cond, s=2.0):
+    t0 = time.time()
+    while time.time() - t0 < s:
+        if cond():
+            return True
+        time.sleep(0.01)
+    return cond()
 
-            def preempt(layer, run, key, **kw):
-                seen.update(layer=layer, clear_first=kw.get("clear_first"))
-                if taken:
-                    try:
-                        run()
-                    except Exception:
-                        pass
-                return taken, None if taken else "held by a faster layer"
 
-            def answer(option):
-                if raises:
-                    raise raises
-            with self.subTest(raises=raises, taken=taken), \
-                    mock.patch.object(fight_loop.arbiter.BODY, "preempt", side_effect=preempt), \
-                    mock.patch.object(fight_loop, "ANSWER", answer):
-                got_taken, refused, failure = fight_loop.offer("opt", 10.0, "k", 0.0, lambda: True, None, 0.0)
-                self.assertEqual((got_taken, failure), (want_taken, want_failure))
-                self.assertEqual(seen, {"layer": "tactic", "clear_first": True})
-                self.assertEqual(refused is None, taken)
+# The engagement on its own thread over a real arbiter. The game side is recorded: posting a task answers at once,
+# watching it takes `watch_s` (a slow attack). (situation, events) — events: ("offer", Decision), ("preempt", layer)
+# by a faster layer, ("release",) answering stops paying, ("raise",) the next answer fails. Expected: the answers
+# posted in order, whether a /stop came between them, how the engagement ended.
+A, A2, B = Decision("fight", 1), Decision("fight", 1), Decision("fight", 2)
+ENGAGEMENTS = [
+    ("one answer, then answering stops paying: hands back", [("offer", A), ("release",)], [A], False, "handed back"),
+    ("a new answer: /stop, then the new one", [("offer", A), ("offer", B), ("release",)], [A, B], True, "handed back"),
+    ("the same answer again: appended, nothing re-posted", [("offer", A), ("offer", A2), ("release",)], [A], False,
+     "handed back"),
+    ("the answer fails: the failure is recorded, the body handed back", [("raise",), ("offer", A)], [], False,
+     "failed"),
+    ("a faster layer takes the body: the engagement ends", [("offer", A), ("preempt", "safety")], [A], False,
+     "preempted"),
+]
 
-    def test_offer_over_the_real_arbiter(self):
-        """No stub: a fresh arbiter takes the body at TACTIC, stops what runs, runs the answer on this thread."""
+
+class Engagement(unittest.TestCase):
+    def test_sequences(self):
         from bonobo import arbiter, fight_loop
-        ran, posted = [], []
-        for raises in (None, api.NavFailed("cornered")):
-            ran.clear(), posted.clear()
+        for name, events, answered, stopped, ending in ENGAGEMENTS:
+            posted, stops, stop_at, flags = [], [], [], {"raise": False, "paying": True}
+            body = arbiter.Motion()
 
             def answer(option):
-                ran.append(option)
-                if raises:
-                    raise raises
-            with self.subTest(raises=raises), mock.patch.object(fight_loop.arbiter, "BODY", arbiter.Motion()), \
-                    mock.patch.object(fight_loop, "ANSWER", answer), \
-                    mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path) or {}):
-                if raises:
-                    with self.assertRaises(type(raises)):
-                        fight_loop.offer("opt", 10.0, "k", 0.0, lambda: True, None, 0.0)
-                else:
-                    taken, refused, failure = fight_loop.offer("opt", 10.0, "k", 0.0, lambda: True, None, 0.0)
-                    self.assertEqual((taken, refused, failure), (("tactic", "k"), None, {}))
-                self.assertEqual(ran, ["opt"])
-                self.assertIn("/stop", posted, "what was running is stopped first")
-                api.INTERRUPT = None
+                if flags["raise"]:
+                    raise api.NavFailed("cornered")
+                posted.append(option)
+                return {"id": len(posted)}
 
-    def test_wired_once_wire_is_called(self):
-        from bonobo import fight_loop
-        with mock.patch.object(fight_loop, "ANSWER", None):
-            self.assertFalse(fight_loop.wired())
-            fight_loop.wire(None, lambda snap: None, {})
-            self.assertTrue(fight_loop.wired())
+            def game_get(path):
+                time.sleep(0.3)                     # the game takes its time answering: a slow attack
+                return {"status": "running"}
+
+            def post(path, body_=None):
+                if path == "/stop":
+                    stops.append(len(posted))
+                return {}
+            with self.subTest(name), mock.patch.object(fight_loop.arbiter, "BODY", body), \
+                    mock.patch.object(fight_loop, "ANSWER", answer), mock.patch.object(fight_loop, "POLL_S", 0.01), \
+                    mock.patch.object(api, "get", side_effect=game_get), mock.patch.object(api, "post", side_effect=post):
+                failure = None
+                for ev in events:
+                    if ev[0] == "raise":
+                        flags["raise"] = True
+                    elif ev[0] == "offer":
+                        t0 = time.time()
+                        taken, refused, failure = fight_loop.offer(ev[1], 10.0, "hostiles", time.time(),
+                                                                   lambda: not flags["paying"], None, time.time())
+                        self.assertLess(time.time() - t0, 0.1, "perception never waits on the fight")
+                        self.assertIsNone(refused)
+                        self.assertTrue(_until(lambda o=ev[1]: posted and fight_loop.same(posted[-1], o)
+                                               or flags["raise"]))
+                    elif ev[0] == "release":
+                        flags["paying"] = False
+                    elif ev[0] == "preempt":
+                        body.preempt(ev[1], lambda: None, "lava", release=lambda: False, now=time.time())
+                self.assertTrue(_until(lambda: fight_loop.engaged() is None), "the engagement always ends")
+                self.assertEqual(posted, answered)
+                self.assertEqual(bool([s for s in stops if 0 < s < len(posted)]), stopped)
+                if ending == "failed":
+                    self.assertEqual(failure, {"failed": "NavFailed: cornered"})
+                if ending in ("handed back", "failed"):
+                    self.assertIsNone(body.lease, "the body is handed back")
+                if ending == "preempted":
+                    self.assertEqual(body.holder().layer, "safety")
+                api.INTERRUPT = None
 
 
 if __name__ == "__main__":
