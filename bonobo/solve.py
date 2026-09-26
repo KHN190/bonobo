@@ -198,6 +198,9 @@ def reach_tree(cols, state):
     key = (_columns_key(cols), _state_key(state))
     if key in _PRICES:
         return _PRICES[key]
+    # What the key leaves out must not change the answer either: a held `bag_free` would price free slots at
+    # zero, and the cache would hand that zero to the next state that holds none.
+    state = {d: v for d, v in state.items() if not str(d).startswith(_UNPRICED)}
     cost = {d: 0.0 for d, v in state.items() if v > 0}
     via = {}
     for _ in range(len(cols) + 1):
