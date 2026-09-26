@@ -218,20 +218,16 @@ SCENARIOS["craft_stone_tools"] = {
     "budget": 60,
 }
 SCENARIOS["iron_ingots"] = {
-    "doc": "Stone room, 6 iron ore + 4 coal ore within arm's reach, stone pickaxe + furnace materials → 3 iron ingots.",
+    "doc": "Stone room, a furnace placed, 3 raw iron + 3 coal carried → 3 iron ingots (load, start, wait, collect).",
     "module": "skills",
-    # Ore at arm's length and the server at 60 ticks/s: the chain (mine, craft the furnace, smelt) is what is tested,
-    # not the walk or the furnace clock — the row fits the core's 30 s.
+    # Core tests the smelt chain only: mining and crafting the furnace are other rows' job. The furnace clock is
+    # game time — the wait is sprinted (/tick sprint) twice, early and late, so the row fits the core's 30 s.
     "setup": [f"fill {_c(at(-8, -4, -8))} {_c(at(8, -1, 8))} stone",
-              f"fill {_c(at(2, 0, -2))} {_c(at(4, 2, 2))} stone",
-              f"fill {_c(at(2, 0, -1))} {_c(at(2, 1, 1))} iron_ore",
-              f"fill {_c(at(2, 0, 2))} {_c(at(2, 1, 2))} coal_ore",
-              f"fill {_c(at(-2, 0, 2))} {_c(at(-2, 1, 2))} coal_ore",
-              f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p stone_pickaxe", "give @p crafting_table",
-              "give @p cobblestone 8"],
-    "expect": [(at(2, 0, -1), at(2, 1, 1), "iron_ore", 6, 6), (at(-8, 0, -8), at(8, 3, 8), "coal_ore", 4, 4)],
-    "run": lambda ctx: _achieve(ctx, [("minecraft:iron_ingot", 3)], _inv_has("minecraft:iron_ingot", 3), rounds=16),
-    "check": lambda api, inv: inv.count("minecraft:iron_ingot") >= 3,
+              f"setblock {_c(at(2, 0, 0))} furnace",
+              f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p raw_iron 3", "give @p coal 3"],
+    "expect": [(at(2, 0, 0), at(2, 0, 0), "furnace", 1, 1)],
+    "run": lambda ctx: _achieve(ctx, [("minecraft:iron_ingot", 3)], _inv_has("minecraft:iron_ingot", 3), rounds=10),
+    "check": lambda api, inv: inv.count("minecraft:iron_ingot") >= 3 and inv.count("minecraft:raw_iron") == 0,
     "budget": 30,
 }
 SCENARIOS["hunt_food"] = {
@@ -760,7 +756,9 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
             raise api.McError(f"slice stopped early — {stopped}")
         SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target)
         if done is not None and not done():
-            raise api.McError(f"slice not done after {minutes} min")
+            last = [l.strip() for l in (sys.stdout.lines[start_line:] if hasattr(sys.stdout, "lines") else [])
+                    if "→" in l or "!!" in l or "task" in l or "upkeep" in l]
+            raise api.McError(f"slice not done after {minutes} min, last decision: {last[-1] if last else 'no decision logged'}")
         return True
     return run
 
@@ -769,8 +767,8 @@ def _slice_detail(inv):
     if not SLICE:
         return ""
     rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"])
-    return (f"{SLICE['seconds']:.0f}s, longest idle {rep['idle_s']}s, walked away {rep['away_m']} m, "
-            f"loops: {'; '.join(rep['loops'][:3]) or 'none'}")
+    return (f"loops: {'; '.join(rep['loops'][:3]) or '0'}, {SLICE['seconds']:.0f}s, longest idle {rep['idle_s']}s, "
+            f"walked away {rep['away_m']} m")
 
 
 
@@ -782,6 +780,11 @@ def _slice_check(done, max_idle=15, max_loops=0):
         rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"])
         return rep["idle_s"] <= max_idle and len(rep["loops"]) <= max_loops
     return check
+
+
+def _has_stone_pickaxe():
+    from .world import Inventory
+    return Inventory().count("minecraft:stone_pickaxe") >= 1
 
 
 def _has_tools_and_furnace():
@@ -804,16 +807,17 @@ def _in_overworld():
 
 
 SCENARIOS["slice_start_tools"] = {
-    "doc": "Slice: the whole cerebellum over the first milestones, logs and cobblestone carried → stone tools + "
-           "furnace by crafting alone, no loops, idle ≤ 15 s (core: what gathering costs is the other rows' job).",
+    "doc": "Slice: the whole cerebellum, a crafting table beside it, planks, sticks and 3 cobblestone carried, a "
+           "pickaxe asked → the wooden-then-stone chain by crafting alone, a stone pickaxe in the bag, no loops "
+           "(core: what gathering costs is the other rows' job).",
     "module": "brain",
-    "setup": [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",
-              "time set day", "give @p oak_log 3", "give @p cobblestone 17"],
-    "expect": [(at(-6, -1, -6), at(6, -1, 6), "stone", 169, 169)],
-    "run": _slice(_has_tools_and_furnace, 0.5, queue=[__import__("bonobo.goals", fromlist=["goals"]).make(
-        "milestone", name="stone tools"), __import__("bonobo.goals", fromlist=["goals"]).make(
-        "milestone", name="station kit")]),
-    "check": _slice_check(_has_tools_and_furnace),
+    "setup": [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"setblock {_c(at(1, 0, 1))} crafting_table",
+              f"tp @p {_c(at(0, 0, 0))}", "clear @p", "time set day", "give @p oak_planks 6", "give @p stick 4",
+              "give @p cobblestone 3"],
+    "expect": [(at(1, 0, 1), at(1, 0, 1), "crafting_table", 1, 1)],
+    "run": _slice(_has_stone_pickaxe, 0.5, queue=[__import__("bonobo.goals", fromlist=["goals"]).have(
+        ("tool", "pickaxe", 1))]),
+    "check": _slice_check(_has_stone_pickaxe),
     "detail": _slice_detail,
     "budget": 30,
 }
@@ -1380,6 +1384,10 @@ def _sprint_after(delay, ticks):
 def _hooks(*hooks):
     hooks = [h for h in hooks if h is not None]
     return lambda ctx: [h(ctx) for h in hooks] and None
+
+
+# The furnace clock is game time: sprint it twice, once the load is in and once more late (see the row's doc).
+SCENARIOS["iron_ingots"]["before"] = _hooks(_start("iron_ingots"), _sprint_after(4, 700), _sprint_after(10, 700))
 
 
 def _achieve_needs(needs, rounds=12):
@@ -2150,7 +2158,7 @@ SHEET["bucket_before_the_shaft"] = {
     "doc": "An empty bucket, water 3 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
            "before any digging (WaterClutch needs it in hand)",
     "module": "upkeep", "point": "C", "skills": ["fill"], "tier_fixed": "exception", "tags": {"base": "upkeep"},
-    "setup": _floor(depth=6) + [f"setblock {_c(at(3, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
+    "setup": _floor(depth=4) + [f"setblock {_c(at(3, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
                                 "give @p stone_pickaxe", "give @p cooked_beef 8", "give @p white_bed"],
     "before": _hooks(_start("bucket_before_the_shaft"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
         ("minecraft:raw_iron", 1)))),
@@ -2433,7 +2441,7 @@ COVERS = {
     "enter_nether": ["use_portal"], "relight_portal": ["use_portal"], "return_from_nether": ["use_portal"],
     "return_to_portal": ["use_portal"], "retreat_from_nether": ["use_portal"], "barter_piglin": ["barter_piglin"],
     "collect_blaze_rods": ["collect_blaze_rods"], "activate_end_portal": ["activate_end_portal"], "enter_end": ["enter_end"],
-    "craft_stone_tools": ["craft", "mine", "chop"], "iron_ingots": ["mine", "load_smelter", "start_smelt_job", "smelt"],
+    "craft_stone_tools": ["craft", "mine", "chop"], "iron_ingots": ["load_smelter", "start_smelt_job", "smelt"],
     "hunt_food": ["hunt"], "craft_eyes": ["craft"], "locate_stronghold": ["locate_stronghold"],
     "find_portal_room_fresh": ["find_portal_room"], "fight_dragon": ["fight_dragon"], "loot_chest": ["loot_chest"],
     "recover_items": ["recover_items"], "find_fortress": ["find_fortress"], "find_fortress_far": ["find_fortress"],

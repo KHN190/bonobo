@@ -286,10 +286,10 @@ class Readings:
                "combat")
 
     def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=(), items=(),
-                 obsidian=0, cast=None, mobs=()):
+                 lit=False, cast=None, mobs=()):
         self.inv, self.feet, self.st, self.found = inv or inventory(), feet, st or state(), list(found)
-        self.enclosed, self.spots, self.items, self.obsidian = enclosed, list(spots), list(items), obsidian
-        self.cast = cast or {}          # what the pour remembered (fluids._CAST): where, and what stood there before
+        self.enclosed, self.spots, self.items, self.lit = enclosed, list(spots), list(items), lit
+        self.cast = cast or {}          # where the portal was cast (building._CAST); `lit`: a portal block stands there
         self.mobs = list(mobs)          # what /entities answers where a module asks it by name
 
     def patches(self):
@@ -303,10 +303,10 @@ class Readings:
         for mod in self.MODULES:
             m = importlib.import_module(f"bonobo.{mod}")
             out += [mock.patch.object(m, name, fn) for name, fn in values.items() if hasattr(m, name)]
-        from bonobo import fluids, world
+        from bonobo import building, fluids, world
         out += [mock.patch.object(world, "entities", lambda *a, **k: list(self.items)),
-                mock.patch.object(fluids, "_obsidian_near", lambda pos, radius=8: self.obsidian),
-                mock.patch.dict(fluids._CAST, self.cast, clear=True)]
+                mock.patch.object(fluids, "portal_lit", lambda origin: self.lit and tuple(origin) == (0, 64, 0)),
+                mock.patch.dict(building._CAST, self.cast, clear=True)]
         return out
 
 
@@ -386,12 +386,11 @@ PRODUCTS += [
      (6, 64, 0), None, False),
     ("recover: picked up, nothing left", "recover_items", (_died_at((6, 64, 0), True),), R(), R(), (6, 64, 0), None,
      True),
-    ("cast obsidian: no new obsidian", "cast_obsidian", (None,), R(), R(cast={"bank": (0, 64, 0), "before": 0}),
-     None, None, False),
-    ("cast obsidian: obsidian that was already there is not ours", "cast_obsidian", (None,), R(),
-     R(obsidian=5, cast={"bank": (0, 64, 0), "before": 5}), None, None, False),
-    ("cast obsidian: the pool turned", "cast_obsidian", (None,), R(),
-     R(obsidian=14, cast={"bank": (0, 64, 0), "before": 5}), None, None, True),
+    ("cast portal: nothing cast yet", "cast_portal", (), R(), R(lit=True), None, None, False),
+    ("cast portal: cast, not lit", "cast_portal", (), R(), R(cast={"origin": (0, 64, 0)}), None, None, False),
+    ("cast portal: lit elsewhere is not this frame", "cast_portal", (), R(),
+     R(lit=True, cast={"origin": (5, 64, 0)}), None, None, False),
+    ("cast portal: cast and lit", "cast_portal", (), R(), R(lit=True, cast={"origin": (0, 64, 0)}), None, None, True),
     ("search for mobs: found none", "explore_for", (None, ["minecraft:sheep"]), R(), R(feet=(80, 30, 0)), None, None,
      False),
     ("search for mobs: found", "explore_for", (None, ["minecraft:sheep"]), R(), R(), (20, 64, 3), None, True),
@@ -904,3 +903,65 @@ class Commands(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortalCast(unittest.TestCase):
+    """fluids.cast_frame_plan / mould_to_break: the pure plan building.cast_portal executes (frame at (0,64,0),
+    along z: corners stone at y64/y68, obsidian between)."""
+    ORIGIN = (0, 64, 0)
+
+    def plan(self, solid):
+        from bonobo import blueprints, fluids
+        return fluids.cast_frame_plan(blueprints.NETHER_PORTAL, self.ORIGIN, 1, solid)
+
+    def test_frame_plan(self):
+        rows = [
+            ("open air: first cell walled on its 3 open sides + below", lambda c: False,
+             0, ((0, 64, 1), [(1, 64, 1), (-1, 64, 1), (0, 64, 2), (0, 63, 1)]), 10),
+            ("the corner below is part of the frame: never mould", lambda c: False,
+             2, ((0, 65, 0), [(1, 65, 0), (-1, 65, 0), (0, 65, 1), (0, 65, -1)]), 10),
+            ("a solid neighbour needs no mould", lambda c: c == (1, 64, 1),
+             0, ((0, 64, 1), [(-1, 64, 1), (0, 64, 2), (0, 63, 1)]), 10),
+            ("the cell cast before is no mould for the next", lambda c: False,
+             1, ((0, 64, 2), [(1, 64, 2), (-1, 64, 2), (0, 63, 2)]), 10),
+            ("all solid around: no mould at all", lambda c: True, 0, ((0, 64, 1), []), 10),
+        ]
+        for name, solid, i, step, n in rows:
+            with self.subTest(name):
+                out = self.plan(solid)
+                self.assertEqual((out[i], len(out)), (step, n))
+                self.assertEqual([c[1] for c, _ in out], sorted(c[1] for c, _ in out))   # bottom-up
+
+    def test_mould_to_break(self):
+        from bonobo import blueprints, fluids
+        rows = [
+            ("inside the frame: the portal needs the air", [(0, 65, 1)], [(0, 65, 1)]),
+            ("on a frame cell still to be cast", [(0, 64, 2)], [(0, 64, 2)]),
+            ("outside the frame stays", [(1, 64, 1), (0, 63, 1)], []),
+            ("mixed: only the in-frame ones", [(1, 64, 1), (0, 66, 2), (0, 68, 1)], [(0, 66, 2), (0, 68, 1)]),
+            ("none placed", [], []),
+        ]
+        for name, placed, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fluids.mould_to_break(blueprints.NETHER_PORTAL, self.ORIGIN, 1, placed), want)
+
+    def test_lava_bucket(self):
+        from bonobo import fluids
+        from bonobo.api import NotAvailable
+        rows = [
+            ("already carried: nothing to do", {"minecraft:lava_bucket": 1}, None),
+            ("no bucket: fails with the reason", {}, "no bucket for lava"),
+            ("bucket, no lava in reach: fails with the reason", {"minecraft:bucket": 1}, "no lava source within reach"),
+            ("bucket, lava only elsewhere: same", {"minecraft:bucket": 1, "minecraft:water_bucket": 1},
+             "no lava source within reach"),
+        ]
+        for name, items, reason in rows:
+            with self.subTest(name):
+                inv = bag(inventory(*items.items()))
+                with mock.patch.object(fluids, "Inventory", lambda data=None: inv), \
+                        mock.patch.object(fluids, "find", lambda *a, **k: []):
+                    if reason is None:
+                        self.assertIsNone(fluids._lava_bucket(None, (0, 64, 0)))
+                    else:
+                        with self.assertRaisesRegex(NotAvailable, reason):
+                            fluids._lava_bucket(None, (0, 64, 0))

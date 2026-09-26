@@ -485,12 +485,6 @@ for _x in range(-8, 9):
         _pool[(_x, 59, _z)] = "stone"
         _pool[(_x, 60, _z)] = "lava" if 0 <= _x <= 3 and 0 <= _z <= 3 else "stone"
 _pr = FakeRegion(_pool, (-8, 55, -8), (8, 66, 8))
-_plan = FL.pour_plan(_pr, (-6, 61, 1))
-check("portal: pour plan finds a bank next to the pool", _plan is not None and _pr.name(_plan[1]) == "stone"
-      and _plan[1][1] == 60 and _plan[2] >= 4, _plan)
-check("portal: pour stand keeps 3+ blocks from lava", _plan is not None and not FL.lava_within(_pr, _plan[0], 2), _plan)
-check("portal: no lava → no pour plan",
-      FL.pour_plan(FakeRegion({p: "stone" for p in _pool}, (-8, 55, -8), (8, 66, 8)), (0, 61, 0)) is None)
 _lake = {(_x, 60, _z): ("water" if _x >= 2 else "stone") for _x in range(-4, 6) for _z in range(-3, 4)}
 _lake.update({(_x, 59, _z): "stone" for _x in range(-4, 6) for _z in range(-3, 4)})
 _fs = FL.fill_spot(FakeRegion(_lake, (-4, 55, -3), (5, 64, 3)), (-3, 61, 0))
