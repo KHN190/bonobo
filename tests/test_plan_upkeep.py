@@ -180,6 +180,77 @@ class Cheaper(unittest.TestCase):
                 self.assertEqual(prefs, sorted(prefs, reverse=True))
 
 
+# -------------------------------------------------------------------------------------------------- the cost model
+from bonobo import cost as costmod  # noqa: E402
+from bonobo.planner import Step  # noqa: E402
+
+PT, WT = costmod.PRIOR_TICKS, costmod.walk_ticks
+UNDER = state(skyLight=0, y=20.0)
+# (situation, step, /state, what /find saw, ticks expected: prior work + the walk to it)
+ESTIMATES = [
+    ("craft: work only", Step("craft", "minecraft:stick", 4), None, {}, PT["craft"]),
+    ("smelt 3: each + setup", Step("smelt", "minecraft:iron_ingot", 3), None, {}, 3 * PT["smelt_each"] + PT["smelt_setup"]),
+    ("mine 4 breaks, ore 10 away", Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4}), None,
+     {"iron_ore": 10}, 4 * PT["mine_each"] + WT(10)),
+    ("mine, nothing in sight", Step("mine", "minecraft:raw_iron", 4, {"blocks": ["iron_ore"], "breaks": 4}), None, {},
+     4 * PT["mine_each"] + costmod.UNKNOWN_WALK_TICKS),
+    ("gather 2, a tree 8 away", Step("gather", "log", 2), None, {"oak_log": 8}, 2 * PT["gather_each"] + WT(8)),
+    ("gather underground: the climb out is part of it", Step("gather", "log", 2), UNDER, {"oak_log": 8},
+     2 * PT["gather_each"] + WT(8) + 200 + 30 * (64 - 20)),
+    ("hunt 2 kills, cows 12 away", Step("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2}), None,
+     {"cow": 12}, 2 * PT["hunt_each"] + WT(12)),
+    ("goto 30 blocks", Step("goto", "pos", 1, {"pos": [30, 64, 0]}), None, {}, WT(30)),
+    ("withdraw from a chest 5 away", Step("withdraw", "minecraft:oak_log", 4, {"pos": [5, 64, 0]}), None, {},
+     PT["withdraw"] + WT(5)),
+    ("fill with no water known", Step("fill", "minecraft:water_bucket", 1), None, {}, PT["fill"] + 1200),
+    ("sleep", Step("sleep", "bed", 1), None, {}, PT["sleep"]),
+]
+
+
+class CostModel(unittest.TestCase):
+    def test_estimates(self):
+        for name, step, st, seen, want in ESTIMATES:
+            with self.subTest(name):
+                self.assertEqual(cost(snapshot(st), **seen).estimate(step), want)
+
+    def test_measured_replaces_the_prior_after_enough_samples(self):
+        step = Step("gather", "log", 2)
+        for samples, measured in ((skillkit.MIN_SAMPLES - 1, False), (skillkit.MIN_SAMPLES, True)):
+            with self.subTest(samples=samples), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                for _ in range(samples):
+                    m.record_duration("chop", 10.0, 1)
+                got = cost(snapshot(), mem=m, oak_log=8).estimate(step)
+                self.assertEqual(got, (2 * 10 * costmod.TICKS_PER_S if measured else 2 * PT["gather_each"]) + WT(8))
+
+    # (situation, what memory has / /find saw, is a station near?)
+    STATIONS = [("a table in sight 4 away", None, {"crafting_table": 4}, True),
+                ("a table in sight 9 away", None, {"crafting_table": 9}, False),
+                ("a table memory keeps 3 away", ((3, 64, 0),), {}, True),
+                ("a table memory keeps 30 away", ((30, 64, 0),), {}, False),
+                ("nothing", None, {}, False)]
+
+    def test_station_near(self):
+        for name, stations, seen, want in self.STATIONS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                for pos in stations or ():
+                    m.add_station("minecraft:crafting_table", pos, OVER)
+                self.assertEqual(cost(snapshot(), mem=m, **seen).station_near("minecraft:crafting_table"), want)
+
+    # (situation, known distance or None) → seconds the column solver prices a seek at
+    SEEKS = [("never seen: the declared prior", None, None), ("40 blocks away", 40.0, WT(40) / 20 + 2.0),
+             ("right here", 0.0, 2.0)]
+
+    def test_seek_seconds(self):
+        prior = float(costmod._PLAY["plan"]["seek_prior_s"])
+        for name, known, want in self.SEEKS:
+            with self.subTest(name):
+                c = costmod.Cost(None, known=lambda kinds, d=known: d)
+                self.assertAlmostEqual(c.seek_s(["stone"]), round(want if want is not None else prior, 1), places=1)
+                self.assertEqual(c.find_p(["stone"]), float(costmod._PLAY["plan"]["exists_prior"]))
+
+
 def stone_tools(worn=0):
     return inventory(slot("stone_pickaxe", 1, worn), ("stone_sword", 1), ("stone_axe", 1), ("crafting_table", 1),
                      ("furnace", 1))
