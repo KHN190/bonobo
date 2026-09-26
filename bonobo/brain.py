@@ -900,28 +900,25 @@ class Brain:
         mem = getattr(self, "mem", None)
         if mem is not None:
             mem.record_outcome(name, False)
-        # The same wall, told once. A body treading water fails to dig, to place, to build and to shelter — four
-        # failures, one fact — and each used to cool its own candidate for two minutes while the next queued up to
-        # discover it again. The REASON is cooled too, here, against this place: whoever asks next is told what
-        # happened rather than repeating it. Nothing is banned; the hold lasts as long as the reason does.
-        self.retry.failed(f"cause:{cause}@{self.place}", cause, str(err), self.sig, now, self.place)
-        n, wait, worth_logging = self.retry.failed(name, cause, str(err), self.sig, now, self.place)
-        if cause == "tool" and n < 3:
-            self.retry.cap(name, 0, now)   # the tool goal runs next round; retry right after it
+        # The same wall, told once: the count is this task's, for this cause; the cooldown is the CAUSE's, at this
+        # place (retry.py), so every task that would walk into the same wall waits for it together.
+        verdict = self.retry.failed(name, cause, str(err), now, self.place)
+        if verdict is None:
+            return
+        n, wait = verdict.n, verdict.wait
+        if cause == "tool" and n < retry.SOURCES_TRIED:
+            self.retry.cap(name, 0, now, self.place)   # the tool goal runs next round; retry right after it
             wait = 0
-        if worth_logging:
+        if verdict.worth_logging:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
-                f"({cause}, ×{n} here; retry on change or in {wait}s)")
+                f"({cause}, ×{n}; {cause} cools here for {wait}s)")
+        if verdict.escalate:
+            log(f"?? {name}: gave up after {n} sources ({cause}: {err})")
 
     def ready(self, name, cause=None):
         """Is this worth trying now? Its own cooldown, and — when the caller knows what would stop it — the
         cooldown on that REASON: eight candidates that would all fail for the same reason ask once between them."""
-        now = time.time()
-        if not self.retry.ready(name, self.sig, now, self.place):
-            return False
-        if cause and not self.retry.ready(f"cause:{cause}@{self.place}", self.sig, now, self.place):
-            return False
-        return True
+        return self.retry.ready(name, time.time(), self.place, cause)
 
     def escalate(self, kind, what):
         """A macro problem (stalled progress, every rescue exhausted), not a single failure: one `?? STALL` line per
@@ -1090,7 +1087,7 @@ class Brain:
         self.committed_pos = getattr(pick, "goes_to", None)
         bag.RESERVED = bag.RESERVED | pick.reserve   # the running plan's items too (a food-stock hunt threw its meat)
         # Failures cool down this candidate's key only (a goal's current step); everything else stays available.
-        before = self.retry.entries.get(pick.key, {}).get("since")
+        before = self.retry.last_failure(pick.key)
         # What this candidate was PRICED at, if it was priced by an expected yield, and what the bag was worth
         # before it ran. Together they are the measurement that outgrows the declared prior (`memory.yield_rate`).
         expected_s = self.yield_worth_s(pick.name, snap) if hasattr(snap, "inv") else 0.0
@@ -1111,7 +1108,7 @@ class Brain:
             log(f"   {e}")
         self.note_walk_of(ran_from, ran_at, pick)
         self.note_yield_of(pick.name, expected_s, worth_before)
-        after = self.retry.entries.get(pick.key, {}).get("since")
+        after = self.retry.last_failure(pick.key)
         if after is not None and after != before:
             self.recent_fail = (pick.name, time.time())
 
@@ -2512,7 +2509,7 @@ class Brain:
                 # Retry soon: a half-built wall still leaves us exposed.
                 log(f"?? exposed at night, wall-in failed: {e2}")
                 self.failed("shelter", e2)
-                self.retry.cap("shelter", 20, time.time())
+                self.retry.cap("shelter", 20, time.time(), self.place)
         return True
 
     # -- Claude's directives (directives.py): above normal goals, below survival
@@ -2596,7 +2593,7 @@ class Brain:
             with open(TRACK_FILE, "a") as f:
                 bans = sum(1 for exp in self.blacklist.values() if exp > now)
                 f.write(json.dumps({"t": int(now), "pos": list(snap.feet), "done": sorted(done), "bans": bans,
-                                    "cooling": sorted(k for k, e in self.retry.entries.items() if e["until"] > now)[:12]})
+                                    "cooling": self.retry.cooling_now(now)[:12]})
                         + "\n")
         except OSError:
             pass
@@ -2965,7 +2962,7 @@ class Brain:
             return self._attempt(name, fn)
         finally:
             if cooldown is not None:
-                self.retry.cap(name, cooldown, time.time())
+                self.retry.cap(name, cooldown, time.time(), self.place)
 
     def _attempt(self, name, fn):
         before = progress_signature()

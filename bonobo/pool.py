@@ -126,9 +126,9 @@ def admit(c, ctx, weight_for, allowed, exhausted_after):
     # goals, one unreachable furnace. The shared "step:<kind>:<token>" key is already recorded; this reads it.
     if c.kind != "fallback" and "/" in c.key:
         shared = "step:" + c.key.split("/", 1)[1]
-        if ctx.retry.exhausted(shared, ctx.sig, ctx.place):
+        if ctx.retry.exhausted(shared):
             return Refusal("exhausted", f"exhausted here ({shared}); needs another method or a changed state")
-    if c.kind != "fallback" and ctx.retry.exhausted(c.key, ctx.sig, ctx.place):
+    if c.kind != "fallback" and ctx.retry.exhausted(c.key):
         return Refusal("exhausted", f"exhausted here ({c.key}); needs another method or a changed state")
     c.weight = w
     return None
