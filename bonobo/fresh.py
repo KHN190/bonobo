@@ -3,7 +3,7 @@
 Everything the agent remembers about a place — sites and their structure snapshots, the task queue, the round
 tape — is about ONE save. Nothing in the data directory said which, so a new world
 inherited the old one's memory: the agent walked five hundred blocks to repair a shelter from a world that no
-longer existed, and the pool scored that walk against mining because both were just numbers.
+longer existed, because nothing said the site belonged to another save.
 
 The mod does not report a world id, so the save itself is the signature: the newest world folder under the
 instance's `saves`, named by its folder and when it was created. What survives a change of world is what is not
@@ -21,9 +21,7 @@ FILE = paths.data("world.json", env="MC_WORLD")
 # agent has measured about mobs and itself, the logs are the record of what happened, and neither is a place.
 # `handover.json` is NOT here: who is driving the body is a live control, not a memory of a place. Wiping it on
 # every restart handed the agent back its own layers in the middle of a takeover.
-WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "readiness.json", "rounds.jsonl", "track.jsonl",
-                # left behind by the scored planner; dropped with the rest of a world
-                "directives.json", "wants.json", "priorities.json", "route.json", "decisions.jsonl", "ranking.jsonl")
+WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "rounds.jsonl", "tape-mem", "track.jsonl")
 
 
 def saves_dir(instance=None):
@@ -75,7 +73,11 @@ def drop(names=WORLD_SCOPED):
     for name in names:
         path = paths.data(name)
         try:
-            os.remove(path)
+            if os.path.isdir(path):
+                import shutil
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
             gone.append(name)
         except OSError:
             pass
@@ -86,9 +88,9 @@ def check(instance=None, always=True):
     """(world, dropped): the world being played, and the place-memory dropped before it starts.
 
     A restart is a new agent (user, 2026-09-18): it keeps the logs and `beliefs.jsonl` — what it has MEASURED,
-    which is about mobs and about itself, not about a place — and nothing else. Sites, directives, wants, routes
-    and the decision tape are all about one save, and carrying them over is how a five-hundred-block walk to
-    repair a shelter from a dead world outscored mining.
+    which is about mobs and about itself, not about a place — and nothing else. Sites, seen things, the task queue
+    and the round tape are all about one save, and carrying them over is how a five-hundred-block walk to repair
+    a shelter from a dead world got planned.
 
     `always=False` falls back to dropping only when the world itself changed, for a caller that wants continuity.
     """

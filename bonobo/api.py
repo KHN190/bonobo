@@ -160,7 +160,7 @@ def roll(path, max_bytes):
 
 
 def detail(*parts):
-    """The working-out: rankings, refusals, every task result, look-ahead. Always written, never to the console.
+    """The working-out: plans, refusals, every task result, look-ahead. Always written, never to the console.
 
     A separate function rather than a level argument. A level has to be judged at each call site, which is one more
     human decision to get wrong and no way to see that it was; calling the wrong function shows up when you read

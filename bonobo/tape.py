@@ -18,7 +18,7 @@ import time
 from . import paths
 
 FILE = paths.data("rounds.jsonl", env="MC_TAPE")
-MEM_DIR = paths.data("decisions-mem")
+MEM_DIR = paths.data("tape-mem")         # memory snapshots the rounds point at (by hash)
 MAX_BYTES = 2 * 1024 * 1024        # one file, 2 MB: the newest rounds are kept, older ones dropped
 MIN_GAP_S = 20          # a quiet round with the same act as the last is recorded at most every 20 s
 

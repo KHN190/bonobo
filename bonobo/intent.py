@@ -38,17 +38,6 @@ def clear(*layers):
         _state.pop(layer, None)
 
 
-def goal(pick, pool):
-    """The pool's pick, for the screen: what it means to do and why. Scores stay in the log and ranking.jsonl —
-    on screen a number is noise, and the reason is the thing the task line could not say."""
-    ranked = sorted(pool, key=lambda c: c.score, reverse=True)
-    set("goal", f"{pick.name}{' — ' + pick.detail if pick.detail and pick.kind != 'goal' else ''}")
-    if pick.kind == "goal" and pick.detail:
-        set("step", f"next: {pick.detail}")
-    others = [c.name for c in ranked if c is not pick][:2]
-    set("alternatives", "else: " + ", ".join(others) if others else "")
-
-
 def lines():
     """Two lines, and only two: what the agent is doing, and what it does next.
 

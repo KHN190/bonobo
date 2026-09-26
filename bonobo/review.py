@@ -73,32 +73,25 @@ def macro(track, minutes, now):
     return "\n".join(lines)
 
 
-RANKING = paths.data("ranking.jsonl")
-
-
-def rankings(entries, minutes, now):
-    """Pure: from ranking.jsonl entries, what was picked in the window and which valuable candidates kept losing
-    (ranked or filtered, never picked) with their most common reason — what Claude tunes priorities.json with."""
-    window = [e for e in entries if e["t"] >= now - minutes * 60]
+def plans(rows, minutes, now):
+    """Pure: from round-tape rows (tape.py), each task's latest plan in the window and how often its steps failed
+    or were interrupted — what Claude reads to see whether the queue is moving."""
+    window = [r for r in rows if r.get("t", 0) >= now - minutes * 60 and r.get("task")]
     if not window:
-        return "- no ranking data"
-    picks = collections.Counter(e["pick"] for e in window)
-    lines = ["- picked: " + ", ".join(f"{n}×{c}" for n, c in picks.most_common(6))]
-    losing = collections.Counter()
-    reasons = collections.defaultdict(collections.Counter)
-    for e in window:
-        for name, _, base in e.get("top", []):
-            if name != e["pick"]:
-                losing[name] += 1
-                reasons[name]["outscored"] += 1
-        for name, why in e.get("filtered", {}).items():
-            losing[name] += 1
-            reasons[name][why] += 1
-    starved = [(n, c) for n, c in losing.most_common() if n not in picks][:5]
-    if starved:
-        lines.append("- never picked: " + "; ".join(
-            f"{n} ({c}×, mostly {reasons[n].most_common(1)[0][0]})" for n, c in starved))
-    return "\n".join(lines)
+        return "- no rounds on the tape"
+    latest, trouble = {}, collections.Counter()
+    for r in window:
+        key = r["task"].get("id")
+        latest[key] = (r["task"], r.get("plan") or [])
+        for ev in r.get("events") or ():
+            if ev.get("outcome") in ("failed", "interrupted"):
+                trouble[(key, ev["outcome"])] += 1
+    out = []
+    for key, (task, plan) in latest.items():
+        bad = ", ".join(f"{w} ×{n}" for (k, w), n in trouble.items() if k == key)
+        out.append(f"- {key} {task.get('goal')} {task.get('args')}: {' → '.join(plan[:4]) or 'no plan'}"
+                   + (f" ({bad})" if bad else ""))
+    return "\n".join(out)
 
 
 def repeated(entries, at_least=5):
@@ -146,9 +139,10 @@ def packet(minutes=5, state=None, inventory=None, memory=None, lines=None):
     try:
         import json
         import time
-        with open(RANKING) as f:
-            ranks = [json.loads(line) for line in f.readlines()[-2000:]]
-        out.append("## Priorities (last 30 min)\n" + rankings(ranks, 30, time.time()))
+        from . import tape
+        with open(tape.FILE) as f:
+            rows = [json.loads(line) for line in f.readlines()[-2000:]]
+        out.append("## Plans (last 30 min)\n" + plans(rows, 30, time.time()))
     except (OSError, ValueError):
         pass
     out.append("## Goals chosen\n" + ("\n".join(f"- {n}× {g}" for g, n in s["goals"].most_common(8)) or "- none"))
