@@ -1044,6 +1044,45 @@ QUEUE = [
 ]
 
 
+# goals as data: parse (command line) → need; (bag, needs) → what is short; goal → its one-line description.
+PARSE = [(("tool:pickaxe:2",), ["tool", "pickaxe", 2]), (("minecraft:torch", "24"), ["minecraft:torch", 24]),
+         (("log",), ["log", 1])]
+SHORT = [
+    ("nothing asked", inventory(), [], ""),
+    ("held", inventory(("oak_log", 4)), [("log", 4)], ""),
+    ("short of logs", inventory(("oak_log", 1)), [("log", 4)], "log 1/4"),
+    ("a worn tool is not a tool", inventory(slot("stone_pickaxe", 1, 125)), [("tool", "pickaxe", 1)], "pickaxe tier 1"),
+    ("a better tool does", inventory(("iron_pickaxe", 1)), [("tool", "pickaxe", 1)], ""),
+    ("food counts cooked meals only", inventory(("beef", 8), ("cooked_beef", 2)), [("food", 8)], "food 2/8"),
+    ("two short, both said", inventory(), [("log", 2), ("minecraft:torch", 3)], "log 0/2, torch 0/3"),
+]
+DESCRIBE = [(goals.have(("minecraft:torch", 24), ("tool", "pickaxe", 2)), "have torch×24, pickaxe tier 2"),
+            (goals.make("milestone", name="food"), "milestone food"), (goals.make("goto", pos=[1, 2, 3]), "goto (1, 2, 3)"),
+            (goals.make("road", a=[0, 0, 0], b=[5, 0, 0]), "road (0, 0, 0) → (5, 0, 0)"),
+            (goals.make("build", bp="shelter"), "build shelter"), (goals.make("sleep"), "sleep"),
+            (goals.make("skill", name="chop", args=[4]), "skill chop [4]")]
+
+
+class GoalsAsData(unittest.TestCase):
+    def test_parse(self):
+        for args, want in PARSE:
+            with self.subTest(args):
+                self.assertEqual(goals.parse_need(*args), want)
+
+    def test_short(self):
+        for name, inv, needs, want in SHORT:
+            with self.subTest(name):
+                self.assertEqual(goals.short(bag(inv), needs), want)
+
+    def test_describe_and_round_trip(self):
+        for goal, want in DESCRIBE:
+            with self.subTest(want), tempfile.TemporaryDirectory() as tmp:
+                self.assertEqual(goals.describe(goal), want)
+                t = tasks.add(goal, path=os.path.join(tmp, "t.json"))
+                self.assertEqual(tasks.goal_of(t), goal)
+                self.assertTrue(tasks.describe(t).startswith(f"{t['id']} [pending] {want}"))
+
+
 class Queue(unittest.TestCase):
     def test_operation_sequences(self):
         for name, ops, want, head in QUEUE:
