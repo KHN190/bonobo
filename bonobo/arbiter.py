@@ -271,6 +271,23 @@ class Motion:
     def current(self):
         return getattr(self._local, "current", None)
 
+    def carry(self, intent, action):
+        """Run `action` on THIS thread as `intent`: a held decision handed to a worker thread keeps the ownership
+        (`owns`) of the thread that took it. The fight answers on its own thread so perception never waits on it."""
+        prev = getattr(self._local, "current", None)
+        self._local.current = intent
+        try:
+            return action()
+        finally:
+            self._local.current = prev
+
+    def hand_back(self, intent):
+        """The decision `intent` is over: drop its lease if it still holds one, so the plan drives again."""
+        with self._lock:
+            if self.lease is not None and self.lease[0] is intent:
+                self.lease = None
+                self._log(f"   motion: {intent.layer} '{intent.reason}' hands the body back")
+
     def holder(self):
         """The decision currently held by the body, or None.
 
