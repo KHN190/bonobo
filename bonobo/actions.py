@@ -21,10 +21,9 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 """
 import math
 
-from .data import COVERED_SKY, GROUPS, bare, mid, seen_class
+from .data import COVERED_SKY, GROUPS, TOOL_MATERIAL_FOR_TIER, bare, mid, seen_class
 from .beliefs import CONFIG as _PLAY
-from .knowledge import (GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE,
-                        TOOL_MATERIAL_FOR_TIER)
+from .knowledge import GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate

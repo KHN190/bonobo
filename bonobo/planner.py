@@ -6,8 +6,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from .api import McError
-from .data import GROUPS, TIER_OF_MATERIAL, bare, mid
-from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, STATIONS, TOOL_MATERIAL_FOR_TIER, members, source)
+from .data import GROUPS, TIER_OF_MATERIAL, TOOL_MATERIAL_FOR_TIER, bare, mid
+from .knowledge import COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, STATIONS, members, source
 
 MAX_DEPTH = 14
 TOOL_MIN_DURABILITY = 10

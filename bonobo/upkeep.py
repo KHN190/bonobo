@@ -12,7 +12,7 @@ import time
 from . import api, blueprints, decompose, goals, nav, nether, skills, tape, tasks
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import BASE_MARKERS, COVERED_SKY
+from .data import BASE_MARKERS, COVERED_SKY, TOOL_MATERIAL_FOR_TIER
 from .knowledge import food_count
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -80,7 +80,7 @@ def craftable_tier(inv, kind):
     """The best tier of `kind` this bag can craft outright — a plan of crafting steps only, nothing to gather, mine
     or smelt — or 0 (wood: the plan gathers the logs). Pure over the bag. A higher tier a plan needs is that plan's
     own business, not the replacement's."""
-    for tier in (3, 2, 1):
+    for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
         try:
             steps = Planner.from_inventory(inv, NullCost()).plan([("tool", kind, tier)])
         except Unplannable:

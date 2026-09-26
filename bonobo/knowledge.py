@@ -156,9 +156,6 @@ FIND_AT = {
 }
 
 
-TOOL_MATERIAL_FOR_TIER = {0: "wooden", 1: "stone", 2: "iron", 3: "diamond"}
-
-
 def members(token):
     if token == "food":
         return ALL_FOOD
