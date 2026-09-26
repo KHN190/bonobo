@@ -45,9 +45,11 @@ class LayeringIsHard(unittest.TestCase):
     def test_a_faster_layer_always_takes_the_body(self):
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
             for slow, fast in PAIRS:
-                body = arbiter.Motion()
-                body.preempt(slow, lambda: None, "held", now=0.0, release=lambda: False) if slow != "plan" else None
-                body.pending = [intent(kind, layer="plan", at=-ELAPSED[elapsed])] if slow == "plan" else []
+                if slow == "plan":
+                    body = body_with(intent(kind, layer="plan", at=-ELAPSED[elapsed]))
+                else:
+                    body = arbiter.Motion()
+                    body.preempt(slow, lambda: None, "held", now=0.0, release=lambda: False)
                 taken, why = body.preempt(fast, lambda: None, "answer", worth_s=WORTH[worth], now=0.0)
                 self.assertIsNotNone(taken, f"{fast} over {slow}/{kind}/{elapsed}/{worth}: refused ({why})")
                 self.assertIsNone(why, f"{fast} over {slow}/{kind}: taken with a reason {why!r}")
