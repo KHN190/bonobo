@@ -139,6 +139,8 @@ class TheCrossProductIsWhole(unittest.TestCase):
                          "player_takeover"} <= timing)
         inventory = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "inventory"}
         self.assertTrue({"full_bag", "tool_one_use", "wrong_tool", "goal_met"} <= inventory)
+        self.assertIn("inventory_lag", timing)
+        self.assertIn("dead_flicker_on_respawn", sc.SHEET)
         self.assertTrue({"leaves_block_trunk", "floating_logs", "empty_chest", "bed_obstructed", "bed_in_nether",
                          "lava_under_ore", "falling_gravel"} <= set(sc.SURPRISES))
 
@@ -252,6 +254,19 @@ class Changed(unittest.TestCase):
                 with open(os.path.join(root, path)) as f:
                     body = "".join(f.readlines()[lo - 1:hi])
                 self.assertIn(f"def {skillkit.REGISTRY[name].fn.__name__}(", body, "the span is the skill's own body")
+
+    # a failure note → does it say nothing about why? (the runner marks such rows "NO REASON")
+    NOTES = [("", True), ("McError", True), ("McError: failed", True),
+             ("McError: chop: finished without reaching its goal", True),
+             ("McError: chop: finished without reaching its goal (outcome not reached in 40s, budget 45s)", False),
+             ("NotAvailable: no trees found nearby, even after exploring", False),
+             ("TaskStuck: chop: no progress toward its goal for 45s", False),
+             ("died (McError: failed)", False), ("NavFailed: could not get to (1, 2, 3)", False)]
+
+    def test_generic_failure_notes(self):
+        for note, want in self.NOTES:
+            with self.subTest(note=note):
+                self.assertEqual(sc.generic_failure(note), want)
 
     def test_run_verdicts(self):
         """Once; a failure re-runs; three at most; ≥ 2 of 3 passes."""

@@ -1339,6 +1339,17 @@ def _after_l0(name, run, resume, tries=4):
     return go
 
 
+def _sprint_after(delay, ticks):
+    """`before` hook: `delay` s into the run, the game sprints `ticks` ahead (/tick sprint): a furnace, a night, a
+    crop is waited out in a second instead of in real time."""
+    def hook(ctx):
+        def fire():
+            time.sleep(delay)
+            _chat(f"tick sprint {ticks}")
+        _threading.Thread(target=fire, daemon=True).start()
+    return hook
+
+
 def _missing_hook(what):
     def run(ctx):
         raise SetupInvalid(f"missing hook: {what}")
@@ -1475,7 +1486,8 @@ BASES = {
                   setup=_floor() + [_tp(), "give @p furnace", "give @p raw_iron 3", "give @p coal 2"],
                   run=lambda ctx: _skill("smelt")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 3, "coal"),
                   check=_gain("minecraft:iron_ingot", 3, at_most=3), needs=[("minecraft:iron_ingot", 3)],
-                  effect=("minecraft:iron_ingot", 1), budget=60, work_s=5, tick_rate=60),
+                  effect=("minecraft:iron_ingot", 1), budget=60, work_s=5,
+                  pre=_sprint_after(4, 800)),
     "hunt": dict(skills=["hunt"], doc="a pen of three cows, a sword → 2 beef", point="A",
                  setup=_floor("grass_block") + _pen("cow", 3) + [_tp(), "give @p iron_sword"],
                  run=lambda ctx: _skill("hunt")(ctx, "minecraft:beef", 2, ["minecraft:cow"], False),
@@ -1529,6 +1541,8 @@ CONDITIONS = {
     # timing
     "pickup_lag": dict(axis="timing", doc="the server at 8 ticks/s: drops and slots update late",
                        bases={"chop", "mine_stone", "mine_iron", "hunt", "loot", "craft"}, tick_rate=8),
+    "inventory_lag": dict(axis="timing", doc="the server at 4 ticks/s: the bag reads a craft, a take, a meal late",
+                          bases={"craft", "smelt", "loot", "eat"}, tick_rate=4),
     "interrupt_mid_work": dict(axis="timing", doc="interrupted mid-work, then resumed by what is still missing",
                                bases={"chop", "mine_stone", "mine_iron", "craft", "smelt", "hunt"}, interrupt="mid"),
     "interrupt_twice": dict(axis="timing", doc="interrupted twice, resumed twice",
@@ -1658,7 +1672,7 @@ def _row(name, base, cond=None, extra=None):
         check = _all(_failed_as_expected(), _alive(), effect)
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check,
-           "budget": int(b["budget"] * (2 if kind or c.get("hazard") else 1) * (3 if c.get("tick_rate") == 8 else 1)),
+           "budget": int(b["budget"] * (2 if kind or c.get("hazard") else 1) * (3 if c.get("tick_rate", 20) < 20 else 1)),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: next(k for k, v in CONDITIONS.items() if v is c)} if c else {}),
                     **({"surprise": name} if x else {})}}
@@ -1759,7 +1773,7 @@ _ONE = {
     "smelt_in_background": (["start_smelt_job", "collect_job"], "load a furnace, walk off, come back → ingots",
                             _floor() + [_tp(), "give @p furnace", "give @p raw_iron 4", "give @p coal 2"],
                             lambda ctx: (_skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 4,
-                                                                   "coal"), time.sleep(12),
+                                                                   "coal"), _chat("tick sprint 400"), time.sleep(2),
                                          _skill("collect_job")(ctx, ctx.mem.jobs("minecraft:overworld")[0]))[2],
                             _gain("minecraft:iron_ingot", 4), 90),
     "open_space_from_shaft": (["move_to_open_space"], "a full bag at the bottom of a 1×1 shaft → out where it is open",
@@ -1878,6 +1892,17 @@ for _name, _row_ in {
                               "give @p torch 8", "give @p cobblestone 32", "give @p cooked_beef 8"],
                     "before": _start(_name), "run": _run_, "check": _check_, "budget": _budget_,
                     "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"}}
+
+SHEET["dead_flicker_on_respawn"] = {
+    "doc": "Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
+           "respawn, not call every skill dead, and still chop its 4 logs",
+    "module": "brain", "point": "A", "skills": ["item:log"], "tags": {"base": "chop", "timing": "dead_flicker"},
+    "setup": _grove((4, 0), (-4, 3)) + [_tp()],
+    "before": _hooks(_start("dead_flicker_on_respawn"), lambda ctx: _chat("kill @p")),
+    "run": lambda ctx: (_brain_rounds(15, lambda: not __import__("bonobo.api", fromlist=["get"]).get("/state")["dead"])(ctx),
+                        _skill("chop")(ctx, 4))[1],
+    "check": _all(_alive(10), lambda api, inv: inv.count("log") >= 4), "budget": 90,
+}
 
 # -- test point B: L0 hazards (the existing water_clutch, cross_lava_8, cave_escape) and two more ---------------
 SHEET["lava_edge_walk"] = {
