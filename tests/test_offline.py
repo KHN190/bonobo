@@ -433,9 +433,12 @@ broken ={"id": "minecraft:stone_pickaxe", "count": 1, "slot": 3, "damage": 130, 
 worn_ok = {"id": "minecraft:stone_pickaxe", "count": 1, "slot": 4, "damage": 100, "maxDamage": 131}
 check("tidy: broken tools go, worn ones stay", skills.tidy_plan([broken, worn_ok]) == [broken])
 
-skills._TREK_FAILED["far base"] = __import__("time").time()
-check("deposit: a failed trek isn't retried soon", not skills.site_trek_ok({"name": "far base"})
-      and skills.site_trek_ok({"name": "home"}))
+_tctx = __import__("bonobo.skillcore", fromlist=["Context"]).Context(None, None, "minecraft:overworld", blacklist={})
+_tctx.ban_counts = {}
+_tctx.ban((90, 64, 0))
+check("deposit: a failed trek isn't retried soon (its site cell is banned)",
+      not skills.site_trek_ok(_tctx, {"name": "far base", "pos": [90, 64, 0]})
+      and skills.site_trek_ok(_tctx, {"name": "home", "pos": [5, 64, 0]}))
 
 # -- memory dedup
 from bonobo.memory import Memory  # noqa: E402

@@ -271,6 +271,54 @@ class Outcomes(unittest.TestCase):
         self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt))
 
 
+# ------------------------------------------------------------------------------------------------ free spots
+def shaft():
+    """The body at the bottom of a 1×1 shaft three deep in solid stone."""
+    r = world()
+    for y in (61, 62, 63):
+        r.blocks.pop((0, y, 0), None)
+    return r, state(x=0.5, y=61.0, z=0.5)
+
+
+def lava_floor():
+    r = world()
+    for (x, y, z), n in list(r.blocks.items()):
+        if y == 63 and (x, z) != (0, 0):
+            r.blocks[(x, y, z)] = "lava"
+    return r
+
+
+RING2 = {(x, 64, z) for x in range(-2, 3) for z in range(-2, 3) if max(abs(x), abs(z)) == 2}
+# (situation, region, /state, keywords) → check(spots)
+SPOTS = [
+    ("open ground: level, two blocks off, open above", world(), state(), {},
+     lambda t, sp: (t.assertEqual(len(sp), 5), t.assertTrue(all(p in RING2 for p in sp)))),
+    ("never where the body stands", world(), state(), {"reach": 1},
+     lambda t, sp: t.assertNotIn((0, 64, 0), sp)),
+    ("reach 1: the eight around", world(), state(), {"reach": 1, "limit": 20},
+     lambda t, sp: t.assertEqual({p for p in sp if p[1] == 64},
+                                 {(x, 64, z) for x in (-1, 0, 1) for z in (-1, 0, 1)} - {(0, 64, 0)})),
+    ("cells to avoid are avoided", world(), state(), {"avoid": RING2},
+     lambda t, sp: t.assertFalse(set(sp) & RING2)),
+    ("a lava floor gives no footing", lava_floor(), state(), {},
+     lambda t, sp: t.assertTrue(all(p[1] != 64 for p in sp))),
+    ("no floor needed: over nothing is fine", FakeRegion((-5, 55, -5), (5, 70, 5), {}), state(),
+     {"block_under": False}, lambda t, sp: t.assertEqual(len(sp), 5)),
+    ("sealed in a shaft: nowhere", shaft()[0], shaft()[1], {}, lambda t, sp: t.assertEqual(sp, [])),
+]
+
+
+class FreeSpots(unittest.TestCase):
+    def test_region_to_spots(self):
+        with mock.patch.object(api, "api", side_effect=AssertionError("free_spots read the world")):
+            for name, region, st, kw, check in SPOTS:
+                with self.subTest(name):
+                    spots = skillcore.free_spots(region, st, **kw)
+                    check(self, spots)
+                    self.assertEqual(skillcore.free_spot(region, st, **{k: v for k, v in kw.items() if k != "limit"}),
+                                     spots[0] if spots else None)
+
+
 # ------------------------------------------------------------------------------------------------ the runner
 class Stats:
     def __init__(self):

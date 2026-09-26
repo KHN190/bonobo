@@ -139,9 +139,11 @@ class StepsCarryWhatTheExecutorNeeds(unittest.TestCase):
 
 class ToolsWearAndTheStateSaysSo(unittest.TestCase):
     def test_a_worn_tool_is_worth_less_than_a_fresh_one(self):
+        """The state vector carries what the pickaxes have left, so a worn one buys less mining than a fresh one."""
+        from tests.world import inventory, slot, snapshot
         m = memory.Memory(os.path.join(tempfile.mkdtemp(prefix="plan"), "notes.json"))
-        worn = actions.expected_uses("pickaxe", m, 3.0, 600.0)
-        fresh = actions.expected_uses("pickaxe", m, 250.0, 600.0)
+        worn = actions.state_of(snapshot(inv=inventory(slot("iron_pickaxe", 1, 240))), m).get(actions.uses_dim("pickaxe"), 0)
+        fresh = actions.state_of(snapshot(inv=inventory(("iron_pickaxe", 1))), m).get(actions.uses_dim("pickaxe"), 0)
         self.assertLess(worn, fresh)
 
     def test_mining_spends_the_tool_it_requires(self):

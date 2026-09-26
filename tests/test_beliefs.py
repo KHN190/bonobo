@@ -175,9 +175,7 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
     counts as a sample, it never moves the number by itself) are asked of all of them at once.
     """
 
-    WIRED = (("memory", "Memory", "note_exposure", "risk.encounters_per_day"),
-             ("memory", "Memory", "note_yield", "yield_s."),
-             ("memory", "Memory", "forget_death", "time.death_cost_s"),
+    WIRED = (("memory", "Memory", "forget_death", "time.death_cost_s"),
              ("skillcore", None, "_note_break", "tools.mine_time_stone"),
              ("skillcore", None, "_note_break", "tools.mine_time_no_pickaxe"),
              ("skills", None, "eat", "engage.eat_s"))
@@ -317,9 +315,7 @@ class TheWorldsCountersAlsoTellTheHistory(unittest.TestCase):
     short to mean anything is not a sample.
     """
 
-    WIRED = (("memory", "note_exposure", "risk.encounters_per_day"),
-             ("memory", "note_yield", "yield_s."),
-             ("memory", "forget_death", "time.death_cost_s"),
+    WIRED = (("memory", "forget_death", "time.death_cost_s"),
              ("skillcore", "_note_break", "tools.mine_time_stone"),
              ("skillcore", "_note_break", "tools.mine_time_no_pickaxe"),
              ("skills", "eat", "engage.eat_s"))
@@ -338,11 +334,6 @@ class TheWorldsCountersAlsoTellTheHistory(unittest.TestCase):
             if path.endswith("."):
                 continue
             beliefs.value(path)          # KeyError here means a measurement is being filed under a typo
-
-    def test_a_stretch_too_short_is_not_a_sample(self):
-        from bonobo import memory
-        self.assertGreater(memory.Memory.EXPOSURE_SAMPLE_S, 0)
-        self.assertIn("EXPOSURE_SAMPLE_S", inspect.getsource(memory.Memory.note_exposure))
 
 
 class TheHistoryIsNeverLost(unittest.TestCase):

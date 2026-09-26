@@ -172,6 +172,25 @@ class Solvers(unittest.TestCase):
                 else:
                     self.assertEqual(decompose.solve_needs(inventory_bag(), needs, None, asked), want)
 
+    # (goal, the task's own solver or None) → the solver asked first by the brain's replan
+    FIRST = [(goals.make("milestone", name="stone tools"), None, "solve"),
+             (goals.have(("log", 4)), None, "planner"),
+             (goals.make("milestone", name="food"), "planner", "planner"),
+             (goals.have(("log", 4)), "solve", "solve")]
+
+    def test_which_solver_goes_first(self):
+        for goal, own, want in self.FIRST:
+            asked = []
+
+            def rec(name):
+                return lambda inv, needs, cost, pending=None: asked.append(name) or []
+            task = {"id": "t1", "goal": goal["goal"], "args": goal["args"], **({"solver": own} if own else {})}
+            with self.subTest(goal=goals.describe(goal), own=own), \
+                    mock.patch.dict(decompose.SOLVERS, {"planner": rec("planner"), "solve": rec("solve")}, clear=True):
+                held, why = brainmod.replan(task, goal, snapshot(), cost())
+                self.assertEqual(asked[:1], [want])
+                self.assertIsNone(why)
+
     def test_the_planner_is_the_default(self):
         self.assertEqual(decompose.ORDER[0], "planner")
         self.assertIn("solve", decompose.ORDER)
