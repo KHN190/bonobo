@@ -42,7 +42,7 @@ class OneTable(unittest.TestCase):
         """There were two protection functions over two different units, so the same chestplate was worth two
         different things. Both layers now reach the table's one function."""
         self.assertAlmostEqual(threat.protection(8, True), beliefs.protection(8, True))
-        self.assertAlmostEqual(threat._protection(threat.make_state(armor=8, shield=True)),
+        self.assertAlmostEqual(threat._protection(threat.price_state(armor=8, shield=True)),
                                beliefs.protection(8, True))
 
 

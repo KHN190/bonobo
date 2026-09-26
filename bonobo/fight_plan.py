@@ -62,13 +62,13 @@ UNMEASURED = list(CONFIG["combat"].get("unmeasured", []))
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# State. Built by `make_state`, checked by `validate_state`; the planner never reads a state it did not validate.
+# State. Built by `fight_state`, checked by `validate_state`; the planner never reads a state it did not validate.
 
 REQUIRED = {"self": ("pos", "hp"), "boss": ("phase", "phase_elapsed_s", "hp")}
 LIMITS = {("self", "hp"): (0.0, 20.0), ("boss", "phase_elapsed_s"): (0.0, 300.0), ("boss", "hp"): (0.0, None)}
 
 
-def make_state(self_, boss, threats=(), resources=None, terrain=None):
+def fight_state(self_, boss, threats=(), resources=None, terrain=None):
     """Assemble a fight state. Defaults are the absence of things, never invented values.
 
     threats:   [(centre, radius, velocity, kind)] — one row per hostile, every kind described the same way

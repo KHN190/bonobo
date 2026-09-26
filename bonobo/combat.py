@@ -120,16 +120,6 @@ def endermen_near(near, here, radius=6.0):
     return sorted(out, key=lambda e: math.dist((e["x"], e["y"], e["z"]), here))
 
 
-def engage(player_hp, window_open, min_hp=19.0, retreat_hp=12.0):
-    """Pure: "attack" while the window is open and health allows, "retreat" when hurt, else "hold". Keeps every fight
-    skill on the same rule instead of each one inventing a health check."""
-    if player_hp <= retreat_hp:
-        return "retreat"
-    if window_open and player_hp >= min_hp:
-        return "attack"
-    return "hold"
-
-
 @skill(budget=180, stall=90, soft=True)
 def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
     """Generic: wait out a fight at a safe distance from `anchor` — out of the breath/head/fireball, inside the band

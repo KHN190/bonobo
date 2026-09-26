@@ -282,7 +282,7 @@ class World:
 
     def fight_sstate(self):
         from bonobo import threat
-        return threat.make_state(hp=max(1, int(self.kit["hp"])), sword=self.kit["sword"], pickaxe=1,
+        return threat.price_state(hp=max(1, int(self.kit["hp"])), sword=self.kit["sword"], pickaxe=1,
                                  food_items=self.kit["food"], shield=self.kit["shield"], bed=True)
 
     def price(self):
@@ -296,7 +296,7 @@ class World:
         from bonobo import fight_plan
         tunnel, bed = BUILT[self.dims["built"]]
         hp, in_cover = FIGHT_BODY[self.dims["fight_body"]]
-        return fight_plan.make_state(
+        return fight_plan.fight_state(
             self_={"pos": (8.0, 65.0, 0.0), "hp": hp, "in_cover": in_cover,
                    "cover": (8, 65, 0) if in_cover else None},
             boss={"phase": PHASES[self.dims["phase"]], "phase_elapsed_s": self.elapsed,
@@ -472,7 +472,7 @@ DAY = dict(hp=14, food=14, food_items=3, sword=1, pickaxe=1, armor=0, shield=Fal
 def day_state(**changes):
     """One survival state: the middle of an ordinary day, with whatever the caller moves."""
     from bonobo import threat
-    return threat.make_state(**dict(DAY, **changes))
+    return threat.price_state(**dict(DAY, **changes))
 
 
 def along_day(dimension, **fixed):

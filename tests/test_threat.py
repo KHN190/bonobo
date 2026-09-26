@@ -32,7 +32,7 @@ def decide(hazards, **kw):
     state = {"here": HERE, "hp": 20, "sword": 0, "protection": 0.0, "night": False, "blocks": 0,
              "hazards": hazards, "ids": list(range(len(hazards)))}
     state.update(kw)
-    sstate = sv.make_state(hp=state["hp"], sword=state["sword"], pickaxe=1, food_items=8, bed=True)
+    sstate = sv.price_state(hp=state["hp"], sword=state["sword"], pickaxe=1, food_items=8, bed=True)
     return threat.decide(state, lambda dhp: sv.hp_seconds(sstate, dhp))
 
 
@@ -123,7 +123,7 @@ class TheFastLane(unittest.TestCase):
         perception.HELD = None      # each case is its own situation, not a continuation of the last
 
     def bid(self, rows, hp=20, sword=2, armor=8):
-        ss = self.sv.make_state(hp=hp, sword=sword, armor=armor)
+        ss = self.sv.price_state(hp=hp, sword=sword, armor=armor)
         state = {"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor, "sword_tier": sword, "blocks": 64}
         return self.perception.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
@@ -137,7 +137,7 @@ class TheFastLane(unittest.TestCase):
         one started reading the ground and the kit.
         """
         rows = [row("minecraft:zombie", 5, 0)]
-        ss = self.sv.make_state(hp=20, sword=2, armor=8)
+        ss = self.sv.price_state(hp=20, sword=2, armor=8)
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
         state = {"x": 0, "y": 64, "z": 0, "health": 20, "armor": 8, "sword_tier": 2, "blocks": 64}
         option, worth = self.perception.bid(state, rows, price)
@@ -162,7 +162,7 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
         from bonobo import field
         state = {"x": 0, "y": 64, "z": 0, "health": 12, "armor": 0, "sword_tier": 2,
                  "food_items": 0, "shield": False, "blocks": 64, "field": field.Field()}
-        ss = self.sv.make_state(hp=12, sword=2)
+        ss = self.sv.price_state(hp=12, sword=2)
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
         return self.perception.lease_done(state, rows, price)
 

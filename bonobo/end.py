@@ -826,7 +826,7 @@ def fight_state(near, s, ctx):
     # elapsed time, it is a bug, and believing it refuses every action for having no time left.
     if not 0.0 <= elapsed <= 300.0:
         elapsed = 0.0
-    return fight_plan.make_state(
+    return fight_plan.fight_state(
         self_={"pos": here, "hp": s["health"], "cover": PIT[2] if PIT else None,
                "in_cover": bool(PIT) and math.dist(here, PIT[2]) <= 1.5},
         boss={"phase": phase if phase is not None else 0, "phase_elapsed_s": round(elapsed, 2),

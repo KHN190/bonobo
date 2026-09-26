@@ -17,7 +17,7 @@ def state(*, phase=6, elapsed=0.0, hp=20.0, pos=(8.0, 65.0, 0.0), boss_hp=200.0,
           beds=6, obsidian=0, water=True, bow=0, arrows=0,
           tunnel=True, bed_placed=True, reinforced=False, crystals=0, in_cover=True, cover=(8, 65, 0)):
     """A fight state with sane defaults: tunnel dug, in cover, healthy, mid sitting phase."""
-    return fp.make_state(
+    return fp.fight_state(
         self_={"pos": pos, "hp": hp, "in_cover": in_cover, "cover": cover},
         boss={"phase": phase, "phase_elapsed_s": elapsed, "hp": boss_hp},
         threats=threats,

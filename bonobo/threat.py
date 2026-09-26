@@ -485,7 +485,8 @@ def bag_loss(s):
 
 
 
-def make_state(**kw):
+def price_state(**kw):
+    """The survival state health and time are priced in (`hp_seconds`); unknown keys are refused."""
     s = {"night": False, "ticks_until_dusk": 6000, "hp": 20, "food": 20, "bed": False, "sheltered": False,
          "torches": False, "sword": 0, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
          "shield": False, "bag_free": 36,

@@ -913,8 +913,6 @@ same("combat: endermen close by are handled before the boss, nearest first", [ro
            {"type": "minecraft:enderman", "x": 2, "y": 64, "z": 0},
            {"type": "minecraft:enderman", "x": 30, "y": 64, "z": 0},
            {"type": "minecraft:ender_dragon", "x": 1, "y": 64, "z": 0, "health": 200.0}], (0, 64, 0), 6.0)], [2, 4])
-same("combat: engage holds while hurt and attacks only in an open window",
-     (CB.engage(20, True), CB.engage(20, False), CB.engage(14, True), CB.engage(8, True)), ("attack", "hold", "hold", "retreat"))
 # Real case 08:07: a 200-block trek over y 63–70 terrain (no water) bridged small dips until all 64 cobblestone were
 # gone and travel failed "no building blocks to bridge with".
 same("travel: a full bag keeps a block reserve, a small kit still gets half",
