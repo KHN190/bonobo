@@ -18,7 +18,8 @@ from .world import Inventory, Region, add, connected, dark_spots, entities, find
 from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VALUE_CAPS, STACK_VALUE, _stack_value, PROTECTED_IDS, PROTECTED_SUFFIX, _protected_stack, RAW_MEAT, SURPLUS_CAP, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
-                        free_spot, place, snapshot, mine_cell, gained, lost, settle, body_state,
+                        free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
+                        body_state,
                         carried_total)   # (split out; re-exported for skills.X callers)
 from .explore import surface_first, explore_for, seek_blocks, approach_policy  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .wood import chop  # noqa: F401,E402  (split out; re-exported for skills.X callers)
@@ -95,7 +96,7 @@ class Station:
             self.pos = (near[0]["x"], near[0]["y"], near[0]["z"])
         elif Inventory().count(self.block):
             last = "no free spot"
-            spots = free_spots(limit=3) or make_room(self.ctx)
+            spots = free_spots_here(limit=3) or make_room(self.ctx)
             for spot in spots:
                 try:
                     place(self.block, spot)
@@ -1461,7 +1462,7 @@ def tidy_inventory(ctx):
         yield s["slot"]
     log(f"threw away {len(throw)} stacks toward {direction}: {sorted({bare(s['id']) for s in throw})}")
     # Step away from the drops, never onto them, before the pickup delay ends.
-    spots = [p for p in free_spots(reach=4, limit=12)
+    spots = [p for p in free_spots_here(reach=4, limit=12)
              if (p[0] - x) * direction[0] + (p[2] - z) * direction[1] < 0]
     if spots:
         far = max(spots, key=lambda p: math.dist(p, (x, y, z)))
@@ -1514,7 +1515,7 @@ def _place_cache_chest(ctx):
         craft(ctx, "minecraft:chest", 1)
     x, y, z = feet()
     around = Region((x - 5, y - 4, z - 5), (x + 5, y + 5, z + 5))
-    spots = [p for p in free_spots(limit=8) if chest_spot_ok(around, p)][:3] or make_room(ctx)
+    spots = [p for p in free_spots_here(limit=8) if chest_spot_ok(around, p)][:3] or make_room(ctx)
     for spot in spots:
         try:
             place("minecraft:chest", spot)

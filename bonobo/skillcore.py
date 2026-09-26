@@ -191,12 +191,18 @@ def close_screen():
         api.post("/close")
 
 
-def free_spots(block_under=True, reach=4, avoid=(), limit=5):
-    """Air cells with a solid floor within reach, clear of the body, best first: same height as us, open above
-    (not a wall nook or under a roof), about two blocks away."""
-    s = api.get("/state")
+def spot_region(state, reach=4):
+    """The box `free_spots` reads around the body in `state` (/state)."""
+    fx, fy, fz = state["blockX"], state["blockY"], state["blockZ"]
+    return Region((fx - reach, fy - 3, fz - reach), (fx + reach, fy + 4, fz + reach))
+
+
+def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5):
+    """Pure over `region` (anything with name/solid/hazard) and `state` (/state): air cells with a solid floor
+    within reach, clear of the body, best first — same height as us, open above (not a wall nook or under a roof),
+    about two blocks away. Callers read the world: `free_spots(spot_region(s, reach), s, ...)`."""
+    s = state
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
-    region = Region((fx - reach, fy - 3, fz - reach), (fx + reach, fy + 4, fz + reach))
     scored = []
     for dx in range(-reach, reach + 1):
         for dz in range(-reach, reach + 1):
@@ -216,9 +222,15 @@ def free_spots(block_under=True, reach=4, avoid=(), limit=5):
     return [p for _, p in scored[:limit]]
 
 
-def free_spot(block_under=True, reach=4, avoid=()):
-    spots = free_spots(block_under, reach, avoid, limit=1)
+def free_spot(region, state, block_under=True, reach=4, avoid=()):
+    spots = free_spots(region, state, block_under, reach, avoid, limit=1)
     return spots[0] if spots else None
+
+
+def free_spots_here(block_under=True, reach=4, avoid=(), limit=5):
+    """`free_spots` around the body now: one /state read and one region read."""
+    s = api.get("/state")
+    return free_spots(spot_region(s, reach), s, block_under, reach, avoid, limit)
 
 
 def place(item, pos):
