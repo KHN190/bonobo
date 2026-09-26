@@ -51,8 +51,7 @@ class Cost:
         here, dim = self.snap.feet, self.snap.dimension
         best = None
         for kind in kinds:
-            spots = list(self.mem.resources(bare(kind), dim)) + list(self.mem.resources(kind, dim))
-            spots += [s["pos"] for s in (self.mem.sightings(kind, dim) or ())]
+            spots = [r["pos"] for r in self.mem.seen(kind, dim)]
             for p in spots:
                 if self._banned(p):
                     continue

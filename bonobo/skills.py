@@ -629,8 +629,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if empty_batches >= 3:
                 raise NotAvailable(f"{blocks[0]} vein yielded nothing: {r['message']}")
             continue
-        elif tier:
-            ctx.mem.log_vein(blocks[0], seed, len(vein), ctx.dimension)
+        else:
+            for b in blocks:                  # this vein is mined: its notes are spent
+                ctx.mem.forget_seen(b, seed, ctx.dimension, radius=4)
     raise McError(f"could not mine enough {bare(drop)}")
 
 
@@ -1239,7 +1240,7 @@ def take(ctx, token, count, blocks):
         got += 1
         # The block is gone from the world whether or not the drop reached the bag: the map has to stop sending us
         # back to it, or the next round walks to the same empty square and calls that progress.
-        ctx.mem.note_resource(bare(hits[0]["block"]), cell, ctx.dimension, depleted=True)
+        ctx.mem.forget_seen(bare(hits[0]["block"]), cell, ctx.dimension, radius=1)
         log(f"took {bare(token)} at {cell} ({got}/{want})")
     return got
 

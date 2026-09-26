@@ -1,4 +1,4 @@
-"""Persistent world memory shared across sessions: sites, stations, sightings, veins, deaths, night record.
+"""Persistent world memory shared across sessions: sites, stations, what was seen where, deaths, night record.
 
 A *site* is any protected structure: the home base or a built shelter. Each may carry a snapshot of its solid
 blocks so damage can be detected and repaired. Digging near sites is allowed; digging *their blocks* is not.
@@ -8,19 +8,9 @@ import math
 import os
 import time
 from . import beliefs, paths
-from .data import RARE_SIGHTINGS, RARE_SIGHTING_TTL_S
+from .data import GROUPS, VOLATILITY, bare, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
-
-
-def _stamp_s(stamp):
-    """A "%Y-%m-%d %H:%M" note stamp as epoch seconds; the epoch when it is missing or unreadable."""
-    if not stamp:
-        return 0.0
-    try:
-        return time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M"))
-    except (ValueError, TypeError):
-        return 0.0
 
 
 def _now():
@@ -36,7 +26,8 @@ class Memory:
         except (OSError, ValueError):
             self.data = {}
         d = self.data
-        for key, default in (("sites", []), ("stations", []), ("sightings", {}), ("veins", []), ("deaths", []),
+        self.clock = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
+        for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
                              ("orientation", {}), ("stats", {}), ("durations", {}), ("jobs", [])):
             d.setdefault(key, default)
@@ -72,8 +63,7 @@ class Memory:
             changed = True
         d.pop("base_snapshot", None)
         # Duplicates from before the writers deduplicated.
-        for key, ident in (("stations", lambda s: (tuple(s["pos"]), s["dimension"])),
-                           ("veins", lambda v: (v["ore"], tuple(v["pos"]), v["dimension"]))):
+        for key, ident in (("stations", lambda s: (tuple(s["pos"]), s["dimension"])),):
             seen, unique = set(), []
             for item in d[key]:
                 if ident(item) not in seen:
@@ -84,8 +74,22 @@ class Memory:
                 changed = True
         if d.pop("progress", None) is not None:      # half-finished work is no longer kept: re-plan by search
             changed = True
+        changed = self._fold_old_notes() or changed
         if changed:
             self.save()
+
+    def _fold_old_notes(self):
+        """Resources, sightings, lava pools and veins were four stores of "seen X at Y" on the wall clock. Static and
+        slow ones come over marked to-verify (their age is unknowable in game ticks); mobile ones are dropped."""
+        d = self.data
+        old = [(r["kind"], r["pos"], r["dimension"]) for r in d.pop("resources", []) if not r.get("depleted")]
+        old += [(k, x["pos"], x["dimension"]) for k, rows in d.pop("sightings", {}).items() for x in rows]
+        old += [("lava", p["pos"], p["dimension"]) for p in d.pop("lava", [])]
+        had_veins = d.pop("veins", None) is not None
+        for kind, pos, dim in old:
+            if seen_class(kind) in ("static", "slow"):
+                self._put(kind, pos, dim, verify=True)
+        return bool(old) or had_veins
 
     def save(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -385,7 +389,22 @@ class Memory:
         self.save()
 
     def mark_dirty_near(self, positions, dimension, radius=6):
+        """Our own digging: sites near it are dirty (repair checks them), slow notes near it are to-verify, and a
+        static note on a cell we dug is gone (we mined it)."""
         changed = False
+        dug = [tuple(p) for p in positions]
+        keep = []
+        for r in self.data["seen"]:
+            if r["dimension"] == dimension:
+                cls = seen_class(r["kind"])
+                if cls == "static" and any(math.dist(r["pos"], p) <= 1 for p in dug):
+                    changed = True
+                    continue
+                if cls == "slow" and not r.get("verify") and any(math.dist(r["pos"], p) <= radius for p in dug):
+                    r["verify"] = True
+                    changed = True
+            keep.append(r)
+        self.data["seen"] = keep
         for s in self.sites(dimension):
             if s.get("snapshot") and not s.get("dirty") and any(
                     math.dist((p[0], p[2]), (s["pos"][0], s["pos"][2])) <= radius for p in positions):
@@ -415,139 +434,93 @@ class Memory:
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
         self.save()
 
-    # ---- sightings, veins, deaths
-    def add_sighting(self, kind, pos, dimension):
-        """Where one of `kind` (a mob type, or a block in `data.RARE_SIGHTINGS`) was seen. Seeing it again at the
-        same spot refreshes the note instead of adding another."""
-        rows = self.data["sightings"].setdefault(kind, [])
-        for row in rows:
-            if row["dimension"] == dimension and math.dist(row["pos"], pos) <= 1:
-                row["at"] = _now()
-                break
-        else:
-            rows.append({"pos": list(pos), "dimension": dimension, "at": _now()})
-        self.save()
-
-    def sightings(self, kind, dimension, max_age_min=None):
-        """What we have seen of this kind here, newest first. `max_age_min` filters for callers that really mean
-        "right now" (is one within arm's reach); by default nothing is filtered out.
-
-        Animals wander, so an old sighting is a worse guess — but it is still a guess, and the cutoff that used to
-        stand here threw away a field of sheep mapped the night before and sent the agent exploring instead. Age is
-        priced in seconds now (`gates.marginal("staleness")`), where the pool can weigh it against everything else.
-        """
-        rows = [s for s in self.data["sightings"].get(kind, []) if s["dimension"] == dimension]
-        if kind in RARE_SIGHTINGS:
-            # A rare block's note expires: it was mined, or the chunk was never what the scan thought.
-            max_age_min = min(max_age_min or math.inf, RARE_SIGHTING_TTL_S / 60)
-        if max_age_min is not None:
-            cutoff = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() - max_age_min * 60))
-            rows = [s for s in rows if s.get("at", "") >= cutoff]
-        return sorted(rows, key=lambda s: s.get("at", ""), reverse=True)
-
-    def note_age_s(self, kinds, dimension, now=None):
-        """Seconds since the freshest note about any of these kinds, or 0.0 when there is none.
-
-        One reader for "how old is what we know", so the seek column and the walk agree about it.
-        
-
-        A COUNTER behind `gates.marginal("staleness")`: this remembers what happened, the door decides what it means."""
-        now = now or time.time()
-        best = None
-        for kind in kinds:
-            for s in self.data["sightings"].get(kind, ()):
-                if s["dimension"] != dimension:
-                    continue
-                age = now - _stamp_s(s.get("at"))
-                best = age if best is None else min(best, age)
-            for r in self.data.get("resources", ()):
-                if r["kind"] == kind and r["dimension"] == dimension and r.get("last"):
-                    age = now - float(r["last"])
-                    best = age if best is None else min(best, age)
-        return max(0.0, best) if best is not None else 0.0
-
-    def log_vein(self, ore, pos, size, dimension):
-        if any(v["ore"] == ore and v["dimension"] == dimension and math.dist(v["pos"], pos) <= 3
-               for v in self.data["veins"]):
-            return
-        self.data["veins"].append({"ore": ore, "pos": list(pos), "size": size, "dimension": dimension, "at": _now()})
-        self.save()
-
-    # ---- resource points: trees, herds, water — a map that changes (harvested, depleted, regrown)
-    REGROW_S = {"tree": 20 * 60, "herd": 10 * 60, "water": 0, "grass": 5 * 60}
-
-    def note_resource(self, kind, pos, dimension, depleted=False):
-        """Record (or refresh) a resource point; points within 12 blocks of one another are the same point."""
-        res = self.data.setdefault("resources", [])
-        now = time.time()
-        for r in res:
-            if r["kind"] == kind and r["dimension"] == dimension and math.dist(r["pos"], pos) <= 12:
-                r["last"] = now
-                r["depleted"] = depleted
-                break
-        else:
-            res.append({"kind": kind, "pos": list(pos), "dimension": dimension, "last": now, "depleted": depleted})
-        self.save()
-
+    # ---- what was seen where: one store, by volatility (data.VOLATILITY / seen_class), on the game clock
     CONFIRM_R = 12.0      # a note and a sighting within this are the same thing
 
-    def confirm(self, kind, pos, dimension, found):
-        """Arriving settles a note: `found` keeps it, otherwise it is retired at once.
+    def _put(self, kind, pos, dimension, verify=False):
+        kind, cls = bare(kind), seen_class(kind)
+        rule = VOLATILITY.get(cls)
+        if rule is None:
+            return None                                   # hostile: perception only
+        pos = [int(c) for c in pos]
+        if rule["area"]:
+            a = rule["area"]
+            pos = [pos[0] // a * a + a // 2, pos[1], pos[2] // a * a + a // 2]
+        for row in self.data["seen"]:
+            if row["kind"] == kind and row["dimension"] == dimension \
+                    and math.dist(row["pos"], pos) <= max(rule["merge"], 0.5):
+                row.update(t=self.clock, verify=verify)
+                return row
+        row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.clock, "verify": verify}
+        self.data["seen"].append(row)
+        return row
 
-        One rule for every kind of note — resources, sites, veins — because they fail the same way. Left to a
-        timer, a felled tree stays on the resource map, is priced, walked to, found missing, and priced again next
-        round; the agent walks the same sixty blocks until something else happens to win. Recovery already worked
-        this way (`forget_death`); this is the same thing for everything else.
+    def _fresh(self, row, within=None):
+        """Within its class's TTL (and `within` ticks, when asked). A note or a clock we cannot date is kept."""
+        rule = VOLATILITY.get(seen_class(row["kind"]))
+        if rule is None:
+            return False
+        limit = min(x for x in (rule["ttl"], within, float("inf")) if x is not None)
+        if limit == float("inf") or row.get("t") is None or self.clock is None:
+            return True
+        return self.clock - row["t"] <= limit
+
+    def note_seen(self, kind, pos, dimension):
+        """One of `kind` is at `pos` (a block or mob name, or an alias: "tree", "herd"). Seeing it again refreshes
+        the note; a hostile is never stored. Expired notes are dropped on the way."""
+        self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
+        if self._put(kind, pos, dimension) is not None:
+            self.save()
+
+    def seen(self, kind, dimension, within=None):
+        """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}. `within` (game ticks)
+        narrows to "just now"."""
+        kind = bare(kind)
+        rows = [r for r in self.data["seen"] if r["kind"] == kind and r["dimension"] == dimension
+                and self._fresh(r, within)]
+        return sorted(rows, key=lambda r: r.get("t") or 0, reverse=True)
+
+    def forget_seen(self, kind, pos, dimension, radius=CONFIRM_R):
+        """The world said no (we took it, mined it, or it was not there): retire the notes of `kind` near `pos`."""
+        kind, before = bare(kind), len(self.data["seen"])
+        self.data["seen"] = [r for r in self.data["seen"]
+                             if not (r["kind"] == kind and r["dimension"] == dimension
+                                     and math.dist(r["pos"], pos) <= radius)]
+        if len(self.data["seen"]) != before:
+            self.save()
+
+    @staticmethod
+    def blocks_of(kind):
+        """The blocks that prove a note on arrival."""
+        return GROUPS["log"] if bare(kind) == "tree" else [bare(kind)]
+
+    def note_age_s(self, kinds, dimension, now=None):
+        """Seconds (game time) since the freshest note about any of these kinds, or 0.0 when there is none or the
+        clock is unknown. One reader for "how old is what we know", so the seek column and the walk agree."""
+        now = self.clock if now is None else now
+        ages = [now - r["t"] for k in kinds for r in self.seen(k, dimension) if r.get("t") is not None]
+        return max(0.0, min(ages) / 20.0) if ages and now is not None else 0.0
+
+    def confirm(self, kind, pos, dimension, found):
+        """Arriving settles a note: `found` keeps it (and clears to-verify), otherwise it is retired at once.
+
+        One rule for every kind of note — seen things and sites — because they fail the same way. Left to a
+        timer, a felled tree stays on the map, is priced, walked to, found missing, and priced again next round.
         """
         if found:
             if kind != "site":
-                self.note_resource(kind, pos, dimension)
+                self.note_seen(kind, pos, dimension)
             return True
         if kind == "site":
             before = len(self.data.get("sites", []))
             self.data["sites"] = [x for x in self.data.get("sites", [])
                                   if not (x.get("dimension") == dimension
                                           and math.dist(x["pos"], pos) <= self.CONFIRM_R)]
-            changed = len(self.data["sites"]) != before
+            if len(self.data["sites"]) != before:
+                self.save()
         else:
-            before = len(self.data.get("resources", []))
-            self.data["resources"] = [r for r in self.data.get("resources", [])
-                                      if not (r["kind"] == kind and r["dimension"] == dimension
-                                              and math.dist(r["pos"], pos) <= self.CONFIRM_R)]
-            changed = len(self.data.get("resources", [])) != before
-            seen = self.data["sightings"].get(kind)
-            if seen:
-                kept = [x for x in seen if not (x["dimension"] == dimension
-                                                and math.dist(x["pos"], pos) <= self.CONFIRM_R)]
-                changed = changed or len(kept) != len(seen)
-                self.data["sightings"][kind] = kept
-        if changed:
-            self.save()
+            self.forget_seen(kind, pos, dimension)
         return False
-
-    def resources(self, kind, dimension, now=None):
-        """Available points of a kind: never depleted, or depleted long enough ago to have regrown."""
-        now = now or time.time()
-        regrow = self.REGROW_S.get(kind, 600)
-        return [r["pos"] for r in self.data.get("resources", [])
-                if r["kind"] == kind and r["dimension"] == dimension
-                and (not r.get("depleted") or now - r.get("last", 0) >= regrow)]
-
-    # ---- lava pools (obsidian casting): remembered so the portal goal can go back to one
-    def add_lava(self, hit, dimension):
-        pos = [hit["x"], hit["y"], hit["z"]] if isinstance(hit, dict) else list(hit)
-        pools = self.data.setdefault("lava", [])
-        if any(p["dimension"] == dimension and math.dist(p["pos"], pos) <= 16 for p in pools):
-            return
-        pools.append({"pos": pos, "dimension": dimension, "at": _now()})
-        self.save()
-
-    def lava_pools(self, dimension):
-        return [p["pos"] for p in self.data.get("lava", []) if p["dimension"] == dimension]
-
-    def forget_lava(self, pos):
-        self.data["lava"] = [p for p in self.data.get("lava", []) if math.dist(p["pos"], pos) > 16]
-        self.save()
 
     def log_death(self, pos, dimension, carried=()):
         """Record a death and WHAT WAS ON US. The pile on the ground is the only thing that says whether walking

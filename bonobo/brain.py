@@ -198,6 +198,7 @@ class Brain:
         tape.begin()
         nav.forget_routes()
         snap = Snapshot()
+        self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
         self.mem.observe_phase(snap.night)
         self.place = retry.place_signature(snap.feet, snap.night)
         self.policy_cache = self.policy(snap, snap.night)

@@ -24,7 +24,7 @@ def chop(ctx, n):
                 and (t["x"], t["y"], t["z"]) not in ctx.policy.protected]
         if not logs:
             if not seek_blocks(ctx, GROUPS["log"]):
-                ctx.mem.note_resource("tree", feet(), ctx.dimension, depleted=True)
+                ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
                 raise NotAvailable("no trees found nearby, even after exploring")
             continue
         seed = logs[0]
@@ -92,7 +92,7 @@ def chop(ctx, n):
             continue
         # Renewable wood: remember the grove, put a sapling back where the trunk stood.
         from . import farming
-        ctx.mem.note_resource("tree", base_pos, ctx.dimension)
+        ctx.mem.note_seen("tree", base_pos, ctx.dimension)
         try:
             farming.replant(ctx, base_pos)
         except api.INTERRUPTIONS:

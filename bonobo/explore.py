@@ -36,7 +36,7 @@ def explore_for(ctx, types, legs=6, leg=40):
     """Find entities of `types`: remembered sightings first, then an outward spiral over known land. Returns the
     matches (maybe empty); walking counts as progress, so only a body that stops moving stalls."""
     for kind in types:
-        for s in sorted(ctx.mem.sightings(kind, ctx.dimension), key=lambda s: math.dist(s["pos"], feet()))[:2]:
+        for s in sorted(ctx.mem.seen(kind, ctx.dimension), key=lambda s: math.dist(s["pos"], feet()))[:2]:
             nav.go_to(tuple(s["pos"]), ctx.policy, range_=8, attempts=1)
             found = entities(64, types)
             if found:
@@ -71,7 +71,7 @@ def explore_for(ctx, types, legs=6, leg=40):
         found = entities(64, types)
         if found:
             e = found[0]
-            ctx.mem.add_sighting(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), ctx.dimension)
+            ctx.mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), ctx.dimension)
             return found
         x, y, z = feet()
         yield None
@@ -131,7 +131,7 @@ def seek(ctx, kinds, pos=None):
     else:
         return seek_blocks(ctx, list(kinds))
     nav.arrive(target, ctx.policy, range_=3)
-    ctx.mem.note_resource(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
+    ctx.mem.note_seen(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
     return [target]
 
 
@@ -147,11 +147,12 @@ def approach_policy(policy):
     return dataclasses.replace(policy, allow_dig=False)
 
 
-# What the travel scan notes: the nearest of each kind in 48 blocks, the takeable blocks, the rare blocks
-# (data.RARE_SIGHTINGS, as sightings that expire) and the animals in sight.
+# What the travel scan notes (memory.note_seen, kept by data.VOLATILITY): the nearest of each kind in 48 blocks,
+# the takeable blocks, the rare blocks and the animals in sight.
 SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
                "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"],
                "coal": ["coal_ore", "deepslate_coal_ore"]}
+_ALIAS = {"tree", "water", "lava"}      # scan kinds noted by their own name; the rest by the block that was hit
 SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chicken")
 
 
@@ -164,15 +165,11 @@ def note_around(mem, dimension):
             hits = find(blocks, radius=48, limit=1)
             if hits:
                 h = hits[0]
-                if kind == "lava":
-                    mem.add_lava(h, dimension)
-                else:
-                    mem.note_resource(kind, (h["x"], h["y"], h["z"]), dimension)
-        for h in find(takeable_blocks(), radius=48, limit=16) or ():
-            mem.note_resource(bare(h["block"]), (h["x"], h["y"], h["z"]), dimension)
-        for h in find(list(RARE_SIGHTINGS), radius=48, limit=8) or ():
-            mem.add_sighting(bare(h["block"]), (h["x"], h["y"], h["z"]), dimension)
+                mem.note_seen(kind if kind in _ALIAS else h["block"], (h["x"], h["y"], h["z"]), dimension)
+        for h in (find(takeable_blocks(), radius=48, limit=16) or []) + \
+                (find(list(RARE_SIGHTINGS), radius=48, limit=8) or []):
+            mem.note_seen(h["block"], (h["x"], h["y"], h["z"]), dimension)
         for e in entities(48, list(SCAN_MOBS)):
-            mem.add_sighting(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
+            mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
     except api.McError as e:
         api.swallowed("scan_resources: looking around", e)

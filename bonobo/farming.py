@@ -89,7 +89,7 @@ def check_sapling(ctx, job):
     pos = tuple(job["pos"])
     names = Region(pos, add(pos, (0, 1, 0))).blocks
     if any(n.endswith("_log") for n in names.values()):
-        ctx.mem.note_resource("tree", pos, ctx.dimension)
+        ctx.mem.note_seen("tree", pos, ctx.dimension)
         ctx.mem.finish_job(job["id"])
         log(f"sapling at {pos} grew into a tree")
     elif any(n.endswith("_sapling") for n in names.values()):
@@ -211,7 +211,7 @@ def breed(ctx):
                 raise McError(f"feeding {kind.split(':')[1]} failed: {r['message']}")
             yield entity_id
         jobs.start(ctx.mem, "breed", pos, ctx.dimension, item=kind)
-        ctx.mem.note_resource("herd", pos, ctx.dimension)
+        ctx.mem.note_seen(kind, pos, ctx.dimension)
         log(f"bred two {kind.split(':')[1]} at {pos}")
         return kind
     raise NotAvailable("no pair of animals with the food to breed them")

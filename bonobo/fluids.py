@@ -195,12 +195,12 @@ def cast_obsidian(ctx):
     here = nav.feet_now()
     pools = [h for h in find(["lava"], radius=48, limit=80) if not ctx.blocked((h["x"], h["y"], h["z"]))]
     if pools:
-        ctx.mem.add_lava(pools[0], ctx.dimension)
+        ctx.mem.note_seen("lava", (pools[0]["x"], pools[0]["y"], pools[0]["z"]), ctx.dimension)
         made = yield from _cast_pools(ctx, pools, here)
         if made:
             return made
     # No castable lava here (each reason is logged): go to another remembered pool instead of retrying these.
-    known = sorted((p for p in ctx.mem.lava_pools(ctx.dimension)
+    known = sorted((r["pos"] for r in ctx.mem.seen("lava", ctx.dimension)
                     if not ctx.blocked(tuple(p)) and math.dist(p, here) > 24), key=lambda p: math.dist(p, here))
     if not known:
         raise NotAvailable("no castable lava here and no other remembered pool")
@@ -213,7 +213,7 @@ def cast_obsidian(ctx):
     here = nav.feet_now()
     pools = [h for h in find(["lava"], radius=48, limit=80) if not ctx.blocked((h["x"], h["y"], h["z"]))]
     if not pools:
-        ctx.mem.forget_lava(target)
+        ctx.mem.forget_seen("lava", target, ctx.dimension, radius=16)
         raise NotAvailable(f"the remembered lava pool at {target} is gone")
     made = yield from _cast_pools(ctx, pools, here)
     if made:

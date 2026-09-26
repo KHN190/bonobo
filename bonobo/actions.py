@@ -21,7 +21,7 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 """
 import math
 
-from .data import COVERED_SKY, GROUPS, bare, mid
+from .data import COVERED_SKY, GROUPS, bare, mid, seen_class
 from .beliefs import CONFIG as _PLAY
 from .knowledge import (GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE,
                         TOOL_MATERIAL_FOR_TIER)
@@ -277,12 +277,10 @@ def _stations_near(snap, mem):
 def _standing_at(kinds, snap, mem):
     """Is one of these within arm's reach of where we stand, as far as memory knows?"""
     for kind in kinds:
-        for pos in mem.resources(kind, snap.dimension):
-            if math.dist(pos, snap.feet) <= ARRIVED_R:
-                return True
-        for s in mem.sightings(kind, snap.dimension, max_age_min=2):
-            if math.dist(s["pos"], snap.feet) <= ARRIVED_R:
-                return True
+        # A mob that moves counts only when seen just now (2 minutes of game time).
+        within = 2400 if seen_class(kind) == "mobile" else None
+        if any(math.dist(r["pos"], snap.feet) <= ARRIVED_R for r in mem.seen(kind, snap.dimension, within)):
+            return True
     return False
 
 
@@ -810,8 +808,8 @@ class LiveCosts(Costs):
         super().__init__(self._distance_from(cost_model))
         self.model = cost_model
 
-    # Resource map kinds the travel scan records, and the blocks that count as each.
-    MAPPED = {"tree": "log", "water": "water", "iron": "iron_ore", "coal": "coal_ore"}
+    # Aliases memory notes under (memory.note_seen), and the blocks that count as each.
+    MAPPED = {"tree": "log"}
 
     def where(self, kinds):
         return self._position(list(kinds))
@@ -871,13 +869,13 @@ class LiveCosts(Costs):
         best, best_d = None, None
         for kind, marker in LiveCosts.MAPPED.items():
             if any(marker in k for k in kinds):
-                for p in mem.resources(kind, dim):
+                for p in (r["pos"] for r in mem.seen(kind, dim)):
                     d = _m.dist(p, here)
                     if best_d is None or d < best_d:
                         best, best_d = tuple(p), d
         for k in kinds:
-            for sighting in mem.sightings(k, dim) or ():
-                p = sighting["pos"] if isinstance(sighting, dict) else sighting
+            for sighting in mem.seen(k, dim):
+                p = sighting["pos"]
                 d = _m.dist(p, here)
                 if best_d is None or d < best_d:
                     best, best_d = tuple(p), d
@@ -900,12 +898,12 @@ class LiveCosts(Costs):
             best = None
             for kind, marker in LiveCosts.MAPPED.items():
                 if any(marker in k for k in kinds):
-                    for p in mem.resources(kind, dim):
+                    for p in (r["pos"] for r in mem.seen(kind, dim)):
                         d = _m.dist(p, here)
                         best = d if best is None else min(best, d)
             for k in kinds:
-                for sighting in mem.sightings(k, dim) or ():
-                    p = sighting["pos"] if isinstance(sighting, dict) else sighting
+                for sighting in mem.seen(k, dim):
+                    p = sighting["pos"]
                     d = _m.dist(p, here)
                     best = d if best is None else min(best, d)
             return best
