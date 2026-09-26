@@ -181,6 +181,12 @@ ARRIVE = [
 
 
 class Arrive(_Clean):
+    def test_what_counts_as_moving(self):
+        """`nav.moved`: there, or a leg that gained ground — never a bare truth value of the answer."""
+        for got, want in ((True, True), (W(3.0), True), (W(0.5), True), (False, False), (None, False), (1, False)):
+            with self.subTest(got=got):
+                self.assertIs(nav.moved(got), want)
+
     def run_legs(self, fn, legs, interrupt_at=None, soft=False):
         answers = reader(legs, interrupt_at)
         api.SOFT = soft
@@ -609,8 +615,18 @@ def blueprint_cases():
         out["build_blueprint"].append((label, dict(st, started={"origin": list(origin), "turns": turns},
                                                    _args=(name, origin)), check))
         if turns == 0 and progress == "bare":
-            out["build_blueprint"].append((f"{name}: nothing started yet", dict(st, _args=(name, origin)),
+            # Nothing started: the batch is planned where the region has room — every part placed, somewhere.
+            fresh = body(world(), feet=(0, 64, 0), inv=carried, rules={})
+            out["build_blueprint"].append((f"{name}: nothing started, open ground", dict(fresh, _args=(name, (0, 64, 4))),
+                                           lambda t, b, n=len(parts): t.assertEqual(len(cells(b)), n)))
+            out["build_blueprint"].append((f"{name}: nothing started, no region read", dict(fresh, region=None,
+                                                                                        _args=(name, (0, 64, 4))),
                                            lambda t, b: t.assertEqual(b, [])))
+            walled = world(*[((x, y, z), "bedrock") for x in range(-12, 13) for z in range(-8, 17) for y in (64, 65, 66, 67)
+                             if (x, z) != (0, 0)])
+            out["build_blueprint"].append((f"{name}: nothing started, nowhere to build", dict(
+                body(walled, feet=(0, 64, 0), inv=carried, rules={}), _args=(name, (0, 64, 4))),
+                lambda t, b: t.assertEqual(b, [])))
     return out
 
 

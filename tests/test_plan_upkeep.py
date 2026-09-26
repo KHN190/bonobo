@@ -34,7 +34,7 @@ from bonobo.knowledge import food_count  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
-from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, slot, snapshot, state,  # noqa: E402
+from tests.world import (PLANNER_DIMS, bag, cost, full_bag, inventory, places, slot, snapshot, state,  # noqa: E402
                          worlds)
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
@@ -278,6 +278,116 @@ class Cheaper(unittest.TestCase):
                 self.assertEqual(secs, sorted(secs))
 
 
+# ------------------------------------------------------------------------------------------- daylight in the solver
+from bonobo import actions  # noqa: E402
+from bonobo.solve import Unsolvable, solve  # noqa: E402
+
+DUSK_T, NIGHT_T, LATE_T = 11800, 18000, 23200
+# (situation, /state changes, bag, target) → a check on the solver's action order (names)
+DAYLIGHT = [
+    ("day, logs: straight to the tree, no waiting", {"timeOfDay": 2000}, [], {"log": 2},
+     lambda t, n: (t.assertIn("gather:log", n), t.assertFalse({"wait:day", "sleep"} & set(n)))),
+    ("dusk is still day: the tree now", {"timeOfDay": DUSK_T}, [], {"log": 2},
+     lambda t, n: t.assertFalse({"wait:day", "sleep"} & set(n))),
+    ("night in the open, logs: shelter, then morning, then the tree", {"timeOfDay": NIGHT_T},
+     [("stone_pickaxe", 1)], {"log": 2},
+     lambda t, n: (t.assertTrue(any(x.startswith("shelter:") for x in n)),
+                   t.assertLess(min(n.index(x) for x in n if x in ("wait:day", "sleep")), n.index("gather:log")),
+                   t.assertLess(min(n.index(x) for x in n if x.startswith("shelter:")),
+                                min(n.index(x) for x in n if x in ("wait:day", "sleep"))))),
+    ("night underground with a bed: sleep, then the tree", {"timeOfDay": NIGHT_T, "skyLight": 0, "y": 30.0},
+     [("white_bed", 1)], {"log": 2},
+     lambda t, n: t.assertLess(n.index("sleep"), n.index("gather:log"))),
+    ("night underground, no bed: wait for day, then the tree", {"timeOfDay": NIGHT_T, "skyLight": 0, "y": 30.0},
+     [], {"log": 2},
+     lambda t, n: (t.assertNotIn("sleep", n), t.assertLess(n.index("wait:day"), n.index("gather:log")))),
+    ("night underground, stone: no waiting — mining needs no sun", {"timeOfDay": NIGHT_T, "skyLight": 0, "y": 30.0},
+     [("wooden_pickaxe", 1)], {"minecraft:cobblestone": 3},
+     lambda t, n: (t.assertTrue(any(x.startswith("mine:") for x in n)), t.assertFalse({"wait:day", "sleep"} & set(n)))),
+    ("an hour before dawn underground: waiting is priced by what is left", {"timeOfDay": LATE_T, "skyLight": 0,
+                                                                           "y": 30.0}, [], {"log": 2},
+     lambda t, n: t.assertIn("wait:day", n)),
+]
+
+
+class Daylight(unittest.TestCase):
+    def test_surface_work_waits_for_the_sun(self):
+        for name, changes, inv, target, check in DAYLIGHT:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                snap = snapshot(state(**changes), inventory(*inv))
+                vec = actions.state_of(snap, m)
+                found = solve(actions.table(places(30.0), vec), vec, target)
+                check(self, [a.name for a, _n in found.steps()])
+
+    def test_the_clock_in_the_state(self):
+        """day while the sun is up; at night, how long until it is (what wait:day is priced by)."""
+        for tod, day, dawn in ((2000, True, None), (DUSK_T, True, None), (NIGHT_T, False, (23400 - NIGHT_T) / 20),
+                               (LATE_T, False, (23400 - LATE_T) / 20)):
+            with self.subTest(timeOfDay=tod), tempfile.TemporaryDirectory() as tmp:
+                vec = actions.state_of(snapshot(state(timeOfDay=tod)), Memory(os.path.join(tmp, "n.json")))
+                self.assertEqual(bool(vec.get(actions.DAY_DIM)), day)
+                self.assertEqual(vec.get("clock:dawn_s"), dawn)
+
+
+# ------------------------------------------------------------------------------------------------- effect goals
+class EffectGoals(unittest.TestCase):
+    def test_every_provided_effect_is_a_goal(self):
+        """Driven by the registry: whatever a skill provides can be queued as a task and plans to one step that the
+        same skill (or another provider) carries out."""
+        effects = sorted({e for c in skillkit.REGISTRY.values() for e in c.provides})
+        self.assertTrue(effects)
+        detail = {"goto": {"pos": [5, 64, 0]}, "withdraw": {"pos": [3, 64, 0]}}   # effects that name a place
+        for effect in effects:
+            goal = goals.make("effect", effect=effect, count=2, **({"detail": detail[effect]} if effect in detail else {}))
+            with self.subTest(effect):
+                steps = decompose.decompose(snapshot().inv, goal, cost())
+                self.assertEqual(len(steps), 1)
+                self.assertEqual(steps[0].count, 2)
+                self.assertIn(effect, skillkit.step_keys(steps[0]))
+                self.assertTrue(skillkit.providers(effect))
+                self.assertIsNone(goals.done(goal, snapshot(), None), "done when its plan ran")
+                self.assertTrue(goals.describe(goal).startswith(f"effect {effect}"))
+
+    def test_effects_nobody_provides(self):
+        for effect in ("teleport", "item:unobtainium", "dragons:breed"):
+            with self.subTest(effect), self.assertRaises(Unplannable):
+                decompose.decompose(snapshot().inv, goals.make("effect", effect=effect), cost())
+
+
+# ---------------------------------------------------------------------------------------------- can the step start
+def _needs_torches(c):
+    from bonobo.world import Inventory
+    raise api.NotAvailable("no torches to spare")
+
+
+# (situation, the provider's preconditions, bag) → offered (valid) this round?
+STARTS = [("no preconditions", (), inventory(), True),
+          ("a precondition that refuses", (_needs_torches,), inventory(), False),
+          ("the inputs are missing, whatever the skill says", (), None, False)]
+
+
+class CanStart(unittest.TestCase):
+    def test_valid_asks_the_skill(self):
+        from bonobo import dispatch
+        for name, pre, inv, want in STARTS:
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True), tempfile.TemporaryDirectory() as tmp:
+                skillkit.skill(name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
+                    lambda ctx, *a: None)
+                step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
+                bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                ctx = type("Ctx", (), {"policy": None, "mem": None})()
+                self.assertEqual(b.valid(step, snapshot(inv=bag_), ctx), want)
+                self.assertEqual(dispatch.can_start(ctx, step), bool(not pre))
+
+    def test_a_step_nobody_provides_cannot_start(self):
+        from bonobo import dispatch
+        for kind, token in (("zz", "nothing"), ("skill", "no_such_skill")):
+            with self.subTest(kind=kind):
+                self.assertFalse(dispatch.can_start(None, planner.Step(kind, token, 1)))
+
+
 # -------------------------------------------------------------------------------------------------- the cost model
 from bonobo import cost as costmod  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
@@ -365,6 +475,25 @@ class CostModel(unittest.TestCase):
                     m.note_seen(note[0], note[1], OVER)
                 c = costmod.Cost(snapshot(), mem=m, blacklist=banned)
                 self.assertAlmostEqual(c.seek_s(kinds), want, places=1)
+
+    def test_the_route_cache_is_read_with_the_rounds_policy(self):
+        """The game's route estimate counts only for the movement rules it was asked under."""
+        from bonobo import nav
+        walk = round(WT(10) / 20 + 2.0, 1)
+        dig, walk_only = nav.Policy(allow_dig=True), nav.Policy(allow_dig=False)
+        key = lambda p: ((10, 64, 0), bool(p.allow_dig), bool(p.allow_build), 2.0, 6000)  # noqa: E731
+        rows = [("asked with digging, planning with digging", dig, dig, 7.3),
+                ("asked walking only, planning walking only", walk_only, walk_only, 7.3),
+                ("asked with digging, planning walking only: not the same route", dig, walk_only, walk),
+                ("asked walking only, planning with digging", walk_only, dig, walk),
+                ("no policy given: the default's", nav.Policy(), None, 7.3)]
+        for name, asked, planning, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, \
+                    mock.patch.dict(nav._ROUTES, {key(asked): (True, 7.3)}):
+                m = Memory(os.path.join(tmp, "notes.json"))
+                m.note_seen("stone", (10, 64, 0), OVER)
+                self.assertAlmostEqual(costmod.Cost(snapshot(), mem=m, policy=planning).seek_s(["stone"]), want,
+                                       places=1)
 
     def test_seek_seconds(self):
         prior = float(costmod._PLAY["plan"]["seek_prior_s"])
