@@ -42,7 +42,9 @@ class TheRuleItself(unittest.TestCase):
                                        places=9)
 
     def test_cost_defaults_to_nothing(self):
-        self.assertEqual(estimate.saved_s(lambda s: 3.0 * s, 4.0, 1.0), 9.0)
+        for before, after, want in ((4.0, 1.0, 9.0), (1.0, 4.0, -9.0), (2.0, 2.0, 0.0), (0.0, 0.0, 0.0)):
+            with self.subTest(before=before, after=after):
+                self.assertEqual(estimate.saved_s(lambda s: 3.0 * s, before, after), want)
 
 
 class EveryLayerSpellsItTheSameWay(unittest.TestCase):
@@ -124,7 +126,9 @@ class TheVetoRefusesAndNeverRanks(unittest.TestCase):
             state["self"]["hp"] = 0.0
             for action in model.actions:
                 if not action.default:
-                    self.assertFalse(model.admissible(state, action)[0], f"{cell}: {action.name}")
+                    self.assertEqual(model.admissible(state, action),
+                                     (False, "no health: nothing is admissible until alive again"),
+                                     f"{cell}: {action.name}")
 
 
 class TheDecisionIsTheRuleAtItsBest(unittest.TestCase):
@@ -151,9 +155,9 @@ class TheDecisionIsTheRuleAtItsBest(unittest.TestCase):
             best = max((model.benefit(state, a) - a.cost_s for a in allowed), default=None)
             chosen = model.action(plan["intent"])
             if best is not None and best > 0:
-                self.assertGreaterEqual(model.benefit(state, chosen) - chosen.cost_s + 1e-6, best, cell)
+                self.assertAlmostEqual(model.benefit(state, chosen) - chosen.cost_s, best, places=6, msg=str(cell))
             else:
-                self.assertTrue(chosen.default or plan["benefit_s"] > 0, f"{cell}: {plan}")
+                self.assertEqual(chosen.name, "retreat", f"{cell}: nothing pays, so the default: {plan}")
 
     def test_there_is_always_an_answer(self):
         """Always one of the actions the model declares, never an empty or invented name."""
