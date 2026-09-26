@@ -952,7 +952,7 @@ def bridge_commands(state, args):
             if region.solid(cell):
                 if cell in protected:
                     return tasks
-                tasks.append({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2]})
+                tasks.append(nav.mine_task(cell))
         if not region.solid((x, y - 1, z)):
             tasks.append({"type": "place", "item": block, "x": x, "y": y - 1, "z": z})
         tasks.append({"type": "goto", "x": x, "y": y, "z": z, "range": 0.5, "partial": True})
