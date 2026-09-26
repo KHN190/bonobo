@@ -13,6 +13,7 @@ Nothing here talks to the game. `settle` and `arrive` see a sequence of answers 
 judgment, not a simulation of the world. The in-game half of test point A is the scenario sheet (bonobo/scenarios.py).
 """
 import itertools
+import time
 import os
 import sys
 import unittest
@@ -380,6 +381,35 @@ class Runner(unittest.TestCase):
                     self.assertEqual(runner(None), want)
                 self.assertEqual(bool(calls), ran)
                 self.assertEqual(stats.rows if timed not in (True, False) else bool(stats.rows), timed)
+
+    # A skill that keeps going: (situation, the markers it yields, budget s, stall s) → TaskStuck saying which limit
+    LIMITS = [("progress forever, but over budget", "rising", 0.15, 5.0, "budget"),
+              ("no progress: the same marker again and again", "flat", 5.0, 0.1, "no progress"),
+              ("slow progress within both limits finishes", "finite", 5.0, 5.0, None)]
+
+    def test_budget_and_stall(self):
+        for name, markers, budget, stall, want in self.LIMITS:
+            def body(ctx, _m=markers):
+                i = 0
+                while _m != "finite" or i < 5:
+                    time.sleep(0.01)
+                    i += 1
+                    yield i if _m in ("rising", "finite") else 0
+                return "done"
+            body.__name__ = f"limits_{markers}"
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), \
+                    mock.patch.object(skillkit, "world_signature", lambda: None), \
+                    mock.patch.object(skillkit, "_heartbeat", lambda n: None), \
+                    mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
+                    mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
+                runner = skillkit.skill(budget=budget, stall=stall)(body)
+                if want is None:
+                    self.assertEqual(runner(None), "done")
+                    continue
+                with self.assertRaises(api.TaskStuck) as caught:
+                    runner(None)
+                self.assertIn(want, str(caught.exception))
+                self.assertEqual(retry.cause_of(caught.exception), "stuck")
 
     def test_can_run_asks_the_same_preconditions(self):
         for pre, want in (([], (True, None)), ([_missing_pick], (False, "need a tier-1 pickaxe"))):

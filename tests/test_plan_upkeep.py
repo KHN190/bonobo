@@ -521,6 +521,34 @@ HELD = [
         ("check", lambda t, q: t.assertTrue(q.b.held["t1"]["event"])),
         ("round", inventory(("oak_log", 5))),
         ("check", lambda t, q: (t.assertFalse(q.b.held["t1"]["event"]), t.assertEqual(q.act.step.count, 3)))]),
+    # Resume by the remaining amount, per kind of task: interrupted at k of n, the next plan asks for n − k and
+    # redoes nothing already held.
+    ("have: 3 of 8 logs held when interrupted → gather 5", goals.have(("log", 8)), [
+        ("round", inventory()), ("interrupted",), ("round", inventory(("oak_log", 3))),
+        ("check", lambda t, q: t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if st.kind == "gather"], [5]))]),
+    ("have: 1 of 3 ingots smelted when interrupted → smelt 2, mine 2", IRON3, [
+        ("round", stone_tools()), ("interrupted",), ("round", inventory(*stone_tools()["slots"], ("iron_ingot", 1))),
+        ("check", lambda t, q: (
+            t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if st.kind == "smelt"], [2]),
+            t.assertEqual(sum(st.count for st in q.b.held["t1"]["steps"] if st.kind == "mine"
+                              and "iron" in st.token), 2)))]),
+    ("craft: 4 of 8 sticks made when interrupted → craft 4 more", goals.make("craft", needs=[["minecraft:stick", 8]]), [
+        ("round", inventory(("oak_planks", 8))), ("interrupted",),
+        ("round", inventory(("oak_planks", 6), ("stick", 4))),
+        ("check", lambda t, q: t.assertEqual([st.count for st in q.b.held["t1"]["steps"]
+                                              if (st.kind, st.token) == ("craft", "minecraft:stick")], [4]))]),
+    ("build: 10 of 14 stone gathered when interrupted → mine 4, then build; the door is not made again",
+     goals.make("build", bp="shelter"), [
+        ("round", inventory(("oak_door", 1), ("torch", 1), ("stone_pickaxe", 1))), ("interrupted",),
+        ("round", inventory(("oak_door", 1), ("torch", 1), ("stone_pickaxe", 1), ("cobblestone", 10))),
+        ("check", lambda t, q: (
+            t.assertEqual([st.count for st in q.b.held["t1"]["steps"] if (st.kind, st.token) == ("mine", "stone")], [4]),
+            t.assertEqual(q.b.held["t1"]["steps"][-1].kind, "build"),
+            t.assertFalse(has(q.b.held["t1"]["steps"], "craft", "door"))))]),
+    ("road: interrupted on the second leg → that leg only", goals.make("road", a=[0, 64, 0], b=[40, 64, 0]), [
+        ("round", inventory()), ("ok", inventory()), ("round", inventory()), ("interrupted",),
+        ("round", inventory()),
+        ("check", lambda t, q: t.assertEqual([st.detail["pos"] for st in q.b.held["t1"]["steps"]], [[40, 64, 0]]))]),
     ("failed on the third source: the task is failed with its cause", goals.have(("log", 4)), [
         ("round", inventory()), ("failed", 3),
         ("check", lambda t, q: (t.assertEqual(q.state()[0], "failed"), t.assertTrue(q.state()[1].startswith("nav"))))]),

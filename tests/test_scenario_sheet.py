@@ -263,6 +263,20 @@ class Changed(unittest.TestCase):
              ("TaskStuck: chop: no progress toward its goal for 45s", False),
              ("died (McError: failed)", False), ("NavFailed: could not get to (1, 2, 3)", False)]
 
+    # (reached?, seconds, budget, crashed?) → ok, and the note says why not
+    JUDGE = [(True, 30, 45, False, True, None), (True, 67, 45, False, True, None),
+             (True, 68, 45, False, False, "over budget"), (False, 10, 45, False, False, "not reached"),
+             (True, 10, 45, True, False, "crash"), (False, 500, 45, True, False, "not reached")]
+
+    def test_budget_and_crash_judgment(self):
+        for reached, seconds, budget, crashed, ok, why in self.JUDGE:
+            with self.subTest(reached=reached, seconds=seconds, crashed=crashed):
+                got_ok, got_why = sc.judge(reached, seconds, budget, crashed)
+                self.assertEqual(got_ok, ok)
+                if why:
+                    self.assertIn(why, got_why)
+                    self.assertFalse(sc.generic_failure(f"McError: {got_why}"), "an over-budget note says why")
+
     def test_generic_failure_notes(self):
         for note, want in self.NOTES:
             with self.subTest(note=note):
