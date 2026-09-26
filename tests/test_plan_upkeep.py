@@ -139,6 +139,61 @@ class Plans(unittest.TestCase):
         self.assertEqual(n, expected)
 
 
+def _fixed(steps):
+    return lambda inv, needs, cost, pending=None: list(steps)
+
+
+def _refuses(inv, needs, cost, pending=None):
+    raise Unplannable("this solver cannot")
+
+
+MARK = planner.Step("craft", "minecraft:stick", 4)
+# (situation, registered solvers in order, solver asked for, needs) → the steps, or the exception
+SOLVERS = [
+    ("no needs: nothing to solve", [("a", _refuses)], None, [], []),
+    ("the first that plans wins", [("a", _fixed([MARK])), ("b", _refuses)], None, [("minecraft:stick", 4)], [MARK]),
+    ("one that cannot hands on to the next", [("a", _refuses), ("b", _fixed([MARK]))], None,
+     [("minecraft:stick", 4)], [MARK]),
+    ("a named solver is the only one asked", [("a", _fixed([MARK])), ("b", _refuses)], "b",
+     [("minecraft:stick", 4)], Unplannable),
+    ("an unknown name", [("a", _fixed([MARK]))], "zzz", [("minecraft:stick", 4)], Unplannable),
+    ("none can", [("a", _refuses), ("b", _refuses)], None, [("minecraft:stick", 4)], Unplannable),
+]
+
+
+class Solvers(unittest.TestCase):
+    def test_registry_order_and_fallback(self):
+        for name, solvers, asked, needs, want in SOLVERS:
+            with self.subTest(name), mock.patch.dict(decompose.SOLVERS, dict(solvers), clear=True), \
+                    mock.patch.object(decompose, "ORDER", [n for n, _ in solvers]):
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        decompose.solve_needs(inventory_bag(), needs, None, asked)
+                else:
+                    self.assertEqual(decompose.solve_needs(inventory_bag(), needs, None, asked), want)
+
+    def test_the_planner_is_the_default(self):
+        self.assertEqual(decompose.ORDER[0], "planner")
+        self.assertIn("solve", decompose.ORDER)
+
+    def test_the_column_solver(self):
+        """solve needs a snapshot and a memory; given both, it plans with steps some skill provides."""
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            snap = snapshot(inv=inventory(("oak_log", 4)))
+            with self.assertRaises(Unplannable):
+                decompose.decompose(snap.inv, PICK1, cost(snap, oak_log=6), solver="solve")
+            steps = decompose.decompose(snap.inv, goals.have(("minecraft:stick", 4)), cost(snap, mem=m, oak_log=6),
+                                        solver="solve")
+            self.assertTrue(steps)
+            for st in steps:
+                self.assertTrue(skillkit.handles(st), st)
+
+
+def inventory_bag():
+    return bag(inventory())
+
+
 # (situation, goal, bag, what was seen at what distance, the step that must be chosen, the one that must not)
 CHEAPER = [
     ("cows near, pigs far → beef", FOOD8, inventory(), {"cow": 10, "pig": 60}, ("hunt", "minecraft:beef"),
