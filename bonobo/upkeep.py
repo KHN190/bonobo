@@ -191,7 +191,7 @@ class Upkeep:
         hit = self.plan_s_cache.get(key)
         if hit and time.time() - hit[0] < PLAN_S_TTL:
             return hit[1]
-        cost = Cost(snap, self.brain.mem, self.brain.blacklist)
+        cost = Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
         try:
             seconds = cost.plan_s(decompose.decompose(snap.inv, goal, cost))
         except Unplannable:

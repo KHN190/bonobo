@@ -316,7 +316,7 @@ class Brain:
             held.update(event=False, sig=bag_signature(snap.inv), dim=snap.dimension)
             self.held[task["id"]] = held
             return held
-        held, why = replan(task, goal, snap, Cost(snap, self.mem, self.blacklist),
+        held, why = replan(task, goal, snap, Cost(snap, self.mem, self.blacklist, policy=self.policy_cache),
                            self.mem.pending_outputs(snap.dimension))
         if held is None:
             self.fail_task(task, why)
@@ -382,7 +382,7 @@ class Brain:
             snap = snap or Snapshot()
         except McError:
             return {}
-        return Prices(Cost(snap, self.mem, self.blacklist), snap.inv)
+        return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache), snap.inv)
 
     # -- bookkeeping
     def track(self, snap):

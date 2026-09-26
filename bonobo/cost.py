@@ -36,14 +36,16 @@ class Cost:
     """The cost model a planner is given. `snap` is this round's snapshot; `mem` and `blacklist` are optional (a
     test passes neither and gets the priors and straight lines)."""
 
-    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None):
+    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None):
         """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
-        `finds`: {block or mob type: distance} standing in for /find and /entities (offline: nothing is queried)."""
+        `finds`: {block or mob type: distance} standing in for /find and /entities (offline: nothing is queried).
+        `policy`: the round's movement policy — the route cache is keyed by what a walk may dig and build."""
         self.snap, self.mem = snap, mem
         self.blacklist = blacklist or {}
         self.cache = {}
         self._known_fn = known
         self._finds = finds
+        self.policy = policy
 
     # -- where things are
     def _banned(self, key):
@@ -204,7 +206,7 @@ class Cost:
         where = self.where(kinds)
         if where is None:
             return None
-        policy = nav.Policy()
+        policy = self.policy or nav.Policy()
         key = (tuple(int(v) for v in where), bool(policy.allow_dig), bool(policy.allow_build), 2.0, 6000)
         found, seconds = nav._ROUTES.get(key, (None, None))
         return seconds if found else None
