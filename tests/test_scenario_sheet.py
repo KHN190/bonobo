@@ -40,6 +40,13 @@ def rows():
     return sorted(sc.SCENARIOS.items())
 
 
+def proven_by(entry):
+    """The skills a row's `skills` entry proves: a registered name, or an effect (every skill that provides it)."""
+    if entry in skillkit.REGISTRY:
+        return {entry}
+    return {c.name for c in skillkit.providers(entry)}
+
+
 class EveryRow(unittest.TestCase):
     def test_well_formed(self):
         for name, row in rows():
@@ -50,8 +57,8 @@ class EveryRow(unittest.TestCase):
                 self.assertTrue(callable(row.get("check")), "judged by the world, not by what run returned")
                 self.assertGreater(row.get("budget", 0), 0)
                 self.assertIn(row.get("point"), POINTS)
-                self.assertTrue(set(row.get("skills", ())) <= set(skillkit.REGISTRY),
-                                f"unknown skills {set(row['skills']) - set(skillkit.REGISTRY)}")
+                for entry in row.get("skills", ()):
+                    self.assertTrue(proven_by(entry), f"{entry!r} is neither a skill nor an effect any skill provides")
                 for cmd in row.get("setup", ()):
                     self.assertIsInstance(cmd, str)
                     self.assertIn(cmd.split()[0], COMMANDS, f"setup command {cmd!r}")
@@ -92,7 +99,7 @@ class EveryRow(unittest.TestCase):
 class EverySkillIsProven(unittest.TestCase):
     def gaps(self):
         no_verify = {n for n, c in skillkit.REGISTRY.items() if c.verify is None}
-        proven = {s for _, row in rows() for s in row.get("skills", ())}
+        proven = set().union(*(proven_by(e) for _, row in rows() for e in row.get("skills", ())))
         return no_verify, set(skillkit.REGISTRY) - proven
 
     def test_real_verify(self):

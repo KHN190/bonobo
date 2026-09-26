@@ -165,7 +165,7 @@ OUTCOMES = [
     (api.BodyContested("another commander posted a task"), "interrupt", "interrupted"),
     (api.PlayerTookControl(), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
-    (api.GameUnreachable("game not reachable"), "error", "waits"),
+    (api.GameUnreachable("connection to the game lost (OSError)"), "error", "waits"),
     (skillcore.ToolMissing("pickaxe", 1), "tool", "failure"),
     (api.NavFailed("could not get to (1, 2, 3)"), "nav", "failure"),
     (api.McError("travel: no path found"), "nav", "failure"),

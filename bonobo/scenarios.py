@@ -1340,13 +1340,15 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass"):
 
 
 # -- the bases: one skill, one job, one arena ---------------------------------------------------------------------
+# `skills` names what a row proves: an effect a skill provides (`@skill(provides=...)`, e.g. "item:log", "sleep") —
+# which survives skills being merged or renamed — or, for a skill that provides nothing, its registered name.
 # name → dict(skills, doc, setup, run, check, budget, needs (the goal as planner needs, for resume / goal-met),
 #             effect (token, n) for the at-success interrupt, work_s: when an interrupt lands mid-work)
 BASES = {
-    "nav": dict(skills=["travel_to"], doc="walk 14 blocks east over the arena", point="A",
+    "nav": dict(skills=["goto"], doc="walk 14 blocks east over the arena", point="A",
                 setup=_floor() + [_tp()], run=lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 2),
                 check=_at(at(14, 0, 0), 3.5), budget=30, work_s=3, arena=16),
-    "chop": dict(skills=["chop"], doc="a grove of two oaks → 4 logs", point="A",
+    "chop": dict(skills=["item:log"], doc="a grove of two oaks → 4 logs", point="A",
                  setup=_grove((4, 0), (-4, 3)) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 4),
                  check=_gain("log", 4), needs=[("log", 4)], effect=("log", 1), budget=45, work_s=4),
     "mine_stone": dict(skills=["mine"], doc="stone floor, a wooden pickaxe → 6 cobblestone", point="A",
@@ -1476,6 +1478,13 @@ SURPRISES = {
                            setup=[f"fill {_c(at(-3, 0, -3))} {_c(at(3, 3, 3))} gravel",
                                   f"fill {_c(at(-1, 0, -1))} {_c(at(1, 3, 1))} air"],
                            check=_all(_gain("minecraft:cobblestone", 6), _alive(14))),
+    "start_cell_on_a_fence": dict(base="nav", doc="the walk starts standing on a fence post (the mod judged such a "
+                                                  "start cell unstandable: '1 positions explored')",
+                                  setup=[f"setblock {_c(at(0, 0, 0))} oak_fence", _tp(0, 1.5, 0)]),
+    "start_cell_in_a_nook": dict(base="nav", doc="the walk starts in a one-block nook under a slab",
+                                 setup=[f"fill {_c(at(-1, 0, -1))} {_c(at(1, 1, 1))} stone",
+                                        f"fill {_c(at(0, 0, 0))} {_c(at(1, 1, 0))} air",
+                                        f"setblock {_c(at(0, 2, 0))} stone_slab"]),
     "chest_or_tree": dict(base="chop", doc="4 logs in a chest by the body, a tree 12 away: the brain takes the "
                                            "cheaper (plan-driven, test point C)", point="C",
                           setup=_chest(at(1, 0, 1), "oak_log 4"),
@@ -1548,14 +1557,14 @@ _ONE = {
     "take_bed": (["take"], "a village bed 6 blocks away → carried", _floor() + [f"setblock {_c(at(6, 0, 0))} red_bed",
                                                                              _tp()],
                  lambda ctx: _skill("take")(ctx, "bed", 1, ["red_bed"]), _gain("bed", 1), 30),
-    "tidy_full_bag": (["tidy_inventory"], "a full bag of junk → slots free", _floor() + [_tp(), "give @p dirt 2304"],
+    "tidy_full_bag": (["room:tidy"], "a full bag of junk → slots free", _floor() + [_tp(), "give @p dirt 2304"],
                       lambda ctx: _skill("tidy_inventory")(ctx), _free_slots(2), 30),
-    "deposit_home_chest": (["deposit"], "a home chest beside the body, a bag of cobblestone → stored",
+    "deposit_home_chest": (["room:deposit"], "a home chest beside the body, a bag of cobblestone → stored",
                            _floor() + [f"setblock {_c(at(2, 0, 0))} chest", _tp(), "give @p cobblestone 1280",
                                        "give @p dirt 640"],
                            lambda ctx: (ctx.mem.add_site("home", at(2, 0, 0), "minecraft:overworld", name="home"),
                                         _skill("deposit")(ctx))[1], _free_slots(8), 60),
-    "dig_in_night": (["dig_in"], "night on stone, a pickaxe → three down, sealed", _floor(depth=4) +
+    "dig_in_night": (["shelter:dig in"], "night on stone, a pickaxe → three down, sealed", _floor(depth=4) +
                      [_tp(), "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
                      lambda ctx: _skill("dig_in")(ctx), lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1],
                      40),
@@ -1563,14 +1572,14 @@ _ONE = {
                         [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 2, 1))} stone", f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air",
                          _tp(), "give @p stone_pickaxe"],
                         lambda ctx: _skill("dig_out")(ctx), lambda api, inv: not _near(api, at(0.5, 0, 0.5), 0.9), 40),
-    "pod_open_ground": (["pod"], "night, open ground, 16 blocks → walled in", _floor() +
+    "pod_open_ground": (["shelter:wall in"], "night, open ground, 16 blocks → walled in", _floor() +
                         [_tp(), "give @p cobblestone 16", "time set 18000"], lambda ctx: _skill("pod")(ctx),
                         _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9), 40),
-    "pod_in_water": (["pod"], "night, standing on a pillar in deep water → walled in anyway",
+    "pod_in_water": (["shelter:wall in"], "night, standing on a pillar in deep water → walled in anyway",
                      _tank(-6, 6, -6, 6, 0, water_top=-1) + [f"fill {_c(at(0, -3, 0))} {_c(at(0, -1, 0))} stone",
                                                             _tp(), "give @p cobblestone 32", "time set 18000"], lambda ctx: _skill("pod")(ctx),
                      _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9), 60),
-    "build_shelter_flat": (["build_shelter"], "flat stone, the hut's materials → a shelter standing",
+    "build_shelter_flat": (["build:shelter"], "flat stone, the hut's materials → a shelter standing",
                            _floor() + [_tp(), "give @p cobblestone 32", "give @p oak_door", "give @p torch 2"],
                            lambda ctx: _skill("build_shelter")(ctx),
                            _blocks(at(-6, 0, -6), at(6, 3, 6), "cobblestone", 14), 120),
@@ -1594,15 +1603,15 @@ _ONE = {
                         [f"fill {_c(at(-4, -4, -4))} {_c(at(4, 3, 4))} stone", f"fill {_c(at(-3, -3, -3))} {_c(at(3, 2, 3))} water",
                          _tp(0, -3, 0), "give @p stone_pickaxe"],
                         lambda ctx: _skill("find_air")(ctx), _alive(10), 45),
-    "surface_from_lake": (["surface"], "4 blocks down in open water → up to breathe",
+    "surface_from_lake": (["reach:air"], "4 blocks down in open water → up to breathe",
                           _tank(-5, 5, -5, 5, 8, water_top=7) + [_tp(0, -3, 0)], lambda ctx: _skill("surface")(ctx),
                           lambda api, inv: api.get("/state")["air"] >= 200, 30),
-    "reach_land_swim": (["reach_land"], "night, treading water 10 blocks from shore → on dry land",
+    "reach_land_swim": (["reach:land"], "night, treading water 10 blocks from shore → on dry land",
                         _tank(-8, 9, -8, 8, 1, water_top=-1) + [f"fill {_c(at(10, -3, -8))} {_c(at(14, -1, 8))} stone",
                                                                _tp(), "time set 18000"],
                         lambda ctx: _skill("reach_land")(ctx),
                         lambda api, inv: api.get("/state")["onGround"] and not api.get("/state")["inWater"], 60),
-    "footing_in_water": (["stand_on_a_block"], "treading water, cobblestone carried → a block underfoot",
+    "footing_in_water": (["reach:footing"], "treading water, cobblestone carried → a block underfoot",
                          _tank(-4, 4, -4, 4, 0, water_top=-1) + [_tp(), "give @p cobblestone 8"],
                          lambda ctx: _skill("stand_on_a_block")(ctx),
                          lambda api, inv: api.get("/state")["onGround"], 20),
@@ -1695,7 +1704,7 @@ for _name, _row_ in {
 # -- test point B: L0 hazards (the existing water_clutch, cross_lava_8, cave_escape) and two more ---------------
 SHEET["lava_edge_walk"] = {
     "doc": "A 1-wide stone path between two lava pools to a target 12 blocks on → there, not burnt",
-    "module": "nav", "point": "B", "skills": ["travel_to"], "tags": {"base": "nav", "hazard": "lava"},
+    "module": "nav", "point": "B", "skills": ["goto"], "tags": {"base": "nav", "hazard": "lava"},
     "setup": [f"fill {_c(at(-3, -3, -4))} {_c(at(15, -1, 4))} stone", f"fill {_c(at(0, -1, -3))} {_c(at(13, -1, -1))} lava",
               f"fill {_c(at(0, -1, 1))} {_c(at(13, -1, 3))} lava", _tp(-1, 0, 0), "give @p cobblestone 32"],
     "before": _start("lava_edge_walk"),
@@ -1712,7 +1721,7 @@ SHEET["buried_by_sand"] = {
 }
 SHEET["drowning_in_a_pit"] = {
     "doc": "Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else",
-    "module": "brain", "point": "B", "skills": ["find_air", "surface"], "tags": {"base": "l0", "hazard": "drowning"},
+    "module": "brain", "point": "B", "skills": ["find_air", "reach:air"], "tags": {"base": "l0", "hazard": "drowning"},
     "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
     "run": _brain_rounds(25, lambda: __import__("bonobo.api", fromlist=["get"]).get("/state")["air"] >= 250),
@@ -1721,7 +1730,7 @@ SHEET["drowning_in_a_pit"] = {
 SHEET["interrupted_rescue_is_not_a_failure"] = {
     "doc": "Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
            "brain resumes and still gets its 4 logs",
-    "module": "brain", "point": "B", "skills": ["chop"], "tags": {"base": "chop", "hazard": "lava"},
+    "module": "brain", "point": "B", "skills": ["item:log"], "tags": {"base": "chop", "hazard": "lava"},
     "setup": _grove((4, 0)) + [_tp(), "give @p cobblestone 16"],
     "before": _hooks(_start("interrupted_rescue_is_not_a_failure"),
                      lambda ctx: _threading.Timer(3.0, lambda: _chat(f"setblock {_c(at(0, 0, 1))} lava")).start()),
@@ -1768,7 +1777,6 @@ for _name, _skills in COVERS.items():
 SCENARIOS.update(SHEET)
 for _name in ("slice_retreat",):
     SCENARIOS[_name].setdefault("point", "C")
-SCENARIOS["water_clutch"].setdefault("skills", [])
 for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one skill: they carry an empty list
     _row_.setdefault("skills", [])
     _row_.setdefault("point", "A")
