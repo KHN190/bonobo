@@ -517,7 +517,8 @@ class Runner(unittest.TestCase):
     # A skill that keeps going: (situation, the markers it yields, budget s, stall s) → TaskStuck saying which limit
     LIMITS = [("progress forever, but over budget", "rising", 0.15, 5.0, "budget"),
               ("no progress: the same marker again and again", "flat", 5.0, 0.1, "no progress"),
-              ("slow progress within both limits finishes", "finite", 5.0, 5.0, None)]
+              ("slow progress within both limits finishes", "finite", 5.0, 5.0, None),
+              ("no progress and a tiny budget: the budget is hit first", "flat", 0.05, 5.0, "budget")]
 
     def test_budget_and_stall(self):
         for name, markers, budget, stall, want in self.LIMITS:
@@ -577,7 +578,7 @@ class Runner(unittest.TestCase):
 
 
 # ----------------------------------------------------------------------------------------------------- commands
-FEET = (0, 64, 0)
+FEET = (0, 64, 0)          # fixture: where the body stands in the command rows
 
 
 def body(region=None, feet=FEET, inv=None, protected=(), **extra):
@@ -626,7 +627,7 @@ def dark(**kw):
     return state(**dict(dict(blockLight=0, skyLight=0, timeOfDay=6000), **kw))
 
 
-SPOT = {"x": 1, "y": 64, "z": 1}
+SPOT = {"x": 1, "y": 64, "z": 1}          # fixture: one dark spot /dark answered
 
 # skill → [(situation, state dict, expected)]; expected is an exception type or a check(batch) -> None (asserts).
 COMMANDS = {
@@ -835,10 +836,9 @@ class Commands(unittest.TestCase):
         self.assertEqual(set(COMMANDS) - declared, set(), "rows for a skill that declares no commands")
 
     def test_closed_loop_skills_answer_none(self):
-        for name, c in skillkit.REGISTRY.items():
-            if c.commands is None:
-                with self.subTest(name):
-                    self.assertIsNone(skillkit.commands_of(c.runner, {}))
+        closed = {n: c for n, c in skillkit.REGISTRY.items() if c.commands is None}
+        self.assertEqual({n: skillkit.commands_of(c.runner, {}) for n, c in closed.items()},
+                         {n: None for n in closed}, "a closed-loop skill has no batch to hand over")
 
 
 if __name__ == "__main__":
