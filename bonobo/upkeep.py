@@ -289,7 +289,7 @@ class Upkeep:
                 continue
             log(f"no progress for {STUCK_LIMIT}s at {snap.feet} → unstuck by heading {label} {target}")
             self.history.clear()
-            if nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1):
+            if nav.moved(nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1)):
                 b.retry.succeeded(name)
                 return
             b.failed(name, NotAvailable(f"could not get {label} to {target}"))

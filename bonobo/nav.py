@@ -157,6 +157,12 @@ PROGRESS_BLOCKS = 2.0
 LEGS = 6
 
 
+def moved(got):
+    """Did a `go_to` answer move us: there (True), or a leg that gained ground (`Walked`)? Never read as a bare
+    truth value — the three answers are spelled out here, once."""
+    return got is True or isinstance(got, Walked)
+
+
 def walked_closer(start, here, target):
     """Did this leg actually bring us nearer the target? In blocks, against where it began."""
     return math.dist(start, target) - math.dist(here, target) >= PROGRESS_BLOCKS

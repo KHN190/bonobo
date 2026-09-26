@@ -58,7 +58,7 @@ def engage(decision, s, ctx):
     if decision.kind == "fight":
         api.run({"type": "attack", "entity": decision.target}, wait=45)
     elif decision.kind == "evade":
-        if not nav.go_to(decision.target, ctx.policy, range_=3, attempts=1, min_hp=0):
+        if not nav.moved(nav.go_to(decision.target, ctx.policy, range_=3, attempts=1, min_hp=0)):
             raise NotAvailable(f"could not get away to {decision.target}")
     elif decision.kind == "wall_in":
         skills.pod(ctx)

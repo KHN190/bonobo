@@ -62,7 +62,7 @@ def main():
             from bonobo.brain import Brain
             policy = Brain().policy(snap, snap.night)
             t0 = time.time()
-            ok = nav.go_to(t, policy, range_=8, attempts=1)
+            ok = nav.moved(nav.go_to(t, policy, range_=8, attempts=1))
             end = api.get("/state")
             row.update(walked=ok, real_s=round(time.time() - t0, 1),
                        left=round(math.dist((end["x"], end["y"], end["z"]), t), 1))
