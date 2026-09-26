@@ -63,7 +63,7 @@ def exposure_of(action, state):
     return press * action.cost_s
 
 
-# The rate beliefs live at the bottom (`beliefs`), where the doors can reach them without importing this module.
+# The rate beliefs live at the bottom (`beliefs`), where the cost model can reach them without importing this module.
 # These names stay because the columns read them.
 use_rate = beliefs.use_rate
 expected_uses = beliefs.expected_uses
@@ -103,9 +103,7 @@ def left_behind_dims(actions):
     Standing at the coal is required and never spent, but it is not left for anyone — the next goal starts from
     wherever the body ends up, one place and not every place this plan walked through.
 
-    A tool is carried. The one pricing door (`value.worth_s`) already prices it through the fall in the terminal
-    goods' own prices, and
-    what it wears out is a spent dimension (`uses:`), so treating it as something left behind paid twice over: a
+    A tool is carried, and what it wears out is a spent dimension (`uses:`), so treating it as something left behind paid twice over: a
     diamond pickaxe came out as a legacy of eighteen thousand seconds.
     """
     return {d for d in facility_dims(actions)
@@ -298,11 +296,7 @@ def _sheltered(snap, mem):
 # ------------------------------------------------------------------------------------------------- the columns
 
 def work_s(cost, kind, token, count=1):
-    """Seconds this piece of work takes: what this kind costs per unit, times how many.
-
-    The ENGINE of `gates.takes_s(s, Do(kind, token))`. It lives here, with the table it reads, and the door asks it —
-    never the other way round, or the bottom of the package would depend on the top.
-    """
+    """Seconds this piece of work takes: what this kind costs per unit, times how many."""
     return float(cost.work_s(kind, token)) * float(count)
 
 
@@ -336,7 +330,7 @@ def base_table(cost):
     """The columns that do NOT depend on what we hold — everything but shelter, room and a resumed step.
 
     Pricing the future asks for a table once per imagined state, and rebuilding all of it every time is most of
-    what that costs (63 of 69 ms in a `gates.V` call). These columns answer to the WORLD, which is not what the
+    what that costs (63 of 69 ms of a solve). These columns answer to the WORLD, which is not what the
     imagining changes, so they are built once per cost model and shared.
     """
     # Cached ON the cost model, not in a table keyed by its id: an id is reused the moment the object is
@@ -364,7 +358,7 @@ def _seek(cost):
 
         seek_s = (go there + sweep for one) / p(it is here × the note still holds × there is a route)
 
-    Time over chance, and nothing else — κ and V are the outer doors' business. Without the division a thing that
+    Time over chance, and nothing else. Without the division a thing that
     is not in this biome cost exactly what one underfoot costs: "could not find white_wool" sixty times, at nine
     seconds a try, winning the round every time. Each failed look lowers `p` (`memory.note_look`), so the errand
     prices itself out and the hunt takes over, without anything being banned.
@@ -579,6 +573,8 @@ def _resume(cost, state):
     out = []
     for half in cost.half_finished():
         kind, pos = half["kind"], tuple(half["pos"])
+        if kind not in RESUMES:
+            continue
         done, of = float(half.get("done", 0)), float(half.get("of", 0) or 0)
         if of <= 0 or done >= of:
             continue
@@ -592,7 +588,9 @@ def _resume(cost, state):
 
 
 # What finishing a piece of half-done work produces. Its own dimension, so an unfinished hole is not "sheltered".
-RESUMES = {"dig_in": "sheltered", "pod": "sheltered", "hut": "sheltered", "tunnel": "at:depth"}
+# Only kinds a skill resumes (skills.resume_work) and that note their progress (memory.note_progress); other
+# progress notes (a trunk left standing, a vein left open) are where-to-look hints, not columns.
+RESUMES = {"dig_in": "sheltered", "pod": "sheltered"}
 
 
 def _room(cost, state):
@@ -760,13 +758,13 @@ class Costs:
         self.unknown = unknown_walk_s
 
     def distance(self, kinds):
-        """How far the nearest of these is, or None. A FACT about the world, not a duration: what it costs in
-        seconds is the time door's business (`gates.takes_s`)."""
+        """How far the nearest of these is, or None. A FACT about the world, not a duration: `seek_s` and
+        `walk_s` turn it into seconds."""
         return self._distance(list(kinds))
 
     def seek_s(self, kinds, ignore_known=False):
         """Seconds to go to one of these: what the game says the route takes, else distance over speed, else the
-        declared prior. The ENGINE of `gates.takes_s(s, Seek(kinds))`.
+        declared prior.
 
         `ignore_known` prices going to ANOTHER one — the nearest has no route from here, so its distance says
         nothing about what this errand costs.
@@ -807,11 +805,6 @@ class Costs:
         """How far one of these was found at on average, from experience. None until it has happened."""
         return None
 
-    def find_p(self, kinds):
-        """The chance a look for one of these finds it. 1.0 here: a cost model with no memory to consult knows of
-        no reason to doubt; `LiveCosts` asks `gates.p("find")`."""
-        return 1.0
-
     def where(self, kinds):
         """The position of the nearest known one, or None. Distance alone cannot say whether two errands are in the
         same direction, which is what "on the way" means — and "on the way" is most of a speedrun's saving."""
@@ -819,17 +812,17 @@ class Costs:
 
     def find_p(self, kinds):
         """The chance a look for one of these finds it. 1.0 here: a cost model with no memory knows of no reason
-        to doubt, and the live one (below) asks `gates.p("find")`."""
+        to doubt."""
         return 1.0
 
     def note_age_s(self, kinds):
         """How old the note about the nearest of these is, in seconds. Zero when nobody has looked (a guess is not
-        stale, it is a guess), and what `gates.marginal("staleness")` turns into the extra seconds it costs."""
+        stale, it is a guess)."""
         return 0.0
 
     def reach_s(self, kinds):
-        """Seconds to get within working reach of the nearest one — the route-aware half of the time door
-        (`gates.takes_s(s, Go(here, there))`), asked through the cost oracle because the columns hold the oracle.
+        """Seconds to get within working reach of the nearest one, route-aware, asked through the cost oracle
+        because the columns hold the oracle.
 
         A number, `math.inf` when there is no route from here, or None when nobody has looked.
 
@@ -846,8 +839,7 @@ class Costs:
         return []
 
     def walk_to(self, pos):
-        """Seconds to reach a known position, or None. A FACT provider: the door (`gates.takes_s(s, Go(...))`) is
-        what turns a position into seconds when the terrain matters."""
+        """Seconds to reach a known position, or None."""
         return None
 
 

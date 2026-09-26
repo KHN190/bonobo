@@ -1294,6 +1294,20 @@ def pod(ctx):
     log("walled in for the night")
 
 
+# Half-done work a plan may finish (actions._resume prices it; its kinds are actions.RESUMES): the skill that
+# started it, run again where it stands.
+RESUMERS = {"dig_in": dig_in, "pod": pod}
+
+
+@skill(budget=240, stall=90, provides={"resume": lambda ctx, s: (s.token, tuple(s.detail["pos"]))
+                                       if s.token in RESUMERS else None})
+def resume_work(ctx, kind, pos):
+    """Go back to the half-done work at `pos` and finish it with the skill that started it; that skill's own
+    verify says whether it is done."""
+    nav.arrive(pos, ctx.policy, range_=1)
+    return RESUMERS[kind](ctx)
+
+
 # ---------------------------------------------------------------- machines (blueprints.py)
 
 

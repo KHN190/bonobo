@@ -152,9 +152,6 @@ _PRICES = {}
 def reach_cost(cols, state):
     """Pure: {dimension: cheapest seconds to obtain one unit}, ignoring how much is needed.
 
-    An ENGINE of `gates.V`: the relaxation belongs to the solver, the question "what is this state worth" belongs
-    to the value door.
-
     The global relaxation, computed once per round and shared by every layer of the descent — it is what lets a
     layer treat "and then the rest of the chain" as a single number instead of unrolling it. A column's cost is its
     own seconds plus the cost of everything it consumes and requires; a dimension's cost is the cheapest column
@@ -389,8 +386,8 @@ def _relaxed(rows, b, c, upper):
 def _priced(action, dim, price, have):
     """Seconds per unit of `dim` from this column, counting what it consumes and needs at relaxation prices."""
     spent = sum(price.get(d, float("inf")) * -v for d, v in action.effect.items() if v < 0 and have.get(d, 0) <= 0)
-    gates = sum(price.get(d, float("inf")) for d, v in action.requires.items() if have.get(d, 0) < v)
-    return (action.cost_s + spent + gates) / action.effect[dim]
+    unmet = sum(price.get(d, float("inf")) for d, v in action.requires.items() if have.get(d, 0) < v)
+    return (action.cost_s + spent + unmet) / action.effect[dim]
 
 
 def _branch_and_bound(A, b, c, upper, nodes=None):
