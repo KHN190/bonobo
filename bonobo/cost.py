@@ -177,7 +177,7 @@ class Cost:
     WORK_S = {("gather", None): 4.0, ("craft", None): 3.0, ("smelt", None): 10.0, ("mine", None): 3.0,
               ("hunt", None): 15.0, ("shelter", "dig in"): 25.0, ("shelter", "wall in"): 40.0,
               ("shelter", "hut"): 120.0, ("sleep", "bed"): 8.0,
-              ("room", "tidy"): 15.0, ("room", "deposit"): 60.0}
+              ("room", "tidy"): 15.0, ("room", "deposit"): 60.0, ("farm", None): 60.0, ("breed", None): 20.0}
 
     def work_s(self, kind, token):
         """Seconds per unit of work once there."""

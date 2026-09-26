@@ -127,6 +127,7 @@ def recipes():
     r["minecraft:book"] = ([p, p, None, p, "minecraft:leather", None, None, None, None], 1)
     r["minecraft:enchanting_table"] = ([None, "minecraft:book", None, d, o, d, o, o, o], 1)
     r["minecraft:iron_block"] = (["minecraft:iron_ingot"] * 9, 1)
+    r["minecraft:bread"] = (["minecraft:wheat"] * 3 + [None] * 6, 1)
     r["minecraft:anvil"] = (["minecraft:iron_block"] * 3 + [None, i, None, i, i, i], 1)
     for color in COLORS:
         w = f"minecraft:{color}_wool"

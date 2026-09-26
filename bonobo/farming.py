@@ -7,13 +7,12 @@ from . import api, jobs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .skillcore import gained
+from .knowledge import BREED_FOOD
 from .world import Inventory, Region, add, entities, find
 
 SOIL = ("grass_block", "dirt", "coarse_dirt", "rooted_dirt")
 SAPLINGS = ("oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling",
             "dark_oak_sapling", "cherry_sapling")
-BREED_FOOD = {"minecraft:cow": "minecraft:wheat", "minecraft:sheep": "minecraft:wheat",
-              "minecraft:pig": "minecraft:carrot", "minecraft:chicken": "minecraft:wheat_seeds"}
 RING = [(dx, dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if (dx, dz) != (0, 0)]
 
 

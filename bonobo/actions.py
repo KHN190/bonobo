@@ -23,7 +23,8 @@ import math
 
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
                    seen_class)
-from .knowledge import GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE
+from .knowledge import (BREED_FOOD, GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, SMELTS,
+                        STATIONS, TAKEABLE)
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate
@@ -336,7 +337,8 @@ def base_table(cost):
     # collected, and a recycled one served another world's columns (a room that cost less than flat ground).
     hit = getattr(cost, "_base_columns", None)
     if hit is None:
-        out = _seek(cost) + _gather(cost) + _mine(cost) + _take(cost) + _hunt(cost) + _craft(cost) + _smelt(cost)
+        out = (_seek(cost) + _gather(cost) + _mine(cost) + _take(cost) + _hunt(cost) + _farm(cost) + _craft(cost)
+               + _smelt(cost))
         hit = [with_exposure(a) for a in out]
         try:
             cost._base_columns = hit
@@ -454,6 +456,34 @@ def _take(cost):
         requires.update({"hands_free": 1, "footing": 1})
         out.append(Action(f"take:{token}", effect, float(row["break_s"]), requires=requires,
                           tag=("take", token, list(row["blocks"]))))
+    return out
+
+
+GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # a wheat plot to ripe; a bred animal to grown (jobs.DURATION)
+
+
+def _farm(cost):
+    """Food that is grown rather than found: the other half of "hunt or farm".
+
+    A wheat plot (`plant_farm`): a hoe, 8 seeds (sown, and given back at the harvest) and a water bucket that stays
+    in the plot; one harvest is PLOT_CELLS wheat, ripe after the crop has grown. Breeding (`breed`): two of a kind
+    fed their food, standing at them; one more animal to hunt once it has grown. Each is priced by the work AND the
+    waiting, so with animals in sight the hunt wins and with none anywhere the farm does."""
+    out = [Action("farm:wheat", dict(produce("minecraft:wheat", PLOT_CELLS), **{"minecraft:water_bucket": -1}),
+                  work_s(cost, "farm", "wheat") + GROW_S["crop"],
+                  requires={tool_dim("hoe", 0): 1, "minecraft:wheat_seeds": PLOT_CELLS, "footing": 1,
+                            "hands_free": 1, DAY_DIM: 1}, limit=1, tag=("farm", "wheat"))]
+    for meat, types in HUNT.items():
+        kind = types[0]
+        food = BREED_FOOD.get(kind)
+        if food is None or meat not in ("minecraft:beef", "minecraft:porkchop", "minecraft:mutton",
+                                        "minecraft:chicken"):
+            continue
+        per = HUNT_YIELD.get(meat, 1)
+        out.append(Action(f"breed:{kind}", dict(produce(meat, per), **{food: -2}),
+                          work_s(cost, "breed", kind) + GROW_S["animal"] + work_s(cost, "hunt", meat),
+                          requires={at(kind): 1, "hands_free": 1, DAY_DIM: 1, "bag_free": 1}, limit=2,
+                          tag=("breed", kind)))
     return out
 
 
@@ -716,4 +746,8 @@ def _shape(action, times):
         return Step("sleep", "bed", 1, {})
     if kind == "wait":
         return Step("wait", tag[1], 1, {})
+    if kind == "farm":
+        return Step("farm", tag[1], times, {})
+    if kind == "breed":
+        return Step("breed", tag[1], times, {})
     return Step("craft", action.name, times, {"times": times, "inputs": {}})
