@@ -381,15 +381,10 @@ def _worn_head():
 
 def _wait_landed(ctx, seconds=10):
     from . import api
-    t0 = time.time()
-    time.sleep(1.0)
-    while time.time() - t0 < seconds:
-        s = api.get("/state")
-        if s.get("onGround") or s.get("inWater") or s.get("dead"):
-            time.sleep(1.0)
-            return True
-        time.sleep(0.2)
-    return False
+    from .skillcore import settle
+    s = settle(lambda: api.get("/state"), lambda st: st.get("onGround") or st.get("inWater") or st.get("dead"),
+               timeout=seconds, stable_s=1.0, soft=True)
+    return bool(s.get("onGround") or s.get("inWater") or s.get("dead"))
 
 
 def _snap_survival(ctx):
@@ -713,28 +708,22 @@ def slice_report(lines, positions, target, idle_s):
     return {"loops": loops, "idle_s": round(idle_s), "away_m": round(away)}
 
 
-def _slice(done, minutes, target=None, route_name="speedrun", max_idle=15):
-    """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private route file. Stops at once on a
+def _slice(done, minutes, target=None, queue=(), max_idle=15):
+    """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private task queue holding `queue`
+    (goals, in order; empty = the brain prepares on its own). Stops at once on a
     loop (the same decision line 4×) or an idle hold longer than `max_idle` — a report, not a timeout.
 
     `done=None` means the window itself is the test: run the full `minutes` and let the scenario's own check say
     whether it went well. That is what the e2e markers need — surviving a night has no completion, only an end.
     """
     def run(ctx):
-        from . import api, priority, route
+        from . import api, tasks
         from .world import Snapshot
-        saved = route.FILE
-        route.FILE = os.path.join(os.path.dirname(NOTES), "slice-route.json")
-        route.choose(route_name)
-        # The profile too, not just the route: a slice used to run with default weights, so speedrun bans never
-        # applied and "light up" was picked 80× in one 8-minute Nether-kit slice ("no torches to spare").
-        saved_prio = priority.FILE
-        priority.FILE = os.path.join(os.path.dirname(NOTES), "slice-priorities.json")
-        try:
-            os.remove(priority.FILE)
-        except OSError:
-            pass
-        priority.apply_profile(route_name)
+        saved = tasks.FILE
+        tasks.FILE = os.path.join(os.path.dirname(NOTES), "slice-tasks.json")
+        tasks.save([])
+        for goal in queue:
+            tasks.add(goal, source="bench")
         core.BRAIN.idle_since, core.BRAIN.committed = None, None
         t0, positions, idle = time.time(), [], 0.0
         start_line = len(sys.stdout.lines) if hasattr(sys.stdout, "lines") else 0
@@ -757,8 +746,7 @@ def _slice(done, minutes, target=None, route_name="speedrun", max_idle=15):
                     stopped = f"loop: {rep['loops'][0]}" if rep["loops"] else f"idle {rep['idle_s']}s"
                     break
         finally:
-            route.FILE = saved
-            priority.FILE = saved_prio     # the slice's private weights must not leak into the next scenario
+            tasks.FILE = saved             # the slice's private queue must not leak into the next scenario
             SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target)
         if stopped:
             raise api.McError(f"slice stopped early — {stopped}")
@@ -811,7 +799,9 @@ SCENARIOS["slice_start_tools"] = {
     "doc": "Route slice: empty-handed on real Overworld terrain → stone pickaxe + furnace, no loops, idle ≤ 15 s.",
     "module": "brain", "raw": True, "release": True,
     "setup": ["spreadplayers 11600 11600 0 4 false @p", "clear @p", "time set day"],
-    "run": _slice(_has_tools_and_furnace, 6),
+    "run": _slice(_has_tools_and_furnace, 6, queue=[__import__("bonobo.goals", fromlist=["goals"]).make(
+        "milestone", name="stone tools"), __import__("bonobo.goals", fromlist=["goals"]).make(
+        "milestone", name="station kit")]),
     "check": _slice_check(_has_tools_and_furnace),
     "detail": _slice_detail,
     "budget": 360,
@@ -862,7 +852,8 @@ SCENARIOS["slice_nether_kit"] = {
               "give @p iron_sword", "give @p bucket", "give @p flint_and_steel", "give @p gold_ingot 5",
               "give @p coal 8", "give @p crafting_table", "give @p furnace", "give @p cooked_beef 6"],
     "before": lambda ctx: (_spread_to_located_biome(), _portal_beside_player(ctx)),
-    "run": _slice(lambda: _nether_kit_ready() or not _in_overworld(), 8),
+    "run": _slice(lambda: _nether_kit_ready() or not _in_overworld(), 8,
+                  queue=[__import__("bonobo.goals", fromlist=["goals"]).make("milestone", name="nether kit")]),
     "check": _slice_check(lambda: _nether_kit_ready() and _in_overworld()),
     "detail": _slice_detail,
     "budget": 480,

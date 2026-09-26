@@ -461,3 +461,181 @@ def no_go(state, margin=None):
 def inside_no_go(spot, zones):
     """Pure: does this position sit in one of `no_go`'s circles?"""
     return any(math.dist(spot, centre) <= radius for centre, radius in zones)
+
+
+# ------------------------------------------------------------------------------- the price of health (was survival.py)
+# What losing health costs in seconds depends on the state it is lost from: a chance of dying plus a loss of margin
+# against a day of ordinary risk. The threat layer prices every answer through `hp_seconds`; nothing else here is a
+# planner any more — the survival brain runs a fixed order and does not score.
+_T, _R, _K = beliefs.CONFIG["time"], beliefs.CONFIG["risk"], beliefs.CONFIG["tools"]
+
+
+def bag_loss(s):
+    """Seconds lost to a full bag: work whose output falls on the floor.
+
+    A full bag does not stop the agent, it stops the agent from KEEPING anything — so the next stretch of mining
+    is time spent for nothing. That cost was never in the model; tidying was worth a legacy three points (thirty
+    seconds) and lost to whatever else was going, while the bag stayed full and the ore kept dropping.
+    """
+    free = float(s.get("bag_free", 36))
+    if free >= _R["bag_comfortable"]:
+        return 0.0
+    share = (_R["bag_comfortable"] - free) / _R["bag_comfortable"]
+    return share * _T["day_s"] * _K["mining_share_of_day"]
+
+
+
+def make_state(**kw):
+    s = {"night": False, "ticks_until_dusk": 6000, "hp": 20, "food": 20, "bed": False, "sheltered": False,
+         "torches": False, "sword": 0, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
+         "shield": False, "bag_free": 36,
+         # Dark where we stand, which is where mobs come from. Not the same as night: a torch-lit camp at midnight
+         # is safe and a cave at noon is not.
+         "dark": False}
+    unknown = set(kw) - set(s)
+    if unknown:
+        raise KeyError(f"not survival state: {sorted(unknown)}")
+    s.update(kw)
+    return s
+
+
+def _protection(s):
+    """This state's damage reduction, from the belief table. Private: `beliefs.protection` is the one owner, and a
+    second public function of the same name is how the same chestplate came to be worth two different things."""
+    return beliefs.protection(s["armor"], s["shield"])
+
+
+def encounter_damage(s):
+    """(seconds, health) one ordinary encounter costs at this weapon and armour.
+
+    One reference mob, met at arm's length, priced by the same `estimate.fight_cost` the threat layer uses to
+    decide whether to swing at the real thing. They were two arithmetics over one question — what a fight costs —
+    so a sword could be worth making and not worth using.
+    """
+    kind = _R["reference_mob"]
+    here = (0.0, 0.0, 0.0)
+    row = estimate.row((float(beliefs.PLAYER["melee_reach"]), 0.0, 0.0), beliefs.mob(kind)["reach"],
+                       (0.0, 0.0, 0.0), kind)
+    return estimate.fight_cost(here, [row], s["sword"], _protection(s))
+
+
+_fatal_chance = estimate.fatal_chance     # one curve, in the module that owns the five quantities
+
+
+def fight_loss(s):
+    """Seconds a day of ordinary encounters costs at this weapon and armour — at full health.
+
+    Full health on purpose: over a day the bar refills, so the day's risk is a property of the gear, not of this
+    minute's health. What being hurt RIGHT NOW costs is `hurt_loss`, and keeping them apart is what stopped the
+    model from saying that dying was cheaper than being at four hearts (it priced four hearts as if they lasted
+    all day, which came to more than the cost of respawning).
+    """
+    kill_s, damage = encounter_damage(s)
+    return _R["encounters_per_day"] * (kill_s + _fatal_chance(20, damage) * _T["death_cost_s"])
+
+
+def hurt_loss(s):
+    """Seconds the current health deficit costs: the time to regenerate it, plus the extra chance of dying in the
+    encounters that happen before it is back."""
+    hp = max(0.1, float(s["hp"]))
+    if hp >= 20:
+        return 0.0
+    _kill_s, damage = encounter_damage(s)
+    regen_s = (20.0 - hp) * _R["regen_s_per_hp"]
+    meetings = _R["encounters_per_day"] * regen_s / _T["day_s"]
+    extra = _fatal_chance(hp, damage) - _fatal_chance(20, damage)
+    return regen_s + meetings * max(0.0, extra) * _T["death_cost_s"]
+
+
+def night_loss(s):
+    """Seconds the coming night is expected to cost. A bed skips it — but only where we can sleep: a bed in the
+    open is interrupted by the mobs standing over it, which is why a shelter is worth building even carrying one."""
+    if s["bed"]:
+        return 0.0 if s["sheltered"] else _R["night_bed_open"] * (1.0 - _protection(s)) * _T["death_cost_s"]
+    p = _R["night_sheltered"] if s["sheltered"] else _R["night_open"]
+    if s["sword"] == 0:
+        p += _R["no_sword_night"]
+    if s["nights_missed"] >= 3:
+        p += _R["phantom_night_death"]
+    # Without a bed the night is also 420 s of not working (mining underground counts as working; the open does not).
+    idle = 0.0 if s["sheltered"] else _T["night_s"]
+    return p * (1.0 - _protection(s)) * _T["death_cost_s"] + idle
+
+
+def hunger_loss(s):
+    """Seconds the CURRENT hunger costs before the next meal: work lost to not sprinting and not regenerating.
+
+    The bar itself, not the larder. Without this term eating was worth exactly nothing — `food_loss` looked only at
+    how many meals were carried, and eating one does not change that count, so the benefit of eating was zero at
+    every hunger level and the agent starved with a full bag of cooked pork.
+    """
+    food = float(s["food"])
+    if food >= _R["food_full"]:
+        return 0.0
+    span = _T["day_s"] * _R["meal_share_of_day"]        # how long this hunger has to be carried
+    slowed = (_R["food_full"] - food) / _R["food_full"] * _R["hunger_slowdown"]
+    if food <= _R["food_low"]:
+        slowed = max(slowed, _R["starving_slowdown"])   # below the floor nothing sprints and nothing heals
+    return span * slowed
+
+
+def larder_loss(s):
+    """Seconds the lack of MEALS costs over the next day: hunger we will not be able to answer."""
+    if s["food_items"] >= 8:
+        return 0.0
+    if s["food_items"] >= 2:
+        return 0.15 * _T["day_s"]           # will run out before the day is done
+    loss = _R["starving_slowdown"] * _T["day_s"]
+    if s["food_items"] == 0:
+        loss += _R["starving_death"] * _T["death_cost_s"]
+    return loss
+
+
+def food_loss(s):
+    """What hunger costs: what it is costing now, plus what having nothing to eat will cost.
+
+    Two terms because there are two actions. Eating answers the first; cooking and hunting answer the second. One
+    number could only ever justify one of them, and it justified the wrong one.
+    """
+    return hunger_loss(s) + larder_loss(s)
+
+
+def tool_loss(s):
+    """Seconds the day's mining costs beyond what an iron pickaxe would take, plus fighting unarmed."""
+    mult = {0: _K["mine_time_no_pickaxe"], 1: _K["mine_time_stone"]}.get(s["pickaxe"], _K["mine_time_iron"])
+    mining = _K["mining_share_of_day"] * _T["day_s"]
+    loss = mining * (mult - _K["mine_time_iron"])
+    return loss
+
+
+def light_loss(s):
+    return 0.0 if s["torches"] else _R["dark_work_death"] * _T["death_cost_s"]
+
+
+def expected_loss(s):
+    """The fifth quantity for ordinary play: seconds expected to be lost from here, given what we lack.
+
+    `kernel` reaches it through `estimate.state_price_s`, the pool through `benefit`; both are the same number,
+    and every goal is worth exactly the reduction it makes to it.
+    """
+    return (night_loss(s) + food_loss(s) + tool_loss(s) + light_loss(s) + fight_loss(s) + hurt_loss(s)
+            + bag_loss(s))
+
+
+def hp_seconds(s, dhp):
+    """The fourth quantity, implemented here because health is only worth what being hurt costs FROM THIS STATE:
+    seconds that expecting to lose `dhp` health costs.
+
+    Damage is a chance of dying plus a loss of margin, both continuous. The version with a branch at `dhp >= hp`
+    priced every answer in a bad spot as the same certain death, so fighting, fleeing and carrying on all came out
+    equal and the cheapest one (doing nothing) won. The curve is `estimate.fatal_chance`, the same one the fight
+    planner's two risks and `fight_loss` read.
+    """
+    if dhp <= 0:
+        return 0.0
+    hp = float(s["hp"])
+    p = _fatal_chance(hp, dhp)
+    survived = dict(s, hp=max(1.0, hp - min(dhp, hp - 1.0)))
+    margin = expected_loss(survived) - expected_loss(s)
+    return round(p * (_T["death_cost_s"] + expected_loss(dict(s, hp=20)) - expected_loss(s))
+                 + (1.0 - p) * margin, 1)

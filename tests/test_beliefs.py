@@ -19,7 +19,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import beliefs, combat_model, fight_plan, survival, threat  # noqa: E402
+from bonobo import beliefs, combat_model, fight_plan, threat  # noqa: E402
 
 
 class OneTable(unittest.TestCase):
@@ -43,7 +43,7 @@ class OneTable(unittest.TestCase):
         """There were two protection functions over two different units, so the same chestplate was worth two
         different things. Both layers now reach the table's one function."""
         self.assertAlmostEqual(threat.protection(8, True), beliefs.protection(8, True))
-        self.assertAlmostEqual(survival._protection(survival.make_state(armor=8, shield=True)),
+        self.assertAlmostEqual(threat._protection(threat.make_state(armor=8, shield=True)),
                                beliefs.protection(8, True))
 
 

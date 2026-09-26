@@ -3,34 +3,24 @@
 ## Survival
 
 ```python
-brain.round(snap)
-  sit  = brain.situation(snap, costs, region)   # facts: state·columns·region·policy·route·mem·hp·inv_free·dark
-  pool = candidates(ctx, snap, night)           # offer -> pool.admit (thaw relaxes cooldown only)
-  pick = priority.choose(pool, committed, held=assumptions_hold(snap))
+brain.round()                                    # fixed order; the first layer with something to do takes it
+  1 player holds control      → wait
+  2 L0                        hazard.due(state) → hazard.handle (lava, drowning, buried); a fight lease → yield
+  3 upkeep (one table)        recover · eat · reach land · leave Nether · dig out · sleep · shelter · furnace job
+                              · empty bag · unstuck;  queue at the front: pickaxe, food, bed
+                              food:  food_lasts_s < plan_s(have food) × LEAD      LEAD = 1.5
+                              bed:   dusk_s = (12000 − timeOfDay)/20 < plan_s(have bed) × LEAD
+  4 queue head (tasks.json)   held plan (sequence) → valid(next step)? → run it
+                              event (failed · interrupted · bag changed) → repair → else every solver
+  5 idle                      prepare: pickaxe, sword, food, torches; else wait
 
-four doors (gates.py; every estimate comes out of these)
-  gates.V(sit)            seconds from state to done = end dims (max) + run seconds (sum) + survival.expected_loss
-  gates.takes_s(sit, w)   w in Go|Seek|Do|Run|Short -- how long one piece of work takes
-  gates.p(sit, event)     yield·encounter·success·tool_use·tool_left·stale
-  gates.marginal(res)     slot·slots·staleness·pickup·detour·blood -- marginal price of scarcity
-  gates.exposure_s        = p(encounter) x k(blood); not a fifth door
+decompose(inv, goal, cost, solver) -> [Step]     goals: have craft milestone goto road build sleep skill
+  solvers   planner (default) · solve (fallback; actions.table columns)
+  cost      Cost.estimate(step) = walk(distance) + work(measured after 3 samples, else prior)   ticks
+  dispatch  skill.provider(ctx, step): @skill(provides={"kind:token" | "item:token" | "kind": adapter})
 
-pricing identity (value.worth_s; brain.worth_of_change is the only entry)
-  worth(x) = sum_t g(t)·[V(s_t) - V(s_t+x, t+dt)]·dt/H - k(slots)
-  each dim capped at min(worth, price); tool dim x Brain.uses_of; priors in play.toml and listed in unmeasured,
-  measurements override via pseudo-counts (beliefs.cautious reads unmeasured pessimistically)
-
-priority.Candidate
-  score = success x benefit_s - cost_s # both in seconds
-
-want.py (docs/api.md)
-  offer(want, worth_s, ...)  # wanted state + its seconds -> temporary terminal dim in gates.V
-  stop(hard=)                # soft = value zeroed; hard = arbiter.BODY.preempt
-
-seek_s(kinds) = ( Δt_go + Δt_sweep ) / p
-  Δt_go    = route_s(here → nearest known one)          # with nite: travel; no: 0
-  Δt_sweep = area_left / (2·detect_r·speed)             # seek when no note about
-  p        = p_exists(biome, dimension, y) · p_still(age, halflife_by_species) · p_reachable
+outcome   ok | failed(cause) | interrupted          retry: count (task, cause); cool cause@place; 3 → task failed
+skill     needs · run (commands batch or closed loop) · verify via settle(read, ok, timeout, stable_s) · outcome
 ```
 
 ## Combat
@@ -56,7 +46,7 @@ kernel.choose(model, state) → Choice
   # horizon    commitment
   #
   # normal  a day      released when assumptions fail
-  #   price = survival.expected_loss
+  #   price = threat.expected_loss (the price of health)
   #
   # combat  seconds    the action's atomicity
   #   price = Fight.objective
@@ -74,20 +64,15 @@ fight_plan.Fight
   admissible  hp>0 · phase · commitment ≤ remaining(p10) · requires · needs · best_step can retreat
               · expected damage < hp − floor
 
-combat → normal   pressure_hp_s → perception.pressure_now (model vs measured, worse) → brain.hp_tax_rate
-                  → LiveCost.risk_s ; no_go → pool.gate_step
-normal → combat   Intent.interrupt_cost_s = sunk_s → arbiter.preempt(worth_s=)
+hand-off         perception → hazard.py (environment, SAFETY) | fight_loop.offer (hostiles, TACTIC lease)
+                 fight_loop.engage runs the answer; the survival brain yields while the lease stands
 
 arbiter   REFLEX 0.05 · SAFETY 0.2 | TACTIC 1.0 · PLAN 10.0
 ```
 
-## Cost and benefit
+## Cost
 
-4 factors — V (seconds from a state to done), Δt (how long a piece of work takes), p (chance and rate: success,
-encounter, staleness), κ (marginal price of scarcity: one bag slot, one second of staleness).
-
-5 quantities — arrival time, pressure (hp/s), an action's blood and seconds, the price of health, the price of
-a state.
+Survival: ticks — distance walked plus work, measured per skill key once there are three samples. Combat: seconds
+and blood (`estimate`, `threat.hp_seconds`). No scoring outside the fight.
 
 Assess only the architecture and the code, not the behaviour. Behaviour is an outcome, which should not be predicted.
-

@@ -161,14 +161,14 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
         if not safe and spot is not None and math.dist(here, spot) > 1.0:
             # Get out first. Eating while still in the breath was a death loop: every bite was cancelled by the next
             # task, the log filled with "no bite" and health went 20 → 0 without a step taken.
-            nav.go_to(spot, ctx.policy, range_=1.0, attempts=1)
+            nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
         elif safe and s["health"] <= 14 and s.get("food", 20) < 20:
             try:
                 skills.eat(raw_ok=True)       # a full food bar can't be eaten: it only spammed "no bite"
             except McError as e:
                 log(f"   station: no bite ({e})")
         elif spot is not None and math.dist(here, spot) > 1.5:
-            nav.go_to(spot, ctx.policy, range_=1.0, attempts=1)
+            nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
         else:
             api.run({"type": "wait", "ticks": 5}, wait=5)
         margin = clearance(here, hz)
@@ -251,7 +251,7 @@ def fight_blaze(ctx, rods):
             # limit left 10 of 12 rounds shield-up while blazes hovered 2–4 up in a 5-high hall (bench 05:49); after
             # 3 waits, go for the nearest one anyway. Chasing one far up in the open ate fireballs (bench 04:19).
             waited = 0
-            nav.go_to((round(b["x"]), here[1], round(b["z"])), ctx.policy, range_=2.5, attempts=1)
+            nav.arrived((round(b["x"]), here[1], round(b["z"])), ctx.policy, range_=2.5, attempts=1)
             _strike(b)
         else:
             waited += 1
@@ -267,7 +267,7 @@ def fight_blaze(ctx, rods):
                              if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]
             if rods_on_floor:
                 e = rods_on_floor[0]
-                nav.go_to((round(e["x"]), round(e["y"]), round(e["z"])), ctx.policy, range_=1.0, attempts=1)
+                nav.arrived((round(e["x"]), round(e["y"]), round(e["z"])), ctx.policy, range_=1.0, attempts=1)
                 api.run({"type": "collect", "radius": 3, "only": ["minecraft:blaze_rod"]}, wait=10)
         yield Inventory().count("minecraft:blaze_rod")
     raise McError("blaze fight made no progress")

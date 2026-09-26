@@ -12,7 +12,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, knowledge, memory, priority  # noqa: E402
+from bonobo import actions, knowledge, memory  # noqa: E402
 from bonobo.planner import Step  # noqa: E402
 from bonobo.solve import Action, Unsolvable, reach_cost, solve  # noqa: E402
 
@@ -134,9 +134,6 @@ class StepsCarryWhatTheExecutorNeeds(unittest.TestCase):
         step.est = 60
         parcel = actions.marginal_batch(step, {"minecraft:cobblestone": 3.0}, {"minecraft:cobblestone": 8}, 20)
         self.assertTrue(parcel.detail["batched"])
-        self.assertAlmostEqual(priority.step_commitment(parcel.est, parcel.count, atomic=True), parcel.est / 20.0)
-        self.assertGreater(priority.step_commitment(parcel.est, parcel.count, atomic=True),
-                           priority.step_commitment(60, 1))
 
 
 class ToolsWearAndTheStateSaysSo(unittest.TestCase):

@@ -743,7 +743,7 @@ def hunt(ctx, token, count, types, night):
             continue
         if e["distance"] > 4:
             # Walk (and bridge) to animals, never tunnel: a sheep behind a mountain isn't worth a pickaxe.
-            nav.go_to((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
+            nav.arrived((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
                       range_=3, attempts=2)
             e = next((n for n in entities(64, types) if n["id"] == e["id"]), None)
             if e is None or e["distance"] > 6:
@@ -913,7 +913,7 @@ def _on_land():
     return not swimming(api.get("/state"))
 
 
-@skill(done=lambda c: _on_land(), budget=180, stall=45, per_unit=30)
+@skill(done=lambda c: _on_land(), budget=180, stall=45, per_unit=30, provides={"reach:air": lambda ctx, s: ()})
 def surface(ctx):
     """Straight up for a breath. The nearest air is the sky above, not the shore: a body four blocks under water
     was swimming twenty-two seconds toward a bank while it had eight seconds of air."""
@@ -922,6 +922,8 @@ def surface(ctx):
     return not swimming(api.get("/state")) or api.get("/state").get("air", 300) > 200
 
 
+@skill(done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
+       provides={"reach:footing": lambda ctx, s: ()})
 def stand_on_a_block(ctx):
     """Footing, made rather than travelled to: one block under the feet. Treading water with a stack of
     cobblestone, this is a second's work and the shore is half a minute away."""
@@ -933,6 +935,7 @@ def stand_on_a_block(ctx):
     return bool(api.get("/state").get("onGround"))
 
 
+@skill(done=lambda c: _on_land(), budget=180, stall=45, per_unit=30, provides={"reach:land": lambda ctx, s: ()})
 def reach_land(ctx):
     """Night in the water: nothing can be dug or built there, so swim (or boat) to the nearest dry standing spot
     first; shelters are made from land. One attempt per call; the brain's retry policy decides the next."""
@@ -1135,7 +1138,8 @@ def dig_in_commands(state, args=()):
 
 
 @skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1], commands=dig_in_commands,
-       provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None}, prefer=1,
+       provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
+                 "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30)
 def dig_in(ctx):
     """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead.
@@ -1269,7 +1273,7 @@ def pod_commands(state, args=()):
 
 
 @skill(done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
-       provides={"state:sheltered": lambda ctx, s: ()}, prefer=-1)
+       provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at
     feet and head height plus a roof. Mobs can't reach us; in the morning the navigator digs out."""
@@ -1397,7 +1401,7 @@ def collect_machine(ctx, machine):
 
 
 @skill(start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
-       budget=60, stall=30, per_unit=6)
+       budget=60, stall=30, per_unit=6, provides={"room:tidy": lambda ctx, s: ()})
 def tidy_inventory(ctx):
     """Free slots anywhere, no chest needed: drop the least valuable stacks (free_slots_plan) until
     FREE_SLOTS_TARGET slots are free, then step away so they aren't picked straight back up."""
@@ -1498,7 +1502,7 @@ def _has_something_to_store(c):
 
 
 @skill(pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
-       budget=600, stall=90, per_unit=60)
+       budget=600, stall=90, per_unit=60, provides={"room:deposit": lambda ctx, s: ()})
 def deposit(ctx, local_only=False):
     """Store everything beyond the keep list: in a chest at the nearest reachable site within 96 blocks (skipped
     with local_only, e.g. at night), else in a cache chest placed right here (crafted if needed, recorded as a

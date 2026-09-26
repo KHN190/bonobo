@@ -287,7 +287,7 @@ class Watcher(threading.Thread):
         worth answering": a bench read fourteen empty cells and could not tell a model that chose to carry on
         from a layer that never looked.
         """
-        from . import survival
+        from . import threat
         now = time.time()
         if not fight_loop.wired():
             return observe(now, "unwired")
@@ -305,8 +305,8 @@ class Watcher(threading.Thread):
             state = dict(state, field=ground(state), **kit(state.get("selected", "") + str(state.get("screen"))))
         except Exception:
             pass
-        sstate = survival.make_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
-        price = lambda dhp: survival.hp_seconds(sstate, dhp)
+        sstate = threat.make_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
+        price = lambda dhp: threat.hp_seconds(sstate, dhp)
         chosen = bid(state, rows, price)
         if chosen is None:
             return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at())

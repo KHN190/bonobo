@@ -432,7 +432,7 @@ def build_blueprint(ctx, name, near):
     yield from _build_parts(ctx, bp, origin, turns)
     if "portal" in bp.tags:
         from . import fluids
-        nav.go_to(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.0, attempts=1)
+        nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.0, attempts=1)
         fluids.light_portal(ctx, origin, turns)
     machine = ctx.mem.add_machine(name, origin, turns, ctx.dimension, bp.tags)
     ctx.mem.data.get("builds", {}).pop(name, None)
@@ -443,7 +443,8 @@ def build_blueprint(ctx, name, near):
 
 @skill(pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90, per_unit=60,
-       provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: ()})
+       provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
+                 "shelter:hut": lambda ctx, s: ()})
 def build_shelter(ctx):
     """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more
     safe place to sleep in the area being worked."""

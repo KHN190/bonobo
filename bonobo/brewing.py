@@ -5,6 +5,7 @@ import time
 from . import api, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
+from .skillcore import settle
 from .world import Inventory, find
 
 FIRE_RES_CHAIN = [("minecraft:nether_wart", "awkward"), ("minecraft:magma_cream", "fire_resistance")]
@@ -83,10 +84,10 @@ def brew_fire_resistance(ctx):
                     raise NotAvailable(f"missing {ingredient.split(':')[1]}")
                 api.post("/click", {"slot": src["slot"], "button": 1, "action": "PICKUP"})
                 api.post("/click", {"slot": 3, "button": 1, "action": "PICKUP"})
-                deadline = time.time() + 25
-                while time.time() < deadline:
-                    time.sleep(1)
-                    yield None
+                # Brewed when the ingredient slot is empty (~20 s a stage).
+                settle(lambda: next((s.get("count", 0) for s in container()["slots"] if s["slot"] == 3), 0),
+                       lambda n: n == 0, timeout=25, stable_s=1.0)
+                yield None
             for i in range(3):
                 api.post("/click", {"slot": i, "button": 0, "action": "QUICK_MOVE"})
         finally:

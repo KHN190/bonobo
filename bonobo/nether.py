@@ -126,7 +126,7 @@ def find_fortress(ctx, legs=8, leg=48):
     # Out of legs (or supplies): go back to the arrival portal instead of wandering further from home.
     home = ctx.mem.sites(NETHER, kinds=["portal"])
     if home:
-        nav.go_to(tuple(home[0]["pos"]), ctx.policy, range_=4, attempts=1)
+        nav.arrived(tuple(home[0]["pos"]), ctx.policy, range_=4, attempts=1)
     raise NotAvailable("no fortress found within the explored legs; back at the portal")
 
 
@@ -274,7 +274,7 @@ def locate_stronghold(ctx):
         if leg == 0:
             side = (-direction[1], direction[0])       # perpendicular leg for a good triangulation angle
             target = (round(here[0] + side[0] * 200), here[1], round(here[2] + side[1] * 200))
-            nav.go_to(target, ctx.policy, range_=12, attempts=1)
+            nav.arrived(target, ctx.policy, range_=12, attempts=1)
     spot = triangulate(throws[0][0], throws[0][1], throws[1][0], throws[1][1])
     if spot is None:
         raise McError("the two throws don't intersect (too parallel)")

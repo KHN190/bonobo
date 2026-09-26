@@ -10,7 +10,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import survival as sv  # noqa: E402
+from bonobo import threat as sv  # noqa: E402  (the price of health lives in threat now)
 from bonobo import threat  # noqa: E402
 
 HERE = (0.0, 64.0, 0.0)
@@ -118,7 +118,7 @@ class TheFastLane(unittest.TestCase):
     """Threat answers are bid for the body at perception's cadence, not queued for the next ten-second round."""
 
     def setUp(self):
-        from bonobo import perception, survival as sv
+        from bonobo import perception, threat as sv
         self.perception, self.sv = perception, sv
         perception.HELD = None      # each case is its own situation, not a continuation of the last
 
@@ -153,7 +153,7 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
     the planner's next mine task lands on top of the answer. Only a real price says the answer is done."""
 
     def setUp(self):
-        from bonobo import perception, survival as sv
+        from bonobo import perception, threat as sv
         self.perception, self.sv = perception, sv
         perception.HELD = None
 

@@ -138,7 +138,7 @@ def find_portal_room(ctx):
             for _ in range(4):
                 if math.dist(nav.feet_now(), pos) <= ROOM_REACH:
                     return True
-                nav.go_to(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
+                nav.arrived(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
                 yield nav.feet_now()
             if math.dist(nav.feet_now(), pos) > ROOM_REACH:
                 raise api.NavFailed(f"portal room at {pos} spotted but not reached")
@@ -153,7 +153,7 @@ def find_portal_room(ctx):
             break
         visited.append(target)
         log(f"   portal room search: heading to {target}")
-        nav.go_to(target, ctx.policy, range_=3, attempts=1)
+        nav.arrived(target, ctx.policy, range_=3, attempts=1)
         yield target
     raise NotAvailable("no end portal frame around the stronghold estimate")
 
@@ -339,7 +339,7 @@ def build_bed_pit(ctx):
     log(f"   bunker: mouth {pit_feet}, fire {fire_cell}, retreat {retreat_cell}, bed {bed}, floor {fy}")
     # Stand on the rim first. Travelling straight to a cell two blocks underground answered "cannot reach
     # (16, 57, 0): no path found" — nothing stands next to a hole that doesn't exist yet.
-    if not nav.go_to((pit_feet[0], fy, pit_feet[2]), ctx.policy, range_=0.8, attempts=2, min_hp=15):
+    if not nav.arrived((pit_feet[0], fy, pit_feet[2]), ctx.policy, range_=0.8, attempts=2, min_hp=15):
         raise api.NavFailed(f"the hole's rim at {(pit_feet[0], fy, pit_feet[2])} is not reachable")
     # Place the bed while still standing on the rim: it sits on the fountain's bedrock, which is out of arm's reach
     # from two blocks under the floor. Do it before digging, not after.
@@ -378,7 +378,7 @@ def build_bed_pit(ctx):
             # back and forth between "away" and "the rim" is what drained the health bar.
             log("   not safe to start digging: backing off")
             dx, dz = side
-            nav.go_to((dx * PREP_MIN_R, fy, dz * PREP_MIN_R), ctx.policy, range_=2, attempts=1)
+            nav.arrived((dx * PREP_MIN_R, fy, dz * PREP_MIN_R), ctx.policy, range_=2, attempts=1)
             api.run({"type": "wait", "ticks": 20}, wait=5)
             yield ("backed off", round(api.get("/state")["health"]))
             continue
@@ -388,14 +388,14 @@ def build_bed_pit(ctx):
         # 0.0 s without moving, and every round is spent at the same height (bench: 8 × "arrived (0.0s)", then
         # "hole not dug out").
         if (s["blockX"], s["blockZ"]) != (pit_feet[0], pit_feet[2]):
-            nav.go_to((pit_feet[0], s["blockY"], pit_feet[2]), ctx.policy, range_=0.3, attempts=1)
+            nav.arrived((pit_feet[0], s["blockY"], pit_feet[2]), ctx.policy, range_=0.3, attempts=1)
             s = api.get("/state")
         cell = (pit_feet[0], s["blockY"] - 1, pit_feet[2])
         if Region(cell, cell).solid(cell):
             r = api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": True}, wait=30)
             if r["status"] != "succeeded":
                 raise McError(f"digging the hole at {cell} failed: {r['message']}")
-        nav.go_to(cell, ctx.policy, range_=0.5, attempts=1)
+        nav.arrived(cell, ctx.policy, range_=0.5, attempts=1)
         after = api.get("/state")["blockY"]
         if after >= s["blockY"]:
             # Neither the mine nor the step took us down: report that, with the reason, instead of spinning out the
@@ -436,7 +436,7 @@ def build_bed_pit(ctx):
     # the outcome").
     s = api.get("/state")
     if not in_pit((s["blockX"], s["blockY"], s["blockZ"]), pit_feet, fy):
-        nav.go_to(pit_feet, ctx.policy, range_=0.6, attempts=2, min_hp=15)
+        nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=2, min_hp=15)
     return True
 
 
@@ -545,7 +545,7 @@ def await_perch(ctx):
                     pass
                 yield ("out of reach", round(s["health"]))
                 continue
-            nav.go_to(pit_feet, ctx.policy, range_=0.6, attempts=1, min_hp=15)
+            nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=1, min_hp=15)
             yield ("to pit", round(s["health"]))
             continue
         near = entities(128)
@@ -560,7 +560,7 @@ def await_perch(ctx):
             away = breath_escape((s["x"], s["y"], s["z"]), near)
             if away is not None:
                 log("   breath on us: running straight out of it")
-                nav.go_to(away, ctx.policy, range_=1.5, attempts=1)
+                nav.arrived(away, ctx.policy, range_=1.5, attempts=1)
                 yield ("breath", round(s["health"]))
                 continue
         # Bleeding watchdog: losing health while standing still means whatever hurts us reaches this spot. Waiting
@@ -624,8 +624,8 @@ def bed_bomb_window(ctx):
     if any(dug.solid((pit_feet[0], y, pit_feet[2])) for y in range(pit_feet[1], floor_y)):
         raise NotAvailable(f"the pit at {pit_feet} isn't dug out")
     # Into the hole by the portal for this one window only — and back to the pit whatever happens.
-    if not nav.go_to(stand, ctx.policy, range_=0.8, attempts=1, min_hp=15):
-        nav.go_to(pit_feet, ctx.policy, range_=0.6, attempts=1)
+    if not nav.arrived(stand, ctx.policy, range_=0.8, attempts=1, min_hp=15):
+        nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=1)
         raise api.NavFailed(f"bombing hole {stand} not reached")
     before = dragon_entry(entities(128))
     from .world import Region as _R
@@ -737,7 +737,7 @@ def shake_enderman(ctx):
         from .world import Region as _R
         dug = not any(_R((pit_feet[0], y, pit_feet[2]), (pit_feet[0], y, pit_feet[2])).solid((pit_feet[0], y, pit_feet[2]))
                       for y in range(pit_feet[1], floor_y))
-        if dug and nav.go_to(pit_feet, ctx.policy, range_=0.6, attempts=1):
+        if dug and nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=1):
             api.run({"type": "wait", "ticks": 20}, wait=5)
             yield "pit"
             return True
@@ -776,7 +776,7 @@ def break_caged_crystal(ctx, crystal):
         raise NotAvailable(f"no ground under the tower base {base}")
     base, stand, bars = cage_plan(pos, here, floor)
     log(f"   caged crystal at {tuple(round(c) for c in pos)}: tower at {base} up to {stand}")
-    if not nav.go_to(base, ctx.policy, range_=1.0, attempts=2):
+    if not nav.arrived(base, ctx.policy, range_=1.0, attempts=2):
         raise api.NavFailed(f"tower base {base} not reachable")
     if not api.get("/state").get("onGround"):
         # Pillaring needs something under the feet ("towering up failed: nothing solid to stand on").
@@ -804,7 +804,7 @@ def break_caged_crystal(ctx, crystal):
         api.run({"type": "wait", "ticks": 10}, wait=5)
         if not [e for e in entities(128) if e["id"] == crystal["id"]]:
             return True
-        nav.go_to((stand[0], stand[1], stand[2]), ctx.policy, range_=0.8, attempts=1)
+        nav.arrived((stand[0], stand[1], stand[2]), ctx.policy, range_=0.8, attempts=1)
         yield "hitting"
     raise McError("the crystal survived the hits")
 
@@ -897,7 +897,7 @@ def _carry_out(ctx, intent, state, near):
         build_bed_pit(ctx)
     elif name == "place_bed":
         if PIT and not _solid(PIT[3]) and _bed_item():
-            if nav.go_to(PIT[1], ctx.policy, range_=0.8, attempts=1, min_hp=15):
+            if nav.arrived(PIT[1], ctx.policy, range_=0.8, attempts=1, min_hp=15):
                 try:
                     _place(_bed_item(), PIT[3])
                     log(f"   bed on {PIT[3]} while it flies")
@@ -944,7 +944,7 @@ def _retreat(ctx, near=None):
     still again. A default action that can be a no-op turns every upstream bug into the same silent death.
     """
     if PIT:
-        nav.go_to(PIT[2], ctx.policy, range_=0.6, attempts=1)
+        nav.arrived(PIT[2], ctx.policy, range_=0.6, attempts=1)
         return "corridor"
     s = api.get("/state")
     here = (s["x"], s["y"], s["z"])
@@ -1083,7 +1083,7 @@ def enter_end(ctx):
         raise NotAvailable("no end portal nearby")
     if not find(["end_portal"], radius=32, limit=1):
         raise NotAvailable("the end portal isn't active yet")
-    nav.go_to(centre, ctx.policy, range_=0.6, attempts=1)
+    nav.arrived(centre, ctx.policy, range_=0.6, attempts=1)
     for _ in range(10):
         api.run({"type": "wait", "ticks": 20}, wait=5)
         yield None

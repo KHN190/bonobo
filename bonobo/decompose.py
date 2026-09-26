@@ -4,7 +4,7 @@
 
 Item goals (have, craft, milestone) go to a SOLVER; the rest become action steps, after whatever materials they
 need (build). Solvers are registered by name: `planner` (planner.py, recursive descent over the requirement graph)
-is the default; others are tried in registration order when it cannot plan, or chosen by name per task. Every
+is the default; `solve` (solve.py over the action columns) is tried when it cannot plan, or chosen by name per task. Every
 solver gets the same cost model (cost.Cost), so their steps are priced in the same ticks.
 
 Pure apart from what the cost model reads (one cached /find per kind).
@@ -28,6 +28,29 @@ def _planner(inv, needs, cost, pending=None):
 
 
 register("planner", _planner)
+
+
+def _solve(inv, needs, cost, pending=None):
+    """The column solver (solve.py over actions.table): slower, and it can see further — where to go for a thing,
+    what to take that is already made, which half-done work to finish. Reads the bag from the cost model's snapshot,
+    so it needs one (and memory, for the places it knows)."""
+    from . import actions as act
+    from .solve import Unsolvable, solve
+    target = act.target_of(needs)
+    if not target:
+        return []
+    if getattr(cost, "snap", None) is None or getattr(cost, "mem", None) is None:
+        raise Unplannable("the column solver needs a snapshot and a memory")
+    columns = act.LiveCosts(cost)
+    vector = act.state_of(cost.snap, cost.mem)
+    try:
+        found = solve(act.table(columns, vector), vector, target)
+    except Unsolvable as e:
+        raise Unplannable(str(e))
+    return [act.to_step(a, n) for a, n in found.steps()]
+
+
+register("solve", _solve)
 
 
 def solve_needs(inv, needs, cost, solver=None, pending=None):

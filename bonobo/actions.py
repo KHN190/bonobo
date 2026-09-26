@@ -22,7 +22,7 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 import math
 
 from .data import COVERED_SKY, GROUPS, bare, mid
-from .survival import CONFIG as _PLAY
+from .beliefs import CONFIG as _PLAY
 from .knowledge import (GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, RECIPES, SMELTS, STATIONS, TAKEABLE,
                         TOOL_MATERIAL_FOR_TIER)
 from . import beliefs
@@ -887,12 +887,15 @@ class LiveCosts(Costs):
         return seconds if found else None
 
     def find_p(self, kinds):
-        """The chance a look for one of these finds it, through the one door that answers chances."""
-        from . import gates
+        """The chance a look for one of these finds it: how often looking for them has, in this world (memory's
+        count over the declared prior). No route to the nearest one means no chance from here."""
+        if self.reach_s(kinds) == math.inf:
+            return 0.0
         mem = getattr(self.model, "mem", None)
-        moving = any(str(k).startswith("minecraft:") and k in _MOBS for k in kinds)
-        return gates.p(None, "find", mem=mem, kinds=list(kinds), age_s=self.note_age_s(kinds),
-                       moving=moving, reachable=self.reach_s(kinds) != math.inf)
+        prior = float(_PLAY["pool"]["exists_prior"])
+        if mem is None or not hasattr(mem, "exists_rate"):
+            return prior
+        return max(mem.exists_rate(k, prior) for k in kinds) if kinds else prior
 
     def note_age_s(self, kinds):
         mem, snap = getattr(self.model, "mem", None), getattr(self.model, "snap", None)

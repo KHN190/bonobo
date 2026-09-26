@@ -23,12 +23,13 @@ NOT_FAILURES = ("interrupt", "replan")
 
 
 def cause_of(err):
+    from . import api
     name = type(err).__name__
     text = str(err).lower()
-    if name in ("Interrupted", "BodyContested", "PlayerTookControl"):
-        return "interrupt"   # a danger or another commander stopped it: not the skill's fault
-    if name == "CommitmentExpired":
+    if isinstance(err, api.CommitmentExpired):
         return "replan"      # the plan grew stale mid-action: nothing failed, decide again now
+    if api.interrupted(err):
+        return "interrupt"   # a danger or another commander stopped it: not the skill's fault
     if name == "ToolMissing":
         return "tool"
     if name == "NavFailed" or any(m in text for m in NAV_MARKERS):   # text only for mod task messages

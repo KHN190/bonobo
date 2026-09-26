@@ -1,6 +1,6 @@
 #!/bin/bash
-# A timed speedrun in a fresh world: its own notes/route/priorities/directives (the old world's memory never leaks
-# in), route + profile set, then supervise.sh as usual. Usage:
+# A timed speedrun in a fresh world: its own notes and task queue (the old world's memory never leaks in), the
+# milestones queued, then supervise.sh as usual. Usage:
 #   speedrun.sh new     — start a run (player standing in the new world, cheats irrelevant: none are used)
 #   speedrun.sh         — resume the latest run after a wake (same files, same clock)
 #   speedrun.sh splits  — print the splits of the latest run
@@ -21,19 +21,19 @@ else
   RUN="$(readlink "$RUNS/latest")"
   [ -d "$RUN" ] || { echo "no run yet: speedrun.sh new"; exit 1; }
 fi
-export MC_NOTES="$RUN/notes.json" MC_ROUTE="$RUN/route.json" MC_PRIORITIES="$RUN/priorities.json" \
-       MC_DIRECTIVES="$RUN/directives.json"
+export MC_NOTES="$RUN/notes.json" MC_TASKS="$RUN/tasks.json"
 if [ "$1" = "splits" ]; then
   START=$(cat "$RUN/start")
-  grep -h "route: segment\|route: now\|dragon is gone\|?? STALL route" "$DIR/autoplay.log" | tail -40
+  grep -h "task done:\|failed:\|dragon is gone" "$DIR/autoplay.log" | tail -40
   echo "elapsed: $(( ($(date +%s) - START) / 60 )) min"
   exit 0
 fi
 # Scenario commands must never run in a real run.
 python3 mc.py scenario disable >/dev/null
 if [ "$1" = "new" ]; then
-  python3 mc.py route speedrun
-  python3 mc.py prio profile speedrun --ttl 7200
+  for m in "stone tools" "station kit" "food" "bed" "iron pickaxe" "iron tools" "water bucket"; do
+    python3 mc.py task add milestone $m >/dev/null
+  done
   echo "speedrun started $(date '+%H:%M:%S') → $RUN"
 fi
 exec ./supervise.sh 2 600

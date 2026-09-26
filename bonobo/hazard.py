@@ -52,9 +52,8 @@ def falling(state, fallen):
 
 def kind(state, buried=False, fallen=0.0):
     """Pure: the environmental hazard on the body now (one of KINDS), or None. `buried` is whether the eyes are inside
-    a solid block (a world read the caller makes); `fallen` is how far the body has dropped since leaving the ground."""
-    if state.get("dead") or (state.get("control") or {}).get("paused"):
-        return None
+    a solid block (a world read the caller makes); `fallen` is how far the body has dropped since leaving the ground.
+    Dead or paused is the caller's to rule out (perception.danger; the brain waits for both before a round)."""
     if state.get("inLava"):
         return "lava"
     if state.get("onFire") and state.get("health", 20) <= BURNING_HP:

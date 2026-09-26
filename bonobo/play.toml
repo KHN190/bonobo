@@ -43,17 +43,17 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
               "starving_death", "dark_work_death", "dark_light", "phantom_night_death", "mine_time_no_pickaxe",
               "mine_time_stone", "mining_share_of_day", "death_cost_s", "armor_per_tier", "shield",
               "encounters_per_day", "night_encounter_share", "night_share_of_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "regen_food_floor", "night_bed_open",
-              "fresh_s", "drift_s_per_log2", "slot_fill_s", "food_point_s", "tax_bin", "health_bin", "commit_floor_s",
-              "pickaxe_s", "bed_s", "rounds",
+              "fresh_s", "drift_s_per_log2", "slot_fill_s",
+             
               "pickaxe", "shovel", "axe", "sword", "hoe", "bucket", "other",
-              "notice_r", "follow_p", "portal_trip_s", "seek_prior_s", "nether portal", "nether kit",
-              "nether fortress", "blaze rods (7)", "gold helmet for piglins", "piglin barter", "ender pearls (12)",
-              "eyes of ender (12)", "stronghold located", "portal room found", "beds for the dragon",
-              "activate end portal", "enter the End", "defeat the ender dragon",
-              "breed animals", "loot nearby chests", "villager pearls", "repair worn pickaxe", "strip mine",
-              "enchant the pickaxe", "fire resistance potions", "explore",
+              "notice_r", "follow_p", "seek_prior_s",
+             
+             
+             
+             
+             
               "attack_s", "speed", "block_half_life_s", "mob_half_life_s", "exists_prior",
-              "plans_per_round", "plan_sample_floor", "plan_stale_s", "stickiness", "premise_reach_s",
+             
               "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
@@ -117,11 +117,6 @@ shape_min_gain = 0.1       # a shape must cut this share of the pressure to be w
 detour_blocks = 8.0        # how far a placed block sends a mob around, where it cannot squeeze past
 interrupt_ttd_s = 4.0      # perception stops a task only when death is closer than one planning round      # perception interrupts a task when death is this close at the current pressure
 
-[milestone]
-pickaxe_s = 900.0          # a stone pickaxe in hand
-bed_s = 2400.0             # wool, planks, a bed
-rounds = 40                # give up after this many decisions, however the clock stands
-
 [tool_use]
 pickaxe = 50.0
 shovel = 20.0
@@ -130,41 +125,6 @@ sword = 8.0
 hoe = 4.0
 bucket = 3.0
 other = 2.0                # anything not named above
-
-[goals]
-unmodelled = []   # empty: every goal is priced in seconds. Adding a name here is taking on a debt.
-
-[progress]
-# The run itself, in seconds: how much of the way to the credits each stage removes. Declared budgets, not
-# measurements (listed unmeasured) — but they are SECONDS, so a portal can be compared with a bed instead of
-# being compared with nothing. Read downward: entering the End is worth what is left after it, and so on back.
-# A stage is only ever worth this once; the goals that reach it carry it (`Brain.progress_worth_s`).
-"nether portal" = 900.0
-"nether kit" = 400.0
-"nether fortress" = 700.0
-"blaze rods (7)" = 900.0
-"gold helmet for piglins" = 200.0
-"piglin barter" = 600.0
-"ender pearls (12)" = 900.0
-"eyes of ender (12)" = 400.0
-"stronghold located" = 700.0
-"portal room found" = 500.0
-"beds for the dragon" = 900.0
-"activate end portal" = 300.0
-"enter the End" = 300.0
-"defeat the ender dragon" = 1800.0
-
-[yield]
-"breed animals" = { "minecraft:beef" = 6 }
-"loot nearby chests" = { "minecraft:iron_ingot" = 2, "minecraft:bread" = 3, "minecraft:coal" = 4 }
-"villager pearls" = { "minecraft:ender_pearl" = 4 }
-"repair worn pickaxe" = { "minecraft:stone_pickaxe" = 0.5 }
-"strip mine" = { "minecraft:cobblestone" = 40, "minecraft:coal" = 6, "minecraft:raw_iron" = 3 }
-
-[yield_s]
-"enchant the pickaxe" = 600.0        # efficiency and unbreaking over the pickaxe's remaining life
-"fire resistance potions" = 400.0    # the Nether trips that do not end in a respawn
-"explore" = 120.0                    # a leg of exploring pays for itself by what it puts on the map
 
 [memory]
 # A note gets dearer as it ages; it never stops being a note. A cutoff cannot tell "the sheep wandered off" from
@@ -201,37 +161,9 @@ reaction_s = 1.5           # perception round, /stop, and the rescue getting und
 air_floor = 120            # ticks: a hard floor under the clock, in case the clock's own inputs are wrong
 
 [pool]
-# How much planning one round may do, and how it is spent. Planning every candidate to the end, every round, is
-# what put a thousand look-ahead lines a minute in the log and left the body waiting — while the answer barely
-# moved from round to round. Instead: a fixed budget per round, spent on candidates drawn BY WEIGHT (their worth
-# in seconds), keeping what was worked out last time for the ones not drawn. The estimate improves round by round
-# instead of being rebuilt from nothing; the choice is always the best of what is known so far.
-plans_per_round = 4          # candidates planned in full each round (the rest keep their last plan)
-plan_sample_floor = 0.15     # weight every candidate keeps however poor, so nothing is never looked at again
-plan_stale_s = 30.0          # a kept plan older than this is refreshed before it is trusted
-# How much better a challenger must be before the body changes its mind, ON TOP of what switching costs in
-# seconds (the walk, and redoing the piece of work in hand). A pure number, because it is not a fact about the
-# world but a taste: how much thrash is worth how much responsiveness. 0 = switch on any improvement.
-stickiness = 0.10
-# Which threats count as "on us" for the premise a plan is held under. Not every mob the threat model can see
-# within its 20 s account: a zombie sixty blocks away arrives in fourteen seconds and changes nothing about
-# whether this plan is still the right one. What matters is what can reach us inside a piece of work.
-premise_reach_s = 6.0
-unmodelled = []   # empty: every candidate is priced in seconds.
 slot_fill_s = 90.0         # seconds of work per inventory slot filled: how fast a bag fills while mining
-portal_trip_s = 180.0      # there and back through a portal: what work in another dimension costs extra
 # The chance the thing is HERE AT ALL before anything has been looked for: a world where half the errands find
-# what they went for. Measurement replaces it per kind (`memory.exists_rate`), which is what stops the planner
-# pricing "find wool" the same in a forest and in a desert.
+# what they went for. Measurement replaces it per kind (`memory.exists_rate`).
 exists_prior = 0.5
-seek_prior_s = 300.0       # seconds to find one of something never seen and never measured. A declared
-                           # guess, used ONLY without a sample; one real find replaces it outright — it does not
-                           # decay, compound, or grow with failures, because none of those are measurements.
-tax_bin = 0.5              # health per second per bin
-health_bin = 4.0           # health per bin (two hearts)
-food_point_s = 12.0        # seconds of play per point of the food bar
-commit_floor_s = 6.0       # what CHANGING YOUR MIND costs: re-planning, walking off the old route, dropping
-                           # what was in hand. No commitment may be shorter, however cheap the step looks —
-                           # a step estimated at 0 s ("seek 1× stone, already here") expired the moment it was
-                           # made, so the same decision was re-taken every tick and the same refusal logged
-                           # a hundred times in twenty seconds.
+seek_prior_s = 300.0       # seconds to find one of something never seen and never measured (the column solver)
+search_growth = 1.5        # how much each "nothing of this kind here" widens the next look (the column solver)

@@ -19,7 +19,7 @@ import os
 import time
 import traceback
 
-from . import (api, arbiter, blueprints, decompose, goals, hazard, intent, knowledge, nav, nether, paths, retry,
+from . import (api, arbiter, bag, blueprints, decompose, goals, hazard, intent, knowledge, nav, nether, paths, retry,
                skills, tape, tasks, world)
 from . import skill as skillkit
 from . import skillcore
@@ -153,8 +153,7 @@ class Brain:
                                carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
             log("died → respawning")
             api.post("/respawn")
-            time.sleep(2)
-            s = api.get("/state")
+            s = skillcore.settle(lambda: api.get("/state"), lambda st: not st.get("dead"), timeout=5.0, soft=True)
         if s["screen"] == "class_433":
             api.post("/resume")
         if s["dimension"] == "minecraft:the_nether":
@@ -386,6 +385,9 @@ class Brain:
                     self.fail_step(task, NotAvailable("no step of the plan can run from here"))
                 return None
         self.committed = task["id"]
+        # Never consume our own work: what the held plans pass through is kept out of tidying and storing.
+        bag.RESERVED = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \
+            | bag.reserved_ids([], goals.needs(goal, snap.inv))
         return Act("task", f"task {task['id']}", lambda: self.execute(ctx, step, snap.night), task=task, step=step)
 
     def valid(self, step, snap):

@@ -13,7 +13,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import estimate, kernel, survival as sv, threat  # noqa: E402
+from bonobo import estimate, kernel, threat  # noqa: E402
 from tests.world import dangers, fights  # noqa: E402
 
 SHAPES = ("reshape", "wall_in")
@@ -55,14 +55,6 @@ class EveryLayerSpellsItTheSameWay(unittest.TestCase):
             options, horizon = threat.options(state), threat.horizon_for(state)
             doing_nothing = next(o for o in options if o.kind == "ignore")
             self.assertAlmostEqual(threat.saves(doing_nothing, options, price, horizon), 0.0, places=6, msg=str(cell))
-
-    def test_a_days_benefit_is_the_rule_over_the_days_price(self):
-        for gift in ({"bed": True}, {"sword": 2}, {"food_items": 8}):
-            state = sv.make_state(hp=12, food=10, sword=0, pickaxe=1)
-            after = dict(state)
-            after.update(gift)
-            self.assertAlmostEqual(sv.benefit(state, gift),
-                                   round(estimate.saved_s(sv.expected_loss, state, after), 1), places=1, msg=str(gift))
 
     def test_a_fights_benefit_is_the_rule_over_the_fights_price(self):
         for cell in fights():

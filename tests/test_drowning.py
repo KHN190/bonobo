@@ -33,18 +33,18 @@ class TheDeathThatKeptHappening(unittest.TestCase):
 class TwoClocks(unittest.TestCase):
     def test_the_computed_clock_fires_before_the_floor(self):
         # Air enough to leave, but not enough to leave AND notice: that gap is where the deaths were.
-        slack_gone = int((P._W["surface_s"] + P._W["reaction_s"]) * P.TICKS_PER_S)
+        slack_gone = int((P.hazard._W["surface_s"] + P.hazard._W["reaction_s"]) * P.TICKS_PER_S)
         self.assertTrue(P.drowning(wet(slack_gone - 1)))
 
     def test_the_floor_catches_what_the_clock_would_miss(self):
         # Pretend the clock's constants are wrong (a shallower surface_s): the floor must still fire.
-        saved = dict(P._W)
+        saved = dict(P.hazard._W)
         try:
-            P._W["surface_s"], P._W["reaction_s"] = 0.0, 0.0
+            P.hazard._W["surface_s"], P.hazard._W["reaction_s"] = 0.0, 0.0
             self.assertGreater(P.drowning_in(wet(100)), 0.0, "the clock alone would say this is fine")
             self.assertTrue(P.drowning(wet(100)), "the floor is what makes it safe to be wrong")
         finally:
-            P._W.update(saved)
+            P.hazard._W.update(saved)
 
     def test_full_lungs_are_not_an_emergency(self):
         self.assertFalse(P.drowning(wet(300)))

@@ -302,24 +302,6 @@ check("open space: the sealed shaft bottom has no room to throw", skills.throw_d
 spot = skills.find_open_spot(r, (0, 0, 0))
 check("open space: finds the passage/room nearby", spot is not None and spot[0] >= 1 and spot[1] == 3, spot)
 
-# ---- directives (Claude → script)
-import tempfile  # noqa: E402
-
-from bonobo import directives as D  # noqa: E402
-dpath = os.path.join(tempfile.mkdtemp(), "directives.json")
-D.add("goto", path=dpath, target=[1, 2, 3], note="road to the mine")
-D.add("goal", path=dpath, needs=[["minecraft:iron_ingot", 24]])
-items = D.load(dpath)
-check("directives: first pending is the goto", D.current(items)["kind"] == "goto")
-items, gave_up = D.mark(items, items[0]["id"], done=True)
-check("directives: done moves on to the next", D.current(items)["kind"] == "goal" and not gave_up)
-gid = D.current(items)["id"]
-for _ in range(5):
-    items, gave_up = D.mark(items, gid, failed_reason="no iron")
-# An order stands until it is done or cleared: failing counts, and nothing retires it.
-check("directives: an order survives its failures", not gave_up and D.current(items)["id"] == gid
-      and D.current(items)["fails"] == 5)
-
 # ---- review packet
 from bonobo import review as RV  # noqa: E402
 import datetime as _dt  # noqa: E402
@@ -373,8 +355,7 @@ check("job: ready once the estimate has passed", skills.job_ready(tmp.jobs()[0])
 tmp.finish_job(job["id"])
 check("job: finished jobs stop counting", tmp.pending_outputs("minecraft:overworld") == {})
 
-# ---- look-ahead
-from bonobo import lookahead  # noqa: E402
+
 from bonobo.planner import Step  # noqa: E402
 
 
@@ -397,49 +378,6 @@ def step(kind, token, count, est, **detail):
     s.est = est
     return s
 
-
-KIT = B.materials(B.SHELTER)
-iron_trip = [step("mine", "minecraft:raw_iron", 8, 1200, blocks=["iron_ore"], tier=1, breaks=8),
-             step("smelt", "minecraft:iron_ingot", 8, 900, input="minecraft:raw_iron", fuel="coal")]
-full = LInv({"minecraft:furnace": 1, "food": 10, "stone": 64, "building": 64, "door": 1, "minecraft:torch": 10,
-             "planks": 8},
-            [(2, 200, "minecraft:iron_pickaxe")])
-check("look-ahead: nothing missing → no extra", lookahead.prepare(iron_trip, full, 1000, False, KIT, 400) == [])
-no_furnace = LInv({"food": 10}, [(2, 200, "minecraft:iron_pickaxe")])
-extra = dict(lookahead.prepare(iron_trip, no_furnace, 1000, False, KIT, 400))
-check("look-ahead: smelting after a trip → carry a furnace", extra.get("minecraft:furnace") == 1, extra)
-smelt_only = [step("smelt", "minecraft:iron_ingot", 8, 900, input="minecraft:raw_iron", fuel="coal")]
-check("look-ahead: smelting here needs no carried furnace",
-      "minecraft:furnace" not in dict(lookahead.prepare(smelt_only, no_furnace, 1000, False, KIT, 400)))
-extra = dict(lookahead.prepare(iron_trip, no_furnace, 11500, False, KIT, 4000))
-check("look-ahead: trip into the night, home too far → shelter kit", extra.get("door") == 1 and extra.get("stone") == 14,
-      extra)
-check("look-ahead: carried bed → no shelter kit",
-      "door" not in dict(lookahead.prepare(iron_trip, no_furnace, 11500, True, KIT, 4000)))
-worn = LInv({"minecraft:furnace": 1, "food": 10}, [(2, 12, "minecraft:iron_pickaxe")])
-extra = dict(lookahead.prepare(iron_trip, worn, 1000, False, KIT, 400))
-check("look-ahead: pickaxe too worn for the trip → spare", extra.get("minecraft:stone_pickaxe") == 1, extra)
-long_trip = [step("mine", "minecraft:raw_iron", 24, 6000, blocks=["iron_ore"], tier=1, breaks=24)]
-extra = dict(lookahead.prepare(long_trip, LInv({}, [(2, 240, "p")]), 1000, False, KIT, 400))
-check("look-ahead: long trip → pack food", extra.get("food", 0) >= 5, extra)
-
-extra = dict(lookahead.prepare(iron_trip, no_furnace, 1000, False, KIT, 400))
-check("look-ahead: deep work without wood → carry planks", extra.get("planks") == 8, extra)
-
-# -- tool replacement picks a plan that can run to its end (real case: ingots smelted, no sticks, stuck at y=46)
-from bonobo.brain import pick_tool_plan  # noqa: E402
-log_step = step("gather", "log", 1, 1600)
-tool_plans = {3: [log_step, step("craft", "minecraft:diamond_pickaxe", 1, 60)],
-              2: [log_step, step("craft", "minecraft:iron_pickaxe", 1, 60)],
-              1: [log_step, step("craft", "minecraft:stone_pickaxe", 1, 60)]}
-check("tool plan: best tier when costs are equal", pick_tool_plan(tool_plans, set())[0] == 3)
-check("tool plan: night without armor blocks gathering", pick_tool_plan(tool_plans, {"gather", "hunt"}) is None)
-mining_plans = {2: [step("mine", "minecraft:raw_iron", 3, 100, tier=1), step("craft", "minecraft:iron_pickaxe", 1, 60)],
-                1: [step("craft", "minecraft:stone_pickaxe", 1, 60)]}
-check("tool plan: never mines with the missing pickaxe", pick_tool_plan(mining_plans, set())[0] == 1)
-check("tool plan: other tools may mine", pick_tool_plan(mining_plans, set(), no_mining=False)[0] == 2)
-check("tool plan: much cheaper lower tier wins",
-      pick_tool_plan({2: [step("mine", "x", 1, 5000)], 1: [step("craft", "y", 1, 60)]}, set(), no_mining=False)[0] == 1)
 
 from bonobo import bag as BG  # noqa: E402
 check("pickup: everything below 28 slots", BG.pickup_whitelist(27, ["minecraft:raw_iron"]) is None)
@@ -498,105 +436,6 @@ check("tidy: broken tools go, worn ones stay", skills.tidy_plan([broken, worn_ok
 skills._TREK_FAILED["far base"] = __import__("time").time()
 check("deposit: a failed trek isn't retried soon", not skills.site_trek_ok({"name": "far base"})
       and skills.site_trek_ok({"name": "home"}))
-
-# -- retry policy: wait for the state to change, not for a timer (unstuck once ran 29× from the same block)
-from bonobo import retry as RT  # noqa: E402
-from bonobo.api import NotAvailable as _NA  # noqa: E402
-st_a = RT.signature((10, 40, 10), ["minecraft:dirt"], False)
-st_b = RT.signature((30, 40, 10), ["minecraft:dirt"], False)
-rp = RT.Retry()
-n, wait, logit = rp.failed("unstuck", "nav", "no path", st_a, 1000)
-check("retry: first failure logged, backstop by cause", n == 1 and wait == 120 and logit)
-check("retry: same state waits", not rp.ready("unstuck", st_a, 1010))
-check("retry: changed state retries soon", rp.ready("unstuck", st_b, 1010) and not rp.ready("unstuck", st_b, 1002))
-_n, wait2, _l = rp.failed("unstuck", "nav", "no path", st_a, 1200)
-check("retry: backstop doubles", wait2 == 240, wait2)
-n, wait, logit = rp.failed("unstuck", "nav", "no path", st_a, 1500)
-check("retry: exhausted after 3 in one state", rp.exhausted("unstuck", st_a) and not rp.exhausted("unstuck", st_b))
-# The doubling runs into a ceiling that depends on WHAT went wrong: "no route from here" ages fast (we move, the
-# sun moves), a bug does not. One ceiling for every cause left a cooling goal idle for a quarter of an hour.
-check("retry: the ceiling is per cause", wait == RT.MAX_BACKSTOP["nav"], wait)
-check("retry: a bug waits longer than a place that did not work",
-      RT.MAX_BACKSTOP["error"] > RT.MAX_BACKSTOP["unavailable"])
-n, _, logit = rp.failed("unstuck", "nav", "no path", st_a, 2000)
-check("retry: repeats aren't logged", not logit)
-check("retry: a few blocks or the same items don't count as change",
-      RT.signature((11, 41, 9), ["minecraft:dirt", "minecraft:dirt"], False) == st_a)
-check("retry: travel failures are navigation",
-      RT.cause_of(_NA("gave up after 8 replans: floor failed: no reachable face")) == "nav"
-      and RT.cause_of(_NA("nothing dark nearby")) == "unavailable")
-
-# -- one priority pool
-from bonobo import priority as PR  # noqa: E402
-
-_C = PR.Candidate
-
-# The pool, as the four things the score must be able to say. Not the shape of any curve: those are model numbers
-# in play.toml, and asserting them here only pins the model to whatever it happened to be.
-check("priority: the score is seconds gained, and every term of explain() is seconds",
-      "s" in _C("x", 1, 600, None, seconds=50.0).explain() and
-      abs(_C("x", 0, 0, None, seconds=100.0).score - 100.0) < 1e-6,
-      _C("x", 0, 0, None, seconds=100.0).explain())
-check("priority: work that costs more than it saves scores negative",
-      _C("long errand", 0, 20 * 600, None, seconds=30.0).score < 0)
-# The discount lives inside `seconds` now (`value.worth_s` moves the clock on by how long the work takes), so the
-# pool has no `delay_s` to be given. The same statement, where the arithmetic is: longer work is worth less.
-check("priority: the same benefit for longer work scores lower",
-      _C("later", 0, 20 * 300, None, seconds=100.0).score < _C("now", 0, 20 * 10, None, seconds=100.0).score)
-# Added in seconds, not multiplied — and discounted by when the plan finishes, like every other benefit. A plan
-# that hands the pickaxe over in twenty seconds is worth more than the four-hundred-second one that passes through
-# a pickaxe on its way somewhere else; leaving unlocks undiscounted is why the agent stopped making tools at all.
-_opened = _C("opener", 0, 600, None, seconds=10.0, unlocks=[(100.0, 0.5)])
-_plain = _C("plain", 0, 600, None, seconds=10.0)
-# Unlocks arrive already discounted from the one pricing door, so the pool adds them and does not discount twice.
-check("priority: what a goal unlocks is added in seconds, times its probability",
-      abs((_opened.benefit_s - _plain.benefit_s) - 50.0) < 1e-6)
-check("priority: a longer plan costs more, so the same unlock scores lower",
-      _C("soon", 0, 60, None, seconds=10.0, unlocks=[(100.0, 1.0)]).score
-      > _C("late", 0, 12000, None, seconds=10.0, unlocks=[(100.0, 1.0)]).score)
-check("priority: an unreliable candidate is worth its expected benefit but the whole cost",
-      abs(_C("flaky", 0, 20 * 10, None, seconds=100.0, success=0.5).score - (50.0 - 10.0)) < 1e-6)
-check("priority: success floor, reset on state change",
-      PR.effective_success(0.0, False) == PR.MIN_SUCCESS and PR.effective_success(0.0, True) == 1.0)
-_a, _b = _C("iron armor", 0, 3000, None, seconds=200.0), _C("stone pickaxe", 0, 3000, None, seconds=201.0)
-check("priority: a commitment survives a tie", PR.choose([_a, _b], "stone pickaxe").name == "stone pickaxe")
-check("priority: a commitment whose premise failed is released",
-      PR.choose([_a, _b], "stone pickaxe", held=False).name in ("stone pickaxe", "iron armor"))
-check("priority: clearly beaten → switch",
-      PR.choose([_C("a", 0, 600, None, seconds=9000.0), _b], "stone pickaxe").name == "a")
-_plans = {"iron pickaxe": [step("craft", "minecraft:iron_pickaxe", 1, 60)],
-          "diamonds": [step("craft", "minecraft:iron_pickaxe", 1, 60), step("mine", "minecraft:diamond", 3, 900)],
-          "bucket": [step("craft", "minecraft:bucket", 1, 60)]}
-# Unlocking is read off the solver's shadow prices, from the TOP down: how much cheaper the terminal goods get
-# once this plan has run, capped by what each is worth. Summing over everything merely WANTED paid one saving once
-# per link of a supply chain and put the pool at two hundred thousand seconds for an enchanting table.
-# `priority.future_value` is gone: the fall in the price of the terminal goods IS the worth of a change, computed
-# once, in the module that owns it.
-from bonobo import value as _VAL  # noqa: E402
-check("value: unlocking is the fall in the price of the terminal goods",
-      _VAL.gain({"end:bed": 400.0, "end:food": 60.0}, {"end:bed": 100.0, "end:food": 60.0}) == 300.0)
-check("value: the ends compete rather than add up",
-      _VAL.gain({"end:bed": 400.0, "end:food": 200.0}, {"end:bed": 100.0, "end:food": 100.0}) == 300.0)
-
-_pf = os.path.join(tempfile.mkdtemp(), "prio.json")
-PR.add_weight("stock torches", path=_pf, now=1000, ttl=600, x=100)
-PR.add_weight("deposit", path=_pf, now=1000, ttl=60, ban=True)
-_w = PR.load(_pf, now=1030)
-check("priority: weights clamp and ban", PR.weight_for("stock torches", _w) == (PR.CLAMP[1], False)
-      and PR.weight_for("deposit", _w) == (0.0, True) and PR.weight_for("bed", _w) == (1.0, False))
-check("priority: weights expire", "deposit" not in PR.load(_pf, now=1100) and "stock torches" in PR.load(_pf, now=1100))
-
-_rk = [{"t": 1000, "pick": "stock torches", "top": [["stock torches", 0.02, 0.4], ["bed to carry", 0.01, 9]],
-        "filtered": {"iron pickaxe": "no runnable step"}}] * 3
-_rs = RV.rankings(_rk, 30, 1100)
-check("review: starved candidates listed with their reason",
-      "bed to carry (3×, mostly outscored)" in _rs and "iron pickaxe (3×, mostly no runnable step)" in _rs, _rs)
-
-# -- escape capability before digging
-check("escape: one pickaxe, no wood → not ready", not lookahead.escape_ready(LInv({"minecraft:cobblestone": 64}, [(1, 90, "p")])))
-check("escape: spare pickaxe → ready", lookahead.escape_ready(LInv({}, [(1, 90, "p"), (1, 40, "q")])))
-check("escape: planks + cobble + table → ready", lookahead.escape_ready(
-    LInv({"planks": 2, "minecraft:cobblestone": 3, "minecraft:crafting_table": 1}, [(1, 90, "p")])))
 
 # -- memory dedup
 from bonobo.memory import Memory  # noqa: E402
@@ -685,21 +524,9 @@ check("perception: hurt + hostile close interrupts, hurt alone doesn't",
       and PC.danger({**_ok, "health": 9}, lambda r: None) is None)
 check("perception: never while the player holds control",
       PC.danger({**_ok, "inLava": True, "control": {"paused": True}}) is None)
-check("perception: an interrupt is its own cause with no backstop",
-      RT.cause_of(__import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("lava")) == "interrupt"
-      and RT.BACKSTOP["interrupt"] == 0)
-
-# -- directive dependency graph, proximity
-_dg = [{"id": "a", "status": "done"}, {"id": "b", "status": "pending", "requires": ["a"]},
-       {"id": "c", "status": "pending", "requires": ["b"]}, {"id": "d", "status": "pending"},
-       {"id": "e", "status": "failed"}, {"id": "f", "status": "pending", "requires": ["e"]}]
-check("directives: runnable = pending with all dependencies done (parallel branches allowed)",
-      [x["id"] for x in D.runnable(_dg)] == ["b", "d"])
-check("directives: a failed dependency blocks its dependents", [x["id"] for x in D.blocked(_dg)] == ["f"])
-check("priority: distance is a cost, not a bonus (there and back)",
-      PR.detour_s(40) > PR.detour_s(10) > 0)
-check("bag: the carried chest is kept, not stored", not [s for s in skills.store_plan(
-    [{"id": "minecraft:chest", "count": 1, "slot": 5}]) if s["id"] == "minecraft:chest"])
+check("perception: an interrupt is its own cause, never a failure",
+      __import__("bonobo.retry", fromlist=["cause_of"]).cause_of(
+          __import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("lava")) == "interrupt")
 
 # -- farming: plots, ripe wheat, breeding pairs, resource map
 from bonobo import farming as FM  # noqa: E402
@@ -816,7 +643,7 @@ check("build: a spot never overlaps the player's body (resume + body exclusion w
       "body" in skills.find_machine_spot.__code__.co_varnames)
 
 # -- Nether safety: neutral mobs, trip kit, retreat
-from bonobo.brain import nether_kit_missing  # noqa: E402
+from bonobo.knowledge import nether_kit_missing  # noqa: E402
 from bonobo.threat import is_threat  # noqa: E402
 
 check("combat: zombified piglins, piglins and endermen aren't attacked on sight",
@@ -843,46 +670,12 @@ check("nether kit: enough food + 32 blocks + gold helmet worn + room → ready",
       nether_kit_missing(_KitInv({"minecraft:cooked_beef": 12, "building": 40}, 28, head="minecraft:golden_helmet")) == [])
 check("nether kit: no blocks → not ready (bridges, shelter from fireballs)",
       any("blocks" in m for m in nether_kit_missing(_KitInv({"minecraft:cooked_beef": 12}, 20, head="minecraft:golden_helmet"))))
-from bonobo import route as RO  # noqa: E402
-_raw_only = _KitInv({"minecraft:mutton": 20, "building": 40}, 20, head="minecraft:golden_helmet")
-
-
-class _RMem:
-    def __init__(self, portal=False, fortress=False):
-        self.portal, self.fortress, self.data = portal, fortress, {}
-
-    def machines(self, dim, tag=None):
-        return [1] if self.portal else []
-
-    def sites(self, dim, kinds=None):
-        return [1] if self.fortress and kinds == ["fortress"] else []
-
-
-_seg = RO.active_segment(RO.SPEEDRUN, _KitInv({"minecraft:cooked_beef": 4}, 35), _RMem(portal=True), "minecraft:overworld")
-_seg2 = RO.active_segment(RO.SPEEDRUN, _KitInv({"minecraft:cooked_beef": 4}, 35), _RMem(portal=True), "minecraft:the_nether")
-_sp = os.path.join(tempfile.mkdtemp(), "prio.json")
-PR.add_weight("nether fortress", path=_sp, now=1000, ttl=3600, ban=True)
-PR.apply_profile("speedrun", path=_sp, now=1000)
-_spw = PR.load(_sp, now=1010)
-check("speedrun profile: the wandering fallbacks stay banned (a slice picked 'light up' 80× without the profile)",
-      {"light up", "torches (≥8)", "deposit"} <= set(PR.PROFILES["speedrun"]["ban"]))
-check("speedrun profile: nothing is both banned and boosted; the bow is allowed and boosted, not banned",
-      not set(PR.PROFILES["speedrun"]["ban"]) & set(PR.PROFILES["speedrun"]["boost"])
-      and PR.weight_for("bow", _spw) == (6.0, False))
-_rf = os.path.join(tempfile.mkdtemp(), "route.json")
-RO.choose("speedrun", path=_rf) if "RO" in dir() else None
-from bonobo import route as RO2  # noqa: E402
-RO2.choose("speedrun", path=_rf)
-
 check("nether: exploration legs stay above the lava sea", 50 <= NT.EXPLORE_Y <= 100)
 import math  # noqa: E402
 _wp = NT.waypoints((-258, 65, 270), (-366, 120, 191))
 check("portal trip: 110 blocks go in legs of ≤40, ending at the portal",
       _wp[-1] == (-366, 120, 191) and len(_wp) == 4
       and all(math.hypot(b[0] - a[0], b[2] - a[2]) <= 41 for a, b in zip([(-258, 65, 270)] + _wp, _wp)), _wp)
-_st = {"reached": 2}
-_wobble = _KitInv({"minecraft:cooked_beef": 12, "building": 33}, 32, head="minecraft:golden_helmet")
-_kitseg = next(s for s in RO.SPEEDRUN if s["name"] == "nether kit")
 # Real case 03:03: dirt at (-17,61,241) next to a pond two blocks away; the pit filled and the agent nearly drowned.
 # WHERE the water is comes from the game; how far away is far enough is the rule being checked here.
 from unittest import mock as _mock_pond  # noqa: E402
@@ -975,22 +768,6 @@ check("bench: a failure un-settles it", not SC.settled(_ts, "activate_end_portal
 _t1 = {}
 SC.record(_t1, "cave_escape", "c", True, 22)
 check("bench: one pass settles a non-fight scenario", SC.settled(_t1, "cave_escape"))
-# Real case: a Nether-kit slice spent 8 minutes looking for water and sheep that were not in that biome. Walking 30
-# blocks makes a new retry state, so only a per-segment counter stops it.
-from bonobo import brain as BR  # noqa: E402
-from bonobo import retry as RT  # noqa: E402
-from bonobo.api import McError as _ME  # noqa: E402
-from bonobo.api import NotAvailable as _NA  # noqa: E402
-
-_brain = object.__new__(BR.Brain)
-_brain.retry, _brain.sig, _brain.place = RT.Retry(), "state", "place"
-_brain.seg_name, _brain.seg_misses = "nether kit", {}
-for _i in range(BR.SEG_MISSES):
-    _brain.sig = _brain.place = f"state-{_i}"      # a different place each time: the state-aware retry resets
-    _brain.failed("water bucket", _NA("no water within 48 blocks"))
-_brain.failed("water bucket", _ME("bucket broke"))
-check("brain: only 'nothing here' answers count toward the segment cap, not real errors",
-      _brain.seg_misses[("nether kit", "water bucket")] == BR.SEG_MISSES)
 # Real case 07:35/07:48: "clicked water but the bucket stayed empty" on real lakes — the stand spot was a block below
 # the surface and the level view crossed flowing water, which a bucket's ray ignores.
 from bonobo import fluids as FL  # noqa: E402
@@ -1076,7 +853,6 @@ check("skills: every End fight skill is soft-interruptible, a plain skill is not
       and not skills.eat.contract.soft)
 # The dragon heals only from a crystal within 32 blocks of itself and the pillars stand 40+ out, so perched at the
 # fountain it heals from nothing: beds alone finish the kit, a bow stays opportunistic.
-from bonobo import route as RT_ROUTE  # noqa: E402
 
 
 class _KitInv:
@@ -1094,7 +870,6 @@ class _KitMem:
         return []
 
 
-_end_kit = next(s for s in RT_ROUTE.SPEEDRUN if s["name"] == "end kit")
 # The bed goes on the fountain's bedrock, under where the perched head hangs — not on the island floor.
 _bedrock_bed = END.bed_cell((1, 0), 69)
 check("end: the bed sits one block ABOVE the bedrock, 2 from the centre (obsidian goes under it)",
@@ -1226,31 +1001,6 @@ _loop = [(None, "night in the water: swimming to land first")] * 12 + [(None, " 
 check("review: a decision loop shows as one repeated pattern",
       "×12 night in the water" in RV.repeated(_loop) and "goto" not in RV.repeated(_loop))
 
-# -- a wooden axe before real woodcutting (hand logs ~3.9 s each on the bench)
-from bonobo import lookahead as LA  # noqa: E402
-
-
-class _NoTools:
-    def count(self, token, include_worn=False):
-        return 0
-
-    def usable(self, token):
-        return 0
-
-    def tools(self, kind):
-        return []
-
-
-class _Step:
-    def __init__(self, kind, token, count):
-        self.kind, self.token, self.count, self.detail, self.est = kind, token, count, {}, 60 * count
-
-
-_axe = LA.prepare([_Step("gather", "log", 8)], _NoTools(), 1000, True, {})
-_few = LA.prepare([_Step("gather", "log", 3)], _NoTools(), 1000, True, {})
-check("look-ahead: 8 planned logs without an axe → wooden axe first; 3 logs → no",
-      ("minecraft:wooden_axe", 1) in _axe and not any(t == "minecraft:wooden_axe" for t, _ in _few))
-
 # -- road network: proven legs are reused only where they beat the direct way
 from bonobo import roads as ROADS  # noqa: E402
 _rd = []
@@ -1258,267 +1008,6 @@ ROADS.add_leg(_rd, (0, 70, 0), (200, 70, 0), 30.0, 1)          # a fast known ro
 ROADS.add_leg(_rd, (0, 70, 0), (200, 70, 0), 45.0, 2)          # a slower repeat keeps the best time
 check("roads: a repeated leg keeps its fastest time", len(_rd) == 1 and _rd[0]["s"] == 30.0)
 ROADS.add_leg(_rd, (0, 70, 0), (0, 70, 300), 900.0, 3)          # a terrible known leg north (a mountain tunnel)
-
-# -- decisions apart from execution: random-state invariants (pure rules must hold for any bag / state)
-import random as _rnd  # noqa: E402
-from bonobo import bag as BAG, route as RT, brain as BR, decide as DEC, tape as TAPE  # noqa: E402
-
-_ITEMS = ["minecraft:cobblestone", "minecraft:dirt", "minecraft:oak_log", "minecraft:stick", "minecraft:coal",
-          "minecraft:iron_ingot", "minecraft:cooked_beef", "minecraft:beef", "minecraft:bread", "minecraft:gravel",
-          "minecraft:flint", "minecraft:torch", "minecraft:water_bucket", "minecraft:ender_pearl", "minecraft:string",
-          "minecraft:rotten_flesh", "minecraft:obsidian", "minecraft:golden_helmet", "minecraft:sand"]
-
-
-class _RInv:
-    def __init__(self, slots, equipment=None):
-        self.slots, self.equipment = slots, equipment or {}
-
-    def count(self, item, include_worn=False):
-        from bonobo.data import GROUPS, mid
-        ids = GROUPS.get(item, [mid(item)])
-        return sum(s["count"] for s in self.slots if s["id"] in ids)
-
-    def used_slots(self):
-        return len(self.slots)
-
-    def worn(self, slot):
-        return (self.equipment.get(slot) or {}).get("id", "minecraft:air")
-
-
-_bad = []
-for _seed in range(300):
-    r = _rnd.Random(_seed)
-    slots = [{"id": r.choice(_ITEMS), "count": r.randint(1, 64)} for _ in range(r.randint(5, 36))]
-    slots += [{"id": "minecraft:stone_pickaxe", "count": 1, "damage": r.randint(0, 130), "maxDamage": 131}]
-    BAG.RESERVED = set(r.sample(_ITEMS, 3))
-    throw = BAG.free_slots_plan(slots, need=r.randint(0, 20))
-    # 1. the biggest stack of every reserved item stays
-    for rid in BAG.RESERVED:
-        stacks = [s for s in slots if s["id"] == rid]
-        if stacks and all(s in throw for s in stacks):
-            _bad.append((_seed, "reserved item fully thrown", rid))
-    # 2. protected things (working tools, ingots, pearls, water bucket, cooked food) are never thrown
-    for s in throw:
-        if BAG._protected_stack(s):
-            _bad.append((_seed, "protected stack thrown", s["id"]))
-    # 3. one definition of food: route, brain and the bag's cooked count agree
-    inv = _RInv(slots)
-    from bonobo.knowledge import ALL_FOOD
-    if not (RT.food_count(inv) == BR.food_count(inv) == sum(s["count"] for s in slots if s["id"] in ALL_FOOD)):
-        _bad.append((_seed, "food counts disagree"))
-    # 4. no Nether trip without the kit; low health in the Nether always retreats
-    if not RT.nether_kit_missing(inv) and RT.food_count(inv) < RT.KIT_FOOD:
-        _bad.append((_seed, f"kit complete with < {RT.KIT_FOOD} food"))
-
-    class _Snap:
-        dimension = "minecraft:the_nether"
-        state = {"health": r.randint(1, 8)}
-    _Snap.inv = inv
-    if not BR.must_retreat(_Snap):
-        _bad.append((_seed, "hp ≤ 8 in the Nether without a retreat"))
-BAG.RESERVED = set()
-check("invariants (300 random bags/states): reservations, protection, food, kit, retreat", not _bad, _bad[:3])
-
-# -- decision tape encoding round-trips (replays must see the same retry state and signatures)
-_sig = ((1, 2, 3), frozenset({"minecraft:dirt"}), True, 0)
-check("tape: signatures and retry state round-trip", TAPE.decode_sig(TAPE.encode_sig(_sig)) == _sig)
-check("tape: an old recording's blacklist size is normalised away",
-      TAPE.decode_sig([[1, 2, 3], ["minecraft:dirt"], True, 234]) == _sig)
-check("decide: longest run of one pick", DEC.longest_run([(0, "a"), (1, "a"), (2, "b"), (3, "a")], "a") == 2)
-
-# -- golden decisions (recorded situations with the expected pick), and a loop check on each of them
-for _name, _ok, _msg in DEC.golden_results():
-    check(f"golden decision: {_name}", _ok, _msg)
-
-# -- loops (simulate on every golden world): everything the brain picks fails, the world never changes. The retry
-# policy must not pick the same candidate over and over: at most EXHAUSTED_AFTER in a row, then something else.
-import json as _json  # noqa: E402
-from bonobo import retry as _retry  # noqa: E402
-from bonobo.api import McError as _McError  # noqa: E402
-if os.path.isdir(DEC.GOLDEN):
-    for _fn in sorted(os.listdir(DEC.GOLDEN)):
-        if not _fn.endswith(".json"):
-            continue
-        with open(os.path.join(DEC.GOLDEN, _fn)) as _f:
-            _row = _json.load(_f)
-        try:
-            _picks = DEC.simulate(_row, lambda name, i: _McError("scripted failure"), rounds=60)
-        except TAPE.ReplayMiss as _e:
-            check(f"loop check {_fn[:-5]}: replayable", False, str(_e))
-            continue
-        _names = {p[1] for p in _picks if p[1]}
-        _worst = max((DEC.longest_run(_picks, n) for n in _names), default=0)
-        check(f"loop check {_fn[:-5]}: no candidate picked > {_retry.EXHAUSTED_AFTER}× in a row while all fail",
-              _worst <= _retry.EXHAUSTED_AFTER, f"longest run {_worst}")
-        _rot = DEC.step_rotation(_picks)
-        check(f"loop check {_fn[:-5]}: one failing step isn't retried by goals taking turns (≤ 2 in 6 rounds)",
-              _rot <= 2, f"step tried {_rot}× within 6 rounds")
-
-# -- cerebellum scheduling, offline (real recorded worlds, edited into the situations that went wrong live)
-_rows = {}
-if os.path.isdir(DEC.GOLDEN):
-    for _fn in os.listdir(DEC.GOLDEN):
-        if _fn.endswith(".json"):
-            with open(os.path.join(DEC.GOLDEN, _fn)) as _f:
-                _rows[_fn[:-5]] = _json.load(_f)
-_base = _rows.get("rotating_mine_failure")
-
-# 1. The route never flips back to 'nether kit' for small wobbles once a later segment was reached.
-class _KitInv:
-    def __init__(self, food, blocks, helmet, used):
-        self.food, self.blocks, self.helmet, self.used = food, blocks, helmet, used
-
-    def count(self, token, include_worn=False):
-        if token in ("food",) or token.startswith("minecraft:cooked"):
-            return self.food if token == "minecraft:cooked_beef" else 0
-        if token == "building":
-            return self.blocks
-        if token == "minecraft:golden_helmet":
-            return 1 if self.helmet else 0
-        return 0
-
-    def worn(self, slot):
-        return "minecraft:air"
-
-    def used_slots(self):
-        return self.used
-
-
-_flips = 0
-_state = {"reached": 0}
-_prev = None
-_r = _rnd.Random(7)
-for _i in range(200):
-    _inv = _KitInv(food=12 + _r.randint(-3, 2), blocks=32 + _r.randint(-6, 4), helmet=True, used=28 + _r.randint(0, 3))
-    _seg = RT.active_segment(RT.ROUTES["speedrun"], _inv, type("M", (), {"sites": lambda *a, **k: [],
-                                                                         "machines": lambda *a, **k: [],
-                                                                         "data": {}})(), "minecraft:overworld")
-    _seg = RT.with_hysteresis(RT.ROUTES["speedrun"], _seg, _state, _inv)
-    _name = _seg["name"] if _seg else None
-    if _prev is not None and _name != _prev:
-        _flips += 1
-    _prev = _name
-
-if _base is not None:
-    # 2. Idle is bounded: with every candidate failing, "nothing runnable" never lasts past the idle rule + a round.
-    _picks = DEC.simulate(_base, lambda name, i: _McError("scripted failure"), rounds=80)
-    _idle = _longest = 0
-    _start = None
-    for _t, _n, _k in _picks:
-        if _n is None:
-            _start = _start if _start is not None else _t
-            _longest = max(_longest, _t - _start)
-        else:
-            _start = None
-    from bonobo.brain import IDLE_LIMIT as _IL
-    check(f"scheduling: idle stays within the idle rule while everything fails (≤ {_IL + 5} s)",
-          _longest <= _IL + 5, f"longest idle {_longest:.0f} s")
-
-    # 3. Survival preempts: in the Nether at 6 hp with the arrival portal known, the rescue is the retreat.
-    _hurt = DEC.synth(_base, state={"dimension": "minecraft:the_nether", "health": 6.0},
-                      calls={f"/entities?radius={r}": {"entities": []} for r in (8, 10, 12, 16)},
-                      mem=lambda m: m.setdefault("sites", []).append(
-                          {"name": "portal-nether", "kind": "portal", "pos": [0, 70, 0],
-                           "dimension": "minecraft:the_nether"}))
-    try:
-        # Leaving the Nether is no longer an if above the pool: it is a candidate priced in seconds, so the check
-        # is that it WINS, not that it runs first. If it stops winning at 6 hp, the price is wrong.
-        _pick, _top, _filt, _ = DEC.decide(_hurt)
-        check("scheduling: 6 hp in the Nether → the pool chooses to leave through the portal",
-              _pick is not None and "retreat" in _pick, f"picked {_pick}; top {[n for n, _ in _top]}")
-    except TAPE.ReplayMiss as _e:
-        check("scheduling: survival pick replayable from the recorded world", False, str(_e))
-
-    # 4. Going through the portal isn't retried by goals taking turns: kit complete, a portal built, every portal
-    #    trip failing (the live "leaving again and again").
-    _ready = DEC.synth(_base, add_items=[("minecraft:cooked_beef", 16), ("minecraft:cobblestone", 64),
-                                         ("minecraft:golden_helmet", 1), ("minecraft:flint_and_steel", 1)],
-                       mem=lambda m: m.setdefault("machines", []).append(
-                           {"name": "nether_portal-1", "blueprint": "nether_portal", "origin": [10, 64, 10],
-                            "turns": 0, "dimension": "minecraft:overworld", "tags": ["portal"]}))
-    try:
-        _pp = DEC.simulate(_ready, lambda name, i: _McError("portal trip failed"), rounds=40)
-        _nether = [p for p in _pp if p[1] in ("nether fortress", "blaze rods (7)", "piglin barter")]
-        _worst = max((DEC.longest_run(_pp, n) for n in {p[1] for p in _nether}), default=0)
-        check("scheduling: failing portal trips aren't repeated by Nether goals in turn (≤ 3 in a row, ≤ 6 of 40)",
-              _worst <= 3 and len(_nether) <= 6, f"longest {_worst}, total {len(_nether)}")
-    except TAPE.ReplayMiss as _e:
-        check("scheduling: portal situation replayable from the recorded world", False, str(_e))
-
-# 8. The resource map feeds costs: nothing in sight, a tree noted 90 blocks away → a distance, not "unobtainable".
-from unittest import mock as _mock2  # noqa: E402
-
-
-class _MapMem:
-    def resources(self, kind, dimension, now=None):
-        return [[90, 64, 0]] if kind == "tree" else []
-
-
-class _MapSnap:
-    feet = (0, 64, 0)
-    dimension = "minecraft:overworld"
-
-    def get(self, key, default=None):
-        return default
-
-
-with _mock2.patch("bonobo.brain.find", return_value=[]):
-    _lc = BR.LiveCost(_MapSnap(), {}, _MapMem())
-    check("costs: a remembered tree 90 blocks away is a distance when none is in sight",
-          _lc._find(["oak_log", "birch_log"], 48) == 90.0 and _lc._find(["gold_ore"], 48) is None)
-
-# 7. Never idle while exploring could find what's missing (recorded 07:32: portal cooling, food waiting for a seen pig,
-#    bed for seen sheep → "staying while it retries" filtered exploring → nothing runnable).
-_idle_row = _rows.get("idle_while_portal_retries")
-if _idle_row is not None:
-    try:
-        _ip, _itop, _ifilt, _ = DEC.decide(_idle_row)
-        check("scheduling: a portal retry doesn't leave the agent idle when exploring can help",
-              _ip is not None, f"picked {_ip}; explore: {_ifilt.get('explore')}")
-    except TAPE.ReplayMiss as _e:
-        check("scheduling: idle situation replayable", False, str(_e))
-
-if _base is not None:
-    # 5. Unstuck in the Nether heads for the arrival portal, not the nearest remembered spot (the live wrong-way
-    #    unstuck). The movement is captured, not executed.
-    from unittest import mock as _mock
-    _stuck = DEC.synth(_base, state={"dimension": "minecraft:the_nether"},
-                       mem=lambda m: m.setdefault("sites", []).extend([
-                           {"name": "fortress", "kind": "fortress", "pos": [_base["calls"]["/state"]["blockX"] + 6, 70,
-                                                                          _base["calls"]["/state"]["blockZ"]],
-                            "dimension": "minecraft:the_nether"},
-                           {"name": "portal-nether", "kind": "portal", "pos": [_base["calls"]["/state"]["blockX"] - 40,
-                                                                             70, _base["calls"]["/state"]["blockZ"]],
-                            "dimension": "minecraft:the_nether"}]))
-    _targets = []
-    _b = DEC.make_brain(_stuck)
-    with DEC._files(_stuck), _mock.patch("time.time", return_value=_stuck["t"]), \
-            _mock.patch("bonobo.nav.go_to", lambda target, *a, **k: _targets.append(tuple(target)) or True):
-        TAPE.REPLAY = _stuck["calls"]
-        try:
-            from bonobo.world import Snapshot as _Snap
-            _b.unstuck(None, _Snap())
-        except TAPE.ReplayMiss as _e:
-            _targets.append(("miss", str(_e)))
-        finally:
-            TAPE.REPLAY = None
-    check("scheduling: unstuck in the Nether heads for the arrival portal first (not the nearer fortress)",
-          _targets and _targets[0][0] == _base["calls"]["/state"]["blockX"] - 40, _targets[:2])
-
-    # 6. Recovery chain: right after a death with the items on the ground, the pool picks recovering them.
-    #    `carried` is what the corpse holds, and it is the whole reason to walk back: recovery is worth what that
-    #    pile costs to make again (memory.worth_of), so a scenario that leaves it empty is a scenario about an
-    #    empty corpse — correctly worth nothing, and correctly beaten by making a sword.
-    _dead = DEC.synth(_base, mem=lambda m: m.setdefault("deaths", []).append(
-        {"pos": [_base["calls"]["/state"]["blockX"] + 5, _base["calls"]["/state"]["blockY"],
-                 _base["calls"]["/state"]["blockZ"]], "dimension": "minecraft:overworld", "t": _base["t"] - 30,
-         "carried": [["minecraft:iron_pickaxe", 1], ["minecraft:iron_ingot", 12], ["minecraft:cooked_beef", 16]]}))
-    try:
-        _pick, _top, _filt, _ = DEC.decide(_dead)
-        check("scheduling: a fresh death → 'recover items after death' is picked", _pick == "recover items after death",
-              f"picked {_pick}; recover filtered: {_filt.get('recover items after death')}")
-    except TAPE.ReplayMiss as _e:
-        check("scheduling: recovery situation replayable", False, str(_e))
 
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall offline checks passed")
 

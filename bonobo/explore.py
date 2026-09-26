@@ -113,6 +113,28 @@ def seek_blocks(ctx, blocks, legs=6, leg=40):
     return find(blocks, radius=48, limit=5)
 
 
+@skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,
+       provides={"seek": lambda ctx, s: (list(s.detail["kinds"]), s.detail.get("pos"))})
+def seek(ctx, kinds, pos=None):
+    """Go to where one of these is: the nearest in sight, else the spot memory named, else look for one (a spiral).
+    Returns [where it went], or what the look found."""
+    hits = find(kinds, radius=48, limit=1)
+    mobs = [] if hits else entities(64, list(kinds))
+    if hits:
+        target = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
+    elif mobs:
+        target = (round(mobs[0]["x"]), round(mobs[0]["y"]), round(mobs[0]["z"]))
+    elif pos:
+        target = tuple(pos)
+    elif any(k.startswith("minecraft:") and "_" not in k.split(":")[-1] for k in kinds):
+        return explore_for(ctx, list(kinds))      # an animal: look for it where animals are
+    else:
+        return seek_blocks(ctx, list(kinds))
+    nav.arrive(target, ctx.policy, range_=3)
+    ctx.mem.note_resource(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
+    return [target]
+
+
 @skill(provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", 2))}, budget=900, stall=120)
 def travel_to(ctx, pos, range_=2):
     """Be at `pos` (within `range_`): walk, dig and bridge there leg by leg (`nav.arrive`)."""

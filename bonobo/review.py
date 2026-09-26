@@ -1,12 +1,12 @@
 """The 5-minute review packet for the cerebrum (Claude): what the agent did, what failed and how often, where it went,
 what changed in the bag, which skills are slow or unreliable, and where the directive queue stands. Claude reads it,
-distils lessons into SKILL.md / skills / tests, and writes directives for the long-term plan."""
+distils lessons into SKILL.md / skills / tests, and queues tasks for the long-term plan."""
 import collections
 import datetime
 import os
 import re
 
-from . import directives, paths
+from . import paths, tasks
 
 LOG = paths.data("autoplay.log")
 LINE = re.compile(r"^(\d\d:\d\d:\d\d) (.*)$")
@@ -165,8 +165,8 @@ def packet(minutes=5, state=None, inventory=None, memory=None, lines=None):
         durs = memory.data.get("durations", {})
         slow = sorted(((v["per"], k) for k, v in durs.items() if v.get("n", 0) >= 3), reverse=True)[:6]
         out.append("## Slowest skills (s/unit)\n" + ("\n".join(f"- {k}: {p:.1f}" for p, k in slow) or "- none"))
-    items = directives.load()
-    out.append("## Directives\n" + ("\n".join(f"- {directives.describe(d)}" for d in items[-8:]) or "- none"))
+    items = tasks.load()
+    out.append("## Tasks\n" + ("\n".join(f"- {tasks.describe(t)}" for t in items[-8:]) or "- none"))
     out.append("## For the cerebrum\n- Distil repeated failures into skill/rule fixes + an offline test.\n"
-               "- Record lessons in SKILL.md.\n- Queue directives for the long-term plan (mc.py direct ...).")
+               "- Record lessons in SKILL.md.\n- Queue tasks for the long-term plan (mc.py task add ...).")
     return "\n".join(out)

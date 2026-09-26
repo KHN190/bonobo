@@ -1,7 +1,7 @@
 """Which world this is, and dropping what belonged to the last one.
 
-Everything the agent remembers about a place — sites and their structure snapshots, directives, wants, routes,
-priorities, the decision tape — is about ONE save. Nothing in the data directory said which, so a new world
+Everything the agent remembers about a place — sites and their structure snapshots, the task queue, the round
+tape — is about ONE save. Nothing in the data directory said which, so a new world
 inherited the old one's memory: the agent walked five hundred blocks to repair a shelter from a world that no
 longer existed, and the pool scored that walk against mining because both were just numbers.
 
@@ -21,8 +21,9 @@ FILE = paths.data("world.json", env="MC_WORLD")
 # agent has measured about mobs and itself, the logs are the record of what happened, and neither is a place.
 # `handover.json` is NOT here: who is driving the body is a live control, not a memory of a place. Wiping it on
 # every restart handed the agent back its own layers in the middle of a takeover.
-WORLD_SCOPED = ("world-notes.json", "directives.json", "wants.json", "priorities.json", "route.json",
-                "intent.json", "readiness.json", "decisions.jsonl", "ranking.jsonl", "track.jsonl")
+WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "readiness.json", "rounds.jsonl", "track.jsonl",
+                # left behind by the scored planner; dropped with the rest of a world
+                "directives.json", "wants.json", "priorities.json", "route.json", "decisions.jsonl", "ranking.jsonl")
 
 
 def saves_dir(instance=None):

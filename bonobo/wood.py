@@ -62,7 +62,7 @@ def chop(ctx, n):
         if overhead and Inventory().count("log") + 1 < target:
             # travel, not goto: with the canopy starting one block up the trunk cell is only 1 high, and goto found
             # "no path" (bench 05:26). travel breaks the log over the head on the way in — that log is harvest too.
-            nav.go_to((base["x"], base["y"], base["z"]), ctx.policy, range_=0.3, attempts=1)
+            nav.arrived((base["x"], base["y"], base["z"]), ctx.policy, range_=0.3, attempts=1)
             for t in overhead:
                 if Inventory().count("log") + 1 >= target:
                     break
