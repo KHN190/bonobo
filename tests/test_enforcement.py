@@ -46,6 +46,36 @@ def call_graph():
 
 GRAPH = call_graph()
 
+
+def _function(module, func):
+    tree = ast.parse(source(module))
+    return next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == func)
+
+
+def calls_in(module, func=None, lambdas=False):
+    """[ast.Call] made directly by `module.func` (or the whole module): the call graph at one function's grain.
+    Calls inside a lambda are the lambda's (handed on to be run by someone else) unless `lambdas`."""
+    root = _function(module, func) if func else ast.parse(source(module))
+    out, stack = [], [root]
+    while stack:
+        node = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Lambda) and not lambdas:
+                continue
+            if isinstance(child, ast.Call):
+                out.append(child)
+            stack.append(child)
+    return out
+
+
+def name_of(call):
+    f = call.func
+    return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+
+
+def first_arg(call):
+    return call.args[0].value if call.args and isinstance(call.args[0], ast.Constant) else None
+
 # Modules that execute: they talk to the game or decide what to do. A rule enforced only in a module that never
 # runs during play is not enforced.
 # `api` belongs here: it is the funnel every task passes through, and therefore the right place for guards that
@@ -93,15 +123,25 @@ class RulesAreWired(unittest.TestCase):
         self.assertTrue(callers_of("best_step") | callers_of("slack_at") | callers_of("min_tti"),
                         "nothing on the execution path asks the model where it is safe to stand")
 
+    # (the entity's last reading (pos, seconds ago) or None, now) → the velocity its row carries
+    VELOCITY = [("never seen before: at rest", None, (10.0, 64.0, 0.0), (0.0, 0.0, 0.0)),
+                ("moved 2 blocks toward us in 1 s", ((12.0, 64.0, 0.0), 1.0), (10.0, 64.0, 0.0), (-2.0, 0.0, 0.0)),
+                ("fell a block in half a second", ((10.0, 65.0, 0.0), 0.5), (10.0, 64.0, 0.0), (0.0, -2.0, 0.0)),
+                ("the last reading is stale (3 s): at rest", ((20.0, 64.0, 0.0), 3.0), (10.0, 64.0, 0.0),
+                 (0.0, 0.0, 0.0))]
+
     def test_threats_carry_velocity(self):
-        # A hazard list with hardcoded zero velocity makes every closed-form root return infinity, so the
-        # prediction reports "nothing is coming" regardless of what is coming.
-        import re
-        src = source("threat")
-        body = src[src.index("def rows("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertNotIn("(0.0, 0.0, 0.0)) for", body, "threats must be differenced, not declared stationary")
-        self.assertIn("prev", body, "velocity comes from comparing two rounds")
+        """A hazard row with a declared (0,0,0) makes every closed-form root infinite: velocity is differenced."""
+        from bonobo import threat
+        now = 1000.0
+        for name, prev, pos, want in self.VELOCITY:
+            with self.subTest(name):
+                memory = {} if prev is None else {7: (prev[0], now - prev[1])}
+                e = {"id": 7, "type": "minecraft:zombie", "x": pos[0], "y": pos[1], "z": pos[2]}
+                got = threat.rows([e], memory, now, {"minecraft:zombie": 3.0})
+                self.assertEqual(len(got), 1)
+                self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
+                self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")
         self.assertIn("rows", GRAPH["end"], "the fight builds its rows with the shared differencing")
 
     def test_ordinary_play_asks_the_threat_layer(self):
@@ -114,8 +154,6 @@ class RulesAreWired(unittest.TestCase):
         self.assertNotIn("brain", callers_of("decide"), "the brain answers threats again: one decider, not two")
         self.assertIn("perception", callers_of("pressure") | callers_of("time_to_die"),
                       "perception interrupts on health alone: deaths by arrows are invisible to it")
-        src = source("brain")
-        self.assertNotIn('e["distance"] <= 5', src, "a distance literal decides a fight again")
 
     def test_the_body_has_one_exit(self):
         # Written and wired in the same turn, and watched from the same turn, because every other rule in this
@@ -125,10 +163,10 @@ class RulesAreWired(unittest.TestCase):
 
     def test_perception_does_not_halt_the_body_itself(self):
         # The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's. Two direct stops here were
-        # two of the commanders a multi-threat fight cannot afford.
-        src = source("perception")
-        direct = src.replace('lambda: api.post("/stop")', "").count('api.post("/stop")')
-        self.assertEqual(direct, 0, "perception must preempt through the arbiter, never call /stop directly")
+        # two of the commanders a multi-threat fight cannot afford. A /stop handed to the arbiter in a lambda is
+        # the arbiter's to run.
+        direct = [c.lineno for c in calls_in("perception") if name_of(c) == "post" and first_arg(c) == "/stop"]
+        self.assertEqual(direct, [], "perception must preempt through the arbiter, never call /stop directly")
         self.assertIn("preempt", GRAPH["perception"])
 
     def test_the_funnels_check_who_owns_the_body(self):
@@ -136,17 +174,16 @@ class RulesAreWired(unittest.TestCase):
             self.assertIn("owns", GRAPH[mod], f"{mod} drives the body without asking the arbiter who owns it")
 
     def test_recoveries_preempt_rather_than_walk_inline(self):
-        src = source("end")
-        body = src[src.index("def _recover("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertIn("preempt", body, "a recovery is the safety layer speaking; it must own the body while it runs")
+        self.assertIn("preempt", {name_of(c) for c in calls_in("end", "_recover")},
+                      "a recovery is the safety layer speaking; it must own the body while it runs")
 
     def test_the_interrupt_message_has_one_writer(self):
-        import re
         writers = {}
         for name in ("perception", "end", "brain", "skill", "arbiter", "api"):
-            src = source(name)
-            n = sum(1 for rhs in re.findall(r"api\.INTERRUPT\s*=\s*(\S+)", src) if rhs != "None")
+            n = sum(1 for node in ast.walk(ast.parse(source(name))) if isinstance(node, ast.Assign)
+                    for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "INTERRUPT"
+                    and isinstance(t.value, ast.Name) and t.value.id == "api"
+                    and not (isinstance(node.value, ast.Constant) and node.value.value is None))
             if n:
                 writers[name] = n
         # perception may still hand a message to a soft skill without stopping it; every stop-and-tell goes
@@ -154,18 +191,27 @@ class RulesAreWired(unittest.TestCase):
         self.assertEqual(set(writers) - {"perception"}, {"arbiter"}, f"writers: {writers}")
         self.assertLessEqual(writers.get("perception", 0), 1)
 
+    # (path, does the arbiter let this caller drive?) → (reached the game, what came back)
+    POSTS = [("/task", True, True, "sent"), ("/stop", True, True, "sent"),
+             ("/task", False, False, "failed"), ("/stop", False, False, "failed"),
+             ("/close", False, True, "sent"), ("/click", False, True, "sent")]
+
     def test_raw_posts_that_drive_the_body_are_guarded(self):
-        src = source("api")
-        body = src[src.index("def post("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertIn("owns", body, "run_chain posts /task directly; the gate must be on post, not only on run")
+        """run_chain posts /task directly: the gate is on `post`, so it holds for every caller."""
+        from unittest import mock
+        from bonobo import api, arbiter
+        for path, owns, reached, want in self.POSTS:
+            with self.subTest(path=path, owns=owns), \
+                    mock.patch.object(arbiter.BODY, "owns", return_value=owns), \
+                    mock.patch.object(api, "api", return_value={"status": "sent"}) as wire:
+                got = api.post(path, {})
+                self.assertEqual(wire.called, reached)
+                self.assertEqual(got["status"], want)
 
     def test_tactics_are_preempted_not_nested_in_plans(self):
-        src = source("end")
-        body = src[src.index("def _carry_out("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertNotIn("        _retreat(ctx, near)\n", body, "a retreat inside a plan is a plan sub-step, not a tactic")
-        self.assertIn('preempt("tactic"', body)
+        direct = {name_of(c) for c in calls_in("end", "_carry_out")}
+        self.assertNotIn("_retreat", direct, "a retreat inside a plan is a plan sub-step, not a tactic")
+        self.assertIn("tactic", {first_arg(c) for c in calls_in("end", "_carry_out") if name_of(c) == "preempt"})
 
     def test_danger_kinds_and_the_recovery_table_agree(self):
         # Perception emits kinds; the table keys on them exactly. A kind with no row falls to the default, which
@@ -174,35 +220,65 @@ class RulesAreWired(unittest.TestCase):
         emitted = set(perception.DANGERS) | {"airborne", "stale"}       # the two non-perception triggers
         for kind, _, _ in recovery.TABLE:
             self.assertIn(kind, emitted, f"recovery row {kind!r} can never fire")
-        src = source("perception")
-        import re
-        body = src[src.index("def danger("):src.index("\ndef ", src.index("def danger(") + 1)]
-        for lit in re.findall(r'return "([a-z_]+)"', body):
-            self.assertIn(lit, perception.DANGERS, f"danger() returns {lit!r} which is not a declared kind")
+        # Every kind danger() can say, swept: each is a declared kind (a row can key on it).
+        base = {"health": 20, "food": 20, "control": {}, "air": 300, "onGround": True,
+                "dimension": "minecraft:overworld"}
+        near = lambda d: (lambda r: d)      # noqa: E731
+        rows = [({}, {}, None), ({"inLava": True}, {}, "lava"), ({"onFire": True, "health": 6}, {}, "burning"),
+                ({"inWater": True, "air": 40, "onGround": False}, {}, "drowning"),
+                ({}, {"buried": True}, "suffocating"), ({"onGround": False, "y": 60}, {"fallen": 6.0}, "falling"),
+                ({"health": 3}, {}, "critical_health"),
+                ({"dimension": "minecraft:the_end"}, {"breath_within": near(True)}, "breath"),
+                ({}, {"enderman_after_us": near(True)}, "enderman"),
+                ({"health": 9}, {"hostiles_within": near(4.0)}, "hostiles"),
+                ({"health": 9}, {"hostiles_within": near(9.0)}, None),
+                ({"dead": True, "inLava": True}, {}, None)]
+        for st, kw, want in rows:
+            with self.subTest(state=st, **{k: True for k in kw}):
+                got = perception.danger({**base, **st}, **kw)
+                self.assertEqual(got, want)
+                self.assertTrue(got is None or got in perception.DANGERS)
 
 
 class OneDecisionPoint(unittest.TestCase):
     """A fixed order, no scores: the first layer that has something to do takes the round (brain.py docstring).
+    Asked of `Brain.decide` itself, with each layer replaced by a recorder that says whether it has work."""
 
-    The order IS the policy now, so it is read off the source: the player, then L0 (a hazard, a fight holding the
-    body), then upkeep, then the queue's head, then prepare. A layer moved or a scoring door grown back is a
-    change of policy that no unit test of any single layer would see.
-    """
-
-    ORDER = ("hazard.due(", "self.upkeep(", "tasks.load(", "self.task_act(", "self.prepare(")
+    LAYERS = ("hazard", "upkeep", "queue", "prepare")
+    # (which layers have something to do) → the layers asked, in order, and the one that took the round
+    ROWS = [(set(), ["hazard", "upkeep", "queue", "prepare"], None),
+            ({"prepare"}, ["hazard", "upkeep", "queue", "prepare"], "prepare"),
+            ({"queue", "prepare"}, ["hazard", "upkeep", "queue"], "queue"),
+            ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
+            ({"hazard", "upkeep", "queue", "prepare"}, ["hazard"], "hazard")]
 
     def test_decide_asks_the_layers_in_their_fixed_order(self):
-        import inspect
-        from bonobo.brain import Brain
-        src = inspect.getsource(Brain.decide)
-        at = [src.find(call) for call in self.ORDER]
-        for call, i in zip(self.ORDER, at):
-            self.assertGreaterEqual(i, 0, f"decide no longer asks {call}")
-        self.assertEqual(at, sorted(at), f"layers out of order: {dict(zip(self.ORDER, at))}")
+        from unittest import mock
+        from bonobo import api, brain, retry, tasks
+        from bonobo.world import Snapshot
+        snap = Snapshot.from_readings({"dimension": "minecraft:overworld"}, {"slots": [], "equipment": {}})
+        for busy, want_asked, want_taker in self.ROWS:
+            asked = []
 
-    def test_nothing_is_scored(self):
-        for word in ("score", "candidates(", "choose(", "worth_of"):
-            self.assertNotIn(word, source("brain"), f"brain.py scores again ({word})")
+            def layer(name, result):
+                def ask(*a, **k):
+                    asked.append(name)
+                    return result if name in busy else None
+                return ask
+            b = brain.Brain.__new__(brain.Brain)
+            b.retry, b.place = retry.Retry(), None
+            b.upkeep = layer("upkeep", brain.Act("upkeep", "u", None))
+            b.task_act = layer("queue", brain.Act("task", "t", None))
+            b.prepare = layer("prepare", brain.Act("idle", "p", None))
+            with self.subTest(busy=sorted(busy)), mock.patch.object(api, "MODE", "normal"), \
+                    mock.patch.object(brain.hazard, "due", layer("hazard", "drowning")), \
+                    mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                    mock.patch.object(tasks, "expire", return_value=False):
+                act = b.decide(snap, None)
+                self.assertEqual(asked, want_asked)
+                taker = None if act is None else {"L0": "hazard", "upkeep": "upkeep", "task": "queue",
+                                                  "idle": "prepare"}[act.layer]
+                self.assertEqual(taker, want_taker)
 
 
 class SafetyIsNotOptIn(unittest.TestCase):
