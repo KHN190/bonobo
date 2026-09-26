@@ -1506,7 +1506,8 @@ BASES = {
     "eat": dict(skills=["eat"], doc="hungry, bread carried → the food bar rises", point="A",
                 setup=_floor() + [_tp(), "give @p bread 4"],
                 pre=lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5)),
-                run=lambda ctx: _skill("eat")(), check=_food_up(), budget=20, work_s=1),
+                run=lambda ctx: _skill("eat")(), check=_food_up(), budget=20, work_s=1,
+                combat=True),        # hunger only drains off peaceful: the runner sets normal difficulty for combat rows
     "sleep": dict(skills=["sleep"], doc="night, a bed carried → morning", point="A",
                   setup=_floor() + [_tp(), "give @p white_bed", "time set 18000"],
                   run=lambda ctx: _skill("sleep")(ctx, ctx.policy), check=_is_day(), budget=40, work_s=3),
@@ -1693,6 +1694,8 @@ def _row(name, base, cond=None, extra=None):
             row[key] = x.get(key) or c.get(key) or b.get(key)
     if b.get("entities"):
         row["expect_entities"] = list(b["entities"])
+    if b.get("combat"):
+        row["combat"] = True
     return row
 
 
