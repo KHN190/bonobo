@@ -220,7 +220,8 @@ class FightHandOff(unittest.TestCase):
 
     # (the answer raises?, taken by the arbiter?) → (taken, failure recorded)
     OFFERS = [(None, True, (True, {})), (api.NavFailed("cornered"), True, (True, {"failed": "NavFailed: cornered"})),
-              (None, False, (False, {}))]
+              (None, False, (False, {})),
+              (api.NavFailed("cornered"), False, (False, {}))]     # refused: the answer never ran, nothing failed
 
     def test_offer_takes_the_body_at_tactic(self):
         from bonobo import fight_loop
@@ -246,6 +247,30 @@ class FightHandOff(unittest.TestCase):
                 self.assertEqual((got_taken, failure), (want_taken, want_failure))
                 self.assertEqual(seen, {"layer": "tactic", "clear_first": True})
                 self.assertEqual(refused is None, taken)
+
+    def test_offer_over_the_real_arbiter(self):
+        """No stub: a fresh arbiter takes the body at TACTIC, stops what runs, runs the answer on this thread."""
+        from bonobo import arbiter, fight_loop
+        ran, posted = [], []
+        for raises in (None, api.NavFailed("cornered")):
+            ran.clear(), posted.clear()
+
+            def answer(option):
+                ran.append(option)
+                if raises:
+                    raise raises
+            with self.subTest(raises=raises), mock.patch.object(fight_loop.arbiter, "BODY", arbiter.Motion()), \
+                    mock.patch.object(fight_loop, "ANSWER", answer), \
+                    mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path) or {}):
+                if raises:
+                    with self.assertRaises(type(raises)):
+                        fight_loop.offer("opt", 10.0, "k", 0.0, lambda: True, None, 0.0)
+                else:
+                    taken, refused, failure = fight_loop.offer("opt", 10.0, "k", 0.0, lambda: True, None, 0.0)
+                    self.assertEqual((taken, refused, failure), (("tactic", "k"), None, {}))
+                self.assertEqual(ran, ["opt"])
+                self.assertIn("/stop", posted, "what was running is stopped first")
+                api.INTERRUPT = None
 
     def test_wired_once_wire_is_called(self):
         from bonobo import fight_loop
