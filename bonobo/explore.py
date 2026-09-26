@@ -145,3 +145,31 @@ def approach_policy(policy):
     """Movement for chasing mobs: walk, swim, bridge — no digging (animals move; tunnels toward them are waste)."""
     import dataclasses
     return dataclasses.replace(policy, allow_dig=False)
+
+
+# What the travel scan notes: the nearest of each kind in 48 blocks, the takeable blocks, and the animals in sight.
+SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
+               "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"],
+               "coal": ["coal_ore", "deepslate_coal_ore"]}
+SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chicken")
+
+
+def note_around(mem, dimension):
+    """Map resources while travelling, so "where to find" starts from known places: the nearest tree, water, lava,
+    iron and coal in 48 blocks, the takeable blocks (beds, chests…) and the animals in sight."""
+    from .knowledge import takeable_blocks
+    try:
+        for kind, blocks in SCAN_BLOCKS.items():
+            hits = find(blocks, radius=48, limit=1)
+            if hits:
+                h = hits[0]
+                if kind == "lava":
+                    mem.add_lava(h, dimension)
+                else:
+                    mem.note_resource(kind, (h["x"], h["y"], h["z"]), dimension)
+        for h in find(takeable_blocks(), radius=48, limit=16) or ():
+            mem.note_resource(bare(h["block"]), (h["x"], h["y"], h["z"]), dimension)
+        for e in entities(48, list(SCAN_MOBS)):
+            mem.add_sighting(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
+    except api.McError as e:
+        api.swallowed("scan_resources: looking around", e)

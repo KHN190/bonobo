@@ -44,7 +44,12 @@ class NotAvailable(McError):
 
 
 class NavFailed(NotAvailable):
-    """The body couldn't get where a skill needed it. Typed so failure causes never depend on message text."""
+    """The body couldn't get where a skill needed it. Typed so failure causes never depend on message text.
+    `pos` is where it was going, when known: what upkeep's "path blocked" row bridges toward."""
+
+    def __init__(self, message="", pos=None):
+        super().__init__(message)
+        self.pos = tuple(pos) if pos is not None else None
 
 
 class TaskStuck(McError):

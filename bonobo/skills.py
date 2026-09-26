@@ -935,6 +935,67 @@ def stand_on_a_block(ctx):
     return bool(api.get("/state").get("onGround"))
 
 
+BRIDGE_REACH = 12      # cells one bridge call lays toward its target
+BRIDGE_CLIMB = 4       # blocks one call pillars up toward a target above the feet
+
+
+def bridge_region(feet_, target):
+    """The box `bridge_commands` reads: the lane toward the target, its floor and the climb above it."""
+    x, y, z = feet_
+    tx = x + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[0] - x))
+    tz = z + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[2] - z))
+    return Region((min(x, tx) - 1, y - 2, min(z, tz) - 1), (max(x, tx) + 1, y + BRIDGE_CLIMB + 2, max(z, tz) + 1))
+
+
+def bridge_commands(state, args):
+    """Pure: a way made toward `args[0]` where the walker found none — pillar up (at most BRIDGE_CLIMB) when the
+    target is above, then cell by cell along a 4-connected line (at most BRIDGE_REACH): dig what stands at feet and
+    head height (never a protected cell), lay a block where there is no floor, step on. Empty without blocks."""
+    target, region, inv, protected = args[0], state["region"], state["inv"], state["protected"]
+    block = next((b for b in GROUPS["building"] if inv.count(b)), None)
+    if block is None:
+        return []
+    x, y, z = state["feet"]
+    tasks = []
+    for _ in range(max(0, min(BRIDGE_CLIMB, int(target[1]) - y))):
+        tasks.append({"type": "pillar", "item": block})
+        y += 1
+    for _ in range(BRIDGE_REACH):
+        dx, dz = int(target[0]) - x, int(target[2]) - z
+        if dx == 0 and dz == 0:
+            break
+        if abs(dx) >= abs(dz):
+            x += 1 if dx > 0 else -1
+        else:
+            z += 1 if dz > 0 else -1
+        for cell in ((x, y, z), (x, y + 1, z)):
+            if region.solid(cell):
+                if cell in protected:
+                    return tasks
+                tasks.append({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2]})
+        if not region.solid((x, y - 1, z)):
+            tasks.append({"type": "place", "item": block, "x": x, "y": y - 1, "z": z})
+        tasks.append({"type": "goto", "x": x, "y": y, "z": z, "range": 0.5, "partial": True})
+    return tasks
+
+
+def _bridged_nearer(c):
+    target = c.args[1]
+    return math.dist(feet(), target) < math.dist(c.base, target) - 1
+
+
+@skill(start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
+def bridge_toward(ctx, target):
+    """Path blocked: make the way toward `target` by hand — pillar, dig, lay blocks — instead of asking the walker
+    again (upkeep's "path blocked" row). One stretch per call; the next round walks on from the far end."""
+    target = tuple(target)
+    tasks = bridge_commands(body_state(ctx, bridge_region(feet(), target)), (target,))
+    if not tasks:
+        raise NotAvailable("path blocked and nothing to bridge with")
+    api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
+    return feet()
+
+
 @skill(done=lambda c: _on_land(), budget=180, stall=45, per_unit=30, provides={"reach:land": lambda ctx, s: ()})
 def reach_land(ctx):
     """Night in the water: nothing can be dug or built there, so swim (or boat) to the nearest dry standing spot

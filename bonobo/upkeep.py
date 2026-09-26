@@ -1,12 +1,276 @@
-"""Upkeep skills: recover dropped items after a death, repair a worn tool by combining two in the crafting grid.
-Pure `repair_pair` is offline-tested."""
-import math
+"""Upkeep: the brain's fixed table (layer 3 of brain.py) and the upkeep skills (recover dropped items after a
+death, repair a worn tool by combining two in the crafting grid).
 
-from . import api, nav
+The table: the first row that applies takes the round. Rows that only QUEUE work put a task at the front of the
+queue instead (a pickaxe when none works, a tool that broke, food before it runs out, a bed before dark, blocks
+when the path is blocked and there is nothing to bridge with). Pure `repair_pair`, `dusk_s`, `nether_retreat` are
+offline-tested."""
+import json
+import math
+import time
+
+from . import api, blueprints, decompose, goals, nav, nether, skills, tape, tasks
 from .api import McError, NotAvailable, log
+from .cost import Cost
+from .data import BASE_MARKERS, COVERED_SKY
+from .knowledge import food_count
+from .planner import Unplannable, tool_ok
 from .skill import skill
 from .skillcore import gained, lost
-from .world import Inventory
+from .world import Inventory, find
+
+LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
+EAT_BELOW = 14             # hunger points: eat below this, while there is something to eat
+FOOD_POINTS = 6.0          # hunger points one cooked item restores, roughly
+BAG_FULL = 34              # slots used before the bag is emptied
+DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
+JOB_RANGE = 96
+STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
+PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
+WORKING = 3                # durability left for a tool to count as working
+TOOL_KINDS = ("pickaxe", "axe", "shovel", "sword")    # every kind a plan asks for (goals, planner tool needs)
+BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
+BRIDGE_MIN = 8             # building blocks worth starting a bridge with
+BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN
+
+
+def bag_signature(inv):
+    """What the bag holds, exactly: a change the plan did not make is an event."""
+    return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
+
+
+def dusk_s(snap):
+    """Seconds until dark: (12000 − timeOfDay) / 20, 0 once it is dark."""
+    t = int(snap.time) % 24000
+    return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
+
+
+def food_lasts_s(snap):
+    """Seconds of work the stomach and the meals in the bag cover (`risk.food_drain_s` per hunger point)."""
+    from . import beliefs
+    drain = float(beliefs.value("risk.food_drain_s"))
+    return (float(snap.get("food", 20)) + FOOD_POINTS * food_count(snap.inv)) * drain
+
+
+def nether_retreat(snap):
+    """In the Nether, head home through the portal when food, health or bag room run low. Pure."""
+    if snap.dimension != "minecraft:the_nether":
+        return None
+    inv, s = snap.inv, snap.state
+    if food_count(inv) < 4:
+        return "food running out"
+    if s.get("health", 20) <= 8:
+        return "health low"
+    if inv.used_slots() >= 35:
+        return "bag full"
+    return None
+
+
+def working_tiers(inv):
+    """{tool kind: best tier with a working one} for TOOL_KINDS. Pure over the bag."""
+    out = {}
+    for kind in TOOL_KINDS:
+        tiers = [t for t, d, _ in inv.tools(kind) if d >= WORKING]
+        if tiers:
+            out[kind] = max(tiers)
+    return out
+
+
+class Upkeep:
+    """The table, and what it remembers between rounds: where the body has been (stuck), which tools worked last
+    round (broken), where the last path failure was going (blocked). `brain` supplies the failure policy
+    (`ready`, `failed`, `retry`), the movement policy and memory."""
+
+    def __init__(self, brain):
+        self.brain = brain
+        self.plan_s_cache = {}        # (goal json, bag signature) -> (time, seconds)
+        self.history = []             # (time, feet, bag signature) for "stuck in place"
+        self.escalated = {}
+        self.working = {}             # tool kind -> tier that worked last round
+        self.broken = {}              # tool kind -> tier to replace
+        self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
+
+    # -- what the rounds tell it
+    def observe(self, snap):
+        now = time.time()
+        self.history = [h for h in self.history if now - h[0] <= STUCK_LIMIT + 30]
+        self.history.append((now, snap.feet, bag_signature(snap.inv)))
+        tiers = working_tiers(snap.inv)
+        for kind, tier in self.working.items():
+            if kind not in tiers:
+                self.broken[kind] = max(tier, self.broken.get(kind, 0))
+        for kind in [k for k, t in self.broken.items() if tool_ok(snap.inv, k, t, WORKING)]:
+            del self.broken[kind]
+        self.working = tiers
+
+    def failed(self, cause, err, place):
+        """A path failure is remembered with where it was going: the "path blocked" rows answer it."""
+        if cause == "nav":
+            self.blocked = {"t": time.time(), "place": place, "pos": getattr(err, "pos", None)}
+
+    # -- the table
+    def act(self, snap, ctx):
+        """(name, run) of the first row that applies, or None; rows that only queue work are applied on the way."""
+        b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
+        blocked = self.blocked_here(b.place)
+        rows = [
+            ("recover items", lambda: b.mem.recent_death(snap.dimension) is not None, lambda: recover_items(ctx)),
+            ("eat", lambda: s.get("food", 20) < EAT_BELOW and skills.edible_carried(inv),
+             lambda: skills.eat(raw_ok=not food_count(inv))),
+            ("reach land", lambda: skills.swimming(s), lambda: skills.reach_land(ctx)),
+            ("leave the Nether", lambda: nether_retreat(snap) is not None,
+             lambda: nether.use_portal(ctx, "minecraft:overworld")),
+            ("dig out", lambda: not snap.night and skills.enclosed(), lambda: skills.dig_out(ctx)),
+            ("sleep", lambda: over and snap.night and skills.can_sleep(s) is None
+             and bool(inv.count("bed") > 0 or find(BASE_MARKERS["bed"], radius=48, limit=1)),
+             lambda: skills.sleep(ctx, b.policy(snap, True))),
+            ("shelter", lambda: over and snap.night and not self.sheltered(snap), lambda: self.shelter(snap, ctx)),
+            ("collect job", lambda: self.ready_job(snap) is not None, lambda: self.collect_job(snap, ctx)),
+            ("empty the bag", lambda: inv.used_slots() >= BAG_FULL, lambda: self.empty_bag(snap, ctx)),
+            ("path blocked", lambda: blocked is not None and inv.count("building") >= BRIDGE_MIN,
+             lambda: self.bridge(ctx, blocked)),
+            ("unstuck", lambda: self.stuck_in_place(snap), lambda: self.unstuck(snap, ctx)),
+        ]
+        for name, due, run in rows:
+            if b.ready(name) and due():
+                return name, run
+        # Rows that only queue work: the queue does it, at the front.
+        if "pickaxe" not in self.working:
+            self.urgent(goals.have(("tool", "pickaxe", 0)), "no working pickaxe")
+        for kind, tier in self.broken.items():
+            self.urgent(goals.have(("tool", kind, tier)), f"the {kind} broke")
+        if blocked is not None and inv.count("building") < BRIDGE_MIN:
+            self.urgent(goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
+        food_goal = goals.have(("food", 8))
+        if food_count(inv) < 8 and food_lasts_s(snap) < self.plan_s(food_goal, snap) * LEAD:
+            self.urgent(food_goal, "food runs out before more could be had")
+        bed_goal = goals.have(("bed", 1))
+        if over and not snap.night and inv.count("bed") == 0 \
+                and dusk_s(snap) < self.plan_s(bed_goal, snap) * LEAD:
+            self.urgent(bed_goal, "dark before a bed could be made")
+        return None
+
+    def urgent(self, goal, why):
+        task = tasks.add(goal, front=True, source="upkeep", expires_s=1800)
+        if task.get("created", 0) >= time.time() - 1:
+            log(f"upkeep: {goals.describe(goal)} to the front ({why})")
+
+    def plan_s(self, goal, snap):
+        """Seconds the plan for `goal` would take from this bag (Σ Step.est), kept briefly."""
+        key = (json.dumps(goal, sort_keys=True), bag_signature(snap.inv))
+        hit = self.plan_s_cache.get(key)
+        if hit and time.time() - hit[0] < PLAN_S_TTL:
+            return hit[1]
+        cost = Cost(snap, self.brain.mem, self.brain.blacklist)
+        try:
+            seconds = cost.plan_s(decompose.decompose(snap.inv, goal, cost))
+        except Unplannable:
+            seconds = math.inf
+        self.plan_s_cache[key] = (time.time(), seconds)
+        return seconds
+
+    # -- path blocked
+    def blocked_here(self, place):
+        """The last path failure, when it is recent, happened here and says where it was going; else None."""
+        bl = self.blocked
+        if bl is None or bl["pos"] is None or bl["place"] != place or time.time() - bl["t"] > BLOCKED_FOR_S:
+            return None
+        return bl
+
+    def bridge(self, ctx, blocked):
+        """Make the way by hand (skills.bridge_toward) toward where the failed walk was going."""
+        self.blocked = None
+        log(f"   path to {blocked['pos']} blocked → bridging toward it")
+        return skills.bridge_toward(ctx, blocked["pos"])
+
+    # -- night
+    def shelter(self, snap, ctx):
+        """Night, exposed, no bed to sleep in: under the ground with a pickaxe, else a hut, else walls."""
+        b = self.brain
+        if any(d >= WORKING for _, d, _ in snap.inv.tools("pickaxe")):
+            try:
+                return skills.dig_in(b.context(snap.dimension, b.policy(snap, True)))
+            except api.INTERRUPTIONS:
+                raise
+            except McError as e:
+                log(f"   dig-in failed: {e} → a hut or walls")
+        if not skills.materials_missing(blueprints.SHELTER):
+            return skills.build_shelter(ctx)
+        return skills.pod(ctx)
+
+    def sheltered(self, snap):
+        if snap.get("skyLight", 15) <= COVERED_SKY:
+            return True
+        try:
+            if skills.enclosed():
+                return True
+        except (tape.ReplayMiss, McError):
+            pass
+        feet = list(snap.feet)
+        return any(feet in s.get("interior", []) for s in self.brain.mem.sites(snap.dimension))
+
+    # -- jobs and the bag
+    def ready_job(self, snap):
+        near = [j for j in self.brain.mem.jobs(snap.dimension)
+                if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
+        return min(near, key=lambda j: math.dist(j["pos"], snap.feet), default=None)
+
+    def collect_job(self, snap, ctx):
+        from . import jobs
+        job = self.ready_job(snap)
+        if job is not None:
+            jobs.collect(ctx, job)
+
+    def empty_bag(self, snap, ctx):
+        if skills.store_plan(snap.inv.slots) and skills.can_store_here(ctx, local_only=snap.night):
+            return skills.deposit(ctx, local_only=snap.night)
+        return skills.tidy_inventory(ctx)
+
+    # -- stuck
+    def stuck_in_place(self, snap):
+        """Same block and the same bag for STUCK_LIMIT seconds (sheltered at night excluded)."""
+        if snap.night and self.sheltered(snap):
+            return False
+        old = [h for h in self.history if time.time() - h[0] >= STUCK_LIMIT]
+        if not old:
+            return False
+        ref = old[-1]
+        return all(math.dist(h[1], ref[1]) < 2 and h[2] == ref[2] for h in self.history if h[0] >= ref[0])
+
+    def unstuck(self, snap, ctx):
+        """One way out per call — the nearest site, up, sideways, down — each skipped once it failed here."""
+        b = self.brain
+        x, y, z = snap.feet
+        site = b.mem.nearest_site(snap.feet, snap.dimension)
+        if site and math.dist(site["pos"], snap.feet) < 12:
+            site = None
+        methods = ([("site", tuple(site["pos"]))] if site else []) + [
+            ("up", (x, y + 12, z)), ("east", (x + 16, y, z)), ("west", (x - 16, y, z)),
+            ("south", (x, y, z + 16)), ("north", (x, y, z - 16)), ("down", (x, y - 8, z))]
+        for label, target in methods:
+            name = f"unstuck:{label}"
+            if not b.ready(name):
+                continue
+            log(f"no progress for {STUCK_LIMIT}s at {snap.feet} → unstuck by heading {label} {target}")
+            self.history.clear()
+            if nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1):
+                b.retry.succeeded(name)
+                return
+            b.failed(name, NotAvailable(f"could not get {label} to {target}"))
+            raise NotAvailable(f"unstuck {label} failed")
+        self.escalate("stuck", f"every unstuck method failed at {snap.feet}")
+        raise NotAvailable("every unstuck method failed here")
+
+    def escalate(self, kind, what):
+        """A macro problem: one `?? STALL` line per kind per 20 min — supervise.sh wakes Claude on it."""
+        now = time.time()
+        if now - self.escalated.get(kind, 0) < 1200:
+            return
+        self.escalated[kind] = now
+        log(f"?? STALL {kind}: {what}")
+
+
+# ------------------------------------------------------------------------------------------------- upkeep skills
 
 
 def repair_pair(slots, kind):
