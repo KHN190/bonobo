@@ -2108,6 +2108,31 @@ SHEET["boat_across_the_lake"] = {
     "check": _all(_at(at(20, 0, 0), 3), lambda api, inv: not api.get("/state")["inWater"]), "budget": 90,
 }
 
+# -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
+SHEET["obsidian_from_cast"] = {
+    "doc": "A lava pool memory knows, a water bucket and a diamond pickaxe → the plan casts, then breaks what formed",
+    "module": "decompose", "point": "C", "skills": ["cast:obsidian", "mine"], "tier_fixed": "exception",
+    "tags": {"base": "sources"},
+    "setup": list(SCENARIOS["cast_obsidian"]["setup"]),
+    "expect": list(SCENARIOS["cast_obsidian"]["expect"]),
+    "before": _hooks(_start("obsidian_from_cast"),
+                     lambda ctx: ctx.mem.note_seen("lava", at(0, -1, 0), "minecraft:overworld")),
+    "run": _achieve_needs([("minecraft:obsidian", 4)]),
+    "check": _all(_gain("minecraft:obsidian", 4), _alive(10)), "budget": 180,
+}
+SHEET["pearls_from_barter"] = {
+    "doc": "In the Nether, 8 gold ingots and a gold helmet, piglins 4 blocks off, no enderman → the plan barters",
+    "module": "decompose", "point": "C", "skills": ["barter"], "tier_fixed": "exception", "tags": {"base": "sources"},
+    "dimension": "minecraft:the_nether", "combat": True, "tick_rate": 60,
+    "setup": list(SCENARIOS["barter_piglin"]["setup"]),
+    "expect": list(SCENARIOS["barter_piglin"]["expect"]),
+    "expect_entities": [("minecraft:piglin", 3)],
+    "before": _start("pearls_from_barter"),
+    "run": _achieve_needs([("minecraft:ender_pearl", 1)], rounds=4),
+    # A barter's pearls are chance: what is proven is that the plan chose to trade and the gold went.
+    "check": lambda api, inv: inv.count("minecraft:gold_ingot") <= 4 and _trades(inv) >= 1, "budget": 180,
+}
+
 START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)
     ("nav_from_stairs", "a stair step", [f"setblock {_c(at(0, 0, 0))} oak_stairs[facing=east]"], (0, 0.5, 0)),
     ("nav_from_slab", "a bottom slab", [f"setblock {_c(at(0, 0, 0))} stone_slab"], (0, 0.5, 0)),
@@ -2127,6 +2152,195 @@ for _name, _what, _cells, (_dx, _dy, _dz) in START_ROWS:
                  + [_tp(_dx, _dy, _dz)],
         "before": _start(_name), "run": lambda ctx: _skill("travel_to")(ctx, at(10, 0, 0), 2),
         "check": _at(at(10, 0, 0), 3.5), "budget": 30,
+    }
+
+# -- tier "brain": the cerebellum's decisions (upkeep before the queue, repair, bans, resume, memory, the L3 queue).
+# Every row runs the whole brain (`_slice`: brain.round on a private task queue), with the world set to the moment
+# that matters — dusk, hunger, a tool on its last use — and is judged by the world and by the brain's own log.
+BRAIN_LOG = {"replans": 0}
+
+
+def _log_lines():
+    return list(LAST_LINES)
+
+
+def _log_order(first, then):
+    """`first` appears in the brain's log before `then` (both must appear)."""
+    def check(api, inv):
+        lines = _log_lines()
+        a = next((i for i, l in enumerate(lines) if first in l), None)
+        b = next((i for i, l in enumerate(lines) if then in l), None)
+        return a is not None and b is not None and a < b
+    return check
+
+
+def _log_lacks(text):
+    return lambda api, inv: not any(text in l for l in _log_lines())
+
+
+def _count_replans(ctx):
+    """`before` hook: count the brain's plans for the row (brain.replan), the repair measure."""
+    from . import brain
+    BRAIN_LOG["replans"] = 0
+    real = BRAIN_LOG.setdefault("real_replan", brain.replan)
+
+    def replan(*a, **k):
+        BRAIN_LOG["replans"] += 1
+        return real(*a, **k)
+    brain.replan = replan
+
+
+def _replans_at_most(n):
+    def check(api, inv):
+        from . import brain
+        brain.replan = BRAIN_LOG.get("real_replan", brain.replan)
+        return 1 <= BRAIN_LOG["replans"] <= n
+    return check
+
+
+def _goal(template, **kw):
+    return __import__("bonobo.goals", fromlist=["goals"]).make(template, **kw)
+
+
+def _have(*needs):
+    return __import__("bonobo.goals", fromlist=["goals"]).have(*needs)
+
+
+def _count(token, n):
+    return lambda: _inv_now().count(token) - _base_count(token) >= n
+
+
+def _remove_table_when_placed(ctx):
+    """`before` hook: the moment the plan's crafting table stands in the world, take it away (the plan must repair
+    that one step, not start over)."""
+    def watch():
+        from .world import find
+        t0 = time.time()
+        while time.time() - t0 < 60:
+            try:
+                hit = find(["crafting_table"], radius=6, limit=1)
+            except Exception:
+                hit = []
+            if hit:
+                h = hit[0]
+                _chat(f"setblock {h['x']} {h['y']} {h['z']} air")
+                return
+            time.sleep(0.2)
+    _threading.Thread(target=watch, daemon=True).start()
+
+
+def _banned(pos):
+    return lambda api, inv: core.BRAIN.banned(pos)
+
+
+def _not_banned(pos):
+    return lambda api, inv: not core.BRAIN.banned(pos)
+
+
+def _seen(kind, pos):
+    def before(ctx):
+        core.BRAIN.mem.note_seen(kind, pos, "minecraft:overworld")
+    return before
+
+
+def _not_remembered(kind):
+    return lambda api, inv: not core.BRAIN.mem.seen(kind, "minecraft:overworld")
+
+
+def _tasks_done_in_order(*descs):
+    """The brain logged "task done" for each goal, in queue order."""
+    def check(api, inv):
+        done = [l for l in _log_lines() if "task done:" in l]
+        idx = [next((i for i, l in enumerate(done) if d in l), None) for d in descs]
+        return None not in idx and idx == sorted(idx)
+    return check
+
+
+_PEN = lambda mob, n: _pen(mob, n, half=6)   # noqa: E731
+_ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
+IRON_ORE_FREE, IRON_ORE_CAGED = at(6, 0, 0), at(-6, 0, 0)
+BRAIN_ROWS = {
+    "upkeep_preempts_task": (
+        "Dusk in 15 s, no bed, sheep in a pen, a long log task queued → the bed goes to the front, the night is "
+        "slept, then the logs",
+        _ARENA_B + _grove((5, 5)) + _PEN("sheep", 3) + [_tp(), "give @p iron_sword", "time set 11700"],
+        [_have(("log", 4))], lambda: _count("log", 4)() and _is_day()(None, None), 3,
+        _all(_log_order("upkeep: have bed", "task done: have log"), _is_day(), _gain("log", 4))),
+    "upkeep_waits_in_daylight": (
+        "The same, at 1000 (a whole day ahead) → no bed goes to the front: the logs first (control)",
+        _ARENA_B + _grove((5, 5)) + _PEN("sheep", 3) + [_tp(), "give @p iron_sword", "time set 1000"],
+        [_have(("log", 4))], _count("log", 4), 1.5,
+        _all(_log_lacks("upkeep: have bed"), _gain("log", 4))),
+    "food_lead": (
+        "Food 3, no meals, cows penned, furnace + coal carried, a log task queued → food to the front, eaten, then logs",
+        _ARENA_B + _grove((5, 5)) + _PEN("cow", 2) + [_tp(), "give @p iron_sword", "give @p furnace",
+                                                     "give @p coal 8", "give @p crafting_table"],
+        [_have(("log", 4))], _count("log", 4), 3,
+        _all(_log_order("upkeep: have food", "task done: have log"), _gain("log", 4))),
+    "broken_tool_best_tier": (
+        "An iron pickaxe on its last use, iron + sticks + a table carried, cobblestone to mine → it breaks and an "
+        "IRON pickaxe is made, not a stone one",
+        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=248]", "give @p iron_ingot 3",
+                           "give @p stick 2", "give @p crafting_table"],
+        [_have(("minecraft:cobblestone", 6))], _count("minecraft:cobblestone", 6), 2,
+        _all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1 and inv.count("minecraft:stone_pickaxe") == 0,
+             _gain("minecraft:cobblestone", 6))),
+    "broken_tool_nothing_better": (
+        "The same with only planks and sticks carried → a wooden pickaxe is made (the best this bag crafts; control)",
+        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=248]", "give @p oak_planks 6",
+                           "give @p stick 2", "give @p crafting_table"],
+        [_have(("minecraft:cobblestone", 6))], _count("minecraft:cobblestone", 6), 2,
+        _all(lambda api, inv: inv.count("minecraft:wooden_pickaxe") + inv.count("minecraft:stone_pickaxe") >= 1,
+             _gain("minecraft:cobblestone", 6))),
+    "plan_repair_on_event": (
+        "Planks + cobblestone carried, a stone pickaxe asked; the table the plan puts down is taken away → that step "
+        "is redone, the plan is not started over (≤ 2 plans)",
+        _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3"],
+        [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 2,
+        _all(lambda api, inv: inv.count("minecraft:stone_pickaxe") >= 1, _replans_at_most(2))),
+    "plan_without_events": (
+        "The same with nothing taken away → one plan (control)",
+        _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3"],
+        [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 2,
+        _all(lambda api, inv: inv.count("minecraft:stone_pickaxe") >= 1, _replans_at_most(1))),
+    "ban_then_other_source": (
+        "Two iron ores, one sealed in barrier → that cell is banned, the other is mined",
+        _floor() + [f"fill {_c(at(-7, -1, -1))} {_c(at(-5, 1, 1))} barrier", f"setblock {_c(IRON_ORE_CAGED)} iron_ore",
+                    f"setblock {_c(IRON_ORE_FREE)} iron_ore", _tp(), "give @p stone_pickaxe"],
+        [_have(("minecraft:raw_iron", 1))], _count("minecraft:raw_iron", 1), 2,
+        _all(_gain("minecraft:raw_iron", 1), _blocks(IRON_ORE_CAGED, IRON_ORE_CAGED, "iron_ore", 1, 1))),
+    "resume_after_combat": (
+        "Chopping 6 logs, a zombie summoned mid-way → fight_loop answers it, then the chopping resumes for what is "
+        "still missing",
+        _grove((3, 0), (-3, 2)) + [_tp(), "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate"],
+        [_have(("log", 6))], _count("log", 6), 2,
+        _all(_gain("log", 6), _gone(["minecraft:zombie"]), _alive(10))),
+    "seen_store_goes_back": (
+        "Diamond ore remembered 10 blocks away (not in sight: behind stone) → walked to and mined; the note is "
+        "retired once it is gone",
+        _floor(depth=4) + [f"fill {_c(at(8, 0, -2))} {_c(at(12, 3, 2))} stone", f"setblock {_c(at(10, 0, 0))} diamond_ore",
+                           _tp(), "give @p iron_pickaxe"],
+        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 2,
+        _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"))),
+    "l3_two_goals_in_order": (
+        "Two goals queued (logs, then cobblestone) → both done, in queue order",
+        _grove((3, 0)) + [f"fill {_c(at(-6, 0, 3))} {_c(at(-4, 1, 5))} stone", _tp(), "give @p wooden_pickaxe"],
+        [_have(("log", 3)), _have(("minecraft:cobblestone", 3))],
+        lambda: _count("log", 3)() and _count("minecraft:cobblestone", 3)(), 2,
+        _all(_tasks_done_in_order("have log", "have cobblestone"), _gain("log", 3), _gain("minecraft:cobblestone", 3))),
+}
+_BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
+           "plan_without_events": [_count_replans],
+           "resume_after_combat": [lambda ctx: _threading.Timer(4.0, lambda: _chat(
+               f"summon zombie {_c(at(4, 0, 4))} {{PersistenceRequired:1b}}")).start()],
+           "seen_store_goes_back": [_seen("diamond_ore", at(10, 0, 0))]}
+for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items():
+    SHEET[_name] = {
+        "doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
+        "combat": _name in ("resume_after_combat", "food_lead"), "tags": {"base": "brain"},
+        "setup": list(_setup), "before": _hooks(_start(_name), *_BEFORE.get(_name, [])),
+        "run": _slice(_done, _minutes, queue=_queue), "check": _all(_check, _slice_check(None)),
+        "budget": min(180, int(_minutes * 60)),
     }
 
 # -- test point D: acceptance ------------------------------------------------------------------------------------
@@ -2178,7 +2392,7 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
 # chain — run on every change. common: core × the conditions play meets daily — run when a related module changed.
 # exception: everything else — before a merge.
 # acceptance: test point D, its own layer (30 minutes from a fresh world) — never part of another tier's run.
-TIERS = ("core", "common", "exception", "acceptance")
+TIERS = ("core", "common", "brain", "exception", "acceptance")
 # The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
 # what every change can afford to run.
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -2192,7 +2406,7 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if row.get("tier_fixed") in ("core", "common", "exception"):
+    if row.get("tier_fixed") in ("core", "common", "brain", "exception"):
         return row["tier_fixed"]
     if name in CORE:
         return "core"

@@ -146,7 +146,74 @@ def missing_detail(step):
 
 # Things that are only found in one place: (step kind, token) → [(step kind, token, detail)] to put before it —
 # the dimension it lives in, then the structure — unless the snapshot / memory says we are already there.
-LIVES_IN = {("hunt", "minecraft:blaze_rod"): [("portal", "minecraft:the_nether", {}), ("seek", "fortress", {})]}
+LIVES_IN = {("hunt", "minecraft:blaze_rod"): [("portal", "minecraft:the_nether", {}), ("seek", "fortress", {})],
+            ("barter", "piglin"): [("portal", "minecraft:the_nether", {})]}
+
+# The other ways to get a thing, beside what the solver would do (mine, hunt, craft). Each: the steps of one run,
+# what one run yields, what a run needs first (planned like any need), and what must be known for it to be possible
+# at all. Which way is taken is priced (`cost.estimate`), never ranked here.
+SOURCES = {
+    # Pour water on a known lava pool (fluids.cast_obsidian), then break what formed — instead of finding natural
+    # obsidian. The breaking is done where it was cast ("here": priced as work, no walk).
+    "minecraft:obsidian": [{"name": "cast", "yields": 4, "known": ("lava", "no lava pool known"),
+                            "steps": [("cast", "obsidian", {}), ("mine", "minecraft:obsidian",
+                                                                 {"blocks": ["obsidian"], "tier": 3, "here": True})],
+                            "needs": [("minecraft:water_bucket", 1), ("tool", "pickaxe", 3)]}],
+    # Trade gold with piglins in the Nether (nether.barter_piglin) instead of hunting endermen.
+    "minecraft:ender_pearl": [{"name": "barter", "steps": [("barter", "piglin", {"ingots": 8})], "yields": 1,
+                               "needs": [("minecraft:gold_ingot", 8), ("minecraft:golden_helmet", 1)]}],
+}
+
+# Milestones that end in doing, not holding: after their items, these steps (run once — goals.done says None).
+THEN = {"end portal": [("seek", "stronghold", {}), ("seek", "portal_room", {}), ("activate", "end_portal", {})]}
+
+
+def from_sources(inv, needs, cost, solver=None, pending=None):
+    """For each need with other sources (SOURCES), the cheapest way from this bag: what the solver would do, or a
+    source's runs plus the plan for what the runs need. Returns (steps for the chosen sources, pending with what
+    they bring counted as on its way). Raises Unplannable naming every way's reason when none can be had."""
+    extra, steps = dict(pending or {}), []
+    mem = getattr(cost, "mem", None)
+    snap = getattr(cost, "snap", None)
+    for need in needs:
+        if need[0] == "tool" or need[0] not in SOURCES:
+            continue
+        token, n = need[0], int(need[1])
+        short = n - goals.held(inv, token) - extra.get(token, 0)
+        if short <= 0:
+            continue
+        why = []
+        try:
+            best, best_steps = cost.plan_s(solve_needs(inv, [(token, short)], cost, solver, extra)), None
+        except Unplannable as e:
+            best, best_steps = math.inf, None
+            why.append(f"default: {e}")
+        for src in SOURCES[token]:
+            known = src.get("known")
+            if known and not (mem is not None and snap is not None and mem.seen(known[0], snap.dimension)):
+                why.append(f"{src['name']}: {known[1]}")
+                continue
+            runs = math.ceil(short / src["yields"])
+            try:
+                pre = solve_needs(inv, [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs)
+                                        for n in src["needs"]], cost, solver, extra)
+            except Unplannable as e:
+                why.append(f"{src['name']}: {e}")
+                continue
+            own = []
+            for kind, tok, detail in src["steps"]:
+                step = Step(kind, tok, runs * (src["yields"] if kind == "mine" else 1), dict(detail))
+                step.est = cost._prior_work(step) if detail.get("here") else cost.estimate(step) * runs
+                own.append(step)
+            seconds = cost.plan_s(pre + own)
+            if seconds < best:
+                best, best_steps = seconds, pre + own
+        if best == math.inf:
+            raise Unplannable(f"no way to {token}: " + "; ".join(why))
+        if best_steps is not None:
+            steps += best_steps
+            extra[token] = extra.get(token, 0) + short
+    return steps, extra
 
 
 def where_it_lives(steps, cost):
@@ -158,7 +225,7 @@ def where_it_lives(steps, cost):
         for kind, token, detail in LIVES_IN.get((step.kind, step.token), ()):
             if kind == "portal" and snap is not None and getattr(snap, "dimension", None) == token:
                 continue
-            if kind == "seek" and mem is not None and mem.sites("minecraft:the_nether", kinds=[token]):
+            if kind == "seek" and mem is not None and mem.sites(None, kinds=[token]):
                 continue
             if any((s.kind, s.token) == (kind, token) for s in out):
                 continue
@@ -189,7 +256,12 @@ def _decompose(inv, goal, cost, solver, pending):
     if template in goals.ITEM_GOALS:
         needs = goals.needs(goal, inv)
         taken, pending = from_containers(inv, needs, cost, solver, pending)
-        return where_it_lives(taken + solve_needs(inv, needs, cost, solver, pending), cost)
+        sourced, pending = from_sources(inv, needs, cost, solver, pending)
+        mem = getattr(cost, "mem", None)
+        then = [_action(k, t, cost, **d) for k, t, d in (THEN.get(args.get("name"), ()) if template == "milestone"
+                                                         else ())
+                if not (k == "seek" and mem is not None and mem.sites(None, kinds=[t]))]    # already found
+        return where_it_lives(taken + sourced + solve_needs(inv, needs, cost, solver, pending) + then, cost)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":

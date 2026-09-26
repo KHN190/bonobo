@@ -56,7 +56,7 @@ def outside_spot(frame, centre):
 
 
 @skill(done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
-       budget=600, stall=180, per_unit=60)
+       budget=600, stall=180, per_unit=60, provides={"activate:end_portal": lambda ctx, s: ()})
 def activate_end_portal(ctx):
     """At the stronghold's portal room: put an eye of ender into every empty frame block (click its top)."""
     hits = find(["end_portal_frame"], radius=32, limit=12)
@@ -113,7 +113,8 @@ def next_brick(bricks, visited, radius=12):
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
 
 
-@skill(done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300)
+@skill(done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
+       provides={"seek:portal_room": lambda ctx, s: ()})
 def find_portal_room(ctx):
     """From the triangulated estimate: dig down to stronghold depth, follow stronghold bricks toward unexplored parts,
     otherwise search rings around the estimate, until an end portal frame is within 32 blocks."""

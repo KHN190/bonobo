@@ -30,6 +30,8 @@ ITEM_GOALS = ("have", "craft", "milestone")
 SOLVER_FOR = {"milestone": "solve"}
 # Goals whose "done" is that their plan ran: nothing in the world says a skill was run or a road walked.
 RUN_ONCE = ("road", "skill", "effect")
+# Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.
+RUN_AFTER = ("end portal",)
 
 # The run, as named sets of things to hold, in the order the old goal list reached for them (brain.goals).
 MILESTONES = {
@@ -49,6 +51,7 @@ MILESTONES = {
     "blaze rods": [["minecraft:blaze_rod", 7]],
     "ender pearls": [["minecraft:ender_pearl", 12]],
     "eyes of ender": [["minecraft:ender_eye", 12]],
+    "end portal": [["minecraft:ender_eye", 12]],     # then find and light it (decompose.THEN)
     "dragon beds": [["bed", DRAGON_BEDS]],
 }
 # What the brain prepares when the queue is empty, first unmet first: tools, food, light.
@@ -115,6 +118,8 @@ def short(inv, need_rows):
 def done(goal, snap, mem):
     """True / False from the world; None for a goal that is done when its plan has run (RUN_ONCE)."""
     template, args = goal["goal"], goal.get("args", {})
+    if template == "milestone" and args.get("name") in RUN_AFTER:
+        return None                       # its plan ends in doing (find the stronghold, light the portal)
     if template in ITEM_GOALS:
         return not short(snap.inv, needs(goal, snap.inv))
     if template == "goto":
