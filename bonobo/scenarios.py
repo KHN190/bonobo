@@ -1792,6 +1792,10 @@ _ONE = {
                                       f"fill {_c(at(2, 0, 0))} {_c(at(2, 1, 0))} air", _tp(), "give @p cobblestone 8"],
                           lambda ctx: _skill("repair_site")(ctx, _broken_hut(ctx)),
                           _blocks(at(2, 0, 0), at(2, 1, 0), "cobblestone", 2), 60),
+    "wait_out_the_night": (["wait:day"], "night in a sealed stone room, no bed → waited until morning",
+                           _floor() + [f"fill {_c(at(-2, 0, -2))} {_c(at(2, 4, 2))} stone hollow", _tp(0, 1, 0),
+                                       "time set 22000"],
+                           lambda ctx: _skill("wait_for_day")(ctx), _is_day(), 120),
     "withdraw_from_chest": (["withdraw"], "a chest of iron beside the body → 4 ingots taken out",
                             _floor() + _chest(at(2, 0, 0), "iron_ingot 9") + [_tp()],
                             lambda ctx: _skill("withdraw")(ctx, "minecraft:iron_ingot", 4, at(2, 0, 0)),
@@ -2108,9 +2112,8 @@ for _name, _row_ in SCENARIOS.items():
 
 def proves(entry, registry):
     """The skill names a row's `skills` entry proves: a registered name, or every skill providing that effect."""
-    if entry in registry:
-        return {entry}
-    return {n for n, c in registry.items() if entry in getattr(c, "provides", {})}
+    by_effect = {n for n, c in registry.items() if entry in getattr(c, "provides", {})}
+    return ({entry} if entry in registry else set()) | by_effect
 
 
 def select(rows, tier="core", changed=None, registry=None):

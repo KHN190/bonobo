@@ -1,0 +1,242 @@
+"""The bench's primitives: where a scenario stands, how a command is sent, and the sweep engine under every
+swept bench. Everything here is shared by the sheets (`bench.fight`, `scenarios`) and by the
+runner; nothing here knows about any particular scenario.
+"""
+import json
+import os
+import time
+
+from .. import paths
+
+SCENARIOS = {}
+
+FLAG = paths.data("test-world")
+TABLE = paths.data("readiness.json")
+NOTES = paths.data("test-world-notes.json")
+BENCH = paths.data("bench")
+ORIGIN = (10000, 200, 10000)   # a sky platform: skills search 48 blocks, natural terrain (y ≤ ~120) stays out of it
+PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Everything a scenario touches lies inside this box (cleared to air before each setup, force-loaded).
+BOX = ((-10, -4, -10), (20, 9, 10))
+UNCOUNTED = ("setup", "harness")
+
+
+def at(dx, dy, dz, origin=ORIGIN):
+    return origin[0] + dx, origin[1] + dy, origin[2] + dz
+
+
+def _c(p):
+    return f"{p[0]} {p[1]} {p[2]}"
+
+
+BRAIN = None     # set by `mc.py scenario`: plan-driven scenarios execute steps exactly as the brain does
+
+
+def _achieve(ctx, needs, done, rounds=12):
+    """Plan the needs from the current bag and execute the first step until `done()` — the brain's own path."""
+    from .. import decompose, dispatch, goals
+    from ..cost import Cost
+    from ..world import Snapshot
+    from .. import jobs as _jobs
+    for _ in range(rounds * 4):
+        if done():
+            return True
+        snap = Snapshot()
+        pending = BRAIN.mem.jobs(snap.dimension)
+        ready = [j for j in pending if j["ready_at"] <= time.time()]
+        if ready:
+            _jobs.collect(ctx, ready[0])        # a background furnace finished: take its output (the brain's job)
+            continue
+        plan = decompose.decompose(snap.inv, goals.have(*needs), Cost(snap, BRAIN.mem),
+                                   pending=BRAIN.mem.pending_outputs(snap.dimension))
+        if not plan:
+            if pending:
+                time.sleep(1)                   # everything else is done; the furnace is still cooking
+                continue
+            break
+        dispatch.execute(ctx, plan[0], False)
+    if not done():
+        from ..api import McError
+        raise McError(f"needs {needs} not met after {rounds} plan steps")
+    return True
+
+
+def _inv_has(item, n):
+    from ..world import Inventory
+    return lambda: Inventory().count(item) >= n
+
+
+# The engine under every sweep bench (`decision_arena`, `combat_arena`, `escape`, `siege`): a bench is the cells
+# it visits, the commands that build one, what a row records, and rules over the finished table. Resetting the
+# platform, appending JSONL, re-reading it and printing what broke were written out three times; they live here.
+
+SWEEP = {}
+
+
+def _platform(reach=9, walled=False):
+    """Bare stone, nothing alive, us in the middle: where every cell starts.
+
+    `reach` is how far from the middle the ground must hold. A fighting bench needs more of it than a deciding one:
+    the answers the threat model picks walk up to sixteen blocks away, and on a platform nine blocks wide the first
+    cell of the first online run walked off the edge and fell two hundred blocks — every later cell then ran with a
+    dead player and the whole pass measured nothing. `walled` puts a lip round it so a wrong answer is a wrong
+    answer rather than a fall.
+    """
+    lo, hi = at(-reach, -2, -reach), at(reach + 3, 6, reach)
+    floor_hi = at(reach + 3, -1, reach)
+    out = [f"fill {_c(lo)} {_c(hi)} air", f"fill {_c(lo)} {_c(floor_hi)} stone",
+           f"tp @p {_c(at(0, 0, 0))}", "kill @e[type=!player,distance=..40]"]
+    if walled:
+        for a, b in (((-reach, 0, -reach), (reach + 3, 2, -reach)), ((-reach, 0, reach), (reach + 3, 2, reach)),
+                     ((-reach, 0, -reach), (-reach, 2, reach)), ((reach + 3, 0, -reach), (reach + 3, 2, reach))):
+            out.append(f"fill {_c(at(*a))} {_c(at(*b))} stone")
+    return out
+
+
+def _sweep_rows(path):
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def _sweep(name, cells, build, record, path, settle=0.5):
+    """One pass: build each cell, record one row in it, append it. Returns the rows of THIS pass."""
+    def run(_ctx):
+        feedback, rows = [], []
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as out:
+            for cell in cells():
+                for cmd in build(cell):
+                    _command(cmd, feedback)
+                time.sleep(settle)
+                row = {"t": time.time(), **cell, **record(cell)}
+                rows.append(row)
+                out.write(json.dumps(row) + "\n")
+                out.flush()
+        SWEEP[name] = rows
+        return rows
+    return run
+
+
+def _sweep_check(name, path, rules, least):
+    """The verdict is what the RULES say about the finished table — never which name won a cell."""
+    def check(_api, _inv):
+        rows = SWEEP.get(name) or _sweep_rows(path)[-least:]
+        if len(rows) < least:
+            return False
+        bad = [m for rule in rules for m in (rule(rows) or [])]
+        if bad:
+            print(f"{name}: " + "; ".join(bad[:6]))
+        return not bad
+    return check
+
+
+def _by(rows, *keys):
+    """Rows by a tuple of dimension values. New sheets key by `cells.key_of` instead — one vocabulary."""
+    return {tuple(r.get(k) for k in keys): r for r in rows}
+
+
+def _chat(cmd):
+    """A command from a `before` hook (after setup, perception running): world changes the skill must react to."""
+    from .. import api
+    api.post("/chat", {"message": "/" + cmd})
+    time.sleep(0.3)
+
+
+def _drain(result):
+    """Run a skill generator to its end when it's called directly (the @skill wrapper normally drives it)."""
+    if hasattr(result, "__next__"):
+        for _ in result:
+            pass
+    return result
+
+
+class SetupInvalid(Exception):
+    """The scenario wasn't built as specified: the run says nothing about the skill."""
+
+
+def _count_blocks(api, lo, hi, name):
+    from ..world import Region
+    return sum(1 for n in Region(lo, hi).blocks.values() if n == name)
+
+
+def _near(api, pos, r):
+    import math
+    s = api.get("/state")
+    return math.dist((s["x"], s["y"], s["z"]), pos) <= r
+
+
+def _chat_log():
+    from .. import api
+    return os.path.join(api.INSTANCE, "logs", "latest.log")
+
+
+def _command(cmd, feedback, timeout=2.0):
+    """Send one command and wait for its chat feedback in the client log; returns the new chat lines."""
+    from .. import api
+    path = _chat_log()
+    size = os.path.getsize(path)
+    api.post("/chat", {"message": "/" + cmd})
+    t0, lines = time.time(), []
+    while time.time() - t0 < timeout:
+        time.sleep(0.15)
+        with open(path, "rb") as f:
+            f.seek(size)
+            new = f.read().decode(errors="replace")
+        lines = [l.split("[CHAT] ", 1)[1] for l in new.splitlines() if "[CHAT] " in l]
+        if lines:
+            break
+    feedback.append({"cmd": cmd, "reply": lines})
+    return lines
+
+
+def _batch(cmds, feedback, settle=0.6):
+    """Send commands back to back, then read all their chat replies at once; any error line fails the setup."""
+    from .. import api
+    path = _chat_log()
+    size = os.path.getsize(path)
+    for cmd in cmds:
+        api.post("/chat", {"message": "/" + cmd})
+    time.sleep(settle)
+    with open(path, "rb") as f:
+        f.seek(size)
+        lines = [l.split("[CHAT] ", 1)[1] for l in f.read().decode(errors="replace").splitlines() if "[CHAT] " in l]
+    feedback.append({"cmd": f"batch of {len(cmds)}", "cmds": cmds, "reply": lines})
+    from .runner import feedback_errors      # runner imports core: ask for it when needed, not at import time
+    bad = feedback_errors(lines)
+    if bad:
+        raise SetupInvalid(f"setup batch → {bad[0]}")
+
+
+def _checked(cmd, feedback):
+    from .runner import feedback_errors      # see above: one reader of what the game said back
+    bad = feedback_errors(_command(cmd, feedback))
+    if bad:
+        raise SetupInvalid(f"/{cmd} → {bad[0]}")
+
+
+def server_count(lines):
+    """Pure: N from '/execute if entity' feedback ('Test passed, count: N'); 0 for 'Test failed'."""
+    import re
+    for line in lines:
+        m = re.search(r"count: (\d+)", line, re.IGNORECASE)   # the server says "Test passed. Count: 1"
+        if m:
+            return int(m.group(1))
+    return 0
+
+
+def entity_mismatches(ents, expect):
+    """Pure: expected entity counts [(type, min)] that don't hold (with what was seen, to tell a sync delay from a
+    mob that died or wandered off)."""
+    seen = sorted({e["type"].split(":")[-1] for e in ents})
+    return [f"{t}: {sum(1 for e in ents if e['type'] == t)}, expected ≥ {n} (seen: {', '.join(seen) or 'nothing'})"
+            for t, n in expect if sum(1 for e in ents if e["type"] == t) < n]
+
+
+
+
+def set_brain(brain):
+    """`mc.py scenario` hands the bench the brain: plan-driven scenarios execute steps exactly as it does."""
+    global BRAIN
+    BRAIN = brain

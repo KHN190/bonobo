@@ -41,9 +41,7 @@ def rows():
 
 def proven_by(entry):
     """The skills a row's `skills` entry proves: a registered name, or an effect (every skill that provides it)."""
-    if entry in skillkit.REGISTRY:
-        return {entry}
-    return {c.name for c in skillkit.providers(entry)}
+    return ({entry} if entry in skillkit.REGISTRY else set()) | {c.name for c in skillkit.providers(entry)}
 
 
 class EveryRow(unittest.TestCase):

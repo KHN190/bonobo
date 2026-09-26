@@ -61,7 +61,7 @@ class TheSolver(unittest.TestCase):
 
 # Real plans the order and seek rules are checked on: (situation, state, target)
 REAL = [
-    ("cobblestone with a pickaxe", {"tool:pickaxe:0": 1, "bag_free": 20}, {"minecraft:cobblestone": 4}),
+    ("cobblestone with a pickaxe", {"tool:pickaxe:0": 1, "uses:pickaxe": 59, "bag_free": 20}, {"minecraft:cobblestone": 4}),
     ("a stone pickaxe from nothing", {"bag_free": 20}, {"minecraft:stone_pickaxe": 1}),
     ("iron with a stone pickaxe", {"tool:pickaxe:1": 1, "uses:pickaxe": 100, "bag_free": 20},
      {"minecraft:iron_ingot": 2}),

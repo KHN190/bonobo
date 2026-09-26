@@ -24,12 +24,12 @@ def wire(mem, policy_of, blacklist, prices=None):
     """Give the fight what it needs from the agent: memory, a movement policy for the current snapshot, and the
     shared blacklist. `policy_of(snap)` is asked per answer, so a fight at night walks by the night's rules."""
     global ANSWER
-    from . import skills
+    from .skillcore import Context
     from .world import Snapshot
 
     def answer(option):
         snap = Snapshot()
-        ctx = skills.Context(mem, policy_of(snap), snap.dimension, blacklist, prices=prices)
+        ctx = Context(mem, policy_of(snap), snap.dimension, blacklist, prices=prices)
         return engage(option, snap.state, ctx)
     ANSWER = answer
     return answer
@@ -213,11 +213,6 @@ def _evade(option, state):
              "placeBudget": int(state["inv"].count("building")), "avoid": []}]
 
 
-def _wall_in(option, state):
-    from .skills import pod_commands
-    return pod_commands(state) if state.get("region") is not None else []
-
-
 def _eat(option, state):
     from .knowledge import ALL_FOOD
     food = next((f for f in list(ALL_FOOD) + list(RAW_OK) if state["inv"].count(f)), None)
@@ -248,18 +243,27 @@ def _reshape(option, state):
     return [{"type": "place", "item": item, "x": x + step[0], "y": y + i, "z": z + step[1]} for i in range(n)]
 
 
-BATCH = {"fight": _fight, "evade": _evade, "wall_in": _wall_in, "eat": _eat, "shield": _shield,
-         "reshape": _reshape}
+BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape}
+# What a batch needs read around the body, by kind: {kind: feet -> Region}. Skills that lend their batch register
+# both (skills.py: "wall_in" → pod_commands, _pod_region), so this module never imports the skill library.
+REGION = {}
+
+
+def lend(kind, make, region=None):
+    """A skill module lends its command batch as an answer: `make(option, state)`, and the region it reads."""
+    BATCH[kind] = make
+    if region is not None:
+        REGION[kind] = region
 
 
 def engage(decision, s, ctx):
     """Carry out one threat answer — an Option from perception or a Decision from the emergency; both name a `kind`
     and a `target`: its batch (`batch`) is POSTED, not awaited. Returns {"id": last task} for the engagement to
     watch; appending or re-posting is the engagement's call."""
-    from . import perception, skills
-    here = skills.feet()
-    region = skills._pod_region(here) if decision.kind == "wall_in" else None
-    state = skills.body_state(ctx, region, threats=perception.threats_seen()[0])
+    from . import perception
+    from .skillcore import body_state, feet
+    read = REGION.get(decision.kind)
+    state = body_state(ctx, read(feet()) if read else None, threats=perception.threats_seen()[0])
     tasks = batch(decision, state)
     if not tasks:
         raise NotAvailable(f"{decision.kind}: nothing to do it with from here")

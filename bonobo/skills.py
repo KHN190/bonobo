@@ -1706,3 +1706,9 @@ def find_base(radius=48):
         return None
     best = max(hits, key=lambda h: sum(MARKER_WEIGHT[k] for k, p in hits if math.dist(p, h[1]) <= 12))
     return best[1]
+
+
+# pod's batch is also a fight answer ("wall_in"): lent to fight_loop, which never imports the skill library.
+from . import fight_loop as _fight_loop  # noqa: E402
+_fight_loop.lend("wall_in", lambda option, state: pod_commands(state) if state.get("region") is not None else [],
+                 region=_pod_region)
