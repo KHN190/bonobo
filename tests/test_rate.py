@@ -107,6 +107,28 @@ class TheGroundAndTheShape(unittest.TestCase):
             self.assertLess(down, plain, cell)
 
 
+class ABlastExactly(unittest.TestCase):
+    """`burst_hp` on hand-placed rows: a creeper's 28.67 once, while it can reach us before the fuse; nothing for
+    what does not explode or cannot arrive; armour takes its share off."""
+
+    @staticmethod
+    def mob(kind, x):
+        return ((x, 64, 0), 3.0, (0.0, 0.0, 0.0), f"minecraft:{kind}")
+
+    ROWS = [("a creeper beside us", [("creeper", 1)], 0.0, 28.666666666666668),
+            ("a creeper beside us, half armoured off", [("creeper", 1)], 0.5, 14.333333333333334),
+            ("two creepers beside us", [("creeper", 1), ("creeper", 2)], 0.0, 57.333333333333336),
+            ("a creeper 40 blocks out: cannot arrive before the fuse", [("creeper", 40)], 0.0, 0.0),
+            ("a zombie beside us: a rate, not a blast", [("zombie", 1)], 0.0, 0.0),
+            ("nothing", [], 0.0, 0.0)]
+
+    def test_burst_over_the_table(self):
+        for name, rows, prot, want in self.ROWS:
+            with self.subTest(name):
+                got = estimate.burst_hp((0, 64, 0), [self.mob(k, x) for k, x in rows], prot=prot)
+                self.assertAlmostEqual(got, want, places=9)
+
+
 class ABlastIsNotARate(unittest.TestCase):
     """Which mobs explode is the belief table's business; that what explodes is owed at once and not per second is
     the architecture. Every claim here reads the flag rather than naming a creeper."""
