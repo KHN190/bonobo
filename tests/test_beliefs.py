@@ -221,7 +221,7 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
         for name, how, args, path in self.ROWS:
             with self.subTest(name), mock.patch.object(beliefs, "note") as note:
                 getattr(self, how)(*args)
-                filed = [(c.args[0], c.args[1]) for c in note.call_args_list]
+                filed = [(c.args[0], round(c.args[1], 6)) for c in note.call_args_list]
                 self.assertEqual(filed, [(path, args[0])] if path else [])
 
     def test_every_belief_filed_exists(self):

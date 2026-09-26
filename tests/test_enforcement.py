@@ -100,7 +100,7 @@ class RulesAreWired(unittest.TestCase):
         ("the threat model is used by the fight", ("threats", "tti", "exposure", "window_summary"), {"fight_plan"}),
         ("every look is vetted for endermen (the funnel and the bow)", ("aim_hits_enderman",), {"api", "combat"}),
         ("the safety choice is made by the model", ("best_step", "slack_at", "min_tti"), {"end", "fight_plan", "nav"}),
-        ("threats are bid for from perception", ("bid", "options"), {"perception", "threat"}),
+        ("threats are bid for from perception", ("bid", "options"), {"fight_loop", "perception", "threat"}),
         ("perception interrupts on pressure, not health alone", ("pressure", "time_to_die"), {"perception", "threat"}),
         ("the fight submits intents to one body", ("submit", "Motion"), {"end"}),
         ("the funnels ask who owns the body", ("owns",), {"api", "nav"}),

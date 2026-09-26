@@ -8,11 +8,16 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import tape  # noqa: E402
 
-LINE = len((json.dumps({"round": 0, "pad": "x" * 300}) + "\n").encode())      # every round the same size here
+def line(i):
+    """One round, padded so every round is the same size whatever its number."""
+    return json.dumps({"round": i, "pad": "x" * (300 - len(str(i)))}) + "\n"
+
+
+LINE = len(line(0).encode())          # fixture: the size of every round here
 
 
 def rounds(n):
-    return "".join(json.dumps({"round": i, "pad": "x" * 300}) + "\n" for i in range(n))
+    return "".join(line(i) for i in range(n))
 
 
 # (situation, rounds on the tape, cap in bytes) → rounds kept (the newest, in order)

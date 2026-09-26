@@ -43,8 +43,17 @@ def run_group(names):
     began = time.time()
     p = subprocess.run([sys.executable, "-m", "unittest"] + list(names),
                        capture_output=True, text=True, env=sandbox())
+    out = p.stdout + p.stderr
     code = 0 if p.returncode == 5 else p.returncode      # 5 = "NO TESTS RAN": a check-style file, already run
-    return list(names), code, p.stdout + p.stderr, time.time() - began
+    # A file that fails to IMPORT is a failure, whatever the exit code says: the loader's traceback (or a missing
+    # "Ran N tests" line) means nothing in that file was tested — which reads as green unless it is caught here.
+    if "Traceback (most recent call last)" in out and ("ImportError" in out or "Error while importing" in out
+                                                       or "Failed to import test module" in out
+                                                       or "Ran " not in out):
+        code = code or 1
+    if "Ran " not in out and p.returncode != 5:
+        code = code or 1
+    return list(names), code, out, time.time() - began
 
 
 # Where a test process writes. The suite used to run against the PLAYER'S data directory, so a test that took a

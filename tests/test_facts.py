@@ -77,7 +77,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 m = mem()
                 if pos:
                     m.note_seen("stone", pos, "minecraft:overworld")
-                state = actions.state_of(Snap(), m) | {"tool:pickaxe:0": 1}
+                state = actions.state_of(Snap(), m) | {"tool:pickaxe:0": 1, "uses:pickaxe": 59}
                 plan = solve(actions.table(cost, state), state, {"minecraft:cobblestone": 1})
                 self.assertEqual(bool(plan.counts.get("seek:stone")), walks)
 

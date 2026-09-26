@@ -441,9 +441,10 @@ _mp = os.path.join(tempfile.mkdtemp(), "notes.json")
 _m = Memory(_mp)
 _m.add_station("crafting_table", (1, 2, 3), "overworld")
 _m.add_station("crafting_table", (1, 2, 3), "overworld")
-_m.log_vein("iron_ore", (5, 5, 5), 4, "overworld")
-_m.log_vein("iron_ore", (6, 5, 5), 3, "overworld")
-check("memory: stations and veins deduplicated", len(_m.data["stations"]) == 1 and len(_m.data["veins"]) == 1)
+_m.note_seen("iron_ore", (5, 5, 5), "overworld")
+_m.note_seen("iron_ore", (5, 5, 5), "overworld")
+check("memory: stations and seen ore deduplicated", len(_m.data["stations"]) == 1
+      and len(_m.seen("iron_ore", "overworld")) == 1)
 
 # -- review macro progress
 _tr = [{"t": 1000 + 60 * i, "pos": [-9, 37, 257], "done": ["stone pickaxe"]} for i in range(30)]
@@ -735,9 +736,9 @@ same("readiness: setup/harness failures don't count against a skill",
      SC.status(_tb2, "fill_water_bucket", "h"), ("scenario", 3))
 _tv = {}
 SC.record(_tv, "s", "c", True, 1)
-check("bench: one pass is no verdict yet", SC.verdict(_tv, "s", "c") is None)
-SC.record(_tv, "s", "c", True, 1)
-same("bench: two passes → verdict, no more runs", SC.verdict(_tv, "s", "c"), "pass")
+same("bench: one pass on the first run is a pass (≤3 runs, ≥2/3)", SC.verdict(_tv, "s", "c"), "pass")
+SC.record(_tv, "s2", "c", False, 1)
+same("bench: one failure is no verdict yet: run again", SC.verdict(_tv, "s2", "c"), None)
 SC.record(_tv, "f", "c", False, 1, cls="setup")
 SC.record(_tv, "f", "c", False, 1)
 SC.record(_tv, "f", "c", False, 1)
