@@ -336,13 +336,18 @@ def options(state):
     return out
 
 
-def action_cost(option, price):
-    """kernel's `cost_s` for an option: `estimate.act_cost_s` of what the option spends.
+def action_cost(option, price, work_s=None):
+    """kernel's `cost_s` for an option: its seconds, plus the health it spends priced ON TOP of what it still
+    leaves owed (`work_s` given) — one price of all the damage, not two. Priced apart, two sums past what kills
+    each counted a whole death, so at four hearts leaving cost more than staying and the agent stood still.
 
     Health spent acting is a cost, not a state: after the fight the mobs are gone either way, and what separates
     the answers is what getting there took out of us.
     """
-    return estimate.act_cost_s(option.seconds, option.hp, price)
+    if work_s is None:
+        return estimate.act_cost_s(option.seconds, option.hp, price)
+    left = owed(option, work_s)
+    return float(option.seconds) + price(left + float(option.hp)) - price(left)
 
 
 class Answer:
@@ -352,8 +357,8 @@ class Answer:
 
     __slots__ = ("option", "name", "cost_s")
 
-    def __init__(self, option, price):
-        self.option, self.name, self.cost_s = option, option.kind, action_cost(option, price)
+    def __init__(self, option, price, work_s=None):
+        self.option, self.name, self.cost_s = option, option.kind, action_cost(option, price, work_s)
 
     def effect(self, state):
         return self.option.effect(state)
@@ -376,7 +381,7 @@ class Field:
         self.field = state
         self.price_hp = price or (lambda dhp: dhp)
         self.work_s = horizon_for(state)
-        self.opts = [Answer(o, self.price_hp) for o in options(state)]
+        self.opts = [Answer(o, self.price_hp, self.work_s) for o in options(state)]
         self.default = next(a for a in self.opts if a.name == "ignore")
 
     def state(self):
@@ -410,7 +415,7 @@ def owed(option, work_s):
 def total_cost(option, price, work_s):
     """Pure: everything this answer costs — the time and health it takes (`action_cost`) plus what it leaves
     owed. THE comparison; there is only this one."""
-    return action_cost(option, price) + price(owed(option, work_s))
+    return action_cost(option, price, work_s) + price(owed(option, work_s))
 
 
 def saves(option, opts, price, work_s):
@@ -426,7 +431,7 @@ def saves(option, opts, price, work_s):
     if doing_nothing is None:
         return 0.0
     return estimate.saved_s(price, owed(doing_nothing, work_s), owed(option, work_s),
-                            action_cost(option, price))
+                            action_cost(option, price, work_s))
 
 
 def decide(state, price=None):
@@ -638,5 +643,7 @@ def hp_seconds(s, dhp):
     p = _fatal_chance(hp, dhp)
     survived = dict(s, hp=max(1.0, hp - min(dhp, hp - 1.0)))
     margin = expected_loss(survived) - expected_loss(s)
-    return round(p * (_T["death_cost_s"] + expected_loss(dict(s, hp=20)) - expected_loss(s))
-                 + (1.0 - p) * margin, 1)
+    # A death costs the respawn and the walk back — never less for being hurt already: crediting the respawn's full
+    # health made dying at four hearts cheaper than at twenty, and the price of the same blow fell as health did.
+    reset = max(0.0, expected_loss(dict(s, hp=20)) - expected_loss(s))
+    return round(p * (_T["death_cost_s"] + reset) + (1.0 - p) * margin, 1)
