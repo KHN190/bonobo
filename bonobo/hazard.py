@@ -13,6 +13,11 @@ import time
 from . import api
 from .beliefs import CONFIG as _CONFIG
 from .api import log
+from .skillcore import head_buried, head_underwater
+
+# The rescue skills (find_air, unbury), lent by skills.py at import: this module detects and dispatches, and never
+# imports the skill library — or everything that reads a hazard (perception, nav) would drag all of it in.
+SKILLS = {}
 
 KINDS = ("lava", "burning", "drowning", "suffocating", "falling")
 
@@ -89,8 +94,7 @@ class Watch:
             return self._buried
         self._buried_t = now
         try:
-            from . import skills
-            self._buried = bool(skills.head_buried(state))
+            self._buried = bool(head_buried(state))
         except Exception:
             self._buried = False
         return self._buried
@@ -106,9 +110,8 @@ def _leave_lava(ctx, s):
 
 
 def _surface(ctx, s):
-    from . import skills
-    if s.get("air", 300) < 150 and skills.head_underwater(s):
-        skills.find_air(ctx)          # capped water: dig or swim to the nearest air
+    if s.get("air", 300) < 150 and head_underwater(s):
+        SKILLS["find_air"](ctx)       # capped water: dig or swim to the nearest air
         return
     api.post("/stop")
     api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 6, "z": s["blockZ"], "range": 2,
@@ -116,8 +119,7 @@ def _surface(ctx, s):
 
 
 def _unbury(ctx, s):
-    from . import skills
-    skills.unbury(ctx)
+    SKILLS["unbury"](ctx)
 
 
 def _extinguish(ctx, s):
@@ -150,9 +152,8 @@ def due(state, buried=None):
     if state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S:
         return "drowning"
     if buried is None:
-        from . import skills
         try:
-            buried = skills.head_buried(state)
+            buried = head_buried(state)
         except api.McError:
             buried = False
     k = kind(state, buried=buried)

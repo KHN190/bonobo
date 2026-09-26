@@ -19,7 +19,7 @@ from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VAL
 from .terrain import LAND, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
                         free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
-                        body_state,
+                        body_state, head_buried, head_underwater,
                         carried_total)   # (split out; re-exported for skills.X callers)
 from .explore import surface_first, explore_for, seek_blocks, approach_policy  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .wood import chop  # noqa: F401,E402  (split out; re-exported for skills.X callers)
@@ -1046,23 +1046,6 @@ def dig_out(ctx):
     log(f"dug out of the shelter toward {out}")
 
 
-def head_underwater(s=None):
-    """The eyes are in a water block (swimming at the surface with the head out doesn't count)."""
-    s = s or api.get("/state")
-    if not s["inWater"]:
-        return False
-    eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
-    return Region(eye, eye).name(eye) == "water"
-
-
-def head_buried(s=None):
-    """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating."""
-    s = s or api.get("/state")
-    eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
-    r = Region(eye, eye)
-    return r.solid(eye) and not r.name(eye).endswith(("_slab", "_stairs", "snow", "_carpet"))
-
-
 @skill(done=lambda c: not head_buried(), budget=30, stall=15, per_unit=3)
 def unbury(ctx):
     """Suffocating in a block: break the block at eye level, then the one above it if sand/gravel keeps falling."""
@@ -1712,3 +1695,6 @@ def find_base(radius=48):
 from . import fight_loop as _fight_loop  # noqa: E402
 _fight_loop.lend("wall_in", lambda option, state: pod_commands(state) if state.get("region") is not None else [],
                  region=_pod_region)
+# The rescues hazard.py runs are skills: lent to it, so the L0 detector never imports the skill library.
+from . import hazard as _hazard  # noqa: E402
+_hazard.SKILLS.update(find_air=find_air, unbury=unbury)

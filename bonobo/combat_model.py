@@ -428,3 +428,26 @@ def hazard_points(near, radii=None):
     included (they carry no health field)."""
     radii = radii or HAZARD_R
     return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near if e["type"] in radii]
+
+
+# ---- the current hazard set: written by perception each round, read by movement (nav.go_to) — kept here, beside
+# the points it is made of, so a walk asks a fact module and not the perception thread.
+HAZARDS = []          # [(point, radius)], newest perception round wins
+HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
+
+
+def note_hazards(near, now=None):
+    """Record what can hurt us right now. Pure apart from the clock; called from the perception round."""
+    global HAZARDS, HAZARDS_AT
+    import time as _t
+    HAZARDS = hazard_points(near or [])
+    HAZARDS_AT = now if now is not None else _t.time()
+    return HAZARDS
+
+
+def hazards(max_age_s=3.0, now=None):
+    """The current hazard set, or empty when perception has not looked recently enough to be trusted."""
+    import time as _t
+    if not HAZARDS or (now or _t.time()) - HAZARDS_AT > max_age_s:
+        return []
+    return HAZARDS

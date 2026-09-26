@@ -16,6 +16,7 @@ from . import api, arbiter, fight_loop, hazard, paths
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE
+from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
 
 POLL_S = 0.2
 # The operator's interrupt (mc.py interrupt): end the running skill so an override directive runs next round. /stop
@@ -24,19 +25,7 @@ FLAG = paths.data("interrupt")
 HURT_RATE = 0.0       # health per second, measured
 _HP_SEEN = None       # (health, when) from the previous read
 
-HAZARDS = []          # [(point, radius)], newest perception round wins
-HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
-
-
-def note_hazards(near, now=None):
-    """Record what can hurt us right now. Pure apart from the clock; called from the perception round."""
-    global HAZARDS, HAZARDS_AT
-    import time as _t
-    from . import combat_model
-    HAZARDS = combat_model.hazard_points(near or [])
-    HAZARDS_AT = now if now is not None else _t.time()
-    return HAZARDS
 
 
 def note_hurt(state, now=None):
@@ -111,14 +100,6 @@ def seen_at():
     """When the rows above were read. Every layer polls the same world at its own rate, so a reading has to say
     when it was taken or nothing can tell whether two decisions describe the same world."""
     return THREAT_AT
-
-
-def hazards(max_age_s=3.0, now=None):
-    """The current hazard set, or empty when perception has not looked recently enough to be trusted."""
-    import time as _t
-    if not HAZARDS or (now or _t.time()) - HAZARDS_AT > max_age_s:
-        return []
-    return HAZARDS
 
 
 _SEEN = {}            # entity id -> (pos, when): velocity differencing, owned by this thread

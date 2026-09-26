@@ -180,6 +180,23 @@ def carried_total():
     return sum(int(s.get("count", 1)) for s in Inventory().slots)
 
 
+def head_underwater(s=None):
+    """The eyes are in a water block (swimming at the surface with the head out doesn't count)."""
+    s = s or api.get("/state")
+    if not s["inWater"]:
+        return False
+    eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
+    return Region(eye, eye).name(eye) == "water"
+
+
+def head_buried(s=None):
+    """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating."""
+    s = s or api.get("/state")
+    eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
+    r = Region(eye, eye)
+    return r.solid(eye) and not r.name(eye).endswith(("_slab", "_stairs", "snow", "_carpet"))
+
+
 def feet():
     s = api.get("/state")
     return s["blockX"], s["blockY"], s["blockZ"]

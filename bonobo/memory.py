@@ -8,7 +8,7 @@ import math
 import os
 import time
 from . import beliefs, paths
-from .data import GROUPS, VOLATILITY, bare, seen_class
+from .data import GROUPS, VOLATILITY, bare, mid, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
@@ -403,8 +403,7 @@ class Memory:
 
     def stored(self, token, dimension):
         """[(pos, item id, count)] of `token` (an item or a group) in containers seen here."""
-        from .knowledge import members
-        ids = set(members(token))
+        ids = {mid(x) for x in GROUPS.get(token, [token])}
         return [(tuple(c["pos"]), item, n) for c in self.data.get("containers", {}).values()
                 if c["dimension"] == dimension for item, n in c["items"].items() if item in ids and n > 0]
 

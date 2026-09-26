@@ -12,9 +12,10 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .world import entities, find
+from .world import ROUTES, entities, find
 
 TICKS_PER_S = 20
+
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
 # Work per unit when nothing has been measured yet, in ticks.
@@ -202,13 +203,12 @@ class Cost:
     def route_s(self, kinds):
         """The game's own estimate for walking to the nearest known one, when it has already been asked this round
         (nav's route cache; read, never added to — whoever is about to act asks the game)."""
-        from . import nav
         where = self.where(kinds)
         if where is None:
             return None
-        policy = self.policy or nav.Policy()
-        key = (tuple(int(v) for v in where), bool(policy.allow_dig), bool(policy.allow_build), 2.0, 6000)
-        found, seconds = nav._ROUTES.get(key, (None, None))
+        dig, build = (bool(self.policy.allow_dig), bool(self.policy.allow_build)) if self.policy else (True, True)
+        key = (tuple(int(v) for v in where), dig, build, 2.0, 6000)
+        found, seconds = ROUTES.get(key, (None, None))
         return seconds if found else None
 
     def find_p(self, kinds):

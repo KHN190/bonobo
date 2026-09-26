@@ -181,8 +181,8 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         return False
     _began, _from = time.time(), feet_now()
     if avoid_hazards:
-        from . import perception
-        hz = perception.hazards()
+        from . import combat_model
+        hz = combat_model.hazards()
         if hz:
             safe = safe_destination(pos, hz)
             if safe is None:
@@ -381,7 +381,7 @@ def sweep(ctx, radius=6, only=(), wait=30, tries=2):
 
 # One round asks about dozens of targets and the answer cannot change while the body stands still, so the
 # game is asked once per (target, policy, nodes) and the answer is kept for the round. Cleared by `forget_routes`.
-_ROUTES = {}
+from .world import ROUTES as _ROUTES  # noqa: E402  (the round's route answers, read by the cost model too)
 # How many route questions one round may put to the game. A `/plan` is a real pathfinding search on the client
 # thread — tens of milliseconds when it succeeds, seconds when it has to give up — so asking it once per candidate
 # priced a round in minutes and the body stood still through all of it. The budget is what makes "ask the world"

@@ -3,6 +3,11 @@ from . import api
 from .data import (DAY_END, FALLING, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
 
+# The round's route answers from the game (`nav.route_s` writes them, `nav.forget_routes` clears): {key: (found,
+# seconds)}. Kept at the bottom, beside the other world reads, so the cost model prices a route without importing
+# movement.
+ROUTES = {}
+
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
 
