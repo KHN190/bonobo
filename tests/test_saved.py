@@ -59,7 +59,7 @@ class EveryLayerSpellsItTheSameWay(unittest.TestCase):
             for option in options:
                 expected = estimate.saved_s(price, threat.owed(doing_nothing, horizon),
                                             threat.owed(option, horizon),
-                                            threat.action_cost(option, price))
+                                            threat.action_cost(option, price, horizon))
                 self.assertAlmostEqual(threat.saves(option, options, price, horizon), expected, places=6,
                                        msg=f"{cell}: {option.kind}")
 
