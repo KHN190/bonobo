@@ -776,6 +776,35 @@ for _skill, _rows in blueprint_cases().items():
     COMMANDS.setdefault(_skill, []).extend(_rows)
 
 
+class BlueprintBatch(unittest.TestCase):
+    """building._blueprint_commands_for directly: where the batch comes from, and when there is none."""
+
+    def test_rows(self):
+        from bonobo import building
+        carried = inventory(("cobblestone", 64), ("obsidian", 20), ("oak_door", 2), ("torch", 4), ("chest", 4),
+                            ("hopper", 2), ("furnace", 2))
+        walled = world(*[((x, y, z), "bedrock") for x in range(-12, 13) for z in range(-8, 17) for y in range(64, 68)
+                         if (x, z) != (0, 0)])
+        portal = blueprints.REGISTRY["nether_portal"]
+        n = len(blueprints.placed(portal, (0, 64, 4), 0))
+        rows = [("a build already started: its own origin", dict(started={"origin": [0, 64, 4], "turns": 0}),
+                 lambda t, b: t.assertEqual(set(cells(b)), {p for p, *_ in blueprints.placed(portal, (0, 64, 4), 0)})),
+                ("nothing started, open ground: every part, somewhere near", {},
+                 lambda t, b: t.assertEqual(len(cells(b)), n)),
+                ("nothing started, no region read", dict(region=None), lambda t, b: t.assertEqual(b, [])),
+                ("nothing started, nowhere to build", dict(region=walled), lambda t, b: t.assertEqual(b, [])),
+                ("a blueprint nobody drew", dict(_bp="castle"), KeyError)]
+        for name, extra, want in rows:
+            st = dict(body(world(), inv=carried, rules={}), **{k: v for k, v in extra.items() if k != "_bp"})
+            args = (extra.get("_bp", "nether_portal"), (0, 64, 4))
+            with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("read the world")):
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        building._blueprint_commands_for(st, args)
+                else:
+                    want(self, building._blueprint_commands_for(st, args))
+
+
 class Commands(unittest.TestCase):
     def batch(self, name, st):
         return skillkit.commands_of(skillkit.REGISTRY[name].runner, st, *st.get("_args", ()))

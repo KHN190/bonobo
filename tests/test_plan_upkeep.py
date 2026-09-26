@@ -528,6 +528,27 @@ class CostModel(unittest.TestCase):
                 self.assertAlmostEqual(costmod.Cost(snapshot(), mem=m, policy=planning).seek_s(["stone"]), want,
                                        places=1)
 
+    def test_route_s_directly(self):
+        """cost.route_s: the game's own route seconds when this round already asked it, under this policy; None
+        whenever that is not so."""
+        from bonobo import nav
+        pol = nav.Policy()
+        key = ((10, 64, 0), bool(pol.allow_dig), bool(pol.allow_build), 2.0, 6000)
+        rows = [("asked, found: its seconds", True, {key: (True, 7.3)}, {}, pol, 7.3),
+                ("asked, no route found", True, {key: (False, None)}, {}, pol, None),
+                ("not asked this round", True, {}, {}, pol, None),
+                ("nothing remembered to route to", False, {key: (True, 7.3)}, {}, pol, None),
+                ("the spot is banned", True, {key: (True, 7.3)}, {(10, 64, 0): time.time() + 600}, pol, None),
+                ("asked under another policy", True, {key: (True, 7.3)}, {},
+                 nav.Policy(allow_dig=not pol.allow_dig), None)]
+        for name, noted, routes, banned, policy, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(nav._ROUTES, routes):
+                m = Memory(os.path.join(tmp, "notes.json"))
+                if noted:
+                    m.note_seen("stone", (10, 64, 0), OVER)
+                self.assertEqual(costmod.Cost(snapshot(), mem=m, blacklist=banned, policy=policy).route_s(["stone"]),
+                                 want)
+
     def test_seek_seconds(self):
         prior = float(costmod._PLAY["plan"]["seek_prior_s"])
         for name, known, want in self.SEEKS:

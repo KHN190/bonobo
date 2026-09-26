@@ -349,5 +349,42 @@ class Engagement(unittest.TestCase):
                 api.INTERRUPT = None
 
 
+class Disengage(unittest.TestCase):
+    # (situation, whose lease stands, is it the engagement on record, stop asked, /stop fails) →
+    # (/stop posted, lease left with, engagement record cleared)
+    ROWS = [
+        ("our lease, still running a task: /stop, handed back, forgotten", "ours", True, True, False,
+         (True, None, True)),
+        ("our lease, nothing running: handed back without a /stop", "ours", True, False, False, (False, None, True)),
+        ("a faster layer took the body: not ours to stop or hand back", "theirs", True, True, False,
+         (False, "theirs", True)),
+        ("the /stop fails: still handed back", "ours", True, True, True, (True, None, True)),
+        ("an older engagement ending late: the current one is not forgotten", "ours", False, False, False,
+         (False, None, False)),
+    ]
+
+    def test_always_hands_back(self):
+        from bonobo import arbiter, fight_loop
+        for name, lease, current, stop, stop_fails, (stopped, left, cleared) in self.ROWS:
+            body, posted = arbiter.Motion(), []
+            ours, theirs, other = (arbiter.Intent("tactic", lambda: None, "hostiles"),
+                                   arbiter.Intent("safety", lambda: None, "lava"),
+                                   arbiter.Intent("tactic", lambda: None, "newer"))
+            body.lease = ((ours if lease == "ours" else theirs), (lambda: False), time.time())
+
+            def post(path, body_=None):
+                posted.append(path)
+                if stop_fails:
+                    raise api.McError("game not reachable")
+                return {}
+            record = {"thread": None, "want": "x", "failure": {}, "intent": ours if current else other}
+            with self.subTest(name), mock.patch.object(fight_loop.arbiter, "BODY", body), \
+                    mock.patch.object(api, "post", side_effect=post), mock.patch.dict(fight_loop._ENG, record):
+                fight_loop.disengage(ours, stop=stop)
+                self.assertEqual("/stop" in posted, stopped)
+                self.assertEqual(body.lease[0] if body.lease else None, {"theirs": theirs, None: None}[left])
+                self.assertEqual(fight_loop._ENG["intent"] is None, cleared)
+
+
 if __name__ == "__main__":
     unittest.main()
