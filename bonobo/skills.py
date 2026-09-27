@@ -8,12 +8,12 @@ from . import knowledge as K
 from . import api, beliefs, nav, world
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
-from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
+from .data import (HAND_MINEABLE_SUFFIX, cannot_reach, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, POD_BLOCKS, RECIPES, bare, mid)
 from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused
 
-from .world import Inventory, Region, add, connected, dark_spots, entities, find, job_ready, region_around, ripe_near  # noqa: F401  (job_ready: re-exported)
+from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, connected, dark_spots, entities, find, job_ready, region_around, ripe_near  # noqa: F401  (job_ready: re-exported)
 from .bag import FLOOR, let_go, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, soft_below, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, openings, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, StationMissing, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
@@ -298,16 +298,30 @@ def craft_commands(state, args):
             out.append(nav.mine_task(pos, collect=True))
     return out
 
+def room_clicks(slots, need, price=None):
+    """Pure: the /click bodies that throw the `need` least valuable stacks (bag.free_slots_plan: priced by what
+    each costs to get again) — room for a result that needs a slot."""
+    return [{"slot": screen_slot(s["slot"]), "button": 1, "action": "THROW"}
+            for s in free_slots_plan(slots, need=need, price=price)[:need]]
+
+
+def make_room(ctx, need):
+    """Throw the `need` least valuable stacks now (room_clicks), the screen closed first. Returns the clicks."""
+    close_screen()
+    clicks = room_clicks(Inventory().slots, need, ctx.prices().get if ctx else None)
+    for body in clicks:
+        api.post("/click", body)
+    return clicks
+
+
 def _sitting(ctx, recipes):
     """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once."""
 
     inv = Inventory()
-    if inv.used_slots() >= 36:
+    if inv.used_slots() >= BAG_SLOTS:
         # the result needs a slot: drop the least valuable stack first
-        close_screen()
-        for s in free_slots_plan(inv.slots, need=1, price=ctx.prices().get if ctx else None)[:1]:
-            api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
-            log(f"   dropped {bare(s['id'])} to make room for crafting")
+        if make_room(ctx, 1):
+            log("   dropped a stack to make room for crafting")
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
     # world reads only when a table sitting is planned: a table near, else a spot for one
@@ -570,7 +584,7 @@ def shield_to_offhand():
     s = next((s for s in inv.slots if s["id"] == "minecraft:shield"), None)
     if s is None:
         return False
-    api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 40, "action": "SWAP"})
+    api.post("/click", {"slot": screen_slot(s["slot"]), "button": 40, "action": "SWAP"})
     ok = Inventory().offhand() == "minecraft:shield"
     log("shield moved to the offhand" if ok else "   !! could not move the shield to the offhand")
     return ok
@@ -595,7 +609,7 @@ def equip_armor():
             continue
         worn = bare(inv.worn(ARMOR_SLOTS[piece]))
         if worn == "air" or ARMOR_RANK.get(worn.rpartition("_")[0], -1) < ARMOR_RANK[material]:
-            api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 0,
+            api.post("/click", {"slot": screen_slot(s["slot"]), "button": 0,
                                 "action": "QUICK_MOVE"})
             log(f"equipped {bare(s['id'])}")
             changed = True
@@ -786,8 +800,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             import re as _re
             part = _re.search(r"(\d+) of (\d+) steps failed", r.get("message") or "")
             if part and int(part.group(1)) < int(part.group(2)):
-                bad = {(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                       for m in _re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", r.get("message") or "")}
+                bad = cannot_reach(r.get("message"))
                 # "no path" to a block inside rock: dig one face open and it is ordinary
                 again, _ = refused(bad, tried, "approach_dig" in nav.mod_features())
                 tried |= bad
@@ -1786,7 +1799,7 @@ def tidy_inventory(ctx):
     inv = Inventory()
     # priced by what each stack costs to get again; nothing dropped with lava near
     lava = bool(find(["lava"], radius=3, limit=1))
-    need = max(0, inv.used_slots() - (36 - FREE_SLOTS_TARGET))
+    need = max(0, inv.used_slots() - (BAG_SLOTS - FREE_SLOTS_TARGET))
     throw = [s for s, how in let_go(inv.slots, need, ctx.prices().get, lava_near=lava) if how == "drop"]
     if not throw:
         raise NotAvailable("nothing to throw away")
@@ -1794,7 +1807,7 @@ def tidy_inventory(ctx):
     yaw = {(1, 0): -90.0, (-1, 0): 90.0, (0, 1): 0.0, (0, -1): 180.0}[direction]
     api.run({"type": "look", "yaw": yaw, "pitch": 0}, wait=5, awaits="facing the open side before the throw clicks (UI, not tasks)")
     for s in throw:
-        api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
+        api.post("/click", {"slot": screen_slot(s["slot"]), "button": 1, "action": "THROW"})
         yield s["slot"]
     log(f"threw away {len(throw)} stacks toward {direction}: {sorted({bare(s['id']) for s in throw})}")
     # step away from the drops before the pickup delay ends
@@ -1814,7 +1827,7 @@ def _place_cache_chest(ctx):
     if near:
         return near[0]["x"], near[0]["y"], near[0]["z"]
     here = feet()
-    if Inventory().used_slots() < 36:
+    if Inventory().used_slots() < BAG_SLOTS:
         # the carried chest is a last resort for a completely full bag
         raise NotAvailable("bag not completely full: no new cache chest")
     if any(math.dist(s["pos"], here) <= 24 for s in ctx.mem.sites(ctx.dimension, kinds=["cache"])):
@@ -1822,12 +1835,8 @@ def _place_cache_chest(ctx):
         raise NotAvailable("a cache chest already exists within 24 blocks")
     if Inventory().usable("minecraft:chest") == 0:
         # the result needs somewhere to go: drop the two least valuable stacks first
-        inv = Inventory()
-        if inv.used_slots() >= 35:
-            close_screen()
-            for s in free_slots_plan(inv.slots, need=2, price=ctx.prices().get)[:2]:
-                api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1,
-                                    "action": "THROW"})
+        if Inventory().free_slots() <= 1:
+            make_room(ctx, 2)
         if Inventory().usable("planks") < 8:
             if Inventory().usable("log") >= 2:
                 craft(ctx, "planks", 2)

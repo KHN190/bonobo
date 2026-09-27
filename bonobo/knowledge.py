@@ -1,7 +1,7 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
 import math
 
-from .data import COLORS, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS, bare, mid
+from .data import BASE_MARKERS, COLORS, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS, bare, mid
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -139,8 +139,8 @@ def nether_kit_missing(inv):
     if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
         missing.append("gold helmet")
     # two free slots: a stricter target flickered with every pickup
-    if 36 - inv.used_slots() < 2:
-        missing.append(f"bag room {36 - inv.used_slots()}/2 free")
+    if inv.free_slots() < 2:
+        missing.append(f"bag room {inv.free_slots()}/2 free")
     return missing
 
 def kit_needs(inv):
@@ -161,9 +161,10 @@ FIND_AT = {
     "log": None, "minecraft:sand": None, "minecraft:clay_ball": None, "food": None,
 }
 
-# every block the cost model asks "how far" about: one scan per round answers all
+# every block the cost model and the reflexes ask "how far" about: one scan per round answers all (world.nearest)
 SOURCE_BLOCKS = sorted({b for blocks, _tier in MINE.values() for b in blocks} | set(GROUPS["log"])
-                       | {"dirt", "grass_block", "water", "lava"} | {bare(s) for s in STATIONS})
+                       | {"dirt", "grass_block", "water", "lava"} | {bare(s) for s in STATIONS}
+                       | set(BASE_MARKERS["bed"]) | set(BASE_MARKERS["chest"]))
 
 def members(token):
     if token == "food":

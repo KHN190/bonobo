@@ -5,7 +5,9 @@ The game is the only simulator. Offline tests are pure functions over what the g
 names (`FakeRegion`, the interface `world.Region` offers with nothing behind it). The sweeps (`worlds`, `dangers`,
 `fights`) are cross-products of such readings, so one relation is claimed over hundreds of situations.
 """
-from bonobo.data import FALLING, HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE
+from bonobo.data import HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE
+
+FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}     # blocks that fall
 
 
 class FakeRegion:

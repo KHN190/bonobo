@@ -11,9 +11,16 @@ from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
 from .skillcore import gained
-from .world import Inventory, find
+from .world import BAG_SLOTS, Inventory, nearest
 
-BAG_FULL = 34              # slots used before the bag is emptied
+
+def in_sight(snap, kinds, radius):
+    """Is one of `kinds` within `radius` of the feet — read from the round's one batched look (world.nearest over
+    knowledge.SOURCE_BLOCKS, the scan the cost model shares), never a /find of its own while deciding."""
+    return nearest(kinds, snap.feet, snap.dimension, radius, union=_k.SOURCE_BLOCKS) is not None
+
+
+BAG_FULL = BAG_SLOTS - 2   # slots used before the bag is emptied
 BRIDGE_MIN = 8             # building blocks it takes to bridge a blocked path
 EAT_BELOW = 14             # hunger points: eat below this, while there is something to eat (standing)
 STARVE = 6                 # hunger points: at or below this, raw meat is eaten rather than waited on
@@ -108,7 +115,7 @@ def nether_retreat(snap):
         return "food running out"
     if s.get("health", 20) <= 8:
         return "health low"
-    if inv.used_slots() >= 35:
+    if inv.free_slots() <= 1:
         return "bag full"
     return None
 
@@ -176,7 +183,7 @@ class Maintain:
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
             "bed_works": lambda: skills.can_sleep(s) is None,
-            "bed_near": _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1))),
+            "bed_near": _once(reads, "bed_near", lambda: in_sight(snap, BASE_MARKERS["bed"], 48)),
             "night_way": night_way,
             "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
                                                                         lambda: b.needs.bed_tonight(snap))()
@@ -261,8 +268,8 @@ class Maintain:
         """Deposit into an existing chest when a stack is worth the walk, else drop the cheapest — never craft a chest for it."""
 
         from .bag import FREE_SLOTS_TARGET, empty_how
-        need = max(1, snap.inv.used_slots() - (36 - FREE_SLOTS_TARGET))
-        lava = bool(find(["lava"], radius=3, limit=1))
+        need = max(1, snap.inv.used_slots() - (BAG_SLOTS - FREE_SLOTS_TARGET))
+        lava = in_sight(snap, ["lava"], 3)
         how = empty_how(snap.inv.slots, need, ctx.prices().get, self.chest_seconds(snap, ctx), lava)
         return skills.deposit(ctx, local_only=snap.night) if how == "deposit" else skills.tidy_inventory(ctx)
 
@@ -270,7 +277,7 @@ class Maintain:
         """Seconds to an existing chest (in reach, or a remembered site's; at night only in reach), or None."""
 
         from .data import WALK_BLOCKS_PER_TICK
-        if find(["chest", "barrel"], radius=6, limit=1):
+        if in_sight(snap, BASE_MARKERS["chest"], 6):
             return 2.0
         if snap.night:
             return None

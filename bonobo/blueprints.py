@@ -2,8 +2,6 @@
 
 from dataclasses import dataclass, field
 
-DIRS = {"north": (0, 0, -1), "south": (0, 0, 1), "east": (1, 0, 0), "west": (-1, 0, 0), "up": (0, 1, 0),
-        "down": (0, -1, 0)}
 OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east", "up": "down", "down": "up"}
 CLOCKWISE = {"north": "east", "east": "south", "south": "west", "west": "north", "up": "up", "down": "down"}
 

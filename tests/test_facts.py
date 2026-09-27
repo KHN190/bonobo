@@ -377,7 +377,7 @@ class TheBodyIsAStateLikeAnyOther(unittest.TestCase):
         for body, state in self.BODIES.items():
             with self.subTest(body=body):
                 table = self.columns(state)
-                missing = [d for d in actions.BODY_DIMS if not state.get(d)]
+                missing = [d for d in ("footing", "hands_free") if not state.get(d)]     # the body dims
                 mends = [a for a in table.values() if a.tag and a.tag[0] == "reach"]
                 self.assertEqual(bool(missing), bool(mends),
                                  f"{missing} missing but {[a.name for a in mends]} offered")

@@ -9,7 +9,7 @@ from . import api, decompose, goals, skills
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import NIGHT_WORK, TOOL_KINDS, mid
+from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, mid
 from .knowledge import food_count, food_points
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -226,30 +226,23 @@ class Needs:
 
     def plan(self, goal, snap):
         """(seconds the plan for `goal` takes from this bag, whether every place it goes is known), kept briefly."""
-        key = (json.dumps(goal, sort_keys=True), bag_signature(snap.inv))
-        hit = self.plan_s_cache.get(key)
-        if hit and time.time() - hit[0] < PLAN_S_TTL:
-            return hit[1]
-        cost = self.cost(snap)
-        try:
-            steps = decompose.decompose(snap.inv, goal, cost)
-            got = (cost.plan_s(steps), all(cost.known_source(st) for st in steps))
-        except Unplannable:
-            got = (math.inf, False)
-        self.plan_s_cache[key] = (time.time(), got)
-        return got
+        def price():
+            cost = self.cost(snap)
+            try:
+                steps = decompose.decompose(snap.inv, goal, cost)
+                return cost.plan_s(steps), all(cost.known_source(st) for st in steps)
+            except Unplannable:
+                return math.inf, False
+        return memo_ttl(self.plan_s_cache, (json.dumps(goal, sort_keys=True), bag_signature(snap.inv)), PLAN_S_TTL,
+                        price, time.time())
 
     def overnight(self, snap, facts=None, bed_too=True):
         """`overnight` from this bag, memoised briefly: priced every round it was the decide's hotspot (0.7 of 1.1 s)."""
 
         key = ("overnight", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
                snap.dimension)
-        hit = self.plan_s_cache.get(key)
-        if hit and time.time() - hit[0] < PLAN_S_TTL:
-            return hit[1]
-        got = overnight(snap.inv, self.cost(snap), facts, bed_too=bed_too)
-        self.plan_s_cache[key] = (time.time(), got)
-        return got
+        return memo_ttl(self.plan_s_cache, key, PLAN_S_TTL,
+                        lambda: overnight(snap.inv, self.cost(snap), facts, bed_too=bed_too), time.time())
 
     def plan_s(self, goal, snap):
         return self.plan(goal, snap)[0]

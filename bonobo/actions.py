@@ -75,8 +75,6 @@ def consume(token, n):
 
 # -- the state vector
 
-# footing (solid underfoot) and hands_free (not drowning, falling or player-held) fail and mend differently; swimming keeps hands_free, or no river could be crossed
-BODY_DIMS = ("footing", "hands_free")
 # `day` while the sun is up: surface work needs it, so a dusk plan mines first and gets the tree after the night
 DAY_DIM = "day"
 NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
@@ -127,7 +125,7 @@ def state_of(snap, mem, extra=None, reachable=None):
         if _standing_at(kinds, snap, mem) and (reachable is None or reachable(kinds)):
             x[at(what)] = 1
     x["sheltered"] = 1 if _sheltered(snap, mem) else 0
-    x["bag_free"] = max(0, 36 - inv.used_slots())
+    x["bag_free"] = inv.free_slots()
     x["bed"] = x.get("bed", 0)
     # the body's abilities as dimensions: a column needing footing is dropped when there is none, instead of every goal failing on it
     x.update(body_dims(getattr(snap, "state", None)))

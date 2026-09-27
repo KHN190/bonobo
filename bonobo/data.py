@@ -7,6 +7,26 @@ _MID, _BARE = {}, {}
 UNREACHABLE = ("unreachable", "not reachable", "no reachable face", "cannot reach", "can't reach", "no path",
                "positions explored", "gave up after", "could not get",
                "cannot hold a stand spot")      # jar ≥ 0.1.48: mining ↔ approaching flipped on one block (MineTask)
+_CANNOT_REACH = __import__("re").compile(r"cannot reach (-?\d+), (-?\d+), (-?\d+)")
+
+
+def memo_ttl(cache, key, ttl, make, now, one=False):
+    """cache[key]'s value while younger than `ttl` s (cache: {key: (at, value)}), else `make()` kept with `now`.
+    `one`: a single slot — any other key is forgotten when a new value is kept. The one short-lived memo (perception's
+    ground, needs' plan prices)."""
+    hit = cache.get(key)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]
+    value = make()
+    if one:
+        cache.clear()
+    cache[key] = (now, value)
+    return value
+
+
+def cannot_reach(message):
+    """Pure: the cells a mod answer names as "cannot reach x, y, z" — {(x, y, z)}, empty when it names none."""
+    return {tuple(int(g) for g in m.groups()) for m in _CANNOT_REACH.finditer(message or "")}
 
 def mid(name):
     """The full id: "oak_planks" → "minecraft:oak_planks". Already-qualified names pass through."""
@@ -175,7 +195,6 @@ PASSABLE = {"nether_portal", "end_portal", "end_gateway",   # standing in one is
             "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley", "pink_petals", "rail",
             "brown_mushroom", "red_mushroom", "seagrass", "kelp", "redstone_wire", "lever", "cave_air", "ladder"}
 HAZARD = {"lava", "water", "fire", "soul_fire", "magma_block", "powder_snow", "pointed_dripstone", "cactus"}
-FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}
 UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")

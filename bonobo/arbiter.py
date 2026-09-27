@@ -8,8 +8,6 @@ FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has 
 # MAINTAIN (reflexes.TABLE): faster than any plan, slower than a fight
 SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAINTAIN, "plan": PLAN}
 
-# why an answer did not get the body, a closed set so a bench can tell "outbid" from "locked out"
-REFUSED = ("layer", "held", "expired", "stood_down")
 
 def fresh_enough(seen_at, now=None, within=1.0):
     """Was this reading taken recently enough to compare with?"""
@@ -91,10 +89,11 @@ LAST_RESORT = ("wait for day", "idle")
 WAIT_KINDS = ("wait for day", "wait")
 
 def viable(intent, facts):
-    """Pure: may this proposal be offered at all?"""
+    """Pure: may this proposal be offered at all — not while its key is cooling. Met and unplannable needs are judged
+    once, where they are proposed (needs.propose, brain.need_act): they never become intents."""
 
     key = intent.key
-    return key is None or not any(key in facts.get(f, ()) for f in ("met", "cooling", "unplannable"))
+    return key is None or key not in facts.get("cooling", ())
 
 def gate(intents, facts=None):
     """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left."""

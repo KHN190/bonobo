@@ -84,7 +84,7 @@ class NothingAboutTheWorkDefendsIt(unittest.TestCase):
 
 
 class ARefusalHasExactlyOneReason(unittest.TestCase):
-    REASONS = set(arbiter.REFUSED)
+    REASONS = {"layer", "held", "expired", "stood_down"}     # why an answer did not get the body: a closed set
 
     def test_every_answer_is_taken_or_refused_for_a_named_reason(self):
         for kind, elapsed, worth, layer in itertools.product(INTENT, ELAPSED, WORTH, LAYERS):

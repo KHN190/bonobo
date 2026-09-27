@@ -251,20 +251,18 @@ class Invariants(unittest.TestCase):
 
 
 class OnlyUsefulProposals(unittest.TestCase):
-    """arbiter.gate: what is met, cooling or unplannable is not offered; a waiting kind only when nothing else is;
-    the gate filters and never reorders the layers."""
+    """arbiter.gate: what is cooling is not offered (met and unplannable needs never become intents: judged once,
+    where proposed); a waiting kind only when nothing else is; the gate filters and never reorders the layers."""
     P = lambda k, key=None, layer="plan": arbiter.Intent(layer, lambda: None, k, at=0.0, kind=k, key=key or k)  # noqa: E731
     # (situation, intents, facts) → the reason arbitrate picks
-    ROWS = [("a need already met in the bag is dropped", [P("food stock"), P("queue")], {"met": {"food stock"}},
-             "queue"),
-            ("a cooling need is dropped", [P("broken tool"), P("queue")], {"cooling": {"broken tool"}}, "queue"),
-            ("an unplannable need is dropped", [P("water bucket"), P("queue")], {"unplannable": {"water bucket"}},
-             "queue"),
+    ROWS = [("a cooling need is dropped", [P("broken tool"), P("queue")], {"cooling": {"broken tool"}}, "queue"),
+            ("must fail: a fact the gate does not judge (met) drops nothing", [P("food stock"), P("queue")],
+             {"met": {"food stock"}}, "food stock"),
             ("work to do: waiting for day is not offered", [P("wait for day"), P("night stock")], {}, "night stock"),
             ("idle stocking is not offered next to a task", [P("idle"), P("queue")], {}, "queue"),
             ("only waiting left: kept", [P("wait for day"), P("food stock")], {"cooling": {"food stock"}},
              "wait for day"),
-            ("must fail: everything dropped: nothing", [P("queue")], {"met": {"queue"}}, None),
+            ("must fail: everything dropped: nothing", [P("queue")], {"cooling": {"queue"}}, None),
             ("the gate does not reorder layers: the faster still wins", [P("queue"), P("eat", layer="maintain")], {},
              "eat")]
 

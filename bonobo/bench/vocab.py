@@ -935,7 +935,6 @@ import threading as _threading
 BASE = {}                 # the bag, the /state and the time at the start of the run (`_start`)
 FAILED_AS_EXPECTED = {}   # scenario → the failure message that matched its `fails` pattern
 INTERRUPTS = {}           # scenario → interruptions the run absorbed (injected or not)
-CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
 ACCEPTANCE_D = "accept_fresh_iron_pickaxe"
 
 def _skill(name):
