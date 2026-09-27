@@ -189,7 +189,8 @@ class EveryColumnIsOfferedWhenItCanWork(unittest.TestCase):
             for option in threat.options(cell.threat_state()):
                 if option.kind == "eat":
                     hp = float(cell.threat_state()["hp"])
-                    self.assertEqual(option.heals, min(float(threat.ENGAGE["eat_heals"]), 20.0 - hp), cell)
+                    heals = threat.ENGAGE["golden_heals" if option.target == "minecraft:golden_apple" else "eat_heals"]
+                    self.assertEqual(option.heals, min(float(heals), 20.0 - hp), cell)
                     self.assertGreater(option.heals, 0.0, cell)
                 if option.kind == "shield":
                     self.assertEqual(option.protects, float(threat.ENGAGE["shield_protects"]), cell)

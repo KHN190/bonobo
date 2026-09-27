@@ -258,6 +258,27 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
     return out
 
 
+def eat_options(state, hp, press, blast_here):
+    """Pure: eating in a fight. Ordinary food gives health back only through saturation regen, over the seconds
+    after, and only while nothing is hitting us: it is an answer once walled in or left behind (pressure below
+    `eat_safe_press`), never mid-melee. A golden apple heals at once, so it is an answer anywhere. A full hunger
+    bar cannot eat ordinary food at all."""
+    max_hp = float(PLAYER.get("max_hp", 20))
+    if hp >= max_hp:
+        return []
+    eat_s = float(ENGAGE["eat_s"])
+    if int(state.get("golden_apples", 0)) > 0:
+        heal = min(float(ENGAGE["golden_heals"]), max_hp - hp)
+        return [Option("eat", "minecraft:golden_apple", round(press * eat_s + blast_here, 2), eat_s,
+                       f"a golden apple: +{heal:.0f} hp now", leaves=press, heals=heal)]
+    if int(state.get("food_items", 0)) > 0 and float(state.get("hunger", 0)) < 20 \
+            and press <= float(ENGAGE["eat_safe_press"]):
+        heal = min(float(ENGAGE["eat_heals"]), max_hp - hp)
+        return [Option("eat", None, round(press * eat_s + blast_here, 2), eat_s,
+                       f"eat: +{heal:.0f} hp by regen, nothing reaching us", leaves=press, heals=heal)]
+    return []
+
+
 def horizon_for(state):
     """Seconds of "carrying on" the options are priced over, which is `estimate.horizon_s` and nothing else.
 
@@ -328,12 +349,8 @@ def options(state):
     out.append(Option("evade", spot, evade_cost(here, spot, hazards, prot),
                       round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
                       blast_after=burst_damage(spot, hazards, prot)))
-    hurt = hp < float(PLAYER.get("max_hp", 20))
-    if hurt and int(state.get("food_items", 0)) > 0:
-        heal = min(float(ENGAGE["eat_heals"]), float(PLAYER.get("max_hp", 20)) - hp)
-        eat_s = float(ENGAGE["eat_s"])
-        out.append(Option("eat", None, round(press * eat_s + blast_here, 2), eat_s,
-                          f"eat: +{heal:.0f} hp for {eat_s}s exposed", leaves=press, heals=heal))
+    for option in eat_options(state, hp, press, blast_here):
+        out.append(option)
     if state.get("shield") and prot < float(PLAYER["protection_cap"]):
         up = float(ENGAGE["shield_protects"])
         shield_s = float(ENGAGE["shield_s"])

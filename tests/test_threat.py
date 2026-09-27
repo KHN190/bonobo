@@ -573,3 +573,21 @@ class ShieldAndHole(unittest.TestCase):
         self.assertEqual(fight_loop.batch(opt, {"inv": with_shield}),
                          [{"type": "attack", "entity": 7, "shield": True}])
         self.assertEqual(fight_loop.batch(opt, {"inv": without}), [])
+
+
+
+class EatingInAFight(unittest.TestCase):
+    """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
+
+    def test_eat_options_over_the_table(self):
+        rows = [("mid-melee, 6 hp, bread: not an answer (regen needs quiet)", dict(hp=6, food_items=4, hunger=10), 2.0,
+                 []),
+                ("walled in, 6 hp, bread, hungry: eat", dict(hp=6, food_items=4, hunger=10), 0.1, [("eat", None, 6.0)]),
+                ("mid-melee, 6 hp, a golden apple: eat it now", dict(hp=6, golden_apples=1), 2.0,
+                 [("eat", "minecraft:golden_apple", 8.0)]),
+                ("walled in, full hunger bar: cannot eat", dict(hp=6, food_items=4, hunger=20), 0.1, []),
+                ("full health: nothing to heal", dict(hp=20, food_items=4, golden_apples=1, hunger=10), 0.1, [])]
+        for name, st, press, want in rows:
+            with self.subTest(name):
+                got = threat.eat_options(st, st["hp"], press, 0.0)
+                self.assertEqual([(o.kind, o.target, o.heals) for o in got], want)

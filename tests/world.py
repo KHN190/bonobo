@@ -278,7 +278,8 @@ class World:
         return {"here": HERE, "hp": self.kit["hp"], "sword": self.kit["sword"],
                 "protection": self.kit["armour"], "night": False, "blocks": self.kit["blocks"],
                 "hazards": rows, "ids": list(range(len(rows))),
-                "food_items": self.kit["food"], "shield": self.kit["shield"], "field": self.ground()}
+                "food_items": self.kit["food"], "shield": self.kit["shield"], "field": self.ground(),
+                "golden_apples": self.kit.get("golden", 0)}
 
     def fight_sstate(self):
         from bonobo import threat
@@ -376,9 +377,9 @@ WEAPON = {"fist": 0, "stone": 1, "iron": 2, "diamond": 3}
 ARMOUR = {"skin": 0.0, "leather": 0.2, "iron": 0.4, "diamond": 0.7}
 BLOOD = {"whole": 20.0, "half": 10.0, "low": 6.0, "dregs": 2.0}
 KIT = {                                      # what is in the bag, other than a weapon
-    "nothing": {"blocks": 0, "food": 0, "shield": False},
-    "blocks": {"blocks": 32, "food": 0, "shield": False},
-    "full": {"blocks": 64, "food": 16, "shield": True},
+    "nothing": {"blocks": 0, "food": 0, "shield": False, "golden": 0},
+    "blocks": {"blocks": 32, "food": 0, "shield": False, "golden": 0},
+    "full": {"blocks": 64, "food": 16, "shield": True, "golden": 1},     # a golden apple: the one food a fight eats
 }
 
 PHASES = {"circling": 0, "landing": 2, "flaming": 3, "sitting": 6}

@@ -51,7 +51,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
              
               "attack_s", "speed", "exists_prior",
              
-              "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
+              "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
@@ -104,7 +104,9 @@ react_s = 3.0              # a threat further out than this is the next decision
 no_go_margin = 2.0         # blocks added to a mob's reach before ordinary planning refuses to route through it
 fuse_s = 1.5               # a creeper's fuse: how long we have to be out of its blast
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after
-eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed
+eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed (regen from saturation)
+golden_heals = 8.0         # a golden apple: health back at once (4) and absorption (4) — the only food that heals now
+eat_safe_press = 0.2       # hp/s: below this nothing is reaching us (walled in, left behind) and regen can run
 shield_s = 0.3             # raising a shield
 shield_protects = 0.15     # damage removed while it is up, on top of armour
 block_s = 0.6              # placing one block in the way

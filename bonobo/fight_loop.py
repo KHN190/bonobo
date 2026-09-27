@@ -167,6 +167,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
           "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
+          "golden_apples": int(state.get("golden_apples", 0)), "hunger": float(state.get("food", 20)),
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok"))}
     if work_s is not None:
         st["work_s"] = work_s
@@ -285,7 +286,8 @@ def _evade(option, state):
 
 def _eat(option, state):
     from .knowledge import ALL_FOOD
-    food = next((f for f in list(ALL_FOOD) + list(RAW_OK) if state["inv"].count(f)), None)
+    wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_OK)
+    food = next((f for f in wanted if state["inv"].count(f)), None)
     return [{"type": "eat", "item": food}] if food else []
 
 
