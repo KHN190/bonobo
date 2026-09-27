@@ -3034,6 +3034,11 @@ def _cell_setup_hooks(cell):
     return [_fill_bag(*BAG_FILL[cell["bag"]])] if BAG_FILL[cell["bag"]] else []
 
 
+# A shared cell's queue, at most: logs + cobblestone + a diamond (brain__base) did not fit 27 s — the first action
+# at 5 s, the logs at 13 s, the cobblestone at 23 s. Two goals still test the order and upkeep between them.
+MAX_CELL_GOALS = 2
+
+
 def _grid_cells():
     """Cells of every family, one row per distinct cell: a cell two families share (the base, dusk, underground) is
     one scenario whose check is every family's expectation and whose queue is every family's goals, in order."""
@@ -3042,8 +3047,11 @@ def _grid_cells():
         for cell in grid:
             key = tuple(cell[d] for d in BRAIN_DIMS)
             entry = cells.setdefault(key, {"cell": cell, "families": [], "queue": [], "rules": []})
+            new = [g for g in queue if g not in entry["queue"]]
+            if len(entry["queue"]) + len(new) > MAX_CELL_GOALS:
+                continue       # the family's other cells test it; this one's slice would not fit its budget
             entry["families"].append(fam)
-            entry["queue"] += [g for g in queue if g not in entry["queue"]]
+            entry["queue"] += new
             entry["rules"].append(rule)
     return cells
 
