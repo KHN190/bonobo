@@ -313,7 +313,7 @@ class Arrive(_Clean):
         answers = reader(legs, interrupt_at)
         api.SOFT = soft
         with mock.patch.object(nav, "go_to", side_effect=lambda *a, **k: answers()), \
-                mock.patch.object(nav, "feet_now", return_value=(0, 64, 0)):
+                mock.patch.object(nav, "feet", return_value=(0, 64, 0)):
             return fn((40, 64, 0), None, range_=2)
 
     def test_leg_sequences(self):

@@ -4,7 +4,7 @@ Pure `loot_plan` is offline-tested."""
 import math
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav, tape
+from . import api, nav, skillcore, tape
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
 from .skill import skill
@@ -39,7 +39,7 @@ def loot_plan(slots, prices, bag_free, stack=64):
 
 
 def unlooted_chests(ctx, radius=32):
-    here = nav.feet_now()
+    here = skillcore.feet()
     ours = [tuple(s["pos"]) for s in ctx.mem.sites(ctx.dimension)]
     looted = {tuple(p) for p in ctx.mem.data.get("looted", [])}
     out = []

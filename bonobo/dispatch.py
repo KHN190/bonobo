@@ -2,7 +2,7 @@
 range. No switch on kinds here — a new skill is one decorated function. Everything it needs comes on the Context."""
 import math
 
-from . import api, nav, retry, skills
+from . import api, nav, retry, skillcore, skills
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log
 from .data import GROUPS, bare, mid, seen_class
@@ -82,7 +82,7 @@ def go_find(ctx, step):
     checked on arrival and retired when missing; mobile ones are an area to look in), the depth the kind is richest
     at (knowledge.FIND_AT), a spiral. Half-done work is not remembered: the search from wherever the body is (/find
     sees 48 blocks) finds it again. True when the body got somewhere new to look."""
-    here, dim, mem = nav.feet_now(), ctx.dimension, ctx.mem
+    here, dim, mem = skillcore.feet(), ctx.dimension, ctx.mem
     blocks = list(step.detail.get("blocks", ()))
     names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ()))}.get(step.kind, [])
     notes = sorted(((r["kind"], tuple(r["pos"])) for n in names for r in mem.seen(n, dim)),

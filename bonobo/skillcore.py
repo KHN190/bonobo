@@ -7,7 +7,7 @@ from . import api, beliefs
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import bare
-from .world import Inventory, Region, add
+from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
 
 
 def _collect_only(wanted):
@@ -210,11 +210,6 @@ def head_buried(s=None):
     eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
     r = Region(eye, eye)
     return r.solid(eye) and not r.name(eye).endswith(("_slab", "_stairs", "snow", "_carpet"))
-
-
-def feet():
-    s = api.get("/state")
-    return s["blockX"], s["blockY"], s["blockZ"]
 
 
 def close_screen():

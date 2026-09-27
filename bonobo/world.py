@@ -291,6 +291,13 @@ def job_ready(job, tick=None, now=None):
     return job["ready_at"] <= (time.time() if now is None else now)
 
 
+def feet():
+    """The block the feet are in, (x, y, z): one /state read. The one home of this reading (nav reads it here, below
+    the skills; skillcore passes it on to them)."""
+    s = api.get("/state")
+    return s["blockX"], s["blockY"], s["blockZ"]
+
+
 def away_from(here, point, blocks):
     """Pure: the spot `blocks` from `here` straight away from `point`, on the horizontal (y kept; unrounded). On the
     point itself, nowhere to go: `here`."""

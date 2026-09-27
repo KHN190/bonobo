@@ -7,7 +7,7 @@ Pure planners (`fill_spot`, `cast_frame_plan`, `portal_light_aim`) are offline-t
 import math
 
 from . import knowledge as K
-from . import api, blueprints, nav
+from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .skillcore import gained
@@ -134,7 +134,7 @@ def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
     if not Inventory().count("minecraft:bucket"):
         raise NotAvailable("no empty bucket to fill")
-    here = nav.feet_now()
+    here = skillcore.feet()
     hits = sorted((h for h in find(["water"], radius=48, limit=60) if not ctx.blocked((h["x"], h["y"], h["z"]))),
                   key=lambda h: h["distance"])
     for h in hits[:6]:

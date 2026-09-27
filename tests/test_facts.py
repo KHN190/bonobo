@@ -110,7 +110,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
                 def arrived(pos, policy, range_=1.5, **kw):
                     walks.append(tuple(pos))
                     return arrives
-                with mock.patch.object(dispatch.nav, "feet_now", return_value=(0, 64, 0)), \
+                with mock.patch.object(skillcore, "feet", return_value=(0, 64, 0)), \
                         mock.patch.object(dispatch.nav, "arrived", side_effect=arrived), \
                         mock.patch.object(dispatch, "still_there", return_value=bool(there)), \
                         mock.patch.object(dispatch.skills, "seek_blocks", return_value=[(5, 64, 5)]) as explore:

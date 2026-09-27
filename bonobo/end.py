@@ -4,7 +4,7 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav
+from . import api, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import bare
@@ -66,7 +66,7 @@ def activate_end_portal(ctx):
     if stand is None:
         return
     if floor is not None:
-        nav.arrived(outside_spot(min(frames, key=lambda f: math.dist(f, nav.feet_now())), centre), ctx.policy,
+        nav.arrived(outside_spot(min(frames, key=lambda f: math.dist(f, skillcore.feet())), centre), ctx.policy,
                     range_=1.0, attempts=1)
         place(block, floor)
     if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
@@ -125,7 +125,7 @@ def find_portal_room(ctx):
         raise NotAvailable("no stronghold estimate yet (locate_stronghold first)")
     # The NEAREST estimate, not the first one ever remembered: with an old test stronghold still in memory the search
     # walked thousands of blocks back to it while the fresh one stood right here.
-    _here = nav.feet_now()
+    _here = skillcore.feet()
     sx, _, sz = min(sites, key=lambda s: math.dist(s["pos"], _here))["pos"]
     visited = []
     points = search_points((sx, sz))
@@ -139,11 +139,11 @@ def find_portal_room(ctx):
             # returning here meant "finished without reaching its goal" while standing on the surface. Dig down to
             # it (the policy allows digging) until the frames are within ROOM_REACH.
             for _ in range(4):
-                if math.dist(nav.feet_now(), pos) <= ROOM_REACH:
+                if math.dist(skillcore.feet(), pos) <= ROOM_REACH:
                     return True
                 nav.arrived(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
-                yield nav.feet_now()
-            if math.dist(nav.feet_now(), pos) > ROOM_REACH:
+                yield skillcore.feet()
+            if math.dist(skillcore.feet(), pos) > ROOM_REACH:
                 raise api.NavFailed(f"portal room at {pos} spotted but not reached")
             return True
         bricks = [(b["x"], b["y"], b["z"], b["distance"]) for b in find(BRICKS, SCAN, 40)]
@@ -711,7 +711,7 @@ def shake_enderman(ctx):
     # Water first (zh wiki: 听到直升机般的声音时立即在脚下放水驱赶): it costs one click, works where we stand and
     # teleports them away. Walking to the hole is slower and can drag us toward the dragon.
     if Inventory().count("minecraft:water_bucket"):
-        feet = nav.feet_now()
+        feet = skillcore.feet()
         try:
             place("minecraft:water_bucket", feet)
             api.run({"type": "wait", "ticks": 20}, wait=5, awaits="whether the enderman lets go while we stand in water")
@@ -756,7 +756,7 @@ def break_caged_crystal(ctx, crystal):
     block = _building_block()
     if not inv.count(block):
         raise NotAvailable("no blocks to tower up with")
-    here = nav.feet_now()
+    here = skillcore.feet()
     pos = (crystal["x"], crystal["y"], crystal["z"])
     # The tower's own column, not the crystal's: the base was landing inside the obsidian pillar or in mid-air
     # ("tower base (-4, 63, 4) not reachable").
@@ -784,13 +784,13 @@ def break_caged_crystal(ctx, crystal):
         ctx.ban(cell)
     # Judged by the world, not the chain's word: at the crystal's height (an interrupt resumes by what is left —
     # crystal_commands recomputes the rise and the standing bars from where we are).
-    if nav.feet_now()[1] < stand[1]:
-        raise McError(f"towering up failed: at y {nav.feet_now()[1]}, the crystal's height is {stand[1]}")
-    yield nav.feet_now()[1]
+    if skillcore.feet()[1] < stand[1]:
+        raise McError(f"towering up failed: at y {skillcore.feet()[1]}, the crystal's height is {stand[1]}")
+    yield skillcore.feet()[1]
     if inv.count("minecraft:water_bucket"):
         # Standing in water when it goes off: an end crystal's blast is power 6 and we wear no armor.
         try:
-            place("minecraft:water_bucket", nav.feet_now())
+            place("minecraft:water_bucket", skillcore.feet())
         except McError as e:
             log(f"   no water under our feet ({e}): hitting the crystal anyway")
     for _ in range(3):
