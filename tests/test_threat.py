@@ -524,7 +524,16 @@ class EvadeOnlyPostpones(unittest.TestCase):
             ("three zombies, 5 hp, a stone sword: cannot win, leave",
              [row("minecraft:zombie", 3, 0), row("minecraft:zombie", 0, 3), row("minecraft:zombie", -3, 0)],
              dict(hp=5, sword=1), "evade"),
-            ("one zombie 40 away", [row("minecraft:zombie", 40, 0)], dict(sword=2), "ignore")]
+            ("one zombie 40 away", [row("minecraft:zombie", 40, 0)], dict(sword=2), "ignore"),
+            # A zombie 3 off, by what is in hand (ban_needs_a_failure / resume_after_combat evaded: their report's bag
+            # was empty — no sword read, no fight on offer).
+            ("a zombie 3 off, an iron sword: fight", [row("minecraft:zombie", 3, 0)], dict(sword=2), "fight"),
+            ("a zombie 3 off, a stone sword, full health: fight", [row("minecraft:zombie", 3, 0)], dict(sword=1),
+             "fight"),
+            ("a zombie 3 off, a stone sword, 10 hp: the fight would cost it all, leave", [row("minecraft:zombie", 3, 0)],
+             dict(sword=1, hp=10), "evade"),
+            ("a zombie 3 off, bare hands: no fight on offer, leave", [row("minecraft:zombie", 3, 0)], dict(sword=0),
+             "evade")]
 
     def test_answers_over_the_table(self):
         for name, hazards, kw, want in self.ROWS:
