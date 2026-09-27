@@ -559,9 +559,8 @@ def crystal_commands(state, args):
 
 def unreachable(results):
     """Pure: the cells a chain's results name as "cannot reach x, y, z" — the only ones a partial failure bans."""
-    import re
-    return {tuple(int(g) for g in m.groups()) for t in results if t["status"] != "succeeded"
-            for m in re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", t.get("message") or "")}
+    from .data import cannot_reach
+    return {c for t in results if t["status"] != "succeeded" for c in cannot_reach(t.get("message"))}
 
 def caged(crystal, here):
     """Pure: the crystal sits on a tall caged pillar (the open ones are at island level and can be hit from there)."""

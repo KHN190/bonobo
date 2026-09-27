@@ -8,7 +8,7 @@ from . import knowledge as K
 from . import api, beliefs, nav, world
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
-from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
+from .data import (HAND_MINEABLE_SUFFIX, cannot_reach, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, POD_BLOCKS, RECIPES, bare, mid)
 from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused
@@ -786,8 +786,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             import re as _re
             part = _re.search(r"(\d+) of (\d+) steps failed", r.get("message") or "")
             if part and int(part.group(1)) < int(part.group(2)):
-                bad = {(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                       for m in _re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", r.get("message") or "")}
+                bad = cannot_reach(r.get("message"))
                 # "no path" to a block inside rock: dig one face open and it is ordinary
                 again, _ = refused(bad, tried, "approach_dig" in nav.mod_features())
                 tried |= bad

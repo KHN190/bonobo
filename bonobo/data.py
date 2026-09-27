@@ -7,6 +7,12 @@ _MID, _BARE = {}, {}
 UNREACHABLE = ("unreachable", "not reachable", "no reachable face", "cannot reach", "can't reach", "no path",
                "positions explored", "gave up after", "could not get",
                "cannot hold a stand spot")      # jar ≥ 0.1.48: mining ↔ approaching flipped on one block (MineTask)
+_CANNOT_REACH = __import__("re").compile(r"cannot reach (-?\d+), (-?\d+), (-?\d+)")
+
+
+def cannot_reach(message):
+    """Pure: the cells a mod answer names as "cannot reach x, y, z" — {(x, y, z)}, empty when it names none."""
+    return {tuple(int(g) for g in m.groups()) for m in _CANNOT_REACH.finditer(message or "")}
 
 def mid(name):
     """The full id: "oak_planks" → "minecraft:oak_planks". Already-qualified names pass through."""
