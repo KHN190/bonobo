@@ -3907,8 +3907,9 @@ def skill_spans(registry, root):
 # -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
 # Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
 # whose weapon is the measured dimension, and brain cells whose input is tool state are not in here. One table, one pass.
-# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left by something faster —
-# a fight, the night, hunger — and taken up again for the same target (memory's section map: no spot searched twice,
+# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left for the night's way
+# (the other hand-offs — a fight, a meal — are resume_after_combat's and the eat rows') and taken up again for the
+# same target (memory's section map: no spot searched twice,
 # no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
 _goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
 SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
