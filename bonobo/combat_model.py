@@ -260,7 +260,7 @@ def slack_at(spot, hazards, here, speed=4.3, horizon=HORIZON, margin=0.3):
     return round(first - travel - margin, 3)
 
 
-def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3):
+def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3, hazards=None):
     """Pure: (position, slack) — where to stand, by the rule "first arrival must be later than getting there".
 
     Ten candidates against a closed-form root: no search, no grid, no simulation. For each option the slack is
@@ -271,10 +271,13 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
     which made it blind to anything arriving, and therefore to every moving threat.
     """
     p = _xyz(frame["player"]["pos"])
-    hazards = [(t[2][:3], t[2][3], (0.0, 0.0, 0.0)) for t in threats(frame, None, dps, horizon)]
+    if hazards is None:           # `hazards` given: a plain list already expanded (best_step), not the frame's
+        hazards = [(t[2][:3], t[2][3], (0.0, 0.0, 0.0)) for t in threats(frame, None, dps, horizon)]
     best, best_key = None, None
     for opt in options or step_options(frame):
         slack = slack_at(opt, hazards, p, speed, horizon, margin)
+        # Time first; distance from the nearest hazard breaks ties. Without the tie-break every candidate outside
+        # a static threat scores `inf`, the first one wins, and the first one is where we already stand.
         nearest = min((math.dist(opt, h[0]) - h[1] for h in hazards), default=float("inf"))
         key = (slack, round(nearest, 2))
         if best_key is None or key > best_key:
@@ -293,17 +296,8 @@ def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None)
     options = step_options(frame)
     if cover is not None:
         options = list(options) + [tuple(cover)]
-    hazards = expand(hazards, here)          # safe against every future, not the single differenced one
-    best, best_key = None, None
-    for opt in options:
-        slack = slack_at(opt, hazards, here, speed, horizon, margin)
-        # Time first; distance from the nearest hazard breaks ties. Without the tie-break every candidate outside
-        # a static threat scores `inf`, the first one wins, and the first one is where we already stand.
-        nearest = min((math.dist(opt, h[0]) - h[1] for h in hazards), default=float("inf"))
-        key = (slack, round(nearest, 2))
-        if best_key is None or key > best_key:
-            best, best_key = (opt, slack), key
-    return best
+    # safe against every future, not the single differenced one
+    return safest(frame, options, speed, horizon, None, margin, hazards=expand(hazards, here))
 
 
 def could_have_lived(frames, lead_s=2.0, **kw):
