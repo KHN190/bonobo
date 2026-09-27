@@ -26,6 +26,9 @@ from bonobo.planner import NullCost, Planner, Step  # noqa: E402
 from bonobo.skillcore import Context  # noqa: E402
 from bonobo.world import ticks_until_dusk  # noqa: E402
 
+DIRS = {"north": (0, 0, -1), "south": (0, 0, 1), "east": (1, 0, 0), "west": (-1, 0, 0), "up": (0, 1, 0),
+        "down": (0, -1, 0)}      # a facing → the step toward it
+
 
 def table(tc, rows):
     """rows: [(situation, thunk, want)]; `want` is the exact answer, or a predicate over it (a function)."""
@@ -104,7 +107,7 @@ class Blueprints(unittest.TestCase):
                                      [])
                     for p, part, facing, against in cells:
                         if against is not None and part.facing:
-                            self.assertEqual(B.DIRS[facing], tuple(against[i] - p[i] for i in range(3)))
+                            self.assertEqual(DIRS[facing], tuple(against[i] - p[i] for i in range(3)))
 
     def test_table(self):
         hut = B.placed(B.SHELTER, (0, 0, 0), 0)
@@ -115,7 +118,7 @@ class Blueprints(unittest.TestCase):
         cells = {pos: part.item for pos, part, *_ in B.placed(B.NETHER_PORTAL, (0, 64, 0), 1)}
         table(self, [
             ("the shelter's interior is sealed (floor aside)",
-             lambda: [(c, d) for c in interior for d in B.DIRS.values() if d != (0, -1, 0)
+             lambda: [(c, d) for c in interior for d in DIRS.values() if d != (0, -1, 0)
                       and (c[0] + d[0], c[1] + d[1], c[2] + d[2]) not in solid | set(interior)], []),
             ("the shelter: 14 stone, a door, a torch", lambda: B.materials(B.SHELTER),
              {"stone": 14, "door": 1, "minecraft:torch": 1}),
