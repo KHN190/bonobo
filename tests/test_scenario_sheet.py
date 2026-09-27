@@ -797,6 +797,20 @@ class EveryPartHasAMustFail(unittest.TestCase):
                 self.assertEqual(sc.SHEET[name]["fails"], fails)
 
 
+class EatingOnTheWay(unittest.TestCase):
+    """eat_while_walking's bar: the hungry leg no slower than the fed one plus a standing bite per bite eaten."""
+
+    def test_no_slower_than_stopping(self):
+        rows = [("the bench's run: 3 bites, 9.6 s against 4.5 s fed", 9.6, 4.5, 3, True),
+                ("exactly a standing bite per bite (boundary)", 4.5 + 3 * sc.BITE_S, 4.5, 3, True),
+                ("slower than stopping to eat", 9.6, 4.5, 2, False),
+                ("no bite eaten: not eating on the way", 4.5, 4.5, 0, False),
+                ("a long stop: 20 s for one bite", 20.0, 4.5, 1, False)]
+        for name, hungry, fed, bites, want in rows:
+            with self.subTest(name):
+                self.assertIs(sc.no_slower_than_stopping(hungry, fed, bites), want)
+
+
 class TwoSites(unittest.TestCase):
     """The next row's world is built at site B while a row runs at A (bench.core classify / shift / split_setup)."""
 

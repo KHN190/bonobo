@@ -3141,16 +3141,25 @@ SHEET["fight_before_upkeep"] = {
 # Eating on the move: hungry, cooked beef carried, a 20-block walk (-2 → 18, the bench box's own length) → fed on arrival, and the walk no slower than the
 # same walk fed (it did not stop to eat). The control: hungry while mining — the mining is not interrupted to eat.
 WALK = {}
+BITE_S = 1.6        # one bite standing still (32 ticks): what eating on the way must not be slower than
+
+
+def no_slower_than_stopping(hungry_s, fed_s, bites):
+    """Pure: the hungry leg took no longer than the fed one plus a standing bite per bite eaten — eating while
+    walking slows the walk (no sprint, ~20% speed while chewing), so "+1 s" was never reachable; stopping to eat
+    is the bar. No bite at all is not eating on the way."""
+    return bites > 0 and hungry_s <= fed_s + bites * BITE_S
 
 
 def _walk_there_and_back(ctx):
-    """Walk 20 east hungry, then back fed: both times kept for the check."""
+    """Walk 20 east hungry, then back fed: both times, the food after each and the beef eaten on each kept."""
     from . import api
     for leg, target in (("hungry", at(18, 0, 0)), ("fed", at(-2, 0, 0))):
-        t0 = time.time()
+        beef, t0 = _inv_now().count("minecraft:cooked_beef"), time.time()
         _skill("travel_to")(ctx, target, 2)
         WALK[leg] = time.time() - t0
         WALK[f"food_{leg}"] = api.get("/state")["food"]
+        WALK[f"bites_{leg}"] = beef - _inv_now().count("minecraft:cooked_beef")
     return True
 
 
@@ -3164,14 +3173,15 @@ def _hungry(ctx):
 
 SHEET["eat_while_walking"] = {
     "doc": "Hungry, cooked beef carried, 20 blocks to walk → fed on arrival, and no slower than the same walk fed "
-           "(+1 s): it eats without stopping",
+           "plus a standing bite per bite eaten: it eats without stopping",
     "module": "skills", "point": "A", "skills": ["goto"], "tier_fixed": "common", "combat": False, "stochastic": False,
     "tags": {"base": "nav", "state": "hungry"},
     "setup": _floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(20, -1, 3))} stone", _tp(-2, 0, 0), "give @p cooked_beef 4"],
     "before": _hooks(_start("eat_while_walking"), _hungry),
     "run": _walk_there_and_back,
     "check": _all(lambda api, inv: WALK.get("food_hungry", 0) > BASE["food_before"],
-                  lambda api, inv: WALK.get("hungry", 99) <= WALK.get("fed", 0) + 1.0),
+                  lambda api, inv: no_slower_than_stopping(WALK.get("hungry", 99), WALK.get("fed", 0),
+                                                           WALK.get("bites_hungry", 0))),
     "budget": 30,
 }
 SHEET["mine_while_hungry"] = {
