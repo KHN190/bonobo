@@ -2988,10 +2988,17 @@ def _count_finds(ctx):
     real = FINDS.setdefault("real", api.get)
 
     def get(path, *a, **k):
-        if path.startswith("/find") and "diamond" in path:
+        if path.startswith("/find") and "diamond" in path and not _passive_noting():
             FINDS["diamond"] += 1
         return real(path, *a, **k)
     api.get = get
+
+
+def _passive_noting():
+    """The /find being made comes from explore.note_around — seeing what is around while travelling (perception),
+    not a search for the ore. seen_store__noted's "no scan" is about getting the ore."""
+    import traceback
+    return any(f.name == "note_around" and f.filename.endswith("explore.py") for f in traceback.extract_stack())
 
 
 def _no_scan():
