@@ -625,7 +625,7 @@ check("nether kit: no blocks → not ready (bridges, shelter from fireballs)",
       any("blocks" in m for m in nether_kit_missing(_KitInv({"minecraft:cooked_beef": 12}, 20, head="minecraft:golden_helmet"))))
 check("nether: exploration legs stay above the lava sea", 50 <= NT.EXPLORE_Y <= 100)
 import math  # noqa: E402
-_wp = NT.waypoints((-258, 65, 270), (-366, 120, 191))
+_wp = nav.waypoints((-258, 65, 270), (-366, 120, 191))
 check("portal trip: 110 blocks go in legs of ≤40, ending at the portal",
       _wp[-1] == (-366, 120, 191) and len(_wp) == 4
       and all(math.hypot(b[0] - a[0], b[2] - a[2]) <= 41 for a, b in zip([(-258, 65, 270)] + _wp, _wp)), _wp)

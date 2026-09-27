@@ -93,11 +93,16 @@ def fill_spot(region, here, fluid="water", reach=REACH):
     return None if best is None else (best[1], best[2])
 
 
+def portal_light_cell(origin, turns, attempt=0):
+    """Pure: the frame's inner bottom obsidian clicked with flint and steel (the second attempt one block further in)."""
+    d = blueprints.rotate_offset((2 if attempt else 1, 0, 0), turns)
+    return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
+
+
 def portal_light_aim(origin, turns):
     """Pure: the point to click with flint and steel — the top face of the frame's inner bottom obsidian."""
-    d = blueprints.rotate_offset((1, 0, 0), turns)
-    x, y, z = origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
-    return x + 0.5, y + 1.0, z + 0.5
+    t = nav.use_on_top("minecraft:flint_and_steel", portal_light_cell(origin, turns))
+    return t["x"], t["y"], t["z"]
 
 
 def use_task(item, aim, on_block):
@@ -110,11 +115,8 @@ def light_commands(state, args):
     origin, turns, attempt = args
     if not state["inv"].count("minecraft:flint_and_steel"):
         raise NotAvailable("no flint and steel to light the portal")
-    aim = portal_light_aim(origin, turns)
-    if attempt:
-        d = blueprints.rotate_offset((2, 0, 0), turns)
-        aim = (origin[0] + d[0] + 0.5, origin[1] + 1.0, origin[2] + d[2] + 0.5)
-    return [use_task("minecraft:flint_and_steel", aim, True), {"type": "wait", "ticks": 10}]
+    return [nav.use_on_top("minecraft:flint_and_steel", portal_light_cell(origin, turns, attempt)),
+            {"type": "wait", "ticks": 10}]
 
 
 def _use(item, aim, on_block):

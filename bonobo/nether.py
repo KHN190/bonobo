@@ -20,15 +20,6 @@ def portal_cell(origin, turns):
     return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
 
 
-def waypoints(here, target, leg=40):
-    """Pure: points every `leg` blocks (horizontal) from here to target, height interpolated, ending at target."""
-    dx, dz = target[0] - here[0], target[2] - here[2]
-    dist = math.hypot(dx, dz)
-    n = max(1, math.ceil(dist / leg))
-    return [(round(here[0] + dx * k / n), round(here[1] + (target[1] - here[1]) * k / n), round(here[2] + dz * k / n))
-            for k in range(1, n)] + [tuple(target)]
-
-
 def triangulate(p1, d1, p2, d2):
     """Pure: intersection (x, z) of two eye-of-ender throws — rays from p1 along d1 and p2 along d2 (x, z vectors).
     None when the rays are (nearly) parallel or meet behind a thrower."""
@@ -62,7 +53,7 @@ def use_portal(ctx, to_dimension):
     cell = min(cells, key=lambda c: (math.dist(c, here), c[1]))
     log(f"   heading into the portal at {cell} → {to_dimension}")
     # Long trips in legs: one travel plan over 110 blocks and a 55-block climb ran out of search nodes four times.
-    for hop in waypoints(here, cell)[:-1]:
+    for hop in nav.waypoints(here, cell)[:-1]:
         if not nav.arrived(hop, ctx.policy, range_=6, attempts=1):
             raise api.NavFailed(f"stuck on the way to the portal near {hop}")
         yield hop
@@ -77,8 +68,7 @@ def use_portal(ctx, to_dimension):
         # A ghast fireball (or anything) put the portal out: relight it on the frame block under the opening.
         below = (cell[0], cell[1] - 1, cell[2])
         log(f"   portal at {cell} is out → relighting")
-        api.run({"type": "use_item", "item": "minecraft:flint_and_steel", "x": below[0] + 0.5, "y": below[1] + 1.0,
-                 "z": below[2] + 0.5, "onBlock": True}, wait=20, awaits="the relit portal, then the dimension change")
+        api.run(nav.use_on_top("minecraft:flint_and_steel", below), wait=20, awaits="the relit portal, then the dimension change")
     deadline = time.time() + 15
     while time.time() < deadline:
         api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the dimension change (vanilla's portal delay)")

@@ -400,8 +400,7 @@ def _build_parts(ctx, bp, origin, turns):
                     above = (fx, fy + 2, fz)
                     if above in ctx.policy.protected:
                         raise McError(f"can't clear {above} above the pillar (protected)")
-                    api.run({"type": "mine", "x": above[0], "y": above[1], "z": above[2], "collect": False,
-                             "requireDrops": False}, wait=30, awaits="the head cell cleared before the next pillar step")
+                    api.run(nav.mine_task(above), wait=30, awaits="the head cell cleared before the next pillar step")
                     r = api.run({"type": "pillar", "item": block}, wait=20, awaits="each pillar step's height decides the next")
                 if r["status"] != "succeeded":
                     raise McError(f"couldn't pillar up to reach {pos}: {r['message']}")

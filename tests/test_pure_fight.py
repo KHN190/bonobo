@@ -16,6 +16,8 @@ from bonobo import combat_tape, decompose, dispatch, end, estimate, field, fight
 from bonobo.api import McError, NavFailed, NotAvailable  # noqa: E402
 from bonobo.planner import Step, Unplannable  # noqa: E402
 
+INF = float("inf")
+
 CLOUD = "minecraft:area_effect_cloud"
 
 
@@ -126,6 +128,23 @@ class Expand(unittest.TestCase):
         for name, hazards, here, want in rows:
             with self.subTest(name):
                 self.assertEqual(cm.expand(hazards, here), want)
+
+
+class Safest(unittest.TestCase):
+    def test_table(self):
+        cloud = (0, 0, 0, 3)
+        calm = {"type": "minecraft:enderman", "angry": False, "pos": {"x": 1, "y": 0, "z": 0}}
+        rows = [
+            ("no hazards: first option", {}, [(1, 0, 0), (2, 0, 0)], ((1, 0, 0), INF)),
+            ("outside the cloud beats inside", {"breath": [cloud]}, [(0, 0, 0), (10, 0, 0)], ((10, 0, 0), INF)),
+            ("tie on time broken by distance", {"breath": [cloud]}, [(5, 0, 0), (10, 0, 0)], ((10, 0, 0), INF)),
+            ("all inside: the least bad", {"breath": [cloud]}, [(0, 0, 0), (1, 0, 0)], ((0, 0, 0), -0.3)),
+            # must-fail: a neutral enderman is not a hazard
+            ("calm enderman ignored", {"endermen": [calm]}, [(1, 0, 0), (9, 0, 0)], ((1, 0, 0), INF)),
+        ]
+        for name, kw, options, want in rows:
+            with self.subTest(name):
+                self.assertEqual(cm.safest(frame(0, **kw), options=options), want)
 
 
 class Windows(unittest.TestCase):

@@ -35,6 +35,21 @@ class Policy:
     hand_only: bool = False             # no usable pickaxe: dig only what hands break quickly (dirt, sand, logs…)
 
 
+def waypoints(here, target, leg=40):
+    """Pure: points every `leg` blocks (horizontal) from here to target, height interpolated, ending at target."""
+    dx, dz = target[0] - here[0], target[2] - here[2]
+    dist = math.hypot(dx, dz)
+    n = max(1, math.ceil(dist / leg))
+    return [(round(here[0] + dx * k / n), round(here[1] + (target[1] - here[1]) * k / n), round(here[2] + dz * k / n))
+            for k in range(1, n)] + [tuple(target)]
+
+
+def use_on_top(item, cell):
+    """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour, light a portal)."""
+    return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
+            "onBlock": True}
+
+
 def mine_task(c, collect=False):
     return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False}
 
@@ -381,11 +396,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
             # Long trips in legs: one plan over 100+ blocks exhausts the search and ends "target unreachable"
             # (≈1 150 s of failed travel in 2.5 h). Each leg is a short, reliable plan.
             start, t_start = here, time.time()
-            dx, dz = pos[0] - here[0], pos[2] - here[2]
-            n = math.ceil(math.hypot(dx, dz) / LEG)
-            for k in range(1, n):
-                hop = (round(here[0] + dx * k / n), round(here[1] + (pos[1] - here[1]) * k / n),
-                       round(here[2] + dz * k / n))
+            for hop in waypoints(here, pos, LEG)[:-1]:
                 if min_hp is not None and api.get("/state")["health"] < min_hp:
                     log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
                     return False
