@@ -490,7 +490,8 @@ def build_blueprint(ctx, name, near):
     return machine
 
 
-@skill(needs={}, speed={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
+@skill(needs=blueprints.materials(blueprints.SHELTER), speed={}, pre=[_mod_at_least("0.1.14")],
+       verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90, per_unit=60,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
                  "shelter:hut": lambda ctx, s: ()})

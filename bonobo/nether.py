@@ -265,7 +265,7 @@ def _thrown_there(c):
     return spot is not None and math.dist(spot, (site["pos"][0], site["pos"][2])) <= 1
 
 
-@skill(needs={}, speed={}, verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
+@skill(needs={"minecraft:ender_eye": 2}, speed={}, verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
 def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])

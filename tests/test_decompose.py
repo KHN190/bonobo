@@ -29,6 +29,8 @@ SOLVE_BOUND = 50         # fixture: solver columns run from an empty bag, at mos
 # Production gaps this contract found, pinned so that fixing one — or a new one appearing — fails here.
 GAPS = {
     "closure": {"minecraft:water_bucket"},             # farm:wheat consumes it; source() says fill, no column fills
+    # a skill's hard need no column makes: the bucket (as above) and trade's emeralds (no villager column)
+    "skill_needs": {"minecraft:water_bucket", "minecraft:emerald"},
     "planner": {"minecraft:bread"},                    # no wheat source for the planner; the solver farms it
 }
 
@@ -228,6 +230,62 @@ class Replayed(unittest.TestCase):
             with self.subTest(name):
                 early, held = replay_steps(st, ("tool", "pickaxe", 0))
                 self.assertEqual(not early and held, ok, early)
+
+
+def skill_need_keys():
+    """Every dimension a registered skill's hard needs name: the static ones, and a call-dependent one (mine's
+    pickaxe) at every tier a block is mined at (knowledge.MINE) and with none."""
+    from bonobo import brain  # noqa: F401  (every skill module registers)
+    from bonobo.skill import REGISTRY, needs_of
+    tiers = {t for _blocks, t in knowledge.MINE.values()} | {None}
+    keys = {}
+    for name, c in REGISTRY.items():
+        calls = [(None, None, None, None, t) for t in tiers] if c.needs_fn else [()]
+        for args in calls:
+            for k, n in needs_of(c, args).items():
+                keys[k] = max(keys.get(k, 0), n)
+    return keys
+
+
+def unmade_needs(keys, columns):
+    """Pure: the need dimensions no column makes and no made group covers."""
+    made = {d for a in columns for d, v in a.effect.items() if v > 0}
+    return {k for k in keys if k not in made and not variant_of_made_group(k, made)}
+
+
+class SkillNeeds(unittest.TestCase):
+    """Every skill's hard needs close over the columns (something makes each), and each can be had from an empty
+    bag by the solver, the plan replayed by bag arithmetic."""
+
+    def test_needs_are_made(self):
+        real = real_table()
+        rows = [("every registered skill: only the pinned gaps", skill_need_keys(), real, GAPS["skill_needs"]),
+                ("must fail: a need nothing makes", {"minecraft:unobtainium": 1}, real, {"minecraft:unobtainium"}),
+                ("a tool dimension is made", {"tool:pickaxe:2": 1}, real, set()),
+                ("a variant of a made group is held stock", {"minecraft:oak_log": 1},
+                 [Action("gather:log", {"log": 1}, 1.0)], set())]
+        for name, keys, columns, want in rows:
+            with self.subTest(name):
+                self.assertEqual(unmade_needs(keys, columns), want)
+
+    def test_every_need_from_an_empty_bag(self):
+        table, bad, failed = real_table(), [], set()
+        for key, n in sorted(skill_need_keys().items()):
+            if key in GAPS["skill_needs"]:
+                continue
+            try:
+                plan = solve(table, dict(START), {key: n})
+            except Unsolvable:
+                failed.add(key)
+                continue
+            early, held = replay_plan(plan, START, {key: n})
+            bad += [(key, e) for e in early] + ([(key, "not held at the end")] if not held else []) + \
+                ([(key, f"{len(plan.steps())} steps")] if len(plan.steps()) > SOLVE_BOUND else [])
+        self.assertEqual((bad, failed), ([], set()))
+
+    def test_the_empty_bag_replay_fails_a_need_nothing_makes(self):
+        with self.assertRaises(Unsolvable):
+            solve(real_table(), dict(START), {"minecraft:unobtainium": 1})
 
 
 class SourceRemoved(unittest.TestCase):

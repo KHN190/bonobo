@@ -116,7 +116,7 @@ def next_brick(bricks, visited, radius=12):
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
 
 
-@skill(needs={}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
+@skill(needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
        provides={"seek:portal_room": lambda ctx, s: ()})
 def find_portal_room(ctx):
     """From the triangulated estimate: dig down to stronghold depth, follow stronghold bricks toward unexplored parts,

@@ -10,7 +10,7 @@ from .api import McError, NotAvailable, log
 from .skill import skill, world_signature
 from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, RECIPES, bare, mid)
-from .knowledge import CHOP_AXE_S, DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
+from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused
 
 
@@ -670,7 +670,8 @@ def mine_segment_commands(state, args):
              "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}]
 
 
-@skill(needs={}, speed={"shovel": DIG_SHOVEL_S}, pre=[lambda c: require_pickaxe(c.args[4])], start=lambda c: Inventory().count(c.args[1]),
+@skill(needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
+       pre=[lambda c: require_pickaxe(c.args[4])], start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
        per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
@@ -1149,7 +1150,7 @@ def bites_to_full(food, carried, raw_ok=False):
     return item, math.ceil(gap / points(item))
 
 
-@skill(needs={}, speed={}, start=lambda c: api.get("/state")["food"],
+@skill(needs={"food": 1}, speed={}, start=lambda c: api.get("/state")["food"],
        verify=lambda c: api.get("/state")["food"] > c.base, budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
@@ -1589,7 +1590,7 @@ def dig_in(ctx):
     log("dug in for the night")
 
 
-@skill(needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+@skill(needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=180, stall=45, per_unit=8, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])},
        fills_bag=lambda c: members(c.args[1]))
 def take(ctx, token, count, blocks):

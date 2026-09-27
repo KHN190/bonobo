@@ -147,6 +147,11 @@ def handles(step):
     return step.kind == "skill" and step.token in REGISTRY or any(providers(e) for e in step_keys(step))
 
 
+def needs_of(contract, args):
+    """The hard prerequisites of this call: the static `needs`, or the function of the call's args."""
+    return dict(contract.needs_fn(args)) if getattr(contract, "needs_fn", None) else dict(contract.needs)
+
+
 def declared(name, needs, speed):
     """Every skill states its hard prerequisites (`needs`, {dimension: minimum}) and the optional tools that speed
     it up (`speed`, {tool kind: seconds saved per unit}) — written out, `{}` when there are none. A skill that says
@@ -169,7 +174,10 @@ def skill(name=None, *, pre=(), needs=None, speed=None, start=None, done=None, v
         declared(name or fn.__name__, needs, speed)
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft, commands, provides, prefer)
-        contract.needs = dict(needs)
+        # A need that depends on the call (the pickaxe tier of the block mined) is a function of the call's args;
+        # `needs` is then what the call with no tier asks, `needs_of(args)` what this call asks.
+        contract.needs_fn = needs if callable(needs) else None
+        contract.needs = {} if callable(needs) else dict(needs)
         contract.speed = dict(speed)
         from .knowledge import SKILL_SPEED
         SKILL_SPEED[contract.name] = contract.speed

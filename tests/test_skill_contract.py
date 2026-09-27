@@ -1125,6 +1125,41 @@ class Commands(unittest.TestCase):
 
 
 
+
+class Declarations(unittest.TestCase):
+    """@skill: every skill states `needs` (hard prerequisites) and `speed` (tools that make it faster, seconds saved
+    per unit) — `{}` written out when there are none — or it is refused at import."""
+
+    def test_every_registered_skill_declares_both(self):
+        from bonobo import data, knowledge
+        tools = set(data.TOOL_KINDS)
+        bad = {n: (c.needs, c.speed) for n, c in skillkit.REGISTRY.items()
+               if not isinstance(c.needs, dict) or not isinstance(c.speed, dict)
+               or not set(c.speed) <= tools or any(not (v > 0) for v in c.speed.values())
+               or knowledge.SKILL_SPEED.get(n) != c.speed}
+        self.assertEqual(bad, {})
+
+    def test_the_decorator_refuses_what_is_undeclared(self):
+        # (situation, needs, speed) → the TypeError's words, or None when it registers
+        rows = [("must fail: no needs", None, {}, "declares no needs"),
+                ("must fail: no speed", {}, None, "declares no speed"),
+                ("must fail: neither", None, None, "declares no needs and no speed"),
+                ("both written out empty: registers", {}, {}, None),
+                ("needs as a function of the call: registers", lambda a: {}, {}, None)]
+        for name, needs, speed, want in rows:
+            with self.subTest(name):
+                kw = {k: v for k, v in (("needs", needs), ("speed", speed)) if v is not None}
+                try:
+                    skillkit.skill("_dummy_for_the_contract_test", **kw)(lambda ctx: None)
+                    got = None
+                except TypeError as e:
+                    got = str(e)
+                finally:
+                    skillkit.REGISTRY.pop("_dummy_for_the_contract_test", None)
+                    __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop(
+                        "_dummy_for_the_contract_test", None)
+                self.assertEqual(None if got is None else want in got, None if want is None else True, got)
+
 class BagRules(unittest.TestCase):
     """A gatherer's failure on a full bag names the bag (skill.bag_full_reason, one place for chop/hunt/mine/loot)."""
 
