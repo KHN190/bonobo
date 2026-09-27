@@ -22,7 +22,7 @@ def _planner(inv, needs, cost, pending=None):
 register("planner", _planner)
 
 def _solve(inv, needs, cost, pending=None):
-    """The column solver (solve."""
+    """The column solver (solve.py over actions.table): slower, and it can see further — where to go for a thing, what to take that is already made, which half-done work to finish."""
 
     from . import actions as act
     from .solve import Unsolvable, solve
@@ -58,7 +58,7 @@ def solve_needs(inv, needs, cost, solver=None, pending=None):
     raise last or Unplannable("no solver could plan this")
 
 def from_containers(inv, needs, cost, solver=None, pending=None):
-    """Take what containers hold (memory."""
+    """Take what containers hold (memory.stored) where that is cheaper than making it: (withdraw steps, pending)."""
 
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     extra = dict(pending or {})
@@ -319,7 +319,7 @@ def _decompose(inv, goal, cost, solver, pending):
     raise Unplannable(f"no way to decompose a {template!r} goal")
 
 def _prepared(inv, step, cost, solver, pending):
-    """The steps that get what `step`'s skill needs held for its call (knowledge."""
+    """The steps that get what `step`'s skill needs held for its call (knowledge.step_call → needs_of: the bed of a sleep, the pickaxe of a mine), then the step — what planner.before does for the planner's own steps."""
 
     needs, _speed = knowledge.step_call(step)
     return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]

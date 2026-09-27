@@ -1261,7 +1261,7 @@ def _burrow_here(ctx):
     return choose_burrow(Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4)), (x, y, z), ctx.policy.protected)
 
 def burrow_anchor(state, args=()):
-    """Pure: what a burrow fixes at its first start — {"anchor": (feet, direction)}: the entrance cell and the side tunnelled into (`args[0]`, else terrain."""
+    """Pure: what a burrow fixes at its first start — {"anchor": (feet, direction)}: the entrance cell and the side tunnelled into (`args[0]`, else terrain.choose_burrow)."""
 
     x, y, z = state["feet"]
     d = args[0] if args else choose_burrow(state["region"], (x, y, z), state["protected"])
@@ -1309,7 +1309,7 @@ def burrow(ctx):
     log(f"burrowed into the hillside at {feet()}")
 
 def dig_out_commands(state, args=()):
-    """Pure: out of a sealed pod as one chain — the exit side's cells (terrain."""
+    """Pure: out of a sealed pod as one chain — the exit side's cells (terrain.choose_exit), then a step out."""
 
     exit_ = choose_exit(state["region"], tuple(state["feet"]), state["protected"])
     if exit_ is None:
@@ -1378,7 +1378,7 @@ def _breathing_now():
 @skill(gives=["state:air"], remaining=_k.breathing, needs={}, speed={}, done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
        provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
-    """Out of breath underwater: to the nearest dry cell to stand on reached by swimming (a shaft's rim, the shore) — surfacing in the column sank back under; no land in reach → a block underfoot at the surface; water capped by blocks → dig the cap (terrain."""
+    """Out of breath underwater: to the nearest dry cell to stand on reached by swimming (a shaft's rim, the shore) — surfacing in the column sank back under; no land in reach → a block underfoot at the surface; water capped by blocks → dig the cap (terrain.air_route)."""
 
     for _ in range(4):
         x, y, z = feet()
@@ -1503,7 +1503,7 @@ def dig_in_start(region, feet):
     return x, top, z
 
 def dig_in_commands(state, args=()):
-    """Pure: dig DIG_IN_DEPTH straight down (`nav."""
+    """Pure: dig DIG_IN_DEPTH straight down (`nav.dig_down_tasks`: 199, 198, 197 from feet 200), stand at the bottom, and seal the first dug cell — the ground line, ground on every side to place against."""
 
     region, inv = state["region"], state["inv"]
     x, y, z = start = dig_in_start(region, tuple(state["feet"]))
@@ -1527,7 +1527,7 @@ def dig_in_commands(state, args=()):
     return tasks
 
 def soft_spot():
-    """(cell, steps) of the nearest ground that digs by hand to DIG_IN_DEPTH, on the ground we stand on (terrain."""
+    """(cell, steps) of the nearest ground that digs by hand to DIG_IN_DEPTH, on the ground we stand on (terrain.nearest_soft), or None."""
 
     from .terrain import SOFT_RADIUS, nearest_soft
     x, y, z = feet()
@@ -1535,7 +1535,7 @@ def soft_spot():
     return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
 
 def soft_ground_here():
-    """Seconds' walk to ground that digs by hand (0: right under the feet), or None when there is none near: the night's pricing adds the walk to digging in by hand (needs."""
+    """Seconds' walk to ground that digs by hand (0: right under the feet), or None when there is none near: the night's pricing adds the walk to digging in by hand (needs.night_facts)."""
 
     from .data import WALK_BLOCKS_PER_TICK
     spot = soft_spot()
@@ -1916,7 +1916,7 @@ def _has_something_to_store(c):
 @skill(gives=["state:stored"], remaining=lambda st, c: stored_left(st, c), needs={}, speed={}, pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=600, stall=90, provides={"room:deposit": lambda ctx, s: ()})
 def deposit(ctx, local_only=False):
-    """Store everything beyond the keep list: in a chest at the nearest reachable site within 96 blocks (skipped with local_only, e."""
+    """Store everything beyond the keep list: in a chest at the nearest reachable site within 96 blocks (skipped with local_only, e.g. at night), else in a cache chest placed right here (crafted if needed, recorded as a site for later trips)."""
 
     before = Inventory().used_slots()
     moving = store_plan(Inventory().slots)
@@ -1971,7 +1971,7 @@ def deposit(ctx, local_only=False):
        budget=180, stall=60,
        provides={"withdraw": lambda ctx, s: (s.token, s.count, tuple(s.detail["pos"]))})
 def withdraw(ctx, item, count, pos):
-    """Take `count` of `item` out of the container at `pos` (memory said it held them: memory."""
+    """Take `count` of `item` out of the container at `pos` (memory said it held them: memory.stored), and write down what is left in it."""
 
     nav.arrive(pos, ctx.policy, range_=3)
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots read on its screen")

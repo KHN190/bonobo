@@ -39,7 +39,7 @@ def _ground(tx, tz, y):
     return nav.ground_in_column(col.solid, tx, tz, y, span=40)
 
 def _search(ctx, kinds, look, radius, legs):
-    """Look, then walk to the nearest section not yet looked over for `kinds` (memory."""
+    """Look, then walk to the nearest section not yet looked over for `kinds` (memory.frontier over the section map, at each kind's own depth: `band`), and look again."""
 
     for _ in range(legs):
         here = feet()
@@ -69,7 +69,7 @@ def _search(ctx, kinds, look, radius, legs):
     return hits
 
 def band(kind):
-    """The y a kind is richest at (knowledge."""
+    """The y a kind is richest at (knowledge.FIND_AT, through the MINE row whose blocks it is), None for the surface (animals, trees, anything without a depth)."""
 
     from .knowledge import FIND_AT, MINE
     k = bare(kind)
@@ -161,7 +161,7 @@ def unknown(mem, dimension, names):
     return [n for n in names if not any(mem.seen(v, dimension) for v in variants(n))]
 
 def variants(block):
-    """Pure: the blocks that are the same find as `block` — the ore and its deepslate form (knowledge."""
+    """Pure: the blocks that are the same find as `block` — the ore and its deepslate form (knowledge.MINE's one row)."""
 
     from .knowledge import MINE
     return next((list(blocks) for blocks, _tier in MINE.values() if block in blocks), [block])

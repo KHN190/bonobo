@@ -79,7 +79,7 @@ class Planner:
 
     @classmethod
     def from_inventory(cls, inv, cost, extra=None):
-        """`extra`: items on their way (e."""
+        """`extra`: items on their way (e.g. smelting in a machine) that count as held but aren't usable yet — steps consuming them stay unrunnable until they arrive, so nothing is mined twice."""
 
         counts = Counter()
         for item, n in (extra or {}).items():
@@ -133,7 +133,7 @@ class Planner:
         return 0
 
     def before(self, step, depth):
-        """Every step passes here before it is added: what the skill carrying it out needs held (knowledge."""
+        """Every step passes here before it is added: what the skill carrying it out needs held (knowledge.step_call — its `needs` for this call: tools first, then items, planned and kept, never used up by it), then the tools it runs faster with where making one pays (`speed_up`)."""
 
         needs, speed = step_call(step)
         for dim, n in sorted(needs.items(), key=lambda kv: not kv[0].startswith("tool:")):
@@ -148,7 +148,7 @@ class Planner:
         self.speed_up(step.kind, speed, units, depth)
 
     def speed_up(self, kind, speed, units, depth):
-        """Before `units` of work of step `kind`: the optional tools its skill runs faster with here (`speed`: its `@skill(speed=."""
+        """Before `units` of work of step `kind`: the optional tools its skill runs faster with here (`speed`: its `@skill(speed=...)`, seconds saved per unit — a shovel only on soft ground, step_call), made when making one costs less than it saves — and only from what does not need this same work (an axe that needs the logs it would speed up is made after them, too late)."""
 
         if self.probing:
             return

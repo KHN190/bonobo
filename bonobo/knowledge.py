@@ -23,7 +23,7 @@ DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 
 STEP_CALL = None
 
 def step_call(step):
-    """(needs, speed) of what carries out `step` (skill."""
+    """(needs, speed) of what carries out `step` (skill.step_call), the skill modules loaded first; ({}, {}) when no skill is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else ({}, {})

@@ -438,7 +438,7 @@ def _blueprint_commands_for(state, args):
         return []
 
 def _shelter_left(state, call=None):
-    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (blueprints."""
+    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (blueprints.remaining over the state's region) — the whole hut before a spot is chosen."""
 
     if state.get("spot") is None or state.get("region") is None:
         return {"shelter:hut": 1}
@@ -513,7 +513,7 @@ def _portal_cast(c):
 @skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
        verify=_portal_cast, budget=900, stall=240, provides={"cast:nether_portal": lambda ctx, s: ()})
 def cast_portal(ctx):
-    """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each frame cell bottom-up wall it in with mould (`fluids."""
+    """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each frame cell bottom-up wall it in with mould (`fluids.cast_frame_plan`), pour lava in, pour water on it, take the water back; break the mould inside the frame, light it."""
 
     from . import fluids
     block = nav.building_item()          # its needs (water, flint and steel, 16 blocks) held: the runner checked

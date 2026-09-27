@@ -441,7 +441,7 @@ def _wait_landed(ctx, seconds=10):
     return bool(s.get("onGround") or s.get("inWater") or s.get("dead"))
 
 def _snap_survival(ctx, seconds=20):
-    """Brain rounds until the body is back in the Overworld: leaving the Nether is an upkeep row now (low food, health or room → `nether."""
+    """Brain rounds until the body is back in the Overworld: leaving the Nether is an upkeep row now (low food, health or room → `nether.use_portal`), not an L0 rescue."""
 
     from . import api
     t0 = time.time()
@@ -635,7 +635,7 @@ SCENARIOS["find_fortress_far"] = {
 }
 
 def _trek(dx, dz, dimension="minecraft:overworld"):
-    """Walk a straight-line distance over real terrain; the note gets seconds per 100 blocks (the main time sink: travel + goto were 47 % of 5."""
+    """Walk a straight-line distance over real terrain; the note gets seconds per 100 blocks (the main time sink: travel + goto were 47 % of 5.5 h of task time)."""
 
     def run(ctx):
         from . import api, nav
@@ -717,7 +717,7 @@ for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_ov
               "trek_nether_25"):
     SCENARIOS[_name]["release"] = True       # minutes each: run by name before a live run, not in every round
 def _road_reuse(ctx):
-    """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs (roads."""
+    """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs (roads.py) and take no longer than the first."""
 
     from . import api, nav
     s = api.get("/state")
@@ -754,7 +754,7 @@ SLICE = {}
 MAX_WAITS_WITH_QUEUE = 0
 
 def slice_report(lines, positions, target, idle_s, picks=None):
-    """Pure: loops (review."""
+    """Pure: loops (review.repeated over the brain's own log), longest idle, and how far the player moved away from `target` in total (walking the wrong way) — from the slice's log lines and (t, pos) samples."""
 
     from . import review
     entries = []
@@ -785,7 +785,7 @@ def tier_rows(rows, tier, named):
             and (not named or tier == "all" or r["tier"] == tier)]
 
 def _slice(done, minutes, target=None, queue=(), max_idle=15):
-    """Run the whole cerebellum (brain."""
+    """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private task queue holding `queue` (goals, in order; empty = the brain prepares on its own)."""
 
     def run(ctx):
         from . import api, tasks
@@ -1556,7 +1556,7 @@ TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air
 TARGET_SLACK = 1.5
 
 def eat_target_s(food, carried):
-    """Pure: an eat row's speed target — per bite × the bites the bar's gap takes from what is carried (skills."""
+    """Pure: an eat row's speed target — per bite × the bites the bar's gap takes from what is carried (skills.bites_to_full), with the slack."""
 
     from .skills import bites_to_full
     _item, bites = bites_to_full(food, carried)
@@ -1581,7 +1581,7 @@ def _timed(run):
     return go
 
 def _skill_within(name, seconds):
-    """The skill `name` itself (skill."""
+    """The skill `name` itself (skill.LAST_S: from its own start, no planning, setup or walk to it) finished inside `seconds` — for rows whose run is the brain, where the run's own clock counts the plan too."""
 
     return lambda api, inv: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.get(name, 1e9) <= seconds
 
@@ -2984,7 +2984,7 @@ def _bag_rule(cell):
 FINDS = {"diamond": 0}
 
 def _count_finds(ctx):
-    """`before` hook: count the world scans (/find asked for diamond ore) during the row, at the one door every module's `find` goes through (api."""
+    """`before` hook: count the world scans (/find asked for diamond ore) during the row, at the one door every module's `find` goes through (api.get)."""
 
     from . import api
     FINDS["diamond"] = 0
@@ -3420,7 +3420,7 @@ def _creeper_row(name, extra_setup=(), before=(), check=()):
     }
 
 def _home_is_ours(ctx):
-    """`before` hook: the bed and the furnace are a site of ours (memory."""
+    """`before` hook: the bed and the furnace are a site of ours (memory.protected_cells) and the furnace a station — what the fight has to keep out of the blast."""
 
     blocks = {f"{c[0]},{c[1]},{c[2]}": "red_bed" for c in HOME_BED}
     blocks[f"{HOME_FURNACE[0]},{HOME_FURNACE[1]},{HOME_FURNACE[2]}"] = "furnace"

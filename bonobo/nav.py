@@ -43,7 +43,7 @@ _features = None
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
 
 def autoeat_policy():
-    """Pure: what the jar eats on the way, and when (POST /autoeat, jar ≥ 0."""
+    """Pure: what the jar eats on the way, and when (POST /autoeat, jar ≥ 0.1.46): below WALK_EAT_BELOW, the best food first (data.FOOD's order)."""
 
     from .data import FOOD
     return {"below": WALK_EAT_BELOW, "foods": [f"minecraft:{f}" for f in FOOD]}
@@ -131,7 +131,7 @@ def _arrived(start, target, began, ok, closer=False):
     return Walked(math.dist(start, target) - math.dist(feet(), target)) if closer else False
 
 class Walked(float):
-    """A leg that got nearer without arriving: never arrival, so falsy (a travel stopped 1."""
+    """A leg that got nearer without arriving: never arrival, so falsy (a travel stopped 1.7 below the platform read as True and the scenario was over)."""
 
     def __bool__(self):
         return False
@@ -154,7 +154,7 @@ AVOID_MAX = 4000
 APPROACHING = ("mine", "place", "use", "build", "mine_many")
 
 def avoid_cells(protected, *near):
-    """Pure: the "avoid" list a walk that may dig carries — the protected cells (memory."""
+    """Pure: the "avoid" list a walk that may dig carries — the protected cells (memory.protected_cells: our own builds, sites, machines) within AVOID_RADIUS of any of `near`, as the jar reads them."""
 
     return [{"x": c[0], "y": c[1], "z": c[2]} for c in sorted(protected)
             if any(math.dist(c, n) <= AVOID_RADIUS for n in near)][:AVOID_MAX]
@@ -172,7 +172,7 @@ def with_avoid(task, protected):
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 
 def there(state, pos, range_):
-    """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — the feet's block to a block target (int coordinates: the walker's own test, TravelTask."""
+    """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — the feet's block to a block target (int coordinates: the walker's own test, TravelTask.arrived, with the height within range_) or the feet to a point."""
 
     if not at_rest(state):
         return False                   # mid-jump over the target cell (y 200.18, off the ground) is not there
@@ -194,7 +194,7 @@ CLIMB_REACH = 2.0      # horizontal blocks from the bank's cell within which a s
 CLIMB_TICKS = 40
 
 def climb_out_tasks(state, land):
-    """Pure: the batch that lifts a swimmer beside the bank onto `land` (its feet cell): face the bank, then forward+jump held until standing (jar "input", ≥ 0."""
+    """Pure: the batch that lifts a swimmer beside the bank onto `land` (its feet cell): face the bank, then forward+jump held until standing (jar "input", ≥ 0.1.50) — the move the walker never made, bobbing at the bank's edge (reach_land_swim). [] when already ashore or not beside it."""
 
     if ashore(state, land) or not state.get("inWater"):
         return []
@@ -395,7 +395,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
 ARRIVE_CALLS = 8          # go_to calls one `arrive` may chain while each keeps gaining ground
 
 def arrive(pos, policy, range_=1.5, **kw):
-    """Get there, or raise `api."""
+    """Get there, or raise `api.NavFailed`."""
 
     began = time.time()
     got = False

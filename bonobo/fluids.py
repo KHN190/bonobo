@@ -28,7 +28,7 @@ def standable(region, p):
             and not region.solid(p) and not region.hazard(p) and not region.solid(head) and not region.hazard(head))
 
 def clear_line(region, eye, target_cell, target_point, margin=0.2):
-    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0."""
+    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0.1 block, with a margin for aim error)."""
 
     steps = max(1, int(math.dist(eye, target_point) / 0.1))
     target = tuple(target_cell)

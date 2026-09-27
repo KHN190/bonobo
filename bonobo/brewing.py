@@ -28,7 +28,7 @@ def brew_steps(have):
     return steps
 
 def bottle_commands(state, args):
-    """`commands` for fill_bottles: one fill per bottle wanted and carried, all aimed at the water source (`state["source"]`, from fluids."""
+    """`commands` for fill_bottles: one fill per bottle wanted and carried, all aimed at the water source (`state["source"]`, from fluids.fill_spot), back to back."""
 
     count = args[0] if args else 3
     bottles = state["inv"].count("minecraft:glass_bottle")

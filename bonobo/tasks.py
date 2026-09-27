@@ -19,14 +19,12 @@ FILE = paths.data("tasks.json", env="MC_TASKS")
 STATES = ("pending", "running", "done", "failed", "cancelled")
 LIVE = ("pending", "running")
 
-
 def load(path=None):
     try:
         with open(path or FILE) as f:
             return json.load(f).get("tasks", [])
     except (OSError, ValueError):
         return []
-
 
 def save(items, path=None):
     path = path or FILE
@@ -35,7 +33,6 @@ def save(items, path=None):
     with open(tmp, "w") as f:
         json.dump({"tasks": items}, f, indent=1)
     os.replace(tmp, path)
-
 
 def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=None):
     """Queue a goal (goals.make / goals.have). Returns the task. An identical live goal is not queued twice."""
@@ -51,7 +48,6 @@ def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=Non
     save(items, path)
     return task
 
-
 def expire(items, now=None):
     """Pure: live tasks past their expiry become cancelled ("expired"). Returns whether anything changed."""
     now = time.time() if now is None else now
@@ -62,11 +58,9 @@ def expire(items, now=None):
             changed = True
     return changed
 
-
 def head(items):
     """Pure: the first live task, or None."""
     return next((t for t in items if t["state"] in LIVE), None)
-
 
 def update(task_id, path=None, **fields):
     """Change one task's fields in the file (state, reason, plan). Returns the task, or None when it is gone."""
@@ -78,7 +72,6 @@ def update(task_id, path=None, **fields):
             return t
     return None
 
-
 def marked(state, reason=""):
     """Pure: the fields a task in `state` gets (`reason`, and no plan once it is not live)."""
     if state not in STATES:
@@ -88,10 +81,8 @@ def marked(state, reason=""):
         fields["plan"] = None
     return fields
 
-
 def mark(task_id, state, reason="", path=None):
     return update(task_id, path=path, **marked(state, reason))
-
 
 def cancel(task_id=None, path=None, reason="cancelled"):
     """Cancel one task, or every live one."""
@@ -101,15 +92,12 @@ def cancel(task_id=None, path=None, reason="cancelled"):
             t["state"], t["reason"], t["plan"] = "cancelled", reason, None
     save(items, path)
 
-
 def clear(path=None):
     """Drop everything that is no longer live."""
     save([t for t in load(path) if t["state"] in LIVE], path)
 
-
 def goal_of(task):
     return {"goal": task["goal"], "args": task.get("args", {})}
-
 
 def describe(task):
     extra = f" ({task['reason']})" if task.get("reason") else ""

@@ -43,7 +43,7 @@ class Cost:
 
     # -- where things are
     def _nearest(self, kinds):
-        """(position, distance) of the nearest remembered one of these (memory."""
+        """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None."""
 
         if self.mem is None or self.snap is None:
             return None
@@ -54,7 +54,7 @@ class Cost:
         return (best, math.dist(best, here)) if best is not None else None
 
     def ripe(self, token):
-        """Ripe crop cells known to give `token`: the crop jobs of it that are due (memory only — an estimate never touches the world; the farm step itself looks for a ripe crop before it sows, farming."""
+        """Ripe crop cells known to give `token`: the crop jobs of it that are due (memory only — an estimate never touches the world; the farm step itself looks for a ripe crop before it sows, farming.plant_farm)."""
 
         if token != "minecraft:wheat":
             return 0
@@ -149,7 +149,7 @@ class Cost:
         return work + self._walk(step)
 
     def _sped_up(self, step):
-        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge."""
+        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge.step_call — every skill's `speed`, seconds saved per unit) for each tool the bag holds, times the step's units."""
 
         inv = getattr(self.snap, "inv", None)
         if inv is None:

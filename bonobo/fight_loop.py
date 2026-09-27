@@ -126,7 +126,7 @@ FIGHT_POLL_S = 0.1     # while a fight holds the body: a window is 0.4 s at wors
 HELD = None            # the threat layer's held decision (kernel.Held): kept while it pays, replaced when not
 
 def active():
-    """A fight is on: an engagement of ours is running, or a boss fight holds the body (`arbiter."""
+    """A fight is on: an engagement of ours is running, or a boss fight holds the body (`arbiter.BODY.engaged`)."""
 
     return engaged() is not None or bool(arbiter.BODY.engaged)
 
@@ -217,7 +217,7 @@ def still_worth(choice, field_model, price, horizon):
 # ------------------------------------------------------------------------------------------------ the batches
 
 def batch(option, state):
-    """Pure: the command batch that carries out one answer, from a body state (`skillcore."""
+    """Pure: the command batch that carries out one answer, from a body state (`skillcore.body_state` plus `threats`, the rows being answered). [] when the answer cannot be carried out from here — then it is not an answer at all."""
 
     make = BATCH.get(option.kind)
     return list(make(option, state)) if make else []
@@ -240,7 +240,7 @@ def footwork(target, state):
     return FOOTWORK["burst" if mob.get("burst") else "ranged" if mob.get("ranged") else "melee"]
 
 def lure_spot(here, creeper, protected, blast):
-    """Pure: where to lead a creeper before fighting it — LURE_BLOCKS from here, away from our builds within `blast` of it (memory's protected cells, nav."""
+    """Pure: where to lead a creeper before fighting it — LURE_BLOCKS from here, away from our builds within `blast` of it (memory's protected cells, nav.avoid_cells' source), or None when none is that near: a blast by the house takes the house with it, so the fight starts away from it."""
 
     near = [c for c in protected if math.dist(c, creeper) <= blast]
     if not near:

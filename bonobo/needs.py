@@ -45,14 +45,14 @@ def dusk_s(snap):
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
 def night_facts(soft):
-    """The place facts the night's pricing reads, from the soft-ground reading (skills."""
+    """The place facts the night's pricing reads, from the soft-ground reading (skills.soft_ground_here: seconds' walk to ground that digs by hand, None for none; offline readings may say True/False for right here/none)."""
 
     if soft is None or soft is False:
         return {"soft_ground": False}
     return {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
 
 def overnight(inv, cost, facts=None, bed_too=True):
-    """The one choice of how to get through a night, by price (`decompose."""
+    """The one choice of how to get through a night, by price (`decompose.cheapest` over "overnight"): ("bed" or a SOURCES["overnight"] name, seconds, steps); (None, inf, []) when there is none."""
 
     bed = []
 
@@ -88,7 +88,7 @@ def food_on_its_way(pending):
     return meals, sum(n * ready[item] for item, n in pending.items() if item in ready)
 
 def food_lasts_s(snap, pending=None):
-    """Seconds of work the stomach, the meals in the bag and those cooking in the background (`pending`, memory's pending_outputs) cover (`risk."""
+    """Seconds of work the stomach, the meals in the bag and those cooking in the background (`pending`, memory's pending_outputs) cover (`risk.food_drain_s` per hunger point)."""
 
     from . import beliefs
     drain = float(beliefs.value("risk.food_drain_s"))
@@ -104,7 +104,7 @@ def working_tiers(inv):
     return out
 
 def craftable_tier(inv, kind):
-    """The best tier of `kind` this bag crafts outright, or 0 (`Planner."""
+    """The best tier of `kind` this bag crafts outright, or 0 (`Planner.craftable_tier`: one answer for every tool goal)."""
 
     return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
 
@@ -227,7 +227,7 @@ class Needs:
         return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
 
     def need(self, kind, goal, why):
-        """Propose getting `goal` (kind: its place in arbiter."""
+        """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER)."""
 
         if all(g != goal for _k, g, _w in self.needs_now):
             self.needs_now.append((kind, goal, why))
@@ -248,7 +248,7 @@ class Needs:
         return got
 
     def overnight(self, snap, facts=None, bed_too=True):
-        """`overnight` from this bag, kept briefly like `plan`: priced every round from a fresh cost model it was the round's hotspot (0."""
+        """`overnight` from this bag, kept briefly like `plan`: priced every round from a fresh cost model it was the round's hotspot (0.7 s of /find in a 1.1 s decide; brain__base's 3 s between rounds)."""
 
         key = ("overnight", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
                snap.dimension)
@@ -269,7 +269,7 @@ class Needs:
 # ------------------------------------------------------------------------------------------------- upkeep skills
 
 def repair_pair(slots, kind):
-    """Pure: two damaged tools of the same item (e."""
+    """Pure: two damaged tools of the same item (e.g. two stone pickaxes) whose combined durability beats the best one — crafting them together repairs (vanilla grid repair, +5 %)."""
 
     tools = [s for s in slots if s["id"].endswith("_" + kind) and s.get("maxDamage")]
     by_item = {}

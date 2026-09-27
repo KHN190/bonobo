@@ -121,7 +121,7 @@ def nether_retreat(snap):
     return None
 
 def ground(reads=None):
-    """The two readings of the ground under the body both needs and reflexes ask (lazy, each read once when first asked; `reads` stands in offline): enclosed (skills."""
+    """The two readings of the ground under the body both needs and reflexes ask (lazy, each read once when first asked; `reads` stands in offline): enclosed (skills.enclosed → terrain.is_enclosed) and soft ground to dig in by hand (skills.soft_ground_here → terrain.soft_below)."""
 
     return _once(reads, "enclosed", skills.enclosed), _once(reads, "soft_ground", skills.soft_ground_here)
 
@@ -266,7 +266,7 @@ class Maintain:
             jobs.collect(ctx, job)
 
     def empty_bag(self, snap, ctx):
-        """One decision (bag."""
+        """One decision (bag.empty_how over bag.let_go's pricing): deposit into a chest that already exists when a stack is worth the walk, else drop the cheapest — never a chest crafted for it (no chest and no planks cooled the row for 180 s while dirt could simply be thrown)."""
 
         from .bag import FREE_SLOTS_TARGET, empty_how
         need = max(1, snap.inv.used_slots() - (36 - FREE_SLOTS_TARGET))

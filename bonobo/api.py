@@ -91,7 +91,7 @@ class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
 def refused(r, queued):
-    """A post that queued nothing: an interruption while the body is held — a fight owns it (arbiter."""
+    """A post that queued nothing: an interruption while the body is held — a fight owns it (arbiter.BODY: a holder, engaged, or post's own "body owned by the arbiter") — else the world declining the work (NotAvailable)."""
 
     if queued:
         return
@@ -203,7 +203,7 @@ def get(path):
 BODY_PATHS = ("/task", "/stop")
 
 def with_item_ids(body):
-    """A task post with every "only" list as the jar's item ids (data."""
+    """A task post with every "only" list as the jar's item ids (data.item_ids): the one place tokens become ids, whoever built the task."""
 
     from .data import item_ids
     if isinstance(body, dict) and "tasks" in body:

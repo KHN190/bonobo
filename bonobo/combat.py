@@ -83,7 +83,7 @@ ENDERMAN = "minecraft:enderman"
 EYE_HEIGHT = 1.62
 
 def angry_endermen(near, here, radius=16.0):
-    """Pure: endermen that are actually after us (mod ≥0."""
+    """Pure: endermen that are actually after us (mod ≥0.1.33 reports `angry`), nearest first."""
 
     out = [e for e in near if e["type"] == ENDERMAN and e.get("angry")
            and math.dist((e["x"], e["y"], e["z"]), here) <= radius]

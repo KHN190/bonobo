@@ -283,7 +283,7 @@ def ripe_cells(region):
     return cells_with(region, "wheat", "age", "7")
 
 def ripe_near(feet, radius=32):
-    """Ripe wheat cells within `radius` of `feet` (one /find, then the block states read): a plot already grown is harvested before a new one is sown (cost."""
+    """Ripe wheat cells within `radius` of `feet` (one /find, then the block states read): a plot already grown is harvested before a new one is sown (cost.ripe)."""
 
     hits = find(["wheat"], radius=radius, limit=64) or []
     if not hits or feet is None:

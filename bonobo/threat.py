@@ -223,7 +223,7 @@ def eat_options(state, hp, press, blast_here):
     return []
 
 def horizon_for(state):
-    """Seconds of "carrying on" the options are priced over, which is `estimate."""
+    """Seconds of "carrying on" the options are priced over, which is `estimate.horizon_s` and nothing else."""
 
     return estimate.horizon_s(state.get("work_s"))
 
@@ -392,7 +392,7 @@ def saves(option, opts, price, work_s):
                             action_cost(option, price, work_s))
 
 def decide(state, price=None):
-    """Pure: the best answer, decided by `kernel."""
+    """Pure: the best answer, decided by `kernel.choose` like every other plan this agent makes."""
 
     from . import kernel
     field = Field(state, price)

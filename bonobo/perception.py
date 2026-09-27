@@ -408,7 +408,7 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
     return GRID
 
 def footing(state):
-    """spot → where a walk toward it lands on connected ground (nav."""
+    """spot → where a walk toward it lands on connected ground (nav.landing over REGION), for evade; None before the ground was read (the threat model then prices evade as before)."""
 
     from . import nav
     region, here = REGION, (state["x"], state["y"], state["z"])
