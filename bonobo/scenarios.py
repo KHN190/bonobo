@@ -2886,6 +2886,9 @@ DIAMOND_UP, DIAMOND_DOWN = at(2, 0, -2), at(4, -9, 0)
 POCKET = at(0, -9, 0)
 LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # drained until food ≤ 10, then the hunger cleared (closed loop: 4 s left 14,
                                       # 5 and 8 s left 0 and the raw beef was eaten starving)
+# Hunger at 255 drains ~6 points a second: a poll every 0.1 s over HTTP overshot to 0. At 60 it is ~1.5 a second,
+# slow enough to stop on the point.
+LOW_FOOD_AMP = 60
 
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S):
@@ -2896,12 +2899,16 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S):
         while time.time() - t0 < max_s and api.get("/state").get("food", 20) > level:
             time.sleep(0.1)
         _chat("effect clear @p minecraft:hunger")
-        time.sleep(0.3)
+        time.sleep(1.0)                   # what exhaustion was left takes its last point, if any
+        food = api.get("/state").get("food", 20)
+        from .reflexes import EAT_BELOW, STARVE
+        if not STARVE < food < EAT_BELOW:
+            raise SetupInvalid(f"food {food} after the drain: wanted between {STARVE} and {EAT_BELOW}")
     return hook
 BRAIN_DIMS = {
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11800"], "night": ["time set 18000"]},
     # Drained by the run's start to below EAT_BELOW (14): 4 s left the bar at exactly 14, and "food < 14" never held.
-    "food": {"full": [], "low": [f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} 255 true"]},
+    "food": {"full": [], "low": [f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} {LOW_FOOD_AMP} true"]},
     "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
