@@ -181,6 +181,17 @@ def _token():
 
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+# the body's clock for the round log (brain._round's gap): when a watched task was last seen ended, when a task
+# was first posted since the round began (perf_counter seconds; None when not yet)
+CLOCK = {"ended": None, "first_post": None}
+
+def _clock(method, path, out):
+    """Note a task ending (a GET /task?id= that is no longer running) and the round's first task post."""
+    if method == "GET" and path.startswith("/task?id=") and isinstance(out, dict) and out.get("status") != "running":
+        CLOCK["ended"] = time.perf_counter()
+    elif method == "POST" and path.startswith("/task") and CLOCK["first_post"] is None:
+        CLOCK["first_post"] = time.perf_counter()
+
 def api(method, path, body=None, timeout=1200):
     from . import tape
     if tape.REPLAY is not None:          # an offline decision replay: the world answers from the recording
@@ -192,6 +203,7 @@ def api(method, path, body=None, timeout=1200):
         with _DIRECT.open(req, timeout=timeout) as r:
             out = json.loads(r.read())
             tape.recorded(method, path, out)
+            _clock(method, path, out)
             return out
     except urllib.error.HTTPError as e:
         try:
