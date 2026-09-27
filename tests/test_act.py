@@ -65,7 +65,7 @@ class AFightExactly(unittest.TestCase):
         self.assertEqual([(m["hp"], m["dps"]) for m in rows], [(20, 6.25), (20, 2.0)])
 
     # (situation, rows, sword tier, protection) → (seconds, hp lost)
-    ROWS = [("nothing to fight", [], 1, 0.0, (0.0, 0.0)),
+    ROWS = [("must fail: nothing to fight", [], 1, 0.0, (0.0, 0.0)),
             ("a zombie in reach, bare hands: 20/3 s under the 6 hp/s cap", [mob("zombie", 2)], 0, 0.0, (6.67, 40.0)),
             ("a zombie in reach, stone sword: 20/12 s", [mob("zombie", 2)], 1, 0.0, (1.67, 10.0)),
             ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], 1, 0.0, (3.29, 10.0)),

@@ -178,7 +178,7 @@ class TierRules(unittest.TestCase):
         rows = [("a zombie in the scene", vocab.scene([("summon", "zombie", ("@", 1, 0, 0))]), {}, True),
                 ("a ghast in a hook", [], {"before": [("do", "chat", ["summon ghast 1 2 3"], {})]}, True),
                 ("the dragon slain", [], {"run": ("do", "bonobo.end.slay_dragon", ["$ctx"], {})}, True),
-                ("cows only", vocab.scene([("pen", "cow", 3)]), {}, False)]
+                ("must fail: cows only", vocab.scene([("pen", "cow", 3)]), {}, False)]
         for why, setup, row, want in rows:
             with self.subTest(why):
                 self.assertEqual(fights(setup, row), want)
@@ -418,6 +418,8 @@ class Scene(unittest.TestCase):
         for item, want in self.ROWS:
             with self.subTest(item[0]):
                 self.assertEqual(vocab.scene([item]), want)
+        with self.subTest("must fail: a word no template defines"), self.assertRaises(KeyError):
+            vocab.scene([("teleport", 1)])
 
     def test_setup_reads_back(self):
         for item, want in self.ROWS:

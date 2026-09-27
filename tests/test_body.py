@@ -196,7 +196,7 @@ class TheArbiterJudgesAndNeverPrices(unittest.TestCase):
 
     # (who holds the body, who asks) → the refusal, and whether the asker's own decision is released by it
     REFUSED = [("safety", "plan", "layer"), ("safety", "tactic", "layer"), ("tactic", "plan", "layer"),
-               ("tactic", "tactic", "held"), ("tactic", "safety", None)]
+               ("tactic", "tactic", "held"), ("tactic", "safety", None)]  # must fail: a faster layer is never refused
 
     def test_being_refused_ends_the_assumption_it_was_made_under(self):
         for holder, asker, why_want in self.REFUSED:

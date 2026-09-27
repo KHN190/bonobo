@@ -66,7 +66,7 @@ class OneTable(unittest.TestCase):
 
 
 class Counts(unittest.TestCase):
-    # (belief, observations behind it with nothing measured): a guess is 0, what the game publishes is WIKI_N
+    # (belief, observations behind it with nothing measured): a guess is 0, what the game publishes is WIKI_N (must fail: unknown paths raise, test_unknown_beliefs_are_errors)
     ROWS = [("time.death_cost_s", 0), ("risk.encounters_per_day", 0), ("mobs.minecraft:zombie.attack_s", 0),
             ("mobs.minecraft:zombie.hp", beliefs.WIKI_N), ("mobs.minecraft:zombie.attack", beliefs.WIKI_N),
             ("mobs.minecraft:zombie.notice_r", beliefs.WIKI_N)]

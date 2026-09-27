@@ -45,7 +45,7 @@ def price(st):
 
 # (situation, the state) → the answer, set by hand
 ROWS = [
-    ("nothing coming: carry on", lambda: frame("walker", hazards=[]), "ignore"),
+    ("must fail: nothing coming: carry on", lambda: frame("walker", hazards=[]), "ignore"),
     ("one zombie close, full health: kill it", lambda: frame("walker"), "fight"),
     ("one zombie 24 blocks off: not worth stopping for", lambda: frame("walker", away=24), "ignore"),
     ("a skeleton close, full health: close in and kill it", lambda: frame("archer"), "fight"),
