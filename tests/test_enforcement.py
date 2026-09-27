@@ -35,31 +35,6 @@ def source(module):
         return f.read()
 
 
-def call_graph():
-    """{module: {called names}} across the package — attribute calls included (`combat.shoot` → `shoot`)."""
-    graph = {}
-    for name in sorted(os.listdir(PKG)):
-        if not name.endswith(".py"):
-            continue
-        tree = ast.parse(source(name))
-        called = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                f = node.func
-                if isinstance(f, ast.Name):
-                    called.add(f.id)
-                elif isinstance(f, ast.Attribute):
-                    called.add(f.attr)
-            elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                for a in node.names:
-                    called.add((a.asname or a.name).split(".")[-1])
-        graph[name[:-3]] = called
-    return graph
-
-
-GRAPH = call_graph()
-
-
 # Modules that execute: they talk to the game or decide what to do. A rule enforced only in a module that never
 # runs during play is not enforced.
 # `api` belongs here: it is the funnel every task passes through, and therefore the right place for guards that
@@ -80,32 +55,9 @@ class Recorder:
         self.action = action
 
 
-EXECUTING = {"end", "combat", "brain", "skills", "nav", "perception", "skillcore", "skill", "nether", "api",
-             "fight_plan", "threat", "hazard", "fight_loop"}
-
-
-def callers_of(func, among=EXECUTING):
-    return {m for m in among if func in GRAPH.get(m, ())}
-
-
 class RulesAreWired(unittest.TestCase):
-    # (rule, the functions that enforce it, exactly which executing modules call them). A rule reached from nowhere
-    # is written, not enforced; a new caller is a change of wiring someone should see.
-    WIRED = [
-        ("the fight asks the planner", ("plan",), {"end"}),
-        ("the bunker geometry is dug", ("mouth", "tunnel", "dig_plan"), {"end"}),
-        ("the threat model is used by the fight", ("threats", "tti", "exposure", "window_summary"), {"fight_plan"}),
-        ("the safety choice is made by the model", ("best_step", "slack_at", "min_tti"), {"end", "fight_plan", "nav"}),
-        ("threats are bid for from perception", ("bid", "options"), {"fight_loop", "perception", "threat"}),
-        ("perception interrupts on pressure, not health alone", ("pressure", "time_to_die"), {"perception", "threat"}),
-        ("the fight is carried by the one answer loop", ("carry",), {"end", "fight_loop"}),
-        ("threat rows are differenced in one place", ("rows",), {"end", "threat"}),
-    ]
-
-    def test_rules_are_called_from_what_runs(self):
-        for rule, funcs, callers in self.WIRED:
-            with self.subTest(rule):
-                self.assertEqual(set().union(*(callers_of(f) for f in funcs)), callers)
+    # The wiring rules (planner, bunker, threat model, safe step, bids, interrupts, the answer loop, rows) are
+    # shown by behaviour in tests/test_wiring.py.
 
     # (the entity's last reading (pos, seconds ago) or None, now) → the velocity its row carries
     VELOCITY = [("never seen before: at rest", None, (10.0, 64.0, 0.0), (0.0, 0.0, 0.0)),
