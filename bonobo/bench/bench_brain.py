@@ -162,7 +162,10 @@ CODE_ROWS = [
                 lambda ctx: (_chat("effect give @p minecraft:instant_damage 1 0 true"), time.sleep(0.5)),
                 lambda ctx: BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"],
                                         hp_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["health"])],
-               lambda: _regen_fed(__import__("bonobo.api", fromlist=["get"]), None),
+               # done is the whole outcome: fed alone stopped the rounds the moment the bread went down, before
+               # the health could rise (hp 14 at the end, 20260928-075617)
+               lambda: _all(_regen_fed, lambda api, inv: api.get("/state")["health"] > BASE["hp_before"])(
+                   __import__("bonobo.api", fromlist=["get"]), None),
                _all(_regen_fed, lambda api, inv: api.get("/state")["health"] > BASE["hp_before"])),
     # a search interrupted mid-way (for the night) and taken up again: no section searched twice, no ore scanned again
     dict(name="search_night_resume",
