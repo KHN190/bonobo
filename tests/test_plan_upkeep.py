@@ -1799,6 +1799,8 @@ class Overnight(unittest.TestCase):
 
     # At night, from the shelter row (no bed: the sleep row's): (situation, bag, ground digs by hand) → way, steps
     NIGHT = [("in the open on dirt, an empty bag: dig in by hand", [], True, "dig in by hand", ["shelter"]),
+             ("on stone, dirt 8 blocks along the ground (2 s walk), an empty bag: walk there, dig in by hand", [], 2.0,
+              "dig in by hand", ["shelter"]),
              ("on stone, cobblestone carried: walled in", [("cobblestone", 16)], False, "wall in", ["shelter"]),
              ("on stone, a pickaxe: dig in", [("stone_pickaxe", 1)], False, "dig in", ["shelter"]),
              ("on stone, an empty bag: a pickaxe first — its tree waits for day (brain.surface_closed)", [], False,
@@ -1817,7 +1819,7 @@ class Overnight(unittest.TestCase):
         for name, carried, soft, way, kinds in self.NIGHT:
             with self.subTest(name):
                 snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
-                facts = None if soft is None else {"soft_ground": soft}
+                facts = None if soft is None else needs.night_facts(soft)
                 got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=False)
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
 

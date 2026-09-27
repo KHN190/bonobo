@@ -172,7 +172,8 @@ SOURCES = {
     "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
                    "needs": [("tool", "pickaxe", 0)]},
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
-                   "when": ("soft_ground", "the ground under the feet needs a pickaxe")},
+                   "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
+                   "extra_s": "soft_walk_s"},        # the walk to that ground (skills.soft_spot) is part of it
                   {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", 9)]},
                   # The hut's needs are its blueprint's materials, read from it: a copy said "minecraft:stone" (smooth
                   # stone) where the blueprint wants the "stone" group, so the plan chose a hut the build then found
@@ -227,7 +228,9 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
                                                        else {})})
             step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
             own.append(step)
-        seconds = cost.plan_s(pre + own)
+        # A source's own extra seconds the place facts say (the walk to soft ground), added to its plan.
+        seconds = cost.plan_s(pre + own) + float((facts or {}).get(src.get("extra_s"), 0.0) if src.get("extra_s")
+                                                 else 0.0)
         if seconds < best:
             best, best_steps, name = seconds, pre + own, src["name"]
     if best == math.inf:

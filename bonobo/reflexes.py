@@ -186,7 +186,7 @@ class Maintain:
 
         def night_way():
             soft = soft_ground()
-            return needs.overnight(inv, b.needs.cost(snap), {"soft_ground": soft}, bed_too=False)
+            return needs.overnight(inv, b.needs.cost(snap), needs.night_facts(soft), bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
             "edible": lambda: skills.edible_carried(inv),

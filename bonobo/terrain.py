@@ -178,6 +178,33 @@ def soft_below(region, feet, depth):
     return all(n not in ("air", "cave_air", "water") and n.endswith(HAND_MINEABLE_SUFFIX) for n in names)
 
 
+SOFT_RADIUS = 16          # how far along the ground a spot to dig in by hand is looked for
+
+
+def nearest_soft(region, feet, depth, radius=SOFT_RADIUS):
+    """Pure: (cell, steps) — the nearest spot on the same connected ground (breadth-first over standing cells, one
+    block up or down a step, within `radius` sideways) whose `depth` cells below all dig by hand (`soft_below`);
+    (feet, 0) when it is right here; None when there is none. A dirt patch across a gap is not on this ground."""
+    from collections import deque
+    if soft_below(region, feet, depth):
+        return feet, 0
+    frontier, seen = deque([(feet, 0)]), {feet}
+    while frontier:
+        c, d = frontier.popleft()
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            for dy in (0, 1, -1):
+                n = (c[0] + dx, c[1] + dy, c[2] + dz)
+                if n in seen or abs(n[0] - feet[0]) > radius or abs(n[2] - feet[2]) > radius:
+                    continue
+                seen.add(n)
+                if not stands(region, n):
+                    continue
+                if soft_below(region, n, depth):
+                    return n, d + 1
+                frontier.append((n, d + 1))
+    return None
+
+
 def air_route(region, head):
     """Pure: where a drowning body goes to breathe, as (kind, cell, why) or None.
     "land": the nearest cell to stand on dry land reached by swimming from `head` (breadth-first through water and

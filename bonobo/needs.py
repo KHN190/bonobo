@@ -44,6 +44,14 @@ def dusk_s(snap):
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
 
+def night_facts(soft):
+    """The place facts the night's pricing reads, from the soft-ground reading (skills.soft_ground_here: seconds'
+    walk to ground that digs by hand, None for none; offline readings may say True/False for right here/none)."""
+    if soft is None or soft is False:
+        return {"soft_ground": False}
+    return {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
+
+
 def overnight(inv, cost, facts=None, bed_too=True):
     """The one choice of how to get through a night, by price (`decompose.cheapest` over "overnight"): ("bed" or
     a SOURCES["overnight"] name, seconds, steps); (None, inf, []) when there is none. Asked at dusk for the lead
@@ -171,7 +179,7 @@ class Needs:
         # The night's way from here (dig in, wall in, a hut): the shelter reflex runs it when its parts are in the
         # bag; otherwise its parts are this round's need.
         night_way = _once(None, "night_way", lambda: overnight(
-            inv, self.cost(snap), {"soft_ground": soft_ground()},
+            inv, self.cost(snap), night_facts(soft_ground()),
             bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))

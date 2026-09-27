@@ -3151,6 +3151,35 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
 # A fight with no pickaxe in the bag: upkeep's "no pickaxe" must wait until the fight is over — the zombie dealt
 # with first, no log gathered while it stands, and the player still inside the arena (it walked off the sky
 # platform to look for trees mid-fight and fell 125 blocks).
+# Dusk on stone with an empty bag, a patch of dirt three deep 8 blocks along the platform: the night's pricing walks
+# there and digs in by hand (terrain.nearest_soft + the walk in the price). The control: the same patch across a
+# drop to nothing — it is not on this ground, so the body never goes there.
+DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
+
+
+def _in_the_patch_underground(api, inv):
+    s = api.get("/state")
+    (x0, _y0, z0), (x1, _y1, z1) = DIRT_PATCH
+    return (x0 <= s["blockX"] <= x1 and z0 <= s["blockZ"] <= z1 and s["blockY"] <= at(0, 0, 0)[1] - 2
+            and _enclosed())
+
+
+for _name, _doc, _extra, _done, _check in [
+        ("night_dig_in_dirt", "dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked "
+         "there, dug in by hand: two or more down in the dirt, sealed overhead", [],
+         lambda: _in_the_patch_underground(__import__("bonobo.api", fromlist=["get"]), None), _in_the_patch_underground),
+        ("night_dig_in_dirt_unreachable", "the same dirt across a drop to nothing → never walked to (must not): the "
+         "body stays on its side of the gap", [f"fill {_c(at(4, -3, -8))} {_c(at(5, -1, 8))} air"], lambda: False,
+         lambda api, inv: api.get("/state")["blockX"] < at(4, 0, 0)[0])]:
+    SHEET[_name] = {
+        "doc": _doc, "module": "brain", "point": "C", "skills": ["shelter:dig in"], "tier_fixed": "brain",
+        "tags": {"base": "brain", "family": "night_dirt"},
+        "setup": _floor() + [f"fill {_c(DIRT_PATCH[0])} {_c(DIRT_PATCH[1])} dirt"] + _extra + [_tp(), "time set 12500"],
+        "before": _start(_name),
+        "run": _brain_rounds(25, _done), "check": _check, "budget": 30,
+    }
+
+
 SHEET["fight_before_upkeep"] = {
     "doc": "Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
            "before any log is gathered (must not), the player never leaves the arena",
