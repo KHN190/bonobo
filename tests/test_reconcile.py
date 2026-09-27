@@ -98,3 +98,30 @@ class Reconcile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedHelpers(unittest.TestCase):
+    """goals.have_remainder / blocks_remainder: the one remainder math goals and skills share."""
+
+    def test_have_remainder(self):
+        from tests.world import bag
+        rows = [("logs short", [["log", 4]], inventory(("oak_log", 1)), {"log": 3}),
+                ("a tool short", [["tool", "pickaxe", 1]], inventory(), {"tool:pickaxe": 1}),
+                ("all held", [["log", 2], ["tool", "pickaxe", 0]], inventory(("oak_log", 2), ("wooden_pickaxe", 1)), {}),
+                ("food counts cooked meals only", [["food", 2]], inventory(("beef", 5), ("cooked_beef", 1)),
+                 {"food": 1})]
+        for name, need, inv, want in rows:
+            with self.subTest(name):
+                self.assertEqual(goals.have_remainder(bag(inv), need), want)
+
+    def test_blocks_remainder(self):
+        want = {(0, 64, 0): "obsidian", (1, 64, 0): "obsidian", (0, 65, 0): "minecraft:obsidian"}
+        rows = [("nothing built", {}, want),
+                ("two placed", {(0, 64, 0): "obsidian", (1, 64, 0): "minecraft:obsidian"}, {(0, 65, 0): "minecraft:obsidian"}),
+                ("all placed: met", {p: "obsidian" for p in want}, {}),
+                ("must fail: the wrong block is not the block", {p: "stone" for p in want}, want),
+                ("taken away behind our back: grows back", {(0, 64, 0): "obsidian"},
+                 {(1, 64, 0): "obsidian", (0, 65, 0): "minecraft:obsidian"})]
+        for name, world, rest in rows:
+            with self.subTest(name):
+                self.assertEqual(goals.blocks_remainder(want, world.get), rest)

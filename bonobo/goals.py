@@ -143,17 +143,30 @@ def remainder(goal, snap, mem):
     return DESIRED[goal["goal"]](goal, snap, mem)
 
 
+# The shared remainder math — the goals here and the skills' `remaining` (skill.py) both use these, nowhere else.
+def have_remainder(inv, rows):
+    """Pure: what of `rows` ([token, n] / ["tool", kind, tier]) the bag does not hold — {token: missing n,
+    "tool:<kind>": tier}, {} when all is held."""
+    items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
+    out = reconcile(items, {t: held(inv, t) for t in items})
+    for r in rows:
+        if r[0] == "tool" and not tool_ok(inv, r[1], int(r[2])):
+            out[f"tool:{r[1]}"] = int(r[2])
+    return out
+
+
+def blocks_remainder(want, name_at):
+    """Pure: the cells of `want` ({pos: block}) the world does not show (`name_at(pos)` → the block there) —
+    {pos: block}; a structure's remainder, grown back when a block is taken away."""
+    from .data import bare
+    return {p: b for p, b in want.items() if bare(name_at(p) or "air") != bare(b)}
+
+
 @desired(*ITEM_GOALS)
 def _held_remainder(goal, snap, mem):
     if goal["goal"] == "milestone" and goal.get("args", {}).get("name") in RUN_AFTER:
         return None                       # its plan ends in doing (find the stronghold, light the portal)
-    rows = needs(goal, snap.inv)
-    items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
-    out = reconcile(items, {t: held(snap.inv, t) for t in items})
-    for r in rows:
-        if r[0] == "tool" and not tool_ok(snap.inv, r[1], int(r[2])):
-            out[f"tool:{r[1]}"] = int(r[2])
-    return out
+    return have_remainder(snap.inv, needs(goal, snap.inv))
 
 
 @desired("goto")
