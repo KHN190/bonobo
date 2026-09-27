@@ -1536,12 +1536,16 @@ def _crystals_left(api, inv):
 NETHER_LAVA = [f"fill {_c(at(1, 0, -1))} {_c(at(4, 0, 1))} lava"]
 
 # -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells
-def _placed_facing(pos, facing):
-    """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""
+def placed_facing_in(region, pos, item, facing):
+    """Pure: the block at `pos` is `item` and reports `facing`."""
+    from ..data import bare
+    return bare(region.name(pos) or "air") == bare(item) and region.prop(pos, "facing") == facing
+
+def _placed_facing(pos, facing, item):
+    """The block at `pos` is the asked `item` and reports `facing`."""
     def check(api, inv):
         from ..world import Region
-        r = Region(pos, pos, props=True)
-        return r.name(pos) != "air" and r.prop(pos, "facing") == facing
+        return placed_facing_in(Region(pos, pos, props=True), pos, item, facing)
     return check
 
 def _place_facing(item, pos, facing):
@@ -2516,7 +2520,7 @@ def place_row(name, item, asked, want, tier):
     return _row(name, f"Place {item.split(':')[1]} asking facing={asked} (the jar turns the body by the block's own "
                       f"rule) → the block reports facing={want}", "building",
                 [("floor",), ("stand",), ("give", item.split(":")[1], 2)], ("place_facing", item, p, asked),
-                [("placed_facing", p, want)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
+                [("placed_facing", p, want, item)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
                 variant=(item, asked))
 
 def start_row(name, what, start_scene, stand):

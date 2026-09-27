@@ -1139,6 +1139,34 @@ class BuriedFirst(unittest.TestCase):
                     self.assertIsNone(vocab._buried_first(None))
 
 
+class PlacedFacing(unittest.TestCase):
+    """place_*'s check: the asked block stands at the cell with the asked facing — not any block that faces so."""
+
+    def test_placed_facing_in(self):
+        from bonobo.bench import vocab
+
+        class Cell:
+            def __init__(self, name, facing):
+                self.n, self.f = name, facing
+
+            def name(self, p):
+                return self.n
+
+            def prop(self, p, key):
+                return self.f
+        pos = (3, 200, 0)
+        rows = [("the furnace, facing north", Cell("minecraft:furnace", "north"), "minecraft:furnace", "north", True),
+                ("cobblestone, no facing asked", Cell("minecraft:cobblestone", None), "minecraft:cobblestone", None, True),
+                ("must fail: another block with that facing", Cell("minecraft:chest", "north"), "minecraft:furnace",
+                 "north", False),
+                ("must fail: the furnace facing elsewhere", Cell("minecraft:furnace", "south"), "minecraft:furnace",
+                 "north", False),
+                ("must fail: nothing placed", Cell("minecraft:air", None), "minecraft:air", "north", False)]
+        for name, cell, item, facing, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.placed_facing_in(cell, pos, item, facing), want)
+
+
 class DiamondScan(unittest.TestCase):
     """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
 
