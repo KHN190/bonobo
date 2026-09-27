@@ -7,11 +7,10 @@ from dataclasses import dataclass, field
 
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, TAKEABLE, members,
-                        source)
+from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, TAKEABLE,
+                        TOOL_MIN_DURABILITY, members, source, tool_ok)
 
 MAX_DEPTH = 14
-TOOL_MIN_DURABILITY = 10
 
 
 class Unplannable(McError):
@@ -296,12 +295,6 @@ def hunts_a_fighter(types):
     """Does this hunt target something that fights back (threat.MOBS knows its dps)? Animals do not."""
     from .threat import MOBS
     return any(t in MOBS for t in types)
-
-
-def tool_ok(inv, kind, tier, min_left=TOOL_MIN_DURABILITY):
-    if not hasattr(inv, "tools"):
-        return False
-    return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
 
 
 def runnable(step, inv):

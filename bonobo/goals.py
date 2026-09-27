@@ -19,8 +19,8 @@ the work is finished, because it is under way somewhere else (a furnace), or bec
 import math
 
 from .data import bare
-from .knowledge import DRAGON_BEDS, food_count, kit_needs
-from .planner import tool_ok
+from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held, kit_needs, reconcile,  # noqa: F401
+                        tool_ok)
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
@@ -95,13 +95,6 @@ def needs(goal, inv):
     return [tuple(r) for r in rows]
 
 
-def held(inv, token):
-    """How many of `token` the bag holds, groups and "food" (cooked meals) included."""
-    if token == "food":
-        return food_count(inv)
-    return inv.count(token)
-
-
 def short(inv, need_rows):
     """What of these is not held yet, as text; empty when everything is."""
     out = []
@@ -133,35 +126,13 @@ def desired(*templates):
     return wrap
 
 
-def reconcile(want, have):
-    """Pure: what of `want` ({key: amount}) `have` does not cover — {key: missing}, {} when all is there."""
-    return {k: n - have.get(k, 0) for k, n in want.items() if have.get(k, 0) < n}
-
-
 def remainder(goal, snap, mem):
     """The goal's remainder from the world now ({} = done), or None when only its plan running can say."""
     return DESIRED[goal["goal"]](goal, snap, mem)
 
 
-# The shared remainder math — the goals here and the skills' `remaining` (skill.py) both use these, nowhere else.
-def have_remainder(inv, rows):
-    """Pure: what of `rows` ([token, n] / ["tool", kind, tier]) the bag does not hold — {token: missing n,
-    "tool:<kind>": tier}, {} when all is held."""
-    items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
-    out = reconcile(items, {t: held(inv, t) for t in items})
-    for r in rows:
-        if r[0] == "tool" and not tool_ok(inv, r[1], int(r[2])):
-            out[f"tool:{r[1]}"] = int(r[2])
-    return out
-
-
-def blocks_remainder(want, name_at):
-    """Pure: the cells of `want` ({pos: block}) the world does not show (`name_at(pos)` → the block there) —
-    {pos: block}; a structure's remainder, grown back when a block is taken away."""
-    from .data import bare
-    return {p: b for p, b in want.items() if bare(name_at(p) or "air") != bare(b)}
-
-
+# The shared remainder math (reconcile, have_remainder, blocks_remainder) is knowledge's: goals here and the skills'
+# `remaining` (skill.py) both read it from there, nowhere else.
 @desired(*ITEM_GOALS)
 def _held_remainder(goal, snap, mem):
     if goal["goal"] == "milestone" and goal.get("args", {}).get("name") in RUN_AFTER:
