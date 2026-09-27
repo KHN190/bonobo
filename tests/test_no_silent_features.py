@@ -10,6 +10,7 @@ the failure has to leave a mark (`api.swallowed`). This scans for the shape rath
 the deciding modules that catches a world read and quietly returns nothing.
 """
 import ast
+import pathlib
 import os
 import sys
 import unittest
@@ -29,8 +30,7 @@ ALLOWED = set()
 
 def quiet_handlers(path):
     """[(line, function, what it swallows)] for handlers that catch a world read and return nothing."""
-    with open(path) as f:
-        return quiet_in(f.read())
+    return quiet_in(pathlib.Path(path).read_text())
 
 
 def quiet_in(src):

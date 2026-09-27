@@ -10,6 +10,7 @@ there a path from the code that actually executes to the function that enforces 
 """
 import ast
 import contextlib
+import pathlib
 import os
 import sys
 import unittest
@@ -26,13 +27,6 @@ def interrupt_writes(src):
                for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "INTERRUPT"
                and isinstance(t.value, ast.Name) and t.value.id == "api"
                and not (isinstance(node.value, ast.Constant) and node.value.value is None))
-
-
-def source(module):
-    """A module's text. One reader, and it closes the file — ten bare `open()` calls left ten descriptors to the
-    garbage collector, which is a warning in every run and a leak in none of nobody's control."""
-    with open(os.path.join(PKG, module if module.endswith(".py") else module + ".py")) as f:
-        return f.read()
 
 
 # Modules that execute: they talk to the game or decide what to do. A rule enforced only in a module that never
@@ -100,8 +94,7 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual(interrupt_writes(src), want)
 
     def test_the_interrupt_message_has_one_writer(self):
-        writers = {m: n for m in sorted(f[:-3] for f in os.listdir(PKG) if f.endswith(".py"))
-                   if (n := interrupt_writes(source(m)))}
+        writers = {p.stem: n for p in sorted(pathlib.Path(PKG).glob("*.py")) if (n := interrupt_writes(p.read_text()))}
         # perception may still hand a message to a soft skill without stopping it; every stop-and-tell goes
         # through the arbiter. scenarios is the bench, which plays the interrupting player.
         self.assertEqual(sorted(set(writers) - {"perception", "scenarios"}), ["arbiter"], f"writers: {writers}")

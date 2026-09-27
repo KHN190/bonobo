@@ -15,6 +15,7 @@ Property-shaped and parameterised where the sweep applies, so each of these is o
 """
 import math
 import os
+import pathlib
 import sys
 import tempfile
 import unittest
@@ -291,13 +292,10 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
                 self.assertEqual(bare_mine_lines(src), want)
 
     def test_no_module_posts_a_bare_mine_task(self):
-        pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
+        pkg = pathlib.Path(__file__).resolve().parent.parent / "bonobo"
         allowed = {"building.py", "end.py", "wood.py", "farming.py", "nav.py", "skillcore.py"}
-        offenders = []
-        for name in sorted(os.listdir(pkg)):
-            if name.endswith(".py") and name not in allowed:
-                with open(os.path.join(pkg, name)) as f:
-                    offenders += [f"{name}:{line}" for line in bare_mine_lines(f.read())]
+        offenders = [f"{p.name}:{line}" for p in sorted(pkg.glob("*.py")) if p.name not in allowed
+                     for line in bare_mine_lines(p.read_text())]
         self.assertEqual(offenders, [], f"these break blocks without the protection door: {offenders}")
 
 
