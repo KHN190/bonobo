@@ -2473,3 +2473,26 @@ class AnOreNotedIsEveryFormOfIt(unittest.TestCase):
                 for kind, pos in notes:
                     m.note_seen(kind, pos, OVER)
                 self.assertEqual(explore.unknown(m, OVER, names), want)
+
+
+class ToolsThatPayForThemselves(unittest.TestCase):
+    """planner.speed_up: an optional tool (the skill's `speed`) is made when making it costs less than it saves,
+    and never from the work it would speed up."""
+
+    def test_over_the_table(self):
+        from bonobo.planner import NullCost, Planner
+        kit = {"minecraft:oak_planks": 8, "minecraft:stick": 4, "minecraft:crafting_table": 1}
+        rows = [("12 logs, planks and sticks carried: an axe first", kit, [], [("log", 12)], "minecraft:wooden_axe"),
+                ("2 logs: saves less than the axe costs, none", kit, [], [("log", 2)], None),
+                ("12 logs, an empty bag: the axe would need the logs, none", {}, [], [("log", 12)], None),
+                ("12 logs, an axe held: none made", kit, [("axe", 0, 50)], [("log", 12)], None),
+                ("8 beef (4 kills), planks and sticks: a sword first", kit, [], [("minecraft:beef", 8)],
+                 "minecraft:wooden_sword")]
+        for name, counts, tools, needs_, want in rows:
+            with self.subTest(name):
+                steps = Planner(dict(counts), list(tools), NullCost()).plan(needs_)
+                made = [s.token for s in steps if s.kind == "craft" and s.token.endswith(("_axe", "_sword"))]
+                self.assertEqual(made[0] if made else None, want)
+                if want:
+                    work = next(i for i, s in enumerate(steps) if s.kind in ("gather", "hunt"))
+                    self.assertLess(steps.index(next(s for s in steps if s.token == want)), work)

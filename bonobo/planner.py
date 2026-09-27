@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .knowledge import COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, STATIONS, members, source
+from .knowledge import COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, members, source
 
 MAX_DEPTH = 14
 TOOL_MIN_DURABILITY = 10
@@ -137,6 +137,28 @@ class Planner:
                 return tier
         return 0
 
+    def speed_up(self, kind, units, depth, soft=True):
+        """Before `units` of work of step `kind`: the optional tools its skill runs faster with (`@skill(speed=...)`,
+        seconds saved per unit), made when making one costs less than it saves — and only from what does not
+        need this same work (an axe that needs the logs it would speed up is made after them, too late).
+        A shovel only for soft ground (`soft`)."""
+        if self.probing:
+            return
+        for tool, saved in SKILL_SPEED.get(STEP_SKILL.get(kind), {}).items():
+            if (tool == "shovel" and not soft) or self.inv.has_tool(tool, 0, TOOL_MIN_DURABILITY):
+                continue
+            probe = Planner(self.inv.counts, [], self.cost)
+            probe.inv.produced = Counter(self.inv.produced)
+            probe.probing = True
+            try:
+                steps = probe.plan([("tool", tool, 0)])
+            except Unplannable:
+                continue
+            if any(s.kind == kind for s in steps):
+                continue
+            if saved * units > sum(s.est for s in steps) / 20.0:
+                self.need_tool(tool, 0, depth)
+
     def need_station(self, block, depth):
         """Stations are required, never consumed: once planned or held, every later step reuses them."""
         if self.inv.available(block) > 0 or self.cost.station_near(block):
@@ -194,9 +216,11 @@ class Planner:
             if tier is not None:
                 self.need_tool("pickaxe", tier, depth)
             per = MINE_YIELD.get(mid(token), 1)
+            self.speed_up("mine", math.ceil(missing / per), depth, soft=tier is None)
             self.add_step(Step("mine", token, missing, {"blocks": blocks, "tier": tier,
                                                         "breaks": math.ceil(missing / per)}))
         elif kind == "gather":
+            self.speed_up("gather", missing, depth)
             self.add_step(Step("gather", token, missing, {}))
         elif kind == "fill":
             _, container = src
@@ -210,6 +234,7 @@ class Planner:
                 # a spider costs more health than we have, so "string" without a sword planned a hunt that could
                 # only ever be abandoned. The weapon is part of the requirement, like the pickaxe tier for ore.
                 self.need_tool("sword", 1, depth)
+            self.speed_up("hunt", math.ceil(missing / per), depth)
             self.add_step(Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
                                                         "fighter": hunts_a_fighter(types)}))
 
