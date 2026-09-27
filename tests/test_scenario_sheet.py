@@ -657,3 +657,25 @@ class Pending(unittest.TestCase):
         for name, row, want in rows:
             with self.subTest(name):
                 self.assertEqual(row in got, want)
+
+
+class SkillsAreTimed(unittest.TestCase):
+    """A skill row fails past TARGET_SLACK × its target, timed from its own run (scenarios.TARGET_S)."""
+
+    def test_quick_over_the_table(self):
+        rows = [("chop in 12 s against 10: inside 15", 12.0, 10.0, True),
+                ("chop in 16 s: over", 16.0, 10.0, False),
+                ("a craft in 3 s against 2: exactly the slack", 3.0, 2.0, True),
+                ("never run: not quick", None, 2.0, False)]
+        for name, took, target, want in rows:
+            with self.subTest(name), mock.patch.dict(sc.BASE, {"run_s": took}):
+                self.assertIs(sc._quick(target)(None, None), want)
+
+    def test_the_timed_rows(self):
+        """The rows with a target run through `_timed`; the others do not."""
+        for name, want in (("chop__base", True), ("mine_stone__base", True), ("craft__base", True), ("eat__base", True),
+                           ("find_air_capped", True), ("smelt__base", False), ("chop__night", False)):
+            with self.subTest(name):
+                self.assertEqual(sc.SHEET[name]["run"].__qualname__ == "_timed.<locals>.go", want)
+        sc.BASE.pop("run_s", None)
+        self.assertEqual((sc._timed(lambda ctx: "done")(None), sc.BASE["run_s"] < 1.0), ("done", True))

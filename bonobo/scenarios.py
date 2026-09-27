@@ -1533,6 +1533,29 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass"):
 # which survives skills being merged or renamed — or, for a skill that provides nothing, its registered name.
 # name → dict(skills, doc, setup, run, check, budget, needs (the goal as planner needs, for resume / goal-met),
 #             effect (token, n) for the at-success interrupt, progress: what counts as progress when it is not the effect)
+# How long a skill's own work should take here (seconds, measured from its run starting, the setup's waits
+# excluded); a row fails past TARGET_SLACK × this. From the speed-run targets: one tree, a small stone batch, one
+# craft sitting, one bite, surfacing.
+TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 2.0, "eat": 2.0, "find_air": 5.0}
+TARGET_SLACK = 1.5
+
+
+def _timed(run):
+    """The run, its own seconds kept in BASE["run_s"] (the check reads them)."""
+    def go(ctx):
+        t0 = time.time()
+        try:
+            return run(ctx)
+        finally:
+            BASE["run_s"] = time.time() - t0
+    return go
+
+
+def _quick(target):
+    """Done inside TARGET_SLACK × `target` seconds of its own run."""
+    return lambda api, inv: BASE.get("run_s") is not None and BASE["run_s"] <= target * TARGET_SLACK
+
+
 BASES = {
     # Every base is one small job (≤ 15 s): the conditions and surprises add to it, and a row stays under 30 s.
     "nav": dict(skills=["goto"], doc="walk 8 blocks east over the arena", point="A",
@@ -1795,6 +1818,8 @@ def _row(name, base, cond=None, extra=None):
         check = _all(_failed_as_expected(), _alive(), effect)
     if c.get("also"):
         check = _all(check, c["also"](b))
+    if not c and not x and base in TARGET_S:
+        run, check = _timed(run), _all(check, _quick(TARGET_S[base]))
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check,
            # A lagging server multiplies the base's time; the cap is the bench's hard 60 s (runner.ROW_LIMIT_S).
@@ -1992,6 +2017,8 @@ def _broken_hut(ctx):
 
 
 for _name, (_skills, _doc, _setup, _run, _check, _budget) in _ONE.items():
+    if _skills[0] in TARGET_S:
+        _run, _check = _timed(_run), _all(_check, _quick(TARGET_S[_skills[0]]))
     SHEET[_name] = {"doc": _doc, "module": "skills", "setup": list(_setup), "before": _start(_name), "run": _run,
                     "check": _check, "budget": _budget, "skills": list(_skills), "point": "A",
                     "tags": {"base": _skills[0]}}
