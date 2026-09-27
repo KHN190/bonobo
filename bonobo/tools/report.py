@@ -34,7 +34,7 @@ def fit(paths):
         out["exposure_in_cover_s"] = round(sum(w["exposure_s"] for w in covered) / len(covered), 2)
     if open_:
         out["exposure_in_open_s"] = round(sum(w["exposure_s"] for w in open_) / len(open_), 2)
-    # Death risk needs deaths. Without any, the slope stays a guess and stays declared as one.
+    # death risk needs deaths: without any, the slope stays a declared guess
     deaths = sum(len(cm.deaths(ct.load(p)["frames"])) for p in paths)
     exposed = sum(w["exposure_s"] for w in windows)
     if deaths and exposed:

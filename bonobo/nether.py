@@ -38,7 +38,7 @@ def use_portal(ctx, to_dimension):
 
     s = api.get("/state")
     here = (s["blockX"], s["blockY"], s["blockZ"])
-    # Real portal blocks first (an arrival site is where we stood, not necessarily inside the portal).
+    # real portal blocks first: an arrival site is where we stood, not the portal
     cells = [(h["x"], h["y"], h["z"]) for h in find(["nether_portal"], radius=48, limit=8)]
     if not cells:
         for m in ctx.mem.machines(s["dimension"], "portal"):
@@ -48,20 +48,19 @@ def use_portal(ctx, to_dimension):
         raise NotAvailable(f"no known portal in {s['dimension']}")
     cell = min(cells, key=lambda c: (math.dist(c, here), c[1]))
     log(f"   heading into the portal at {cell} → {to_dimension}")
-    # Long trips in legs: one travel plan over 110 blocks and a 55-block climb ran out of search nodes four times.
+    # long trips in legs: one plan over 110 blocks ran out of nodes
     for hop in nav.waypoints(here, cell)[:-1]:
         if not nav.arrived(hop, ctx.policy, range_=6, attempts=1):
             raise api.NavFailed(f"stuck on the way to the portal near {hop}")
         yield hop
     if not nav.arrived(cell, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"portal at {cell} not reachable")
-    # travel counts "within 1.5 blocks" as arrived — it once stopped one block beside the portal and waited there.
-    # Step onto the exact cell.
+    # travel counts within 1.5 as arrived: step onto the exact cell
     api.run({"type": "goto", "x": cell[0], "y": cell[1], "z": cell[2], "range": 0.25, "partial": False,
              "sprint": False}, wait=15, awaits="the portal cell read after stepping on (still lit? else relight)")
     from .world import Region
     if Region(cell, cell).name(cell) != "nether_portal" and Inventory().count("minecraft:flint_and_steel"):
-        # A ghast fireball (or anything) put the portal out: relight it on the frame block under the opening.
+        # a fireball put the portal out: relight on the frame block under the opening
         below = (cell[0], cell[1] - 1, cell[2])
         log(f"   portal at {cell} is out → relighting")
         api.run(nav.use_on_top("minecraft:flint_and_steel", below), wait=20, awaits="the relit portal, then the dimension change")
@@ -74,8 +73,7 @@ def use_portal(ctx, to_dimension):
             arrived = (st["blockX"], st["blockY"], st["blockZ"])
             ctx.mem.add_site("portal", arrived, to_dimension, name=f"portal-{to_dimension.split(':')[1]}")
             log(f"arrived in {to_dimension} at {arrived}")
-            # Step out of the portal: vanilla only teleports again after leaving it, and standing inside kept the
-            # agent "buried" in portal blocks and blocked the next round's actions.
+            # step out: vanilla teleports again only after leaving the portal
             for dx, dz in ((2, 0), (-2, 0), (0, 2), (0, -2)):
                 api.run({"type": "goto", "x": arrived[0] + dx, "y": arrived[1], "z": arrived[2] + dz, "range": 1.0,
                          "partial": True, "sprint": False}, wait=10, awaits="out of the portal block (in_portal) after each step")
@@ -107,12 +105,12 @@ def find_fortress(ctx, legs=8, leg=48):
             break
         dx, dz = [(1, 0), (0, 1), (-1, 0), (0, -1)][i % 4]
         length = leg * (i // 2 + 1)
-        # Legs at y≈70: above the lava sea (y 31) and below most ceilings; travel bridges and tunnels as needed.
+        # legs at y≈70: above the lava sea, below most ceilings
         nav.go_to((x + dx * length, EXPLORE_Y, z + dz * length), ctx.policy, range_=8, attempts=1,
                   purpose="explore")
         x, y, z = skillcore.feet()
         yield (x, z)
-    # Out of legs (or supplies): go back to the arrival portal instead of wandering further from home.
+    # out of legs or supplies: back to the arrival portal
     home = ctx.mem.sites(NETHER, kinds=["portal"])
     if home:
         nav.arrived(tuple(home[0]["pos"]), ctx.policy, range_=4, attempts=1)
@@ -157,7 +155,7 @@ def wear_gold_helmet():
     return True
 
 def barter_ready(inv, worn):
-    """Pure: why bartering can't start, or None. Piglins attack a player without a piece of gold armor worn."""
+    """Pure: why bartering can't start, or None (piglins attack without gold armour worn)."""
     if not any(w in GOLD_ARMOR for w in worn):
         return "wear a piece of gold armor first"
     if inv.count("minecraft:gold_ingot") < 1:
@@ -194,8 +192,7 @@ def barter_piglin(ctx, ingots=8):
             if not nav.arrived((round(p["x"]), round(p["y"]), round(p["z"])), ctx.policy, range_=2.5, attempts=1):
                 ctx.ban((p["id"], 0, 0), 300)
                 raise api.NavFailed("could not get next to a piglin")
-        # One ingot toward every piglin within reach, then one shared wait: each piglin inspects its own ingot in
-        # parallel (one at a time took 78 s for 8 ingots on the bench).
+        # an ingot toward every piglin in reach, then one shared wait (they inspect in parallel)
         for p in [e for e in piglins if e["distance"] <= 6][:max(1, ingots - thrown)]:
             slot = next((s["slot"] for s in Inventory().slots if s["id"] == "minecraft:gold_ingot"), None)
             if slot is None:
@@ -244,8 +241,7 @@ def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])
     if known:
-        # The nearest estimate, not the first one ever remembered: an old stronghold still in memory sent the
-        # portal-room search thousands of blocks away from the one under our feet.
+        # the nearest estimate, not the oldest
         here = skillcore.feet()
         return tuple(min(known, key=lambda s: math.dist(s["pos"], here))["pos"])
     if api.get("/state")["dimension"] != OVERWORLD:

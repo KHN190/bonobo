@@ -3,15 +3,13 @@
 from .data import UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
 
 BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
-# The ceiling the doubling runs into, by what went wrong. "The world does not offer this here" ages fast (mobs
-# wander, the sun moves, we walk); a bug does not.
+# the doubling's ceiling by cause: "not here" ages fast (mobs wander, we walk); a bug does not
 MAX_BACKSTOP = {"game": 60, "unavailable": 300, "nav": 300, "tool": 120, "stuck": 300, "error": 900}
 MAX_BACKSTOP_DEFAULT = 900
 SOURCES_TRIED = 3          # failures of one (task, cause) — each after changing source — before reporting upward
 LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
-REPLAN_LIMIT = 2    # a replan in a row this often with nothing done between is a failure ("unavailable"): the
-                    # repaired plan failed the same way (plan_repair_on_event replanned every second, forever)
+REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
 
 # The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
 INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "FightHolds", "PlayerTookControl", "Died", "DimensionChanged")
@@ -85,7 +83,7 @@ class Retry:
         key = cause_key(cause, place)
         c = self.cooling.get(key)
         ceiling = MAX_BACKSTOP.get(cause, MAX_BACKSTOP_DEFAULT)
-        # The same cause again at the same place, before its last cooling was long forgotten: it doubles.
+        # the same cause at the same place before its cooling was forgotten: it doubles
         repeats = c["n"] + 1 if c and c["until"] > now - ceiling else 1
         wait = min(ceiling, BACKSTOP.get(cause, 60) * 2 ** (min(repeats, 6) - 1))
         self.cooling[key] = {"until": now + wait, "n": repeats}

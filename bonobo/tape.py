@@ -26,13 +26,9 @@ def recorded(method, path, response):
     if _calls is not None and REPLAY is None and method == "GET" and not path.startswith(("/task", "/status")):
         _calls.setdefault(path, response)
 
-# A playthrough walks the world forward, so it asks questions the recording never asked (a region three blocks
-# further on, a chest that now matters). Strictness is right for replaying ONE round — the answer must be the one
-# the agent really got — and wrong for playing a life forward, where an unknown corner is simply unknown. When this
-# is on, a miss answers "nothing there" instead of aborting the round.
+# lenient replay answers a miss with "nothing there" (playing forward); strict is for replaying one round
 LENIENT = False
-# Shaped like the real answers, because callers read their fields directly: a region has a palette and a grid, an
-# entity query has a list. "Nothing there" must still be a well-formed nothing.
+# shaped like the real answers: callers read their fields directly
 _EMPTY = {"blocks": [], "entities": [], "slots": [], "tasks": [], "palette": ["minecraft:air"],
           "data": [], "size": [0, 0, 0], "items": [], "notes": [], "count": 0}
 
@@ -55,10 +51,7 @@ def store_mem(data):
             f.write(blob)
     return h
 
-# What else belongs on a decision line, registered by whoever owns it. The recorder used to import the four
-# modules whose state it wanted — a file that exists to WATCH the others reached upward into them, which put loot,
-# and through it nav and perception, into the dependency closure of everything that records anything. Now the top
-# wires it (`brain` calls `register` at start-up) and this module imports nothing above `paths`.
+# what else a decision line carries, registered from the top (brain), so the recorder imports nothing above `paths`
 SOURCES = {}
 FILES = {}
 

@@ -24,7 +24,7 @@ from .explore import surface_first, explore_for, seek_blocks, approach_policy  #
 from .wood import chop  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 from .building import _mod_at_least, _open_container, _empty_container_slot, _machine_roles, _go_to_machine, find_machine_spot, resolve_item, block_matches, place_oriented, materials_missing, _build_parts, build_blueprint, build_shelter  # noqa: F401,E402  (split out; re-exported for skills.X callers)
 
-# ---------------------------------------------------------------- placing things near us
+# -- placing things near us
 
 def make_room(ctx):
     """Boxed in a 1-wide shaft: dig the side cell at head height so there is a free spot for a station."""
@@ -43,8 +43,7 @@ def make_room(ctx):
         if region.solid(above) and (region.unbreakable(above) or region.player_made(above)
                                     or any(region.hazard(add(above, d)) for d in nav.NEIGHBOURS6)):
             continue
-        # The cell and the one above it (a chest under a solid block can't be opened, a table there is cramped),
-        # both in one chain.
+        # the cell and the one above (a chest under a block won't open), in one chain
         dig = [nav.mine_task(c) for c in (cell, above) if region.solid(c)]
         if dig:
             api.run_chain(dig, stop_on_failure=True, wait=60)
@@ -78,7 +77,7 @@ def move_to_open_space(ctx):
     yield feet()
     return spot
 
-# ---------------------------------------------------------------- stations
+# -- stations
 
 def takes_back(block, has_pickaxe):
     """Pure: may a placed station be broken to carry it on?"""
@@ -130,7 +129,7 @@ class Station:
             if not _standing(self.block, self.pos):
                 raise McError(f"placed {bare(self.block)} at {self.pos} but the world does not show it")
         else:
-            # Gone from where memory has it: memory stops counting it, so the repaired plan makes one again.
+            # gone from where memory has it: forgotten, so the repaired plan makes one again
             for s in self.ctx.mem.stations(self.ctx.dimension, near=feet(), within=8):
                 if bare(s["block"]) == bare(self.block):
                     self.ctx.mem.remove_station(s["pos"])
@@ -148,8 +147,7 @@ class Station:
     def __exit__(self, *exc):
         api.post("/close")
         if self.placed and not takes_back(self.block, bool(Inventory().tools("pickaxe"))):
-            # Left standing, remembered as a station: a furnace broken by hand takes ~17 s and drops nothing
-            # (smelt__base had its ingot at 10.9 s and timed out at 15 s picking the furnace back up).
+            # left standing, remembered as a station: a furnace broken by hand takes ~17 s and drops nothing
             log(f"   left the {bare(self.block)} standing: no pickaxe to take it back")
             return False
         if self.placed:
@@ -172,7 +170,7 @@ class Station:
                 log(f"   !! lost the carried {bare(self.block)} while picking it up")
         return False
 
-# ---------------------------------------------------------------- crafting and smelting
+# -- crafting and smelting
 
 def resolve_pattern(pattern, times, inv):
     """Replace group tokens with one owned member each, with enough for all cells × times."""
@@ -305,15 +303,14 @@ def _sitting(ctx, recipes):
 
     inv = Inventory()
     if inv.used_slots() >= 36:
-        # The result needs a slot: a full bag makes every craft fail ("missing ingredient"). Drop the least
-        # valuable stack first.
+        # the result needs a slot: drop the least valuable stack first
         close_screen()
         for s in free_slots_plan(inv.slots, need=1, price=ctx.prices().get if ctx else None)[:1]:
             api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
             log(f"   dropped {bare(s['id'])} to make room for crafting")
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
-    # World reads for the emitter, only when a table sitting is in the plan: a table near, else a spot to place one.
+    # world reads only when a table sitting is planned: a table near, else a spot for one
     state = {"inv": inv, "table": None, "spot": None}
     if any(table for table, _part in sittings(steps)):
         near = find(["crafting_table"], radius=6, limit=1)
@@ -395,8 +392,7 @@ def smelt(ctx, output, input_token, count, fuel):
             while True:
                 slots = _furnace_slots()
                 made = slots.get(2, 0)
-                # Done when every loaded item came out. An empty input slot is not enough: the last item is still
-                # cooking then. Out of fuel → the output stops growing → the stall limit cancels.
+                # done when every loaded item came out: an empty input still has the last item cooking
                 if made >= loaded:
                     break
                 yield made
@@ -404,8 +400,7 @@ def smelt(ctx, output, input_token, count, fuel):
         finally:
             api.post("/click", {"slot": 2, "button": 0, "action": "QUICK_MOVE"})
 
-# Every smelt runs in the background: standing at a furnace for 3 ingots cost 30 s of pure waiting (the iron bench's
-# main time sink); the brain mines, crafts or walks meanwhile and a job candidate collects it when ready.
+# every smelt runs in the background: standing at a furnace was the iron bench's main time sink
 ASYNC_SMELT_MIN = 1
 
 FURNACE_REACH = 16          # every furnace this close shares a batch
@@ -453,10 +448,7 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
         station.__enter__()
         api.post("/close")
         near, placed = [station.pos], station.pos
-    # Which furnaces are busy is memory's (every load and take goes through its jobs): the batch is split without
-    # opening each furnace first. Each is then opened ONCE — the use task walks there itself — its slots read on
-    # the open screen, loaded if they are what memory said, closed. Closed-loop per furnace: the clicks need its
-    # screen open, and the jar has no click task. (Two opens and two walks per furnace were 13 s for three.)
+    # busy furnaces are memory's; each is opened once, read, loaded, closed (the clicks need its screen, the jar has no click task)
     busy = {tuple(j["pos"]) for j in ctx.mem.jobs(ctx.dimension) if j.get("kind") == "furnace"}
     states = [(pos, "busy" if tuple(pos) in busy else "free") for pos in near]
     plan = split_smelt(states, count, sum(inv.count(f) for f in fuels), per)
@@ -558,7 +550,7 @@ def collect_job(ctx, job):
     ctx.mem.finish_job(job["id"])
     log(f"collected {got}× {bare(job['item'])} from the background furnace")
 
-# ---------------------------------------------------------------- tools and armor
+# -- tools and armor
 
 def require_pickaxe(tier, min_left=3):
     if tier is None:
@@ -609,9 +601,9 @@ def equip_armor():
             changed = True
     return changed
 
-# ---------------------------------------------------------------- gathering
+# -- gathering
 
-MINE_BATCH = 32         # blocks one mine_many takes: a batch of 12 re-planned every 12 blocks (1.4 s each time)
+MINE_BATCH = 32  # blocks one mine_many takes: smaller batches re-planned too often (1.4 s each)
 BESIDE = 0.5            # travel range that ends face to face with a block (the walker's arrival: range + 0.5)
 REACH_BUDGET = 3         # ways of not getting there, per call, before the place itself is the problem
 
@@ -648,7 +640,7 @@ def noted_hits(notes, blocks, blocked, protected):
     return out
 
 def mine_segment_commands(state, args):
-    """Pure: one open-loop segment of mining — a single `mine_many` over `cells`, collecting `drop`, with the pickup filter a nearly full bag needs."""
+    """Pure: one open-loop mining segment — one `mine_many` over `cells`, with the pickup filter a nearly full bag needs."""
 
     cells, drop, tier = args
     only = pickup_whitelist(state["inv"].used_slots(), [drop])
@@ -666,11 +658,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     drop = token
     target = Inventory().count(drop) + count
     radius = SEEK_RADII[0]
-    # Unreachable is a property of where we STAND, not of the block: on a hillside the mod answered "cannot reach"
-    # for block after block of the same seam, each answer costing a 6000-node search (5.8 s), and banning them one
-    # at a time meant the next round picked the neighbour and paid again. One budget for every way of not getting
-    # there — travel refusing, the mod refusing, nothing within reach — and when it runs out the whole step fails
-    # as a nav failure, which is the one thing that makes the retry policy wait for a CHANGE OF PLACE.
+    # unreachable is about where we stand, not the block: one budget for every way of not getting there, then fail as nav (the retry waits for a change of place)
     unreachable = 0
     empty_batches = 0    # batches the mod could not break at all; a few in a row means the seam really is dead
     tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
@@ -680,9 +668,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             return
         yield None
         require_pickaxe(tier)
-        # Sealed or exposed alike: seeing through blocks is allowed, and the jar's approach (approach_dig) digs to
-        # a buried block. Only a jar without it needs the open faces, asked separately below.
-        # Remembered first: /find only when no noted cell of these blocks is left.
+        # sealed or exposed alike (the jar's approach digs to buried blocks); remembered first, /find only when no noted cell is left
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
         noted = noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
         raw = noted or find(blocks, radius=radius, limit=60)
@@ -696,13 +682,11 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         start = feet()
         if swimming(api.get("/state")):
             raise NotAvailable("in the water: no digging until back on land")
-        # Which blocks have an open face is the world's own answer (`/find?exposed=true`, asked at the top of this
-        # loop); working it out here from a block snapshot was a second model of the same fact.
+        # which blocks have an open face is the world's answer (/find exposed), not a second model here
         seed = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
         region = region_around([start, seed], pad=nav.SAFE_DROP + 2)   # deep enough to see a drop (bag.floored)
         if region is None:
-            # Too far to read the ground between us: walk closer, or make a way — the same two answers as
-            # everywhere else. Only when neither works is the place itself the problem.
+            # too far to read the ground between: walk closer or make a way; only when neither works is the place the problem
             if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
@@ -715,28 +699,20 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                             region, nav.SAFE_DROP))
         if not vein:
             continue      # the whole connected vein is already proven unreachable: next seed
-        # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
-        # Surface blocks (dirt, sand, gravel, stone) keep 2 blocks from any fluid: a dirt pit dug beside a pond filled
-        # with water and the agent kept digging inside it, nearly drowning.
+        # never open a block touching lava or water unless the goal wants the fluid; surface blocks keep 2 from any fluid
         want = breaks or max(1, target - have)
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
-        # Getting to a vein is ONE question with two answers, tried in order: walk there if there is a way, dig a
-        # way if there is not. Buried ore has no way — that is what buried means — and the travel branch used to
-        # ban the whole vein the moment the mod said "no path", so ten coal two blocks inside a wall were
-        # "unreachable in a row" forever while the tunneller sat right there, used only on jars without travel.
+        # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = min(vein, key=lambda p: math.dist(p, start))
         walked = nav.arrived(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
             for p in vein:
                 ctx.ban(p)
-            # The next vein is a different target, not a retry — the same rule the wet-cell branch above uses.
-            # Failing the whole step over one vein cooled the goal for two minutes, and on a hilltop landing
-            # that happened to every vein in turn ("nether kit/mine:stone: … not reachable", ×3).
+            # the next vein is another target, not a retry: failing the step over one vein cooled the goal
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way and no tunnel to the {blocks[0]} vein at {seed}")
             continue
-        # Only blocks within reach of where travel actually left us, a dozen at a time: a 67-block gravel batch
-        # walked toward a block 6 below through rock and froze the agent.
+        # only blocks within reach of where travel left us, a dozen at a time
         here_now = feet()
         in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
         if not in_reach:
@@ -755,12 +731,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
-        # Distance is not reachability: on a hillside the mod answered "cannot reach … no path found" for 6 of 7
-        # blocks that were all within 4.5. Which of them can actually be worked is the game's answer, and the
-        # blocks it just listed as exposed are exactly that set.
-        # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
-        # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
-        # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
+        # distance is not reachability: only open-faced blocks go to mine_many; travel digs a way to the nearest buried one
         open_faced = [p for p in mineable(in_reach, here_now, region, nav.SAFE_DROP)
                       if exposed_cells is None or p in exposed_cells]
         if not open_faced:
@@ -772,9 +743,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         vein = set(open_faced[:MINE_BATCH])
         if not ctx.policy.lava_ok:
-            # Every fluid face of what is about to be broken is sealed first (seal_plan: lava or water, below, beside
-            # or above); with nothing to seal with, those cells are banned with the reason. The goal that wants the
-            # fluid (lava_ok) leaves it be.
+            # seal every fluid face of what is about to break (seal_plan); with nothing to seal with, ban those cells (unless the goal wants the fluid)
             try:
                 seal = seal_plan(region, sorted(vein), Inventory())
             except NotAvailable as e:
@@ -792,15 +761,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")
         except api.Unreachable as out:
-            # The door raises for the whole package ("3 of 4 steps failed: … cannot reach …"), which is right —
-            # nobody may read that as success. Here, though, it is the ordinary case and it has an answer: the
-            # blocks it named have no standing spot yet, so make one and ask again. Only when no way can be made
-            # do they become bans.
-            # A way that was made is progress; a way that was made and changed nothing is not. The outer loop
-            # runs ten times, so a tunneller that keeps "succeeding" without opening anything would spend them
-            # all — count it against the same budget and let the place itself be the answer.
-            # From 0.1.40 the mod's own approach already dug for it (ApproachTask → travel): "cannot reach" then
-            # means no way could be dug, and tunnelling again from here is the same attempt twice.
+            # "cannot reach": make a standing spot and ask again; a way that changed nothing counts against the budget (from jar 0.1.40 its approach already dug)
             if "approach_dig" not in nav.mod_features() and nav.way_to(ctx, out.cells or vein):
                 unreachable += 1
                 _reach_budget(unreachable + 1, blocks, str(out))    # one more try than a plain refusal gets
@@ -811,8 +772,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             _reach_budget(unreachable, blocks, str(out))
             continue
         except api.TaskStuck as out:
-            # The jar went round in circles over this batch (approach ↔ mine at one block): the batch is refused —
-            # dropped, the budget charged, the next vein tried. Asking again is the same circle.
+            # the jar circled this batch (approach ↔ mine): refuse it, charge the budget, try the next vein
             for p in vein:
                 ctx.ban(p)
             unreachable += 1
@@ -822,17 +782,13 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             from .knowledge import MINE_YIELD
             if MINE_YIELD.get(mid(drop), 1) < 1 and "failed" not in r["message"]:
                 continue   # a chance drop (grass → seeds ~1 in 8): an empty break is expected, keep breaking
-            # Partial success is progress, not failure. The mod reports "N of M steps failed"; with N < M some
-            # blocks did break (the pickup just hasn't landed yet), so keep the batch and try again — banning all
-            # twelve over one unreachable block is what left the kit stuck at blocks 30/32 with the goal cooling.
+            # partial success is progress: some blocks broke, keep the batch (banning all over one block stalled the kit)
             import re as _re
             part = _re.search(r"(\d+) of (\d+) steps failed", r.get("message") or "")
             if part and int(part.group(1)) < int(part.group(2)):
                 bad = {(int(m.group(1)), int(m.group(2)), int(m.group(3)))
                        for m in _re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", r.get("message") or "")}
-                # "No path found" to a block INSIDE rock is not news: nothing stands next to it yet. Dig one face
-                # open and it is an ordinary block. Banning it instead is how ten coal 2.4 blocks away stayed
-                # "unreachable" for a whole session while the tunneller went unused.
+                # "no path" to a block inside rock: dig one face open and it is ordinary
                 again, _ = refused(bad, tried, "approach_dig" in nav.mod_features())
                 tried |= bad
                 if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
@@ -840,8 +796,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 for p in bad:
                     ctx.ban(p)      # only the blocks the mod named as unreachable, and only with no way in
                 if bad:
-                    # The mod's refusal costs a full path search each time, so it counts against the same budget as
-                    # a refusal by travel. Without this the batch shrank by one block per 6 s for a whole minute.
+                    # each mod refusal costs a full path search: charged to the same budget
                     unreachable += 1
                     _reach_budget(unreachable, blocks)
                 continue
@@ -851,8 +806,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 continue               # nothing broke because nothing could be stood next to: now it can, once
             for p in vein:
                 ctx.ban(p)             # refused: dropped, never the same batch again
-            # Ban this batch, then try the next one: one unmineable batch is not proof that the whole seam is dead,
-            # and failing the step here cooled the goal for two minutes on every hillside landing.
+            # ban this batch and try the next: one unmineable batch is not a dead seam
             empty_batches += 1
             if empty_batches >= 3:
                 raise NotAvailable(f"{blocks[0]} vein yielded nothing: {r['message']}")
@@ -887,10 +841,10 @@ def strip_mine_step(ctx, length=16):
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
     tools = Inventory().tools("pickaxe")
     best_tier = max((t for t, d, _ in tools if d >= 3), default=0)
-    # Diamonds peak around -58, but bedrock starts at -60..-64: tunnel at -54, clear of it, still in the band.
+    # diamonds peak near -58, bedrock starts at -60..-64: tunnel at -54
     depth = -54 if any(t >= 2 and d >= 20 for t, d, _ in tools) else 16
     if fy < depth - 3:
-        # Drifted below the band (falls, ore pockets): staircase back up instead of tunnelling into bedrock.
+        # drifted below the band: staircase back up rather than tunnel into bedrock
         if not nav.arrived((fx, depth, fz), ctx.policy, range_=2, attempts=1):
             raise api.NavFailed(f"can't climb back up to mining depth {depth}")
         return "climbed"
@@ -898,7 +852,7 @@ def strip_mine_step(ctx, length=16):
         try:
             nav.dig_down(min(12, fy - depth), ctx.policy, use_ladders=Inventory().count("minecraft:ladder") >= 12)
         except NotAvailable:
-            # Unsafe here (water/lava/cave below): find dry, solid ground a bit away instead of spinning in place.
+            # unsafe here (water/lava/cave below): find dry solid ground nearby
             stone = [h for h in find(["stone", "deepslate", "dirt", "grass_block"], radius=24, limit=40)
                      if h["y"] <= fy and math.dist((h["x"], h["z"]), (fx, fz)) >= 6]
             if not stone:
@@ -922,7 +876,7 @@ def strip_mine_step(ctx, length=16):
         tasks += [nav.mine_task(c) for c in cells if region.solid(c)]
         end = i
     if end == 0:
-        # Turning in place is not progress: say so, and let the retry policy decide (the next try faces a new way).
+        # turning in place is not progress: say so and let the retry policy decide
         api.run({"type": "look", "yaw": (s["yaw"] + 90) % 360, "pitch": 0}, awaits="the next sight line read")
         raise NotAvailable("tunnel blocked ahead (turned to try another direction)")
     tasks.append({"type": "goto", "x": fx + dx * end, "y": fy, "z": fz + dz * end, "range": 1, "partial": True})
@@ -937,7 +891,7 @@ def strip_mine_step(ctx, length=16):
 
 def _hunt_progress(token, types):
     near = entities(64, types)
-    # Closing in (4-block bins) or collecting drops is progress; circling at the same distance is not.
+    # closing in (4-block bins) or collecting drops is progress; circling is not
     return Inventory().count(token), (int(near[0]["distance"] // 4) if near else None)
 
 @skill(gives=K.GIVES_HUNT, needs=lambda a: {"tool:sword:1": 1} if beliefs.fights_back(a[3]) else {},
@@ -961,15 +915,13 @@ def hunt(ctx, token, count, types, night):
                 raise NotAvailable(f"no {bare(types[0])} found")
         before = Inventory().count(token)
         e = prey[0]
-        # Reach it with the navigator first (walks, tunnels, climbs out of caves); a blind attack chase from
-        # underground toward an animal on the surface never lands a hit.
+        # reach it with the navigator first: a blind chase from underground never lands a hit
         if e["distance"] > 4 and api.get("/state").get("skyLight", 15) <= 4 and e["y"] > feet()[1] + 3:
-            # In a cave below the animal: climb out with the normal policy (digging allowed) first — the no-dig
-            # approach below can't leave a cave at y=-20.
+            # in a cave below the animal: climb out (digging allowed) first
             surface_first(ctx)
             continue
         if e["distance"] > 4:
-            # Walk (and bridge) to animals, never tunnel: a sheep behind a mountain isn't worth a pickaxe.
+            # walk and bridge to animals, never tunnel
             nav.arrived((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
                       range_=3, attempts=2)
             e = next((n for n in entities(64, types) if n["id"] == e["id"]), None)
@@ -978,9 +930,7 @@ def hunt(ctx, token, count, types, night):
                 raise api.NavFailed(f"could not get to the {bare(types[0])}")
         try:
             api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
-            # The kill worked; the drop can land where nothing stands (a branch, a ledge, the far side of a
-            # fence). `sweep` makes a way to it and tries again — concluding "this cow dropped no beef" from an
-            # item we could not walk to is how a whole herd was written off.
+            # the drop can land where nothing stands: `sweep` makes a way to it before a kill is written off
             nav.sweep(ctx, radius=6, only=[token], wait=60)
         except api.TaskStuck:
             ctx.ban((prey[0]["id"], 0, 0), 600)  # unreachable (across water, on a ledge)
@@ -990,7 +940,7 @@ def hunt(ctx, token, count, types, night):
             raise NotAvailable(f"killing the {bare(types[0])} dropped no {bare(token)}")
     raise McError(f"could not hunt enough {bare(token)}")
 
-# ---------------------------------------------------------------- light, food, night
+# -- light, food, night
 
 def _open_lava(region, here):
     """Pure: lava cells within reach of `here` with air beside them, nearest first."""
@@ -1134,7 +1084,7 @@ def _fed_as_planned(c):
     target = c.result
     return isinstance(target, int) and not isinstance(target, bool) and api.get("/state")["food"] >= target
 
-# needs: none the bag can state — a cooked meal, or raw meat when starving (the body says which, and says so).
+# needs: none the bag can state — a cooked meal, or raw meat when starving
 @skill(gives=["state:fed"], remaining=_k.fed, needs={}, speed={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
        commands=lambda state, args: eat_commands(state, args), budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
@@ -1239,17 +1189,16 @@ def reach_land(ctx):
     """Night in the water: swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
 
     x, y, z = feet()
-    # The land a swim reaches (terrain.air_route: the same breadth-first search as surfacing), not the nearest dry
-    # block: the nearest was once behind a tank wall, and the goto ended "unreachable" in the water.
+    # the land a swim reaches (terrain.air_route), not the nearest dry block (once behind a tank wall)
     route = air_route(Region((x - 24, y - 6, z - 24), (x + 24, y + 10, z + 24)), (x, y, z))
     if route is None or route[0] != "land":
         raise NotAvailable(route[2] if route else "no water to swim through and no land within 24 blocks")
     land = route[1]
     api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": nav.ASHORE_RANGE, "partial": True,
              "useBoat": True}, wait=120, awaits="ashore or not (nav.ashore) decides the climb out")
-    # Judged by where the body is, not by the walker's answer (it calls a body in the water beside the bank arrived).
+    # judged by where the body is: the walker calls a body beside the bank arrived
     if not nav.ashore(api.get("/state"), land) and not nav.climb_out(land):
-        # The walker can't climb out (a 1-wide water shaft, a high bank): dig / pillar out instead.
+        # the walker can't climb out: dig or pillar out instead
         nav.arrived(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
         if not nav.ashore(api.get("/state"), land):
             raise api.NavFailed(f"land at {land} not reachable")
@@ -1282,10 +1231,9 @@ def burrow_commands(state, args=()):
     end = (x + dx * 2, y, z + dz * 2)
     seal = [{"type": "place", "item": block, "x": x + dx, "y": y + dy, "z": z + dz} for dy in (0, 1)]
     if region is not None and tuple(state["feet"]) == end:
-        # Inside at the end: the tunnel is dug; only the entrance cells still open are sealed (a sealed one is
-        # never dug again — from the entrance it would read as hill not yet dug).
+        # inside at the end: only entrance cells still open are sealed (a sealed one is never dug again)
         return [t for t in seal if not region.solid((t["x"], t["y"], t["z"]))]
-    # Only what still stands: resumed after an interrupt, the chain is rebuilt from the world, no cell dug twice.
+    # only what still stands: resumed, the chain is rebuilt from the world
     dig = [nav.mine_task(c) for c in ((x + dx * k, y + dy, z + dz * k) for k in (1, 2) for dy in (1, 0))
            if region is None or region.solid(c)]
     return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
@@ -1414,8 +1362,7 @@ def bed_spot():
                     return foot
     return None
 
-# When a bed works at all. Mojang's rule, not ours: outside this window (and outside a thunderstorm) using a bed
-# says "you can only sleep at night" and nothing happens. A rule about the WORLD, so it is stated once, here.
+# when a bed works (Mojang's rule): outside it using a bed does nothing
 SLEEP_FROM_TICKS, SLEEP_TO_TICKS = 12541, 23458
 
 def _morning(timeout=7.0):
@@ -1448,7 +1395,7 @@ def wait_for_day(ctx):
         api.run({"type": "wait", "ticks": 200}, wait=15, awaits="the time of day")
         yield api.get("/state")["timeOfDay"]
 
-# needs: none the bag can state — a bed carried or one standing nearby (the body looks for either).
+# needs: none the bag can state — a bed carried or one standing nearby
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
        provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):
@@ -1464,7 +1411,7 @@ def sleep(ctx, night_policy):
             raise NotAvailable("no flat 2-block spot for the bed")
         use = {"type": "use", "x": spot[0], "y": spot[1], "z": spot[2]}
         try:
-            # Placed and lain in as one chain; then morning is read, not waited a fixed 7 s for.
+            # placed and lain in as one chain; morning is read, not waited for
             chain = [{"type": "place", "item": bed, "x": spot[0], "y": spot[1], "z": spot[2]}, use]
             for _ in range(3):
                 api.run_chain(chain, stop_on_failure=True, wait=30)
@@ -1512,8 +1459,7 @@ def dig_in_commands(state, args=()):
         raise NotAvailable(f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line")
     block = next((b for b in GROUPS["building"] if inv.count(b)), None)
     if block is None:
-        # Nothing carried to seal with: the roof is what the dig itself brings up (dirt from a dirt pit). Planned
-        # from the bag alone, an empty bag dug a hole with no lid and enclosed() never held (night_dig_in_dirt).
+        # nothing to seal with: the roof is what the dig brings up (an empty bag dug a hole with no lid)
         dug = [t for t in tasks if t["type"] == "mine"]
         if not dug:
             raise NotAvailable("nothing to seal the hole with: no block carried, none dug")
@@ -1552,8 +1498,7 @@ def dig_in(ctx):
         spot = soft_spot()
         if spot is None:
             raise NotAvailable("no pickaxe and no ground near that digs by hand")
-        # The cell itself (range 0: `nav.there` floors the body and allows range + ARRIVE_SLACK, so 0.5 counted
-        # x 10006.24 as at 10007 and dug the stone next to the dirt by hand). Never dig a column that is not it.
+        # the exact cell (range 0): at 0.5 the dig started a block off
         if tuple(feet()) != tuple(spot[0]):
             nav.arrived(spot[0], ctx.policy, range_=0, attempts=1)
         if tuple(feet()) != tuple(spot[0]):
@@ -1588,7 +1533,7 @@ def take(ctx, token, count, blocks):
                 if not ctx.blocked((h["x"], h["y"], h["z"]))
                 and (h["x"], h["y"], h["z"]) not in ctx.policy.protected]
         if bare(token) == "wheat":
-            # A crop is taken ripe or not at all: green wheat breaks into seeds (world.ripe_near)
+            # taken ripe or not at all: green wheat breaks into seeds
             ripe = set(ripe_near(feet(), 48))
             hits = [h for h in hits if (h["x"], h["y"], h["z"]) in ripe]
         if not hits:
@@ -1601,8 +1546,7 @@ def take(ctx, token, count, blocks):
         api.run({"type": "collect", "radius": 4}, wait=20, awaits="the drops the break left, counted after")
         yield None
         got += 1
-        # The block is gone from the world whether or not the drop reached the bag: the map has to stop sending us
-        # back to it, or the next round walks to the same empty square and calls that progress.
+        # the block is gone whether or not the drop reached the bag: forget it, or we walk back to an empty square
         ctx.mem.forget_seen(bare(hits[0]["block"]), cell, ctx.dimension, radius=1)
         log(f"took {bare(token)} at {cell} ({got}/{want})")
     return got
@@ -1670,8 +1614,7 @@ def pod_commands(state, args=()):
     todo = sorted((c for c in cells if not region.solid(c)), key=lambda c: c[1])
     blocks = [b for b in GROUPS["building"] + GROUPS["planks"] if inv.count(b)]
     carried = sum(inv.count(b) for b in blocks)
-    # Planned against an unlimited stock first: the supports count too (a roof on open ground needs a cap beside the
-    # head — 10 blocks, not 9 — and with 9 the pod "left 1 openings" and the night went to digging dirt).
+    # planned against unlimited stock first so the supports count (a roof on open ground needs a cap: 10 blocks, not 9)
     stock = [[b, inv.count(b)] for b in blocks] + [["?", 1 << 30]]
     tasks = []
 
@@ -1693,18 +1636,17 @@ def pod_commands(state, args=()):
             continue
         name = region.name(c)
         if not name.endswith(("air", "water")) and not region.hazard(c) and c not in state["protected"]:
-            # Torches, flowers, grass: something non-solid occupies the cell. Break it first.
+            # something non-solid occupies the cell: break it first
             tasks.append(nav.mine_task(c, collect=True))
         if not has_support(c) and c == (x, y + 2, z):
-            # The roof has nothing to click against: cap one of the side walls first (a block on top of a wall
-            # beside the head), then the roof goes against that cap — how players close a 1×1 hole.
+            # the roof has nothing to click: cap a side wall first, then the roof goes against the cap
             for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
                 wall, cap = (x + dx, y + 1, z + dz), (x + dx, y + 2, z + dz)
                 if solid(wall) and not solid(cap):
                     put(cap)
                     break
         if not has_support(c):
-            # Nothing to click against (water or air all around): build a support column up from below first.
+            # nothing to click against: build a support column up first
             below = add(c, (0, -1, 0))
             stack = []
             while not solid(below) and below[1] > y - 3:
@@ -1735,7 +1677,7 @@ def pod(ctx):
         raise McError(f"pod left {len(open_cells)} openings")
     log("walled in for the night")
 
-# ---------------------------------------------------------------- machines (blueprints.py)
+# -- machines (blueprints.py)
 
 def _has_torches_to_spare(c):
     if Inventory().usable("minecraft:torch") <= 2:
@@ -1827,7 +1769,7 @@ def collect_machine(ctx, machine):
     ctx.mem.settle_pending(machine["name"], got)
     log(f"collected from {machine['name']}: {got}")
 
-# ---------------------------------------------------------------- base life
+# -- base life
 
 @skill(gives=["state:room"], remaining=_k.slots_free(FREE_SLOTS_TARGET), needs={}, speed={}, start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=60, stall=30, provides={"room:tidy": lambda ctx, s: ()})
@@ -1839,23 +1781,23 @@ def tidy_inventory(ctx):
     region = Region((x - 3, y - 1, z - 3), (x + 3, y + 2, z + 3))
     direction = throw_direction(region, (x, y, z))
     if direction is None:
-        # A sealed shaft: dropped items land at our feet and the next step picks them all back up.
+        # a sealed shaft: dropped items land at our feet and are picked back up
         raise NotAvailable("no open side to throw items into (shaft)")
     inv = Inventory()
-    # Priced by what each stack costs to get again (cost.Prices); nothing is dropped with lava near (it burns).
+    # priced by what each stack costs to get again; nothing dropped with lava near
     lava = bool(find(["lava"], radius=3, limit=1))
     need = max(0, inv.used_slots() - (36 - FREE_SLOTS_TARGET))
     throw = [s for s, how in let_go(inv.slots, need, ctx.prices().get, lava_near=lava) if how == "drop"]
     if not throw:
         raise NotAvailable("nothing to throw away")
-    # Face the open side (in a tunnel: back the way we came) so the drops fly where we won't walk next.
+    # face the open side so drops fly where we won't walk
     yaw = {(1, 0): -90.0, (-1, 0): 90.0, (0, 1): 0.0, (0, -1): 180.0}[direction]
     api.run({"type": "look", "yaw": yaw, "pitch": 0}, wait=5, awaits="facing the open side before the throw clicks (UI, not tasks)")
     for s in throw:
         api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
         yield s["slot"]
     log(f"threw away {len(throw)} stacks toward {direction}: {sorted({bare(s['id']) for s in throw})}")
-    # Step away from the drops, never onto them, before the pickup delay ends.
+    # step away from the drops before the pickup delay ends
     spots = [p for p in free_spots_here(reach=4, limit=12)
              if (p[0] - x) * direction[0] + (p[2] - z) * direction[1] < 0]
     if spots:
@@ -1873,14 +1815,13 @@ def _place_cache_chest(ctx):
         return near[0]["x"], near[0]["y"], near[0]["z"]
     here = feet()
     if Inventory().used_slots() < 36:
-        # The carried chest is a last resort for a completely full bag, not a storage habit (it was placed and
-        # re-crafted over and over: 11 caches).
+        # the carried chest is a last resort for a completely full bag
         raise NotAvailable("bag not completely full: no new cache chest")
     if any(math.dist(s["pos"], here) <= 24 for s in ctx.mem.sites(ctx.dimension, kinds=["cache"])):
-        # Eight cache chests within 30 blocks once: one per area; beyond it, throwing frees slots instead.
+        # one cache per area; beyond it throwing frees slots
         raise NotAvailable("a cache chest already exists within 24 blocks")
     if Inventory().usable("minecraft:chest") == 0:
-        # Crafting needs somewhere to put the result: with a full bag, drop the two least valuable stacks first.
+        # the result needs somewhere to go: drop the two least valuable stacks first
         inv = Inventory()
         if inv.used_slots() >= 35:
             close_screen()
@@ -1930,7 +1871,7 @@ def deposit(ctx, local_only=False):
             continue
         if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
             ctx.ban(tuple(site["pos"]))      # a failed trek costs a minute of travel replans: not again soon
-            # A cache chest that stays unreachable is dead memory: forget it after 3 failed treks.
+            # a cache chest unreachable for 3 treks is forgotten
             if site.get("kind") == "cache":
                 misses = site.get("misses", 0) + 1
                 if misses >= 3:
@@ -1953,7 +1894,7 @@ def deposit(ctx, local_only=False):
     if r["result"].get("screen") in (None, "none"):
         raise McError("could not open the home chest")
     try:
-        # Container view slot numbers differ from inventory indices: match by owner + inventory index.
+        # container view slot numbers differ from inventory indices: match by owner and index
         view = {s["index"]: s for s in world.container()["slots"] if s["owner"] == "player"}
         for s in moving:
             v = view.get(s["slot"])

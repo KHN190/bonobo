@@ -11,8 +11,7 @@ from .threat import ENGAGE as _ENGAGE
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
 
 POLL_S = 0.2
-# The operator's interrupt (mc.py interrupt): end the running skill so an override directive runs next round. /stop
-# alone only cancels the current mod task; a skill (a hunt exploring leg after leg) keeps going.
+# the operator's interrupt ends the running skill (/stop only cancels the current mod task)
 FLAG = paths.data("interrupt")
 HURT_RATE = 0.0       # health per second, measured
 _HP_SEEN = None       # (health, when) from the previous read
@@ -34,7 +33,7 @@ def note_hurt(state, now=None):
         return HURT_RATE
     lost = prev[0] - hp
     rate = max(0.0, lost / dt)
-    # Rise at once, fall slowly: one arrow is evidence of a shooter, one quiet second is not evidence of safety.
+    # rise at once, fall slowly: one arrow is evidence, one quiet second is not
     HURT_RATE = rate if rate > HURT_RATE else HURT_RATE * _CONFIG["risk"]["hurt_decay"]
     return HURT_RATE
 
@@ -97,30 +96,25 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     if env is not None:
         return env
     hp = state.get("health", 20)
-    # One breath or head butt in the End takes 10+ hp, so 4 is far too late there — and 10 still leaves no room for
-    # the hit that is already on its way.
+    # a breath or head butt in the End takes 10+ hp, so the End's floor is higher
     if hp <= (12 if state.get("dimension") == "minecraft:the_end" else 4):
         return "critical_health"
-    # Dragon breath burns the floor we stand on and takes ~10 hp a second: being in it is an emergency at any health.
+    # dragon breath burns ~10 hp a second: an emergency at any health
     if breath_within is not None and state.get("dimension") == "minecraft:the_end" and breath_within(8):
         return "breath"
-    # Endermen are their own signal, never mixed into "hostiles": a provoked one follows through teleports and the
-    # answer is water or cover, not a fight.
+    # endermen are their own signal: a provoked one follows through teleports; the answer is water or cover
     if enderman_after_us is not None and enderman_after_us(12):
         return "enderman"
-    # A fight is supposed to have hostiles close: while attacking, only critical health (above) interrupts. A blaze
-    # fight was stopped at 10 hp "hurt with hostiles close" (bench 05:36).
+    # a fight expects hostiles close: while attacking only critical health interrupts
     fighting = ((state.get("control") or {}).get("task") or {}).get("type") == "attack"
     if hp <= 10 and hostiles_within is not None and not fighting:
         d = hostiles_within(8)
         if d is not None and d <= 6:
             return "hostiles"
-    # The model's version of the same rule: at the current pressure (threat.pressure — a skeleton's arrows count
-    # from fifteen blocks, a zombie's reach from three), how long until dead? Close enough → stop and let the
-    # threat layer answer. Health alone missed every death by arrows.
+    # time to die at the current pressure (arrows count from far): health alone missed every death by arrows
     if time_to_die is not None and not fighting:
         t = time_to_die()
-        # Only what would kill us before the planner next decides is worth interrupting for.
+        # only what would kill us before the planner next decides is worth an interrupt
         if t is not None and t <= interrupt_within_s():
             return "hostiles"
     return None
@@ -207,9 +201,7 @@ class Watcher(threading.Thread):
             return observe(now, "eating")
         rows, _ids = threats_seen(now=now)
         if not rows:
-            # Nothing there, or nothing fresh: the tick read the world itself a moment ago, so "no rows" now means
-            # the world was quiet — which is an answer, not a blind spot. `stale` can only happen if the read
-            # failed, and that is the one case worth counting as blindness.
+            # no rows after our own fresh read means quiet, an answer; only a failed read is blindness
             return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
         state = perceived(state, now)
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
@@ -270,17 +262,12 @@ class Watcher(threading.Thread):
             except Exception:   # game restarting, network hiccup: the main loop handles those
                 continue
             note_hurt(s)
-            # Look at the world FIRST, once, and hand that one reading to everything below. The entity read used
-            # to happen at most once a second inside `_time_to_die` while the answering ran at every tick, so the
-            # rows were either absent or seconds old: a bench window of eight seconds took forty looks and found
-            # rows in two of them. One read per tick, one timestamp, one answer.
+            # look once per tick and hand that one reading to everything below (rows were absent or seconds old)
             self._look(s)
             try:
                 self._answer_threats(s)
             except Exception as e:
-                # This thread is the only thing watching for lava, drowning and mobs: an answer that fails must
-                # never take the watcher with it. It died once here (BodyContested) and the agent was beaten to
-                # death with a perfectly good threat model and nobody reading it.
+                # the only watcher for lava, drowning and mobs: a failing answer must never kill the thread
                 if time.time() - getattr(self, "_answer_logged", 0) > 30:
                     self._answer_logged = time.time()
                     api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
@@ -293,19 +280,16 @@ class Watcher(threading.Thread):
                 except OSError:
                     why = "Claude asked"
                 try:
-                    # The message (INTERRUPT) is ours to set; the command (/stop) goes through the one exit.
+                    # the message is ours to set; /stop goes through the one exit
                     arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"claude: {why}")
                 except Exception:
                     pass
                 api.log(f"!! perception: interrupt requested by Claude ({why})")
                 continue
-            # A fight skill handles "hurt with hostiles close" itself (retreat, eat, shield): only the life-or-death
-            # reasons interrupt it. Picking up or shielding inside a blaze fight got interrupted at 9 hp (bench 06:20).
+            # a fight skill handles "hurt with hostiles close" itself: only life-or-death interrupts it
             if _eating():
                 continue        # a bite takes ~1.6 s and is what saves us: never interrupt it
-            # A fight skill deals with breath and endermen itself (pit, water, escape line): only give it the
-            # life-or-death reasons, or every bomb window is interrupted before it starts.
-            # api.SOFT is set for the whole run of a soft skill; the heartbeat can still name a nested one (eat).
+            # a fight skill handles breath and endermen itself: only life-or-death reasons, or every window is cut
             fighting = fight_loop.active() or api.SOFT
             reason = danger(s, None if fighting else self._hostiles_within,
                             None if fighting else self._breath_within,
@@ -318,16 +302,12 @@ class Watcher(threading.Thread):
             if not (s.get("control") or {}).get("task"):
                 continue        # nothing running to interrupt; the next round's survival check will see it
             if reason == "hostiles" and not answering(now):
-                # Stopping the body is not an answer. While this was a rule of its own, the interrupt fired on one
-                # number (time to die) and the answer was chosen on another (what a column saves), the two
-                # disagreed, and the agent spent whole sessions having every task cut short by a threat no layer
-                # ever did anything about. What may stop the work is the layer that is about to answer it.
+                # stopping the body is not an answer: only the layer about to answer a threat may stop the work
                 continue
             self.last[reason] = now
             if api.SOFT:
                 api.INTERRUPT = reason      # soft skill: message only, no /stop — the skill takes cover itself
-                # A soft skill reads the reason and takes cover itself. Cancelling its task instead cost two travels
-                # mid-dig and left the player stranded on the surface ("the hole's rim is not reachable").
+                # a soft skill takes cover itself; cancelling its task stranded the player
                 api.log(f"!! perception: {reason} → handed to the running skill")
                 continue
             try:

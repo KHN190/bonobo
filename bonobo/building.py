@@ -79,8 +79,7 @@ def spot_options(bp, near, region, policy, radius=8, body=None):
                     out.append((len(prepare), math.dist(origin, near), origin, turns, tuple(prepare)))
                     break
     out.sort()
-    # A build already standing in part is resumed where it stands, before any fresh ground: the rest of it is the
-    # cheapest work there is (and a fresh frame beside a half-cast one wastes the half).
+    # a build already partly standing is resumed first: its rest is the cheapest work there is
     return ([(0, origin, turns, ()) for origin, turns in started_builds(bp, region, near)]
             + [(cost, origin, turns, prepare) for cost, _d, origin, turns, prepare in out])
 
@@ -278,8 +277,7 @@ def blueprint_commands(state, args):
         if block_matches(region.name(pos), part.item):
             continue   # resuming an interrupted build: this part is already in place
         if pos[1] - fy >= 2:
-            # The only face to click (the top of the part below) must be below the eye: stand on the access column
-            # and pillar straight up until the feet are at pos.y - 1.
+            # the only face to click must be below the eye: pillar up on the access column to pos.y - 1
             if (fx, fz) != (access[0], access[2]):
                 tasks.append({"type": "goto", "x": access[0], "y": fy, "z": access[2], "range": 0.3,
                               "partial": False})
@@ -302,8 +300,7 @@ def _build_parts(ctx, bp, origin, turns):
     """Place every part bottom-up (list order within a layer), then verify the block ids."""
 
     batch = blueprint_commands(_build_state(ctx, bp, origin, turns), (bp, origin, turns))
-    # One chain per layer, bottom-up: a layer is the support of the next, so each is read back from the world before
-    # the next is sent; a layer short of what it should hold hands over to the part-by-part finish below.
+    # one chain per layer, each read back before the next; a short layer hands over to the part-by-part finish
     for chunk in by_layer(batch):
         api.run_chain(chunk, stop_on_failure=True)
         yield feet()
@@ -314,8 +311,7 @@ def _build_parts(ctx, bp, origin, turns):
     access = blueprints.access_spot(bp, origin, turns)
     done_region = Region(tuple(min(p[0][i] for p in cells) for i in range(3)),
                          tuple(max(p[0][i] for p in cells) for i in range(3)))
-    # Leaves and vines around the build block the line of sight to the faces we must click (the portal's top row
-    # failed under a birch canopy): clear them from the build box and the space in front of it first.
+    # foliage around the build blocks the line of sight to the faces we click: clear it first
     lo = tuple(min(min(p[0][i] for p in cells), access[i]) - 1 for i in range(3))
     hi = tuple(max(max(p[0][i] for p in cells), access[i]) + 1 for i in range(3))
     around = Region(lo, hi)
@@ -329,14 +325,11 @@ def _build_parts(ctx, bp, origin, turns):
     for pos, part, facing, against in cells:
         if block_matches(done_region.name(pos), part.item):
             continue   # resuming an interrupted build: this part is already in place
-        # Stay at the build: the place task's own approach search is short (6 000 nodes), so a part 40 blocks away
-        # (the agent wandered off between parts or rounds) failed with "no reachable face" — walk back first.
+        # stay at the build: the place task's approach search is short (6 000 nodes)
         if math.dist(feet(), pos) > 4.5 and not nav.arrived(access, ctx.policy, range_=1.5, attempts=1):
             raise api.NavFailed(f"can't get back to the {bp.name} build at {origin}")
         if pos[1] - feet()[1] >= 2:
-            # The only face to click (the top of the part below, at y = pos.y) must be below the eye (feet + 1.62):
-            # stand on the access spot and pillar straight up until the feet are at pos.y - 1. (Stopping one lower
-            # left the eye at 121.6 under a face at 122: still "no reachable face".)
+            # the face (top of the part below) must be below the eye (feet + 1.62): pillar until the feet are at pos.y - 1
             f = feet()
             if (f[0], f[2]) != (access[0], access[2]):
                 api.run({"type": "goto", "x": access[0], "y": f[1], "z": access[2], "range": 0.3, "partial": False},
@@ -347,8 +340,7 @@ def _build_parts(ctx, bp, origin, turns):
                 block = resolve_item("building")
                 r = api.run({"type": "pillar", "item": block}, wait=20, awaits="each pillar step's height and 'headroom' answer decide the next (the fallback after blueprint_commands' batch, for what the batch could not place)")
                 if r["status"] != "succeeded" and "headroom" in r["message"]:
-                    # Leaves or a branch over the pillar spot: clear the cell above the head (never a protected or
-                    # frame cell), then pillar again.
+                    # a branch over the pillar spot: clear above the head (never protected or frame), then pillar again
                     fx, fy, fz = feet()
                     above = (fx, fy + 2, fz)
                     if above in ctx.policy.protected:
@@ -458,7 +450,7 @@ def build_blueprint(ctx, name, near):
     builds = ctx.mem.data.setdefault("builds", {})
     started = builds.get(name)
     if started and started.get("dimension") == ctx.dimension:
-        # Resume the site already started: a new site every attempt left three half-built frames (4 obsidian lost).
+        # resume the site already started: a new site each attempt left half-built frames
         origin, turns = tuple(started["origin"]), started["turns"]
     else:
         missing = materials_missing(bp)
@@ -503,7 +495,7 @@ def build_shelter(ctx):
     log(f"shelter {site['name']} ready")
     return site["name"]
 
-# ---- the portal cast in place (the speedrun way: no obsidian carried, no diamond pickaxe)
+# the portal cast in place (the speedrun way: no obsidian carried, no diamond pickaxe)
 _CAST = {}      # where the last frame was cast: what the verify looks at
 
 def _portal_cast(c):
@@ -519,8 +511,7 @@ def cast_portal(ctx):
     block = nav.building_item()          # its needs (water, flint and steel, 16 blocks) held: the runner checked
     bp = blueprints.NETHER_PORTAL
     here = feet()
-    # A frame already standing in part is picked first (spot_options → started_builds), and only its missing
-    # cells are cast: the rest of the job, not the whole of it again.
+    # a partly standing frame is picked first and only its missing cells are cast
     origin, turns, prepare = plan_machine_spot(bp, here, ctx.policy, body=here)
     prepare_spot(ctx, prepare)
     _CAST.update(origin=origin)
@@ -535,7 +526,7 @@ def cast_portal(ctx):
         fluids._lava_bucket(ctx, feet())
         nav.arrive(access, ctx.policy, range_=1.5)
         mould = [m for m in mould if not Region(m, m).solid(m)]
-        # One chain, no round trips: mould, lava, water on it, set, the water back (fight_loop's batch mechanism).
+        # one chain, no round trips: mould, lava, water on it, set, water back
         done = api.run_chain(
             [{"type": "place", "item": block, "x": m[0], "y": m[1], "z": m[2]} for m in mould]
             + [fluids.use_task("minecraft:lava_bucket", fluids.floor_aim(cell), True),

@@ -6,16 +6,9 @@ from .fight_plan import CONFIG as _CFG
 
 _GEO = _CFG["geometry"]
 
-# How far the tunnel runs outward from the pit. Three blocks is what the tapes justify: breath pools at the mouth,
-# and two clear blocks past it is already out of the cloud. Deeper costs dig time for nothing.
+# past the breath pooling at the mouth; deeper costs dig time for nothing
 TUNNEL_LEN = _GEO["tunnel_len"]
-# Where the bed is clicked from. The mouth itself: measured against the real height relation (the bed sits one block
-# above the floor plane, the mouth two below it) the bed's top is 3.57 blocks from the eye there, against a 4.5
-# interaction reach — 0.93 of margin. One block further in is 4.45, which is inside the limit on paper and 0.05 away
-# from failing on any rounding; margin that thin is not a design, it is a coin toss.
-#
-# This is what removes "peek" from the plan: an agent reads entity data directly, so it never needs line of sight,
-# only reach. Reach is available from inside cover, so there is no reason to ever step out.
+# clicked from the mouth: the bed's top is 3.57 from the eye against a 4.5 reach (one further in leaves 0.05) — reach, not sight, so never step out
 FIRE_AT = _GEO["fire_at"]
 # Where we wait out take-off and breath: three blocks in, past anything that pools at the mouth.
 RETREAT_AT = _GEO["retreat_at"]

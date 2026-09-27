@@ -13,12 +13,12 @@ TICKS_PER_S = 20
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
-# Work per unit when nothing has been measured yet, in ticks.
+# work per unit before anything is measured, in ticks
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 40,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 100, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
                "farm": 6000, "trade": 600}         # farm: tilling, sowing and a crop's growth; trade: one sale
-# Planner step kind -> (skill statistics key, units): the same keys the skill runner records under.
+# step kind → (statistics key, units): the keys the skill runner records under
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
              "craft": lambda s: ("craft", 1)}
@@ -89,7 +89,7 @@ class Cost:
             if known is not None and known <= radius:
                 self.cache[key] = known
         if key not in self.cache:
-            # In sight: the round's one look (world.nearest over SOURCE_BLOCKS), never a search of its own.
+            # in sight: the round's one look (world.nearest), never a search of its own
             from .knowledge import SOURCE_BLOCKS
             seen = None
             if self.snap is not None:

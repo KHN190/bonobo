@@ -2,9 +2,7 @@
 
 EPS = 1e-9               # zero tolerance: these matrices are small integers, so anything smaller is noise
 
-MAX_NODES = 4000         # branch-and-bound budget. Large because a node is now one float simplex (tens of
-                         # microseconds); with 400 the search ran out before it found the good plan and returned
-                         # whatever integer solution it had — a bed for 318 s when 78 s was available.
+MAX_NODES = 4000  # branch-and-bound budget: 400 ran out before finding the good plan (a bed for 318 s when 78 s was available)
 BIG = 64                 # indicator scale when an action has no explicit limit
 KEEP_PER_DIM = 4         # cheapest producers kept per dimension; the rest cannot be in a sensible plan
 MAX_DEPTH = 12           # recipe chains are shallow; deeper than this is a cycle in the action table
@@ -27,9 +25,7 @@ class Action:
         fn = getattr(self, "_exposure", None)
         return float(fn(self, state)) if fn else 0.0
 
-    # A round builds a hundred and thirty thousand of these (every column, every layer of every descent, every
-    # goal drawn). Without slots each one is a dict of six entries; with them it is six pointers. Nothing else
-    # about the class changes, and the saving is most of a round's allocation.
+    # __slots__: a round builds ~130 000 of these; slots save most of a round's allocation
     __slots__ = ("name", "effect", "cost_s", "requires", "limit", "tag", "_exposure")
 
     def __init__(self, name, effect, cost_s, requires=None, limit=None, tag=None):
@@ -50,12 +46,9 @@ class Plan:
 
     def __init__(self, counts, cost_s, final, actions, order=None, shadow=None):
         self.counts, self.cost_s, self.final, self.actions = counts, cost_s, final, actions
-        # The descent already emits a runnable order (inputs before the column that eats them), so `steps` returns
-        # it rather than re-deriving one. Kept optional: a Plan built by hand in a test has none.
+        # the descent already emits a runnable order; optional, since a hand-built Plan has none
         self.order = order
-        # What one more unit of each dimension is worth, in seconds — the marginal cost of reaching it. The dual
-        # of this program, and the reason nobody has to enumerate other goals' plans to price what this one
-        # unlocks: `reach_cost` computes it for every dimension at once, on the way to solving.
+        # what one more unit of each dimension is worth (the dual), so what this plan unlocks is priced without enumerating other plans
         self.shadow = dict(shadow or {})
 
     @property
@@ -89,14 +82,12 @@ class Plan:
                     out.append((a, n))
                     break
             else:
-                # Nothing is runnable yet: emit the rest in cost order rather than lose the plan. A cycle here is
-                # a modelling error (an action that consumes what only it produces), and the caller re-plans when
-                # the step fails, so this degrades instead of hanging.
+                # nothing runnable: emit the rest in cost order rather than lose the plan (a cycle is a modelling error; the step fails and replans)
                 out += [(by_name[n], c) for n, c in sorted(remaining.items(), key=lambda kv: by_name[kv[0]].cost_s)]
                 break
         return out
 
-# ---------------------------------------------------------------------------------------------------- the program
+# -- the program
 
 _PRICES = {}
 
@@ -105,10 +96,7 @@ def reach_cost(cols, state):
 
     return reach_tree(cols, state)[0]
 
-# What makes two relaxations the same question. Not the whole state: this is a table of "cheapest way to get one
-# of each dimension", and whether we HOLD something changes it, while how much food is in the bar does not. With
-# the raw state as the key the cache missed on every round (food drains continuously) and the tree — a thousand
-# calls a round — was rebuilt from nothing each time.
+# a relaxation's key: what is held matters, the food bar does not (keyed on raw state it missed every round)
 _UNPRICED = ("lever:", "food", "bag_free")
 
 def _state_key(state):
@@ -131,8 +119,7 @@ def reach_tree(cols, state):
     key = (_columns_key(cols), _state_key(state))
     if key in _PRICES:
         return _PRICES[key]
-    # What the key leaves out must not change the answer either: a held `bag_free` would price free slots at
-    # zero, and the cache would hand that zero to the next state that holds none.
+    # what the key leaves out must not change the answer: a held bag_free would price free slots at zero
     state = {d: v for d, v in state.items() if not str(d).startswith(_UNPRICED)}
     cost = {d: 0.0 for d, v in state.items() if v > 0}
     via = {}
@@ -170,9 +157,7 @@ def solve(actions, state, target, integral=True):
     need = {d: v for d, v in target.items() if state.get(d, 0) < v}
     if not need:
         return Plan({}, 0.0, dict(state), [], shadow=reach_cost(actions, state))
-    # Thirty goals in a round share most of their sub-problems — planks, logs, a bench — and each one used to
-    # re-derive them from scratch. The question is fully described by (columns, what we hold, what we want), so
-    # the answer can be remembered for as long as those hold.
+    # (columns, held, wanted) fully describes the question: a round's goals share sub-problems
     key = _memo_key(actions, state, target, integral)
     hit = _MEMO.get(key)
     if hit is not None:

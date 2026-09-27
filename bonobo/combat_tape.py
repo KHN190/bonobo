@@ -52,7 +52,7 @@ class Tape:
         return self._last
 
     def record(self, seconds, every=8.0):
-        """Poll until `seconds` have passed. `every` stays well under the 20 s buffer so no frame ages out unseen."""
+        """Poll until `seconds` pass; `every` stays well under the 20 s buffer so no frame ages out."""
         end = time.time() + seconds
         while time.time() < end:
             self.poll()

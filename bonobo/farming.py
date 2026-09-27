@@ -166,7 +166,7 @@ def check_sapling(ctx, job):
         ctx.mem.finish_job(job["id"])   # eaten, broken or never took
 
 def _plot_growing(centre):
-    """Verification: farmland and wheat really exist around the centre (not just "the clicks succeeded")."""
+    """Verify farmland and wheat really exist around the centre, not just that the clicks succeeded."""
     if centre is None:
         return False
     names = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1))).blocks.values()
@@ -189,8 +189,7 @@ def plant_farm(ctx):
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
     if not nav.arrived(stand, ctx.policy, range_=1.0, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
-    # The plot in one send (an interrupt stops it between segments; the next call recomputes what is left from the
-    # world). Judged by the world, never by the chain's "succeeded": the water in, the cells sown.
+    # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
     done = api.run_chain(tasks, stop_on_failure=False)
     for cell in unreachable_cells(tasks, done):
         ctx.ban(tuple(int(round(v)) for v in cell), 600)
@@ -234,7 +233,7 @@ def harvest(ctx, job):
     got = _reap(ripe)
     seeds = Inventory().count("minecraft:wheat_seeds")
     if seeds:
-        # the resow in one send; a cell the jar cannot sow stays bare (the next harvest counts only what grew)
+        # the resow in one send; a cell the jar cannot sow stays bare
         api.run_chain(sow_commands([add(p, (0, -1, 0)) for p in ripe][:seeds]), stop_on_failure=False)
     ctx.mem.finish_job(job["id"])
     jobs.start(ctx.mem, "crop", centre, ctx.dimension, item="minecraft:wheat", count=len(ripe))

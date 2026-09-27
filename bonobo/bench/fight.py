@@ -8,20 +8,12 @@ from .. import estimate, paths
 from . import core
 from .core import SCENARIOS, SWEEP, SetupInvalid, _c, _chat, _platform, _sweep, _sweep_check, at
 
-# -- one table of dimensions, three benches -----------------------------------------------------------------------
-# The same shape as the offline sweep (`tests/world.py`): a cell is a point in a named product, `_cells` moves ONE
-# dimension off a baseline, and `_build` is the only thing that turns a cell into a world. What differs from
-# offline is only the realisation — commands to a running game instead of a state vector — so the dimension names
-# are the same on both sides and a row of `bench/combat.jsonl` reads next to an offline cell.
-#
-# A dimension is {value: commands}. Nothing else in this file may know what "hurt" or "corridor" means.
+# one table of dimensions, as offline (tests/world.py): only `_build` turns a cell into a world; a dimension is {value: commands}
 
 COMBAT_ROWS = paths.data("bench/combat.jsonl")
 ESCAPE_ROWS = paths.data("bench/escape.jsonl")
 
-# Enemies are named by what they DO, and the kind behind each name is the belief table's business.
-# How each value of the shared vocabulary (`bench.cells.DIMENSIONS`) is realised in a running game. The names
-# come from there; this says only how to build them with commands.
+# enemies named by what they do; how each shared value is built with commands
 ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skeleton", "climber": "minecraft:spider",
          "bomb": "minecraft:creeper", "teleporter": "minecraft:enderman"}
 # "pack" and "mixed" (bench/cells.py) were zombies here too, the number coming from `count`: the same world as
@@ -29,9 +21,7 @@ ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skelet
 
 COUNT = {"one": 1, "three": 3}
 
-# Ground that gives each shaping column something to be worth: a corridor has one gap a block would close, a
-# roofed cell has a floor worth digging into, and the open cell has a step to stand up on. A billiard table
-# prices `reshape` at nothing whatever the model believes, so a bench built on one can only ever test swinging.
+# ground that gives each shaping column something to be worth (a flat arena prices `reshape` at nothing)
 GROUND = {
     "open": [f"fill {_c(at(4, 0, 2))} {_c(at(5, 1, 3))} stone"],          # a step to stand up on
     "corridor": [f"fill {_c(at(-1, 1, -2))} {_c(at(9, 3, -2))} cobblestone",
@@ -42,16 +32,13 @@ GROUND = {
                f"fill {_c(at(-2, -3, -2))} {_c(at(2, -1, 2))} dirt"],      # a floor worth digging into
 }
 
-# The body, as the dimensions it really has — a bundle cannot state a relation, because moving it moves five
-# things at once and the baseline moves with them.
+# the body as its real dimensions: a bundle moves five things at once and states no relation
 WEAPON = {"fist": [], "iron": ["give @p iron_sword"]}
-# Armour is what is worn, and nothing else: with the shield in here, "iron armour" moved the protection AND the
-# shield column at once, and neither could be stated about on its own. The shield is a kit.
+# armour only (the shield is a kit): otherwise neither could be stated about alone
 ARMOUR = {"skin": [], "iron": ["item replace entity @p armor.chest with iron_chestplate",
                                "item replace entity @p armor.head with iron_helmet"]}
 BLOOD = {"whole": [], "hurt": ["damage @p 12 minecraft:magic"]}
-# What the bag holds, one column's worth at a time: a cell that carries everything can never say which column
-# was missing what. `NEEDS` is what each column needs to exist at all, and the check before the window reads it.
+# the bag one column's worth at a time; `NEEDS` is what each column needs to exist
 KIT = {
     "nothing": [],
     "blocks": [core.BEST_TOOLS["pickaxe"], "give @p cobblestone 64", "give @p dirt 64"],
@@ -60,8 +47,7 @@ KIT = {
     "full": [core.BEST_TOOLS["pickaxe"], "give @p cobblestone 64", "give @p dirt 64", "give @p cooked_beef 8",
              "item replace entity @p weapon.offhand with shield"],
 }
-# What a kit value puts within reach. Read off the CELL, not off the priced state: "the bag was read as empty"
-# is the fault this is here to catch, so a check that asks the same state the pricing asked cannot see it.
+# read off the cell, not the priced state, so "bag read as empty" can be caught
 NEEDS = {"blocks": ("reshape", "wall_in"), "food": ("eat",), "shield": ("shield",),
          "full": ("reshape", "wall_in", "eat", "shield"), "nothing": ()}
 DISTANCE = {"near": 5, "across": 10}
@@ -131,8 +117,7 @@ def _build(cell):
 
     seed = cell.setdefault("seed", _seed_of(cell))
     out = (_platform(reach=ARENA_REACH, walled=True) + _roof() + _scatter(seed) + _alive()
-           # Full health, food and no leftovers: a cell is one variable off the baseline, and health carried over
-           # from the last cell makes `blood` two variables at once — the residuals then compare nothing.
+           # full health and food: health carried over makes `blood` two variables at once
            + ["clear @p", "effect clear @p", "effect give @p minecraft:instant_health 10 1 true",
               "effect give @p minecraft:saturation 1 10 true",
               "difficulty normal", "time set day"])
@@ -147,15 +132,7 @@ def _build(cell):
 def _kinds_of(cell):
     return {ENEMY[cell["enemy"]]}
 
-# -- the fighting benches ----------------------------------------------------------------------------------------
-# Waves that each ask for an answer the one before did not (swing, back off, break the line of sight, block the
-# way, dig down), every enemy kind the threat model knows, and a kit with all of those answers in it — without the
-# pickaxe and the blocks they are not choices the agent HAS, and the bench would test a narrower agent.
-# A wave is written in the same vocabulary as a cell: what is coming, by what it does, and how many. The kinds
-# behind the names live in `ENEMY`, below, and nowhere else.
-# `carry`: what the waves before typically leave (hp lost, meals eaten, blocks spent) — each wave is its own row
-# now and starts from that state. bench/siege.jsonl holds no per-wave results yet: estimates (≈ 2 hp and a few
-# meals/blocks per cleared wave); replace with the median of the wave before once rows are recorded.
+# waves each asking an answer the last did not, with a kit holding every answer; `carry` estimates what earlier waves leave
 WAVES = (
     ("one walker", (("walker", 1),), (0, 0, 0)),
     ("three walkers", (("walker", 3),), (2, 1, 4)),
@@ -175,8 +152,7 @@ SIEGE_ROWS = paths.data("bench/siege.jsonl")
 
 SHAPE_COLUMNS = {"reshape", "wall_in"}
 
-# Ground wide enough for every answer the model may pick: `escape_spot` walks up to sixteen blocks, and on the
-# nine-block platform the first online cell walked off the edge of the sky island and fell.
+# wide enough for every answer (escape_spot walks up to 16; the first cell fell off a 9-block platform)
 ARENA_REACH = 24
 
 def _alive():
@@ -278,8 +254,7 @@ def _combat_execute(seconds, until=None, cell=None):
     watcher.start()
     aside = getattr(core.BRAIN, "not_taking_part", None)
     if not callable(aside):
-        # Two decision-makers on one body cannot be measured. Said before the window rather than discovered in
-        # the rows afterwards — a pass that runs without it costs ten minutes and measures somebody else.
+        # two decision-makers on one body cannot be measured: said before the window
         raise SetupInvalid("the planner offers no way to stand down: a cell cannot measure one layer alone")
     with aside("threat bench cell"):
         try:
@@ -290,8 +265,7 @@ def _combat_execute(seconds, until=None, cell=None):
                     break
                 if cell and not _hostiles(radius=24, kinds={ENEMY.get(cell.get("enemy"))} - {None}):
                     _restock(cell)
-                # The planner keeps taking rounds — it has to, or its refusals never reach the tape — and every
-                # candidate it offers is refused while it is standing down.
+                # the planner keeps taking rounds (its refusals must reach the tape), each refused while standing down
                 try:
                     core.BRAIN.round()
                 except Exception as e:
@@ -309,8 +283,7 @@ def blind_s(looks, seconds):
 
     if not looks:
         return round(float(seconds), 2)
-    # "Quiet" is an observation: the tick looked and there was nothing. Blindness is the tick that could not look
-    # — the read failed, the layer was not wired, a soft skill had the body.
+    # quiet is an observation; blind is a tick that could not look
     blind = sum(1 for look in looks if look["outcome"] in ("stale", "unwired", "soft"))
     return round(float(seconds) * blind / len(looks), 2)
 
@@ -319,9 +292,7 @@ def _threat_kinds():
     return set(threat.MOBS)
 
 BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured nothing
-# A window has to be long enough to contain a fight: eight seconds caught one or two swings and then went quiet.
-# Repeating a cell inside one pass is not how the noise is averaged out — the rows accumulate across passes, and
-# what makes those rows independent is the jitter below, not a loop.
+# long enough to contain a fight (8 s caught a swing or two); noise averages across passes, by the jitter
 CELL_SECONDS = 15.0
 CELL_REPEAT = 1
 
@@ -344,7 +315,7 @@ def _fought(kinds, seconds):
         answered, worst, took, trace = _combat_execute(seconds, cell=cell)
         after = Snapshot()
         near = _hostiles(radius=24, kinds=kinds(cell))
-        # How much of the window the layer was blind for decides whether this cell is evidence at all.
+        # a window blind too long is not evidence
         dark = blind_s(answered, took)
         priced = intent.get("state") or {}
         missing = sorted(_columns_possible(cell) - set(intent.get("options") or {})) if intent.get("rows") else []
@@ -449,8 +420,7 @@ def _summon(mobs, spread=4, seed=None):
         turn = rng.random() * 2 * math.pi if seed is not None else 0.0
         for i in range(n):
             angle = turn + 2 * math.pi * i / max(1, n)
-            # Never closer than the dimension says: "near" is a distance the cell declares, and a mob that spawns
-            # on top of us is a different cell. Jitter opens the range, it does not close it.
+            # never closer than the dimension says; jitter only opens the range
             reach = spread * (rng.uniform(1.0, 1.4) if seed is not None else 1.0)
             dx, dz = round(reach * math.cos(angle)), round(reach * math.sin(angle))
             out.append(f"summon {kind} ~{dx} ~ ~{dz}")
@@ -461,7 +431,7 @@ def _siege_cells():
         yield {"wave": index, "line_up": name}
 
 def _siege_build(cell):
-    """No reset between waves: the siege is cumulative, and what a wave costs is the point of the next one."""
+    """No reset between waves: the siege is cumulative."""
     return _summon(tuple((ENEMY[name], n) for name, n in {w[0]: w[1] for w in WAVES}[cell["line_up"]]))
 
 def _siege_record(per_wave_s=90.0):
@@ -485,7 +455,7 @@ def _siege_detail_of(name):
 
 _FIGHT_SETUP = (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
                 + _platform(reach=ARENA_REACH, walled=True) + ["kill @e[type=!player,type=!item,distance=..48]"])
-# Every fight carries a water bucket: a knock off a ledge is part of fighting (`_build` adds it to every cell).
+# every fight carries a water bucket: a knock off a ledge is part of fighting
 FIGHT_BUCKET = ["give @p water_bucket"]
 
 def _shards(cells, size):
@@ -493,7 +463,7 @@ def _shards(cells, size):
     cells = list(cells)
     return [cells[i:i + size] for i in range(0, len(cells), size)]
 
-# The siege, one wave per row (the old row was cumulative, 820 s): each starts from its wave's `carry`.
+# one wave per row (the cumulative row took 820 s), each from its wave's `carry`
 for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
     SCENARIOS[f"siege__w{_wave}"] = {
         "doc": f"Siege wave {_wave} of {len(WAVES)} ({_line_up}), sword, pickaxe, full iron, shield, food and blocks: "
@@ -508,8 +478,7 @@ for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
         "budget": 30,
     }
 
-# combat_arena, one cell per row (15 s a cell, the row under 30 s): the same cells, the same per-row rules.
-# Nothing to answer is one control cell, not one per ground: the ground only prices answers to an enemy.
+# combat_arena, one cell per row; nothing-to-answer is one control cell
 ARENA_SHARDS = _shards([c for c in _cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT)
                         if ENEMY[c["enemy"]] is not None or c["ground"] == "open"], 1)
 for _i, _shard in enumerate(ARENA_SHARDS, start=1):
@@ -527,14 +496,9 @@ for _i, _shard in enumerate(ARENA_SHARDS, start=1):
         "tick_rate": 60, "budget": 30,
     }
 
-# -- getting away -----------------------------------------------------------------------------------------------
-# With a sword in hand the model rightly answers most things by swinging, so the other half of it — back off, put
-# something in the way, get below the ground, eat, leave an enderman alone — is never exercised. One scenario, one
-# cell per enemy: nothing to fight with, one enemy, sixty seconds, and the question is whether it is alive and
-# further away than it started. The row says how it managed it, so a pass is still a measurement.
+# getting away: nothing to fight with, one enemy; alive and further away at the end, the row says how
 
-# The window is the threshold (alive and further away at its end). The cell is built in the row's setup (enemies
-# summoned last), so the exposure starts at setup's end; the run watches the rest of it.
+# the cell is built in setup, so the exposure starts at setup's end
 ESCAPE_SECONDS = 25.0      # the row's limit is 30 s (the user's rule): the window is what is left of it
 ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: ~2 s of the window already spent
 for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
@@ -554,10 +518,7 @@ for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
         "tick_rate": 60, "budget": 30,
     }
 
-# -- the fight's behaviours, one cell each ---------------------------------------------------------------------
-# Built by the same walker and the same `_build` as the arena; each cell is set up so that one answer is worth the
-# most, and the row asks that it was chosen AND that it worked, read from the world (the gap's blocks, how far down
-# or up the body went) and from the recorded row (what went out, what it cost in health).
+# the fight's behaviours: each cell makes one answer worth the most; the row asks it was chosen and worked
 BEHAVIOUR_ROWS = paths.data("bench/behaviour.jsonl")
 BEHAVIOUR_SECONDS = 20.0
 GAP = [at(4, y, z) for y in (1, 2, 3) for z in (-1, 0, 1)]          # the corridor's one gap (GROUND["corridor"])
@@ -599,8 +560,7 @@ def _less_hurt_than(row, control):
     return base is not None and row["outcome"]["hp_lost"] < base["outcome"]["hp_lost"]
 
 START_Y = at(0, 0, 0)[1]
-# name: (cell moved off ARMED, what must be true of the recorded row and the world, why). A control runs before
-# the cell that is compared to it (dict order is bench order).
+# name: (cell off ARMED, what must hold, why); a control runs before the cell compared to it
 BEHAVIOURS = {
     "block_gap": (dict(ground="corridor", kit="blocks", distance="across"),
                   lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["gap"] >= 2

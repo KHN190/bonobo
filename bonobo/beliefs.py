@@ -12,7 +12,7 @@ with open(CONFIG_PATH, "rb") as _f:
     CONFIG = tomllib.load(_f)
 
 WIKI_FIELDS = ("hp", "attack", "notice_r")
-WIKI_N = 10 ** 6          # "known", in the same unit as an observation count, so one comparison works everywhere
+WIKI_N = 10 ** 6  # "known", in observation counts, so one comparison works everywhere
 
 def _with_dps(row):
     """`dps` is derived, never stored: a published hit divided by how often it lands."""
@@ -23,12 +23,10 @@ def _with_dps(row):
 
 MOBS = {kind: _with_dps(row) for kind, row in CONFIG["mobs"].items()}
 PLAYER = CONFIG["player"]
-# The numbers nobody has measured. Named here so a plan can carry the list and nobody mistakes a ranking built on
-# them for a measurement.
+# named so a ranking built on them is never mistaken for a measurement
 UNMEASURED = tuple(CONFIG["tools"].get("unmeasured", ()))
 
-# Observation counts, keyed the same way as `value`, and the measurements behind them. Filled from the log at
-# import; `note` adds to both and appends the line.
+# observation counts keyed like `value`; filled from the log at import
 COUNTS = {}
 OBSERVED = {}
 LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
@@ -37,7 +35,7 @@ LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
 PRIOR_STRENGTH = 1.0
 
 def declared(path):
-    """The number as WRITTEN DOWN in play.toml: a guess, or something Mojang publishes. No measurement in it."""
+    """The number as written in play.toml: a guess, or something Mojang publishes; no measurement in it."""
     if path.startswith("mobs."):
         _, kind, field = path.split(".", 2)
         return MOBS[kind][field]
@@ -45,7 +43,7 @@ def declared(path):
     return CONFIG[section][key]
 
 def value(path):
-    """The believed number at "section."""
+    """The believed number at `section.key`: the declared value weighed against what was measured."""
 
     prior = declared(path)
     if not is_unmeasured(path):
@@ -76,9 +74,7 @@ def count(path):
 def belief(path):
     return value(path), count(path)
 
-# What play has actually measured, keyed like `value`: [(observed, when)]. The bench writes here from the residual
-# between what an estimator said and what the clock said; `fit` reads it. Nothing is overwritten in `CONFIG` — a
-# belief moves when there are enough observations to move it, and that decision is not this module's.
+# what play measured, keyed like `value`: [(observed, when)]; CONFIG is never overwritten
 OBSERVED = {}
 
 def note(path, measured, now=None, where=""):
@@ -93,9 +89,7 @@ def note(path, measured, now=None, where=""):
              "n": COUNTS[path], "at": at, "where": where})
     return belief(path)
 
-# Measurements arrive at the speed of the world — one per broken block while mining — so they are written in
-# batches rather than one file open per block. Nothing is dropped: the buffer is part of the history until it is
-# on disk, and it is flushed when it fills, when it gets old, and when the process ends.
+# written in batches (one per broken block is too many); flushed when full, old, or at exit — nothing dropped
 _PENDING = []
 FLUSH_EVERY = 25
 FLUSH_AFTER_S = 30.0
@@ -106,9 +100,7 @@ def _append(row):
 
     import time as _time
     global _last_flush
-    # The row remembers WHERE it is to be written. A test points LOG at a temporary file, takes a measurement and
-    # puts LOG back; without this the batch lands wherever LOG happens to be at flush time, and a test's invented
-    # numbers end up in the player's real history — which is exactly what happened.
+    # the row keeps its target path, so a test's temporary LOG never leaks into the real history
     _PENDING.append((LOG, row))
     now = _time.time()
     if len(_PENDING) >= FLUSH_EVERY or now - _last_flush >= FLUSH_AFTER_S:
@@ -116,7 +108,7 @@ def _append(row):
         flush()
 
 def flush():
-    """Write the queued measurements out. Safe to call at any time; it is what `atexit` calls."""
+    """Write the queued measurements out (safe any time; atexit calls it)."""
     if not _PENDING:
         return 0
     written = 0
@@ -174,7 +166,7 @@ def fights_back(types):
     return any(t in MOBS for t in types or ())
 
 def keep_out():
-    """{kind: radius} movement refuses to plan inside. A view of the table, never a second copy of it."""
+    """{kind: radius} movement refuses to plan inside (a view of the table, not a copy)."""
     return {kind: m["keep_out"] for kind, m in MOBS.items() if m.get("keep_out")}
 
 def protection(armor_points, shield=False):

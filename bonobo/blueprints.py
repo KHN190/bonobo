@@ -120,7 +120,7 @@ def placed(bp, origin, turns=0):
     return out
 
 def remaining(bp, origin, turns, name_at):
-    """Pure: materials still missing from a started build — {item token: count} for parts whose cell doesn't hold the part yet."""
+    """Pure: materials still missing from a started build, {item token: count}."""
 
     need = {}
     for pos, part, *_ in placed(bp, origin, turns):

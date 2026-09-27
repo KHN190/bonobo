@@ -1,14 +1,9 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
 
-# Both of these are called tens of millions of times a session — the action table asks them in its innermost
-# loop, once per ingredient per recipe per column per round — and they are pure functions of a few hundred
-# distinct strings. Memoised, they cost a dict lookup; unmemoised they were nine seconds of a 129-second replay
-# spent re-deciding whether "oak_planks" needs a colon.
+# memoised: tens of millions of calls a session (9 s of a 129 s replay unmemoised)
 _MID, _BARE = {}, {}
 
-# What the mod says when the body simply could not get to something: no standing spot, no path, an item that
-# landed where nothing can stand. One list: api raises Unreachable on it, retry cools it as a nav failure. Not an
-# error in the usual sense — a fact about WAYS, and the answer is to make one (`skills.way_to`).
+# what the mod says when the body could not get there — a fact about ways (make one: skills.way_to); api and retry read it
 UNREACHABLE = ("unreachable", "not reachable", "no reachable face", "cannot reach", "can't reach", "no path",
                "positions explored", "gave up after", "could not get",
                "cannot hold a stand spot")      # jar ≥ 0.1.48: mining ↔ approaching flipped on one block (MineTask)
@@ -20,12 +15,10 @@ def mid(name):
         got = _MID[name] = name if ":" in name else "minecraft:" + name
     return got
 
-# Blocks a pod (wall in) takes on open ground: 4 sides at the feet, 4 at the head, the roof, and the cap beside the
-# head the roof is placed against (skills.pod_commands). Priced as 9, it ran one short and left an opening.
+# a pod on open ground: 4 sides at the feet, 4 at the head, the roof and the cap it is placed against (9 left an opening)
 POD_BLOCKS = 10
 
-# Never thrown away, whatever a price says (an unpriced diamond cost "1 s to get again" and went out as junk):
-# deposited in a chest, or kept. One table (bag.let_go reads it).
+# never thrown whatever a price says (an unpriced diamond went out as junk)
 VALUABLES = frozenset(mid(v) for v in (
     "diamond", "emerald", "iron_ingot", "gold_ingot", "copper_ingot", "netherite_ingot", "netherite_scrap",
     "ancient_debris", "raw_iron", "raw_gold", "ender_pearl", "ender_eye", "blaze_rod", "blaze_powder", "obsidian",
@@ -60,7 +53,7 @@ LOG_TO_PLANKS = {f"minecraft:{w}_log": f"minecraft:{w}_planks" for w in WOODS}
 LOG_TO_PLANKS.update({"minecraft:crimson_stem": "minecraft:crimson_planks",
                       "minecraft:warped_stem": "minecraft:warped_planks"})
 
-# Interchangeable items. Recipes that accept "any X" use the group name as a token.
+# interchangeable items; "any X" recipes use the group name
 GROUPS = {
     "log": list(LOG_TO_PLANKS),
     "planks": sorted(set(LOG_TO_PLANKS.values())),
@@ -70,7 +63,7 @@ GROUPS = {
     "bed": [f"minecraft:{c}_bed" for c in COLORS],
     "boat": [f"minecraft:{w}_boat" for w in WOODS],
     "door": [f"minecraft:{w}_door" for w in WOODS],
-    # Anything solid we'd otherwise throw away is building material: bridges, pillars and walls use it up first.
+    # anything solid we'd otherwise throw away is building material
     "building": ["minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff",
                  "minecraft:dripstone_block", "minecraft:calcite", "minecraft:dirt", "minecraft:cobbled_deepslate",
                  "minecraft:cobblestone", "minecraft:blackstone"],
@@ -89,9 +82,7 @@ SMELTS = {"minecraft:stone": "minecraft:cobblestone", "minecraft:glass": "minecr
           "minecraft:iron_ingot": "minecraft:raw_iron", "minecraft:gold_ingot": "minecraft:raw_gold",
           "minecraft:copper_ingot": "minecraft:raw_copper", "minecraft:charcoal": "log",
           **{cooked: raw for raw, cooked in COOKED.items()}}
-# The one food table: hunger points one item restores (vanilla), best food first, raw meat last. What is food
-# (FOOD: ready to eat), what is raw (RAW: wants cooking, eaten raw only when starving) and what a bite is worth
-# against the gap to a full bar are all read from here.
+# the one food table: hunger points per item, best first, raw last; FOOD, RAW and bite sizes read from here
 NUTRITION = {"cooked_beef": 8, "cooked_porkchop": 8, "cooked_mutton": 6, "cooked_chicken": 6, "cooked_rabbit": 5,
              "cooked_salmon": 6, "cooked_cod": 5, "bread": 5, "baked_potato": 5, "golden_carrot": 6, "apple": 4,
              "carrot": 3, "sweet_berries": 2, "glow_berries": 2, "melon_slice": 2, "cookie": 2,
@@ -101,9 +92,7 @@ FOOD = [f for f in NUTRITION if f not in RAW]
 FULL_BAR = 20
 MAX_HP = 20.0
 
-# Food is a group like planks or wool: recipes and plans want "something to eat", the world hands out a cooked
-# chop. Without the group, "food" was not a dimension the solver could reach, so the one terminal good the agent
-# needs most often could not be priced at all.
+# food is a group so the solver can price "something to eat"
 GROUPS["food"] = list(FOOD)
 
 def recipes():
@@ -190,20 +179,7 @@ FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}
 UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")
-# Blocks that break quickly without a pickaxe (suffix match on the bare id). Everything else solid needs one.
-# What memory keeps of what was seen (memory.note_seen / seen), by how fast it changes. One table, one mechanism;
-# the clock is game ticks (/state gameTime), never the wall.
-#   static  exact position, never expires; retired when we mine it or it is missing on arrival
-#   slow    exact position, expires after `ttl` ticks; our own digging near it marks it to-verify
-#   mobile  a coarse area (`area`-block cells), expires after `ttl` ticks
-#   hostile never stored: perception answers where hostiles are, now
-#   here    "standing at one": the arrival note of a kind no other class keeps (memory.note_here), for `at:<kind>`
-#           in the next plan, gone in two minutes
-#   never   not worth a note: common ore, furniture, anything unknown. Stations and containers have their own
-#           records (memory.stations / containers), the only source for them.
-# `merge`: notes of one kind closer than this are one note.
-# `absent`: how long "this chunk was looked over and had none" holds (explore's frontier): an ore does not appear
-# (two days), a tree or a pond barely (a day), an animal walks in within minutes.
+# what memory keeps of a sighting, by how fast it changes (game ticks): static, slow (ttl), mobile (coarse area), hostile (never), here (two minutes, for at:<kind>), never; `merge` joins close notes, `absent` is how long "looked, none here" holds
 VOLATILITY = {
     "static": {"ttl": None, "merge": 1, "area": None, "absent": 2 * 24000},
     "slow": {"ttl": 3 * 24000, "merge": 12, "area": None, "absent": 24000},
@@ -215,8 +191,7 @@ VOLATILITY = {
 # Rare blocks the travel scan looks for on purpose (the common ones it meets anyway).
 RARE_SIGHTINGS = ("diamond_ore", "deepslate_diamond_ore", "obsidian", "ancient_debris")
 SEEN_CLASS = dict(
-    # Worth remembering for good: rare resources (iron: the mine step's walk is priced from its notes, cost.py)
-    # and structures.
+    # rare resources and structures are remembered for good
     [(k, "static") for k in RARE_SIGHTINGS + (
         "iron_ore", "deepslate_iron_ore", "gold_ore", "deepslate_gold_ore", "nether_gold_ore",
         "village", "fortress", "portal", "nether_portal", "stronghold", "bastion")]
@@ -262,13 +237,10 @@ BASE_MARKERS = {
 }
 MARKER_WEIGHT = {"bed": 10, "chest": 5, "furnace": 5, "crafting_table": 4, "door": 3, "light": 1}
 
-# Game clock and movement estimates.
 DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 ROUTE_FACTOR = 1.5            # real route length / straight line
 
-# Sky light at or below this means "under rock" — a cave with a distant opening reads 1–3. A world fact, and it
-# lives here because the action table needs it: a constant defined in `brain` drags the whole decision layer into
-# whatever imports it, and the bench keys its re-runs on exactly that dependency graph.
+# sky light ≤ this means under rock; lives here so the action table does not import the brain
 COVERED_SKY = 4

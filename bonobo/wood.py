@@ -59,9 +59,7 @@ def chop(ctx, n):
                 ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
                 raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
-        # The nearest trunk the game's pathfinder can reach on this ground (`nav.reachable`, the same policy the
-        # walk uses), not the nearest one seen: a tree seen through a sky platform's floor was walked to over its
-        # edge ("chop: died"). A definite no bans the trunk; an unanswered one counts as maybe.
+        # the nearest trunk the pathfinder can reach on this ground, not the nearest seen (one was walked to over a platform edge)
         trunk = None
         for seed in pick_trunks(logs)[:4]:
             base = min(seed, key=lambda t: t["y"])
@@ -75,11 +73,9 @@ def chop(ctx, n):
             raise api.NavFailed("no tree in sight can be walked to on this ground")
         base = min(trunk, key=lambda t: t["y"])
         if math.dist(feet(), (base["x"], base["y"], base["z"])) > 2.5:   # stand beside the trunk (3.5 m was too far)
-            # The walker alone can't climb a mountain or tunnel to a tree 30 blocks up: get to the trunk with the
-            # navigator (dig, pillar, ladder, bridge) first, then chop within reach.
+            # get to the trunk with the navigator first (the walker can't climb or tunnel), then chop within reach
             if not nav.arrived((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
-                # The walker gave up; that is not the same as there being no way. The game plans with the same
-                # pathfinder it moves with, so it is the one that knows whether digging or bridging gets there.
+                # the walker giving up is not "no way": the game's pathfinder decides whether digging or bridging gets there
                 if nav.way_to(ctx, [(base["x"], base["y"], base["z"])], range_=2.0):
                     pass                         # a way was made and checked: chop from where we now stand
                 elif not nav.reachable((base["x"], base["y"], base["z"]), ctx.policy, 2.0)[0]:
@@ -89,12 +85,10 @@ def chop(ctx, n):
                     raise api.NavFailed(f"no way to the tree at {(base['x'], base['y'], base['z'])}")
         before = Inventory().count("log")
         base_pos = (base["x"], base["y"], base["z"])
-        # Base log from outside, then stand in its cell and take the logs overhead: every bottom face is right above
-        # the eye, no approach search. From outside, logs 1–2 up behind leaves failed "no path found (267 positions)"
-        # after a 3 s walk (bench 05:14), and mine_many's top-down order hit the canopy first (bench 03:43).
+        # base log from outside, then stand in its cell and take the logs overhead: every face above the eye, no approach search
         overhead = sorted((t for t in trunk if t["x"] == base["x"] and t["z"] == base["z"]
                            and base["y"] < t["y"] <= base["y"] + 4), key=lambda t: t["y"])
-        # The whole trunk as ONE submission (trunk_batch): the jar runs it through without a round trip per log.
+        # the whole trunk as one submission
         tasks = trunk_batch(base_pos, [(t["x"], t["y"], t["z"]) for t in overhead], target - before)
         try:
             results = api.run_chain(tasks, stop_on_failure=False, wait=90)
@@ -103,23 +97,21 @@ def chop(ctx, n):
                 raise
             results = api.run_chain(tasks, stop_on_failure=False, wait=90)
         r = next((x for x in results if x.get("status") != "succeeded"), results[-1] if results else {"message": ""})
-        # What is still standing: asked of the world rather than read off a region snapshot taken before the
-        # chopping. A cell we just broke is not "left over", and one the canopy dropped into is.
+        # what still stands is asked of the world, not read off a snapshot taken before chopping
         still = {(t["x"], t["y"], t["z"]) for t in find(GROUPS["log"], radius=8, limit=60)}
         for t in trunk:
             cell = (t["x"], t["y"], t["z"])
-            # Standing AND with no way to it — the second half is the game's answer, not a guess from here.
+            # standing and with no way to it — the game's answer
             if cell in still and not nav.reachable(cell, ctx.policy, 2.0)[0]:
                 ctx.ban(cell)
         logs_now = lambda: Inventory().count("log")   # noqa: E731
         if gained(logs_now, before) <= before:
-            # This trunk gave nothing (canopy, drops stuck): ban it and take the next tree in the same skill call.
+            # this trunk gave nothing: ban it and take the next tree in the same call
             for t in trunk:
                 ctx.ban((t["x"], t["y"], t["z"]))
             log(f"   trunk at {(base['x'], base['y'], base['z'])} yielded no logs ({r['message']}); next tree")
             continue
-        # Renewable wood: remember the grove, put a sapling back where the trunk stood — once it is all down. A
-        # sapling in the base cell under logs still standing blocked the way up to them ("target unreachable").
+        # renewable wood: note the grove and replant once the trunk is all down (a sapling under standing logs blocked the way up)
         from . import farming
         ctx.mem.note_seen("tree", base_pos, ctx.dimension)
         if not felled(trunk, still):

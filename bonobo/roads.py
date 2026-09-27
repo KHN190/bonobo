@@ -44,7 +44,7 @@ def route(roads, start, goal):
         i, j = node_of(leg["a"]), node_of(leg["b"])
         for u, v in ((i, j), (j, i)):
             edges.setdefault(u, []).append((v, leg["s"]))
-    # Direct (unknown) moves between any two nodes, so a known leg is used only where it saves time.
+    # direct unknown moves between any two nodes, so a known leg is used only where it saves time
     dist = {0: 0.0}
     prev = {}
     heap = [(0.0, 0)]

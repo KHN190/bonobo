@@ -7,8 +7,7 @@ from .beliefs import CONFIG as _CONFIG
 from .api import log
 from .skillcore import head_buried
 
-# The rescue skills (find_air, unbury), lent by skills.py at import: this module detects and dispatches, and never
-# imports the skill library — or everything that reads a hazard (perception, nav) would drag all of it in.
+# rescue skills lent by skills.py at import, so readers of a hazard never drag in the skill library
 SKILLS = {}
 
 KINDS = ("lava", "burning", "drowning", "suffocating", "falling")
@@ -106,7 +105,7 @@ def _extinguish(ctx, s):
     api.post("/stop")
     has_bucket = bool(Inventory().count("minecraft:water_bucket"))
     water = None if has_bucket else next(iter(find(["water"], radius=8, limit=1) or ()), None)
-    # The pour and the scoop back as one chain: no reply between them is read, so none is waited for.
+    # the pour and scoop back as one chain: no reply between them is read
     api.run_chain(extinguish_commands(s, has_bucket, water), stop_on_failure=True, wait=10)
 
 def extinguish_commands(s, has_bucket, water):
@@ -122,8 +121,7 @@ def extinguish_commands(s, has_bucket, water):
     return [{"type": "goto", "x": water["x"], "y": water["y"], "z": water["z"], "range": 0.5, "partial": True}]
 
 RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury, "burning": _extinguish}
-# Hazards answered by stopping the work and nothing more: a fall is over before a round could act, and the landing
-# belongs to the jar's WaterClutch.
+# stopped and nothing more: a fall is over before a round acts; the landing is the jar's WaterClutch
 STOP_ONLY = ("falling",)
 assert set(RESCUE) | set(STOP_ONLY) == set(KINDS), "every hazard kind is rescued or declared stop-only"
 

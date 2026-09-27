@@ -5,7 +5,7 @@ import math
 TICK = 0.05                 # seconds per tick
 HORIZON = 4.0               # seconds ahead worth predicting; past that the dragon has re-decided anyway
 
-# Dragon phase ids (vanilla EnderDragonPhase type ids). Only the sitting ones open an attack window.
+# vanilla EnderDragonPhase ids; only the sitting ones open a window
 SITTING_SCANNING = 6
 SITTING_ATTACKING = 7
 WINDOW_PHASES = {SITTING_SCANNING, SITTING_ATTACKING}
@@ -54,8 +54,7 @@ def velocity(frame, prev):
         return (0.0, 0.0, 0.0)
     return (v["x"] / TICK, v["y"] / TICK, v["z"] / TICK)
 
-# Reach of each hazard around its own position, and whether it stays where it formed. Radii are starting values fitted
-# from tapes by `fit_damage`; the dragon's head is the one that killed the bench runs, so it is generous.
+# reach of each hazard and whether it stays put; starting values fitted by `fit_damage`, the head generous
 HAZARD = {
     "minecraft:area_effect_cloud": (3.0, True),
     "minecraft:dragon_fireball": (3.0, False),
@@ -144,7 +143,7 @@ def hypotheses(hazard, here=None, closing=4.3):
             out.append((centre, radius, tuple((here[i] - centre[i]) / d * closing for i in range(3)), kind))
     return out
 
-# Hazards that do not chase: clouds and the perched head sit where they are. Everything else may come for us.
+# hazards that do not chase
 STATIC_KINDS = {"minecraft:area_effect_cloud", "dragon_head", "minecraft:ender_dragon"}
 
 def expand(hazards, here=None):
@@ -162,9 +161,7 @@ def min_tti(spot, hazards, horizon=HORIZON, speed=4.3, here=None):
             return 0.0                       # already covered: no time at all
         if any(vel):
             soonest = min(soonest, tti(centre, vel, spot, radius, horizon))
-        # Do we cross it on the way? Only meaningful for a hazard we are currently outside: when one already
-        # covers the starting point every outbound path begins inside it, and charging that as an entry made
-        # every escape score as instantly fatal — so standing still won, which is the paralysis this prevents.
+        # crossing counts only for a hazard we are outside: charging a covering one made every escape fatal and standing still won
         if here is not None and math.dist(here, centre) > radius:
             d = math.dist(here, spot)
             if d > 1e-9:
@@ -190,8 +187,7 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
     best, best_key = None, None
     for opt in options or step_options(frame):
         slack = slack_at(opt, hazards, p, speed, horizon, margin)
-        # Time first; distance from the nearest hazard breaks ties. Without the tie-break every candidate outside
-        # a static threat scores `inf`, the first one wins, and the first one is where we already stand.
+        # time first, distance from hazards breaks ties (else the first candidate — where we stand — wins)
         nearest = min((math.dist(opt, h[0]) - h[1] for h in hazards), default=float("inf"))
         key = (slack, round(nearest, 2))
         if best_key is None or key > best_key:
@@ -233,8 +229,7 @@ def windows(frames, window_phases=WINDOW_PHASES):
         })
     return out
 
-# -- enderman geometry. A fact about a mob and a line of sight, not a tactic: `api.run` consults it before every
-# aimed task, and the fight skills consult it too.
+# enderman geometry: a fact `api.run` and the fight skills consult before any aimed task
 
 ENDERMAN = "minecraft:enderman"
 EYE_HEIGHT = 1.62
@@ -269,8 +264,7 @@ def aim_hits_enderman(aim_at, here, near, half_angle=12.0, radius=24.0, head_ban
 
 from . import beliefs
 
-# How close movement may plan to stand to each thing that can hurt us. A view of the belief table, not a copy:
-# this table and play.toml's said different things about the same skeleton for months.
+# a view of the belief table, not a copy (two copies disagreed for months)
 HAZARD_R = beliefs.keep_out()
 
 def hazard_points(near, radii=None):
@@ -279,8 +273,7 @@ def hazard_points(near, radii=None):
     radii = radii or HAZARD_R
     return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near if e["type"] in radii]
 
-# ---- the current hazard set: written by perception each round, read by movement (nav.go_to) — kept here, beside
-# the points it is made of, so a walk asks a fact module and not the perception thread.
+# the current hazard set: written by perception, read by movement, kept here beside its points
 HAZARDS = []          # [(point, radius)], newest perception round wins
 HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
 

@@ -32,8 +32,7 @@ def lines():
     top = next((l for l in LAYERS if _state.get(l)), None)
     if top is None:
         return []
-    # "next: …" belongs to the goal. While survival or safety holds the body the goal is not what happens next, and
-    # showing its step under a flee reads as the agent still meaning to go smelt something.
+    # "next: …" belongs to the goal: under survival or safety it would read as still meaning the goal
     if top == "goal" and _state.get("step"):
         return [_state["goal"], _state["step"]]
     return [_state[top]]
@@ -62,8 +61,7 @@ def publish():
     except Exception:
         pass          # no /hud route on this jar: fall back to the chat line, which scrolls and holds several
     try:
-        # The chat line is the only screen channel this jar has (its overlay is the mod's own task line), so the
-        # stack goes there in one message: short, and only when it changed, or the log scrolls the game away.
+        # the chat line is the only screen channel: the stack in one short message, only when it changed
         text = "[plan] " + " | ".join(out)
         api.post("/chat", {"message": text[:MAX_CHAT] + ("…" if len(text) > MAX_CHAT else "")})
     except Exception:

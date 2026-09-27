@@ -4,8 +4,7 @@ import math
 import os
 import tomllib
 
-# ---------------------------------------------------------------------------------------------------------------
-# Configuration. One file. A second copy of a number in code is a number that will drift.
+# -- configuration: one file; a number copied into code drifts
 
 CONFIG_PATH = os.environ.get("MC_FIGHT_CONFIG", os.path.join(os.path.dirname(__file__), "fight.toml"))
 
@@ -17,9 +16,7 @@ def load_config(path=None):
         return tomllib.load(f)
 
 CONFIG = load_config()
-# What a death costs is a fact about the game, not about this fight: it lives in the belief table with everything
-# else. It was written down twice (240 s there, 120 s here), so the fight veto and ordinary play disagreed about
-# the price of the same death.
+# a death's cost lives in the belief table (two copies once disagreed, 240 s vs 120 s)
 from . import beliefs, estimate  # noqa: E402
 CONFIG["combat"]["death_cost_s"] = beliefs.value("time.death_cost_s")
 
@@ -32,8 +29,7 @@ def _observed(config):
 OBSERVED = _observed(CONFIG)
 UNMEASURED = list(CONFIG["combat"].get("unmeasured", []))
 
-# ---------------------------------------------------------------------------------------------------------------
-# State. Built by `fight_state`, checked by `validate_state`; the planner never reads a state it did not validate.
+# -- state: built by fight_state, validated before the planner reads it
 
 REQUIRED = {"self": ("pos", "hp"), "boss": ("phase", "phase_elapsed_s", "hp")}
 LIMITS = {("self", "hp"): (0.0, 20.0), ("boss", "phase_elapsed_s"): (0.0, 300.0), ("boss", "hp"): (0.0, None)}
@@ -91,8 +87,7 @@ def _set(state, section, key, value):
         out[section][key] = value
     return out
 
-# ---------------------------------------------------------------------------------------------------------------
-# Time model. Conditional quantiles over the observed samples, never a stored median.
+# -- time model: conditional quantiles over observed samples, never a stored median
 
 def quantile(xs, q):
     """Pure: nearest-rank q-quantile."""
@@ -111,8 +106,7 @@ def cycle_seconds():
     """Pure: median seconds from one window to the next — one lap of the phase cycle."""
     return sum(quantile(OBSERVED.get(p, [0]), 0.5) for p in (4, 0, 2, 3))
 
-# ---------------------------------------------------------------------------------------------------------------
-# Actions. Data plus an effect. Instantiated per fight by the profile, never a module-level table.
+# -- actions: data plus an effect, made per fight by the profile
 
 class Action:
     """One thing the agent can decide to do."""
@@ -149,9 +143,7 @@ class Action:
 
 from .kernel import commitment          # noqa: E402  one definition of "how much of this cannot be called off"
 
-# ---------------------------------------------------------------------------------------------------------------
-# The dragon's profile: what work, rate and exposure mean here, and which actions exist.
-# Nothing outside this section knows the boss is a dragon.
+# -- the dragon's profile: nothing outside this section knows the boss is a dragon
 
 ENDERMAN = "minecraft:enderman"
 
@@ -232,8 +224,7 @@ DRAGON = Profile(
     exposure=_dragon_exposure,
 )
 
-# ---------------------------------------------------------------------------------------------------------------
-# The fight: one per engagement, holding its own actions and its own config.
+# -- the fight: one per engagement, holding its actions and config
 
 class Fight:
     def __init__(self, profile=DRAGON, config=None):
@@ -285,8 +276,7 @@ class Fight:
 
     # -- the objective -----------------------------------------------------------------------------------------
 
-    # kernel's model contract: `price`, `actions`, `admissible`, `default`, `fault`, `assumptions`. The fight
-    # planner IS kernel.choose with these four; see kernel.py. Nothing below knows it is a dragon.
+    # kernel's model contract (price, actions, admissible, default, fault, assumptions): the planner is kernel.choose
 
     def price(self, state):
         """kernel: what the future costs from here, in seconds."""
@@ -340,9 +330,7 @@ class Fight:
             if bool(lookup(state, f"terrain.{key}")) != bool(wanted):
                 return False, f"needs terrain.{key} = {wanted}"
         if state["threats"]:
-            # Recursive feasibility on the field: after committing for `busy` seconds, is a safe cell still
-            # reachable before the FIRST threat arrives? Union over all threats — a pincer is invisible to any
-            # single-threat test, and one killed a run.
+            # feasibility after committing `busy` s: a safe cell still reachable before the first threat, over all threats (a pincer killed a run)
             from . import combat_model
             _spot, slack = combat_model.best_step(me["pos"], state["threats"], speed=me["speed"],
                                                   horizon=busy + 1.0, cover=me.get("cover"))

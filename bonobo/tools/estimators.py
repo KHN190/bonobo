@@ -6,14 +6,12 @@ import sys
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# What a name says it returns. The suffix is the declaration: `_s` is seconds, `_hp` is health, `_rate` is per
-# second, `_ratio`/`_chance` are unitless fractions. Anything else is not claimed to be an estimate.
+# what a name says it returns, by suffix (_s seconds, _hp health, _rate per second, _ratio/_chance fractions)
 UNITS = (("_s", "seconds"), ("_seconds", "seconds"), ("_hp", "hp"), ("_rate", "per_second"),
          ("_ratio", "fraction"), ("_chance", "probability"), ("_risk", "probability"), ("_cost", "cost"),
          ("_worth", "seconds"), ("_points", "points"), ("_factor", "fraction"))
 
-# The quantity a name is about, however it is spelled. Two functions that share a concept AND a unit are two
-# definitions of one number, which is the bug class this module exists for.
+# the quantity a name is about: two functions sharing a concept and a unit are two definitions of one number
 CONCEPTS = {
     "arrival": ("arrival", "tti", "arrive", "reach_time"),
     "pressure": ("pressure", "tax", "dps_here", "hp_tax"),

@@ -66,14 +66,14 @@ def fill_bottles(ctx, count=3):
 FIRE_RESISTANCE = ("minecraft:fire_resistance", "minecraft:long_fire_resistance")
 
 def _fire_resistance_held():
-    """Potions of fire resistance carried: the product itself (the jar reports a stack's `potion` from 0.1.39)."""
+    """Fire-resistance potions carried (the jar reports `potion` from 0.1.39)."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s.get("potion") in FIRE_RESISTANCE)
 
 @skill(gives=["state:brewed"], remaining=_k.potions(lambda s: s.get("potion") in FIRE_RESISTANCE), needs={"minecraft:nether_wart": 1, "minecraft:blaze_powder": 1, "minecraft:glass_bottle": 1}, speed={}, start=lambda c: _fire_resistance_held(), verify=lambda c: _fire_resistance_held() > c.base,
        budget=300, stall=120,
        provides={"brew:fire_resistance": lambda ctx, s: ()})
 def brew_fire_resistance(ctx):
-    """At a brewing stand (found or placed from the bag): 3 water bottles + nether wart → awkward, + magma cream → fire resistance, blaze powder as fuel."""
+    """At a brewing stand (found or placed): water bottles + wart → awkward, + magma cream → fire resistance; blaze powder fuels."""
 
     from .skills import Station, _open_container
     inv = Inventory()

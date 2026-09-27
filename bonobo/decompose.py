@@ -126,15 +126,11 @@ def missing_detail(step):
                 return None                  # it needs the world (ctx) to say: not refusable offline
     return missing
 
-# Things that are only found in one place: (step kind, token) → [(step kind, token, detail)] to put before it —
-# the dimension it lives in, then the structure — unless the snapshot / memory says we are already there.
+# things found in one place: (kind, token) → the steps to get there first, unless already there
 LIVES_IN = {("hunt", "minecraft:blaze_rod"): [("portal", "minecraft:the_nether", {}), ("seek", "fortress", {})],
             ("barter", "piglin"): [("portal", "minecraft:the_nether", {})]}
 
-# The other ways to get a thing — or to build one — beside what the solver would do (mine, hunt, craft, then place).
-# Each: the steps of one run, what one run yields, what a run needs first (planned like any need), and what must be
-# known (seen, or `or_held` carried) for it to be possible at all. Which way is taken is priced (`cost.estimate`),
-# never ranked here.
+# other ways to get or build a thing beside the solver's: each run's steps, yield, needs and what must be known; priced, never ranked here
 SOURCES = {
     # Trade gold with piglins in the Nether (nether.barter_piglin) instead of hunting endermen.
     "minecraft:ender_pearl": [{"name": "barter", "steps": [("barter", "piglin", {"ingots": 8})], "yields": 1,
@@ -157,9 +153,7 @@ SOURCES = {
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
                    "extra_s": "soft_walk_s"},        # the walk to that ground (skills.soft_spot) is part of it
                   {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", POD_BLOCKS)]},
-                  # The hut's needs are its blueprint's materials, read from it: a copy said "minecraft:stone" (smooth
-                  # stone) where the blueprint wants the "stone" group, so the plan chose a hut the build then found
-                  # 14 stone short of.
+                  # the hut's needs are read from its blueprint (a hand copy named the wrong stone)
                   {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items())}],
 }
@@ -202,7 +196,7 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
             continue
         own = []
         for kind, tok, detail in src["steps"]:
-            # Priced one run at a time; the step itself does every run (a per-run "breaks" scales with them).
+            # priced one run at a time; the step does every run
             step = Step(kind, tok, runs, {**detail, **({"breaks": detail["breaks"] * runs} if "breaks" in detail
                                                        else {})})
             step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
@@ -305,8 +299,7 @@ def _decompose(inv, goal, cost, solver, pending):
         return _prepared(inv, _action("skill", args["name"], cost, args=list(args.get("args", []))), cost, solver,
                          pending)
     if template == "effect":
-        # Any effect a skill provides, asked for by name: "breed" → Step("breed", "breed"), "repair:pickaxe" →
-        # Step("repair", "pickaxe"). `decompose` refuses it when no registered skill provides it (skill.handles).
+        # any effect a skill provides, by name ("repair:pickaxe" → Step("repair", "pickaxe")); refused when nobody provides it
         kind, _, token = args["effect"].partition(":")
         count = int(args.get("count", 1))
         detail = dict(effect_detail(kind, token or kind, count), **dict(args.get("detail") or {}))

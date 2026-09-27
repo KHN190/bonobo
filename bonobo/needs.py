@@ -28,9 +28,7 @@ def bridge_stock(feet, target):
 
     across = math.ceil(math.dist((feet[0], feet[2]), (target[0], target[2])))
     return max(BRIDGE_MIN, min(BRIDGE_STOCK, across))
-# Plan steps that put the body where a fall can happen — portals, strongholds, fortresses, deep ore reached by
-# digging down. The jar's WaterClutch saves a fall only with a water bucket to hand, so a plan with one of these
-# gets a bucket first. (kind, token) with token None = any token of that kind.
+# steps where a fall can happen: the jar's WaterClutch needs a water bucket, so such a plan gets one first; token None = any
 FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("seek", "portal_room"),
              ("activate", "end_portal"), ("hunt", "minecraft:blaze_rod")}
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
@@ -160,14 +158,12 @@ class Needs:
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         enclosed, soft_ground = ground(reads)
         blocked = b.reflexes.blocked_here(b.place)
-        # A bed skips the night, the fastest way through it: made from what is carried (craft only, no sun needed),
-        # it comes before any shelter and before the night's work underground.
+        # a bed from what is carried skips the night: before any shelter and the night's work
         bed_tonight = _once(reads, "bed_tonight", lambda: self.bed_tonight(snap))
         self.needs_now = []
         if bed_tonight():
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
-        # The night's way from here (dig in, wall in, a hut): the shelter reflex runs it when its parts are in the
-        # bag; otherwise its parts are this round's need.
+        # the night's way from here: the shelter reflex runs it when its parts are carried, else its parts are this round's need
         night_way = _once(None, "night_way", lambda: self.overnight(snap, night_facts(soft_ground()), bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))
@@ -175,10 +171,7 @@ class Needs:
             way, _secs, steps = night_way()
             if way is not None and any(st.kind != "shelter" for st in steps):
                 self.prepare_night(way, steps)
-        # Needs: what upkeep wants got, proposed (not queued) — the arbiter ranks them with the rows.
-        # A tool is the plan's need (decompose puts one in any plan whose step wants it); upkeep only replaces one
-        # that broke under a held plan that still wants it — "no working pickaxe" put a pickaxe (and its tree) in
-        # front of every task, a log chop included.
+        # upkeep only replaces a tool that broke under a held plan still wanting it (a blanket "no pickaxe" put one before every task)
         wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
         for kind in sorted(self.broken & wanted):
             self.need("broken tool", goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
@@ -189,8 +182,7 @@ class Needs:
             self.need("bridge stock", goals.have(("building", bridge_stock(snap.feet, blocked["pos"]))),
                       "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))
-        # Food cooking in the background counts: its meals toward the stock, its points toward the stomach — two
-        # beef in the furnace and "hunt 6× porkchop" put a 345 s hunt before the task (night_first__low).
+        # food cooking counts toward stock and stomach (else a hunt ran with beef in the furnace)
         pending = b.mem.pending_outputs(snap.dimension) if getattr(b, "mem", None) is not None else {}
         meals, points = food_on_its_way(pending)
         if food_count(inv) + meals < 8:
@@ -266,7 +258,7 @@ class Needs:
         cost = self.cost(snap)
         return all(cost.known_source(st) for st in steps)
 
-# ------------------------------------------------------------------------------------------------- upkeep skills
+# -- upkeep skills
 
 def repair_pair(slots, kind):
     """Pure: two damaged tools of one item whose combined durability beats the best — crafting them together repairs."""

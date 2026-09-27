@@ -6,9 +6,7 @@ from . import api
 from .data import (DAY_END, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
 
-# The round's route answers from the game (`nav.route_s` writes them, `nav.forget_routes` clears): {key: (found,
-# seconds)}. Kept at the bottom, beside the other world reads, so the cost model prices a route without importing
-# movement.
+# the round's route answers ({key: (found, seconds)}), kept here so the cost model prices a route without importing movement
 ROUTES = {}
 
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
@@ -186,7 +184,7 @@ def container():
 REGION_MAX = 32 * 32 * 32       # the most cells one /blocks answers (the jar's MAX_REGION_VOLUME)
 
 def slabs(lo, hi, most=REGION_MAX):
-    """Pure: the box lo."""
+    """Pure: the box lo..hi cut along x into boxes of at most `most` cells — one read per slab (the jar refuses larger)."""
 
     lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
     face = (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1)

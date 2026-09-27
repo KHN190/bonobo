@@ -23,8 +23,7 @@ def code_index(pkg_dir=PKG):
         with open(os.path.join(pkg_dir, fname), encoding="utf-8") as f:
             text = f.read()
         tree = ast.parse(text)
-        # Top-level functions and constants, and the methods of top-level classes (a nested def is its
-        # function's own business — a local named like it pulled the dragon fight into a log chop's key).
+        # top-level defs and constants and top-level class methods only (a nested local pulled the dragon fight into a chop's key)
         nodes = list(tree.body) + [m for c in tree.body if isinstance(c, ast.ClassDef) for m in c.body]
         for node in nodes:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -46,10 +45,9 @@ def _names_in(source):
     try:
         tree = ast.parse(textwrap.dedent(source))
     except SyntaxError:
-        # A lambda cut out of a dict literal is not a statement: every identifier and quoted word it holds.
+        # a lambda cut from a dict literal is not a statement: every identifier in it
         return set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", source))
-    # What is called (f(), x.f()) or read as a constant (ALL_CAPS): a local
-    # variable named like a function elsewhere is not a reference to it.
+    # what is called or read as a constant: a same-named local is no reference
     out = set()
     for n in ast.walk(tree):
         if isinstance(n, ast.Call):

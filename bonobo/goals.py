@@ -8,16 +8,14 @@ from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held, kit
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
-# Which solver a goal is planned by when its task names none: combined goals (a milestone is a set of things to hold
-# at once) go to the column solver, which orders them together; the rest to the default. Either falls back to
-# every registered solver when it cannot plan.
+# combined goals (a milestone) go to the column solver, which orders them together; either falls back to every solver
 SOLVER_FOR = {"milestone": "solve"}
 # Goals whose "done" is that their plan ran: nothing in the world says a skill was run or a road walked.
 RUN_ONCE = ("road", "skill", "effect")
 # Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.
 RUN_AFTER = ("end portal",)
 
-# The run, as named sets of things to hold, in the order the old goal list reached for them (brain.goals).
+# the run as named sets of things to hold, in order
 MILESTONES = {
     "stone tools": [["tool", "pickaxe", 1], ["tool", "sword", 1], ["tool", "axe", 1]],
     "station kit": [["minecraft:crafting_table", 1], ["minecraft:furnace", 1]],
@@ -40,7 +38,7 @@ MILESTONES = {
 }
 # What the brain prepares when the queue is empty, first unmet first: tools, food, light.
 PREPARE = [[["tool", "pickaxe", 1]], [["tool", "sword", 1]], [["food", 8]], [["minecraft:torch", 8]]]
-# The night's idle work under cover (brain.plan_proposals → "night stock"): ore below, dug down to, first not held.
+# the night's idle work under cover: ore below, first not held
 NIGHT_STOCK = [[["minecraft:raw_iron", 16]], [["minecraft:diamond", 3]]]
 
 def make(template, **args):
@@ -88,9 +86,7 @@ def short(inv, need_rows):
             out.append(f"{bare(token)} {n - rest[token]}/{n}")
     return ", ".join(out)
 
-# Every goal kind states what it wants as a pure function of what the world shows — the remainder still to do,
-# {} when met. A task's progress is never a counter or a step index: each round the remainder is read again, and
-# only that is planned for (the held plan is a cache of how, redone when the remainder changes).
+# each goal kind states its remainder as a pure fn of the world ({} met); progress is never a counter
 DESIRED = {}
 
 def desired(*templates):
@@ -106,8 +102,7 @@ def remainder(goal, snap, mem):
     """The goal's remainder from the world now ({} = done), or None when only its plan running can say."""
     return DESIRED[goal["goal"]](goal, snap, mem)
 
-# The shared remainder math (reconcile, have_remainder, blocks_remainder) is knowledge's: goals here and the skills'
-# `remaining` (skill.py) both read it from there, nowhere else.
+# the shared remainder math is knowledge's; goals and skills' `remaining` both read it there
 @desired(*ITEM_GOALS)
 def _held_remainder(goal, snap, mem):
     if goal["goal"] == "milestone" and goal.get("args", {}).get("name") in RUN_AFTER:

@@ -3,8 +3,7 @@ import math
 
 from .data import COLORS, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS, bare, mid
 
-# Group-level recipes: output type follows the input variant (spruce logs → spruce planks, white wool → white bed).
-# The craft skill resolves each group token to ONE owned member with enough items.
+# group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
     "planks": (["log", None, None, None], 4),
     "boat": (["planks", None, "planks", "planks", "planks", "planks", None, None, None], 1),
@@ -12,14 +11,11 @@ GROUP_RECIPES = {
     "bed": (["wool", "wool", "wool", "planks", "planks", "planks", None, None, None], 1),
 }
 
-# Optional tools a skill runs faster with (`@skill(speed=...)`): seconds saved per unit of work, against bare hands.
-# A tool is made only when making it takes less than it saves.
+# seconds a speed tool saves per unit of work; it is made only when that beats making it
 CHOP_AXE_S = 1.5         # a log: ~3 s by hand, ~1.5 s with a wooden axe
 HUNT_SWORD_S = 3.0       # a kill: a cow takes ten fist hits, four with a wooden sword
 DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 s with a wooden shovel
-# What carries out a planned step, as the planner sees it: fn(step) → (needs, speed) — the hard needs of the call
-# the skill would make ({dim: n}) and the tools it runs faster with ({tool: s saved per unit}). Wired in by skill.py
-# (`skill.step_call`, read off the providers' own `needs`/`speed`): knowledge stays below the skills.
+# fn(step) → (needs, speed) of what carries out a planned step; wired by skill.py so knowledge stays below the skills
 STEP_CALL = None
 
 def step_call(step):
@@ -28,7 +24,7 @@ def step_call(step):
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else ({}, {})
 
-# item -> (block names to break, minimum pickaxe tier or None if no tool needed)
+# item → (blocks to break, minimum pickaxe tier or None)
 MINE = {
     "minecraft:raw_iron": (["iron_ore", "deepslate_iron_ore"], 1),
     "minecraft:coal": (["coal_ore", "deepslate_coal_ore"], 0),
@@ -70,17 +66,7 @@ HUNT_YIELD = {"minecraft:beef": 2, "minecraft:porkchop": 2, "minecraft:mutton": 
               "minecraft:rabbit": 1, "wool": 1, "minecraft:leather": 1, "minecraft:feather": 1,
               "minecraft:string": 1, "minecraft:ender_pearl": 0.5, "minecraft:blaze_rod": 0.5}
 
-# Things the world has already MADE. A village is a bag of finished goods — beds, furnaces, tables, chests, hay —
-# and the planner could not say "take that one", only "craft one", so it spent mornings shearing sheep next to a
-# row of beds. One row per thing worth carrying away:
-#
-#   blocks   what to look for, as the world names it to `find` (bare, no namespace; variants included)
-#   gives    what ends up in the bag, in tokens the rest of the planner already knows
-#   tool     (kind, tier) needed for the block to drop anything, or None for bare hands
-#   break_s  seconds to break it, once we are standing there (the walk is priced separately)
-#
-# Breaking these costs nothing socially: villagers take offence at trades and at hurting their golem, not at a
-# missing bed. So there is no theft price here — that would be a belief about a rule the game does not have.
+# finished goods the world already holds (village beds, furnaces…), so "take that one" competes with "craft one"; no theft price — the game has none
 TAKEABLE = {
     "bed": {"blocks": [f"{c}_bed" for c in COLORS], "gives": {"bed": 1}, "tool": None, "break_s": 1.0},
     "wool": {"blocks": [f"{c}_wool" for c in COLORS], "gives": {"wool": 1}, "tool": None, "break_s": 1.2},
@@ -129,11 +115,9 @@ ALL_FOOD = [mid(f) for f in FOOD]
 # Raw meat: food that wants cooking — eaten raw only when starving, counted as the next meal while cooked is short.
 RAW_MEAT = [mid(f) for f in RAW]
 
-# One definition of "enough food for the Nether trip". Six, not twelve: a speedrun crosses on a handful of steaks,
-# while twelve cooked items means a dozen kills plus smelting.
+# enough food for the Nether: a speedrun crosses on a handful of steaks
 KIT_FOOD = 6
-# Beds carried into the End. Human runners take 8–10 and call five the bare minimum: each perch window is worth one
-# or two blasts, and a wasted bed must not end the fight.
+# runners take 8–10 beds: one or two blasts per perch, and a wasted bed must not end the fight
 DRAGON_BEDS = 8
 
 def food_count(inv):
@@ -154,7 +138,7 @@ def nether_kit_missing(inv):
         missing.append(f"blocks {inv.count('building')}/32")
     if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
         missing.append("gold helmet")
-    # Two free slots for the first loot: a stricter target flickered with every pickup.
+    # two free slots: a stricter target flickered with every pickup
     if 36 - inv.used_slots() < 2:
         missing.append(f"bag room {36 - inv.used_slots()}/2 free")
     return missing
@@ -170,16 +154,14 @@ def kit_needs(inv):
         needs.append(("minecraft:golden_helmet", 1))
     return needs
 
-# Where to look when nothing is known nearby: the height band a kind is richest in (None = the surface). The one
-# fixed table the brain consults before spiralling out (`explore`).
+# where to look when nothing is known: a kind's richest height band (None = surface)
 FIND_AT = {
     "minecraft:raw_iron": 16, "minecraft:coal": 48, "minecraft:raw_copper": 48, "minecraft:raw_gold": -16,
     "minecraft:diamond": -58, "minecraft:redstone": -58, "minecraft:lapis_lazuli": 0,
     "log": None, "minecraft:sand": None, "minecraft:clay_ball": None, "food": None,
 }
 
-# Every block kind the cost model asks "how far is the nearest" about: one scan per round answers them all
-# (world.nearest over this union).
+# every block the cost model asks "how far" about: one scan per round answers all
 SOURCE_BLOCKS = sorted({b for blocks, _tier in MINE.values() for b in blocks} | set(GROUPS["log"])
                        | {"dirt", "grass_block", "water", "lava"} | {bare(s) for s in STATIONS})
 
@@ -188,11 +170,7 @@ def members(token):
         return ALL_FOOD
     return GROUPS.get(token, [mid(token)])
 
-# -- where a token comes from: the producing skills' `gives`, read from the skill registry ------------------------
-# A skill declares what it produces (`@skill(gives=...)`) as one of these tables (rank, lookup); the planner's
-# `source` and the solver's columns are both read off the registry, so a producer exists in one place — the skill.
-# Rank settles a token two skills could make (the old if-chain's order): a group recipe before a hunt, a smelt
-# before a recipe (iron ingots from ore, not from a block), a mine last among the base sources.
+# -- where a token comes from: the skills' `gives` in the registry, one place; rank settles a token two skills make
 RANK = {"gather": 0, "craft_group": 10, "hunt": 20, "smelt": 30, "trade": 35, "craft": 40, "mine": 50, "fill": 60,
         "farm": 70, "take": 90}
 # Tokens that are another token's source by definition: "stone"/"building" are what cobblestone is used as.
@@ -237,9 +215,8 @@ GIVES_FARM = _one("farm", "minecraft:wheat", ("minecraft:wheat_seeds", PLOT_CELL
 GIVES_TRADE = _one("trade", "minecraft:emerald", ["minecraft:villager"], ("trade", ["minecraft:villager"]))
 GIVES_TAKE = _table("take", TAKEABLE, lambda t, row: ("take", row["blocks"]))
 
-PRODUCERS = []       # the registered skills' producing tables, filled by the `skill` decorator (like SKILL_SPEED)
-# The modules whose skills produce: loaded by name before the tables are read, so a reader does not depend on who
-# happened to import what (a string, not an import: knowledge stays below the skills).
+PRODUCERS = []  # the registered skills' producing tables, filled by the `skill` decorator
+# loaded by name before the tables are read (a string, not an import: knowledge stays below the skills)
 SKILL_MODULES = ("brewing", "building", "combat", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
                  "reflexes", "skills", "ui", "wood")
 
@@ -266,8 +243,7 @@ def source(token):
             return src
     return None
 
-# The remainder math goals (goals.desired) and skills (skill `remaining`) share: what the world still lacks of a
-# desired state, {} when met. Pure, and here at the bottom so a skill module reads it without the planner.
+# -- the remainder math goals and skills' `remaining` share ({} when met), here so skills need no planner
 TOOL_MIN_DURABILITY = 10
 
 def tool_ok(inv, kind, tier, min_left=TOOL_MIN_DURABILITY):
@@ -306,11 +282,7 @@ def blocks_remainder(want, name_at):
 
     return {p: b for p, b in want.items() if bare(name_at(p) or "air") != bare(b)}
 
-# -- what is left of a world-effect skill ---------------------------------------------------------------------------
-# A skill whose product is a state of the world declares `remaining` (a pure fn (state, call) → {what: missing},
-# {} when met), read off skillcore.body_state's shape — "state" (/state), "feet", "inv", "region" — plus what a
-# caller read for it ("entities", "dark", "machines", "sites"). A reading not taken is not a "done". One place for
-# these readers, beside the item math above (have_remainder, held, reconcile).
+# -- what is left of a world-effect skill: `remaining` readers over body_state's shape; a reading not taken is not "done"
 AIR_FULL = 300
 
 def left(ok, what, n=1):
@@ -320,7 +292,7 @@ def left(ok, what, n=1):
 def body(st):
     return st.get("state") or {}
 
-# -- where the body is ---------------------------------------------------------------------------------------------
+# -- where the body is
 def in_dimension(dimension_of):
     """In the dimension `dimension_of(call)` names."""
     def fn(st, c):
@@ -355,7 +327,7 @@ def fed(st, c):
     food = int(body(st).get("food", 0))
     return left(food >= 20, "food", 20 - food)
 
-# -- the blocks read around us ---------------------------------------------------------------------------------------
+# -- the blocks read around us
 def names(st):
     region = st.get("region")
     return [bare(n) for n in region.blocks.values()] if region is not None else []
@@ -391,7 +363,7 @@ def structure(cells_of):
         return blocks_remainder(want, lambda p: region.name(p) if region.inside(p) else None)
     return fn
 
-# -- the bag ---------------------------------------------------------------------------------------------------------
+# -- the bag
 
 def more_than_at_start(token_of, n_of=lambda c: 1):
     """`n_of(call)` more of `token_of(call)` than the call started with (`call.base`, the skill's own start)."""
@@ -425,7 +397,7 @@ def worn(item_of, below=0.25):
         return left(worst is not None and worst < below, f"repair:{bare(item)}")
     return fn
 
-# -- what moves around us ------------------------------------------------------------------------------------------
+# -- what moves around us
 def entities(st):
     return st.get("entities")
 
@@ -477,7 +449,7 @@ def _base(c, default=0):
     b = getattr(c, "base", None)
     return b if b is not None else default
 
-# -- the skills' own readers (each a world state; the decorators name them) ------------------------------------------
+# -- the skills' own readers
 def bartered(st, c):
     """More carried than gold at the start (what a piglin tosses back)."""
     now = sum(int(s.get("count", 1)) for s in st["inv"].slots if s["id"] != "minecraft:gold_ingot")

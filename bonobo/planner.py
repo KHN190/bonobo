@@ -96,7 +96,7 @@ class Planner:
         tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)] if hasattr(inv, "tools") else []
         return cls(counts, tools, cost)
 
-    # ---- public
+    # -- public
     def plan(self, needs):
         for need in needs:
             if need[0] == "tool":
@@ -105,12 +105,11 @@ class Planner:
                 self.need(need[0], need[1])
         return self.merged()
 
-    # ---- resolution
+    # -- resolution
     def need_tool(self, kind, tier, depth=0):
         if self.inv.has_tool(kind, tier, TOOL_MIN_DURABILITY):
             return
-        # The tool made is the best the bag makes outright (`craftable_tier`), never below what the step needs: a
-        # worn-out iron pickaxe with three ingots carried was replaced with a wooden one, then a stone one.
+        # the best tier the bag makes outright, never below the need (a worn iron pickaxe was replaced with a wooden one)
         if not self.probing:
             tier = max(tier, self.craftable_tier(kind))
         material = TOOL_MATERIAL_FOR_TIER[tier]
@@ -186,8 +185,7 @@ class Planner:
         if not fresh:
             self.inv.consume(token, have)
         if token == "food":
-            # Raw meat already carried first: smelting it is seconds, hunting is minutes — a hungry agent with two
-            # raw beef and a lit furnace planned "hunt 8× porkchop" instead.
+            # raw meat carried first: smelting is seconds, hunting minutes
             for cooked, k in cooked_from_carried(COOKABLE_FOOD, self.inv.available, missing):
                 self.need(cooked, k, depth + 1)
                 missing -= k
@@ -246,13 +244,12 @@ class Planner:
             self.add_step(step)
         elif kind == "farm" and getattr(self.cost, "ripe", lambda t: 0)(token) * TAKEABLE[token]["gives"][token] \
                 >= missing:
-            # A crop already grown is harvested before a plot is sown (the ore rule: what is known first).
+            # a crop already grown is harvested before a plot is sown (what is known first)
             step = Step("take", token, missing, {"blocks": list(TAKEABLE[token]["blocks"])})
             self.before(step, depth)
             self.add_step(step)
         elif kind == "farm":
-            # A plot (farming.plant_farm): a hoe, the seeds sown (given back at the harvest) and a water bucket that
-            # stays in it; one plot is `per` of the crop.
+            # a plot: a hoe, `per` seeds (given back at the harvest) and a water bucket that stays; one plot yields `per`
             _, seeds, per = src
             plots = math.ceil(missing / per)
             step = Step("farm", token, plots * per, {"plots": plots, "inputs": {"minecraft:water_bucket": plots}})
@@ -264,7 +261,7 @@ class Planner:
             self.inv.add(token, plots * per)
             self.inv.consume(token, missing)
         elif kind == "trade":
-            # Sold to a villager for what it buys (the offer decides): nothing carried to plan, a villager to find.
+            # sold to a villager for what it buys: a villager to find
             _, types = src
             step = Step("trade", token, missing, {"types": types})
             self.before(step, depth)               # what the villager is paid in: trade's own needs
@@ -279,7 +276,7 @@ class Planner:
     MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
 
     def merged(self):
-        """Same-kind steps for the same token merge into the earliest one: gather, mine, smelt and craft intermediates once for everything."""
+        """Same-kind steps for one token merge into the earliest: intermediates made once for everything."""
 
         out, index = [], {}
         for s in self.steps:

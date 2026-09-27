@@ -8,29 +8,19 @@ from . import paths
 
 REFLEX, SAFETY, TACTIC, MAINTAIN, PLAN = 0.05, 0.2, 1.0, 3.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
-# MAINTAIN: the fixed maintenance reflexes (reflexes.TABLE) — eat, out of the water, the night's shelter, a full
-# bag — faster than any plan, slower than a fight.
+# MAINTAIN (reflexes.TABLE): faster than any plan, slower than a fight
 SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAINTAIN, "plan": PLAN}
 
-# Why an answer did not get the body. A closed set, because "it did not happen" is not an observation: a bench
-# that cannot tell "outbid" from "locked out" reads fourteen empty cells and learns nothing from any of them.
-#
-#   layer    something faster holds or drives the body; subsumption, not a contest
-#   margin   the same layer already holds a decision this one does not clearly beat (`kernel.MARGIN`)
-#   price    the same layer is part-way through open-loop work worth more than this answer saves
-#   expired  the intent was too old to start
-#   stood_down  the body was handed to Claude; only reflexes still run
+# why an answer did not get the body, a closed set so a bench can tell "outbid" from "locked out"
 REFUSED = ("layer", "held", "expired", "stood_down")
 
-# Standing down outlives the process that asked for it: `mc.py` is a second process, and a flag held in memory
-# there says nothing to the loop that is actually playing. So the handover is a file, re-read at most every
-# HANDOVER_POLL_S, and the live loop sees it within one round.
+# a file, not a flag in memory: mc.py is another process; the loop re-reads it every HANDOVER_POLL_S
 HANDOVER = paths.data("handover.json", env="MC_HANDOVER")
 HANDOVER_POLL_S = 0.5
 _HANDOVER = (0.0, None)
 
 def handed_over(now=None):
-    """The layer kept by the agent while Claude drives, or None. Cached: this is asked at every tick."""
+    """The layer kept by the agent while Claude drives, or None; cached (asked every tick)."""
     global _HANDOVER
     now = time.time() if now is None else now
     when, value = _HANDOVER
@@ -52,7 +42,7 @@ def fresh_enough(seen_at, now=None, within=1.0):
     return (now if now is not None else time.time()) - float(seen_at) <= float(within)
 
 class Intent:
-    """What a layer would like the body to do. Data, not a command — the arbiter decides whether it happens."""
+    """What a layer would like the body to do; the arbiter decides."""
 
     def __init__(self, layer, action, reason="", deadline_s=None, at=None, commit_s=None,
                  cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, key=None):
@@ -60,22 +50,17 @@ class Intent:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         self.layer = layer
         self.action = action
-        # Within the PLAN layer: what kind of proposal this is (PLAN_ORDER) and, among several of one kind (the
-        # queue's tasks), its place in line.
+        # within PLAN: the proposal's kind (PLAN_ORDER) and its place among several of one kind
         self.kind, self.seq = kind, seq
         # What the round's facts know this proposal by (a need's or a task's retry name): `viable` reads it.
         self.key = key if key is not None else (reason or None)
         self.reason = reason
         self.deadline_s = deadline_s
-        # How long the body may stay on this before the planner is asked again. Distinct from deadline_s, which says
-        # when the intent is too old to START: a plan that takes 40 s is not a plan that may ignore the world for
-        # 40 s. The planner computed a commitment for every action and nothing ever read it, so a fight round lasted
-        # as long as its action and the 10 Hz perception could only interrupt, never re-decide.
+        # how long the body may stay on this before the planner is asked again (deadline_s is when it is too old to start)
         self.commit_s = commit_s
         self.cost_rate = float(cost_rate)
         self.cost_s = None if cost_s is None else float(cost_s)
-        # Whether stopping this throws anything away is the LAYER's question, answered through the `release` its
-        # held decision hands the body. Kept as data for the log and the tape, never read by a judgement here.
+        # data for the log and tape only: whether stopping loses work is the layer's call, through `release`
         self.resumable = bool(resumable)
         self.redo_s = float(redo_s)
         self.at = time.time() if at is None else at
@@ -92,13 +77,7 @@ class Intent:
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
 
-# The PLAN layer's one order — every planned proposal ranks here and nowhere else: what upkeep needs got (the
-# night's parts, a tool that broke, a bucket, blocks, food), then what the queue asks, then the night's work under
-# cover and idle stocking. They only PROPOSE; `arbitrate` chooses. (The MAINTAIN layer's reflexes rank by their
-# own table, reflexes.TABLE, through `seq`.)
-# How work left for something faster is taken up again — one declared rule per interrupt source; a source with no
-# rule is refused by the offline sweep (tests/test_pure_world InterruptSources, built from the code's own lists:
-# every reflexes.TABLE row, every hazard kind, every layer, and the sources below).
+# PLAN_ORDER ranks every planned proposal here only; RESUME_RULES: one declared rule per interrupt source (the offline sweep refuses a source without one)
 RESUME_RULES = {
     "same": (True, None),             # the same target, the next frontier; nothing cooled, nothing banned
     "recheck": (True, "recheck"),     # the bag changed under it: re-read the remaining amount first
@@ -129,10 +108,9 @@ def resume_of(source):
 PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food stock",
               "queue", "night stock", "wait for day", "idle")
 
-# Last-resort kinds: offered only when nothing else is (`gate`) — idle stocking and waiting for day.
+# offered only when nothing else is (`gate`)
 LAST_RESORT = ("wait for day", "idle")
-# Waiting kinds: rounds that did nothing (slice_report's waits, the one waste the bench counts). Idle stocking is
-# work — a sword made after the queue ran dry — and counting it failed six rows whose tasks were all done.
+# rounds that did nothing, the waste the bench counts (idle stocking is work)
 WAIT_KINDS = ("wait for day", "wait")
 
 def viable(intent, facts):
@@ -186,9 +164,7 @@ class Motion:
     """The body's single entry point."""
 
     def __init__(self, log=None, watch_handover=False):
-        # Only the one real body watches the handover file. A Motion built for a test is its own world, and having
-        # every instance read a flag another process wrote made "who may drive" depend on the machine's state:
-        # one takeover left the whole arbiter suite red.
+        # only the real body watches the handover file: a test Motion is its own world
         self.watch_handover = bool(watch_handover)
         self._lock = threading.RLock()
         self._local = threading.local()
@@ -199,10 +175,7 @@ class Motion:
         self.violations = []
         self.driving = None       # the preemption currently executing, if any
         self.lease = None         # (intent, release, worth_s): the decision the body holds, and what ends it
-        # The slowest layer that may still drive itself. `None` is ordinary play — every layer runs. Set to REFLEX
-        # and the agent keeps its reflexes (and whatever the jar does on its own tick) and stops deciding: the body
-        # is then driven from outside, through `api` directly. Handing over and taking back is one number, because
-        # anything else leaves a mode that can be entered and not left.
+        # the slowest layer that may still drive: None = ordinary play; REFLEX = reflexes only, the body driven from outside
         self.ceiling = None
         self._log = log or (lambda *_: None)
 
@@ -323,7 +296,7 @@ class Motion:
                                        f"'{holder.reason}' holds the body")
             if holder.scale == intent.scale and self.lease is not None:
                 _intent, _release, held_at = self.lease
-                # A decision from a world nobody has looked at lately is not a decision worth defending.
+                # a decision from a world nobody looked at lately is not worth defending
                 if fresh_enough(held_at, now, fresh_within):
                     return refuse("held", f"   motion: {layer} '{reason}' waits: {holder.layer} "
                                           f"'{holder.reason}' still holds its answer")
@@ -332,35 +305,29 @@ class Motion:
             return refuse("layer", f"   motion: {layer} '{reason}' waits: {driving.layer} "
                                    f"'{driving.reason}' is driving")
         if driving is not None and driving.scale == intent.scale:
-            # A layer does not cut off its own running answer: that is one decision being carried out, and
-            # re-entering it mid-action is how the threat layer once stopped itself every tick.
+            # a layer does not cut off its own running answer (the threat layer once stopped itself every tick)
             return refuse("held", f"   motion: {layer} '{reason}' waits: its own '{driving.reason}' is running")
         with self._lock:
             self.preempted_at, self.preempted_by = intent.at, intent
             if release is not None:
-                # Taking the body and saying so are one step. While they were two, the /stop below woke the
-                # planner, it asked `owns` before the lease existed, and posted its next task into the gap — which
-                # replaced this answer 0.05 s after it started, three fixes in a row. The reading's timestamp is
-                # kept with it, because that is what says whether this decision still describes the world.
+                # take the body and record the lease in one step, or the woken planner posts into the gap
                 self.lease = (intent, release, now if seen_at is None else seen_at)
             if intent.scale <= SAFETY:
-                # The message channel has ONE writer: a preemption. Whatever slow action is running reads it and
-                # abandons itself. Anyone else writing it was a second commander with a different opinion.
+                # the message channel has one writer, a preemption; the running slow action reads it and abandons itself
                 from . import api
                 api.INTERRUPT = reason
         if clear_first:
-            # The slower layer's task is still running in the mod, and posting on top of it is two commanders.
-            # Sent after the lease stands, so whoever this wakes is already refused.
+            # stop the slower layer's running task, after the lease stands so whoever wakes is refused
             from . import api
             try:
                 api.post("/stop")
             except api.McError:
                 pass
-        self._run(intent)              # outside the lock: a long action must not freeze submit/step
+        self._run(intent)  # outside the lock: a long action must not freeze the body
         return (intent.layer, intent.reason), None
 
     def drive(self, layer, action, reason="", commit_s=None, resumable=True, redo_s=0.0):
-        """Run `action` now, on this thread, under a commitment."""
+        """Run `action` now, on this thread, under a commitment (ordinary play's entry)."""
 
         if not self.allows(layer):
             self._log(f"   motion: {layer} '{reason}' stands down: the body is Claude's")

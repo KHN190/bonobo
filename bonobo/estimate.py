@@ -34,10 +34,7 @@ def arrival_s(here, hazard, ground=None, horizon=None):
     horizon = horizon_s(horizon)
     slower = 1.0 if ground is None else ground.slowdown(bool(mob.get("squeezes")))
     futures = combat_model.hypotheses(hazard, here, closing=float(mob.get("speed", 2.5)))
-    # The geometry is asked for a window this ground can actually deliver inside, and the answer is put back on
-    # the same clock. Truncating before the ground was applied and returning after it meant the cut-off and the
-    # answer were different quantities: a mob could come back "arriving in thirty seconds" from a twenty-second
-    # account, and every caller that reads infinity as "outside the account" was reading a number that was not.
+    # ask the geometry for a window this ground can deliver, and answer on the same clock (else "30 s" came from a 20 s account)
     seconds = combat_model.min_tti(here, futures, horizon=horizon / slower)
     return seconds if seconds == float("inf") else seconds * slower
 
@@ -63,8 +60,7 @@ def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None
         if not mob or mob.get("burst"):
             continue
         when = arrival_s(here, hazard, ground, horizon)
-        # Further out than a decision takes to act on is the next decision's: perception looks again every tick,
-        # and pricing now what arrives in ten seconds made a zombie across the field worth stopping work for.
+        # further than a decision takes to act is the next decision's (a far zombie was worth stopping work for)
         if when == float("inf") or when > float(ENGAGE["react_s"]):
             continue
         total += hazard[5] * hazard[4] * (max(0.0, horizon - when) / horizon) * reaches_share(shape, mob)

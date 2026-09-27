@@ -8,10 +8,7 @@ from . import paths
 
 FILE = paths.data("world.json", env="MC_WORLD")
 
-# What is about one save, and nothing else. A file not listed here survives on purpose: beliefs.jsonl is what the
-# agent has measured about mobs and itself, the logs are the record of what happened, and neither is a place.
-# `handover.json` is NOT here: who is driving the body is a live control, not a memory of a place. Wiping it on
-# every restart handed the agent back its own layers in the middle of a takeover.
+# what belongs to one save; beliefs and logs survive on purpose; handover.json is a live control, not a place
 WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "rounds.jsonl", "tape-mem", "track.jsonl")
 
 def saves_dir(instance=None):

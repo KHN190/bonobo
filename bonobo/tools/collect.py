@@ -6,10 +6,9 @@ import time
 from .. import api, combat_tape           # noqa: E402
 
 END = "minecraft:the_end"
-# Where the observer stands: far enough from the fountain not to be swept or breathed on, close enough that the perch
-# and the pillars stay inside the recorder's scan.
+# far enough not to be swept or breathed on, close enough that the perch stays in scan
 OBSERVE = (40, 70, 0)
-# Sprint in chunks, draining between them: the buffer holds 6000 ticks and a chunk must stay well under that.
+# sprint in chunks, draining between: the buffer holds 6000 ticks
 CHUNK = 1200
 
 def chat(cmd):
@@ -25,9 +24,7 @@ def park_observer():
     in_end(f"tp @p {OBSERVE[0]} {OBSERVE[1]} {OBSERVE[2]}")
     in_end("gamemode spectator @p")
 
-# Where the bait stands: on the fountain itself, which is what makes the dragon perch and then use its sitting
-# attacks. A spectator is not a target at all, so spectator tapes contain no phase 5 or 7 — the two that kill us.
-# Dropped in from above rather than placed exactly: the fountain's top is read from where the player comes to rest.
+# the bait on the fountain makes the dragon perch and use its sitting attacks (a spectator is no target); dropped in, its top read from where it lands
 BAIT = (0, 72, 0)
 
 def park_bait():
@@ -67,8 +64,7 @@ def cycle(n, ticks, tag="observe", park=None):
         step = min(CHUNK, ticks - done)
         start = tape.last_tick()
         chat(f"tick sprint {step}")
-        # Wait for the ticks themselves, not for a quiet spell: "no new frames for a moment" fires while the sprint is
-        # still starting up and reports a finished chunk that never ran (measured 1200 ticks as 16).
+        # wait for the ticks themselves, not a quiet spell (that fired before the sprint started)
         deadline = time.time() + 120
         while tape.last_tick() - start < step and time.time() < deadline:
             tape.poll()
@@ -88,8 +84,7 @@ def main():
     t0 = time.time()
     tag = "bait" if bait else "observe"
     for n in range(cycles):
-        # Re-park every cycle: a bait knocked off the fountain (or killed despite the resistance) would otherwise
-        # spend the rest of the run somewhere the dragon ignores, recording nothing worth having.
+        # re-park every cycle: a bait knocked off records nothing worth having
         park()
         path, frames, errors = cycle(n, ticks, tag)
         print(f"cycle {n}: {frames} frames → {path}" + (f" errors={errors[:1]}" if errors else ""), flush=True)

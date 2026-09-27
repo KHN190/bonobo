@@ -11,8 +11,7 @@ from .solve import Action
 
 TICKS_PER_S = 20.0
 
-# What a fight-back mob costs to hunt: these need a weapon, and the threat layer refuses the fight without one.
-# Blocks a tool of each material breaks before it is gone (Minecraft's durability, published, not fitted).
+# fight-back mobs need a weapon (the threat layer refuses the fight without one); TOOL_USES: published durability
 TOOL_USES = {"wooden": 59, "stone": 131, "iron": 250, "diamond": 1561, "netherite": 2031, "golden": 32}
 
 FIGHTERS = {"minecraft:spider", "minecraft:enderman", "minecraft:blaze", "minecraft:slime"}
@@ -33,7 +32,7 @@ def exposure_of(action, state):
     return press * action.cost_s
 
 def with_exposure(action):
-    """Teach one column how to price its own exposure. Returns it, so it can wrap a construction."""
+    """Teach one column to price its own exposure; returns it, so it wraps a construction."""
     action._exposure = exposure_of
     return action
 
@@ -48,13 +47,11 @@ def tool_dim(kind, tier):
 def at(what):
     return f"at:{what}"
 
-# Which groups a token belongs to never changes — the tables are loaded once — but this was being recomputed by
-# walking every group for every ingredient of every recipe, several million times a session (21 s of a 129 s
-# replay). The membership is worked out once per token, the amounts on top of it.
+# token → groups never changes: recomputing it cost 21 s of a 129 s replay
 _GROUPS_OF = {}
 
 def groups_of(token):
-    """The groups this token counts toward ("oak_planks" → ("planks",)). Computed once per token."""
+    """The groups this token counts toward ("oak_planks" → ("planks",)), computed once per token."""
     got = _GROUPS_OF.get(token)
     if got is None:
         short, full = bare(token), mid(token)
@@ -76,30 +73,17 @@ def consume(token, n):
 
     return {d: -v for d, v in produce(token, n).items()}
 
-# ------------------------------------------------------------------------------------------------- the state vector
+# -- the state vector
 
-# The body's own preconditions, as state dimensions. Two, because they fail differently and are MENDED
-# differently:
-#
-#   footing      something solid under the feet — what breaking, placing and building need. Mended by standing
-#                on ground, or by putting one block down where we are.
-#   hands_free   the body is ours to command and not about to drown. Swimming is NOT a loss of it: crossing
-#                water is ordinary movement, and a body that calls itself helpless the moment it gets wet cannot
-#                plan its way anywhere across a river. Only real trouble takes it: drowning, a long fall, the
-#                player holding the controls.
-#
-# This distinction is the whole reason there are two: with them merged, "I am swimming" made every column
-# unplannable, nothing could be planned, and the one column that could mend it competed against nothing.
+# footing (solid underfoot) and hands_free (not drowning, falling or player-held) fail and mend differently; swimming keeps hands_free, or no river could be crossed
 BODY_DIMS = ("footing", "hands_free")
-# Daylight, the same way: `day` is present while the sun is up. Work out in the open — gathering trees, hunting,
-# going to anything on the surface — requires it; sleeping and waiting under cover produce it. So a plan made at
-# dusk puts the mining first and the tree after the night, instead of walking into the dark for a log.
+# `day` while the sun is up: surface work needs it, so a dusk plan mines first and gets the tree after the night
 DAY_DIM = "day"
 NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
-DROWNING_TICKS = 100          # about five seconds of air left: below this, getting a breath comes first
+DROWNING_TICKS = 100  # ~5 s of air: below this a breath comes first
 
 def body_dims(state):
-    """{dimension: 1} for what the body can do where it is. Pure: reads the snapshot, asks the world nothing."""
+    """{dimension: 1} for what the body can do where it is (the snapshot only)."""
     state = state or {}
     swimming = bool(state.get("inWater")) and not state.get("onGround", False)
     falling = float(state.get("fallDistance", 0) or 0) > 2.0
@@ -113,7 +97,7 @@ def body_dims(state):
     return out
 
 def state_of(snap, mem, extra=None, reachable=None):
-    """The world as a vector, from the snapshot and memory only — no world reads, so recorded rounds still replay."""
+    """The world as a vector from snapshot and memory only, so recorded rounds replay."""
 
     inv = snap.inv
     x = {}
@@ -130,35 +114,22 @@ def state_of(snap, mem, extra=None, reachable=None):
         if best is not None:
             for tier in range(0, best + 1):
                 x[tool_dim(kind, tier)] = 1
-        # Everything of this kind we carry, added up: two half-worn pickaxes dig as far as one whole one.
+        # two half-worn pickaxes dig as far as one whole one
         x[uses_dim(kind)] = sum(d for _t, d in usable)
     for station in STATIONS:
         if inv.count(station):
             x[station] = x.get(station, 0)
-    # A station standing in the world, close enough to walk to, is the same fact as one in the bag: `smelt`
-    # requires "minecraft:furnace" and only a CARRIED one ever set it, so the agent beside the furnace it built
-    # planned eight more cobblestone and another furnace, round after round. Memory only — no world read.
+    # a station standing near is the same fact as one carried (else the agent beside its furnace planned another); memory only
     for block, pos in _stations_near(snap, mem):
         x[block] = max(x.get(block, 0), 1)
-    # Where we already ARE. Without this the state vector never satisfied an `at:` dimension, so the plan's first
-    # step stayed `seek` for ever: standing on stone, the agent "sought stone" twice a second, each time arriving
-    # instantly and changing nothing, and every stone tool died of it. Read from remembered resource points and
-    # sightings only — no world queries, so recorded rounds still replay.
-    # Being AT something means being able to work on it, not being near it in a straight line. Standing on the rim
-    # of a flooded pit is five blocks from the coal and no route to it, and the radius alone said "at: coal" — so
-    # the plan's next step was to mine, the mine failed for want of a way there, and the round repeated. `reachable`
-    # is whoever can price a route; without one this is the radius test.
+    # where we already are, from memory only: being at something means a route to work it, not a radius (a flooded pit's rim is no "at: coal")
     for what, kinds in _findable():
         if _standing_at(kinds, snap, mem) and (reachable is None or reachable(kinds)):
             x[at(what)] = 1
     x["sheltered"] = 1 if _sheltered(snap, mem) else 0
     x["bag_free"] = max(0, 36 - inv.used_slots())
     x["bed"] = x.get("bed", 0)
-    # What the BODY can do here, as dimensions like any other. A column that needs somewhere to stand says so
-    # (`"footing": 1`) the same way it says it needs a pickaxe, and the solver drops it when the dimension is
-    # zero — instead of every goal planning the same craft, walking into the same water, and discovering the
-    # same "no free spot" for itself. Treading water there is nothing to stand on and nothing to place against;
-    # falling, riding or being held there is no body to work with.
+    # the body's abilities as dimensions: a column needing footing is dropped when there is none, instead of every goal failing on it
     x.update(body_dims(getattr(snap, "state", None)))
     night = _is_night(snap)
     if not night:
@@ -191,7 +162,7 @@ STATION_R = 8.0
 MACHINE_PROVIDES = {"smelting": "minecraft:furnace", "crafting": "minecraft:crafting_table"}
 
 def _stations_near(snap, mem):
-    """[(block id, position)] of the stations and machines within reach of where we stand, from memory alone."""
+    """[(block id, position)] of stations and machines within reach, from memory alone."""
     out = []
     for s in mem.stations(snap.dimension, near=snap.feet, within=STATION_R):
         out.append((s["block"], tuple(s["pos"])))
@@ -206,7 +177,7 @@ def _stations_near(snap, mem):
 def _standing_at(kinds, snap, mem):
     """Is one of these within arm's reach of where we stand, as far as memory knows?"""
     for kind in kinds:
-        # A mob that moves counts only when seen just now: the "here" note's life (data.VOLATILITY).
+        # a mob counts only when seen just now (the "here" note's life)
         within = VOLATILITY["here"]["ttl"] if seen_class(kind) == "mobile" else None
         if any(math.dist(r["pos"], snap.feet) <= ARRIVED_R for r in mem.seen(kind, snap.dimension, within)):
             return True
@@ -218,7 +189,7 @@ def _sheltered(snap, mem):
     site = mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
     return bool(site) and math.dist(site["pos"], snap.feet) <= 64
 
-# ------------------------------------------------------------------------------------------------- the columns
+# -- the columns
 
 def work_s(cost, kind, token, count=1):
     """Seconds this piece of work takes: what this kind costs per unit, times how many."""
@@ -241,10 +212,9 @@ def table(cost, state, wants=()):
                                      + _body(cost, state)])
 
 def base_table(cost):
-    """The columns that do NOT depend on what we hold — everything but shelter and room."""
+    """The columns that do not depend on what we hold."""
 
-    # Cached ON the cost model, not in a table keyed by its id: an id is reused the moment the object is
-    # collected, and a recycled one served another world's columns (a room that cost less than flat ground).
+    # cached on the cost model, not by its id: a recycled id served another world's columns
     hit = getattr(cost, "_base_columns", None)
     if hit is None:
         out = (_seek(cost) + _gather(cost) + _mine(cost) + _take(cost) + _hunt(cost) + _farm(cost) + _craft(cost)
@@ -253,7 +223,7 @@ def base_table(cost):
         try:
             cost._base_columns = hit
         except AttributeError:
-            pass                    # a cost model that will not hold it simply rebuilds; correctness first
+            pass  # a cost model that will not hold it simply rebuilds
     return hit
 
 def _seek(cost):
@@ -268,12 +238,11 @@ def _seek(cost):
                           tag=("seek", what, kinds, cost.where(kinds))))
     return out
 
-# A look that succeeds one time in fifty is not impossible, it is a day's work. The floor keeps the division from
-# becoming a wall — "unreachable" is still a price, which is the whole point of the seek column.
+# a floor keeps a rare find a price, not a wall
 MIN_FIND_P = 0.02
 
 def _surface():
-    """What is found on the surface, where the dark is dangerous: trees, animals, villages."""
+    """Surface finds, where the dark is dangerous: trees, animals, villages."""
     out = {"tree"}
     out |= {types[0] for types in HUNT.values()}
     out |= {row["blocks"][0] for row in TAKEABLE.values()}
@@ -304,8 +273,7 @@ def _mine(cost):
     out = []
     for token, (blocks, tier) in produced("mine"):
         per = MINE_YIELD.get(mid(token), 1)
-        # Room to put it is a requirement like any other: a full bag does not stop the digging, it stops the
-        # keeping, so the solver must see "make room" as part of the plan rather than discover it by failing.
+        # room is a requirement so the solver plans "make room" instead of failing at the keeping
         requires = {at(blocks[0]): 1, "bag_free": 1}
         effect = produce(token, per)
         if tier is not None:
@@ -388,10 +356,7 @@ def _hunt(cost):
                           tag=("hunt", token, types)))
     return out
 
-# What a craft or a smelt DOES never changes — the recipes are a table loaded once. Only what it COSTS depends on
-# the round (`work_s` reads the measured durations). Rebuilding the effects every time meant walking every recipe,
-# every ingredient and every group on every call: 36 of a 129-second replay, spent re-deriving that four planks
-# make a crafting table. The shapes are built once; each round puts its own seconds on them.
+# a craft's effect never changes, only its cost: shapes built once (rebuilding cost 36 s of a 129 s replay)
 _CRAFT_SPEC = None
 _SMELT_SPEC = None
 
@@ -407,13 +372,12 @@ def _craft_specs():
             if item:
                 for d, v in consume(item, 1).items():
                     effect[d] = effect.get(d, 0) + v
-        # Crafting needs the body and, for a 3x3, a station — which may have to be PUT DOWN, so it needs ground
-        # to stand on as well. Declared here, once, rather than discovered by each goal when the skill fails.
+        # a 3×3 craft may need its table put down, so ground too
         requires = {"hands_free": 1}
         if len(pattern) == 9:
             requires.update({"minecraft:crafting_table": 1, "footing": 1})
         specs.append([f"craft:{token}", token, effect, requires, ("craft", token, pattern, made)])
-    # Tools are craftable at every tier; the dimensions are cumulative so a tier-2 tool also satisfies tier-1 needs.
+    # tool dimensions are cumulative: a tier-2 tool satisfies tier-1 needs
     by_name = {spec[0]: spec for spec in specs}
     for name, (pattern, made) in RECIPES.items():
         kind = bare(name).rpartition("_")[2]
@@ -456,31 +420,30 @@ def _smelt(cost):
             for token, effect, tag in _smelt_specs()]
 
 def _body(cost, state):
-    """Mending the body's own preconditions — each in the way that is actually cheapest."""
+    """Mending the body's own preconditions, each the cheapest way."""
 
     out = []
     if not state.get("hands_free"):
-        # Up. The one answer to being out of air, and never more than the depth away.
+        # up: the one answer to being out of air
         out.append(Action("reach:air", {"hands_free": 1}, work_s(cost, "reach", "air"), limit=1,
                           tag=("reach", "air")))
     if not state.get("footing"):
         out.append(Action("reach:land", {"footing": 1}, work_s(cost, "reach", "land"), limit=1,
                           tag=("reach", "land")))
-        # A block under the feet IS footing, and it costs one block and a second. Requires something to place;
-        # the solver compares it with the swim and takes whichever is cheaper from here.
+        # a block underfoot is footing for one block and a second; the solver weighs it against the swim
         out.append(Action("place:footing", {"footing": 1, "building": -1},
                           work_s(cost, "place", "footing"), limit=1, tag=("reach", "footing")))
     return out
 
 def _room(cost, state):
-    """Ways to free bag space. Without these the requirement above would simply make a full bag unplannable."""
+    """Ways to free bag space; without them a full bag is unplannable."""
     return [
         Action("room:tidy", {"bag_free": 8}, work_s(cost, "room", "tidy"), limit=1, tag=("room", "tidy")),
         Action("room:deposit", {"bag_free": 16}, work_s(cost, "room", "deposit"), limit=1, tag=("room", "deposit")),
     ]
 
 def _shelter(cost, state):
-    """Several ways to survive a night, each with its own price. The solver chooses; no if-chain decides."""
+    """Ways to survive a night, each priced; the solver chooses."""
     out = [
         Action("shelter:dig in", {"sheltered": 1}, work_s(cost, "shelter", "dig in"),
                requires={tool_dim("pickaxe", 0): 1}, limit=1, tag=("shelter", "dig_in")),
@@ -492,8 +455,7 @@ def _shelter(cost, state):
     out.append(Action("sleep", {"slept": 1, at("bed"): 0, DAY_DIM: 1}, work_s(cost, "sleep", "bed"),
                       requires={"bed": 1, "sheltered": 1}, limit=1, tag=("sleep",)))
     if not state.get(DAY_DIM):
-        # The other way to morning: sit it out under cover. Priced by what is left of the night, so a bed wins
-        # when there is one and waiting wins an hour before dawn.
+        # the other way to morning: priced by what is left of the night
         out.append(Action("wait:day", {DAY_DIM: 1}, float(state.get("clock:dawn_s", NIGHT_S)),
                           requires={"sheltered": 1}, limit=1, tag=("wait", "day")))
     return out
@@ -512,10 +474,10 @@ def target_of(needs):
             target[token] = max(target.get(token, 0), n)
     return target
 
-# ------------------------------------------------------------------------------------------------- execution
+# -- execution
 
 def to_step(action, times):
-    """A solver column, as the Step the executor already understands, carrying the seconds the column was priced at."""
+    """A solver column as an executor Step, carrying the seconds it was priced at."""
 
     step = _shape(action, times)
     step.est = int(round(action.cost_s * times * TICKS_PER_S))

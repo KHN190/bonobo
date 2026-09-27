@@ -1,6 +1,6 @@
 """What a bench cell IS: the dimensions a situation can vary along, and one way to move along them. The sheets used to carry their own dimensions as dictionaries of setup commands, and the offline sweep carried its own as dictionaries of state vectors. Two vocabularies for one idea: a dimension added to one was missing from the other, and a relation that should hold "wherever this varies" quietly held in half the places. So the names live here, once. A cell is a typed thing with a `with_` that moves exactly one dimension — which is how every rule in a sheet is phrased: the same situation, one variable moved, and the number may only go one way. The sheets say how to BUILD each value in a running game; `tests/world.py` says how to build it as a state vector. Neither owns the vocabulary."""
 
-# name -> the values it can take. The first value of each is the baseline a relation is stated against.
+# name → values; the first is the baseline relations are stated against
 DIMENSIONS = {
     # what ordinary play varies
     "resource": ("bare", "village", "seam", "herd"),
@@ -8,8 +8,7 @@ DIMENSIONS = {
     "self": ("ready", "full_bag", "hungry", "hurt", "swimming", "drowning", "falling"),
     "stock": ("none", "has_wool", "has_iron", "has_tools", "has_station", "has_kit"),
     "memory": ("blank", "remembers"),
-    # what a fight varies. The body is four dimensions, not one bundle: moving a bundle moves the weapon, the
-    # armour, the blood and the bag at once, and no single-variable relation can be stated about any of them.
+    # what a fight varies; the body is four dimensions so one-variable relations can be stated
     "enemy": ("none", "walker", "archer", "climber", "bomb", "teleporter", "pack", "mixed"),
     "count": ("one", "three"),
     "ground": ("open", "corridor", "roofed"),
@@ -54,8 +53,7 @@ class Cell:
         """The dimensions as a row, for whatever a sheet writes out."""
         return dict(_cell.dims)
 
-    # A cell spreads like the mapping it used to be (`{**cell, **record(cell)}` in `core._sweep`), so the sheets
-    # that still hand dictionaries around keep working while they move over.
+    # a cell spreads like the mapping it was, so sheets handing dicts around keep working
     def keys(_cell):                      # noqa: N805
         return _cell.dims.keys()
 
@@ -86,8 +84,7 @@ def moved(cells, dim, value):
 
     out = []
     for cell in cells:
-        # Anchored at the dimension's BASELINE, never at wherever this cell happens to sit: "lava, and now water
-        # instead" is not the statement "water is in the way", and comparing those two was a red about nothing.
+        # anchored at the dimension's baseline, never where this cell sits
         if cell.dims[dim] != BASELINE[dim] or value == BASELINE[dim]:
             continue
         out.append((cell, cell.with_(**{dim: value})))

@@ -21,9 +21,6 @@ JOB_RANGE = 96
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 
-# (name, trigger over the round's view) — in order: the first that fires is the reflex the layer proposes first.
-# (name, trigger over the round's view, action(m: Maintain, v: view)) — one row per reflex, trigger and action
-# together; in order: the first that fires is the one the layer proposes first.
 FUELS = ("coal", "charcoal", "planks", "log")
 STATION_R = 8          # a furnace of ours this near counts as one to cook in
 
@@ -63,16 +60,11 @@ TABLE = [
 ]
 NAMES = tuple(row[0] for row in TABLE)
 
-# Hysteresis (a Schmitt trigger): a row with an exit predicate, once it fired, keeps firing until its exit holds —
-# not merely until its trigger stops. Every other row exits when its trigger does. Out of the water: in on
-# swimming, out only after standing on something that is not water for LAND_EXIT_S (a shore block's water flips
-# `swimming` every tick).
+# hysteresis: a row with an exit keeps firing until the exit holds; out of the water only after LAND_EXIT_S on something not water (shore water flips `swimming`)
 LAND_EXIT_S = 1.0
 EXIT = {"reach land": lambda v: v["on_land_s"] >= LAND_EXIT_S}
 
-# What a reflex's work moves, per row: run once and still firing with this unchanged is a failure (it cools under
-# retry's policy), so a reflex that cannot help can never hold the body for good. Default: where we stand, the
-# bag's used slots and the hunger bar.
+# what a reflex's work should move: firing again with it unchanged is a failure, so a useless reflex cannot hold the body
 PROGRESS = {"empty the bag": lambda v: v["used_slots"], "unstuck": lambda v: v["feet"],
             "reach land": lambda v: v["feet"], "eat": lambda v: v["food"]}
 NO_PROGRESS = "stuck"          # the retry cause a reflex that changed nothing fails with
@@ -137,7 +129,7 @@ def _once(reads, key, read):
         return box["v"]
     return get
 
-# A shelter step's token → the skill that makes it (decompose.SOURCES["overnight"] steps).
+# a shelter step's token → the skill that makes it
 SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skills.pod(ctx),
                "hut": lambda ctx: skills.build_shelter(ctx)}
 
@@ -356,9 +348,7 @@ def recover_items(ctx):
     nav.sweep(ctx, radius=10, wait=60)
     yield Inventory().used_slots()
     got = gained(lambda: Inventory().used_slots(), before) - before
-    # Either way the note is spent: what is here is now carried, and what is not here is not coming back. A record
-    # the world has already answered must be retired on arrival rather than left to expire on a timer, or the same
-    # sixty-block walk is worth the same seconds again five minutes later.
+    # the note is spent either way: retire it on arrival, or the same walk looks worth it again
     ctx.mem.forget_death(pos)
     log(f"recovered {got} stacks at {pos}" if got else f"nothing left at {pos}: the drops are gone")
     return pos

@@ -12,9 +12,7 @@ NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 def _now():
     return time.strftime("%Y-%m-%d %H:%M")
 
-# -- the section grid explore searches over (16×16×16, Minecraft's own sections): which sections were looked over,
-# when, and what they held (Memory.see_sections), and the frontier — the nearest section whose look has run out
-# for the kinds wanted, in each kind's own y band. Pure.
+# -- the section grid explore searches (Minecraft's 16³ sections): looked over when, holding what, and the frontier; pure
 SECTION = 16
 
 def section_of(pos):
@@ -133,7 +131,7 @@ class Memory:
             self.save()
 
     def _fold_old_notes(self):
-        """Resources, sightings, lava pools and veins were four stores of "seen X at Y" on the wall clock."""
+        """Four old stores of "seen X at Y" on the wall clock, folded into one."""
 
         d = self.data
         old = [(r["kind"], r["pos"], r["dimension"]) for r in d.pop("resources", []) if not r.get("depleted")]
@@ -152,7 +150,7 @@ class Memory:
             json.dump(self.data, f, indent=1)
         os.replace(tmp, self.path)
 
-    # ---- sites
+    # -- sites
     def sites(self, dimension=None, kinds=None):
         return [s for s in self.data["sites"]
                 if (dimension is None or s["dimension"] == dimension) and (kinds is None or s["kind"] in kinds)]
@@ -252,8 +250,7 @@ class Memory:
     def add_job(self, kind, pos, dimension, item, count, ready_at, carried, **contents):
         """A background job; `contents` records what went in, so what the furnace holds is known, never guessed."""
 
-        # One id per job: three furnaces loaded in the same second shared "furnace-<second>", and finishing the
-        # first finished all three (bench iron_ingots: 3 ordered, 2 collected).
+        # one id per job: jobs started in the same second shared an id and finished together
         self.data["job_seq"] = self.data.get("job_seq", 0) + 1
         job = {"id": f"{kind}-{int(time.time())}-{self.data['job_seq']}", "kind": kind, "pos": list(pos), "dimension": dimension,
                "item": item, "count": count, "ready_at": ready_at, "carried": carried, **contents}
@@ -289,7 +286,7 @@ class Memory:
     # -- skill outcomes (DEPS-style selector: plans through steps that keep failing get dearer)
     def record_outcome(self, key, ok):
         s = self.data["stats"].setdefault(key, {"ok": 0.0, "fail": 0.0})
-        # Exponential forgetting: new tools or a new area can redeem a step that used to fail.
+        # exponential forgetting: new tools or a new area can redeem a step
         s["ok"] = s["ok"] * 0.9 + (1 if ok else 0)
         s["fail"] = s["fail"] * 0.9 + (0 if ok else 1)
         self.save()
@@ -340,7 +337,7 @@ class Memory:
         if changed:
             self.save()
 
-    # ---- stations we placed (persist across restarts so they get picked back up)
+    # -- stations we placed (persisted so they get picked back up)
     def add_station(self, block, pos, dimension):
         if any(s["pos"] == list(pos) and s["dimension"] == dimension for s in self.data["stations"]):
             return
@@ -359,7 +356,7 @@ class Memory:
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
         self.save()
 
-    # ---- which sections were looked over, and what they held: explore's frontier (`frontier`)
+    # -- sections looked over and what they held: explore's frontier
     def see_sections(self, dimension, pos, radius, found, looked=()):
         """Sections within `radius` of `pos` were looked over now for `looked`; each `found` kind marks its own section."""
 
@@ -388,7 +385,7 @@ class Memory:
         """{(cx, cy, cz): {"t", "kinds"}} of this dimension (`frontier` reads it)."""
         return {tuple(map(int, k.split(","))): v for k, v in self.data.get("sections", {}).get(dimension, {}).items()}
 
-    # ---- what was seen where: one store, by volatility (data.VOLATILITY / seen_class), on the game clock
+    # -- what was seen where: one store by volatility, on the game clock
     CONFIRM_R = 12.0      # a note and a sighting within this are the same thing
 
     def _put(self, kind, pos, dimension, verify=False, cls=None):
@@ -477,7 +474,7 @@ class Memory:
             self.forget_seen(kind, pos, dimension)
         return False
 
-    # ---- what containers hold, as last seen open: the planner's "take it from a chest" source (decompose)
+    # -- what containers held when last open: decompose's "take it from a chest"
     def note_container(self, pos, dimension, slots):
         """Record what a container held when it was last open (`slots`: /container rows; the player's own skipped)."""
         items = {}
@@ -500,7 +497,7 @@ class Memory:
                 if c["dimension"] == dimension for item, n in c["items"].items() if item in ids and n > 0]
 
     def log_death(self, pos, dimension, carried=()):
-        """Record a death and WHAT WAS ON US."""
+        """Record a death and what was carried."""
 
         self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _now(), "t": time.time(),
                                     "carried": [[str(i), int(n)] for i, n in carried]})
@@ -515,9 +512,7 @@ class Memory:
             if pos is None or tuple(d["pos"]) == tuple(int(c) for c in pos):
                 d["recovered"] = True
                 self.save()
-                # A death is paid for when the walk back is done, and how long that took is exactly what
-                # `time.death_cost_s` claims to know. Measured from the death itself: the respawn, the walk and
-                # the re-gearing are all of it, which is what makes dying cost a run its time.
+                # a death is paid for when the walk back is done: measured from the death, what `time.death_cost_s` claims to know
                 if d.get("t"):
                     took = time.time() - float(d["t"])
                     if 1.0 <= took <= 3600.0:
@@ -534,7 +529,7 @@ class Memory:
             return d
         return None
 
-    # ---- nights: counted once per night, on the night→day transition
+    # -- nights: counted once, on the night→day transition
     def observe_phase(self, night):
         n = self.data["night"]
         phase = "night" if night else "day"

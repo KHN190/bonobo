@@ -16,8 +16,7 @@ from .bench.runner import *        # noqa: F403
 from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 
-# name → module (for the readiness hash), setup commands (relative to ORIGIN), expected signature blocks
-# [(lo, hi, block or "*" for any non-air, min, max)], the skill call, the success check and a time budget (s).
+# name → module, setup (relative to ORIGIN), expected blocks [(lo, hi, block or "*", min, max)], the call, the check, a budget (s)
 SCENARIOS.update({
     "cast_portal": {
         "doc": "A 3×3 lava pool beside the body; water bucket, bucket, 16 cobblestone, flint and steel → "
@@ -110,8 +109,7 @@ SCENARIOS.update({
         "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} netherrack",
                   f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
                   f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air",
-                  # Gold boots on during setup: with a bare body the summoned piglins attacked before the skill
-                  # started (hp 15, setup invalid). The helmet stays in the bag: wearing it is part of the skill.
+                  # gold boots on during setup (bare, the piglins attacked first); the helmet stays in the bag — wearing it is the skill
                   f"tp @p {_c(at(0, 0, 0))}", "clear @p", "item replace entity @p armor.feet with golden_boots",
                   "give @p gold_ingot 2", "give @p golden_helmet", "give @p iron_sword",
                   f"summon piglin {_c(at(4, 0, 0))} {{PersistenceRequired:1b}}",
@@ -131,7 +129,7 @@ SCENARIOS.update({
         "module": "combat",
         "dimension": "minecraft:the_nether",
         "combat": True,
-        # Walled like a fortress hall: on an open platform the chase walked off the edge (bench 04:19, fell to death).
+        # walled like a fortress hall: on an open platform the chase walked off the edge
         "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} nether_bricks",
                   f"fill {_c(at(-9, 0, -9))} {_c(at(9, 5, 9))} nether_bricks hollow",
                   f"fill {_c(at(-8, 0, -8))} {_c(at(8, 4, 8))} air",
@@ -140,7 +138,7 @@ SCENARIOS.update({
                   "item replace entity @p armor.chest with iron_chestplate",
                   "item replace entity @p armor.head with iron_helmet",
                   "give @p cooked_beef 16", "give @p cobblestone 32",
-                  # Close and worn (10 hp): the fight and the pickup are judged, not a long approach.
+                  # close and worn: the fight and the pickup are judged, not an approach
                   f"summon blaze {_c(at(3, 1, 0))} {{PersistenceRequired:1b,Health:4f}}",
                   f"summon blaze {_c(at(-3, 1, 2))} {{PersistenceRequired:1b,Health:4f}}",
                   f"summon blaze {_c(at(0, 1, -3))} {{PersistenceRequired:1b,Health:4f}}"],
@@ -151,8 +149,7 @@ SCENARIOS.update({
         "budget": 60,
     },
     "activate_end_portal": {
-        # 9 frames already hold their eye (a room found part-filled, as real ones are): the three on our side are
-        # the job, so the row fits 30 s and still ends in the portal opening.
+        # 9 frames already hold an eye: the three on our side are the job, so the row fits 30 s
         "doc": "A stronghold portal ring, 9 frames with eyes and the 3 nearest empty, 3 eyes and a block → a block over the "
                "middle, stood on, the 3 eyes from there: an open end portal ≤ 3 s.",
         "module": "end",
@@ -224,8 +221,7 @@ SCENARIOS["iron_ingots"] = {
     "doc": "Stone room, 3 furnaces placed side by side, 3 raw iron + 3 coal carried → 3 iron ingots, one per furnace "
            "in parallel (load, start, wait, collect).",
     "module": "skills",
-    # Core tests the smelt chain only: mining and crafting the furnace are other rows' job. The furnace clock is
-    # game time — the wait is sprinted (/tick sprint) twice, early and late, so the row fits the core's 30 s.
+    # the smelt chain only; the furnace clock is game time, sprinted twice to fit 30 s
     "setup": [f"fill {_c(at(-8, -4, -8))} {_c(at(8, -1, 8))} stone",
               f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} furnace",
               f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p raw_iron 3", "give @p coal 3"],
@@ -239,7 +235,7 @@ SCENARIOS["hunt_food"] = {
     "module": "skills",
     "combat": False,
     "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block",
-              # Four fence walls (a hollow fill also covers the top and bottom faces: cows stood on fences).
+              # four fence walls (a hollow fill also covers top and bottom: cows stood on fences)
               f"fill {_c(at(-9, 0, -9))} {_c(at(9, 0, -9))} oak_fence",
               f"fill {_c(at(-9, 0, 9))} {_c(at(9, 0, 9))} oak_fence",
               f"fill {_c(at(-9, 0, -8))} {_c(at(-9, 0, 8))} oak_fence",
@@ -277,14 +273,14 @@ SCENARIOS["return_from_nether"] = {
     "check": lambda api, inv: api.get("/state")["dimension"] == "minecraft:overworld",
     "budget": 20,
 }
-# Real structures in the test world (seed 1234): no box. /locate gives the truth to check against.
+# real structures in the test world (seed 1234): no box; /locate gives the truth
 LEG_START = (10400, 200, 10400)
 SCENARIOS["locate_stronghold"] = {
     "doc": "A flat sky plane under the skill's 200-block sideways leg, speed, 12 eyes → two throws, triangulated "
            "estimate within 64 blocks of /locate.",
     "module": "nether",
     "raw": True,
-    # Away from the bench's sky platform; /locate answers from where we stand, so the tp comes first.
+    # away from the sky platform; /locate answers from where we stand, so tp first
     "setup": [f"tp @p {LEG_START[0]} {LEG_START[1] + 1} {LEG_START[2]}", "clear @p", "give @p ender_eye 12",
               "give @p cobblestone 64", "give @p stone_pickaxe", "give @p cooked_beef 16",
               "locate structure minecraft:stronghold"],
@@ -380,8 +376,7 @@ def _portal_room_run(ctx):
 def _portal_room_found():
     from .end import ROOM_REACH
     from .world import find as _find
-    # The same number the skill's contract uses: three different radii (scan 48, contract 32, check 12) was how a
-    # run could log "room found", fail its own verify, and still be recorded as a pass.
+    # the same radius as the skill contract (three different radii let a failed verify pass)
     return bool(PORTAL_ROOM_OK) and bool(_find(["end_portal_frame"], radius=ROOM_REACH, limit=1))
 
 SCENARIOS["find_portal_room_fresh"] = {
@@ -391,15 +386,12 @@ SCENARIOS["find_portal_room_fresh"] = {
     "setup": ["clear @p", "give @p diamond_pickaxe", "give @p cobblestone 64", "give @p cooked_beef 16",
               "give @p torch 32", "give @p water_bucket"],
     "before": _built_stronghold,
-    # The skill has to succeed AND the frames have to be right here: a run that raised "finished without reaching its
-    # goal" counted as PASS because any frame within 48 blocks satisfied the old check.
+    # the skill must succeed and the frames be right here
     "run": _portal_room_run,
     "check": lambda api, inv: _portal_room_found(),
     "budget": 30,
 }
-# find_portal_room (the real stronghold, dug up by every run) was replaced by find_portal_room_fresh.
-# A dragon already worn down, its crystals gone: the fight's last phase (the approach, the perch, the finishing
-# blows) is what a row can judge inside 60 s; the full fight from 200 hp is the acceptance run's.
+# a dragon worn down, crystals gone: the fight's last phase fits a row; the full fight is the acceptance run's
 WORN_DRAGON = ["kill @e[type=end_crystal]", "data merge entity @e[type=ender_dragon,limit=1] {Health:8f}"]
 
 def _wear_dragon(ctx):
@@ -413,7 +405,7 @@ SCENARIOS["fight_dragon"] = {
     "raw": True,
     "combat": True,
     "dimension": "minecraft:the_end",
-    # Repeatable: a dragon only spawns once per world, so every run replaces it with a fresh one.
+    # a dragon spawns once per world: every run replaces it
     "setup": ["kill @e[type=ender_dragon]", "summon ender_dragon 0 80 0 {DragonPhase:0}",
               "spreadplayers 0 0 4 10 false @p", "clear @p", "give @p diamond_sword",
               "item replace entity @p weapon.offhand with shield",
@@ -462,8 +454,7 @@ SCENARIOS["loot_chest"] = {
     "check": lambda api, inv: inv.count("minecraft:iron_ingot") >= 5,
     "budget": 20,
 }
-# The bucket sits in the main bag, not the hotbar (nine stacks of dirt fill the hotbar first): the clutch must
-# select it. After landing the water is scooped back up.
+# the bucket sits in the main bag, not the hotbar: the clutch must select it; the water is scooped back after
 _FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",
                "give @p dirt 576"]
 SCENARIOS["water_clutch"] = {
@@ -569,8 +560,7 @@ SCENARIOS["ghast_fireball"] = {
     "module": "brain",
     "dimension": "minecraft:the_nether",
     "combat": True,
-    # A knee-high rim (a blast knocked the player off during setup: "doomed to fall by Ghast"); the ghast is summoned
-    # only when the skill starts, so setup time isn't spent under fire.
+    # a knee-high rim (a blast knocked the player off in setup); the ghast is summoned when the skill starts
     "setup": [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} netherrack",
               f"fill {_c(at(-6, 0, -6))} {_c(at(6, 0, 6))} netherrack hollow",
               f"fill {_c(at(-5, 0, -5))} {_c(at(5, 0, 5))} air",
@@ -594,8 +584,7 @@ def _far_from_fortress(ctx):
         raise SetupInvalid("no /locate answer for the fortress")
     _chat(f"execute in minecraft:the_nether run spreadplayers {real[0] + 20} {real[1]} 0 6 under 90 false @p")
     time.sleep(3)
-    # What the memory already holds, and where we start: a fortress site written by an earlier scenario passed this
-    # one in 3.5 s without a step taken.
+    # the memory held a fortress from an earlier row, which passed this one without a step
     from . import api
     from .memory import Memory
     s = api.get("/state")
@@ -642,8 +631,7 @@ def _trek(dx, dz, dimension="minecraft:overworld"):
         s = api.get("/state")
         start = (s["blockX"], s["blockY"], s["blockZ"])
         target = (start[0] + dx, start[1], start[2] + dz)
-        # In this process, not through the notes file: the check reloaded Memory from disk, found no trek and failed
-        # a walk that had ended 8 blocks from the target (bench 08:07).
+        # in this process, not through the notes file: a reload from disk found no trek and failed a finished walk
         TREK.clear()
         TREK.update(start=start, target=target, t0=time.time())
         ok = nav.go_to(target, ctx.policy, range_=12, attempts=1)
@@ -693,7 +681,7 @@ SCENARIOS["cave_escape"] = {
               f"fill {_c(at(0, -5, 0))} {_c(at(0, -4, 0))} air",
               f"tp @p {_c(at(0.5, -5, 0.5))}", "clear @p", "give @p stone_pickaxe", "give @p cobblestone 32"],
     "expect": [(at(-6, -1, -6), at(6, -1, 6), "stone", 169, 169)],
-    # The standing cell on the platform; range 0.6: `nav.there` measures the feet's block, so a step below is 1 off.
+    # range 0.6: `nav.there` measures the feet's block, so a step below is 1 off
     "run": lambda ctx: __import__("bonobo.nav", fromlist=["go_to"]).go_to(at(3, 0, 3), ctx.policy, range_=0.6),
     "check": lambda api, inv: api.get("/state")["y"] >= at(0, 0, 0)[1] - 0.5 and api.get("/state")["onGround"],
     "budget": 30,
@@ -717,7 +705,7 @@ for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_ov
               "trek_nether_25"):
     SCENARIOS[_name]["release"] = True       # minutes each: run by name before a live run, not in every round
 def _road_reuse(ctx):
-    """There, back, and there again over 150 blocks: the third trip must follow the remembered legs and be no slower than the first."""
+    """There, back, and there again over 150 blocks: the third trip follows the remembered legs, no slower than the first."""
 
     from . import api, nav
     s = api.get("/state")
@@ -745,12 +733,10 @@ SCENARIOS["road_reuse"] = {
     "budget": 60,
 }
 
-# -- slices: the cerebellum itself (brain.round) over a private task queue, not a single skill. Most live problems
-# were scheduling and chaining (loops, idle holds, wrong-way unstucks, repeated exits), so each slice measures them.
+# -- slices: the cerebellum itself over a private task queue; measures scheduling and chaining (loops, idle holds, wrong-way unstucks)
 SLICE = {}
 
-# Rounds the arbiter gave to a waiting kind (brain.picks, arbiter.waits). With work queued, any is a waste
-# (arbiter.gate should have offered the work).
+# rounds given to a waiting kind: with work queued, any is a waste
 MAX_WAITS_WITH_QUEUE = 0
 
 def slice_report(lines, positions, target, idle_s, picks=None):
@@ -762,8 +748,7 @@ def slice_report(lines, positions, target, idle_s, picks=None):
         parts = raw.split(" ", 1)
         if len(parts) == 2 and len(parts[0]) == 8 and parts[0].count(":") == 2:
             entries.append((parts[0], parts[1]))
-    # review.repeated returns review text ("- ×5 …" lines, or "- none"): as a string, "- none" read as a loop and
-    # would have stopped every slice after its first round.
+    # review.repeated returns text: "- none" read as a loop
     loops = [l[2:] for l in review.repeated(entries, at_least=4).splitlines() if l.strip() and l != "- none"]
     away = 0.0
     if target is not None:
@@ -802,7 +787,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         stopped = None
         try:
             while time.time() - t0 < minutes * 60:
-                # The queue's goals all finished is the end of the slice: idle stocking after it is not the row's work.
+                # the queue's goals finished ends the slice: idle stocking after is not the row's work
                 if (done is not None and done()) or (queue and queue_finished(tasks.load())):
                     break
                 try:
@@ -909,9 +894,7 @@ SCENARIOS["slice_nether_kit"] = {
     "doc": "Slice: at a lit portal, the kit two steps short (one block, the gold helmet) → kit complete (food, blocks, gold helmet) without "
            "stepping into the Nether early, no loops, idle ≤ 15 s.",
     "module": "brain",
-    # Two steps left: one block to mine (stone at arm's length) and the helmet to craft (gold + table carried).
-    # Food is over the kit's 6 with a margin (upkeep may eat one before the run starts); the cow stays 2 blocks off
-    # in case it does not.
+    # two steps left: one block to mine and the helmet to craft; food over the kit with a margin, the cow 2 off
     "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", f"fill {_c(at(1, 0, -1))} {_c(at(1, 1, 1))} stone",
               f"tp @p {_c(at(0, 0, 0))}", "clear @p", "time set day", "give @p iron_pickaxe",
               "give @p iron_sword", "give @p bucket", "give @p flint_and_steel", "give @p gold_ingot 5",
@@ -946,7 +929,7 @@ SCENARIOS["slice_retreat"] = {
 
 for _name in ("trek_overworld_30", "trek_nether_25", "cave_escape", "return_to_portal"):
     SCENARIOS[_name]["mod"] = ["travel"] + (["use"] if _name == "return_to_portal" else [])
-# Portal trips read /state's inPortal (mod ≥0.1.28): they depend on WorldInfo too.
+# portal trips read /state's inPortal (mod ≥0.1.28): WorldInfo too
 for _name in ("enter_nether", "return_from_nether", "relight_portal", "return_to_portal", "retreat_from_nether"):
     SCENARIOS[_name]["mod_extra"] = ["state"]
 
@@ -971,12 +954,9 @@ def _summon_perched_dragon(phase=6):
         top = find_pillar_top()
         if top is None:
             raise SetupInvalid("no exit-portal bedrock found near the island centre")
-        # The player on the island floor east of the pillar, never on an obsidian tower (spreadplayers picks the
-        # highest block: it put the player at y 97–123 on a tower and nothing could be reached).
+        # on the island floor east of the pillar (spreadplayers put the player on an obsidian tower)
         _chat(f"execute in minecraft:the_end run spreadplayers 12 0 0 3 under {top + 8} false @p")
-        # Never /kill the dragon: its death opens the exit portal and the player on the island fell into the end
-        # poem ("passed" without a single bomb). Reuse a living dragon — full health, perched phase, on the
-        # pillar — and summon only when there is none.
+        # never /kill the dragon (its death opens the exit portal); reuse a living one, summon only when none
         count = lambda: server_count(_command("execute in minecraft:the_end as @p at @s if entity "
                                               "@e[type=minecraft:ender_dragon,distance=..300]", []))
         if count() < 1:
@@ -988,8 +968,7 @@ def _summon_perched_dragon(phase=6):
                     f"tp {sel} 0 {top} 0"):
             _chat(f"execute in minecraft:the_end run {cmd}")
         time.sleep(1.5)
-        # A previous scenario can leave the End without a dragon, and a fresh summon needs a moment to sync: one
-        # check right after the commands reported "no living dragon after setup" while one was on its way.
+        # a fresh summon needs a moment to sync: check again before calling it missing
         for attempt in range(8):
             if count() >= 1:
                 break
@@ -998,8 +977,7 @@ def _summon_perched_dragon(phase=6):
             time.sleep(1.0)
         else:
             raise SetupInvalid("no living dragon after setup")
-        # Full health before the skill starts: a dragon left perched by the previous scenario chews on the player
-        # during this hook, and the run then failed as "player dead before the skill started".
+        # full health before the skill: a perched dragon left by the last row chews on the player here
         _chat("execute in minecraft:the_end run effect give @p minecraft:instant_health 2 10 true")
         _chat("execute in minecraft:the_end run effect clear @p minecraft:instant_health")
     return before
@@ -1032,8 +1010,7 @@ for _name, _tags in {
     "water_clutch": ["nets", "use"], "enter_end": ["travel"], "activate_end_portal": ["travel", "use"],
 }.items():
     SCENARIOS[_name]["mod"] = _tags
-# Faster game ticks only help server-side waiting (furnaces, piglin inspection): the player's own actions run on
-# client ticks (3 logs still took 10.6 s at rate 60), so only those scenarios speed up and times stay wall seconds.
+# faster ticks only help server-side waits (furnaces, piglins); the player acts on client ticks
 for _name in ("iron_ingots", "barter_piglin"):
     SCENARIOS[_name]["tick_rate"] = 60
 
@@ -1066,8 +1043,7 @@ SCENARIOS["gather_logs_birch"] = {
                (at(-8, 0, -8), at(8, 8, 8), "birch_log", 8, 20)],
 }
 
-# Milestones (goals.MILESTONES) → the scenarios that prove the skills they need. The review lists the milestones
-# whose scenarios are not ready, so a live-run failure there is expected rather than a surprise.
+# milestones → the rows proving their skills; the review lists those not ready
 MILESTONE_SCENARIOS = {
     "stone tools": ["craft_stone_tools", "slice_start_tools"], "station kit": ["slice_start_tools"],
     "food": ["hunt_food"], "iron pickaxe": ["iron_ingots"], "water bucket": ["fill_water_bucket"],
@@ -1097,15 +1073,7 @@ from .bench import fight           # noqa: E402,F401  (the fight sheet registers
 from .bench.fight import *         # noqa: E402,F403
 from .bench.fight import _cells, _hostiles        # noqa: E402
 
-# ================================================================================================================
-# The generated sheet (test points A–D). Basics × the conditions that break them, as a cross-product: a BASE is one
-# skill doing one job in a small arena, a CONDITION changes the arena, the clock, the bag or the world around the
-# job, and says what must happen then — the same effect, or a failure with a specific reason. Every row is judged by
-# the WORLD (a bag delta against the bag at the start, a block count, where the body stands), never by what the
-# skill returned. Rows carry `skills` (what they prove), `point` (A–D) and `tags`; `tests/test_scenario_sheet.py`
-# checks the sheet's shape and that every registered skill is proven somewhere. Nothing here runs until
-# `mc.py scenario <name>` in a test world.
-# ================================================================================================================
+# == the generated sheet (points A–D): BASES × CONDITIONS, each row judged by the world (bag delta, blocks, where the body stands), never by the skill's return
 import threading as _threading
 
 BASE = {}                 # the bag, the /state and the time at the start of the run (`_start`)
@@ -1139,7 +1107,7 @@ def _base_count(token):
     from .world import Inventory
     return Inventory(BASE["inv"]).count(token) if BASE.get("inv") else 0
 
-# -- checks: what the world must show afterwards ----------------------------------------------------------------
+# -- checks: what the world must show afterwards
 def _gain(token, n, at_most=None):
     """The bag holds at least `n` more `token` than at the start (and, with `at_most`, not more than that)."""
     def check(api, inv):
@@ -1271,7 +1239,7 @@ def _named_all(named):
         return True
     return check
 
-# -- run wrappers: timing and expected failures -----------------------------------------------------------------
+# -- run wrappers: timing and expected failures
 def _expect_failure(name, run, pattern):
     """An expected-failure row: the run must end with a failure naming the reason — not succeed, not fail otherwise."""
 
@@ -1448,7 +1416,7 @@ def _hooks(*hooks):
     hooks = [h for h in hooks if h is not None]
     return lambda ctx: [h(ctx) for h in hooks] and None
 
-# The furnace clock is game time: sprint it twice, once the load is in and once more late (see the row's doc).
+# the furnace clock is game time: sprint it twice
 SCENARIOS["iron_ingots"]["before"] = _hooks(_start("iron_ingots"), _sprint_after(4, 700), _sprint_after(10, 700))
 
 def _achieve_needs(needs, rounds=12):
@@ -1498,7 +1466,7 @@ def _head_clear():
     from . import skills
     return not skills.head_buried()
 
-# -- arena pieces (relative to ORIGIN) ----------------------------------------------------------------------------
+# -- arena pieces (relative to ORIGIN)
 def _floor(block="stone", half=8, depth=3):
     return [f"fill {_c(at(-half, -depth, -half))} {_c(at(half, -1, half))} {block}"]
 
@@ -1541,8 +1509,7 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
         out.append(f"fill {_c(at(x0, floor_y + 1, z0))} {_c(at(x1, water_top, z1))} water")
     return out
 
-# the bases: one skill, one job; TARGET_S: seconds its own work should take here — past TARGET_SLACK × this fails as "slow"
-TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air": 5.0}   # eat: per BITE (eat_target_s)
+TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air": 5.0}  # seconds a base's own work should take (eat: per bite); past TARGET_SLACK × this it fails as "slow"
 TARGET_SLACK = 1.5
 
 def eat_target_s(food, carried):
@@ -1578,14 +1545,13 @@ def _skill_within(name, seconds):
 def _forget_skill_time(name):
     return lambda ctx: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.pop(name, None)
 
-# The speedrun standard, from the moment the body stands where the job is done (the setup puts it there):
-# 12 eyes' worth of ring filled from one spot ≤ 3 s; the last two frame cells cast and the portal lit ≤ 5 s.
+# the speedrun standard from where the job is done: 12 eyes from one spot ≤ 3 s; the last two frame cells cast and lit ≤ 5 s
 SCENARIOS["activate_end_portal"].update(run=_timed(SCENARIOS["activate_end_portal"]["run"]), target_s=3.0)
 
 BASES = {
-    # Every base is one small job (≤ 15 s): the conditions and surprises add to it, and a row stays under 30 s.
+    # every base is one small job (≤ 15 s), so a row stays under 30 s
     "nav": dict(skills=["goto"], doc="walk 8 blocks east over the arena", point="A",
-                # The floor reaches the target: the arena is a sky platform, and a target over the void is unreachable.
+                # the floor reaches the target: over the void it is unreachable
                 setup=_floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(10, -1, 3))} stone", _tp()],
                 run=lambda ctx: _skill("travel_to")(ctx, at(8, 0, 0), 2),
                 check=_at(at(8, 0, 0), 3.5), budget=15, arena=16, target=at(8, 0, 0)),
@@ -1636,7 +1602,7 @@ BASES = {
                  effect=("minecraft:iron_ingot", 1), budget=15),
 }
 
-# -- the full bag: filled after the base's own kit, to leave exactly `free` slots ------------------------------------
+# -- the full bag: filled after the base's kit, leaving exactly `free` slots
 def _fill_bag(free, item="dirt", stack=64):
     """`before` hook: fill the bag with `item` until `free` slots are left (the kit the setup gave stays)."""
     def hook(ctx):
@@ -1660,17 +1626,14 @@ def _stack_room_setup(base):
     item = "oak_log" if token == "log" else token.split(":")[-1]
     return [f"give @p {item} {64 - n}"]
 
-# -- the conditions ------------------------------------------------------------------------------------------------
-# name → dict(axis, doc, bases it applies to, and what it changes). `setup` is appended to the base's; `fails` makes
-# the row an expected failure with that reason; `check` (a function of the base) replaces the base's effect check;
-# `run` (a function of name, base) wraps the base's run; `before` hooks run after the start snapshot.
+# -- the conditions: name → dict(axis, doc, bases, what it changes: setup, fails, check, run, before)
 H = 6        # canopy height
 
 CONDITIONS = {
     # terrain
     "canopy": dict(axis="terrain", doc="under a closed leaf canopy", bases={"nav", "chop", "hunt", "loot", "sleep"},
                    setup=[f"fill {_c(at(-8, H, -8))} {_c(at(8, H + 1, 8))} oak_leaves[persistent=true]"]),
-    # `outline` touches only the shell, and the shell's bottom is the floor layer: what the base built stays.
+    # `outline` touches only the shell: what the base built stays
     "cave": dict(axis="terrain", doc="in a dark stone room under rock",
                  bases={"nav", "mine_stone", "craft", "smelt", "loot", "sleep"},
                  setup=[f"fill {_c(at(-9, -1, -9))} {_c(at(15, 4, 9))} stone outline"]),
@@ -1758,7 +1721,7 @@ SURPRISES = {
                           setup=_floor("netherrack") + [_tp(), "give @p white_bed", "time set 18000"],
                           fails=r"nether|dimension|explod",
                           check=_all(_alive(18), _no_block_suffix(at(-4, -1, -4), at(4, 2, 4), "_bed"))),
-    # Must-fail controls, one per base that had none: the right failure, named, and the world untouched.
+    # must-fail controls: the right failure, named, the world untouched
     "nav_sealed_in": dict(base="nav", doc="the body sealed in bedrock: no way out, and it says so", replace_setup=True,
                           setup=_floor() + [f"fill {_c(at(-1, -1, -1))} {_c(at(1, 2, 1))} bedrock",
                                             f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air", _tp()],
@@ -1774,8 +1737,7 @@ SURPRISES = {
     "eat_with_nothing": dict(base="eat", doc="hungry, nothing edible carried: nothing to eat, named",
                              replace_setup=True, setup=_floor() + [_tp()], fails=r"nothing edible",
                              check=_same_bag()),
-    # The lava directly under the one ore (it was at x 4..5, nowhere near it); mined with it sealed first
-    # (skills.seal_plan). One ore gives one raw iron (the check wanted 2 of a single ore: never passable).
+    # lava right under the one ore, sealed before it is mined; one ore gives one raw iron
     "lava_under_ore": dict(base="mine_iron", doc="lava right under the iron ore, blocks carried → sealed, then mined",
                            setup=[f"setblock {_c(at(2, -1, 0))} lava", "give @p cobblestone 4"],
                            check=_all(_gain("minecraft:raw_iron", 1), _alive(14))),
@@ -1826,8 +1788,7 @@ def _row(name, base, cond=None, extra=None):
     kind = c.get("interrupt")
     if kind:
         resume = _unless_done(b["check"], _achieve_needs(b["needs"]) if b.get("needs") else b["run"])
-        # By progress, never by the clock: with the arenas squeezed a hunt ended in 3.9 s and a 4 s interrupt
-        # landed after it (and in the next row).
+        # by progress, never the clock: a short hunt ended before a timed interrupt landed
         if kind == "mid":
             hooks.append(_on_progress(name, b, _inject_interrupt))
         elif kind == "twice":
@@ -1860,8 +1821,7 @@ def _row(name, base, cond=None, extra=None):
         run = _timed(run)
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check, **({"target_s": target_s} if target_s else {}),
-           # A lagging server doubles the base's time (its bases do one unit of work); nothing else earns more. The cap
-           # is the bench's hard limit (runner.ROW_LIMIT_S).
+           # a lagging server doubles the base's time; capped at runner.ROW_LIMIT_S
            "budget": min(runner.ROW_LIMIT_S, b["budget"] * (2 if c.get("tick_rate", 20) < 20 else 1)),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: next(k for k, v in CONDITIONS.items() if v is c)} if c else {}),
@@ -1903,7 +1863,7 @@ for _cname, _base in cover(CONDITIONS, BASES, pinned=[("night", "chop")]):
 for _sname, _s in SURPRISES.items():
     SHEET[_sname] = _row(_sname, _s["base"], None, _s)
 
-# -- the rest of the registry, one row each: every skill must be proven in the world somewhere ------------------
+# -- the rest of the registry, one row each: every skill proven in the world somewhere
 _ONE = {
     "take_bed": (["take"], "a village bed 6 blocks away → carried", _floor() + [f"setblock {_c(at(6, 0, 0))} red_bed",
                                                                              _tp()],
@@ -2075,17 +2035,16 @@ for _name, (_skills, _doc, _setup, _run, _check, _budget) in _ONE.items():
                     "skills": list(_skills), "point": "A", "tags": {"base": _skills[0]},
                     **({"target_s": _target} if _target else {})}
 
-# Searching needs a world bigger than the box: these run on real terrain (raw), judged by what they found.
+# searching needs real terrain: raw rows, judged by what they found
 def _found_near(blocks, r=6):
     def check(api, inv):
         from .world import find
         return bool(find(blocks, radius=r, limit=1))
     return check
-# Brewing is game time (20 s a stage): the stand's clock runs at 60 ticks/s, the hands at their own pace.
+# brewing is game time: the stand's clock runs at 60 ticks/s
 SHEET["brew_fire_resistance_stand"]["tick_rate"] = 60
 
-# What a *_real row looks for, put 16 blocks off on the real ground: in scan range, not in arm's reach — the walk
-# to it is the job, a minute of wandering until the terrain happens to offer one is not (30 s per row).
+# what a *_real row looks for, 16 blocks off: in scan range, not reach — the walk is the job, not wandering
 REAL_TARGET = {
     "seek_blocks_real": ["execute at @p run fill ~16 ~ ~ ~16 ~4 ~ oak_log"],
     "explore_for_animals_real": ["execute at @p run summon cow ~16 ~3 ~", "execute at @p run summon cow ~16 ~3 ~1"],
@@ -2114,9 +2073,7 @@ for _name, _row_ in {
                     "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"},
                     **({"stochastic": True} if _name == "explore_for_animals_real" else {})}
 
-# A batched build interrupted mid-chain (G): the interrupt lands once 4 of the frame's 10 obsidian stand (progress on
-# the world, not the clock); the resume builds what the frame still lacks, read from the world — every obsidian
-# placed once (none left in the bag, exactly 10 in the frame), the portal lit.
+# a batched build interrupted at 4 of 10 obsidian: the resume builds only what the frame lacks, each placed once
 PORTAL_BOX = (at(-8, 0, -8), at(8, 6, 8))
 SHEET["build_light_portal_interrupted"] = {
     "doc": "flat stone, 10 obsidian, interrupted with 4 placed → resumed from the world: 10 in the frame, none in "
@@ -2133,8 +2090,7 @@ SHEET["build_light_portal_interrupted"] = {
     "budget": 30,
 }
 
-# A batched skill interrupted mid-chain (G): the interrupt lands at the first bottle filled (progress, not the
-# clock); the resume fills what the bag still lacks, recomputed from it — never the chain's index, never a cooling.
+# a batched skill interrupted at the first bottle: the resume fills what the bag lacks, never the chain's index
 SHEET["fill_bottles_interrupted"] = {
     "doc": "a pond, 3 glass bottles, interrupted at the first water bottle → resumed for the 2 left: exactly 3",
     "module": "skills", "point": "A", "skills": ["fill_bottles"], "tags": {"base": "fill_bottles", "surprise": "interrupt_mid_chain"},
@@ -2157,7 +2113,7 @@ SHEET["dead_flicker_on_respawn"] = {
     "check": _all(_alive(10), lambda api, inv: inv.count("log") >= 4), "budget": 60,
 }
 
-# -- test point B: L0 hazards (the existing water_clutch, cross_lava_8, cave_escape) and two more ---------------
+# -- test point B: L0 hazards
 SHEET["lava_edge_walk"] = {
     "doc": "A 1-wide stone path between two lava pools to a target 12 blocks on → there, not burnt",
     "module": "nav", "point": "B", "skills": ["goto"], "tags": {"base": "nav", "hazard": "lava"},
@@ -2205,7 +2161,7 @@ SHEET["drowning_in_a_pit"] = {
        f"fill {_c(at(-1, PIT_TOP, -1))} {_c(at(1, PIT_TOP, 1))} water",
        f"fill {_c(at(-4, PIT_TOP + 1, -4))} {_c(at(4, PIT_TOP + 3, 4))} air", _tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
-    # The rounds run until exactly what the check judges (a looser stop passed the run and failed the row).
+    # the rounds run until exactly what the check judges
     "run": _brain_rounds(28, lambda: _surfaced(PIT_TOP, 0)(__import__("bonobo.api", fromlist=["get"]), None)),
     "check": _all(_alive(8), _surfaced(PIT_TOP)), "budget": 30,
 }
@@ -2223,10 +2179,7 @@ SHEET["interrupted_rescue_is_not_a_failure"] = {
 for _name in ("water_clutch", "cross_lava_8", "cave_escape"):
     SCENARIOS[_name]["point"] = "B"
 
-# -- CT3: fights on a walled platform, one per enemy line-up. The whole agent runs (perception decides, fight_loop
-# answers, the brain yields); a row is judged by the world — alive, the enemies gone (or, for a neutral mob, left
-# alone), health kept — and by the decision rhythm while engaged: no gap between two bids of the threat layer longer
-# than 1.5 × FIGHT_POLL_S.
+# -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × FIGHT_POLL_S)
 FIGHT_LOG = {"bids": []}
 
 def _record_bids(ctx):
@@ -2269,8 +2222,7 @@ def _gone(kinds):
 def _hp_kept(least):
     return lambda api, inv: api.get("/state")["health"] >= least and not api.get("/state")["dead"]
 
-# Walls of glass (the fight stays visible), a roof of stone: undead summoned under the sky burned to death before
-# the row began ("0 zombie on the server").
+# glass walls (visible), a stone roof: undead under the sky burned before the row began
 _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
           f"fill {_c(at(-9, 4, -9))} {_c(at(9, 4, 9))} stone",
           f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air", f"fill {_c(at(-9, -1, -9))} {_c(at(9, -1, 9))} stone", _tp(),
@@ -2278,7 +2230,7 @@ _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-
           "item replace entity @p armor.chest with iron_chestplate",
           "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
           "item replace entity @p weapon.offhand with shield"]
-# (name, mob, how many, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob, left alone
+# (name, mob, count, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob left alone
 RESOLVE_GAP, RESOLVE_HOLD_S, RESOLVE_HP_LOSS = 6.0, 5.0, 4.0
 
 def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESOLVE_HP_LOSS):
@@ -2312,11 +2264,9 @@ FIGHT_CELLS = [
 ]
 for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
     _kinds = [f"minecraft:{_mob}"]
-    # Close enough to be in the fight at once: the walk to a far corner is not what these rows measure.
-    # A creeper starts outside its blast reach: at 4 it went off before the first decision.
+    # close enough to fight at once; a creeper starts outside its blast (at 4 it went off before the first decision)
     _spots = ([(7, 0, 0)] if _mob == "creeper" else [(4, 0, 0), (-3, 0, 3), (1, 0, -4)])[:_n]
-    # Three blazes at full health outlast the 60 s limit on the approach alone: they start worn (the fight's
-    # decisions are the same at 10 hp; the kill count, the health kept and the decision gaps are what is judged).
+    # three blazes start worn: at full health the approach alone outlasts the limit
     _nbt = "{PersistenceRequired:1b,Health:10f}" if _mob == "blaze" and _n > 1 else "{PersistenceRequired:1b}"
     SHEET[_name] = {
         "doc": f"Walled platform, iron kit: {_n} {_mob} → " + {True: "all dead", False: "left alone (neutral)",
@@ -2348,7 +2298,7 @@ def _one_crystal(ctx):
 def _crystals_left(api, inv):
     return __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
 
-# The dragon rows start with the crystals gone (WORN_DRAGON): breaking one is this row's job, on its own.
+# the dragon rows start without crystals: breaking one is this row's own job
 SCENARIOS["break_caged_crystal"] = {
     "doc": "A caged end crystal on a 6-high obsidian pillar, blocks + water bucket + sword → towered up, bars "
            "broken, crystal destroyed, alive.",
@@ -2366,14 +2316,14 @@ SCENARIOS["break_caged_crystal"] = {
     "budget": 60,
 }
 
-# A fight on a full bag: the drops cannot be picked up, and that must not change the fight (no pause to collect).
+# a fight on a full bag must not pause to collect drops
 SHEET["fight_zombie_1_full_bag"] = dict(
     SHEET["fight_zombie_1"], doc="Walled platform, iron kit, the bag full of dirt: 1 zombie → dead, health ≥ 12, "
                                  "decisions as often as ever: the drop it cannot pick up changes nothing",
     before=_hooks(SHEET["fight_zombie_1"]["before"], _fill_bag(0)),
     tags={**SHEET["fight_zombie_1"]["tags"], "inventory": "full_bag"}, tier_fixed="exception")
 
-# Tidying a full bag in the Nether, lava at feet level on one side: the junk is thrown the other way and lands.
+# tidying in the Nether with lava on one side: junk is thrown the other way
 NETHER_LAVA = [f"fill {_c(at(1, 0, -1))} {_c(at(4, 0, 1))} lava"]
 SHEET["nether_full_bag"] = {
     "doc": "Nether platform, lava at feet level on the east, the bag full of netherrack and diamonds → tidied: slots "
@@ -2390,7 +2340,7 @@ SHEET["nether_full_bag"] = {
     "budget": 30,
 }
 
-# -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells --------------------------------------------------
+# -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells
 def _placed_facing(pos, facing):
     """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""
     def check(api, inv):
@@ -2413,7 +2363,7 @@ PLACE_ROWS = [   # (name, item, facing asked, facing the block must report, tier
     ("place_observer_up", "minecraft:observer", "up", "up", "exception"),
     ("place_observer_down", "minecraft:observer", "down", "down", "exception"),
     ("place_stairs_east", "minecraft:oak_stairs", "east", "east", "exception"),
-    # A block without a facing property: the asked facing is ignored and the place still succeeds.
+    # a block without facing: the asked facing is ignored and the place succeeds
     ("place_cobblestone_facing_ignored", "minecraft:cobblestone", "north", None, "exception"),
 ]
 for _name, _item, _asked, _want, _tier in PLACE_ROWS:
@@ -2446,9 +2396,7 @@ def _queue(goal):
         tasks.add(goal, front=True, source="bench")
     return hook
 
-# -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
-# A frame at at(-3, 0, 2), along x (blueprints.NETHER_PORTAL, turns 0): obsidian but for the bottom two cells,
-# stone corners. The cast resumes it (building.started_builds): two cells, then the light.
+# -- where things come from (decompose.SOURCES): the plan is under test. A frame with its bottom two cells missing, resumed by the cast
 PORTAL_8_OF_10 = [f"fill {_c(at(-3, 0, 2))} {_c(at(0, 4, 2))} obsidian",
                   f"fill {_c(at(-2, 0, 2))} {_c(at(-1, 3, 2))} air"] + \
                  [f"setblock {_c(at(x, y, 2))} cobblestone" for x in (-3, 0) for y in (0, 4)]
@@ -2458,7 +2406,7 @@ SHEET["portal_from_cast"] = {
            "in place and lights it, the cast itself ≤ 5 s",
     "module": "decompose", "point": "C", "skills": ["cast:nether_portal"], "tier_fixed": "exception",
     "tags": {"base": "sources"},
-    # Both lava buckets carried: the two trips to the pool are not the cast.
+    # both lava buckets carried: the trips to the pool are not the cast
     "setup": list(SCENARIOS["cast_portal"]["setup"]) + PORTAL_8_OF_10 + ["give @p lava_bucket", "give @p lava_bucket"],
     "expect": [SCENARIOS["cast_portal"]["expect"][0], (at(-3, 0, 2), at(0, 4, 2), "obsidian", 8, 8)],
     "before": _hooks(_start("portal_from_cast"), _forget_skill_time("cast_portal"),
@@ -2478,13 +2426,11 @@ SHEET["pearls_from_barter"] = {
     "expect_entities": [("minecraft:piglin", 3)],
     "before": _start("pearls_from_barter"),
     "run": _achieve_needs([("minecraft:ender_pearl", 1)], rounds=4),
-    # A barter's pearls are chance: what is proven is that the plan chose to trade and the gold went.
+    # a barter's pearls are chance: proven is that the plan traded and the gold went
     "check": lambda api, inv: inv.count("minecraft:gold_ingot") < 2 and _trades(inv) >= 1, "budget": 30,
 }
 
-# -- the producers the skills' `gives` added: a farm grows wheat (→ bread), a villager buys for emeralds, the
-# plan fills a bucket. Built with the console (a ripe-able plot's soil, a villager with exactly one offer), judged
-# by what the bag gained.
+# -- the producers skills' `gives` added (farm, villager, bucket), console-built, judged by the bag
 def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
     """A villager that stays put (NoAI) with one offer: `n_buy` of `buy` → `n_sell` of `sell`."""
     return (f'summon villager {_c(pos)} {{NoAI:1b,VillagerData:{{profession:"minecraft:{profession}",level:2,'
@@ -2514,7 +2460,7 @@ for _name, _doc, _setup, _run, _check in [
         ("bread_from_a_farm_two_wheat_carried", "2 wheat carried, a ripe plot beside the body → the plan's farm step "
          "reaps it (the look at execution, not in the estimate; no new plot sown) and bakes: bread",
          _floor("grass_block") + RIPE_PLOT + [_tp(), "give @p wheat 2"] + FARM_KIT,
-         # the plan's farm step finds the grown crop and reaps it instead of sowing, then the plan bakes
+         # the farm step finds the grown crop and reaps it instead of sowing
          _achieve_needs([("minecraft:bread", 1)], rounds=4),
          _all(_gain("minecraft:bread", 1), _blocks(at(4, 0, -1), at(6, 0, 1), "wheat", 0, 8),
               _blocks(at(-8, -1, -8), at(3, -1, 8), "farmland", 0, 0))),        # no plot sown beside it
@@ -2566,7 +2512,7 @@ SHEET["bucket_before_the_shaft"] = {
     "before": _hooks(_start("bucket_before_the_shaft"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
         ("minecraft:raw_iron", 1)))),
     "run": _brain_rounds(22, lambda: _inv_now().count("minecraft:water_bucket") >= 1),
-    # Filled, and not a block dug down yet: the feet are still on the floor they started on.
+    # filled, and nothing dug down: the feet still on their floor
     "check": _all(lambda api, inv: inv.count("minecraft:water_bucket") >= 1,
                   lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]), "budget": 60,
 }
@@ -2621,9 +2567,7 @@ for _name, _what, _start_cmds, (_dx, _dy, _dz) in START_ROWS:
         "check": _at(at(10, 0, 0), 3.5), "budget": 30,
     }
 
-# -- tier "brain": the cerebellum's decisions (upkeep before the queue, repair, bans, resume, memory, the L3 queue).
-# Every row runs the whole brain (`_slice`: brain.round on a private task queue), with the world set to the moment
-# that matters — dusk, hunger, a tool on its last use — and is judged by the world and by the brain's own log.
+# -- tier "brain": the whole brain on a private queue, the world set to the deciding moment, judged by the world and its log
 BRAIN_LOG = {"replans": 0}
 
 def _log_lines():
@@ -2673,7 +2617,7 @@ def _first_times(ctx):
                 for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
                     if tok not in FIRST and inv.count(tok) > _base_count(tok):
                         FIRST[tok] = time.time() - t0
-            # Beef in a furnace (raw in the input or cooked in the output), read from the world: `data get block`.
+            # beef in a furnace (input or output), read from the world
             try:
                 if "furnace_beef" not in FIRST and _furnace_holds(("minecraft:beef", "minecraft:cooked_beef")):
                     FIRST["furnace_beef"] = time.time() - t0
@@ -2788,8 +2732,7 @@ BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 mi
         [_have(("minecraft:raw_iron", 2))], _count("minecraft:raw_iron", 2), 1,
         _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE))),
     "resume_after_combat": (
-        # 4 logs held at the end, 2 of them given (console-built to fit 30 s: the goal kept, the best axe carried),
-        # a zombie summoned right beside the body mid-way.
+        # 4 logs held at the end, 2 given; a zombie summoned beside the body mid-way
         "4 logs wanted, 2 carried, the best axe; a zombie summoned beside it mid-way → fight_loop answers it, then "
         "the chopping resumes for what is still missing",
         _grove((3, 0)) + [_tp(), "give @p iron_sword", "give @p diamond_axe", "give @p oak_log 2",
@@ -2816,12 +2759,11 @@ BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 mi
 }
 _BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
            "plan_without_events": [_count_replans],
-           # 1.5 s in: with 2 logs to chop, a zombie at 4 s came after the work was done — nothing to resume.
+           # 1.5 s in: a zombie at 4 s came after the work was done
            "resume_after_combat": [lambda ctx: _threading.Timer(1.5, lambda: _chat(
                f"summon zombie {_c(at(1, 0, 1))} {{PersistenceRequired:1b}}")).start()],
            "ban_then_other_source": [_clear_bans],
-           # the order the goals were met, read from the bag (the slice ends the moment both are held: the second
-           # "task done" line was never written)
+           # the order the goals were met, read from the bag
            "l3_two_goals_in_order": [_first_times], "l3_order_swapped": [_first_times],
            "ban_needs_a_failure": [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
                f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()],
@@ -2836,12 +2778,7 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
         "budget": 30,
     }
 
-# -- the brain's decisions as a grid: one world, the moment set by dimensions, one rule table ------------------------
-# The world holds everything each decision could reach for (a grove, a stone field with iron and a diamond, bed and
-# pickaxe materials, meat and a lit furnace); the dimensions set the moment. Cells come from the fight sheet's own
-# walker (`_cells`), four families of ≥ 4 cells, each with its boundary and its must-not.
-# Sealed in stone (known only if noted); the surface one in a small stone pod beside the start, not across the field:
-# three goals in one slice fit 30 s only with the ore at hand (console-built, the goal kept).
+# -- the brain's decisions as a grid: one world holding every reachable resource, the moment set by dimensions; ore sealed nearby so three goals fit 30 s
 DIAMOND_UP, DIAMOND_DOWN = at(2, 0, -2), at(4, -9, 0)
 POCKET = at(0, -9, 0)
 LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `before` hook: harness, not budget)
@@ -2872,7 +2809,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
                 break
             amp = DRAIN_FAST if step == "fast" else DRAIN_SLOW
             if amp != now_amp:
-                # A weaker effect does not replace a stronger one: clear, then give.
+                # a weaker effect does not replace a stronger one: clear, then give
                 _chat("effect clear @p minecraft:hunger")
                 _chat(f"effect give @p minecraft:hunger 30 {amp} true")
                 now_amp = amp
@@ -2889,26 +2826,16 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
 
 THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 BRAIN_DIMS = {
-    # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
-    # At 11800 dusk was 10 s off: not yet due, the 6 s log task came first and the bed after it (brain__tight).
+    # "tight": dusk inside the bed's lead (needs.due_now), so the bed comes first
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
-    # Drained before the run to ~10 (`_drain_to`). The effect here only marks the row hungry for the body reset (no
-    # saturation after setup): one second at level I drains nothing that matters; the drain proper is the hook's.
+    # the effect only marks the row hungry for the body reset; the drain proper is the hook's
     "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
-    # one_use: a crafting table stands by the start (within `_sitting`'s radius 6 of the start and the stone): the
-    # carried table's place, open and break-to-carry-back is not the row's behaviour (the tier chosen is) and costs
-    # seconds every run (measured 27.8 s against the 25 s limit; the cut is to be measured in-game). The kit's table
-    # item stays: nothing given, a block placed.
+    # one_use: a crafting table stands by the start, so the table's place-and-take-back is not measured
     "tool": {"fresh": ["give @p iron_pickaxe"],
              "one_use": ["give @p iron_pickaxe[damage=249]", f"setblock {_c(at(-2, 0, -1))} crafting_table"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
-    # Filled by the `before` hook. junk_full starts at THROW_START: the only 3-deep open side is +x, over the arena's
-    # edge, so tidy_inventory throws the dirt away from the tree and steps back toward it. From the middle it throws +x
-    # as well — toward the tree — steps away to -x and walks back past the drops, where they can be picked up and the
-    # bag emptied again (the old one_slot measured 25.6 s against the 25 s limit; the cut is to be measured in-game).
-    # One junk cell: one free slot (35 used) is past reflexes.BAG_FULL (34) just as a full bag is — the bag is emptied
-    # first either way, so a one_slot cell was this row again with a weaker check (logs only).
+    # filled by the hook; junk_full starts where the only open side is +x over the edge, so junk is thrown away from the tree
     "bag": {"room": [], "junk_full": [_tp(*THROW_START)], "valuables_full": []},
 }
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
@@ -2927,17 +2854,14 @@ BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone
 def _diamond_of(cell):
     return DIAMOND_DOWN if cell["head"] == "underground" else DIAMOND_UP
 
-# family → (grid, the queue, what each cell must show). A rule answers (check, why) from the cell; the checks read
-# the world (bag, blocks, clock, height) and the order things appeared in the bag (`_first_times`), never log text.
+# family → (grid, queue, what each cell must show): checks read the world and bag order, never log text
 def _bed_then_log(cell):
     if cell["dusk"] == "plenty" and cell["food"] == "full":
         return (_all(_before_in_bag("log", "bed", or_never=True), _gain("log", 2),
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
-        # Food first, judged from the world: a furnace holding the beef (input) or the cooked beef (output) before
-        # any log was gained — or cooked beef in the bag first — and the bar no lower at the end than the drain left
-        # it. Logs first with nothing cooking fails.
+        # food first, from the world: beef in a furnace or cooked beef before any log, the bar no lower at the end
         food_first = lambda api, inv: (_before_in_bag("furnace_beef", "log")(api, inv)             # noqa: E731
                                        or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
         kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
@@ -2994,20 +2918,17 @@ def _no_scan():
     return check
 
 def _seen_rule(cell):
-    # Seeing through stone is allowed (user, 2026-09-27): memory's worth is speed — a noted ore is walked to
-    # straight, with no scan; an unnoted one is still found, by scanning.
+    # seeing through stone is allowed: a noted ore is walked to straight, an unnoted one found by scanning
     if cell["seen"] == "noted":
         return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"), _no_scan()),
                 "noted: straight there without a scan (must not scan), the note retired")
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
 
-# One value off the base at a time (each value once, plus the base), not the product: which combination wins is the
-# arbiter's decision, tested offline (arbiter.arbitrate's table, reflexes.TABLE, needs); a row here confirms that a
-# decision is carried out in the world.
+# one value off the base at a time: which combination wins is tested offline; a row confirms the decision is carried out
 BRAIN_FAMILIES = {
     "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
     "tool_tier": (list(_cells(BRAIN_BASE, dims=("tool", "head"), table=BRAIN_DIMS)),
-                  # 3 more than the kit carries: "have 3" was met by the kit's 16 and nothing was mined
+                  # 3 more than the kit carries, or the kit alone meets it
                   [_have(("minecraft:cobblestone", KIT_COBBLE + 3))], _tool_rule),
     "night_under": (list(_cells(BRAIN_BASE, dims=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
     "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
@@ -3067,8 +2988,7 @@ for _key, _entry in _grid_cells().items():
         "budget": 30,
     }
 
-# -- every upkeep line, triggered through the whole brain (nothing queued): the moment is built, upkeep must see it
-# and its answer must show in the world. (line, setup, `before` hooks, done, check) — one table, one loop.
+# -- every upkeep line through the whole brain: the moment built, the answer shown in the world; (line, setup, hooks, done, check)
 def _job_ready_at(pos, item, n):
     """`before` hook: memory holds a finished background furnace job at `pos` (its output already in the furnace)."""
     def hook(ctx):
@@ -3141,8 +3061,7 @@ UPKEEP_ROWS = [
     # hurt with the bar short of full: no regen below 18 and slow below 20 — eaten to full though not hungry
     ("eat_to_regen", "food drained to 16 (not hungry: above EAT_BELOW), then hurt (instant damage), bread carried → "
      "eaten (the bread goes down), the bar to 18 or more, and health rises",
-     # Drained FIRST, then hurt: saturation left at a full bar healed the damage by itself (hp 14 → 18.7 in 2.6 s,
-     # food 20, the bread untouched), and the damage in setup was undone by the body reset's instant health.
+     # drained first, then hurt: saturation healed the damage by itself otherwise
      _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 1 0 true"],
      [_drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
       lambda ctx: (_chat("effect give @p minecraft:instant_damage 1 0 true"), time.sleep(0.5)),
@@ -3155,8 +3074,7 @@ UPKEEP_ROWS = [
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
      [_blocked_toward(at(9, 0, 0))], lambda: _at(at(9, 0, 0), 4)(__import__("bonobo.api", fromlist=["get"]), None),
      _at(at(9, 0, 0), 4)),
-    # Blocks fetched to what the way across takes (needs.bridge_stock: 9 to x 9), then bridged: judged by the gap
-    # crossed or the stock reached.
+    # blocks fetched to what the way takes (needs.bridge_stock), then bridged
     ("bridge_stock", "the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks "
      "fetched first, to what the way across takes (bridge_stock), then across",
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 2",
@@ -3176,17 +3094,13 @@ UPKEEP_ROWS = [
      _floor() + [_tp(), "give @p bread 4"], [], lambda: False,
      lambda api, inv: inv.count("minecraft:bread") == 4),
 ]
-# The night's shelter, by what the bag allows (upkeep.shelter: a pickaxe digs in, else the hut's materials build a
-# hut, else blocks wall in) — and a bed makes none of them (must not).
+# the night's shelter by what the bag allows; a bed makes none of them (must not)
 _NIGHT_FLOOR = [f"fill {_c(at(-8, -6, -8))} {_c(at(8, -1, 8))} stone", _tp(), "time set 18000"]
 UPKEEP_ROWS += [
     ("shelter_dig_in", "night, a pickaxe → dug in: below the floor, enclosed",
      _NIGHT_FLOOR + ["give @p stone_pickaxe", "give @p cobblestone 8"], [], _enclosed,
      _all(lambda api, inv: _enclosed(), lambda api, inv: api.get("/state")["y"] < at(0, 0, 0)[1] - 0.5)),
-    # The hut's materials in the blueprint's own group (cobblestone), no pickaxe: whichever way needs.overnight
-    # prices cheapest is built, judged by the world — sheltered. A cell where the hut is the cheapest does not
-    # exist: its 14 "stone" are building blocks, so walling in (9 of them, 40 s against 120 s) is always open and
-    # cheaper whenever the hut is.
+    # the hut's materials, no pickaxe: whichever way is priced cheapest is built (walling in always beats the hut)
     ("shelter_hut", "night, no pickaxe, the hut's materials (cobblestone, a door, a torch) → sheltered by the way "
      "the night's pricing chose",
      _NIGHT_FLOOR + ["give @p cobblestone 32", "give @p oak_door", "give @p torch 2"], [], _enclosed,
@@ -3207,12 +3121,7 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
         "run": _brain_rounds(10 if _line == "eat_when_full" else 22, _done), "check": _check, "budget": 30,
     }
 
-# A fight with no pickaxe in the bag: upkeep's "no pickaxe" must wait until the fight is over — the zombie dealt
-# with first, no log gathered while it stands, and the player still inside the arena (it walked off the sky
-# platform to look for trees mid-fight and fell 125 blocks).
-# Dusk on stone with an empty bag, a patch of dirt three deep 8 blocks along the platform: the night's pricing walks
-# there and digs in by hand (terrain.nearest_soft + the walk in the price). The control: the same patch across a
-# drop to nothing — it is not on this ground, so the body never goes there.
+# no pickaxe in a fight: the "no pickaxe" row waits until it ends; a dirt patch on this ground is dug into by hand, one across a drop never
 DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
 DIRT_FLOOR = (at(7, -4, -1), at(8, -4, 1))      # the stone the dirt lies on
 
@@ -3228,14 +3137,13 @@ for _name, _doc, _extra, _done, _check in [
          lambda: _in_the_patch_underground(__import__("bonobo.api", fromlist=["get"]), None), _in_the_patch_underground),
         ("night_dig_in_dirt_unreachable", "the same dirt across a drop to nothing, a pod's blocks carried → never "
          "walked to (must not): walled in on its own side of the gap",
-         # The fallback's blocks given (console-built): the row tests the choice, not mining a wall's blocks.
+         # the fallback's blocks given: the row tests the choice
          [f"fill {_c(at(4, -3, -8))} {_c(at(5, -1, 8))} air", f"give @p cobblestone {POD_BLOCKS}"], _enclosed,
          lambda api, inv: api.get("/state")["blockX"] < at(4, 0, 0)[0])]:
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": ["shelter:dig in"], "tier_fixed": "brain",
         "tags": {"base": "brain", "family": "night_dirt"},
-        # Stone under the dirt: soft ground needs something to stand on under its three soft cells (terrain.soft_below);
-        # over the void (y 196) there was no soft spot at all and the body walled in instead.
+        # stone under the dirt: soft ground needs something to stand on below
         "setup": _floor() + [f"fill {_c(DIRT_PATCH[0])} {_c(DIRT_PATCH[1])} dirt",
                              f"fill {_c(DIRT_FLOOR[0])} {_c(DIRT_FLOOR[1])} stone"] + _extra + [_tp(), "time set 12500"],
         "before": _start(_name),
@@ -3257,9 +3165,7 @@ SHEET["fight_before_upkeep"] = {
     "budget": 30,
 }
 
-# Eating on the move: hungry, cooked beef carried, one 20-block walk east → fed on the way, by the jar's autoeat
-# (no separate eat task), and still walking forward while it chewed. The control: hungry while mining — the mining
-# is not interrupted to eat.
+# eating on the move by the jar's autoeat, still walking while chewing; control: mining is not interrupted to eat
 WALK = {}
 BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 
@@ -3300,8 +3206,7 @@ def _hungry(ctx):
     time.sleep(5.5)
     BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"])
 
-# Loading three furnaces is a chain per furnace (open, read, load, close): interrupted once the first one took its
-# share, the job resumes by what is still in the bag — every raw iron in some furnace, none loaded twice.
+# three furnaces, a chain each: interrupted after the first, the resume loads only what is still in the bag
 SMELT_FURNACES = (at(2, 0, -2), at(2, 0, 2), at(-2, 0, 2))
 
 def _interrupt_once_loaded(ctx):
@@ -3373,8 +3278,7 @@ SHEET["mine_while_hungry"] = {
     "budget": 15,
 }
 
-# Low health with a walker on top of us: first out of its reach (walls, a pillar, a step away), then eat — health
-# ends above where it began. Eating while it keeps hitting (health falling on) fails.
+# low health with a walker on us: out of reach first, then eat — health ends higher
 SHEET["combat__low_hp_eat"] = {
     "doc": "6 hp, one zombie 2 blocks off, blocks and cooked beef → away from it or walled in first, then fed: "
            "health ends above 6",
@@ -3388,9 +3292,7 @@ SHEET["combat__low_hp_eat"] = {
     "budget": 30,
 }
 
-# A creeper met with a sword: hit and back out of its blast (jar footwork "keepoff") — dead, or blown up in the air,
-# either way gone; the health kept. Next to our own builds it is first led away from them: a bed (the least blast
-# resistant block we own) and a furnace within 3 of it, registered as ours, are still standing after.
+# a creeper met with a sword: hit and back off past its blast; near our builds it is led away first
 CREEPER_AT = at(4, 0, 0)
 HOME_BED, HOME_FURNACE = (at(4, 0, 2), at(5, 0, 2)), at(4, 0, -2)
 
@@ -3426,8 +3328,7 @@ SHEET["fight_creeper_by_home"] = _creeper_row(
     before=[_home_is_ours],
     check=[_blocks(HOME_BED[0], HOME_BED[1], "red_bed", 2), _blocks(HOME_FURNACE, HOME_FURNACE, "furnace", 1)])
 
-# Fighting at the edge of a raised platform, knocked off it: a zombie with a strong knockback on a 5×5 platform
-# 20 blocks above the floor. The combat kit's water bucket (every combat row carries one) must catch the fall.
+# knocked off a raised platform mid-fight: the combat kit's water bucket must catch the fall
 EDGE_Y = 4
 SHEET["combat__knocked_off_edge"] = {
     "doc": "A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
@@ -3450,7 +3351,7 @@ SHEET["combat__knocked_off_edge"] = {
     "budget": 30,
 }
 
-# -- test point D: acceptance ------------------------------------------------------------------------------------
+# -- test point D: acceptance
 SCENARIOS[ACCEPTANCE_D] = {
     "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within "
            "30 minutes (stone tools → iron pickaxe milestones)",
@@ -3465,7 +3366,7 @@ SCENARIOS[ACCEPTANCE_D] = {
 for _i, _name in enumerate(CHAIN_C):
     SCENARIOS[_name].update(point="C", chain=_i)
 
-# -- what the hand-written rows prove (skills) and at which test point --------------------------------------------
+# -- what the hand-written rows prove (skills) and at which test point
 COVERS = {
     "cast_portal": ["cast_portal"], "build_light_portal": ["build_blueprint"],
     "fill_water_bucket": ["fill_water_bucket"], "cross_lava_lake": ["travel_to"], "cross_lava_3": ["travel_to"],
@@ -3483,10 +3384,7 @@ for _name, _skills in COVERS.items():
     if _name in SCENARIOS:
         SCENARIOS[_name].setdefault("skills", list(_skills))
         SCENARIOS[_name].setdefault("point", "A")
-# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left for the night's way
-# (the other hand-offs — a fight, a meal — are resume_after_combat's and the eat rows') and taken up again for the
-# same target (memory's section map: no spot searched twice,
-# no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
+# -- a search interrupted mid-way (for the night) and taken up again: no section searched twice, no ore scanned again
 _goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
 SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
                 f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
@@ -3518,8 +3416,7 @@ for _row_ in SHEET.values():              # the runner's setup signature: the bo
     if not _row_.get("raw"):
         _row_.setdefault("expect", [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)])
 SCENARIOS.update(SHEET)
-# The merge is the one door: SHEET is read-only from here, so a row added to it later fails at import instead of
-# never running (search_night_resume was added after the merge and was in no run).
+# SHEET is read-only after the merge: a row added later fails at import instead of never running
 SHEET = MappingProxyType(SHEET)
 for _name in ("slice_retreat",):
     SCENARIOS[_name].setdefault("point", "C")
@@ -3527,23 +3424,17 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
     _row_.setdefault("skills", [])
     _row_.setdefault("point", "A")
 
-# ================================================================================================================
-# Tiers (docs/refactor.md §1). core: every basic action on the default arena, the three L0 hazards, the start of the
-# chain — run on every change. common: core × the conditions play meets daily — run when a related module changed.
-# exception: everything else — before a merge.
-# acceptance: test point D, its own layer (30 minutes from a fresh world) — never part of another tier's run.
+# == tiers: core runs on every change, common when a related module changed, exception before a merge, acceptance alone
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
-# Fighting is its own tier: every fight row, sweep shard and fight behaviour cell — never common.
+# fighting is its own tier
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
-# Fights whose names say otherwise: blazes fought for their rods, a ghast's fireballs, the dragon killed by a bed.
-# resume_after_combat (a zombie mid-task, brain tier) is the user's call, left out on purpose.
+# fights whose names say otherwise; resume_after_combat left out on purpose
 COMBAT_ROWS = ("bed_bomb_kill", "collect_blaze_rods", "ghast_fireball")
-# The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
-# what every change can afford to run.
+# the chain's first slice is common, not core: core is what every change can afford
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
                                              "iron_ingots", "bed_in_nether", "slice_start_tools", "water_clutch")
 COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work")
-# Upkeep's own rows and the test-point-B hazards: everyday, so common whatever their shape; the chain's last leg too.
+# upkeep's rows and point-B hazards are everyday: common
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
           "slice_nether_kit")
 ACCEPTANCE = (ACCEPTANCE_D,)

@@ -4,7 +4,7 @@ import time
 
 from .api import NotAvailable, log
 
-# How long each kind takes when started (seconds); furnace jobs compute theirs from the item count.
+# seconds each kind takes; furnace jobs compute theirs from the item count
 DURATION = {"crop": 15 * 60, "sapling": 20 * 60, "breed": 5 * 60}
 
 def start(mem, kind, pos, dimension, item=None, count=0, seconds=None, **extra):

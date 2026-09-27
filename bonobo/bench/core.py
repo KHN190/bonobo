@@ -14,17 +14,14 @@ NOTES = paths.data("test-world-notes.json")
 BENCH = paths.data("bench")
 ORIGIN = (10000, 200, 10000)   # a sky platform: skills search 48 blocks, natural terrain (y ≤ ~120) stays out of it
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Everything a scenario touches lies inside this box (cleared to air before each setup, force-loaded).
+# everything a scenario touches lies in this box (cleared and force-loaded before each setup)
 BOX = ((-10, -17, -10), (20, 9, 10))   # down to -17: the underground rows (cave_escape, night_mines) are reset too
 UNCOUNTED = ("setup", "harness")
 
-# Two sites, one box shape: the row runs at ORIGIN (site A) while the next row's world is built at ORIGIN + SITE_B,
-# then cloned over in one command. The player never goes to B; every coordinate a row knows is site A's.
+# the row runs at site A while the next row's world is built at B, then cloned over
 SITE_B = (100, 0, 0)
 
-# The kit rule (speedrun standard): a row whose work uses a tool gets the best one, unless getting the tool is the
-# thing tested. Work tools are the best tier; weapons follow the mob (MOB_WEAPON): iron for the ordinary ones,
-# diamond for the high tier. One place: scenarios.KIT_JOBS applies it to the rows, bench/fight.py's KIT reads it.
+# the kit rule: a row whose work uses a tool gets the best one, unless the tool is what is tested
 BEST_TOOLS = {"axe": "give @p diamond_axe", "pickaxe": "give @p diamond_pickaxe", "shovel": "give @p diamond_shovel"}
 HIGH_TIER_MOBS = ("blaze", "wither_skeleton", "enderman", "ravager", "warden", "ender_dragon", "wither",
                   "elder_guardian", "evoker")
@@ -86,7 +83,7 @@ def _c(p):
 BRAIN = None     # set by `mc.py scenario`: plan-driven scenarios execute steps exactly as the brain does
 
 def _achieve(ctx, needs, done, rounds=12):
-    """Plan the needs from the current bag and execute the first step until `done()` — the brain's own path."""
+    """Plan the needs from the bag and run the first step until `done()` — the brain's own path."""
     from .. import decompose, dispatch, goals
     from ..cost import Cost
     from ..world import Snapshot
@@ -118,9 +115,7 @@ def _inv_has(item, n):
     from ..world import Inventory
     return lambda: Inventory().count(item) >= n
 
-# The engine under every sweep bench (`decision_arena`, `combat_arena`, `escape`, `siege`): a bench is the cells
-# it visits, the commands that build one, what a row records, and rules over the finished table. Resetting the
-# platform, appending JSONL, re-reading it and printing what broke were written out three times; they live here.
+# the engine under every sweep bench: cells, their build commands, what a row records, rules over the table
 
 SWEEP = {}
 
@@ -144,7 +139,7 @@ def _sweep_rows(path):
         return [json.loads(line) for line in f if line.strip()]
 
 def _sweep(name, cells, build, record, path, settle=0.5):
-    """One pass: build each cell, record one row in it, append it. Returns the rows of THIS pass."""
+    """One pass: build each cell, record one row, append it; returns this pass's rows."""
     def run(_ctx):
         feedback, rows = [], []
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -174,11 +169,10 @@ def _sweep_check(name, path, rules, least):
     return check
 
 def _by(rows, *keys):
-    """Rows by a tuple of dimension values. New sheets key by `cells.key_of` instead — one vocabulary."""
+    """Rows by a tuple of dimension values (new sheets key by `cells.key_of`)."""
     return {tuple(r.get(k) for k in keys): r for r in rows}
 
-# Chat is one channel with no ids: a reply belongs to whoever sent and read inside the same window. Every sender
-# (the row, the background build at site B) holds this for its send-and-read, so no reply lands in another's read.
+# chat has no ids: every sender holds this for its send-and-read so no reply lands in another's read
 CHAT_LOCK = __import__("threading").RLock()
 
 def _chat(cmd):
@@ -274,7 +268,7 @@ def reset_brain(brain, mem):
     """Every row starts from a brain that knows nothing of earlier rows (upkeep's tool notes outlived `clear @p`)."""
 
     from .. import arbiter, fight_loop, nav, needs, reflexes, retry, skill as skillkit
-    # A fight the last row left engaged still holds the body: every later row failed "body owned by the arbiter".
+    # a fight left engaged by the last row still holds the body
     held = fight_loop.engaged()
     if held is not None:
         fight_loop.disengage(held)

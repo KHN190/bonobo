@@ -64,8 +64,7 @@ def fill_spot(region, here, fluid="water", reach=REACH):
     for w in sources:
         for dx in range(-3, 4):
             for dz in range(-3, 4):
-                # Never below the surface: a level view entered the pool sideways through flowing water, which a
-                # bucket's ray ignores — "clicked water but the bucket stayed empty" twice on real lakes.
+                # never below the surface: a level view entered sideways through flowing water, which the bucket's ray ignores
                 for dy in (0, 1):
                     s = (w[0] + dx, w[1] + dy, w[2] + dz)
                     if s == w or not standable(region, s) or region.name(s) == "water":
@@ -134,7 +133,7 @@ def fill_water_bucket(ctx):
         yield Inventory().count("minecraft:water_bucket")
         if gained(lambda: Inventory().count("minecraft:water_bucket"), 0):
             return
-        # "used" isn't "filled": one real attempt per call, then the retry policy decides.
+        # "used" isn't "filled": one attempt per call, then the retry policy decides
         ctx.ban(c)
         ctx.ban(source)
         raise NotAvailable(f"clicked water at {source} but the bucket stayed empty")
@@ -196,7 +195,7 @@ def portal_lit(origin):
 def light_portal(ctx, origin, turns):
     """Flint and steel on the inner bottom obsidian; verified by a nether_portal block inside the frame."""
     for attempt in range(2):
-        # The click and its settle as one chain; closed loop between attempts: the portal lit (portal_lit)
+        # the click and its settle as one chain; closed loop between attempts
         done = api.run_chain(light_commands({"inv": Inventory()}, (origin, turns, attempt)), stop_on_failure=True)
         if done and done[0]["status"] != "succeeded":
             raise McError(f"using flint_and_steel failed: {done[0]['message']}")

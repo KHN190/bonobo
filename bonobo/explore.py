@@ -86,7 +86,7 @@ def _by_kind(hits):
 @skill(gives=["state:seen"], remaining=_k.some_of(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"explore:mobs": lambda ctx, s: (list(s.detail["types"]),)})
 def explore_for(ctx, types, legs=6, leg=40):
-    """Find entities of `types`: remembered sightings first, then the frontier of chunks not yet looked over for them (`_search`)."""
+    """Find entities of `types`: remembered sightings first, then the unsearched frontier (`_search`)."""
 
     for kind in types:
         for s in sorted(ctx.mem.seen(kind, ctx.dimension), key=lambda s: math.dist(s["pos"], feet()))[:2]:
@@ -105,7 +105,7 @@ def explore_for(ctx, types, legs=6, leg=40):
 @skill(gives=["state:found"], remaining=_k.found(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"explore:blocks": lambda ctx, s: (list(s.detail["blocks"]),)})
 def seek_blocks(ctx, blocks, legs=6, leg=40):
-    """Find a block type that isn't in range (trees, sand, clay): the frontier of chunks not yet looked over for it (`_search`), looking after every leg."""
+    """Find a block type not in range: the unsearched frontier (`_search`), looking after every leg."""
 
     if not find(blocks, radius=LOOK_BLOCKS, limit=1):
         surface_first(ctx)
@@ -144,12 +144,11 @@ def travel_to(ctx, pos, range_=2):
     return nav.arrive(tuple(pos), ctx.policy, range_=range_)
 
 def approach_policy(policy):
-    """Movement for chasing mobs: walk, swim, bridge — no digging (animals move; tunnels toward them are waste)."""
+    """Movement for chasing mobs: walk, swim, bridge — never dig (animals move)."""
     import dataclasses
     return dataclasses.replace(policy, allow_dig=False)
 
-# What the travel scan notes (memory.note_seen, kept by data.VOLATILITY): the nearest of each kind in 48 blocks,
-# the takeable blocks, the rare blocks and the animals in sight.
+# what the travel scan notes: the nearest of each kind in 48 blocks, takeable and rare blocks, animals in sight
 SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
                "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"]}
 _ALIAS = {"tree", "water", "lava"}      # scan kinds noted by their own name; the rest by the block that was hit
@@ -190,7 +189,7 @@ def note_around(mem, dimension, here):
         mobs = entities(48, list(SCAN_MOBS))
         for e in mobs:
             mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
-        # What this look covered, section by section — what it asked about and what it saw — for the frontier.
+        # what this look covered, per section, for the frontier
         mem.see_sections(dimension, here, 48, _by_kind(seen_blocks + mobs), looked_blocks + list(SCAN_MOBS))
     except api.McError as e:
         api.swallowed("scan_resources: looking around", e)

@@ -13,14 +13,13 @@ import time
 from .core import (BENCH, BOX, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
 
-# ---------------------------------------------------------------- pure helpers (tested offline)
+# -- pure helpers (tested offline)
 
 ERROR_MARKS = ("not loaded", "Incorrect argument", "Unknown or incomplete", "<--[HERE]", "Unknown ", "Invalid ",
                "is not within", "Too many blocks", "Could not", "Failed to", "Expected ", "unexpected error",
                "out of the world")
 
-# What the game last said back during a setup: read by scenarios that need the reply of a command they sent
-# (a /locate answer, a spawn position). Lives here, with the runner that fills it.
+# what the game last said back during a setup, for scenarios reading a command's reply
 LAST_FEEDBACK = []
 # The cerebellum's own log for the run just finished: slice scenarios read it back to find loops.
 LAST_LINES = []
@@ -64,8 +63,7 @@ def _watchdog(limit, fired):
     """Arm a timer: at `limit` s stop the body (/stop) and interrupt the row's run in the main thread."""
     import _thread
     import signal
-    # A bench started in the background (`cmd &` from a script) inherits SIGINT as ignored, and interrupt_main does
-    # nothing for an ignored signal: rows ran 75 s past a 30 s limit. Python's own handler, always.
+    # a background bench inherits SIGINT as ignored and interrupt_main does nothing: install Python's handler
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGINT, signal.default_int_handler)
 
@@ -159,15 +157,9 @@ def dep_hash(module, pkg_dir=PKG):
             h.update(m.encode() + f.read())
     return h.hexdigest()[:10]
 
-# The mod's Java sources, when they happen to be checked out next to this repository. They are a different
-# project, so this is optional: with MC_MOD_SRC unset (the normal case for anyone who installed the mod from a
-# release) readiness falls back to the jar version the mod reports over /status. Hashing the sources is the finer
-# tool — it re-tests only the scenarios whose feature actually changed — but it cannot be a requirement.
+# the mod's Java sources, optional (MC_MOD_SRC): without them readiness falls back to the jar version
 JAVA = os.path.expanduser(os.environ.get("MC_MOD_SRC", ""))
-# The mod features a scenario can depend on → their Java sources. A pathfinder change re-tests movement scenarios
-# only, not a crafting scenario (a jar version bump used to reset every result).
-# Core = what every task runs through. WorldInfo (/state fields) and HttpApi (routes like /plan) change often and
-# rarely change behaviour: they are their own features, so adding a /state field doesn't reset every scenario.
+# mod features → their Java sources, so a change re-tests only the scenarios using it; /state and HTTP are their own
 MOD_CORE = ["task/Task.java", "task/TaskFactory.java", "util/WorldUtil.java", "util/InvUtil.java", "Agent.java"]
 MOD_FILES = {
     "state": ["WorldInfo.java"],
@@ -187,7 +179,7 @@ def mod_hash(tags=None, java=JAVA):
     if not java or not os.path.isdir(java):
         return "jar-" + _mod_version()
     files = list(MOD_CORE)
-    # Default: every behaviour feature, not the /state and HTTP plumbing (tag those explicitly where they matter).
+    # default: every behaviour feature, not the /state and HTTP plumbing
     for t in ([k for k in MOD_FILES if k not in ("state", "http")] if tags is None else tags):
         files += MOD_FILES[t]
     h = hashlib.sha1()
@@ -240,7 +232,7 @@ def _code_for(name):
 from .rowkey import (COMMON, NOT_PRODUCTION, _callable_sources, _names_in, _strings_in, code_index,  # noqa: F401,E402
                      reach_hash, reached, row_hash)
 
-# Only fights change run to run (mob AI, knockback, fireballs). Everything else is settled once it passes.
+# only fights change run to run; everything else is settled once it passes
 FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skeleton_1", "fight_creeper_1", "fight_blaze_3", "fight_enderman_1", "ghast_fireball", "bed_bomb_kill", "fight_dragon", "siege", "combat_arena",
           "escape"}
 
@@ -255,8 +247,7 @@ def settled(table, name):
 
 MAX_RUNS = 3      # a row runs once; a failure is re-run, three runs at most, and passes on ≥ 2 of 3
 
-# Rows whose outcome the world decides by chance: mobs (summoned or fought), random tree shapes, drop counts.
-# Everything else is deterministic: one run decides it, pass or fail.
+# rows the world decides by chance; everything else is decided by one run
 STOCHASTIC_MARKS = ("summon ", "place feature", "spreadplayers", "barter", "locate ")
 
 def stochastic(row):
@@ -316,7 +307,7 @@ def verdict(table, name, code):
     return verdict_of([TIMEOUT if r.get("note", "").startswith(TIMEOUT) else r["ok"] for r in counted],
                       chance=True if row is None else stochastic(row))
 
-# ---------------------------------------------------------------- readiness table (pure helpers are tested offline)
+# -- readiness table
 
 def load_table(path=None):
     try:
@@ -389,7 +380,7 @@ def save_table(table, path=None):
     with open(path, "w") as f:
         json.dump(table, f, indent=1)
 
-# ---------------------------------------------------------------- live bench
+# -- live bench
 
 class _Console(io.TextIOBase):
     """Tee stdout so the report carries the skill's own log lines."""
@@ -404,8 +395,7 @@ class _Console(io.TextIOBase):
     def flush(self):
         self.real.flush()
 
-# The next row's world, built at site B while this row runs (`prebuild`); `_setup` clones it over when it is the
-# one being set up. NEXT_ROW is set by the caller (mc.py) before each run: the row it will run next.
+# the next row's world, prebuilt at site B while this one runs; mc.py sets it before each run
 NEXT_ROW = [None]
 SETUP_S = {}          # the last setup's seconds: world (built here, or cloned from B) and body, for the report
 PREBUILT = {"name": None, "done": None, "ok": False, "why": ""}
@@ -480,11 +470,9 @@ def _setup(name, sc, feedback):
         return f"execute in {dim} run {cmd}"
 
     if sc.get("raw"):
-        # Real-world scenarios (a real stronghold, the real dragon): no box, just the body reset and the commands.
+        # real-world scenarios: no box, just the body reset and the commands
         if moved:
-            # Another dimension first. "@p" inside "execute in <dim>" only finds players already there (a raw
-            # Overworld scenario after an End one failed setup 8×): park with @a on the waiting glass of that
-            # dimension, chunks loaded, before any scenario command.
+            # another dimension first: "@p" in "execute in" only finds players already there, so park with @a on its glass
             _checked(ex(f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"), feedback)
             probe = _c(at(0, BOX[1][1], 0))
             for _ in range(60):
@@ -508,19 +496,14 @@ def _setup(name, sc, feedback):
         s = api.get("/state")
         if s.get("dimension") != dim:
             raise SetupInvalid(f"player in {s.get('dimension')}, scenario needs {dim}")
-        # Real-world scenarios need their actors too (a dragon fight ran with no dragon: "target not found").
+        # real-world scenarios need their actors too
         for t, want in sc.get("expect_entities", []):
             n = server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..160]"), feedback))
             if n < want:
                 raise SetupInvalid(f"{t}: {n} on the server, expected ≥ {want}")
         return
 
-    # The global state in ONE batch, its replies read once (a batch per phase, not a wait per command):
-    # empty bag first (a water bucket left from the previous scenario made any setup drop a water clutch trigger);
-    # normal difficulty unless the row asks (on peaceful every summoned hostile vanished) — its reply read back, the
-    # game said "already set to peaceful" on every row while we believed normal; no chance left in the world (no
-    # random ticks, weather, mob spawns; the clock only where the row needs it) — a rule the game does not know is
-    # a setup failure, never skipped.
+    # global state in one batch: empty bag, difficulty (its reply read back), no chance left in the world
     want = difficulty_of(sc)
     said = _batch([ex(c) for c in ("clear @p", "gamemode survival @p", "effect clear @p", "time set day",
                                    "weather clear", "gamerule spawn_mobs false",
@@ -529,7 +512,7 @@ def _setup(name, sc, feedback):
                                    f"gamerule advance_time {'true' if needs_clock(sc) else 'false'}")], feedback)
     if not difficulty_set(said, want):
         raise SetupInvalid(f"difficulty not {want}: {[l for l in said if 'ifficulty' in l][:1] or said[:1]}")
-    # Wait until the box's chunks are really loaded: a 1-block fill answers "not loaded" until then.
+    # wait until the box's chunks load: a fill answers "not loaded" until then
     probe = _c(at(0, BOX[1][1], 0))
     for _ in range(60):
         if not any("not loaded" in l for l in _command(ex(f"fill {probe} {probe} air"), feedback)):
@@ -537,29 +520,23 @@ def _setup(name, sc, feedback):
         time.sleep(0.5)
     else:
         raise SetupInvalid("scenario chunks never loaded")
-    # Wait above the box on a glass block: no fall while the box is rebuilt (a fall fired the water clutch).
+    # wait on a glass block above the box: no fall while it is rebuilt
     glass = _c(at(0, BOX[1][1] + 2, 0))
-    # The waiting glass (fill: setblock errors when it's already glass), the body onto it, the previous row's mobs
-    # ("No entity was found" is fine) — one batch.
+    # waiting glass, the body onto it, the previous row's mobs — one batch
     _batch([ex(f"fill {glass} {glass} glass"), ex(f"tp @p {_c(at(0, BOX[1][1] + 3, 0))}"),
             ex(f"kill @e[type=!player,x={lo[0]},y={lo[1]},z={lo[2]},dx={hi[0] - lo[0]},dy={hi[1] - lo[1] + 6},"
                f"dz={hi[2] - lo[2]}]")], feedback)
     if moved:
         time.sleep(3)            # the client loads the new dimension
-    # Leftovers of the previous scenario (lava!) go first — up to above the waiting glass: water poured on the glass
-    # (y 211, outside the box) kept flowing back into every later setup (cross_lava: 48 water, 9 obsidian).
-    # Two fills around the glass layer: removing the glass under the player dropped them for a moment.
-    # The whole layout in one burst, feedback checked once at the end (waiting for every reply cost ~10 min a round).
+    # clear the previous row's leftovers (lava) up above the glass, the layout in one burst, feedback checked once
     top = _c((hi[0], hi[1] + 6, hi[2]))
     above = [ex(f"fill {_c((lo[0], hi[1] + 3, lo[2]))} {top} air"),
-             # Fluids anywhere in the volume, the glass layer included (water beside the glass survived both fills
-             # and kept flooding cast_obsidian's pool: 47 water, 0 lava).
+             # fluids anywhere in the volume, the glass layer included
              ex(f"fill {_c(lo)} {top} air replace water"), ex(f"fill {_c(lo)} {top} air replace lava")]
     from .core import SITE_B, split_setup
     t_world = time.time()
     if take_prebuilt(name):
-        # Built ahead at site B while the last row ran: one clone brings it over (air included: the box is cleared
-        # by it), then only what the row itself runs — the player, the global state, the actors.
+        # prebuilt at site B: one clone brings it over, then only what the row runs itself
         b_lo, b_hi = [a + d for a, d in zip(lo, SITE_B)], [a + d for a, d in zip(hi, SITE_B)]
         _world, rest = split_setup(sc["setup"])
         _batch(above + [ex(f"clone {_c(b_lo)} {_c(b_hi)} {_c(lo)} replace")], feedback)
@@ -573,18 +550,16 @@ def _setup(name, sc, feedback):
         t_body = time.time()
         _batch([ex(cmd) for cmd in rest], feedback)
     SETUP_S["body_s"] = round(time.time() - t_body, 2)
-    # The waiting glass gone once we're down (a 30-block fall landed on it 18 blocks early: water_clutch, hp 5), the
-    # setup's drops, the body reset — one batch.
+    # glass gone once we are down, the setup's drops, the body reset — one batch
     _batch([ex(f"fill {glass} {glass} air"), ex("kill @e[type=item]")] + [ex(c) for c in body_reset(sc)], feedback)
-    # The client sees the build a moment after the server made it (the first row, just teleported in, read 0 of 3
-    # furnaces once): read again until the expectation holds, then judge.
+    # the client sees the build late: read until the expectation holds, then judge
     for i in range(10):
         bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", [])) if sc.get("expect") else []
         if not bad:
             break
         time.sleep(0.5)          # read again only when it did not hold yet (a fixed 0.5 s first cost every row)
     for _ in range(12):          # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
-        # Count on the server: the client's entity list missed a summoned ghast 18 blocks away ("seen: nothing").
+        # count on the server: the client's entity list misses far summons
         ents = [f"{t}: {n} on the server, expected ≥ {want}" for t, want in sc.get("expect_entities", [])
                 for n in [server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..40]"),
                                                 feedback))] if n < want]
@@ -627,8 +602,7 @@ def _report(name, data):
     with open(os.path.join(folder, "report.json"), "w") as f:
         json.dump(data, f, indent=1, default=str)
     if SCENARIOS.get(name, {}).get("combat"):
-        # A dead fight becomes an incident: the planner's own last input, replayable offline, adoptable into
-        # tests/incidents/. Nothing learned from a live failure stays in a log.
+        # a dead fight becomes a replayable incident (tests/incidents/)
         try:
             from .. import end
             from ..tools import incidents
@@ -658,8 +632,7 @@ def run(name, make_ctx):
     rate = sc.get("tick_rate")
     try:
         if rate:
-            # Waiting-heavy scenarios (smelting, piglin inspection) run the game faster; skills wait in ticks, so
-            # their logic is unchanged — only wall time shrinks. Always reset below.
+            # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
             _command(f"tick rate {rate}", feedback)
         perception.PAUSED = True
         try:
@@ -687,10 +660,9 @@ def run(name, make_ctx):
                     ctx = make_ctx()      # the hook may move the player: rebuild policy/dimension there
                 from .. import skillcore as _sc
                 if _sc.dead():
-                    # Dead before the skill began (a dragon fight started at 0 hp): the setup is invalid, not the skill.
+                    # dead before the skill began: the setup is invalid, not the skill
                     raise SetupInvalid("player dead before the skill started")
-                # The budget is the behaviour's: `before` hooks build the scene (a hunger drain took 19 s of
-                # night_first__low's 30), so the clock and the watchdog start here.
+                # the budget is the behaviour's: `before` hooks build the scene, so the clock starts here
                 t0 = time.time()
                 timer = _watchdog(limit, fired)
                 result = sc["run"](ctx)
@@ -706,7 +678,7 @@ def run(name, make_ctx):
                 exc, note = e, f"{type(e).__name__}: {e}"
                 if not isinstance(e, (api.McError, api.NotAvailable, SetupInvalid)):
                     crashed = True      # a bug in our own code is never a pass, whatever the world looks like after
-                    # An unexpected crash ("IndexError: tuple index out of range") says nothing without its frames.
+                    # a crash says nothing without its frames
                     import traceback as _tb
                     note += " @ " + " < ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno} {f.name}"
                                                for f in reversed(_tb.extract_tb(e.__traceback__)[-4:]))
@@ -715,13 +687,13 @@ def run(name, make_ctx):
             try:
                 inv_after = Inventory()
                 reached = bool(sc["check"](api, inv_after))
-                # A crash (IndexError from our own code) passed the check once and was recorded as PASS.
+                # a crash of ours is never a pass
                 from .. import scenarios as _rows
                 ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
                                   _rows.BASE.get("target_s") or sc.get("target_s"))   # a row's own, measured at start
                 ok = ok and not fired.is_set()
                 if reached and not ok:
-                    # The outcome happened, just too slowly (or through a crash of ours): say so.
+                    # the outcome came too slowly (or via our crash): say so
                     exc = exc or McError(why)
                     note = note or str(exc)
                 if sc.get("detail"):
@@ -733,11 +705,11 @@ def run(name, make_ctx):
                 note = note or f"check failed: {e}"
             from .. import skillcore as _sc
             if not ok and type(exc).__name__ != "SetupInvalid" and _sc.dead():
-                # Died: that's the result, whatever the skill did afterwards (20 "no route" travels after death).
+                # died is the result, whatever the skill did after
                 exc = McError("died")
                 note = "died" + (f" ({note})" if note else "")
             if not ok and exc is None:
-                # A skill that returned False / nothing without raising: blame the layer of its last failed task.
+                # returned False without raising: blame the layer of its last failed task
                 exc = silent_failure(console.lines, result)
                 note = f"{type(exc).__name__}: {exc} (outcome not reached in {seconds:.0f}s, budget {sc['budget']}s)"
     finally:
@@ -747,7 +719,7 @@ def run(name, make_ctx):
             _command("tick rate 20", feedback)
     cls = classify(exc, ok)
     if not ok and cls not in UNCOUNTED and generic_failure(note):
-        # "A failure must carry a reason" (todo): a row that failed without saying why is recorded as such.
+        # a failure without a reason is recorded as such
         note = f"NO REASON: {note or type(exc).__name__}"
     if cls not in UNCOUNTED:
         save_table(record(load_table(), name, code, ok, seconds, note, cls))

@@ -46,8 +46,7 @@ def blaze_cover(region, here, blaze, radius=4):
                 best = (d, c)
     return None if best is None else best[1]
 
-# How far each kind of danger reaches, in blocks. One flat distance treated a breath cloud like a creeper and a
-# dragon's head like a fireball; the head sweep and the take-off knockback are what killed the bench runs.
+# how far each danger reaches: one flat distance mistook the head sweep and take-off knockback
 
 def clearance(spot, hazards):
     """Pure: the smallest margin between `spot` and any hazard's reach (negative = inside it, inf when none)."""
@@ -113,8 +112,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
         near = entities(128)
         angry = angry_endermen(near, here, 12.0)
         if angry:
-            # Never trade hits with an enderman: shake it off (water, cover, distance). Provoking more of them by
-            # swinging around is how a dragon fight turns into an enderman fight.
+            # never trade hits with an enderman: shake it off; swinging provokes more
             from .end import shake_enderman
             shake_enderman(ctx)
             yield (len(angry), round(s["health"]))
@@ -127,12 +125,11 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
         spot = safe_stand(region, here, hz, anchor, band, clear)
         safe = clearance(here, hz) >= clear and not endermen_near(near, here, 8.0)
         if not safe and spot is not None and math.dist(here, spot) > 1.0:
-            # Get out first. Eating while still in the breath was a death loop: every bite was cancelled by the next
-            # task, the log filled with "no bite" and health went 20 → 0 without a step taken.
+            # get out first: eating in the breath was a death loop
             nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
         elif safe and s["health"] <= 14 and s.get("food", 20) < 20:
             try:
-                skills.eat(raw_ok=True)       # a full food bar can't be eaten: it only spammed "no bite"
+                skills.eat(raw_ok=True)  # a full bar can't be eaten
             except McError as e:
                 log(f"   station: no bite ({e})")
         elif spot is not None and math.dist(here, spot) > 1.5:
@@ -140,8 +137,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
         else:
             api.run({"type": "wait", "ticks": 5}, wait=5, awaits="the fight's next reading (reflex latency: a poll, never a batch)")
         margin = clearance(here, hz)
-        # No hazards at all means an infinite margin, and round(inf) raises OverflowError — it killed the skill
-        # mid-fight once ("died ... cannot convert float infinity to integer").
+        # no hazards = infinite margin, and round(inf) raises
         yield (99 if margin == float("inf") else round(margin), round(s["health"]))
     return True
 

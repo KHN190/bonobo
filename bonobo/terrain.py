@@ -56,7 +56,7 @@ def underground_target(region, here, depth=(3, 6), radius=3):
                     continue
                 if not all(region.solid(p) for p in roof) or not region.solid((c[0], c[1] - 1, c[2])):
                     continue
-                # Inside rock, not a ravine ledge: the head cell is walled on at least 3 sides (one is the way in).
+                # inside rock, not on a ledge: the head cell walled on 3+ sides
                 head = (c[0], c[1] + 1, c[2])
                 sides = [(head[0] + ddx, head[1], head[2] + ddz) for ddx, ddz in ((1, 0), (-1, 0), (0, 1), (0, -1))]
                 if not all(region.inside(p) for p in sides) or sum(region.solid(p) for p in sides) < 3:
@@ -75,8 +75,7 @@ def shelter_method_at(region, cell, protected=()):
     if choose_burrow(region, cell, protected):
         return "burrow"
     below = [(x, y - k, z) for k in (1, 2, 3)]
-    # After digging 3 down the body stands in the two lowest cells: they need solid sides too, or a pillar top
-    # just becomes a hole open to the air around it.
+    # after digging 3 down the body stands in the two lowest cells: they need solid sides too
     body_sides = [(x + dx, y - k, z + dz) for k in (2, 3) for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
     if all(region.solid(c) and not region.unbreakable(c) and c not in protected for c in below) \
             and region.solid((x, y - 4, z)) and all(region.solid(c) for c in body_sides) \

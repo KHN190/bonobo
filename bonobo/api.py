@@ -7,21 +7,16 @@ import urllib.request
 
 from . import paths
 
-# No default instance path. The old one spelled out one launcher's profile directory on one machine; anywhere else
-# it silently read no token and every request came back 401 with nothing to suggest why. Empty is better: the token
-# read below says what to set.
+# no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
 BASE = paths.api_base()
 STUCK_SECONDS = 10
 
-# What the code chose not to look at. A world read inside a decision is allowed to fail — the game may be
-# restarting, a recorded round has no such call — but it must not fail INVISIBLY: swallowing it silently is how
-# route pricing stayed switched off for a whole session while every test passed, because "no price" and "no
-# answer" look identical from the outside. Every quiet handler reports here, and `mc.py` can print the tally.
+# world reads allowed to fail, never invisibly: every quiet handler reports here (mc.py prints the tally)
 SWALLOWED = {}
 
 def swallowed(where, err):
-    """Record that a world read failed and was ignored. Returns None, so a handler can `return api.swallowed(...)`."""
+    """Record a world read failed and ignored; returns None so a handler can `return api.swallowed(...)`."""
     key = f"{where}: {type(err).__name__}"
     SWALLOWED[key] = SWALLOWED.get(key, 0) + 1
     if SWALLOWED[key] in (1, 10, 100):
@@ -45,7 +40,7 @@ class NavFailed(NotAvailable):
         self.pos = tuple(pos) if pos is not None else None
 
 class TaskStuck(McError):
-    """A task made no visible progress for STUCK_SECONDS, or exceeded its time budget. It has been cancelled."""
+    """A task made no visible progress for STUCK_SECONDS or ran over budget; it was cancelled."""
 
 class CommitmentExpired(McError):
     """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
@@ -56,12 +51,11 @@ class Interrupted(McError):
 # Set by the perception thread (perception.py): a pending interrupt reason. MODE is "survival" while a rescue runs.
 INTERRUPT = None
 MODE = "normal"
-# Set while a soft skill runs (skill.py): perception's request stays in INTERRUPT for the skill itself to read
-# instead of cutting a mod task short. A fight answers danger by taking cover, not by failing halfway through a dig.
+# set while a soft skill runs: perception's request stays for the skill to read, not cutting a task short
 SOFT = False
 
 def consume_interrupt():
-    """Return and clear the pending interrupt message, or None. Soft skills read it and take cover themselves."""
+    """Return and clear the pending interrupt, or None: soft skills read it and take cover themselves."""
     global INTERRUPT
     reason, INTERRUPT = INTERRUPT, None
     return reason
@@ -105,11 +99,9 @@ class FightHolds(McError):
     """Our own fight has the body: an interruption that ends when the fight does, not an outside driver to stand down for."""
 
 class BodyContested(McError):
-    """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second process) is driving the body."""
+    """A task we waited on was replaced by one we did not post: someone else drives the body."""
 
-# The three outcomes of any attempt: success, failure (with a cause), or interrupted. These are the interrupted ones:
-# something else took the body or the world asked for a decision. None of them says anything about the skill, so
-# none of them counts as a retry, bans a cell, sends /stop or cools anything down.
+# interruptions: something else took the body — never a retry, a ban, a /stop or a cooldown
 class Died(McError):
     """The body died mid-task: an interruption — recover the items, then replan from here, target kept."""
 
@@ -124,7 +116,7 @@ def interrupted(err):
     return isinstance(err, INTERRUPTIONS)
 
 def log(*parts):
-    """The readable stream: decisions, failures, dangers, milestones. Goes to autoplay.log."""
+    """The readable stream (autoplay.log): decisions, failures, dangers, milestones."""
     print(time.strftime("%H:%M:%S"), *parts, flush=True)
 
 DETAIL_FILE = paths.data("detail.log")
@@ -157,7 +149,7 @@ def _token():
     if not INSTANCE:
         raise McError("set MC_INSTANCE to your Minecraft instance directory "
                       "(the one containing config/agent-bridge.json)")
-    names = ("anaka.json", "agent-bridge.json")      # current mod id first, previous one as a fallback
+    names = ("anaka.json", "agent-bridge.json")  # current mod id first
     for name in names:
         path = os.path.join(INSTANCE, "config", name)
         try:
@@ -269,7 +261,7 @@ def _raise_if_released(results, since=None):
 OSCILLATION_RETURNS = 4     # a task back in a state it already left this many times is going round in circles
 
 def returns(seen):
-    """Pure: how many times the observed task states (in order, each differing from the one before) came back to one already seen."""
+    """Pure: how often the observed task states came back to one already seen."""
 
     earlier, back = set(), 0
     for sig in seen:
@@ -278,7 +270,7 @@ def returns(seen):
     return back
 
 def await_task(task_id, wait, exempt=("wait",)):
-    """Waits for a task, cancelling it when it makes no visible progress or exceeds `wait` seconds."""
+    """Wait for a task, cancelling it on no visible progress or past `wait` seconds."""
     began = time.time()
     deadline = began + wait
     last, since, seen = None, began, []
@@ -295,8 +287,7 @@ def await_task(task_id, wait, exempt=("wait",)):
         if cur is None or cur["type"] in exempt or st["control"].get("paused"):
             last, since = None, time.time()
             continue
-        # Progress = the body moved or the task's own report changed (hits, blocks, items). Turning the head is not
-        # progress (an attack chase toward an unreachable mob spins the view forever), except for look-type tasks.
+        # progress = the body moved or the task's report changed; turning the head is not (a chase spins the view)
         sig = (cur["id"], cur["doing"], round(st["x"]), round(st["y"]), round(st["z"]))
         if cur["type"] in ("look", "use_item"):
             sig += (round(st["yaw"] / 5), round(st["pitch"] / 5))
@@ -310,7 +301,7 @@ def await_task(task_id, wait, exempt=("wait",)):
             post("/stop")
             raise TaskStuck(f"no progress for {STUCK_SECONDS}s in {cur['type']}: {cur['doing']}")
 
-# Tasks that turn the player's head. Aiming is what provokes an enderman, so these are the ones worth vetting.
+# tasks that turn the head: aiming provokes endermen
 AIMING_TASKS = ("look", "use_item", "use", "bed_bomb", "place", "mine", "attack")
 
 def vet_aim(task):
@@ -335,7 +326,7 @@ def vet_aim(task):
 DRESS = None
 
 def run(task, *, awaits, wait=900):
-    """Runs one task to completion; returns its JSON (status may be failed — callers decide)."""
+    """Run one task to completion; returns its JSON (status may be failed — callers decide)."""
 
     if not isinstance(awaits, str) or not awaits.strip():
         raise ValueError("api.run: `awaits` must name the world result waited for (else send a chain)")
@@ -351,8 +342,7 @@ def run(task, *, awaits, wait=900):
     refused(r, queued=r.get("id") is not None or r.get("status") != "failed")
     if r["status"] == "running":
         r = await_task(r["id"], wait)
-    # Sequences (mine_many/build) report per-step failures in result.failures: surface the first reason so
-    # "1 of 1 steps failed" becomes a classifiable cause (e.g. no path → nav) instead of a bare error.
+    # surface a sequence's first step failure so it classifies (no path → nav)
     failures = (r.get("result") or {}).get("failures") or []
     if r["status"] != "succeeded" and failures and failures[0].get("reason"):
         r["message"] = f"{r['message']}: {failures[0]['reason']}"
@@ -386,12 +376,10 @@ def out_of_reach(r):
              for m in _re.finditer(r"(-?\d+),\s*(-?\d+),\s*(-?\d+)", text)]
     raise Unreachable(f"{r.get('type', 'task')}: {text.strip()}", cells)
 
-# How long the last chain segment took. A segment is where an atomic action ends and the planner gets the body
-# back, so this is how far ahead anything watching has to look. Measured, not configured.
+# how far ahead a watcher must look: a segment is where the planner gets the body back; measured
 LAST_SEGMENT_S = 2.0
 
-# What was last posted: (chain signature, id of its last task). Re-deciding must not restart work already under
-# way — see `resume_id`.
+# (chain signature, its last task's id): re-deciding must not restart work under way
 LAST_POSTED = None
 
 def chain_signature(tasks):
@@ -416,8 +404,7 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
     chain_began = time.time()
     for start in range(0, len(tasks), segment):
         if start:
-            # A segment boundary is where a pending interrupt stops the chain: nothing half-posted, and the skill
-            # resumes by what the world still lacks (its start/verify), never by this index.
+            # an interrupt stops the chain at a segment boundary; the skill resumes by what the world lacks, never this index
             check_interrupt(chain_began, SOFT)
         part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
         began = time.time()

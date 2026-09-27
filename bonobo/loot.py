@@ -56,8 +56,7 @@ def loot_chest(ctx):
         raise McError(f"could not open the chest at {pos}")
     prices = ctx.prices()
     if not prices:
-        # No price table, no decision: taking nothing and calling the chest looted is how a chest of iron got
-        # written off. Say so instead — whoever built this context owes the skill its prices.
+        # no price table, no decision: say so rather than write a chest off as looted
         raise NotAvailable("no price table: cannot say what is worth taking")
     taken = 0
     try:

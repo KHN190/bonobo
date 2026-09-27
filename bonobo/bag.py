@@ -4,8 +4,7 @@ from .world import add
 
 PICKUP_FILTER_AT = 28
 
-# Item ids the committed plan will consume (set by the brain every round). Throwing, storing and slot freeing never
-# touch them: tidy once threw the planks a wheat-farm plan had just crafted, every 8 s, and the plan re-crafted them.
+# item ids the committed plan will consume: never thrown or stored (tidy once threw a plan's fresh planks every 8 s)
 RESERVED = set()
 
 def reserved_stacks(slots):
@@ -33,8 +32,7 @@ def reserved_ids(plan, needs=()):
         ids.update(members(t))
     return ids
 
-# What a nearly full bag still walks over to pick up: the floor (blocks aside: a tunnel is made of them) and what
-# the route to the dragon is made of.
+# what a nearly full bag still picks up: the floor and what the route to the dragon is made of
 PICKUP_ALWAYS = ("minecraft:raw_iron", "minecraft:raw_gold", "minecraft:iron_ingot", "minecraft:gold_ingot",
                  "minecraft:diamond", "minecraft:ender_pearl", "minecraft:blaze_rod", "minecraft:obsidian",
                  "minecraft:string", "minecraft:flint")
@@ -52,9 +50,7 @@ def pickup_whitelist(used_slots, wanted=()):
         ids |= set(members(token))
     return sorted(ids)
 
-# Upkeep's floor: what the bag never goes below, by kind — the next meals, blocks to bridge and wall with, light,
-# water, a bed, the two stations and fire. Tools and armour that still work are kept whole (spares included).
-# Everything else is priced: what it costs to get again (`let_go`). One table, instead of seven that disagreed.
+# what the bag never goes below; working tools and armour are kept whole; everything else is priced (`let_go`)
 FLOOR = {"food": 8, "building": 64, "minecraft:torch": 16, "minecraft:bucket": 1, "minecraft:water_bucket": 1,
          "minecraft:lava_bucket": 1, "bed": 1, "minecraft:crafting_table": 1, "minecraft:furnace": 1,
          "minecraft:flint_and_steel": 1, "minecraft:shield": 1, "coal": 16}
@@ -142,11 +138,11 @@ def throw_direction(region, inside):
             room += 1
         if room > best_room:
             best, best_room = (dx, dz), room
-    # Thrown items fly ~2 blocks: into a 1–2 block niche they land back at our feet and get picked up again.
+    # thrown items fly ~2 blocks: into a smaller niche they land back at our feet
     return best if best_room >= 3 else None
 
 def store_plan(slots):
-    """Pure: the player stacks to move into a chest — everything the bag does not keep (`kept`), dead tools too."""
+    """Pure: player stacks to move into a chest — everything not kept, dead tools too."""
     keep = kept(slots)
     return [s for s in slots if s not in keep]
 
@@ -211,8 +207,7 @@ def mineable(cells, feet, region=None, drop=None):
           and (region is None or stand_spot(region, tuple(c), drop))]
     if region is None:
         return ok
-    # Open-faced first; a buried cell only when nothing open is left — else a stone batch dug the buried cells under
-    # its own floor ring as readily as the open ones beside it (mine_stone__buried_by_sand: sand fell, a loop).
+    # open-faced first, buried only when nothing open is left (else a batch undermined its own floor)
     open_ = [c for c in ok if not buried(region, c)]
     return open_ or ok
 

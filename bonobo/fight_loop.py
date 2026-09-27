@@ -120,7 +120,7 @@ def disengage(intent, stop=True):
         pass
     arbiter.BODY.hand_back(intent)
 
-# ------------------------------------------------------------------------------------------------ the decision
+# -- the decision
 
 FIGHT_POLL_S = 0.1     # while a fight holds the body: a window is 0.4 s at worst, a 0.2 s poll sees half of it
 HELD = None            # the threat layer's held decision (kernel.Held): kept while it pays, replaced when not
@@ -214,7 +214,7 @@ def still_worth(choice, field_model, price, horizon):
         return False
     return _threat.saves(same, options, price, horizon) > 0
 
-# ------------------------------------------------------------------------------------------------ the batches
+# -- the batches
 
 def batch(option, state):
     """Pure: the batch that carries out one answer from a body state; [] when it cannot be carried out from here."""
@@ -222,15 +222,12 @@ def batch(option, state):
     make = BATCH.get(option.kind)
     return list(make(option, state)) if make else []
 
-# Between swings (jar AttackTask "footwork", ≥ 0.1.51): out of a melee mob's reach and in again as the swing
-# refills; across a ranged mob's line of fire. By what the target is (beliefs MOBS "ranged"), one table.
-# A creeper: hit, then out past its blast until it stops swelling, and in again ("keepoff"); a blast into the air
-# ends it as surely as a kill.
+# between swings (jar ≥ 0.1.51): melee back out of reach, ranged strafe off the line, a creeper keepoff past its blast
 FOOTWORK = {"melee": "back", "ranged": "strafe", "burst": "keepoff"}
 LURE_BLOCKS = 8          # how far a creeper by our builds is led away from them before the fight
 
 def footwork(target, state):
-    """Pure: the footwork for fighting entity `target`, read off the rows being answered (`threats`, `threat_ids`): None when the target is not among them."""
+    """Pure: the footwork for fighting `target`, from the rows being answered; None when it is not among them."""
 
     from .beliefs import MOBS
     rows, ids = state.get("threats") or [], list(state.get("threat_ids") or [])
@@ -329,8 +326,7 @@ def _place(option, state):
 
 BATCH = {"fight": _fight, "fight_shielded": _fight_shielded, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape,
          "bed_bomb": _bed_bomb, "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
-# What a batch needs read around the body, by kind: {kind: feet -> Region}. Skills that lend their batch register
-# both (skills.py: "wall_in" → pod_commands, _pod_region), so this module never imports the skill library.
+# what a batch reads around the body, by kind; skills register theirs so this module never imports the skill library
 REGION = {}
 
 def lend(kind, make, region=None):
@@ -356,9 +352,7 @@ def engage(decision, s, ctx):
         raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")
     return {"id": queued[-1]["id"]}
 
-# ------------------------------------------------------------------------------------------------ the dragon
-# The boss fight is carried out by the same loop (`carry`) and the same batches as any threat. What to do is the
-# phase model's (fight_plan.Fight.plan, one intent per round); this maps its intent to an answer the loop posts.
+# -- the dragon: the same loop and batches as any threat; fight_plan decides, this maps its intent to an answer
 Answer = __import__("collections").namedtuple("Answer", "kind target")
 
 def dragon_answer(intent, view):
