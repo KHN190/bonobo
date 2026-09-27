@@ -503,7 +503,12 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
     (the brain uses it for reflexes: tools, light, site bookkeeping). Returns all task results."""
     global LAST_SEGMENT_S
     results = []
+    chain_began = time.time()
     for start in range(0, len(tasks), segment):
+        if start:
+            # A segment boundary is where a pending interrupt stops the chain: nothing half-posted, and the skill
+            # resumes by what the world still lacks (its start/verify), never by this index.
+            check_interrupt(chain_began, SOFT)
         part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
         began = time.time()
         if before_segment:

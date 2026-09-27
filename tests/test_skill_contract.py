@@ -462,6 +462,40 @@ class WaitOutFight(unittest.TestCase):
                 self.assertAlmostEqual(got, want)
 
 
+class ChainStopsAtASegment(unittest.TestCase):
+    """api.run_chain: an interrupt pending at a segment boundary stops the chain there — no later segment posted —
+    and it is an interruption (no count, no cooling)."""
+
+    def test_over_the_table(self):
+        tasks = [{"type": "wait", "ticks": 1, "n": i} for i in range(13)]       # 3 segments of 6, 6, 1
+        rows = [("no interrupt: every segment", None, 3, None),
+                ("an interrupt after the first segment: one posted, then Interrupted", 1, 1, api.Interrupted),
+                ("after the second: two posted", 2, 2, api.Interrupted),
+                ("raised in the last segment: all posted, the next round decides", 3, 3, None)]
+        for name, after, posts, raises in rows:
+            with self.subTest(name):
+                posted = []
+
+                def fake_post(path, body=None):
+                    posted.append(body)
+                    if after is not None and len(posted) >= after:
+                        api.INTERRUPT = "bench: a threat"
+                    return {"tasks": [{"id": len(posted)}]}
+                with mock.patch.object(api, "post", side_effect=fake_post), \
+                        mock.patch.object(api, "get", side_effect=lambda p: {"control": {}} if p == "/state"
+                                          else {"id": 1, "status": "succeeded", "type": "wait", "message": ""}), \
+                        mock.patch.object(api, "await_task", return_value=None), \
+                        mock.patch.object(api, "MODE", "normal"), mock.patch.object(api, "DRESS", None), \
+                        mock.patch.object(api, "INTERRUPT", None):
+                    if raises:
+                        with self.assertRaises(raises) as got:
+                            api.run_chain(tasks, segment=6)
+                        self.assertEqual(retry.cause_of(got.exception), "interrupt")
+                    else:
+                        api.run_chain(tasks, segment=6)
+                self.assertEqual(len(posted), posts)
+
+
 class Outcomes(unittest.TestCase):
     def test_every_exception_maps_to_one_cause_and_one_class(self):
         for err, cause, cls in OUTCOMES:
