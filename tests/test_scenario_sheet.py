@@ -854,6 +854,25 @@ class EatingOnTheWay(unittest.TestCase):
                 self.assertIs(sc.ate_on_the_way(frames), want)
 
 
+class SliceVerdict(unittest.TestCase):
+    """scenarios.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""
+
+    def test_over_the_table(self):
+        ok = {"idle_s": 3.0, "loops": [], "waits": 0}
+        rows = [("done, quiet, no waits: passes", True, ok, True, {}, True, "done=True"),
+                ("not done: fails, says so", False, ok, True, {}, False, "done=False"),
+                ("idle too long: fails, says how long", True, dict(ok, idle_s=40.0), True, {}, False, "idle_s=40.0/15"),
+                ("a loop: fails, counts it", True, dict(ok, loops=["x ×5"]), True, {}, False, "loops=1/0"),
+                ("waited with work queued: fails, names the kind", True, dict(ok, waits=2), True,
+                 {"wait for day": 2, "idle": 3}, False, "{'wait for day': 2}"),
+                ("waited with nothing queued: passes", True, dict(ok, waits=2), False, {}, True, "waits=2/-")]
+        for name, finished, rep, queued, picks, want, says in rows:
+            with self.subTest(name):
+                got, why = sc.slice_verdict(finished, rep, queued, 15, 0, picks)
+                self.assertIs(got, want)
+                self.assertIn(says, why)
+
+
 class TwoSites(unittest.TestCase):
     """The next row's world is built at site B while a row runs at A (bench.core classify / shift / split_setup)."""
 
