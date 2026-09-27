@@ -2432,10 +2432,10 @@ FIRST = {}      # token → the run second it first showed in the bag (a watcher
 
 
 def _first_times(ctx):
-    """`before` hook: watch the bag during the run and note when each token first appears — the order of the
-    brain's decisions, read from the world, not from its log."""
+    """`before` hook: watch the bag during the run and note when each token first shows more than the row began
+    with — the order of the brain's decisions, read from the world, not from its log."""
     FIRST.clear()
-    t0, base = time.time(), {}
+    t0 = time.time()
 
     def watch():
         from .world import Inventory
@@ -2447,11 +2447,9 @@ def _first_times(ctx):
                 continue
             for s_ in inv.slots:
                 for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
-                    base.setdefault(tok, inv.count(tok) if tok == s_["id"] else 0)
-                    if tok not in FIRST and inv.count(tok) > base.get(tok, 0):
+                    if tok not in FIRST and inv.count(tok) > _base_count(tok):
                         FIRST[tok] = time.time() - t0
             time.sleep(0.5)
-    base.update({t: 0 for t in ("bed", "log")})
     _threading.Thread(target=watch, daemon=True).start()
 
 
@@ -2549,15 +2547,6 @@ def _forget_all(kind):
     return before
 
 
-def _tasks_done_in_order(*descs):
-    """The brain logged "task done" for each goal, in queue order."""
-    def check(api, inv):
-        done = [l for l in _log_lines() if "task done:" in l]
-        idx = [next((i for i, l in enumerate(done) if d in l), None) for d in descs]
-        return None not in idx and idx == sorted(idx)
-    return check
-
-
 _PEN = lambda mob, n: _pen(mob, n, half=6)   # noqa: E731
 _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
 IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
@@ -2603,19 +2592,22 @@ BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 mi
         _grove((3, 0)) + [f"fill {_c(at(-3, 0, 2))} {_c(at(-2, 1, 3))} stone", _tp(), "give @p wooden_pickaxe"],
         [_have(("log", 2)), _have(("minecraft:cobblestone", 2))],
         lambda: _count("log", 2)() and _count("minecraft:cobblestone", 2)(), 1,
-        _all(_tasks_done_in_order("have log", "have cobblestone"), _gain("log", 2), _gain("minecraft:cobblestone", 2))),
+        _all(_before_in_bag("log", "minecraft:cobblestone"), _gain("log", 2), _gain("minecraft:cobblestone", 2))),
     "l3_order_swapped": (
         "The same goals queued the other way → done the other way (control: the queue decides, not the cost)",
         _grove((3, 0)) + [f"fill {_c(at(-3, 0, 2))} {_c(at(-2, 1, 3))} stone", _tp(), "give @p wooden_pickaxe"],
         [_have(("minecraft:cobblestone", 2)), _have(("log", 2))],
         lambda: _count("log", 2)() and _count("minecraft:cobblestone", 2)(), 1,
-        _all(_tasks_done_in_order("have cobblestone", "have log"), _gain("log", 2), _gain("minecraft:cobblestone", 2))),
+        _all(_before_in_bag("minecraft:cobblestone", "log"), _gain("log", 2), _gain("minecraft:cobblestone", 2))),
 }
 _BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
            "plan_without_events": [_count_replans],
            "resume_after_combat": [lambda ctx: _threading.Timer(4.0, lambda: _chat(
                f"summon zombie {_c(at(2, 0, 2))} {{PersistenceRequired:1b}}")).start()],
            "ban_then_other_source": [_clear_bans],
+           # the order the goals were met, read from the bag (the slice ends the moment both are held: the second
+           # "task done" line was never written)
+           "l3_two_goals_in_order": [_first_times], "l3_order_swapped": [_first_times],
            "ban_needs_a_failure": [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
                f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()],
            }
