@@ -2116,6 +2116,40 @@ for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
         "budget": _secs,
     }
 
+CRYSTAL_AT = at(5, 6, 0)     # on a 6-high obsidian pillar, iron bars around it: one caged tower of the End
+_cr = lambda dx, dy, dz: _c(at(5 + dx, 6 + dy, dz))   # noqa: E731  (a cell beside the crystal)
+
+
+def _one_crystal(ctx):
+    rows = __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
+    if not rows:
+        raise SetupInvalid("no end crystal after setup")
+    return rows[0]
+
+
+def _crystals_left(api, inv):
+    return __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
+
+
+# The dragon rows start with the crystals gone (WORN_DRAGON): breaking one is this row's job, on its own.
+SCENARIOS["break_caged_crystal"] = {
+    "doc": "A caged end crystal on a 6-high obsidian pillar, blocks + water bucket + sword → towered up, bars "
+           "broken, crystal destroyed, alive.",
+    "module": "end",
+    "setup": _floor() + [f"fill {_cr(0, -6, 0)} {_cr(0, -1, 0)} obsidian",
+                         f"fill {_cr(-1, 0, -1)} {_cr(1, 2, 1)} iron_bars hollow",
+                         f"fill {_cr(0, 0, 0)} {_cr(0, 1, 0)} air",
+                         f"summon end_crystal {_c(CRYSTAL_AT)} {{ShowBottom:0b}}",
+                         _tp(), "give @p cobblestone 32", "give @p water_bucket", "give @p iron_sword",
+                         "give @p stone_pickaxe"],
+    "expect": [(at(5, 0, 0), at(5, 5, 0), "obsidian", 6, 6)],
+    "expect_entities": [("minecraft:end_crystal", 1)],
+    "run": lambda ctx: _skill("break_caged_crystal")(ctx, _one_crystal(ctx)),
+    "check": lambda api, inv: not _crystals_left(api, inv) and not api.get("/state")["dead"],
+    "budget": 60,
+}
+
+
 # -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells --------------------------------------------------
 def _placed_facing(pos, facing):
     """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""

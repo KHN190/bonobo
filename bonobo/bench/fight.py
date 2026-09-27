@@ -175,15 +175,24 @@ def _kinds_of(cell):
 # pickaxe and the blocks they are not choices the agent HAS, and the bench would test a narrower agent.
 # A wave is written in the same vocabulary as a cell: what is coming, by what it does, and how many. The kinds
 # behind the names live in `ENEMY`, below, and nowhere else.
+# `carry`: what the waves before typically leave (hp lost, meals eaten, blocks spent) — each wave is its own row
+# now and starts from that state. bench/siege.jsonl holds no per-wave results yet: estimates (≈ 2 hp and a few
+# meals/blocks per cleared wave); replace with the median of the wave before once rows are recorded.
 WAVES = (
-    ("one walker", (("walker", 1),)),
-    ("three walkers", (("walker", 3),)),
-    ("two archers", (("archer", 2),)),
-    ("walkers and climbers", (("walker", 2), ("climber", 3))),
-    ("two bombs", (("bomb", 2),)),
-    ("three teleporters", (("teleporter", 3),)),
-    ("everything", (("walker", 4), ("archer", 2), ("climber", 2), ("bomb", 1))),
+    ("one walker", (("walker", 1),), (0, 0, 0)),
+    ("three walkers", (("walker", 3),), (2, 1, 4)),
+    ("two archers", (("archer", 2),), (4, 2, 10)),
+    ("walkers and climbers", (("walker", 2), ("climber", 3)), (6, 3, 18)),
+    ("two bombs", (("bomb", 2),), (7, 4, 28)),
+    ("three teleporters", (("teleporter", 3),), (8, 5, 34)),
+    ("everything", (("walker", 4), ("archer", 2), ("climber", 2), ("bomb", 1)), (9, 6, 38)),
 )
+
+
+def _carry(hp_lost, meals, blocks):
+    """The state the waves before left, in BLOOD's own form (magic damage: armour-proof)."""
+    return ([f"damage @p {hp_lost} minecraft:magic"] if hp_lost else []) + \
+        ([f"clear @p cooked_beef {meals}"] if meals else []) + ([f"clear @p cobblestone {blocks}"] if blocks else [])
 
 SIEGE_ROWS = paths.data("bench/siege.jsonl")
 
@@ -502,7 +511,7 @@ def _more_of_them_costs_more(rows):
 
 def _hostiles(radius=32, kinds=None):
     from ..world import entities
-    kinds = kinds or {ENEMY[name] for _line_up, mobs in WAVES for name, _n in mobs}
+    kinds = kinds or {ENEMY[name] for _line_up, mobs, _carry_ in WAVES for name, _n in mobs}
     return [e for e in entities(radius) if e["type"] in kinds and e.get("health", 1) > 0]
 
 
@@ -527,13 +536,13 @@ def _summon(mobs, spread=4, seed=None):
 
 
 def _siege_cells():
-    for index, (name, mobs) in enumerate(WAVES, start=1):
+    for index, (name, mobs, _carry_) in enumerate(WAVES, start=1):
         yield {"wave": index, "line_up": name}
 
 
 def _siege_build(cell):
     """No reset between waves: the siege is cumulative, and what a wave costs is the point of the next one."""
-    return _summon(tuple((ENEMY[name], n) for name, n in dict(WAVES)[cell["line_up"]]))
+    return _summon(tuple((ENEMY[name], n) for name, n in {w[0]: w[1] for w in WAVES}[cell["line_up"]]))
 
 
 def _siege_record(per_wave_s=90.0):
@@ -568,14 +577,14 @@ def _shards(cells, size):
     return [cells[i:i + size] for i in range(0, len(cells), size)]
 
 
-# The siege, one wave per row: each wave starts on a fresh platform with the full kit (cumulative damage across
-# waves was the old single 820 s row; what a wave costs on its own is still measured and judged per wave).
-for _wave, (_line_up, _) in enumerate(WAVES, start=1):
+# The siege, one wave per row (the old row was cumulative, 820 s): each starts from its wave's `carry`.
+for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
     SCENARIOS[f"siege__w{_wave}"] = {
         "doc": f"Siege wave {_wave} of {len(WAVES)} ({_line_up}), sword, pickaxe, full iron, shield, food and blocks: "
                "every answer the model offers is available → the wave cleared alive.",
         "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
-        "setup": _FIGHT_SETUP + ["effect give @p minecraft:instant_health 3 10 true"] + _siege_kit(),
+        "setup": _FIGHT_SETUP + ["effect give @p minecraft:instant_health 3 10 true"] + _siege_kit()
+        + _carry(*_left),
         "run": _sweep(f"siege__w{_wave}", lambda w=_wave, n=_line_up: iter([{"wave": w, "line_up": n}]), _siege_build,
                       _siege_record(per_wave_s=45.0), SIEGE_ROWS, settle=0.6),
         "check": _sweep_check(f"siege__w{_wave}", SIEGE_ROWS, [_answers_are_closed, _wave_cleared], least=1),
@@ -606,7 +615,10 @@ for _i, _shard in enumerate(ARENA_SHARDS, start=1):
 # cell per enemy: nothing to fight with, one enemy, sixty seconds, and the question is whether it is alive and
 # further away than it started. The row says how it managed it, so a pass is still a measurement.
 
-ESCAPE_SECONDS = 45.0     # a cell's window: the row with its build and settle fits the 60 s limit
+# The window IS the threshold (alive and further away after sixty seconds). The cell is built in the row's setup
+# (enemies summoned last), so the exposure starts at setup's end; the run watches the rest of the 60 s.
+ESCAPE_SECONDS = 60.0
+ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: ~2 s of the window already spent
 for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
     _key = "_".join(str(_cell[k]) for k in ("enemy", "ground", "kit"))
     SCENARIOS[f"escape__{_key}"] = {
@@ -614,10 +626,10 @@ for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
                f"{ESCAPE_SECONDS:.0f} s: the answer has to come from somewhere other than swinging — back off, block "
                "the way, dig down, eat, or leave a teleporter alone (bench/escape.jsonl).",
         "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "sweep": True,
-        "setup": list(_FIGHT_SETUP),
+        "setup": ["gamemode survival @p", "kill @e[type=!player,type=!item,distance=..48]"] + _build(_cell),
         "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
-        "run": _sweep(f"escape__{_key}", lambda c=_cell: iter([c]), _build,
-                      _fought(_kinds_of, seconds=ESCAPE_SECONDS), ESCAPE_ROWS, settle=0.6),
+        "run": _sweep(f"escape__{_key}", lambda c=_cell: iter([c]), lambda c: [],
+                      _fought(_kinds_of, seconds=ESCAPE_WATCH), ESCAPE_ROWS, settle=0.0),
         "check": _sweep_check(f"escape__{_key}", ESCAPE_ROWS, [_answers_are_closed, _shapes_fit_the_enemy], least=1),
         "detail": lambda inv, k=f"escape__{_key}": "; ".join(
             f"{r['enemy']}: {r['outcome']['hp']:.0f} hp, gap {r['outcome']['gap']}" for r in (SWEEP.get(k) or [])),
