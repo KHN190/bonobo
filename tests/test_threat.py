@@ -456,3 +456,41 @@ class Losses(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(KeyError, err):
                         threat.price_state(**kw)
+
+
+class Kit(unittest.TestCase):
+    """What the threat model believes we fight with: read from the bag, again whenever it may have changed."""
+
+    # (situation, sword items carried (id, damage)) → the dps table's sword level
+    SWORDS = [("an iron sword in the bag", [("minecraft:iron_sword", 0)], 2),
+              ("a diamond sword in hand (a hotbar slot)", [("minecraft:diamond_sword", 10)], 3),
+              ("no sword: the fist", [], 0),
+              ("a stone sword", [("minecraft:stone_sword", 0)], 1),
+              ("a wooden sword: level 1 (wood/stone), not the fist", [("minecraft:wooden_sword", 0)], 1),
+              ("a broken-down iron sword and a stone one: the stone", [("minecraft:iron_sword", 250),
+                                                                      ("minecraft:stone_sword", 3)], 1),
+              ("netherite: the table's top", [("minecraft:netherite_sword", 0)], 3)]
+
+    def test_sword_level_over_the_table(self):
+        from unittest import mock
+        from bonobo import perception
+        from tests.world import bag, inventory, slot
+        for name, swords, want in self.SWORDS:
+            with self.subTest(name):
+                inv = bag(inventory(*[slot(i.split(":")[1], 1, d) for i, d in swords]))
+                with mock.patch("bonobo.world.Inventory", return_value=inv):
+                    perception._KIT_SIG = object()                 # a fresh read
+                    self.assertEqual(perception.kit(("x", name))["sword_tier"], want)
+
+    def test_signature_changes_when_the_bag_may_have(self):
+        from bonobo import perception
+        base = {"selectedSlot": 0, "screen": "none", "armor": 0}
+        sig = perception.kit_signature
+        rows = [("the same state a moment later", base, 10.0, base, 10.5, True),
+                ("the held slot moved", base, 10.0, {**base, "selectedSlot": 3}, 10.1, False),
+                ("armour put on", base, 10.0, {**base, "armor": 15}, 10.1, False),
+                ("a chest screen closed", {**base, "screen": "GenericContainerScreen"}, 10.0, base, 10.1, False),
+                ("KIT_TTL_S passed (a sword given by command)", base, 10.0, base, 10.0 + perception.KIT_TTL_S, False)]
+        for name, a, ta, b, tb, same in rows:
+            with self.subTest(name):
+                self.assertEqual(sig(a, ta) == sig(b, tb), same)

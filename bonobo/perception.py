@@ -273,7 +273,7 @@ class Watcher(threading.Thread):
             # failed, and that is the one case worth counting as blindness.
             return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
         try:
-            state = dict(state, field=ground(state), **kit(state.get("selected", "") + str(state.get("screen"))))
+            state = dict(state, field=ground(state), **kit(kit_signature(state, now)))
         except Exception:
             pass
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
@@ -456,14 +456,30 @@ def ground(state, now=None, radius=GRID_R):
     return GRID
 
 
+KIT_TTL_S = 2.0      # the bag is re-read at least this often: /state says nothing of a sword given or picked up
+
+
+def kit_signature(state, now):
+    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or KIT_TTL_S passed.
+    It read `state["selected"]`, a key /state never had ("selectedSlot"): the kit was read once per process, and
+    a bench row that gave an iron sword fought with the fist of the row before (sword 0: evade, not fight)."""
+    return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // KIT_TTL_S))
+
+
+def sword_level(tiers):
+    """Pure: the dps table's sword level from the sword tiers carried (working ones): 0 = no sword (fist); a wooden
+    or golden sword (material tier 0) is level 1, as the table says ("1" = wood/stone); at most 3."""
+    return min(3, max(1, max(tiers))) if tiers else 0
+
+
 def kit(signature):
-    """What we are carrying, re-read only when the inventory signature changes: this runs at 5 Hz."""
+    """What we are carrying, re-read only when `kit_signature` changes: this runs at 5 Hz."""
     global _KIT, _KIT_SIG
     if signature == _KIT_SIG and _KIT:
         return _KIT
     from .world import Inventory
     inv = Inventory()
-    _KIT = {"sword_tier": max((t for t, d, _ in inv.tools("sword") if d >= 1), default=0),
+    _KIT = {"sword_tier": sword_level([t for t, d, _ in inv.tools("sword") if d >= 1]),
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": sum(inv.count(f) for f in ("minecraft:cooked_beef", "minecraft:cooked_porkchop",
                                                      "minecraft:bread", "minecraft:cooked_mutton")),
