@@ -131,9 +131,8 @@ podw[(-2, 1, 0)] = "stone"                                                      
 podw[(0, 1, 2)] = "lava"                                                           # south side: lava beyond
 r = FakeRegion(podw, (-3, -2, -3), (3, 4, 3))
 ex = skills.choose_exit(r, (0, 1, 0))
-check("dig out: never toward lava", ex is not None and ex[1] != (0, 1, 1), ex)
-check("dig out: prefers an open side with a floor", ex is not None and ex[1] in {(1, 1, 0), (0, 1, -1)}, ex)
-check("dig out: mines both wall cells", ex is not None and len(ex[0]) == 2, ex)
+same("dig out: east (open, floored; first of the tie with north), both wall cells mined, never toward lava",
+     ex, ([(1, 1, 0), (1, 2, 0)], (1, 1, 0)))
 check("pod counts as enclosed", skills.is_enclosed(r, (0, 1, 0)))
 torch_gap = dict(podw)
 torch_gap[(1, 1, 0)] = "torch"
@@ -201,7 +200,7 @@ lake[(2, 0, 2)] = "stone"
 lake[(2, 1, 2)] = "water"                                                          # a rock under water: not land
 r = FakeRegion(lake, (-8, -2, -8), (8, 4, 8))
 spot = skills.pick_land(r, (0, 0, 0))
-check("land: nearest dry standing spot on the shore", spot is not None and spot[0] == 5 and spot[1] == 1, spot)
+same("land: nearest dry standing spot on the shore", spot, (5, 1, 0))
 r = FakeRegion({(x, 0, z): "water" for x in range(-4, 5) for z in range(-4, 5)}, (-4, -2, -4), (4, 3, 4))
 check("land: open sea → none", skills.pick_land(r, (0, 0, 0)) is None)
 
@@ -240,7 +239,7 @@ r = FakeRegion(cave, (-8, -2, -8), (8, 6, 8))
 check("open space: the sealed shaft bottom has no room to throw", skills.throw_direction(r, (0, 0, 0)) is None,
       skills.throw_direction(r, (0, 0, 0)))
 spot = skills.find_open_spot(r, (0, 0, 0))
-check("open space: finds the passage/room nearby", spot is not None and spot[0] >= 1 and spot[1] == 3, spot)
+same("open space: finds the passage/room nearby", spot, (1, 3, 0))
 
 # ---- review packet
 from bonobo import review as RV  # noqa: E402
@@ -276,8 +275,8 @@ check("estimate: measured per-unit time replaces the prior after 3 runs",
 tmp.record_duration("mine:minecraft:raw_iron", 100, 5)
 same("estimate: one sample isn't trusted yet", skillkit.expected(skills.mine, None, "minecraft:raw_iron", 5, [], 1), 40)
 tmp.record_duration("chop", 100, 10)
-check("estimate: moving average of seconds per unit leans on history", 4 < tmp.duration("chop") < 10,
-      tmp.duration("chop"))
+check("estimate: moving average of seconds per unit leans on history (4·0.7 + 10·0.3)",
+      abs(tmp.duration("chop") - 5.8) < 1e-9, tmp.duration("chop"))
 skillkit.STATS = None
 
 # ---- background jobs (multitasking)
@@ -951,7 +950,8 @@ from bonobo import roads as ROADS  # noqa: E402
 _rd = []
 ROADS.add_leg(_rd, (0, 70, 0), (200, 70, 0), 30.0, 1)          # a fast known road east (0.15 s/block)
 ROADS.add_leg(_rd, (0, 70, 0), (200, 70, 0), 45.0, 2)          # a slower repeat keeps the best time
-check("roads: a repeated leg keeps its fastest time", len(_rd) == 1 and _rd[0]["s"] == 30.0)
+same("roads: a repeated leg keeps its fastest time and its newest use", [(leg["s"], leg["used"]) for leg in _rd],
+     [(30.0, 2)])
 ROADS.add_leg(_rd, (0, 70, 0), (0, 70, 300), 900.0, 3)          # a terrible known leg north (a mountain tunnel)
 
 nav.building_item = _BUILDING_ITEM
