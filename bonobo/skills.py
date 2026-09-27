@@ -1157,7 +1157,15 @@ def _breathing():
         time.sleep(0.25)
 
 
-@skill(done=lambda c: _breathing(), budget=45, stall=12, provides={"reach:air": lambda ctx, s: ()})
+def _breathing_now():
+    """One reading: the head out of the water with full lungs (the contract's `done`, asked after every pass —
+    it must not wait; the 2 s hold is the verify's, `_breathing`)."""
+    s = api.get("/state")
+    return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
+
+
+@skill(done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
+       provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
     """Out of breath underwater: to the nearest dry cell to stand on reached by swimming (a shaft's rim, the shore)
     — surfacing in the column sank back under; no land in reach → a block underfoot at the surface; water capped
