@@ -29,6 +29,12 @@ from tests.world import FakeRegion, bag, flat, inventory, slot, state  # noqa: E
 FAST = dict(timeout=3.0, stable_s=0.5, poll=0.25)      # the real rule, on a recorded clock (Clock)
 
 
+
+def NOTHING_LEFT(state, call):
+    """A test skill's `remaining`: what is left of it is nothing (the dummies here produce no world state)."""
+    return {}
+
+
 class Clock:
     """Game-free time for `settle(clock=, sleep=)`: it moves only when settle sleeps, so a reading sequence is
     judged the same way every run."""
@@ -836,7 +842,7 @@ class Runner(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), mock.patch.object(skillkit, "STATS", stats), \
                     mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, **kw)(fn)
+                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, **kw)(fn)
                 if isinstance(want, type):
                     with self.assertRaises(want):
                         runner(None)
@@ -867,7 +873,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
                     mock.patch.object(skillkit, "body_now", lambda: {"dimension": "minecraft:overworld"}), \
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, budget=budget, stall=stall)(body)
+                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, budget=budget, stall=stall)(body)
                 if want is None:
                     self.assertEqual(runner(None), "done")
                     continue
@@ -883,7 +889,7 @@ class Runner(unittest.TestCase):
                           ([ok, _missing_pick], (False, "need a tier-1 pickaxe")),
                           ([lambda c: (_ for _ in ()).throw(RuntimeError())], (False, "RuntimeError"))):
             with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
-                runner = skillkit.skill(needs={}, speed={}, gives={}, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
+                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
                 self.assertEqual(skillkit.can_run(runner, None), want)
 
     def test_step_keys_most_specific_first(self):
@@ -909,7 +915,7 @@ class Runner(unittest.TestCase):
         for name, provs, want in self.PROVIDERS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for pname, effect, prefer, got in provs:
-                    skillkit.skill(needs={}, speed={}, gives={}, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
+                    skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
                         lambda ctx, *a: None)
                 found = skillkit.provider(None, Step("zz", "tok", 1))
                 self.assertEqual(None if found is None else (found[0].contract.name, found[1]), want)
@@ -1367,8 +1373,11 @@ class Declarations(unittest.TestCase):
                 ("must fail: no speed", {}, None, {}, "declares no speed"),
                 ("must fail: no gives", {}, {}, None, "declares no gives"),
                 ("must fail: none of them", None, None, None, "declares no needs and no speed and no gives"),
-                ("all three written out empty: registers", {}, {}, {}, None),
-                ("needs as a function of the call: registers", lambda a: {}, {}, {}, None)]
+                ("must fail: all three written out empty — gives no item and no remaining", {}, {}, {},
+                 "gives no item and declares no remaining"),
+                ("written out, an item given: registers", {}, {}, [{"minecraft:stick": lambda ctx, s: ()}], None),
+                ("needs as a function of the call, an item given: registers", lambda a: {}, {},
+                 [{"minecraft:stick": lambda ctx, s: ()}], None)]
         for name, needs, speed, gives, want in rows:
             with self.subTest(name):
                 kw = {k: v for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is not None}
@@ -1537,6 +1546,25 @@ class Remaining(unittest.TestCase):
                 self.assertTrue(callable(c.remaining), f"{name}: a world effect with no remaining")
                 self.assertIn(name, WORLD_LEFT, f"{name}: no done/undone fixture for its remaining")
                 self.assertTrue(_reads_world(c.remaining, *WORLD_LEFT[name]), name)
+
+    def test_a_skill_must_say_what_is_left(self):
+        """skill.declared: an item in its gives (the rest derived from the bag) or its own remaining= — else refused
+        at import, named."""
+        item = [{"minecraft:stick": lambda ctx, s: ()}]
+        rows = [("must fail: gives nothing, no remaining", {"gives": {}}, TypeError),
+                ("must fail: a state, no remaining", {"gives": ["state:lit"]}, TypeError),
+                ("a state and its remaining", {"gives": ["state:lit"], "remaining": lambda st, c: {}}, None),
+                ("an item: its rest is the bag's", {"gives": item}, None),
+                ("nothing given but a remaining", {"gives": {}, "remaining": lambda st, c: {}}, None)]
+        for name, kw, want in rows:
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY):
+                make = lambda: skillkit.skill(name="dummy_" + name.split(":")[0].replace(" ", "_"), needs={},   # noqa: E731
+                                              speed={}, **kw)(lambda ctx: None)
+                if want:
+                    with self.assertRaisesRegex(want, "dummy_"):
+                        make()
+                else:
+                    make()
 
     def test_a_remaining_that_ignores_the_world_is_caught(self):
         # must fail: a constant remainder (never met, or always met) — the sweep's own check says no
@@ -1912,7 +1940,7 @@ class BagRules(unittest.TestCase):
         for name, fills, carried, want in rows:
             ran = []
 
-            @skillkit.skill(needs={}, speed={}, gives={}, name="bag_gate_probe", fills_bag=fills)
+            @skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name="bag_gate_probe", fills_bag=fills)
             def probe(ctx):
                 ran.append(True)
             inv = bag(inventory(*carried))
@@ -1930,7 +1958,7 @@ class BagRules(unittest.TestCase):
     def test_only_gatherers_say_it(self):
         """The same failure on a full bag: a gatherer's names the bag, another skill's stays its own."""
         for fills, want in ((True, "bag full (no free slot): nothing left to take"), (False, "nothing left to take")):
-            @skillkit.skill(needs={}, speed={}, gives={}, name=f"bag_probe_{fills}", fills_bag=fills)
+            @skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=f"bag_probe_{fills}", fills_bag=fills)
             def probe(ctx):
                 raise api.NotAvailable("nothing left to take")
             with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_free_slots", return_value=0), \

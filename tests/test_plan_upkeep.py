@@ -121,6 +121,12 @@ FALLBACK = [
 ]
 
 
+
+def NOTHING_LEFT(state, call):
+    """A test skill's `remaining`: what is left of it is nothing (the dummies here produce no world state)."""
+    return {}
+
+
 class Plans(unittest.TestCase):
     def test_goal_to_steps_over_the_sweep(self):
         for goal, where, contains, omits in PLANS:
@@ -458,7 +464,7 @@ class CanStart(unittest.TestCase):
         from bonobo import dispatch
         for name, pre, inv, want in STARTS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True), tempfile.TemporaryDirectory() as tmp:
-                skillkit.skill(needs={}, speed={}, gives={}, name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
+                skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
                     lambda ctx, *a: None)
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
@@ -510,7 +516,7 @@ class CanStart(unittest.TestCase):
         for name, fakes, step, want in rows:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for sname, (effect, args, pre) in fakes.items():
-                    skillkit.skill(needs={}, speed={}, gives={}, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
+                    skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
                         lambda ctx, *a: None)
                 self.assertIs(dispatch.can_start(None, step), want)
 

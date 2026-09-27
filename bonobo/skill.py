@@ -202,6 +202,11 @@ def declared(name, needs, speed, gives=(), remaining=None):
         raise TypeError(f"skill {name!r} leaves {', '.join(g for g in gives_of(gives) if isinstance(g, str))} in the "
                         f"world and declares no remaining= (a pure fn (state, call) → what is still missing, {{}} "
                         f"when met)")
+    # Nothing it gives is an item (whose rest is derived from the bag) and no remaining= of its own: then nothing
+    # could say what is left after an interruption. `gives={}` slipped 51 world-effect skills past the rule above.
+    if not any(not isinstance(g, str) for g in gives_of(gives)) and not callable(remaining):
+        raise TypeError(f"skill {name!r} gives no item and declares no remaining= (a state it leaves in gives, and a "
+                        f"pure fn (state, call) → what is still missing, {{}} when met)")
 
 
 def world_effect(gives):
