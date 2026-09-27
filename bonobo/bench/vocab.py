@@ -1615,7 +1615,11 @@ def _furnace_holds(items, radius=16):
 
 FIRST_WATCH = {"gen": 0}   # the row whose watcher may write FIRST: a new row's hook retires the last row's watcher
 
-def first_step(gen, t0, inv, base_count, furnace_beef, now):
+def slept_through(start_tod, tod):
+    """Pure: the row began at night and the day is back — only a sleep turns it (the arena's clock stands still)."""
+    return int(start_tod) % 24000 >= 12542 and int(tod) % 24000 < 12000
+
+def first_step(gen, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
     """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
     nothing written) once another row's hook has started its own watcher — a stale watcher's clock is not this row's."""
     if gen != FIRST_WATCH["gen"]:
@@ -1626,6 +1630,8 @@ def first_step(gen, t0, inv, base_count, furnace_beef, now):
                 FIRST[tok] = now - t0
     if "furnace_beef" not in FIRST and furnace_beef():
         FIRST["furnace_beef"] = now - t0
+    if "morning" not in FIRST and morning():
+        FIRST["morning"] = now - t0             # slept: the night skipped, read from the world's clock
     return True
 
 def _first_times(ctx):
@@ -1641,6 +1647,13 @@ def _first_times(ctx):
         except Exception:
             return False
 
+    def morning():
+        try:
+            from .. import api
+            return slept_through(BASE["state"]["timeOfDay"], api.get("/state")["timeOfDay"])
+        except Exception:
+            return False
+
     def watch():
         from ..world import Inventory
         while time.time() - t0 < 70:
@@ -1649,10 +1662,14 @@ def _first_times(ctx):
             except Exception:
                 time.sleep(0.5)
                 continue
-            if not first_step(gen, t0, inv, _base_count, furnace_beef, time.time()):
+            if not first_step(gen, t0, inv, _base_count, furnace_beef, time.time(), morning):
                 return
             time.sleep(0.5)
     _threading.Thread(target=watch, daemon=True).start()
+
+def slept_before(item, or_never=False):
+    """The day came back (a sleep: FIRST's "morning", read from the world's clock) before `item` rose in the bag."""
+    return _before_in_bag("morning", item, or_never)
 
 def _before_in_bag(first, then, or_never=False):
     """`first` appeared in the bag before `then` did (with `or_never`: or `then` never did)."""
@@ -1773,7 +1790,8 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
 THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now), so the bed comes first
-    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
+    # night: a bed carried — the row proves the night comes first (slept, then the task), not the bed's crafting
+    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000", "give @p white_bed"]},
     # the effect only marks the row hungry for the body reset; the drain proper is the hook's
     "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
     # one_use: a crafting table stands by the start, so the table's place-and-take-back is not measured
@@ -1814,6 +1832,8 @@ def _bed_then_log(cell):
                                        or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
         kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
+    if cell["dusk"] == "night":
+        return slept_before("log"), "night on the surface, a bed carried: slept before the task"
     return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
 
 def _tool_rule(cell):
@@ -1830,6 +1850,9 @@ def _night_rule(cell):
         return _all(_gain("minecraft:raw_iron", 1), below), "night underground: work there (ore), no climb"
     if cell["head"] == "underground" and cell["dusk"] == "tight":
         return below, "dusk underground: already under cover, no climb to the surface (boundary)"
+    if cell["dusk"] == "night":
+        return (slept_before("minecraft:raw_iron", or_never=True),
+                "night on the surface, a bed carried: slept first")
     if cell["dusk"] != "plenty":
         return _before_in_bag("bed", "minecraft:raw_iron", or_never=True), "dusk or night on the surface: a bed first"
     return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 13000 and inv.count("bed") == 0,

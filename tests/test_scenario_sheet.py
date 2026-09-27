@@ -1167,6 +1167,41 @@ class PlacedFacing(unittest.TestCase):
                 self.assertIs(vocab.placed_facing_in(cell, pos, item, facing), want)
 
 
+class SleptBefore(unittest.TestCase):
+    """brain__night carries its bed: "night first" is the day coming back (a sleep, read from the world's clock) before
+    the logs rose — the bed never rises in the bag, so the bag's order cannot say it."""
+
+    def test_slept_through(self):
+        from bonobo.bench import vocab
+        rows = [("night, then morning after the sleep", 18000, 24100, True),
+                ("night, then morning in raw ticks", 18000, 1000, True),
+                ("must fail: still night", 18000, 18400, False),
+                ("must fail: began in daylight", 1000, 1200, False)]
+        for name, start, now, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.slept_through(start, now), want)
+
+    def test_slept_before(self):
+        from bonobo.bench import vocab
+        rows = [("slept, then logs", {"morning": 3.0, "log": 9.0}, False, True),
+                ("slept, no ore after (or never)", {"morning": 3.0}, True, True),
+                ("must fail: logs rose while still night", {"log": 2.0, "morning": 8.0}, False, False),
+                ("must fail: never slept", {"log": 2.0}, False, False)]
+        for name, first, or_never, want in rows:
+            with self.subTest(name), mock.patch.dict(vocab.FIRST, first, clear=True):
+                self.assertIs(vocab.slept_before("log", or_never)(None, None), want)
+
+    def test_the_watcher_stamps_morning(self):
+        from bonobo.bench import vocab
+        from bonobo.world import Inventory
+        from tests.world import inventory
+        for name, turned, want in [("the day turned", True, {"morning": 2.0}), ("must fail: still night", False, {})]:
+            with self.subTest(name), mock.patch.dict(vocab.FIRST_WATCH, {"gen": 1}), \
+                    mock.patch.dict(vocab.FIRST, {}, clear=True):
+                vocab.first_step(1, 10.0, Inventory(inventory()), lambda t: 0, lambda: False, 12.0, lambda: turned)
+                self.assertEqual(dict(vocab.FIRST), want)
+
+
 class DiamondScan(unittest.TestCase):
     """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
 
