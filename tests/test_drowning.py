@@ -185,5 +185,28 @@ class Surface(unittest.TestCase):
                     hazard.RESCUE[got](None, st)
                 self.assertEqual(calls, want)
 
+
+class Slabs(unittest.TestCase):
+    """world.slabs: a box past the jar's one-read limit is read in x-slabs (reach_land asked 49×17×49 at once)."""
+
+    def test_slabs_over_the_table(self):
+        from bonobo.world import REGION_MAX, slabs
+        rows = [("small: one read", (0, 60, 0), (9, 69, 9), [((0, 60, 0), (9, 69, 9))]),
+                ("reach_land's box: 49 wide, 17 high, 49 deep → slabs of 39 then 10",
+                 (-24, 58, -24), (24, 74, 24), [((-24, 58, -24), (14, 74, 24)), ((15, 58, -24), (24, 74, 24))]),
+                ("corners given backwards: the same box", (9, 69, 9), (0, 60, 0), [((0, 60, 0), (9, 69, 9))]),
+                ("one cell", (5, 5, 5), (5, 5, 5), [((5, 5, 5), (5, 5, 5))])]
+        for name, lo, hi, want in rows:
+            with self.subTest(name):
+                got = slabs(lo, hi)
+                self.assertEqual(got, want)
+                self.assertTrue(all((b[0] - a[0] + 1) * (b[1] - a[1] + 1) * (b[2] - a[2] + 1) <= REGION_MAX
+                                    for a, b in got))
+
+    def test_a_face_too_big_says_so(self):
+        from bonobo.world import slabs
+        with self.assertRaisesRegex(ValueError, "past the 32768-cell read"):
+            slabs((0, 0, 0), (0, 255, 255))
+
 if __name__ == "__main__":
     unittest.main()

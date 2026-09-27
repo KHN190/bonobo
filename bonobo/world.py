@@ -153,20 +153,35 @@ def container():
     return api.get("/container")
 
 
+REGION_MAX = 32 * 32 * 32       # the most cells one /blocks answers (the jar's MAX_REGION_VOLUME)
+
+
+def slabs(lo, hi, most=REGION_MAX):
+    """Pure: the box lo..hi cut along x into boxes of at most `most` cells, in order — one read per slab. A box
+    past the jar's limit was refused ("region too large") however much the caller needed it (reach_land: 49 wide)."""
+    lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
+    face = (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1)
+    if face > most:
+        raise ValueError(f"a y-z face of {face} cells is past the {most}-cell read")
+    width = max(1, most // face)
+    return [((x, lo[1], lo[2]), (min(hi[0], x + width - 1), hi[1], hi[2])) for x in range(lo[0], hi[0] + 1, width)]
+
+
 class Region:
-    """Blocks in a box (from /blocks); unknown cells outside the box are treated as not inside."""
+    """Blocks in a box (from /blocks, in slabs the jar accepts); unknown cells outside the box are not inside."""
 
     def __init__(self, lo, hi, props=False):
         self.lo, self.hi = tuple(lo), tuple(hi)
-        query = f"/blocks?from={lo[0]},{lo[1]},{lo[2]}&to={hi[0]},{hi[1]},{hi[2]}" + ("&props=1" if props else "")
-        data = api.get(query)
-        pal = [bare(p) for p in data["palette"]]
         self.blocks, self.props = {}, {}
-        for entry in data["blocks"]:
-            x, y, z, i = entry[:4]
-            self.blocks[(x, y, z)] = pal[i]
-            if len(entry) > 4:
-                self.props[(x, y, z)] = entry[4]   # block state properties (mod >= 0.1.14 with props=1)
+        for a, b in slabs(lo, hi):
+            query = f"/blocks?from={a[0]},{a[1]},{a[2]}&to={b[0]},{b[1]},{b[2]}" + ("&props=1" if props else "")
+            data = api.get(query)
+            pal = [bare(p) for p in data["palette"]]
+            for entry in data["blocks"]:
+                x, y, z, i = entry[:4]
+                self.blocks[(x, y, z)] = pal[i]
+                if len(entry) > 4:
+                    self.props[(x, y, z)] = entry[4]   # block state properties (mod >= 0.1.14 with props=1)
 
     def prop(self, p, key):
         return self.props.get(p, {}).get(key)
