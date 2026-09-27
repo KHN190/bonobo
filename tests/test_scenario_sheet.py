@@ -891,3 +891,28 @@ class ChatIsOneWindowAtATime(unittest.TestCase):
         for name, have, want in rows:
             with self.subTest(name):
                 self.assertEqual(have, want)
+
+
+class Migrate(unittest.TestCase):
+    """runner.migrate: an old verdict moves to the current key when the row's code, keyed the new way at that
+    time, is today's — and the jar is the same."""
+
+    def test_migrate_over_the_table(self):
+        from bonobo.bench import runner
+        passed = [{"ok": True, "s": 5.0, "note": "", "cls": "pass", "t": 100}]
+        rows = [("the same code then and now: moved", {"r": {"OLD-jar-0.1.47": passed}}, {"r": "NEW-jar-0.1.47"},
+                 {"r": "NEW"}, ["r"]),
+                ("the code changed since: stays to be run", {"r": {"OLD-jar-0.1.47": passed}}, {"r": "NEW-jar-0.1.47"},
+                 {"r": "OTHER"}, []),
+                ("another jar then: stays", {"r": {"OLD-jar-0.1.46": passed}}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"},
+                 []),
+                ("no old record: nothing to move", {}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"}, []),
+                ("already has a result under today's key: untouched",
+                 {"r": {"OLD-jar-0.1.47": passed, "NEW-jar-0.1.47": passed}}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"},
+                 [])]
+        for name, table, current, then, want in rows:
+            with self.subTest(name):
+                got = runner.migrate(table, current, lambda n, t: then.get(n))
+                self.assertEqual(got, want)
+                if want:
+                    self.assertEqual(table["r"]["NEW-jar-0.1.47"], passed)

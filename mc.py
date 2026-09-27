@@ -153,6 +153,9 @@ def cmd_scenario(a):
                 continue
             print(f"{name:20} budget {sc['budget']:>3}s  {sc['doc']}")
         return
+    if a.action == "migrate":
+        _scenario_migrate(scenarios)
+        return
     if a.action == "table":
         table = scenarios.load_table()
         for name in scenarios.SCENARIOS:
@@ -208,6 +211,81 @@ def cmd_scenario(a):
                                   prices=brain.price_table)
         ok, seconds, note, cls, code = scenarios.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
+
+
+MIGRATE_KEYS = r"""
+import importlib.util, json, os, sys
+wt, rowkey = sys.argv[1], sys.argv[2]
+sys.path.insert(0, wt)
+spec = importlib.util.spec_from_file_location("rowkey_now", rowkey)
+rk = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rk)
+from bonobo import brain  # noqa: F401  (every skill registers)
+from bonobo import scenarios as sc
+from bonobo import skill
+pkg = os.path.join(wt, "bonobo")
+index = rk.code_index(pkg)
+print(json.dumps({n: rk.reach_hash(r, index, skill.REGISTRY, pkg) + rk.row_hash(r) for n, r in sc.SCENARIOS.items()}))
+"""
+
+
+def _scenario_migrate(scenarios):
+    """Carry the readiness table's old verdicts over to the current key format (runner.migrate): each old record's
+    code — the commit that was HEAD when it ran, checked out in a temporary worktree — keyed the new way. Reusable
+    whenever the key format changes."""
+    import json
+    import os
+    import subprocess
+    import tempfile
+    from bonobo.bench import runner
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+    here = os.path.dirname(os.path.abspath(__file__))
+    rowkey = os.path.join(here, "bonobo", "bench", "rowkey.py")
+    rel = os.path.relpath(here, root)
+    current = {n: scenarios.code_for(n) for n in scenarios.SCENARIOS}
+    if any(k.endswith("jar-unknown") for k in current.values()):
+        # The game is down: the mod part is the version the sources build (the bench demands jar == source).
+        props = os.path.expanduser("~/minecraft-claude-bridge/anaka/gradle.properties")
+        version = next((l.split("=", 1)[1].strip() for l in open(props) if l.startswith("mod_version=")), "unknown")
+        current = {n: k.replace("jar-unknown", f"jar-{version}") for n, k in current.items()}
+    keys_at, commit_of = {}, {}
+
+    def key_then(name, t):
+        stamp = int(t)
+        if stamp not in commit_of:
+            commit_of[stamp] = subprocess.run(["git", "rev-list", "-1", f"--before={stamp}", "HEAD"],
+                                              capture_output=True, text=True, cwd=root).stdout.strip()
+        commit = commit_of[stamp]
+        if not commit:
+            return None
+        if commit not in keys_at:
+            wt = tempfile.mkdtemp(prefix="migrate-")
+            try:
+                subprocess.run(["git", "worktree", "add", "--detach", wt, commit], cwd=root, capture_output=True,
+                               check=True)
+                out = subprocess.run([sys.executable, "-c", MIGRATE_KEYS, os.path.join(wt, rel), rowkey],
+                                     capture_output=True, text=True, timeout=300)
+                keys_at[commit] = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else {}
+                if out.returncode != 0:
+                    print(f"  {commit[:8]}: its code could not be keyed ({out.stderr.strip().splitlines()[-1:]})")
+            except (subprocess.SubprocessError, ValueError, IndexError) as e:
+                keys_at[commit] = {}
+                print(f"  {commit[:8]}: {e}")
+            finally:
+                subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=root, capture_output=True)
+        return keys_at[commit].get(name)
+
+    table = scenarios.load_table()
+    moved = runner.migrate(table, current, key_then)
+    scenarios.save_table(table)
+    pend = set(runner.pending(table, current))
+    by = {}
+    for n, sc in scenarios.SCENARIOS.items():
+        tier = sc.get("tier") or scenarios.tier_of(n, sc)
+        total, left = by.get(tier, (0, 0))
+        by[tier] = (total + 1, left + (n in pend))
+    print(f"migrated {len(moved)} rows over {len(keys_at)} commits; pending: "
+          + ", ".join(f"{t} {left}/{total}" for t, (total, left) in sorted(by.items())))
 
 
 def _scenario_selection(a, scenarios):
@@ -325,7 +403,7 @@ def main():
     p.add_argument("--all", action="store_true", help="list: include finished tasks")
     p.set_defaults(fn=cmd_task)
     p = sub.add_parser("scenario", help="scenario bench (test world only): enable|disable|list|table|run NAME|all")
-    p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all"])
+    p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all", "migrate"])
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
     p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
