@@ -166,16 +166,19 @@ SOURCES = {
     # A night without a bed (upkeep.overnight): the default is the bed's plan; these are the other ways through it.
     "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
                    "needs": [("tool", "pickaxe", 0)]},
+                  {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
+                   "when": ("soft_ground", "the ground under the feet needs a pickaxe")},
                   {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", 9)]},
                   {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
                    "needs": [("minecraft:stone", 14), ("door", 1), ("minecraft:torch", 1)]}],
 }
 
 
-def cheapest(key, amount, default, inv, cost, solver=None, extra=None):
+def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=None):
     """The cheapest way to `key` × amount: `default()` (the solver's steps; raises Unplannable) or each SOURCES[key]
     source's runs plus the plan for what they need. Returns (steps, chosen name) — steps None when the default
-    wins; raises Unplannable naming every way's reason when none can be had."""
+    wins; raises Unplannable naming every way's reason when none can be had. `facts`: what the caller read of the
+    place ({"soft_ground": bool}); a source's `when` names the fact it needs (absent = not so)."""
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     why = []
     try:
@@ -184,6 +187,10 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None):
         best, best_steps, name = math.inf, None, None
         why.append(f"default: {e}")
     for src in SOURCES.get(key, ()):
+        when = src.get("when")
+        if when and not (facts or {}).get(when[0]):
+            why.append(f"{src['name']}: {when[1]}")
+            continue
         away = src.get("not_in")
         if away and snap is not None and getattr(snap, "dimension", None) == away[0]:
             why.append(f"{src['name']}: {away[1]}")

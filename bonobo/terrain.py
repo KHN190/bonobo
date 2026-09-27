@@ -182,6 +182,15 @@ def stands(region, feet_c):
         and region.name(feet_c) in ("air", "cave_air") and region.name(head_c) in ("air", "cave_air")
 
 
+def soft_below(region, feet, depth):
+    """Pure: the `depth` cells under the feet all dig by hand (dirt, sand, gravel… `HAND_MINEABLE_SUFFIX`) — a hole
+    to hide in needs no pickaxe there. Air, water or stone under us: not."""
+    from .data import HAND_MINEABLE_SUFFIX, bare
+    x, y, z = feet
+    names = [bare(region.name((x, y - k, z))) for k in range(1, depth + 1)]
+    return all(n not in ("air", "cave_air", "water") and n.endswith(HAND_MINEABLE_SUFFIX) for n in names)
+
+
 def air_route(region, head):
     """Pure: where a drowning body goes to breathe, as (kind, cell, why) or None.
     "land": the nearest cell to stand on dry land reached by swimming from `head` (breadth-first through water and

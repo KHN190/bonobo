@@ -9,7 +9,7 @@ import json
 import math
 import time
 
-from . import api, blueprints, decompose, goals, nav, nether, skills, tape, tasks
+from . import api, decompose, goals, nav, nether, skills, tape, tasks
 from .api import McError, NotAvailable, log
 from .cost import Cost
 from .data import BASE_MARKERS, COVERED_SKY, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
@@ -51,17 +51,21 @@ def dusk_s(snap):
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
 
-def overnight(inv, cost):
-    """The cheapest way through a night from this bag (`decompose.cheapest` over "overnight"): ("bed" or a
-    SOURCES["overnight"] name, seconds, steps); (None, inf, []) when there is none."""
+def overnight(inv, cost, facts=None, bed_too=True):
+    """The one choice of how to get through a night, by price (`decompose.cheapest` over "overnight"): ("bed" or
+    a SOURCES["overnight"] name, seconds, steps); (None, inf, []) when there is none. Asked at dusk for the lead
+    (with the bed) and at night by the shelter row (`bed_too=False`: a bed is the sleep row's). `facts`: what
+    was read of the place ({"soft_ground": the ground under the feet digs by hand})."""
     bed = []
 
     def bed_plan():
+        if not bed_too:
+            raise Unplannable("a bed is the sleep row's")
         bed[:] = decompose.decompose(inv, goals.have(("bed", 1)), cost)
         return bed
 
     try:
-        steps, way = decompose.cheapest("overnight", 1, bed_plan, inv, cost)
+        steps, way = decompose.cheapest("overnight", 1, bed_plan, inv, cost, facts=facts)
     except Unplannable as e:
         log(f"upkeep: no way through the night ({e})")
         return None, math.inf, []
@@ -160,6 +164,11 @@ def broke(before, working):
     durability left ≤ NEAR_BREAK) and none works now (`working`: working_tiers). A tool that vanished whole was
     stored, dropped or cleared: nothing to replace."""
     return {kind for kind, left in before.items() if left <= NEAR_BREAK and kind not in working}
+
+
+# A shelter step's token → the skill that makes it (decompose.SOURCES["overnight"] steps).
+SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skills.pod(ctx),
+               "hut": lambda ctx: skills.build_shelter(ctx)}
 
 
 class Upkeep:
@@ -301,18 +310,20 @@ class Upkeep:
 
     # -- night
     def shelter(self, snap, ctx):
-        """Night, exposed, no bed to sleep in: under the ground with a pickaxe, else a hut, else walls."""
+        """Night, exposed, no bed to sleep in: the way `overnight` prices cheapest from this bag and this ground —
+        dig in (a pickaxe, or by hand in dirt or sand), wall in, a hut — its missing parts queued first (the same
+        `prepare_night` the dusk lead uses). None of them from here: say so; the round then waits for day."""
         b = self.brain
-        if any(d >= WORKING for _, d, _ in snap.inv.tools("pickaxe")):
-            try:
-                return skills.dig_in(b.context(snap.dimension, b.policy(snap, True)))
-            except api.INTERRUPTIONS:
-                raise
-            except McError as e:
-                log(f"   dig-in failed: {e} → a hut or walls")
-        if not skills.materials_missing(blueprints.SHELTER):
-            return skills.build_shelter(ctx)
-        return skills.pod(ctx)
+        ctx = b.context(snap.dimension, b.policy(snap, True))
+        way, _secs, steps = overnight(snap.inv, self.cost(snap), {"soft_ground": skills.soft_ground_here()},
+                                      bed_too=False)
+        if way is None:
+            raise NotAvailable("no way to shelter from here (no pickaxe, hard ground, no blocks)")
+        log(f"   the night: {way} ({' → '.join(map(str, steps))})")
+        if any(st.kind != "shelter" for st in steps):
+            self.prepare_night(way, steps)             # its parts to the front of the queue: got, then this row
+            raise NotAvailable(f"{way}: its parts first")
+        return SHELTER_RUN[steps[-1].token](ctx)
 
     def sheltered(self, snap, enclosed=None):
         if snap.get("skyLight", 15) <= COVERED_SKY:

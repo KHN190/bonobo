@@ -16,7 +16,7 @@ from .bag import pickup_whitelist
 
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
 from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VALUE_CAPS, STACK_VALUE, _stack_value, PROTECTED_IDS, PROTECTED_SUFFIX, _protected_stack, RAW_MEAT, SURPLUS_CAP, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
-from .terrain import LAND, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
+from .terrain import LAND, soft_below, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
                         free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
                         body_state, head_buried, head_underwater,
@@ -1282,6 +1282,12 @@ def dig_in_commands(state, args=()):
     if block:
         tasks.append({"type": "place", "item": block, "x": x, "y": y - safe + 2, "z": z})
     return tasks
+
+
+def soft_ground_here():
+    """Does the ground under the feet dig by hand to DIG_IN_DEPTH (terrain.soft_below)?"""
+    x, y, z = feet()
+    return soft_below(Region((x, y - DIG_IN_DEPTH, z), (x, y, z)), (x, y, z), DIG_IN_DEPTH)
 
 
 @skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,

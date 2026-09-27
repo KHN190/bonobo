@@ -1646,6 +1646,35 @@ class Overnight(unittest.TestCase):
             ("cobblestone carried, nothing seen: walled in", [("cobblestone", 16)], {}, "wall in", ["shelter"]),
             ("a bed carried: sleep in it, nothing to make", [("white_bed", 1)], {}, "bed", [])]
 
+    # At night, from the shelter row (no bed: the sleep row's): (situation, bag, ground digs by hand) → way, steps
+    NIGHT = [("in the open on dirt, an empty bag: dig in by hand", [], True, "dig in by hand", ["shelter"]),
+             ("on stone, cobblestone carried: walled in", [("cobblestone", 16)], False, "wall in", ["shelter"]),
+             ("on stone, a pickaxe: dig in", [("stone_pickaxe", 1)], False, "dig in", ["shelter"]),
+             ("on stone, an empty bag: a pickaxe first — its tree waits for day (brain.surface_closed)", [], False,
+              "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
+             ("the ground unread (the dusk lead): no dig by hand assumed", [], None, "dig in",
+              ["gather", "craft", "craft", "craft", "craft", "shelter"])]
+
+    def test_the_night_way_over_the_table(self):
+        """The shelter row asks the same pricing as the dusk lead (one choice, `upkeep.overnight`)."""
+        for name, carried, soft, way, kinds in self.NIGHT:
+            with self.subTest(name):
+                snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
+                facts = None if soft is None else {"soft_ground": soft}
+                got, _secs, steps = upkeep.overnight(snap.inv, cost(snap), facts, bed_too=False)
+                self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
+
+    def test_soft_below_over_the_table(self):
+        from bonobo.terrain import soft_below
+        from tests.world import FakeRegion
+        rows = [("dirt three deep", {(0, 63, 0): "dirt", (0, 62, 0): "dirt", (0, 61, 0): "sand"}, True),
+                ("stone at the third", {(0, 63, 0): "grass_block", (0, 62, 0): "dirt", (0, 61, 0): "stone"}, False),
+                ("air under the feet (a ledge)", {(0, 62, 0): "dirt", (0, 61, 0): "dirt"}, False),
+                ("water under the feet", {(0, 63, 0): "water", (0, 62, 0): "dirt", (0, 61, 0): "dirt"}, False)]
+        for name, blocks, want in rows:
+            with self.subTest(name):
+                self.assertIs(soft_below(FakeRegion((0, 60, 0), (0, 64, 0), blocks), (0, 64, 0), 3), want)
+
     def test_way_over_the_table(self):
         for name, carried, seen, way, kinds in self.ROWS:
             with self.subTest(name):
