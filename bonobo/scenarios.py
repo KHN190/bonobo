@@ -2906,7 +2906,9 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S):
             raise SetupInvalid(f"food {food} after the drain: wanted between {STARVE} and {EAT_BELOW}")
     return hook
 BRAIN_DIMS = {
-    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11800"], "night": ["time set 18000"]},
+    # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
+    # At 11800 dusk was 10 s off: not yet due, the 6 s log task came first and the bed after it (brain__tight).
+    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
     # Drained by the run's start to below EAT_BELOW (14): 4 s left the bar at exactly 14, and "food < 14" never held.
     "food": {"full": [], "low": [f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} {LOW_FOOD_AMP} true"]},
     "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
