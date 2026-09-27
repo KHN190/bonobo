@@ -2125,7 +2125,7 @@ def _crystals_left(api, inv):
 SCENARIOS["break_caged_crystal"] = {
     "doc": "A caged end crystal on a 6-high obsidian pillar, blocks + water bucket + sword → towered up, bars "
            "broken, crystal destroyed, alive.",
-    "module": "end",
+    "module": "end", "skills": ["break_caged_crystal"],
     "setup": _floor() + [f"fill {_cr(0, -6, 0)} {_cr(0, -1, 0)} obsidian",
                          f"fill {_cr(-1, 0, -1)} {_cr(1, 2, 1)} iron_bars hollow",
                          f"fill {_cr(0, 0, 0)} {_cr(0, 1, 0)} air",
@@ -2601,6 +2601,59 @@ for _fam, (_grid, _queue, _rule) in BRAIN_FAMILIES.items():
             "run": _slice(None, 0.75, queue=list(_queue)), "check": _all(_check, _slice_check(None)),
             "budget": 50,
         }
+
+
+# -- every upkeep line, triggered through the whole brain (nothing queued): the moment is built, upkeep must see it
+# and its answer must show in the world. (line, setup, `before` hooks, done, check) — one table, one loop.
+def _job_ready_at(pos, item, n):
+    """`before` hook: memory holds a finished background furnace job at `pos` (its output already in the furnace)."""
+    def hook(ctx):
+        ctx.mem.add_job("furnace", pos, "minecraft:overworld", item, n, time.time() - 1, False)
+    return hook
+
+
+_st = lambda api: api.get("/state")     # noqa: E731
+UPKEEP_FURNACE = at(2, 0, 0)
+UPKEEP_ROWS = [
+    ("reach_land", "treading water 6 blocks from a shore → on dry land",
+     _tank(-6, 5, -4, 4, 1, water_top=-1) + [f"fill {_c(at(6, -3, -4))} {_c(at(9, -1, 4))} stone", _tp()], [],
+     lambda: _st(__import__("bonobo.api", fromlist=["get"]))["onGround"] and not _st(
+         __import__("bonobo.api", fromlist=["get"]))["inWater"],
+     lambda api, inv: _st(api)["onGround"] and not _st(api)["inWater"]),
+    ("dig_out", "daytime, sealed in stone with a pickaxe → out, not enclosed",
+     [f"fill {_c(at(-4, -2, -4))} {_c(at(4, 3, 4))} stone", f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air",
+      _tp(0.5, 0, 0.5), "give @p stone_pickaxe"], [],
+     lambda: not _enclosed(), lambda api, inv: not _enclosed()),
+    ("shelter", "night, no bed, no wool, cobblestone carried → walled in for the night",
+     _floor() + [_tp(), "give @p cobblestone 32", "give @p stone_pickaxe", "time set 18000"], [],
+     _enclosed, lambda api, inv: _enclosed()),
+    ("collect_job", "a finished background smelt remembered at a furnace 2 blocks off → the ingots in the bag",
+     _floor() + [f"setblock {_c(UPKEEP_FURNACE)} furnace",
+                 f"item replace block {_c(UPKEEP_FURNACE)} container.2 with iron_ingot 3", _tp()],
+     [_job_ready_at(UPKEEP_FURNACE, "minecraft:iron_ingot", 3)],
+     _count("minecraft:iron_ingot", 3), _gain("minecraft:iron_ingot", 3)),
+    ("empty_the_bag", "a full bag (dirt in every slot) → room made",
+     _floor() + [_tp(), "give @p dirt 2304", "give @p stone_pickaxe"], [],
+     lambda: _inv_now().used_slots() < 34, lambda api, inv: inv.used_slots() < 34),
+    ("no_pickaxe", "no pickaxe, planks + sticks + a table carried → a pickaxe made",
+     _floor() + [_tp(), "give @p oak_planks 6", "give @p stick 4", "give @p crafting_table"], [],
+     lambda: bool(_inv_now().tools("pickaxe")), lambda api, inv: bool(inv.tools("pickaxe"))),
+    ("eat", "hungry, bread carried → eaten (the food bar rises)",
+     _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 5 255 true"],
+     [lambda ctx: (time.sleep(5.5), BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get(
+         "/state")["food"]))], lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None), _food_up()),
+    ("eat_when_full", "fed (food 20), bread carried → not eaten: the bread count unchanged (must not)",
+     _floor() + [_tp(), "give @p bread 4"], [], lambda: False,
+     lambda api, inv: inv.count("minecraft:bread") == 4),
+]
+for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
+    _name = f"upkeep__{_line}"
+    SHEET[_name] = {
+        "doc": f"upkeep, {_doc}", "module": "upkeep", "point": "C", "skills": [], "tier_fixed": "brain",
+        "combat": _line == "eat", "tags": {"base": "upkeep", "line": _line},
+        "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_),
+        "run": _brain_rounds(10 if _line == "eat_when_full" else 40, _done), "check": _check, "budget": 45,
+    }
 
 
 # -- test point D: acceptance ------------------------------------------------------------------------------------
