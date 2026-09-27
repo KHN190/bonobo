@@ -8,7 +8,7 @@ from . import api, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import bare
-from .world import Inventory, Region, add, cells_with, entities, find
+from .world import Inventory, Region, add, away_from, cells_with, entities, find
 
 
 def frames_missing_eye(region):
@@ -256,9 +256,8 @@ def breath_escape(here, near, centre=(0, 0), run=10):
         return None
     cx = sum(c[0] for c in clouds) / len(clouds)
     cz = sum(c[2] for c in clouds) / len(clouds)
-    dx, dz = here[0] - cx, here[2] - cz
-    n = math.hypot(dx, dz) or 1.0
-    return (round(here[0] + dx / n * run), here[1], round(here[2] + dz / n * run))
+    x, _y, z = away_from(here, (cx, here[1], cz), run)
+    return (round(x), here[1], round(z))
 
 
 def in_pit(feet, pit_feet, floor_y=None):

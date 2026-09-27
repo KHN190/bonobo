@@ -115,6 +115,33 @@ class StandingCells(unittest.TestCase):
                 self.assertEqual(sorted(terrain.standing_cells(region, here, radius)), want)
 
 
+class AwayFrom(unittest.TestCase):
+    """world.away_from: the one "straight away from a point" (end.breath_escape reads it; its old answers pinned)."""
+
+    def test_over_the_table(self):
+        from bonobo import world
+        rows = [("east of it: further east", (10, 64, 0), (0, 64, 0), 10, (20.0, 64, 0.0)),
+                ("on a diagonal: along it", (3, 70, 4), (0, 0, 0), 10, (9.0, 70, 12.0)),
+                ("y is kept, never climbed", (0, 5, 3), (0, 99, 0), 2, (0.0, 5, 5.0)),
+                ("must fail: on the point itself, nowhere to go", (0, 64, 0), (0, 64, 0), 10, (0.0, 64, 0.0))]
+        for name, here, point, blocks, want in rows:
+            with self.subTest(name):
+                self.assertEqual(world.away_from(here, point, blocks), want)
+
+    def test_breath_escape_answers_as_before(self):
+        from bonobo import end
+        cloud = lambda x, z: {"type": "minecraft:area_effect_cloud", "x": x, "y": 64, "z": z}   # noqa: E731
+        # (here, what is near, run) → the spot the old inline math gave
+        rows = [((10, 64, 0), [cloud(0, 0)], 10, (20, 64, 0)), ((3, 70, 4), [cloud(0, 0)], 10, (9, 70, 12)),
+                ((5, 64, 5), [cloud(0, 0), cloud(4, 4)], 7, (10, 64, 10)),
+                ((-7, 60, 3), [cloud(2.5, -1.5)], 12, (-18, 60, 8)),
+                ((0, 64, 0), [cloud(0, 0)], 10, (0, 64, 0)),
+                ((1, 64, -2), [{"type": "minecraft:zombie", "x": 0, "y": 0, "z": 0}], 10, None)]
+        for here, near, run, want in rows:
+            with self.subTest(here=here):
+                self.assertEqual(end.breath_escape(here, near, run=run), want)
+
+
 class NearestSoft(unittest.TestCase):
     """terrain.nearest_soft: ground that digs by hand, found along the ground we stand on."""
     # (situation, region, feet) → (cell, steps) or None

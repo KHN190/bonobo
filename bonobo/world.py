@@ -1,4 +1,5 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
+import math
 import time
 
 from . import api
@@ -288,6 +289,14 @@ def job_ready(job, tick=None, now=None):
     if job.get("ready_tick") is not None and tick is not None:
         return tick >= job["ready_tick"]
     return job["ready_at"] <= (time.time() if now is None else now)
+
+
+def away_from(here, point, blocks):
+    """Pure: the spot `blocks` from `here` straight away from `point`, on the horizontal (y kept; unrounded). On the
+    point itself, nowhere to go: `here`."""
+    dx, dz = here[0] - point[0], here[2] - point[2]
+    n = math.hypot(dx, dz) or 1.0
+    return here[0] + dx / n * blocks, here[1], here[2] + dz / n * blocks
 
 
 def cells_with(region, name, key, value, want=True):
