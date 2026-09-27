@@ -466,11 +466,12 @@ def _setup(name, sc, feedback):
                 "gamerule spawn_mobs false", f"difficulty {'normal' if combat else 'peaceful'}",
                 f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"):
         _checked(ex(cmd), feedback)
-    # No chance left in the world: no random ticks (leaf decay, crop growth, fire), no weather, and the clock only
-    # where the row needs it (sleep, a night). Unchecked: a rule this game version names differently is skipped.
-    for cmd in ("gamerule random_tick_speed 0", "gamerule advance_weather false",
+    # No chance left in the world: no random ticks (leaf decay, crop growth, fire), no weather, no mob spawns, and
+    # the clock only where the row needs it (sleep, a night). 1.21.11 names (snake_case, read from the game jar);
+    # checked: a rule the game does not know is a setup failure, never skipped.
+    for cmd in ("gamerule random_tick_speed 0", "gamerule advance_weather false", "gamerule spawn_mobs false",
                 f"gamerule advance_time {'true' if needs_clock(sc) else 'false'}"):
-        _command(ex(cmd), feedback)
+        _checked(ex(cmd), feedback)
     # Wait until the box's chunks are really loaded: a 1-block fill answers "not loaded" until then.
     probe = _c(at(0, BOX[1][1], 0))
     for _ in range(60):
