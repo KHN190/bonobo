@@ -72,6 +72,8 @@ class Brain:
         self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
+        from . import perception
+        perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None
@@ -579,7 +581,6 @@ def autoplay(hours):
     from . import perception
     perception.start()  # ~5 Hz
     brain = Brain()
-    perception.IN_SITE = brain.reflexes.in_site     # nightfall asks the night way's judgement (knowledge.sheltered)
     deadline = time.time() + hours * 3600
     while time.time() < deadline:
         try:

@@ -90,7 +90,7 @@ DANGERS = hazard.KINDS + HOSTILE
 NIGHTFALL = "night"
 
 
-IN_SITE = None      # (feet, dimension) → inside a site's interior: set by the brain (brain.run: Maintain.in_site)
+IN_SITE = None      # (feet, dimension) → inside a site's interior: set by every Brain built (Brain.__init__)
 
 
 def nightfall(state, enclosed, in_site=lambda: False):
