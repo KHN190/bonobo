@@ -74,6 +74,19 @@ def overnight(inv, cost, facts=None, bed_too=True):
     return way, cost.plan_s(steps), steps
 
 
+def due_now(left_s, plan_s, known, at_threshold):
+    """Pure: is it time to start getting something? With a plan whose every place is known: when what is left
+    (food, daylight) is shorter than that plan × LEAD. With a plan that guesses (a seek, a source nowhere known,
+    priced by a prior): only at the real threshold — a guess's hundreds of seconds × LEAD made "food" urgent on a
+    full stomach and "a bed" urgent in the morning."""
+    return left_s < plan_s * LEAD if known else bool(at_threshold)
+
+
+def tool_kinds(steps):
+    """Pure: the tool kinds these plan steps need (a mine step with a tier needs a pickaxe)."""
+    return {"pickaxe"} if any(st.kind == "mine" and st.detail.get("tier") is not None for st in steps) else set()
+
+
 def food_lasts_s(snap):
     """Seconds of work the stomach and the meals in the bag cover (`risk.food_drain_s` per hunger point)."""
     from . import beliefs
@@ -235,20 +248,25 @@ class Upkeep:
             if b.ready(name) and due():
                 return name, run
         # Rows that only queue work: the queue does it, at the front.
-        if "pickaxe" not in self.working:
-            self.urgent(goals.have(("tool", "pickaxe", 0)), "no working pickaxe")
-        for kind in sorted(self.broken):
+        # A tool is the plan's need (decompose puts one in any plan whose step wants it); upkeep only replaces one
+        # that broke under a held plan that still wants it — "no working pickaxe" put a pickaxe (and its tree) in
+        # front of every task, a log chop included.
+        wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
+        for kind in sorted(self.broken & wanted):
             self.urgent(goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
         if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()]):
             self.urgent(goals.have(("minecraft:water_bucket", 1)), "a plan with a fall in it and no water to land in")
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
             self.urgent(goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))
-        if food_count(inv) < 8 and food_lasts_s(snap) < self.plan_s(food_goal, snap) * LEAD:
-            self.urgent(food_goal, "food runs out before more could be had")
+        if food_count(inv) < 8:
+            secs, known = self.plan(food_goal, snap)
+            if due_now(food_lasts_s(snap), secs, known, s.get("food", 20) < EAT_BELOW):
+                self.urgent(food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
             way, seconds, steps = self.overnight(snap)
-            if way is not None and dusk_s(snap) < seconds * LEAD and not self.sheltered(snap, enclosed):
+            if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
+                    and not self.sheltered(snap, enclosed):
                 self.prepare_night(way, steps)
         return None
 
@@ -280,19 +298,27 @@ class Upkeep:
         if task.get("created", 0) >= time.time() - 1:
             log(f"upkeep: {goals.describe(goal)} to the front ({why})")
 
-    def plan_s(self, goal, snap):
-        """Seconds the plan for `goal` would take from this bag (Σ Step.est), kept briefly."""
+    def plan(self, goal, snap):
+        """(seconds the plan for `goal` takes from this bag, whether every place it goes is known), kept briefly."""
         key = (json.dumps(goal, sort_keys=True), bag_signature(snap.inv))
         hit = self.plan_s_cache.get(key)
         if hit and time.time() - hit[0] < PLAN_S_TTL:
             return hit[1]
         cost = self.cost(snap)
         try:
-            seconds = cost.plan_s(decompose.decompose(snap.inv, goal, cost))
+            steps = decompose.decompose(snap.inv, goal, cost)
+            got = (cost.plan_s(steps), all(cost.known_source(st) for st in steps))
         except Unplannable:
-            seconds = math.inf
-        self.plan_s_cache[key] = (time.time(), seconds)
-        return seconds
+            got = (math.inf, False)
+        self.plan_s_cache[key] = (time.time(), got)
+        return got
+
+    def plan_s(self, goal, snap):
+        return self.plan(goal, snap)[0]
+
+    def known(self, steps, snap):
+        cost = self.cost(snap)
+        return all(cost.known_source(st) for st in steps)
 
     # -- path blocked
     def blocked_here(self, place):

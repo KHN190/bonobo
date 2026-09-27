@@ -152,17 +152,30 @@ class Cost:
             return PRIOR_TICKS["fill"] * step.count
         return PRIOR_TICKS.get(k, 1000)
 
-    def _walk(self, step):
+    SOURCED = ("gather", "mine", "hunt")      # step kinds that walk to where their thing is found
+
+    def _source(self, step):
+        """Blocks to where this step's thing is (in sight or remembered), None when nowhere known."""
         k = step.kind
         if k == "gather":
-            d = self.distance(GROUPS["log"])
-            return (walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS) + self._surface_trip()
+            return self.distance(GROUPS["log"])
         if k == "mine":
-            d = self.distance(step.detail.get("blocks", ()), 32)
-            return walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS
-        if k == "hunt":
-            d = self._entity(step.detail.get("types", ()))
-            return (walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS) + self._surface_trip()
+            return self.distance(step.detail.get("blocks", ()), 32)
+        return self._entity(step.detail.get("types", ()))
+
+    def known_source(self, step):
+        """Is where this step goes known (in sight or remembered)? A seek, or a gather/mine/hunt with nowhere
+        known, is priced by a prior — a guess, not a plan (upkeep's lead reads only plans it knows)."""
+        if step.kind == "seek":
+            return False
+        return step.kind not in self.SOURCED or self._source(step) is not None
+
+    def _walk(self, step):
+        k = step.kind
+        if k in self.SOURCED:
+            d = self._source(step)
+            return (walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS) \
+                + (self._surface_trip() if k != "mine" else 0)
         if k == "fill":
             d = self._known(["water"])
             return walk_ticks(d) if d is not None else 1200

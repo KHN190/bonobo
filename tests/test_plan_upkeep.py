@@ -898,7 +898,7 @@ class Row:
 
     def __init__(self, name, row, queued=(), time_of_day=DAY, inv=WELL_FED, seen=None, enclosed=False,
                  bed_seen=False, last_round=None, blocked=None, stuck=False, died=False, cooling=(), place=None,
-                 job=None, machine=None, **st):
+                 job=None, machine=None, held=(), **st):
         self.job, self.machine = job, machine        # (pos, seconds until ready): a furnace job / a smelter order
         # `queued`: the exact set of goals put in front, or a check(set) for rows whose tier is the planner's call
         self.name, self.row = name, row
@@ -909,6 +909,7 @@ class Row:
         self.seen = HERD if seen is None else seen
         self.enclosed, self.bed_seen, self.last_round = enclosed, bed_seen, last_round
         self.blocked, self.stuck, self.died, self.cooling = blocked, stuck, died, cooling
+        self.held = list(held)                          # steps of a plan the brain holds (what it still needs)
 
 
 UPKEEP = [
@@ -938,27 +939,24 @@ UPKEEP = [
         blocked=(40, 64, 0), place=retry.place_signature((400, 64, 0), False)),
     Row("the same block and bag for 90 s", "unstuck", stuck=True),
     Row("died a minute ago", "recover items", died=True),
-    Row("no working pickaxe: one to the front", None, queued=[[("tool", "pickaxe", 0)]],
+    Row("no working pickaxe, no plan wanting one: nothing (a plan asks for its own)", None,
         inv=[("cooked_beef", 8), ("white_bed", 1)]),
-    Row("the iron pickaxe broke, iron to make another: the same tier back", None,
-        queued=lambda q: (("tool", "pickaxe", 2),) in q,
+    Row("the iron pickaxe broke under a mining plan, iron to make another: the same tier back", None,
+        queued=lambda q: (("tool", "pickaxe", 2),) in q, held=[planner.Step("mine", "minecraft:raw_iron", 3, {"blocks": ["iron_ore"], "tier": 1})],
         inv=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 249), ("iron_ingot", 3), ("stick", 2),
              ("crafting_table", 1)],
         last_round=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 240)]),
-    Row("the iron pickaxe broke, nothing to make one of: a pickaxe of any tier up to it", None,
-        queued=lambda q: any(n[0][:2] == ("tool", "pickaxe") and n[0][2] <= 2 for n in q),
+    Row("the iron pickaxe broke under a mining plan, nothing to make one of: a pickaxe up to its tier", None,
+        queued=lambda q: any(n[0][:2] == ("tool", "pickaxe") and n[0][2] <= 2 for n in q), held=[planner.Step("mine", "minecraft:raw_iron", 3, {"blocks": ["iron_ore"], "tier": 1})],
         inv=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 249)],
         last_round=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 240)]),
-    Row("the stone sword broke: a sword back", None,
-        queued=lambda q: any(n[0][:2] == ("tool", "sword") and 0 <= n[0][2] <= 1 for n in q),
-        inv=WELL_FED, last_round=WELL_FED + [slot("stone_sword", 1, 125)]),
+    Row("the iron pickaxe broke, no plan wanting one: not replaced now", None,
+        inv=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 249)],
+        last_round=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 240)]),
+    Row("the stone sword broke, no plan wanting one: nothing", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_sword", 1, 125)]),
     Row("a tool that never worked is not broken", None, inv=WELL_FED, last_round=WELL_FED),
-    Row("the stone axe broke: an axe back", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_axe", 1, 125)],
-        queued=lambda q: any(n[0][:2] == ("tool", "axe") for n in q)),
-    Row("the stone shovel broke: a shovel back", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_shovel", 1, 125)],
-        queued=lambda q: any(n[0][:2] == ("tool", "shovel") for n in q)),
-    Row("the stone hoe broke: a hoe back", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_hoe", 1, 125)],
-        queued=lambda q: any(n[0][:2] == ("tool", "hoe") for n in q)),
+    Row("the stone axe broke: nothing (no plan step needs an axe)", None, inv=WELL_FED,
+        last_round=WELL_FED + [slot("stone_axe", 1, 125)]),
     Row("hungry at night with a bed: eat first, then sleep", "eat", food=10, time_of_day=NIGHT),
     Row("the bag full and the path blocked: empty the bag first", "empty the bag", inv=full_bag("cobblestone"),
         blocked=(40, 64, 0)),
@@ -968,16 +966,15 @@ UPKEEP = [
     Row("dusk in 25 s, no bed, no pickaxe, no sheep: dig in (a pickaxe), no bed", None, time_of_day=DUSK,
         queued=[[("tool", "pickaxe", 0)]], inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
     Row("dusk in 25 s, wool carried, no planks: the bed (19 s × LEAD) to the front", None,
-        queued=[[("bed", 1)], [("tool", "pickaxe", 0)]],
+        queued=[[("bed", 1)]],
         time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)]),
     Row("dusk in 25 s, wool and planks carried: a bed is seconds away", None, time_of_day=DUSK,
         inv=[("cooked_beef", 8), ("stone_pickaxe", 1), ("white_wool", 3), ("oak_planks", 3), ("crafting_table", 1)]),
-    Row("dusk in 25 s, cobblestone carried: walled in at dark", None, time_of_day=DUSK, queued=[[("tool", "pickaxe", 0)]],
+    Row("dusk in 25 s, cobblestone carried: walled in at dark", None, time_of_day=DUSK,
         inv=[("cooked_beef", 8), ("cobblestone", 16)], seen={}),
-    Row("dusk in 25 s, no bed, no pickaxe, underground already: covered, nothing", None, time_of_day=DUSK, queued=[[("tool", "pickaxe", 0)]],
+    Row("dusk in 25 s, no bed, no pickaxe, underground already: covered, nothing", None, time_of_day=DUSK,
         skyLight=0, y=30.0, inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
-    Row("morning, no bed, nothing carried: plenty of day left", None, time_of_day=1000,
-        queued=[[("tool", "pickaxe", 0)]], inv=[("cooked_beef", 8)]),
+    Row("morning, no bed, nothing carried: plenty of day left", None, time_of_day=1000, inv=[("cooked_beef", 8)]),
     Row("starving slowly, cows far away: food to the front (LEAD)", None, queued=[[("food", 8)]], food=3,
         inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 45, "oak_log": 10, "stone": 2}),
     Row("full stomach, no meals, cows near: no hurry", None, food=20, inv=[("white_bed", 1), ("stone_pickaxe", 1)]),
@@ -1001,6 +998,7 @@ def run_upkeep(row, tmp):
     b.retry, b.blacklist = retry.Retry(), {}
     b.place = PLACE
     b.table = table = upkeep.Upkeep(b)
+    b.held = {"t1": {"steps": row.held}} if row.held else {}
     now = time.time()
     for name in row.cooling:
         b.retry.failed(name, "error", "failed here", now, PLACE)
@@ -1024,11 +1022,14 @@ def run_upkeep(row, tmp):
     table.cost = lambda _snap: c                    # the row's readings stand in for /find and /entities
     for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):     # fixture: the two upkeep prices
         try:
-            secs = c.plan_s(decompose.decompose(snap.inv, goal, c))
+            steps = decompose.decompose(snap.inv, goal, c)
+            secs, known = c.plan_s(steps), all(c.known_source(st) for st in steps)
         except Unplannable:
-            secs = float("inf")
+            secs, known = float("inf"), False
         plan_s[goal["args"]["needs"][0][0]] = secs
+        plan_s[goal["args"]["needs"][0][0] + ":known"] = known
     plan_s["overnight"] = upkeep.overnight(snap.inv, c)
+    plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
         got = table.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen})
@@ -1065,9 +1066,13 @@ class Upkeep(unittest.TestCase):
                     continue                                # a row took the round: nothing is queued this round
                 over = snap.dimension == OVER
                 way, secs, _ = plan_s["overnight"]
-                bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" \
-                    and upkeep.dusk_s(snap) < secs * lead and snap.get("skyLight", 15) > COVERED_SKY
-                food = food_count(snap.inv) < 8 and upkeep.food_lasts_s(snap) < plan_s["food"] * lead
+                # A plan that knows where it goes leads by × LEAD; one that guesses waits for the real threshold.
+                bed_due = upkeep.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else upkeep.dusk_s(snap) <= 0
+                bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" and bed_due \
+                    and snap.get("skyLight", 15) > COVERED_SKY
+                food_due = upkeep.food_lasts_s(snap) < plan_s["food"] * lead if plan_s["food:known"] \
+                    else snap.get("food", 20) < upkeep.EAT_BELOW
+                food = food_count(snap.inv) < 8 and food_due
                 self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {upkeep.dusk_s(snap)} s, {way} plan "
                                                                   f"{secs:.0f} s × {lead}")
                 self.assertEqual(((("food", 8),) in queued), food, f"food lasts {upkeep.food_lasts_s(snap):.0f} s, "
@@ -1873,6 +1878,56 @@ class StationGone(unittest.TestCase):
                 with skills.Station(ctx, "minecraft:crafting_table"):
                     pass
             self.assertEqual((m.stations(OVER), retry.cause_of(got.exception)), ([], "replan"))
+
+
+class LeadOnlyFromKnownPlans(unittest.TestCase):
+    """upkeep.due_now: a plan that knows where it goes starts LEAD early; one priced by a guess (a seek, a source
+    nowhere known) waits for the real threshold — a guess × LEAD made food urgent on a full stomach."""
+
+    # (situation, seconds left, plan seconds, the plan's places known, the real threshold reached) → due now
+    ROWS = [("full stomach, no known food: not yet", 900.0, 400.0, False, False, False),
+            ("hungry below EAT_BELOW, no known food: now", 300.0, 400.0, False, True, True),
+            ("cows in sight, the plan outruns the stomach × LEAD: now", 500.0, 400.0, True, False, True),
+            ("cows in sight, plenty left: not yet", 900.0, 400.0, True, False, False),
+            ("dusk far, the bed's sheep nowhere known: not yet", 600.0, 900.0, False, False, False)]
+
+    def test_due_over_the_table(self):
+        for name, left, plan, known, threshold, want in self.ROWS:
+            with self.subTest(name):
+                self.assertIs(upkeep.due_now(left, plan, known, threshold), want)
+
+    def test_known_source(self):
+        snap = snapshot(state(), inventory())
+        steps = [(planner.Step("hunt", "minecraft:beef", 2, {"types": ["minecraft:cow"]}), {"cow": 20}, True),
+                 (planner.Step("hunt", "minecraft:beef", 2, {"types": ["minecraft:cow"]}), {}, False),
+                 (planner.Step("seek", "tree", 1, {}), {"oak_log": 5}, False),
+                 (planner.Step("craft", "planks", 4, {}), {}, True)]
+        for step, seen, want in steps:
+            with self.subTest(step=step.kind, seen=seen):
+                self.assertIs(cost(snap, **seen).known_source(step), want)
+
+
+class ToolsAreThePlansNeed(unittest.TestCase):
+    """No unconditional "no working pickaxe" row: a plan that mines carries its own pickaxe steps; a chop needs none."""
+
+    def test_tool_kinds(self):
+        rows = [("mining iron needs a pickaxe", [planner.Step("mine", "minecraft:raw_iron", 3, {"tier": 1})],
+                 {"pickaxe"}),
+                ("a log chop needs none", [planner.Step("gather", "log", 3, {})], set()),
+                ("digging dirt by hand needs none", [planner.Step("mine", "minecraft:dirt", 9, {"tier": None})],
+                 set()),
+                ("nothing held", [], set())]
+        for name, steps, want in rows:
+            with self.subTest(name):
+                self.assertEqual(upkeep.tool_kinds(steps), want)
+
+    def test_a_stone_plan_brings_its_pickaxe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = snapshot(state(), inventory(("oak_log", 3)))
+            steps = decompose.decompose(snap.inv, goals.have(("minecraft:cobblestone", 3)),
+                                        cost(snap, mem=Memory(os.path.join(tmp, "n.json")), stone=2))
+            self.assertEqual([(st.kind, st.token) for st in steps][-2:],
+                             [("craft", "minecraft:wooden_pickaxe"), ("mine", "minecraft:cobblestone")])
 
 if __name__ == "__main__":
     unittest.main()
