@@ -2838,16 +2838,17 @@ BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 mi
         [_have(("minecraft:raw_iron", 2))], _count("minecraft:raw_iron", 2), 1,
         _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE))),
     "resume_after_combat": (
-        "Chopping 4 logs, a zombie summoned beside it mid-way → fight_loop answers it, then the chopping resumes for "
+        # 2 logs, not 4: 4 logs, a ~9 s fight and a ~3.3 s travel-dig per log did not fit the budget by design.
+        "Chopping 2 logs, a zombie summoned beside it mid-way → fight_loop answers it, then the chopping resumes for "
         "what is still missing",
         _grove((3, 0)) + [_tp(), "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate"],
-        [_have(("log", 4))], _count("log", 4), 1,
-        _all(_gain("log", 4, at_most=7), _gone(["minecraft:zombie"]), _alive(10))),
+        [_have(("log", 2))], _count("log", 2), 1,
+        _all(_gain("log", 2, at_most=5), _gone(["minecraft:zombie"]), _alive(10))),
     "chop_without_interrupt": (
-        "The same with no zombie → no fight is logged, the same 4 logs (control)",
+        "The same with no zombie → no fight is logged, the same 2 logs (control)",
         _grove((3, 0)) + [_tp(), "give @p iron_sword"],
-        [_have(("log", 4))], _count("log", 4), 0.75,
-        _all(_gain("log", 4), _hp_kept(20), _gone(["minecraft:zombie"]))),
+        [_have(("log", 2))], _count("log", 2), 0.75,
+        _all(_gain("log", 2), _hp_kept(20), _gone(["minecraft:zombie"]))),
     "l3_two_goals_in_order": (
         "Two goals queued (logs, then cobblestone) → both done, in queue order",
         _grove((3, 0)) + [f"fill {_c(at(-3, 0, 2))} {_c(at(-2, 1, 3))} stone", _tp(), "give @p wooden_pickaxe"],
@@ -2863,7 +2864,8 @@ BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 mi
 }
 _BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
            "plan_without_events": [_count_replans],
-           "resume_after_combat": [lambda ctx: _threading.Timer(4.0, lambda: _chat(
+           # 1.5 s in: with 2 logs to chop, a zombie at 4 s came after the work was done — nothing to resume.
+           "resume_after_combat": [lambda ctx: _threading.Timer(1.5, lambda: _chat(
                f"summon zombie {_c(at(2, 0, 2))} {{PersistenceRequired:1b}}")).start()],
            "ban_then_other_source": [_clear_bans],
            # the order the goals were met, read from the bag (the slice ends the moment both are held: the second
