@@ -1337,10 +1337,6 @@ def gained_at_least(token, n):
     """Progress: the bag holds `n` more `token` than at the start."""
     return lambda: _inv_now().count(token) - _base_count(token) >= n
 
-def spent_at_least(token, n):
-    """Progress: the bag holds `n` fewer `token` than at the start (what a build or a sowing uses up)."""
-    return lambda: _base_count(token) - _inv_now().count(token) >= n
-
 def placed_at_least(lo, hi, block, n):
     """Progress: `n` or more `block` stand in the box lo..hi (a build's parts in the world)."""
     return lambda: _count_blocks(None, lo, hi, block) >= n
@@ -2570,9 +2566,6 @@ for _name, _what, _start_cmds, (_dx, _dy, _dz) in START_ROWS:
 # -- tier "brain": the whole brain on a private queue, the world set to the deciding moment, judged by the world and its log
 BRAIN_LOG = {"replans": 0}
 
-def _log_lines():
-    return list(LAST_LINES)
-
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 def furnace_slots(reply):
@@ -2679,9 +2672,6 @@ def _remove_table_when_placed(ctx):
                 return
             time.sleep(0.2)
     _threading.Thread(target=watch, daemon=True).start()
-
-def _banned(pos):
-    return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) > time.time()
 
 def _not_banned(pos):
     return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) <= time.time()

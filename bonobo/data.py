@@ -221,9 +221,6 @@ HAND_MINEABLE_SUFFIX = ("dirt", "sand", "gravel", "grass_block", "clay", "snow",
 PLACEABLE_AS = {"grass_block": "dirt", "dirt_path": "dirt", "farmland": "dirt", "stone": "cobblestone",
                 "deepslate": "cobbled_deepslate"}
 
-JUNK = {"minecraft:dirt", "minecraft:gravel", "minecraft:granite", "minecraft:diorite", "minecraft:andesite",
-        "minecraft:tuff", "minecraft:wheat_seeds", "minecraft:rotten_flesh", "minecraft:wildflowers",
-        "minecraft:dandelion", "minecraft:poppy", "minecraft:short_grass"}
 ARMOR_SLOTS = {"helmet": "head", "chestplate": "chest", "leggings": "legs", "boots": "feet"}
 ARMOR_RANK = {"leather": 0, "golden": 1, "chainmail": 2, "iron": 3, "diamond": 4, "netherite": 5}
 

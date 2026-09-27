@@ -150,13 +150,6 @@ def module_deps(module, pkg_dir=PKG):
         todo.extend(_imports_of(m, pkg_dir))
     return sorted(seen)
 
-def dep_hash(module, pkg_dir=PKG):
-    h = hashlib.sha1()
-    for m in module_deps(module, pkg_dir):
-        with open(os.path.join(pkg_dir, m + ".py"), "rb") as f:
-            h.update(m.encode() + f.read())
-    return h.hexdigest()[:10]
-
 # the mod's Java sources, optional (MC_MOD_SRC): without them readiness falls back to the jar version
 JAVA = os.path.expanduser(os.environ.get("MC_MOD_SRC", ""))
 # mod features → their Java sources, so a change re-tests only the scenarios using it; /state and HTTP are their own

@@ -150,10 +150,8 @@ def bombable(dragon):
     return dragon is not None and dragon.get("phase") in BOMB_PHASES
 # geometry lives in fight.toml only
 _GEO = __import__("bonobo.fight_plan", fromlist=["fight_plan"]).CONFIG["geometry"]
-BED_R = _GEO["bed_r"]
 EYE = 1.62
 REACH = 4.5
-BED_TOP = 0.5625
 
 def choose_side(here, centre=(0, 0)):
     """Pure: the axis side of the portal the player is on (the head turns toward the player)."""

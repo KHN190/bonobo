@@ -513,6 +513,6 @@ NAMED = {"arena", "fight_cell", "one", "real", "place", "start", "brain", "dirt"
 
 
 # -- interrupts: the progress kinds a row's interruption waits for (the old sheet's `_interrupt_when`) -------------
-INTERRUPT_PROGRESS = ("gained_at_least", "spent_at_least", "placed_at_least", "walked_at_least")
+INTERRUPT_PROGRESS = ("gained_at_least", "placed_at_least", "walked_at_least")
 
 __all__ = ["ORIGIN", "OPS", "PREDICATES", "LOGIC", "SCENE", "INTERRUPT_PROGRESS", "cmp", "pos", "resolve", "scene"]

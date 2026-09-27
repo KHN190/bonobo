@@ -168,10 +168,6 @@ def _sweep_check(name, path, rules, least):
         return not bad
     return check
 
-def _by(rows, *keys):
-    """Rows by a tuple of dimension values (new sheets key by `cells.key_of`)."""
-    return {tuple(r.get(k) for k in keys): r for r in rows}
-
 # chat has no ids: every sender holds this for its send-and-read so no reply lands in another's read
 CHAT_LOCK = __import__("threading").RLock()
 

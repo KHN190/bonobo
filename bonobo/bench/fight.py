@@ -426,10 +426,6 @@ def _summon(mobs, spread=4, seed=None):
             out.append(f"summon {kind} ~{dx} ~ ~{dz}")
     return out
 
-def _siege_cells():
-    for index, (name, mobs, _carry_) in enumerate(WAVES, start=1):
-        yield {"wave": index, "line_up": name}
-
 def _siege_build(cell):
     """No reset between waves: the siege is cumulative."""
     return _summon(tuple((ENEMY[name], n) for name, n in {w[0]: w[1] for w in WAVES}[cell["line_up"]]))
