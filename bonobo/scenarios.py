@@ -2885,7 +2885,9 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
 # The world holds everything each decision could reach for (a grove, a stone field with iron and a diamond, bed and
 # pickaxe materials, meat and a lit furnace); the dimensions set the moment. Cells come from the fight sheet's own
 # walker (`_cells`), four families of ≥ 4 cells, each with its boundary and its must-not.
-DIAMOND_UP, DIAMOND_DOWN = at(6, 0, 0), at(4, -9, 0)     # sealed in stone: known only if noted
+# Sealed in stone (known only if noted); the surface one in a small stone pod beside the start, not across the field:
+# three goals in one slice fit 30 s only with the ore at hand (console-built, the goal kept).
+DIAMOND_UP, DIAMOND_DOWN = at(2, 0, -2), at(4, -9, 0)
 POCKET = at(0, -9, 0)
 LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # drained until food ≤ 10, then the hunger cleared (closed loop: 4 s left 14,
                                       # 5 and 8 s left 0 and the raw beef was eaten starving)
@@ -2916,10 +2918,12 @@ KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask fo
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
                   f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
-                  f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(DIAMOND_UP)} diamond_ore",
+                  f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"fill {_c(at(1, 0, -3))} {_c(at(3, 2, -1))} stone",
+                  f"setblock {_c(DIAMOND_UP)} diamond_ore",
                   f"setblock {_c(DIAMOND_DOWN)} diamond_ore", f"setblock {_c(at(-2, 0, 0))} furnace",
                   "give @p white_wool 3", "give @p oak_planks 8", "give @p crafting_table", "give @p stick 4",
-                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}"])
+                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}",
+                  "give @p diamond_axe"])       # the best axe: logs are not the tool test here (kit rule)
 
 
 def _diamond_of(cell):
@@ -3045,11 +3049,6 @@ def _cell_setup_hooks(cell):
     return [_fill_bag(*BAG_FILL[cell["bag"]])] if BAG_FILL[cell["bag"]] else []
 
 
-# A shared cell's queue, at most: logs + cobblestone + a diamond (brain__base) did not fit 27 s — the first action
-# at 5 s, the logs at 13 s, the cobblestone at 23 s. Two goals still test the order and upkeep between them.
-MAX_CELL_GOALS = 2
-
-
 def _grid_cells():
     """Cells of every family, one row per distinct cell: a cell two families share (the base, dusk, underground) is
     one scenario whose check is every family's expectation and whose queue is every family's goals, in order."""
@@ -3058,11 +3057,8 @@ def _grid_cells():
         for cell in grid:
             key = tuple(cell[d] for d in BRAIN_DIMS)
             entry = cells.setdefault(key, {"cell": cell, "families": [], "queue": [], "rules": []})
-            new = [g for g in queue if g not in entry["queue"]]
-            if len(entry["queue"]) + len(new) > MAX_CELL_GOALS:
-                continue       # the family's other cells test it; this one's slice would not fit its budget
             entry["families"].append(fam)
-            entry["queue"] += new
+            entry["queue"] += [g for g in queue if g not in entry["queue"]]
             entry["rules"].append(rule)
     return cells
 
