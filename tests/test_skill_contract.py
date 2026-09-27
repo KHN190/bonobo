@@ -1975,6 +1975,10 @@ class BagRules(unittest.TestCase):
                 ("no blocks read (region None): the floor rule only", None, [edge], [edge]),
                 ("a sealed diamond, stone all round: allowed (the approach digs to it)",
                  {**plat, **{(9997, 198, 10000): "diamond_ore"}}, [(9997, 198, 10000)], [(9997, 198, 10000)]),
+                # brain__base: a cobblestone mined beside the sealed diamond left a 1-block pocket, and the vein read empty
+                ("a sealed diamond, one neighbour mined out (a pocket too small to stand in): allowed",
+                 {**{k: v for k, v in plat.items() if k != (9998, 198, 10000)}, (9997, 198, 10000): "diamond_ore"},
+                 [(9997, 198, 10000)], [(9997, 198, 10000)]),
                 ("must fail: the edge cell read with a pad-3 region (ends 3 below): unread is not a floor",
                  ("pad3", plat), [edge], []),
                 ("the edge cell, a real floor read in the same pad-3 region: allowed",
