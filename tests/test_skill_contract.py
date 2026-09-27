@@ -26,6 +26,22 @@ from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
 from tests.world import FakeRegion, bag, flat, inventory, slot, state  # noqa: E402
 
+_SAVED = {}
+
+
+def setUpModule():
+    # Dummy skills registered below also append their gives to knowledge.PRODUCERS; popping REGISTRY alone left a
+    # stick producer that later modules planned with (test_sources: "bad index").
+    from bonobo import knowledge
+    _SAVED.update(registry=dict(skillkit.REGISTRY), producers=list(knowledge.PRODUCERS))
+
+
+def tearDownModule():
+    from bonobo import knowledge
+    skillkit.REGISTRY.clear()
+    skillkit.REGISTRY.update(_SAVED["registry"])
+    knowledge.PRODUCERS[:] = _SAVED["producers"]
+
 FAST = dict(timeout=3.0, stable_s=0.5, poll=0.25)      # the real rule, on a recorded clock (Clock)
 
 
