@@ -1008,6 +1008,91 @@ class EatingOnTheWay(unittest.TestCase):
             with self.subTest(name):
                 self.assertIs(sc.ate_on_the_way(frames), want)
 
+    def test_the_walk_is_done_once_fed(self):
+        """fed_up: the walk stops once the bar rose to the autoeat's level, not at the walk's full length."""
+        from bonobo.bench import vocab
+        f = lambda *bars: [{"t": k * 0.2, "food": b} for k, b in enumerate(bars)]  # noqa: E731
+        rows = [("fed 8 → 16 → 20", f(8, 8, 16, 20), True),
+                ("fed to the level exactly", f(8, 18), True),
+                ("must fail: one bite, still below the level", f(8, 16), False),
+                ("must fail: full from the start, never ate", f(20, 20), False),
+                ("must fail: no frames", [], False)]
+        for name, frames, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.fed_up(frames, 18), want)
+
+    def test_the_row_reads_the_walk_it_ran(self):
+        """The row's check word (`call walk_ate`) reads the walk's frames when the check runs: a word that took
+        them when the row was built judged an empty walk every time."""
+        from bonobo.bench import vocab
+        rows = [("fed on the walk just run", walk_frames(), True),
+                ("stopped to chew", walk_frames(stop=(1.4, 3.0)), False),
+                ("must fail: no walk ran", None, False),
+                ("must fail: never fed", walk_frames(rise_at=None), False)]
+        for name, frames, want in rows:
+            with self.subTest(name), mock.patch.dict(vocab.WALK, {} if frames is None else {"frames": frames},
+                                                     clear=True):
+                self.assertIs(vocab.call(None, None, "walk_ate", [], resolve=vocab.resolve), want)
+
+
+def work_frames(food0=8, rise_at=2.0, gap=None, task_type="mine_many", end_food=None):
+    """Frames of a traced mine: the jar's task running throughout (`gap`: (from, to) s with no task), the bar rising
+    by 8 at `rise_at` (None: never), `end_food` the last frame's bar."""
+    out = []
+    for k in range(30):
+        t = k * 0.2
+        idle = gap is not None and gap[0] <= t <= gap[1]
+        task = None if idle else {"type": task_type, "status": "running"}
+        food = food0 + (8 if rise_at is not None and t >= rise_at else 0)
+        out.append({"t": t, "x": 0.0, "food": food, "task": task})
+    if end_food is not None:
+        out[-1]["food"] = end_food
+    return out
+
+
+class EatingWhileWorking(unittest.TestCase):
+    """mine_while_hungry's bar (worked_fed over the mine's trace): eaten, if at all, inside the running work."""
+    ROWS = [("fed during the collect walk, the mine running", work_frames(), True),
+            ("not fed, the bar held", work_frames(rise_at=None), True),
+            ("must fail: an eat task inserted (a pause)", work_frames(task_type="eat"), False),
+            ("must fail: the work idle through the bite", work_frames(gap=(1.0, 2.0)), False),
+            ("must fail: the bar lower at the end", work_frames(rise_at=None, end_food=6), False),
+            ("must fail: no frames", [], False)]
+
+    def test_worked_fed(self):
+        from bonobo.bench import vocab
+        for name, frames, want in self.ROWS:
+            with self.subTest(name):
+                self.assertIs(vocab.worked_fed(frames), want)
+
+    def test_the_row_reads_the_mine_it_ran(self):
+        from bonobo.bench import vocab
+        for name, frames, want in [("traced mine, fed inside it", work_frames(), True),
+                                   ("must fail: no mine traced", None, False)]:
+            with self.subTest(name), mock.patch.dict(vocab.WALK, {} if frames is None else {"mine": frames},
+                                                     clear=True):
+                self.assertIs(vocab.call(None, None, "mine_fed", [], resolve=vocab.resolve), want)
+
+
+class HungryRowsTarget(unittest.TestCase):
+    """A row made hungry for its own work is judged by its check, not held to the eat base's time: only an eat row's
+    `before` sets BASE["target_s"] (the runner's judge fails a slower run against it)."""
+    ROWS = [("eat_while_walking: drained, no eat target", "eat_while_walking", False),
+            ("mine_while_hungry: drained, no eat target", "mine_while_hungry", False),
+            ("must fail: the eat base sets its target", "eat__base", True),
+            ("must fail: an eat row under water sets it too", "eat__underwater", True)]
+
+    def test_only_eat_rows_set_a_target(self):
+        from bonobo import api
+        from bonobo.bench import vocab
+        world = {"/state": {"food": 8, "health": 20.0}, "/inventory": {"slots": [], "selectedSlot": 0, "equipment": {}}}
+        for name, row, want in self.ROWS:
+            with self.subTest(name), mock.patch.object(vocab, "_chat"), mock.patch.object(vocab.time, "sleep"), \
+                    mock.patch.object(api, "get", side_effect=lambda path, *a, **k: world[path.split("?")[0]]), \
+                    mock.patch.dict(vocab.BASE, clear=True):
+                sc.SCENARIOS[row]["before"](None)
+                self.assertIs("target_s" in vocab.BASE, want)
+
 
 class SliceVerdict(unittest.TestCase):
     """vocab.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""

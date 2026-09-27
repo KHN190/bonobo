@@ -1959,20 +1959,75 @@ def ate_on_the_way(frames):
     xs = [x for k, x in enumerate(xs) if k == 0 or x != xs[k - 1] or k < len(xs) - 1]
     return all(b > a for a, b in zip(xs, xs[1:]))
 
+def walk_ate():
+    """ate_on_the_way over the last walk's trace (`_walk_once`), read when the check runs — not when the row is built."""
+    return ate_on_the_way(WALK.get("frames", []))
+
+def fed_up(frames, level):
+    """Pure: the walk's done — the bar rose during it and reached `level` (the jar's autoeat eats to it)."""
+    fed = [f["food"] for f in frames if f.get("food") is not None]
+    return bool(fed) and fed[-1] > fed[0] and fed[-1] >= level
+
 def _walk_once(ctx):
-    """Walk 20 east hungry, the whole walk traced (the runner's `_trace`: position, food, the jar's task)."""
+    """Walk east hungry until fed (`fed_up` at the autoeat's level), the walk traced (position, food, the jar's
+    task) — the row is the eating, so the walk stops once the bar is where the jar eats it to."""
+    import threading
+    from .. import api, nav
+    frames, stop = [], threading.Event()
+
+    def watch():
+        while not stop.is_set():
+            if fed_up(frames, nav.WALK_EAT_BELOW):
+                api.INTERRUPT = "bench: fed on the walk"
+                return
+            stop.wait(0.1)
+    threading.Thread(target=_trace, args=(stop, frames), daemon=True).start()
+    threading.Thread(target=watch, daemon=True).start()
+    try:
+        _skill("travel_to")(ctx, at(18, 0, 0), 2)
+    except api.Interrupted:
+        api.post("/stop")
+        if not fed_up(frames, nav.WALK_EAT_BELOW):
+            raise
+    finally:
+        stop.set()
+        WALK["frames"] = list(frames)
+    return True
+
+def worked_fed(frames):
+    """Pure over trace frames: eaten while working, never paused for it — no "eat" task, every bite (the BITE_S
+    before a rise) inside a running work task, and the bar no lower at the end than at the start."""
+    fed = [f for f in frames if f.get("food") is not None]
+    if not fed or any((f.get("task") or {}).get("type") == "eat" for f in frames):
+        return False
+    if fed[-1]["food"] < fed[0]["food"]:
+        return False
+    for prev, rise in zip(fed, fed[1:]):
+        if rise["food"] <= prev["food"]:
+            continue
+        bite = [f for f in frames if rise["t"] - BITE_S <= f["t"] <= rise["t"]]
+        if any((f.get("task") or {}).get("status") != "running" for f in bite):
+            return False
+    return True
+
+def mine_fed():
+    """worked_fed over the last traced mine (`_mine_hungry`), read when the check runs."""
+    return worked_fed(WALK.get("mine", []))
+
+def _mine_hungry(ctx):
+    """3 cobblestone mined hungry, the whole run traced (position, food, the jar's task)."""
     import threading
     frames, stop = [], threading.Event()
     threading.Thread(target=_trace, args=(stop, frames), daemon=True).start()
     try:
-        _skill("travel_to")(ctx, at(18, 0, 0), 2)
+        return _skill("mine")(ctx, "minecraft:cobblestone", 3, ["stone"], 0)
     finally:
         stop.set()
-        WALK["frames"] = frames
-    return True
+        WALK["mine"] = frames
 
-def _hungry(ctx):
-    """`before` hook: food drained to about half (hunger at full strength for 5 s), and the level remembered."""
+def _hunger_drained(ctx):
+    """`before` hook: food drained to about half (hunger at full strength for 5 s), and the level remembered — no eat
+    target set (that is the eat base's `hungry`, whose word a row saying "&hungry" got)."""
     WALK.clear()
     _chat("effect give @p minecraft:hunger 5 255 true")
     time.sleep(5.5)
@@ -2179,9 +2234,11 @@ def resolve(name):
     if ":" in name:
         mod, attr = name.split(":")
         return getattr(importlib.import_module(mod), attr)
-    for n in (name, "_" + name):
-        if n in globals():
-            return globals()[n]
+    found = [n for n in (name, "_" + name) if n in globals()]
+    if len(found) == 2 and globals()[found[0]] is not globals()[found[1]]:
+        raise KeyError(f"ambiguous word {name!r}: both {found[0]!r} and {found[1]!r} are defined — rename one")
+    if found:
+        return globals()[found[0]]
     if "." in name:
         mod, attr = name.rsplit(".", 1)
         return getattr(importlib.import_module(mod), attr)

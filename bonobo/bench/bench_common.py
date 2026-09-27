@@ -62,21 +62,20 @@ ROWS = [
                  (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28), (('@', -2, 0, -3), ('@', 13, 4, 3), '*', 0, 0)],
          point='B', skills=['travel_to']),
     dict(name='eat_while_walking', module='skills',
-         doc=('Hungry, cooked beef carried, 20 blocks to walk → fed on the way without an eat task, still walking '
+         doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '
               "forward while it chewed (ate_on_the_way over the walk's trace)"),
          scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 20, -1, 3), 'stone'), ('stand', -2),
                 ('give', 'cooked_beef', 4)],
-         run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hungry',)],
-         check=[('call', 'ate_on_the_way', [[]]), ('_at', ('@', 18, 0, 0), 3)], budget=25, skills=['goto'],
+         run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hunger_drained',)],
+         check=[('call', 'walk_ate', [])], budget=25, skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='mine_while_hungry', module='skills',
-         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: the beef untouched '
-              '(control for eat_while_walking)'),
+         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: no eat task, every '
+              "bite inside the running mine, the bar no lower at the end (worked_fed over the run's trace)"),
          scene=[('floor',), ('stand',), ('give', 'wooden_pickaxe'), ('give', 'cooked_beef', 4)],
-         run=('skill', 'mine', 'minecraft:cobblestone', 3, ['stone'], 0),
-         before=[('start', 'mine_while_hungry'), ('&hungry',)],
-         check=[('gain', 'minecraft:cobblestone', 3), ('count', 'minecraft:cooked_beef', '==', 4)], budget=15,
+         run=('&mine_hungry',), before=[('start', 'mine_while_hungry'), ('&hunger_drained',)],
+         check=[('gain', 'minecraft:cobblestone', 3), ('call', 'mine_fed', [])], budget=15,
          skills=['mine'], tier_fixed='common', combat=False, stochastic=False,
          tags={'base': 'mine_stone', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),

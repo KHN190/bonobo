@@ -110,6 +110,57 @@ class Equivalence(unittest.TestCase):
         self.assertEqual(len(table.rows("exception")), made + len(mod.ROWS) + len(mod.CODE_ROWS))
 
 
+def words_of(v, out):
+    """Every word a row's data names for `resolve` at run time: "&word", ("$call", word, ...), ("do", word, ...),
+    ("call"/"!call", word, ...)."""
+    if isinstance(v, str) and v.startswith("&"):
+        out.add(v[1:])
+    elif isinstance(v, tuple) and v and isinstance(v[0], str):
+        if v[0] in ("$call", "do", "call", "!call") and len(v) > 1 and isinstance(v[1], str):
+            out.add(v[1])
+        for x in v:
+            words_of(x, out)
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            words_of(x, out)
+    elif isinstance(v, dict):
+        for x in v.values():
+            words_of(x, out)
+    return out
+
+
+class Words(unittest.TestCase):
+    """A word names one function: a bare `name` beside an older `_name` is refused, never silently preferred (the
+    eat base's `hungry` shadowed the drain `_hungry` two rows meant)."""
+
+    def test_every_word_the_tables_use_resolves_to_one(self):
+        used = set()
+        for rows in tables().values():
+            for row in rows.values():
+                words_of(row, used)
+        self.assertGreater(len(used), 20)
+        for w in sorted(used):
+            with self.subTest(w):
+                vocab.resolve(w)
+
+    def test_an_ambiguous_word_is_refused(self):
+        f, g = (lambda: 1), (lambda: 2)
+        rows = [("bare only", {"t_w": f}, "t_w", f),
+                ("underscored only, asked bare", {"_t_w": g}, "t_w", g),
+                ("underscored, asked by its full name", {"t_w": f, "_t_w": g}, "_t_w", g),
+                ("must fail: both defined, asked bare", {"t_w": f, "_t_w": g}, "t_w", KeyError),
+                ("must fail: neither defined", {}, "t_w", KeyError)]
+        for name, defs, word, want in rows:
+            with self.subTest(name), mock.patch.dict(vars(vocab), defs):
+                if want is KeyError:
+                    with self.assertRaises(KeyError) as e:
+                        vocab.resolve(word)
+                    if defs:
+                        self.assertIn("_t_w", str(e.exception))
+                else:
+                    self.assertIs(vocab.resolve(word), want)
+
+
 class Coverage(unittest.TestCase):
     def test_word_rows_hold_no_code(self):
         def plain(v):
