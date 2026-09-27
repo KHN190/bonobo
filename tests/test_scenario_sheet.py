@@ -151,8 +151,8 @@ class TheCrossProductIsWhole(unittest.TestCase):
         for name, row in sorted(sc.SHEET.items()):
             if sc.CONDITIONS.get(row["tags"].get("timing"), {}).get("interrupt"):
                 with self.subTest(name):
-                    self.assertEqual(row["budget"], 2 * sc.BASES[row["tags"]["base"]]["budget"],
-                                     "an interrupted run gets twice the base's time, to resume")
+                    self.assertEqual(row["budget"], sc.BASES[row["tags"]["base"]]["budget"],
+                                     "an interrupted run keeps the base's time: the base is small enough to resume")
 
     def test_every_timing_row_runs(self):
         """No row stands in for a missing hook: every timing condition injects its interruption for real."""
@@ -246,7 +246,7 @@ class Tiers(unittest.TestCase):
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
 LONG = set()  # rows over the 60 s limit still to be cut down by setup: none left (may only stay empty)
-LIMIT_S = {"core": 30, "common": 60, "brain": 60, "exception": 60}
+LIMIT_S = {t: 30 for t in ("core", "common", "brain", "combat", "exception")}
 
 
 def over_limit(rows_):
@@ -259,9 +259,10 @@ class Budgets(unittest.TestCase):
     ROWS = [("the real sheet: only the long list", None, None),
             ("a core row at 31 s", {"x": {"tier": "core", "budget": 31}}, ["x"]),
             ("a core row at 30 s", {"x": {"tier": "core", "budget": 30}}, []),
-            ("an exception row at 61 s", {"x": {"tier": "exception", "budget": 61}}, ["x"]),
-            ("a brain row at 61 s", {"x": {"tier": "brain", "budget": 61}}, ["x"]),
-            ("a common row at 60 s", {"x": {"tier": "common", "budget": 60}}, []),
+            ("an exception row at 31 s", {"x": {"tier": "exception", "budget": 31}}, ["x"]),
+            ("a brain row at 31 s", {"x": {"tier": "brain", "budget": 31}}, ["x"]),
+            ("a combat row at 31 s", {"x": {"tier": "combat", "budget": 31}}, ["x"]),
+            ("a common row at 30 s", {"x": {"tier": "common", "budget": 30}}, []),
             ("acceptance is its own limit", {"x": {"tier": "acceptance", "budget": 1800}}, [])]
 
     def test_budget_limits(self):
@@ -629,3 +630,30 @@ class Difficulty(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual((runner.difficulty_of(row), runner.difficulty_set(reply, runner.difficulty_of(row))),
                                  (want, ok))
+
+
+class Pending(unittest.TestCase):
+    """`mc.py scenario --pending`: no result under the row's current key, or its last run there failed."""
+
+    def run_(self, ok, t, cls="skill", note=""):
+        return {"ok": ok, "s": 1.0, "note": note, "cls": cls, "t": t}
+
+    def test_rows(self):
+        table = {"passed": {"k1": [self.run_(True, 1, "pass")]},
+                 "failed": {"k1": [self.run_(True, 1, "pass"), self.run_(False, 2)]},
+                 "timed_out": {"k1": [self.run_(False, 3, note="TIMEOUT: stopped at the 30s limit")]},
+                 "setup_changed": {"old": [self.run_(True, 1, "pass")]},
+                 "only_a_setup_failure": {"k1": [self.run_(False, 1, "setup")]},
+                 "passed_after_failing": {"k1": [self.run_(False, 1), self.run_(True, 2, "pass")]}}
+        codes = {name: "k1" for name in table} | {"never_run": "k1"}
+        rows = [("passed under its key: not pending", "passed", False),
+                ("last run failed: pending", "failed", True),
+                ("timed out: pending", "timed_out", True),
+                ("its key changed (setup, code or mod): pending", "setup_changed", True),
+                ("never run: pending", "never_run", True),
+                ("only an uncounted setup failure: pending", "only_a_setup_failure", True),
+                ("failed then passed: not pending", "passed_after_failing", False)]
+        got = runner.pending(table, codes)
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(row in got, want)

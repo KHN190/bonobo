@@ -215,6 +215,12 @@ def _scenario_selection(a, scenarios):
     import subprocess
     if getattr(a, "failed", False):
         return [n for n in scenarios.failed_last(scenarios.load_table()) if n in scenarios.SCENARIOS]
+    if getattr(a, "pending", False):
+        # Acceptance is its own run; a tier narrows the list when one is named.
+        named = "--tier" in sys.argv and a.tier != "all"
+        rows = {n: r for n, r in scenarios.SCENARIOS.items() if r["tier"] != "acceptance"
+                and (not named or r["tier"] == a.tier)}
+        return scenarios.pending(scenarios.load_table(), {n: scenarios.code_for(n) for n in rows})
     changed = None
     if getattr(a, "changed", False):
         from bonobo import brain  # noqa: F401  (every skill module registers)
@@ -327,6 +333,8 @@ def main():
                    help="only rows proving skills changed since the merge-base with main (else core)")
     p.add_argument("--failed", action="store_true",
                    help="only rows whose latest run failed (FAIL or TIMEOUT in the readiness table)")
+    p.add_argument("--pending", action="store_true",
+                   help="rows with no result under their current key (new or changed) or whose last run failed")
     p.set_defaults(fn=cmd_scenario)
     p = sub.add_parser("interrupt", help="end the running skill so the queue's head runs next")
     p.add_argument("--why", default="Claude redirected")

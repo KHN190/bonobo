@@ -587,14 +587,14 @@ for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
         "setup": _FIGHT_SETUP + ["effect give @p minecraft:instant_health 3 10 true"] + _siege_kit()
         + _carry(*_left),
         "run": _sweep(f"siege__w{_wave}", lambda w=_wave, n=_line_up: iter([{"wave": w, "line_up": n}]), _siege_build,
-                      _siege_record(per_wave_s=45.0), SIEGE_ROWS, settle=0.6),
+                      _siege_record(per_wave_s=24.0), SIEGE_ROWS, settle=0.6),
         "check": _sweep_check(f"siege__w{_wave}", SIEGE_ROWS, [_answers_are_closed, _wave_cleared], least=1),
         "detail": lambda inv, w=_wave: _siege_detail_of(f"siege__w{w}"),
-        "budget": 60,
+        "budget": 30,
     }
 
-# combat_arena, three cells per row (15 s a cell): the same cells, the same per-row rules.
-ARENA_SHARDS = _shards(_cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT), 3)
+# combat_arena, one cell per row (15 s a cell, the row under 30 s): the same cells, the same per-row rules.
+ARENA_SHARDS = _shards(_cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT), 1)
 for _i, _shard in enumerate(ARENA_SHARDS, start=1):
     SCENARIOS[f"combat_arena__{_i}"] = {
         "doc": "combat_arena shard " + "; ".join(f"{c['enemy']}/{c['ground']}/{c['kit']}/{c['blood']}" for c in _shard)
@@ -607,7 +607,7 @@ for _i, _shard in enumerate(ARENA_SHARDS, start=1):
                       _fought(_kinds_of, seconds=CELL_SECONDS), COMBAT_ROWS, settle=0.6),
         "check": _sweep_check(f"combat_arena__{_i}", COMBAT_ROWS,
                               [_answers_are_closed, _shapes_fit_the_enemy, _more_of_them_costs_more], least=len(_shard)),
-        "tick_rate": 60, "budget": 60,
+        "tick_rate": 60, "budget": 30,
     }
 
 
@@ -617,9 +617,9 @@ for _i, _shard in enumerate(ARENA_SHARDS, start=1):
 # cell per enemy: nothing to fight with, one enemy, sixty seconds, and the question is whether it is alive and
 # further away than it started. The row says how it managed it, so a pass is still a measurement.
 
-# The window IS the threshold (alive and further away after sixty seconds). The cell is built in the row's setup
-# (enemies summoned last), so the exposure starts at setup's end; the run watches the rest of the 60 s.
-ESCAPE_SECONDS = 60.0
+# The window is the threshold (alive and further away at its end). The cell is built in the row's setup (enemies
+# summoned last), so the exposure starts at setup's end; the run watches the rest of it.
+ESCAPE_SECONDS = 25.0      # the row's limit is 30 s (the user's rule): the window is what is left of it
 ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: ~2 s of the window already spent
 for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
     _key = "_".join(str(_cell[k]) for k in ("enemy", "ground", "kit"))
@@ -635,7 +635,7 @@ for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
         "check": _sweep_check(f"escape__{_key}", ESCAPE_ROWS, [_answers_are_closed, _shapes_fit_the_enemy], least=1),
         "detail": lambda inv, k=f"escape__{_key}": "; ".join(
             f"{r['enemy']}: {r['outcome']['hp']:.0f} hp, gap {r['outcome']['gap']}" for r in (SWEEP.get(k) or [])),
-        "tick_rate": 60, "budget": 60,
+        "tick_rate": 60, "budget": 30,
     }
 
 
@@ -645,7 +645,7 @@ for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
 # most, and the row asks that it was chosen AND that it worked, read from the world (the gap's blocks, how far down
 # or up the body went) and from the recorded row (what went out, what it cost in health).
 BEHAVIOUR_ROWS = paths.data("bench/behaviour.jsonl")
-BEHAVIOUR_SECONDS = 25.0
+BEHAVIOUR_SECONDS = 20.0
 GAP = [at(4, y, z) for y in (1, 2, 3) for z in (-1, 0, 1)]          # the corridor's one gap (GROUND["corridor"])
 
 
@@ -730,5 +730,5 @@ for _bname, (_moved, _rule, _why) in BEHAVIOURS.items():
         "run": _sweep(f"combat__{_bname}", lambda c=_bcell: iter([c]), _build,
                       _record_with_start(_fought(_kinds_of, seconds=BEHAVIOUR_SECONDS)), BEHAVIOUR_ROWS, settle=0.6),
         "check": _behaviour_check(f"combat__{_bname}", _rule),
-        "tick_rate": 60, "budget": 45,
+        "tick_rate": 60, "budget": 30,
     }

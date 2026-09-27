@@ -67,7 +67,7 @@ def classify(exc, ok):
 
 
 BUDGET_SLACK = 1.0      # the budget is a hard limit: the row is stopped there (`_watchdog`) and fails
-ROW_LIMIT_S = 60        # no row outside acceptance may ask for more (speedrun standard; target ≤ 30 s)
+ROW_LIMIT_S = 30        # no row outside acceptance may ask for more (the user's speedrun rule, prefer less)
 TIMEOUT = "TIMEOUT"     # the note's prefix for a row stopped at its limit: deterministic slowness, never re-run
 
 
@@ -412,6 +412,18 @@ def failed_last(table):
     for name, codes in table.items():
         runs = [r for c in codes.values() for r in c if r.get("cls", "skill") not in UNCOUNTED]
         if runs and not max(runs, key=lambda r: r.get("t", 0))["ok"]:
+            out.append(name)
+    return sorted(out)
+
+
+def pending(table, codes):
+    """Pure: the rows still to run — no counted result under their current key (never run, or the setup, the
+    skill's code or the mod changed since), or their latest counted run under that key failed (FAIL or TIMEOUT).
+    `codes` maps each row to its current key (`code_for`), sorted by name."""
+    out = []
+    for name, code in codes.items():
+        runs = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
+        if not runs or not max(runs, key=lambda r: r.get("t", 0))["ok"]:
             out.append(name)
     return sorted(out)
 
