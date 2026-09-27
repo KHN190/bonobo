@@ -2,12 +2,13 @@
 import math
 import re
 
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, blueprints, nav, world
 from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
-from .skill import skill
+from .skill import ANCHORS, skill
 from .skillcore import _collect_only, body_state, feet, snapshot, mine_cell, place
 from .world import Inventory, Region, add
 
@@ -449,6 +450,30 @@ def _shelter_built(ctx, name):
     return s is not None and not blueprint_wrong(blueprints.SHELTER, tuple(s["pos"]), s.get("turns", 0))
 
 
+def _blueprint_spot(state, args):
+    """Pure: (origin, turns, prepare) of a build not yet started — the cheapest spot around `near` in
+    `state["region"]` (`spot_options`) — or None."""
+    bp = blueprints.REGISTRY[args[0]]
+    if state.get("region") is None:
+        return None
+    near = tuple(args[1]) if len(args) > 1 and args[1] is not None else tuple(state["feet"])
+    options = spot_options(bp, near, state["region"], nav.Policy(protected=set(state.get("protected") or ())),
+                           body=state.get("feet"))
+    return options[0][1:] if options else None
+
+
+def _blueprint_anchor(state, args):
+    """What build_blueprint fixes at its first start: the site (memory's `builds`, noted before the first block),
+    so a resumed build carries on there — {"started": {origin, turns}}; {} when nothing can be sited."""
+    if state.get("started"):
+        return {"started": state["started"]}
+    spot = _blueprint_spot(state, args)
+    return {} if spot is None else {"started": {"origin": list(spot[0]), "turns": spot[1]}}
+
+
+ANCHORS["build_blueprint"] = _blueprint_anchor
+
+
 def _blueprint_commands_for(state, args):
     """`commands` for build_blueprint(ctx, name, near): the batch where the build stands — a build already started
     (`state["started"]`, memory's `builds`), else the cheapest spot around `near` in `state["region"]`
@@ -457,14 +482,10 @@ def _blueprint_commands_for(state, args):
     started = state.get("started")
     if started:
         return blueprint_commands(state, (bp, tuple(started["origin"]), started["turns"]))
-    if state.get("region") is None:
+    spot = _blueprint_spot(state, args)
+    if spot is None:
         return []
-    near = tuple(args[1]) if len(args) > 1 and args[1] is not None else tuple(state["feet"])
-    options = spot_options(bp, near, state["region"], nav.Policy(protected=set(state.get("protected") or ())),
-                           body=state.get("feet"))
-    if not options:
-        return []
-    _cost, origin, turns, prepare = options[0]
+    origin, turns, prepare = spot
     filler = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
     level = [nav.mine_task(c) if kind == "break" else {"type": "place", "item": filler, "x": c[0], "y": c[1], "z": c[2]}
              for kind, c in prepare if kind == "break" or filler]
@@ -489,7 +510,7 @@ def _shelter_commands_for(state, args):
     return blueprint_commands(state, (blueprints.SHELTER, origin, turns))
 
 
-@skill(gives={}, needs={}, speed={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
+@skill(gives=["state:built"], remaining=_k.built(lambda c: c.args[1]), needs={}, speed={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
        commands=_blueprint_commands_for, budget=900, stall=120, provides={"build": lambda ctx, s: _build_args(ctx, s)})
 def build_blueprint(ctx, name, near):
     """Build a machine from blueprints.REGISTRY near `near`: clear spot, bottom-up, oriented, verified, remembered."""
@@ -556,7 +577,7 @@ def _portal_cast(c):
     return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])
 
 
-@skill(gives={}, speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
+@skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
        verify=_portal_cast, budget=900, stall=240, per_unit=600, provides={"cast:nether_portal": lambda ctx, s: ()})
 def cast_portal(ctx):
     """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each

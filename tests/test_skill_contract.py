@@ -24,7 +24,7 @@ from bonobo import api, arbiter, blueprints, brain, nav, retry, skillcore, skill
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
-from tests.world import FakeRegion, bag, flat, inventory, state  # noqa: E402
+from tests.world import FakeRegion, bag, flat, inventory, slot, state  # noqa: E402
 
 FAST = dict(timeout=3.0, stable_s=0.5, poll=0.25)      # the real rule, on a recorded clock (Clock)
 
@@ -1412,6 +1412,112 @@ WORLD_LEFT = {
 }
 
 
+
+def _with(*args, base=None):
+    """A call of a skill with these args (after ctx) and this start (`base`)."""
+    c = skillkit.Call((None,) + tuple(args), {})
+    c.base = base
+    return c
+
+
+def _st(**changes):
+    return state(**dict({"x": FEET[0] + 0.5, "y": float(FEET[1]), "z": FEET[2] + 0.5}, **changes))
+
+
+def _ents(*rows):
+    return [dict({"distance": 5.0}, **r) for r in rows]
+
+
+def _blocks(*cells):
+    return world(*cells)
+
+
+DRAGON = {"type": "minecraft:ender_dragon", "id": 9}
+SITE = {"snapshot": {"blocks": {"1,64,0": "cobblestone", "2,64,0": "cobblestone"}}}
+# The other world-effect skills (gives a state, `remaining` a rest.* reader): (call, not done, done).
+WORLD_LEFT.update({
+    "activate_end_portal": (_with(), lambda: body(world()), lambda: body(_blocks(((0, 60, 0), "end_portal")))),
+    "anvil_repair": (_with("minecraft:diamond_pickaxe", "minecraft:diamond"),
+                     lambda: body(inv=inventory(("diamond_pickaxe", 1, 1500))),
+                     lambda: body(inv=inventory(("diamond_pickaxe", 1, 10)))),
+    "await_perch": (_with(), lambda: body(entities=_ents(dict(DRAGON, phase=0))),
+                    lambda: body(entities=_ents(dict(DRAGON, phase=6)))),
+    "barter_piglin": (_with(8, base=4), lambda: body(inv=inventory(("cobblestone", 4), ("gold_ingot", 8))),
+                      lambda: body(inv=inventory(("cobblestone", 4), ("ender_pearl", 2)))),
+    "bed_bomb_window": (_with(), lambda: body(entities=_ents(dict(DRAGON, phase=6))),
+                        lambda: body(entities=_ents(dict(DRAGON, phase=0)))),
+    "break_caged_crystal": (_with({"id": 3}), lambda: body(entities=_ents({"type": "minecraft:end_crystal", "id": 3})),
+                            lambda: body(entities=[])),
+    "breed": (_with(base=0), lambda: body(entities=_ents({"type": "minecraft:cow"})),
+              lambda: body(entities=_ents({"type": "minecraft:cow", "baby": True}))),
+    "brew_fire_resistance": (_with(base=0), lambda: body(),
+                             lambda: body(inv={"slots": [dict(slot("potion", 3), potion="minecraft:fire_resistance")],
+                                               "equipment": {}})),
+    "bridge_toward": (_with((20, 64, 0)), lambda: body(), lambda: body(feet=(19, 64, 0))),
+    "build_bed_pit": (_with(), lambda: body(world()), lambda: body(hole())),
+    "build_blueprint": (_with("auto_smelter", (0, 64, 0)), lambda: body(machines=[]),
+                        lambda: body(machines=[{"blueprint": "auto_smelter"}])),
+    "cast_portal": (_with(), lambda: body(world()),
+                    lambda: body(_blocks(*[((x, y, 3), "obsidian") for x in range(4) for y in range(64, 69)
+                                           if x in (0, 3) or y in (64, 68)]))),
+    "collect_blaze_rods": (_with(4, base=0), lambda: body(inv=inventory(("blaze_rod", 1))),
+                           lambda: body(inv=inventory(("blaze_rod", 4)))),
+    "collect_job": (_with({"item": "minecraft:iron_ingot", "count": 3}, base=0),
+                    lambda: body(inv=inventory(("iron_ingot", 1))), lambda: body(inv=inventory(("iron_ingot", 3)))),
+    "collect_machine": (_with({"name": "m1"}), lambda: body(machines=[{"name": "m1", "pending": [{"count": 8}]}]),
+                        lambda: body(machines=[{"name": "m1", "pending": []}])),
+    "contain_lava": (_with(), lambda: body(_blocks(((1, 63, 0), "lava"))), lambda: body(world())),
+    "craft_chain": (_with([("minecraft:stick", 1)], base={"minecraft:stick": (0, 4)}), lambda: body(),
+                    lambda: body(inv=inventory(("stick", 4)))),
+    "deposit": (_with(), lambda: body(inv=inventory(("dirt", 64), ("dirt", 64), ("gravel", 64))),
+                lambda: body(inv=inventory(("cooked_beef", 8)))),
+    "dig_out": (_with(), lambda: body(hole()), lambda: body(world())),
+    "eat": (_with(), lambda: body(state=_st(food=6)), lambda: body(state=_st(food=20))),
+    "enchant_item": (_with("minecraft:diamond_sword", base=0), lambda: body(inv=inventory(("diamond_sword", 1))),
+                     lambda: body(inv={"slots": [dict(slot("diamond_sword"), enchanted=True)], "equipment": {}})),
+    "enter_end": (_with(), lambda: body(), lambda: body(state=_st(dimension="minecraft:the_end"))),
+    "explore_for": (_with(["minecraft:cow"]), lambda: body(entities=[]),
+                    lambda: body(entities=_ents({"type": "minecraft:cow"}))),
+    "fill_bottles": (_with(3, base=0), lambda: body(), lambda: body(inv=inventory(("potion", 3)))),
+    "find_air": (_with(), lambda: body(state=_st(air=40)), lambda: body(state=_st(air=300))),
+    "find_fortress": (_with(), lambda: body(world()), lambda: body(_blocks(((3, 64, 0), "nether_bricks")))),
+    "find_portal_room": (_with(), lambda: body(world()), lambda: body(_blocks(((3, 64, 0), "end_portal_frame")))),
+    "light_area": (_with(), lambda: body(dark=[{"x": 1, "y": 64, "z": 1}]), lambda: body(dark=[])),
+    "load_smelter": (_with({"name": "m1"}, "minecraft:raw_iron", 8, "coal", "minecraft:iron_ingot", base=8),
+                     lambda: body(inv=inventory(("raw_iron", 8))), lambda: body(inv=inventory())),
+    "locate_stronghold": (_with(), lambda: body(sites=[]), lambda: body(sites=[{"kind": "stronghold"}])),
+    "loot_chest": (_with(base=3), lambda: body(inv=inventory(("dirt", 3))),
+                   lambda: body(inv=inventory(("dirt", 3), ("diamond", 2)))),
+    "move_to_open_space": (_with(), lambda: body(hole()), lambda: body(world())),
+    "reach_land": (_with(), lambda: body(state=_st(onGround=False, inWater=True)),
+                   lambda: body(state=_st(onGround=True, inWater=False))),
+    "recover_items": (_with(), lambda: body(entities=_ents({"type": "minecraft:item", "distance": 2.0})),
+                      lambda: body(entities=[])),
+    "repair_site": (_with(SITE), lambda: body(world()),
+                    lambda: body(_blocks(((1, 64, 0), "cobblestone"), ((2, 64, 0), "cobblestone")))),
+    "repair_tool": (_with("pickaxe", base=2), lambda: body(inv=inventory(("iron_pickaxe", 1), ("stone_pickaxe", 1))),
+                    lambda: body(inv=inventory(("iron_pickaxe", 1)))),
+    "seek": (_with(["iron_ore"]), lambda: body(world()), lambda: body(_blocks(((3, 64, 0), "iron_ore")))),
+    "seek_blocks": (_with(["sand"]), lambda: body(world()), lambda: body(_blocks(((3, 64, 0), "sand")))),
+    "shake_enderman": (_with(), lambda: body(entities=_ents({"type": "minecraft:enderman", "distance": 3.0})),
+                       lambda: body(entities=_ents({"type": "minecraft:enderman", "distance": 20.0}))),
+    "slay_dragon": (_with(), lambda: body(entities=_ents(DRAGON)), lambda: body(entities=[])),
+    "sleep": (_with(None), lambda: body(state=_st(timeOfDay=18000)), lambda: body(state=_st(timeOfDay=1000))),
+    "stand_on_a_block": (_with(), lambda: body(state=_st(onGround=False)), lambda: body(state=_st(onGround=True))),
+    "start_smelt_job": (_with("minecraft:iron_ingot", "minecraft:raw_iron", 6, "coal", base=6),
+                        lambda: body(inv=inventory(("raw_iron", 6))), lambda: body(inv=inventory())),
+    "station": (_with((0, 64, 0)), lambda: body(entities=_ents(DRAGON)), lambda: body(entities=[])),
+    "strip_mine_step": (_with(16, base=(64, 0)), lambda: body(), lambda: body(inv=inventory(("cobblestone", 8)))),
+    "tidy_inventory": (_with(), lambda: body(inv=inventory(*[("dirt", 64)] * 34)), lambda: body()),
+    "travel_to": (_with((10, 64, 0), 2), lambda: body(), lambda: body(feet=(9, 64, 0))),
+    "unbury": (_with(), lambda: body(_blocks(((0, 65, 0), "sand"))), lambda: body(world())),
+    "use_portal": (_with("minecraft:the_nether"), lambda: body(),
+                   lambda: body(state=_st(dimension="minecraft:the_nether"))),
+    "wait_for_day": (_with(), lambda: body(state=_st(timeOfDay=18000)), lambda: body(state=_st(timeOfDay=1000))),
+    "withdraw": (_with("minecraft:diamond", 3, (1, 64, 0), base=0), lambda: body(),
+                 lambda: body(inv=inventory(("diamond", 3)))),
+})
+
 def _reads_world(fn, call, undone, done):
     """Does this `remaining` read the world: {} where the work stands done, something where it does not?"""
     return fn(done(), call) == {} and bool(fn(undone(), call))
@@ -1478,6 +1584,186 @@ class Remaining(unittest.TestCase):
                 self.assertEqual(got is not None, refused, got)
                 if refused:
                     self.assertIn("_dummy_left", got)
+
+
+# ---- a chain interrupted at any step k is rebuilt from the world: the rest, nothing redone, nothing skipped
+MOVES = {"goto", "wait", "_close", "use"}          # tasks that change no block and no bag (a walk, a pause)
+
+
+def _effects(batch):
+    """What a batch does to the world, in order: its mines and places (a mine_many is one mine per cell)."""
+    out = []
+    for task in batch:
+        if task["type"] == "mine_many":
+            out += [("mine", b["x"], b["y"], b["z"]) for b in task["blocks"]]
+        elif task["type"] not in MOVES:
+            out.append(tuple([task["type"]] + [task.get(k) for k in ("x", "y", "z", "item", "entity")]))
+    return out
+
+
+class Unsimulated(Exception):
+    """A task this small world does not model (a craft, a use_item, a world with no region): the row is skipped."""
+
+
+def _fall(region, feet):
+    x, y, z = feet
+    while region.inside((x, y - 1, z)) and not region.solid((x, y - 1, z)):
+        y -= 1
+    return x, y, z
+
+
+def _apply(task, w):
+    """The fake world after one task: blocks set or cleared, the bag less what was placed and plus what was
+    collected (as its drop), the body moved (walked, fallen down a dug cell, pillared up)."""
+    from bonobo.data import NUTRITION, PLACEABLE_AS
+    region, kind = w["region"], task["type"]
+    if kind in ("wait", "_close", "use"):
+        return
+    if region is None and kind in ("goto", "mine", "mine_many", "place", "pillar"):
+        raise Unsimulated("no region")
+    inv = w["inv"]
+
+    def take(item):
+        slot = next(s for s in inv["slots"] if s["id"] == item and s["count"] > 0)
+        slot["count"] -= 1
+
+    def add(item):
+        slot = next((s for s in inv["slots"] if s["id"] == item), None)
+        if slot is None:
+            inv["slots"].append({"id": item, "count": 1, "slot": len(inv["slots"])})
+        else:
+            slot["count"] += 1
+    if kind == "goto":
+        w["feet"] = _fall(region, (task["x"], task["y"], task["z"]))
+    elif kind in ("mine", "mine_many"):
+        for b in task["blocks"] if kind == "mine_many" else [task]:
+            p = (b["x"], b["y"], b["z"])
+            name = region.blocks.pop(p, "air")
+            if task.get("collect") and name != "air":
+                add("minecraft:" + PLACEABLE_AS.get(name, name))
+            if p == (w["feet"][0], w["feet"][1] - 1, w["feet"][2]):
+                w["feet"] = _fall(region, w["feet"])
+    elif kind == "place":
+        region.blocks[(task["x"], task["y"], task["z"])] = task["item"].split(":")[1]
+        take(task["item"])
+    elif kind == "pillar":
+        region.blocks[w["feet"]] = task["item"].split(":")[1]
+        take(task["item"])
+        w["feet"] = (w["feet"][0], w["feet"][1] + 1, w["feet"][2])
+    elif kind == "eat":
+        take(task["item"])
+        w["food"] = min(20, w["food"] + NUTRITION[task["item"].split(":")[1]])
+    else:
+        raise Unsimulated(kind)
+
+
+def _after(st0, done, name):
+    """The body state after `done` ran from `st0`: the world as they left it, the call's anchors kept
+    (skill.ANCHORS: what it fixed at its first start)."""
+    import copy
+    w = {"region": copy.deepcopy(st0["region"]), "feet": tuple(st0["feet"]), "food": st0["state"]["food"],
+         "inv": {"slots": copy.deepcopy(st0["inv"].slots), "equipment": copy.deepcopy(st0["inv"].equipment)}}
+    for task in done:
+        _apply(task, w)
+    x, y, z = w["feet"]
+    kept = skillkit.ANCHORS[name](st0, st0.get("_args", ())) if name in skillkit.ANCHORS else {}
+    return dict(st0, **kept, region=w["region"], feet=w["feet"], inv=bag(w["inv"]),
+                state=dict(st0["state"], food=w["food"], x=x + 0.5, y=float(y), z=z + 0.5,
+                           blockX=x, blockY=y, blockZ=z))
+
+
+def resume_faults(name, commands, st0):
+    """[(k, why)] where the chain rebuilt after its first k tasks is not the rest of it — a step redone or skipped
+    (a longer rebuild may reach further: a reach-limited batch). Raises Unsimulated for a row this world can't run."""
+    args = st0.get("_args", ())
+    chain = commands(st0, args)
+    faults = []
+    for k in range(1, len(chain)):
+        after = _after(st0, chain[:k], name)
+        try:
+            again = _effects(commands(after, args))
+        except NotAvailable as e:
+            faults.append((k, f"refused: {e}"))
+            continue
+        rest = _effects(chain[k:])
+        if again[:len(rest)] != rest:
+            faults.append((k, f"rest {rest[:3]} rebuilt as {again[:3]}"))
+    return faults
+
+
+# Rows the fake world cannot run, noted: (skill, why) → rows. A new unsimulated row must be noted here.
+UNSIMULATED = {("craft", "craft"): 1, ("craft", "no region"): 1, ("craft_chain", "craft"): 1,
+               ("fill_bottles", "use_item"): 2, ("breed", "interact"): 1, ("burrow", "no region"): 1,
+               ("light_area", "no region"): 1, ("plant_farm", "use_item"): 2}
+
+
+class ResumeFromTheWorld(unittest.TestCase):
+    """Any interruption at any step k: the skill's chain rebuilt from the world it left is the rest of the first —
+    nothing done again, nothing left out — for every skill with `commands`, over its own COMMANDS rows."""
+
+    def test_every_chain_interrupted_at_every_step(self):
+        import collections
+        skipped = collections.Counter()
+        for name, rows in COMMANDS.items():
+            commands = skillkit.REGISTRY[name].commands
+            for situation, st0, want in rows:
+                if isinstance(want, type):
+                    continue
+                with self.subTest(f"{name}: {situation}"):
+                    try:
+                        self.assertEqual(resume_faults(name, commands, st0), [], name)
+                    except Unsimulated as e:
+                        skipped[(name, str(e))] += 1
+        self.assertEqual(dict(skipped), UNSIMULATED)
+
+    def test_a_chain_from_a_step_index_is_caught(self):
+        # must fail: a batch that ignores the world (the whole plan again, or the plan less a stored count) —
+        # the same check says which k redoes or skips
+        pod = skillkit.REGISTRY["pod"].commands
+        st0 = COMMANDS["pod"][0][1]
+        whole = lambda st, a: pod(st0, a)                                  # noqa: E731
+        stored = {"sent": 0}
+
+        def indexed(st, a):
+            out = pod(st0, a)[stored["sent"]:]              # resumes past what it SENT, not what the world shows done
+            stored["sent"] += len(out)
+            return out
+        for label, fn, bad in [("must fail: the whole chain again", whole, True),
+                               ("must fail: a stored step index", indexed, True),
+                               ("the pod itself", pod, False)]:
+            with self.subTest(label):
+                self.assertEqual(bool(resume_faults("pod", fn, st0)), bad)
+
+    def test_every_interruption_keeps_the_call_for_its_resume(self):
+        # (interruption) → the same call again asks only for the rest of its item, or finishes having it all
+        gives = skillkit.REGISTRY["chop"].gives[:1]
+        token = next(iter(gives[0].keys()))
+        item = "minecraft:" + _item_of(token)
+        for source in api.INTERRUPTIONS:
+            for got_before, left in [(1, 2), (3, 0)]:
+                with self.subTest(f"{source.__name__}, {got_before} of 3 before it"):
+                    held, asked = {"n": 0}, []
+
+                    def fn(ctx, tok, count):
+                        asked.append(count)
+                        if len(asked) == 1:
+                            held["n"] += got_before
+                            raise source("cut off")
+                        held["n"] += count
+                        return count
+                    fn.__name__ = "_dummy_resume"
+                    inv = lambda: bag(inventory(**({_item_of(token): held["n"]} if held["n"] else {})))  # noqa: E731
+                    try:
+                        with mock.patch.object(skillcore, "Inventory", inv), mock.patch.dict(skillkit.RESUME, clear=True):
+                            runner = skillkit.skill(needs={}, speed={}, gives=gives)(fn)
+                            with self.assertRaises(source):
+                                runner(None, token, 3)
+                            runner(None, token, 3)
+                    finally:
+                        skillkit.REGISTRY.pop("_dummy_resume", None)
+                        __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_resume", None)
+                    self.assertEqual(asked, [3, left] if left else [3])
+                    self.assertEqual(held["n"], 3, item)
 
 
 class BagRules(unittest.TestCase):

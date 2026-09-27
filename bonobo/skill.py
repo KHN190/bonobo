@@ -41,6 +41,35 @@ class Call:
     def __init__(self, args, kwargs):
         self.args, self.kwargs, self.base, self.result = args, kwargs, None, None
         self.want = None            # an item skill's desired bag, fixed at its start (skill.wanted)
+        self.keep = {}              # what the skill fixed at its first start (an anchor: a column, a direction)
+
+
+# An interrupted call's desired state — its base, the bag it wants, its anchors — kept for the same call's resume:
+# the rest is then read off the world against it (`remaining_of`), never a step index. Stale after RESUME_TTL_S.
+RESUME = {}
+RESUME_TTL_S = 300
+CALLS = []
+# skill → pure fn (state, args) → the state keys a call fixes at its first start ({"anchor": …}, {"started": …}):
+# kept across an interruption, so its resume is rebuilt from the world against the same anchor.
+ANCHORS = {}
+
+
+def current():
+    """The call running now (innermost): its `keep` holds what it fixed at its first start, kept across an
+    interruption for its resume."""
+    return CALLS[-1] if CALLS else None
+
+
+def _resume_key(contract, args):
+    return contract.name, repr(args[1:])
+
+
+def _resumed(contract, args):
+    """(base, want, keep) this call left when interrupted, if fresh; else None. Taken: one resume per interruption."""
+    kept = RESUME.pop(_resume_key(contract, args), None)
+    if kept is None or time.time() - kept[0] > RESUME_TTL_S:
+        return None
+    return kept[1:]
 
 
 def body_now():
@@ -185,6 +214,15 @@ def wanted(contract, state, args):
     gives (producing tables) and its args: the token is the first argument a table produces (else the table's only
     key), the count the first whole number after it (else 1). None for a skill that produces no item."""
     from .knowledge import held
+    asked = _asked(contract, args)
+    if asked is None:
+        return None
+    token, _at, n = asked
+    return {token: held(state["inv"], token) + n}
+
+
+def _asked(contract, args):
+    """(token, index of the count in args or None, count) an item skill's call asks for; None for no item."""
     tables = [g for g in contract.gives if not isinstance(g, str)]
     if not tables:
         return None
@@ -195,11 +233,22 @@ def wanted(contract, state, args):
         keys = {k for t in tables for k in t.keys()}
         if len(keys) != 1:
             return None
-        token, after = keys.pop(), rest
+        token, start = keys.pop(), 0
     else:
-        token, after = rest[at], rest[at + 1:]
-    n = next((a for a in after if isinstance(a, int) and not isinstance(a, bool)), 1)
-    return {token: held(state["inv"], token) + n}
+        token, start = rest[at], at + 1
+    i = next((j for j in range(start, len(rest)) if isinstance(rest[j], int) and not isinstance(rest[j], bool)), None)
+    return token, (None if i is None else i + 1), (1 if i is None else rest[i])
+
+
+def with_rest(contract, args, rest):
+    """Pure: the call's args with its count set to what is left of its item (`rest`, remaining_of), so a resumed
+    call asks only for the rest; the args unchanged when the count is not an argument."""
+    asked = _asked(contract, args)
+    if asked is None or asked[1] is None or asked[0] not in rest:
+        return tuple(args)
+    out = list(args)
+    out[asked[1]] = rest[asked[0]]
+    return tuple(out)
 
 
 def remaining_of(contract, state, call):
@@ -255,11 +304,27 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
 
         @functools.wraps(fn)
         def runner(*args, **kwargs):
+            key = _resume_key(contract, args)
             c = Call(args, kwargs)
             for check in contract.pre:
                 check(c)
-            if contract.start:
+            kept = _resumed(contract, args)
+            if kept is not None:
+                c.base, c.want, c.keep = kept
+            elif contract.start:
                 c.base = contract.start(c)
+            if any(not isinstance(g, str) for g in contract.gives):
+                bag_now = {"inv": skillcore.Inventory()}
+                if c.want is None:
+                    c.want = wanted(contract, bag_now, args)
+                elif kept is not None:
+                    # Resumed: the rest read off the bag against the bag this call wanted — done while away, or
+                    # asked again for only what is missing.
+                    rest = remaining_of(contract, bag_now, c)
+                    if rest == {}:
+                        return None
+                    args = with_rest(contract, args, rest or {})
+                    c.args = args
             if contract.done and contract.done(c):
                 return None
             bag_check(contract, c)
@@ -267,11 +332,13 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
             prev_soft, prev_skill = api.SOFT, tape.SKILL
             api.SOFT = contract.soft or prev_soft     # nested skills (eat inside a fight) inherit the protection
             tape.SKILL = contract.name                # whose post-action readings the tape is recording
+            CALLS.append(c)
             try:
                 out = fn(*args, **kwargs)
                 if inspect.isgenerator(out):
                     out = _drive(contract, c, out)
             except api.INTERRUPTIONS:
+                RESUME[key] = (time.time(), c.base, c.want, c.keep)
                 raise
             except McError as e:
                 why = bag_full_reason(str(e), _free_slots()) if contract.fills_bag else None
@@ -279,6 +346,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
                     raise
                 raise (type(e)(why) if _same_shape(e) else McError(why)) from e
             finally:
+                CALLS.pop()
                 api.SOFT, tape.SKILL = prev_soft, prev_skill
             c.result = out
             # The effect is judged once the world has caught up with it, not the instant the body returns: a drop

@@ -3,6 +3,7 @@ ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collect
 Pure planners (`farm_plot`, `ripe_cells`, `breeding_pair`) are offline-tested; skills only execute them."""
 import math
 
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
 from . import api, jobs, nav
 from .api import McError, NotAvailable, log
@@ -67,9 +68,11 @@ def plot_commands(centre, hoe, region=None):
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
     below = add(centre, (0, -1, 0))
     out = []
-    if name(centre) not in ("water",):
-        out += [{"type": "mine", "x": centre[0], "y": centre[1], "z": centre[2], "collect": False,
-                 "requireDrops": False}, use_on_top("minecraft:water_bucket", below)]
+    if name(centre) not in ("water", "air"):
+        out.append({"type": "mine", "x": centre[0], "y": centre[1], "z": centre[2], "collect": False,
+                    "requireDrops": False})
+    if name(centre) != "water":
+        out.append(use_on_top("minecraft:water_bucket", below))
     for dx, dz in RING:
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
         if name(cell) != "farmland":
@@ -80,11 +83,16 @@ def plot_commands(centre, hoe, region=None):
 
 
 def started_plot(region, here, radius=8):
-    """Pure: the centre of a plot begun and not finished here — water in the centre, its ring soil or farmland, some
-    cell not yet sown — nearest first; None when there is none (a fresh plot is chosen by `farm_plot`)."""
+    """Pure: the centre of a plot begun and not finished here — the centre dug (water in, or not yet: air on solid
+    ground), its ring soil or farmland, some cell not yet sown — nearest first; None when there is none (a fresh
+    plot is chosen by `farm_plot`)."""
     best = None
-    for c, n in region.blocks.items():
-        if n != "water" or math.dist(c, here) > radius:
+    centres = {c for c, n in region.blocks.items() if n == "water"} | \
+        {(r[0] - dx, r[1], r[2] - dz) for r, n in region.blocks.items() if n in SOIL + ("farmland",)
+         for dx, dz in RING if region.name((r[0] - dx, r[1], r[2] - dz)) in ("air", None)
+         and region.solid((r[0] - dx, r[1] - 1, r[2] - dz))}
+    for c in sorted(centres):
+        if math.dist(c, here) > radius:
             continue
         ring = [(c[0] + dx, c[1], c[2] + dz) for dx, dz in RING]
         if all(region.name(r) in SOIL + ("farmland",) for r in ring) and \
@@ -112,12 +120,12 @@ def plant_farm_commands(state, args):
         raise NotAvailable("no hoe")
     if inv.count("minecraft:wheat_seeds") < 8:
         raise NotAvailable("need 8 wheat seeds")
-    if not inv.count("minecraft:water_bucket"):
-        raise NotAvailable("need a water bucket for the plot")
     region = state["region"]
     centre = started_plot(region, state["feet"]) or farm_plot(region, state["feet"], state.get("protected", ()))
     if centre is None:
         raise NotAvailable("no flat 3×3 soil nearby for a farm")
+    if region.name(centre) != "water" and not inv.count("minecraft:water_bucket"):
+        raise NotAvailable("need a water bucket for the plot")          # poured already: the bucket is not asked again
     return plot_commands(centre, hoe, region)
 
 
@@ -270,7 +278,7 @@ def _babies():
     return sum(1 for e in entities(24, list(BREED_FOOD)) if e.get("baby"))
 
 
-@skill(gives={}, needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
+@skill(gives=["state:bred"], remaining=_k.babies, needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
        commands=lambda state, args: breed_commands(state, args),
        provides={"breed": lambda ctx, s: ()})
 def breed(ctx):

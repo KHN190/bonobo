@@ -497,7 +497,7 @@ def dig_down_region(feet, depth):
     return Region((x - 1, y - depth - 2, z - 1), (x + 1, y + 2, z + 1))
 
 
-def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False):
+def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=None):
     """Pure: (tasks, depth that is safe) for digging straight down from `feet`, stopping above caves, lava and
     water. With ladders, one hangs on the shaft wall above the head after each step so the way back is a climb.
     Raises NotAvailable when not even one block down is safe."""
@@ -505,7 +505,11 @@ def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False):
     safe = 0
     for i in range(1, depth + 1):
         cell, below = (x, y - i, z), (x, y - i - 1, z)
-        if (region.unbreakable(cell) or region.hazard(cell) or not region.solid(below) or (x, y - i, z) in protected
+        # Down to where the body stands now (`dug_to`: a dig resumed after the body fell), the open cell under is
+        # the shaft already dug, no cave. The bottom stands on solid ground always.
+        shaft = dug_to is not None and i < depth and below[1] >= dug_to
+        if (region.unbreakable(cell) or region.hazard(cell) or not (region.solid(below) or shaft)
+                or (x, y - i, z) in protected
                 or any(region.hazard(add(cell, d)) for d in NEIGHBOURS6)):
             break
         safe = i
