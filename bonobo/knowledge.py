@@ -10,6 +10,14 @@ GROUP_RECIPES = {
     "bed": (["wool", "wool", "wool", "planks", "planks", "planks", None, None, None], 1),
 }
 
+# Optional tools a skill runs faster with (`@skill(speed=...)`): seconds saved per unit of work, against bare hands.
+# A tool is made only when making it takes less than it saves.
+CHOP_AXE_S = 1.5         # a log: ~3 s by hand, ~1.5 s with a wooden axe
+HUNT_SWORD_S = 3.0       # a kill: a cow takes ten fist hits, four with a wooden sword
+DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 s with a wooden shovel
+SKILL_SPEED = {}         # skill name → its declared speed, filled by the `skill` decorator (the planner's view)
+STEP_SKILL = {"gather": "chop", "hunt": "hunt", "mine": "mine"}     # which skill carries out a planned step kind
+
 # item -> (block names to break, minimum pickaxe tier or None if no tool needed)
 MINE = {
     "minecraft:raw_iron": (["iron_ore", "deepslate_iron_ore"], 1),

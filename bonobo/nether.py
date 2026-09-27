@@ -43,7 +43,7 @@ def triangulate(p1, d1, p2, d2):
     return round(x1 + a1 * t), round(z1 + b1 * t)
 
 
-@skill(done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90, per_unit=60,
+@skill(needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90, per_unit=60,
        provides={"portal": lambda ctx, s: (s.token,)})
 def use_portal(ctx, to_dimension):
     """Walk into the nearest known lit portal and stand in it until the dimension changes. In the Overworld the
@@ -98,7 +98,7 @@ def use_portal(ctx, to_dimension):
     raise McError("stood in the portal but the dimension didn't change")
 
 
-@skill(verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180, per_unit=600,
+@skill(needs={}, speed={}, verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180, per_unit=600,
        provides={"seek:fortress": lambda ctx, s: ()})
 def find_fortress(ctx, legs=8, leg=48):
     """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava). Remembers the
@@ -191,7 +191,7 @@ def _not_gold():
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
 
-@skill(start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15,
+@skill(needs={"minecraft:gold_ingot": 1}, speed={}, start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15,
        provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)})
 def barter_piglin(ctx, ingots=8):
     """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect.
@@ -265,7 +265,7 @@ def _thrown_there(c):
     return spot is not None and math.dist(spot, (site["pos"][0], site["pos"][2])) <= 1
 
 
-@skill(verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
+@skill(needs={}, speed={}, verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
 def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])

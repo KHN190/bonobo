@@ -114,7 +114,7 @@ def _use(item, aim, on_block):
     return res
 
 
-@skill(done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
+@skill(needs={"minecraft:bucket": 1}, speed={}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
        budget=300, stall=120, per_unit=60, provides={"fill": lambda ctx, s: ()})
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""

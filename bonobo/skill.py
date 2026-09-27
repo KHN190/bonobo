@@ -147,7 +147,16 @@ def handles(step):
     return step.kind == "skill" and step.token in REGISTRY or any(providers(e) for e in step_keys(step))
 
 
-def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, budget=300, stall=45,
+def declared(name, needs, speed):
+    """Every skill states its hard prerequisites (`needs`, {dimension: minimum}) and the optional tools that speed
+    it up (`speed`, {tool kind: seconds saved per unit}) — written out, `{}` when there are none. A skill that says
+    neither is refused at import: an unstated need is one the planner can never price."""
+    missing = [k for k, v in (("needs", needs), ("speed", speed)) if v is None]
+    if missing:
+        raise TypeError(f"skill {name!r} declares no {' and no '.join(missing)} (write {{}} when there are none)")
+
+
+def skill(name=None, *, pre=(), needs=None, speed=None, start=None, done=None, verify=None, budget=300, stall=45,
           per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
           fills_bag=False):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
@@ -157,9 +166,13 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
     forty seconds". The checks in `pre` stay as the runtime guard; `needs` is what the planner reads.
     """
     def wrap(fn):
+        declared(name or fn.__name__, needs, speed)
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft, commands, provides, prefer)
-        contract.needs = dict(needs or {})
+        contract.needs = dict(needs)
+        contract.speed = dict(speed)
+        from .knowledge import SKILL_SPEED
+        SKILL_SPEED[contract.name] = contract.speed
         # A gatherer: True (anything it takes needs a free slot) or c -> the item ids it gathers. Checked before it
         # starts and between its batches (bag_check), and its failures on a full bag say so (bag_full_reason).
         contract.fills_bag = fills_bag

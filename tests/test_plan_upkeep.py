@@ -458,7 +458,7 @@ class CanStart(unittest.TestCase):
         from bonobo import dispatch
         for name, pre, inv, want in STARTS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True), tempfile.TemporaryDirectory() as tmp:
-                skillkit.skill(name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
+                skillkit.skill(needs={}, speed={}, name="zz_skill", pre=pre, provides={"craft": lambda ctx, s: (s.token,)})(
                     lambda ctx, *a: None)
                 step = planner.Step("craft", "minecraft:stick", 4, {"inputs": {"planks": 2}})
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
@@ -484,7 +484,7 @@ class CanStart(unittest.TestCase):
         for name, fakes, step, want in rows:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for sname, (effect, args, pre) in fakes.items():
-                    skillkit.skill(name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
+                    skillkit.skill(needs={}, speed={}, name=sname, pre=pre, provides={effect: lambda ctx, s, _a=args: _a})(
                         lambda ctx, *a: None)
                 self.assertIs(dispatch.can_start(None, step), want)
 

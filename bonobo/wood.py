@@ -5,6 +5,7 @@ from . import api, nav
 from .api import McError, NotAvailable, log
 from .data import GROUPS
 from .explore import seek_blocks
+from .knowledge import CHOP_AXE_S
 from .skill import skill
 from .skillcore import _collect_only, feet, gained, settle
 from .world import Inventory, find
@@ -44,7 +45,7 @@ def pick_trunks(logs):
     return trunks
 
 
-@skill(start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
+@skill(needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, per_unit=6, units=lambda c: c.args[1], key=lambda c: "chop",
        provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"])
 def chop(ctx, n):

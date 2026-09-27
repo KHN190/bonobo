@@ -777,7 +777,7 @@ class Runner(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), mock.patch.object(skillkit, "STATS", stats), \
                     mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
-                runner = skillkit.skill(**kw)(fn)
+                runner = skillkit.skill(needs={}, speed={}, **kw)(fn)
                 if isinstance(want, type):
                     with self.assertRaises(want):
                         runner(None)
@@ -807,7 +807,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillkit, "_heartbeat", lambda n: None), \
                     mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
-                runner = skillkit.skill(budget=budget, stall=stall)(body)
+                runner = skillkit.skill(needs={}, speed={}, budget=budget, stall=stall)(body)
                 if want is None:
                     self.assertEqual(runner(None), "done")
                     continue
@@ -823,7 +823,7 @@ class Runner(unittest.TestCase):
                           ([ok, _missing_pick], (False, "need a tier-1 pickaxe")),
                           ([lambda c: (_ for _ in ()).throw(RuntimeError())], (False, "RuntimeError"))):
             with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
-                runner = skillkit.skill(name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
+                runner = skillkit.skill(needs={}, speed={}, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
                 self.assertEqual(skillkit.can_run(runner, None), want)
 
     def test_step_keys_most_specific_first(self):
@@ -849,7 +849,7 @@ class Runner(unittest.TestCase):
         for name, provs, want in self.PROVIDERS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for pname, effect, prefer, got in provs:
-                    skillkit.skill(name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
+                    skillkit.skill(needs={}, speed={}, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
                         lambda ctx, *a: None)
                 found = skillkit.provider(None, Step("zz", "tok", 1))
                 self.assertEqual(None if found is None else (found[0].contract.name, found[1]), want)
@@ -1271,7 +1271,7 @@ class BagRules(unittest.TestCase):
         for name, fills, carried, want in rows:
             ran = []
 
-            @skillkit.skill(name="bag_gate_probe", fills_bag=fills)
+            @skillkit.skill(needs={}, speed={}, name="bag_gate_probe", fills_bag=fills)
             def probe(ctx):
                 ran.append(True)
             inv = bag(inventory(*carried))
@@ -1289,7 +1289,7 @@ class BagRules(unittest.TestCase):
     def test_only_gatherers_say_it(self):
         """The same failure on a full bag: a gatherer's names the bag, another skill's stays its own."""
         for fills, want in ((True, "bag full (no free slot): nothing left to take"), (False, "nothing left to take")):
-            @skillkit.skill(name=f"bag_probe_{fills}", fills_bag=fills)
+            @skillkit.skill(needs={}, speed={}, name=f"bag_probe_{fills}", fills_bag=fills)
             def probe(ctx):
                 raise api.NotAvailable("nothing left to take")
             with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_free_slots", return_value=0), \

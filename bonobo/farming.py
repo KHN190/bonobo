@@ -105,7 +105,7 @@ def _plot_growing(centre):
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
 
-@skill(verify=lambda c: bool(c.result) and _plot_growing(c.result), budget=300, stall=90, per_unit=120,
+@skill(needs={"minecraft:wheat_seeds": 1}, speed={}, verify=lambda c: bool(c.result) and _plot_growing(c.result), budget=300, stall=90, per_unit=120,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
     """Make a 3×3 wheat plot here: dig the centre, pour the water bucket in (and take nothing back — it stays as
@@ -190,7 +190,7 @@ def _babies():
     return sum(1 for e in entities(24, list(BREED_FOOD)) if e.get("baby"))
 
 
-@skill(start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
+@skill(needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
        provides={"breed": lambda ctx, s: ()})
 def breed(ctx):
     """Feed two adults of one kind the food they breed on; a breed job marks the 5-minute cooldown there."""
