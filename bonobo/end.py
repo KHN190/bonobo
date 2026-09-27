@@ -25,27 +25,17 @@ def portal_centre(frames):
     return (min(xs) + max(xs)) // 2, frames[0][1], (min(zs) + max(zs)) // 2
 
 
-EYE_REACH = 4.5      # block interaction range, eye to the frame's top
-
-
-def eye_stops(frames, centre, here, reach=EYE_REACH):
-    """Pure: [(stand spot, [frames])] — the fewest spots just outside the ring (never on it: standing on a frame slid
-    the player into the opening's lava) from which every frame's top is in reach, nearest to `here` first. Each stop
-    places all its eyes in one batch without moving: two corners cover a whole ring, one side-middle covers a side."""
-    cx, y, cz = centre
-    ring = [(cx + dx, y, cz + dz) for dx in range(-3, 4) for dz in range(-3, 4) if max(abs(dx), abs(dz)) == 3]
-    eye = lambda s: (s[0] + 0.5, s[1] + 1.62, s[2] + 0.5)                     # noqa: E731
-    top = lambda f: (f[0] + 0.5, f[1] + 0.8125, f[2] + 0.5)                  # noqa: E731
-    left, out, at = list(frames), [], here
-    while left:
-        stop = max(ring, key=lambda s: (sum(math.dist(eye(s), top(f)) <= reach for f in left), -math.dist(s, at)))
-        got = sorted(f for f in left if math.dist(eye(stop), top(f)) <= reach)
-        if not got:
-            break                          # a frame no stop reaches: the caller finds it still empty
-        out.append((stop, got))
-        left = [f for f in left if f not in got]
-        at = stop
-    return out
+def eye_plan(missing, centre, floor_solid, lit, have_block):
+    """Pure: (floor cell to fill first or None, where to stand, frames to fill) — the speedrun way: a block over the
+    lava in the ring's middle, stand on it, every missing eye from there without moving (each frame's top is within
+    2.3 blocks of the middle). A lit portal, or no frame missing, is nothing to do; no block and no floor to stand on
+    is a reason, not a walk around the ring."""
+    if lit or not missing:
+        return None, None, []
+    floor = (centre[0], centre[1] - 1, centre[2])
+    if not floor_solid and not have_block:
+        raise NotAvailable("no block to put over the ring's middle to stand on")
+    return (None if floor_solid else floor), centre, sorted(missing)
 
 
 def outside_spot(frame, centre):
@@ -59,7 +49,9 @@ def outside_spot(frame, centre):
 @skill(done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
        budget=600, stall=180, per_unit=60, provides={"activate:end_portal": lambda ctx, s: ()})
 def activate_end_portal(ctx):
-    """At the stronghold's portal room: put an eye of ender into every empty frame block (click its top)."""
+    """At the stronghold's portal room: a block over the middle's lava, stand on it, every missing eye from there in
+    one chain (`eye_plan`); the portal opens under the feet."""
+    from .skillcore import place
     hits = find(["end_portal_frame"], radius=32, limit=12)
     if not hits:
         raise NotAvailable("no end portal frame within 32 blocks (dig down at the stronghold estimate first)")
@@ -68,17 +60,29 @@ def activate_end_portal(ctx):
     if Inventory().count("minecraft:ender_eye") < len(missing):
         raise NotAvailable(f"need {len(missing)} eyes of ender, have {Inventory().count('minecraft:ender_eye')}")
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in hits])
-    here = nav.feet_now()
-    # One stand per few frames, every eye from it in one chain: walking the ring eye by eye was 79 s for 12 (05:20).
-    for stop, side in eye_stops(missing, centre, here):
-        if not nav.arrived(stop, ctx.policy, range_=0.8, attempts=1):
-            raise api.NavFailed(f"the ring spot at {stop} is not reachable")
-        done = api.run_chain([{"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,
-                               "z": f[2] + 0.5, "onBlock": True} for f in side], stop_on_failure=True, wait=20)
-        bad = [t for t in done if t["status"] != "succeeded"]
-        if bad or len(done) < len(side):
-            raise McError(f"placing eyes from {stop} failed: {bad[0]['message'] if bad else 'chain cut short'}")
-        yield stop
+    lit = any(n == "end_portal" for n in region.blocks.values())
+    below = (centre[0], centre[1] - 1, centre[2])
+    block = nav.building_item()
+    floor, stand, frames = eye_plan(missing, centre, Region(below, below).solid(below), lit, bool(block))
+    if stand is None:
+        return
+    if floor is not None:
+        nav.arrived(outside_spot(min(frames, key=lambda f: math.dist(f, nav.feet_now())), centre), ctx.policy,
+                    range_=1.0, attempts=1)
+        place(block, floor)
+    if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
+        raise api.NavFailed(f"the ring's middle at {stand} is not reachable")
+    # Every eye in one chain, turning on the spot (fight_loop's batch mechanism): the last one opens the portal
+    # under the feet, and falling in is the next step anyway.
+    done = api.run_chain([{"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,
+                           "z": f[2] + 0.5, "onBlock": True} for f in frames], stop_on_failure=True, wait=20)
+    bad = [t for t in done if t["status"] != "succeeded"]
+    if bad or len(done) < len(frames):
+        raise McError(f"placing eyes from the middle failed: {bad[0]['message'] if bad else 'chain cut short'}")
+    yield stand
+    if api.get("/state")["dimension"] == "minecraft:the_end":
+        log("end portal activated (and fallen through)")
+        return
     if frames_missing_eye(_frame_region()):
         raise McError("some frames still have no eye")
     log("end portal activated")

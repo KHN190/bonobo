@@ -155,7 +155,8 @@ SCENARIOS.update({
     "activate_end_portal": {
         # 9 frames already hold their eye (a room found part-filled, as real ones are): the three on our side are
         # the job, so the row fits 30 s and still ends in the portal opening.
-        "doc": "A stronghold portal ring, 9 frames with eyes and the 3 nearest empty, 3 eyes of ender → an open end portal.",
+        "doc": "A stronghold portal ring, 9 frames with eyes and the 3 nearest empty, 3 eyes and a block → a block over the "
+               "middle, stood on, the 3 eyes from there: an open end portal ≤ 3 s.",
         "module": "end",
         "setup": [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone_bricks",
                   f"fill {_c(at(-1, 0, -2))} {_c(at(1, 0, -2))} end_portal_frame[facing=south]",
@@ -163,10 +164,13 @@ SCENARIOS.update({
                   f"fill {_c(at(-2, 0, -1))} {_c(at(-2, 0, 1))} end_portal_frame[facing=east,eye=true]",
                   f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} end_portal_frame[facing=west,eye=true]",
                   f"fill {_c(at(-1, -1, -1))} {_c(at(1, -1, 1))} lava",
-                  f"tp @p {_c(at(0, 0, -3))}", "clear @p", "give @p ender_eye 3"],   # at the stop: end.eye_stops
+                  # beside the ring, a block to put over the middle's lava (end.eye_plan)
+                  f"tp @p {_c(at(0, 0, -3))}", "clear @p", "give @p ender_eye 3", "give @p cobblestone 1"],
         "expect": [(at(-2, 0, -2), at(2, 0, 2), "end_portal_frame", 12, 12)],
         "run": lambda ctx: _drain(__import__("bonobo.end", fromlist=["activate_end_portal"]).activate_end_portal(ctx)),
-        "check": lambda api, inv: _count_blocks(api, at(-1, 0, -1), at(1, 0, 1), "end_portal") == 9,
+        # Open: the 9 portal blocks, or already fallen through them (standing in the middle is the speedrun way).
+        "check": lambda api, inv: api.get("/state")["dimension"] == "minecraft:the_end"
+        or _count_blocks(api, at(-1, 0, -1), at(1, 0, 1), "end_portal") == 9,
         "budget": 30,
     },
     "enter_end": {

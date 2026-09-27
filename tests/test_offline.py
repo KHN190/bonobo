@@ -900,16 +900,23 @@ check("dragon: hovering above the pillar isn't perched; the pillar top comes fro
 # Real case 05:20: eyes placed in search order crossed the ring 12 times (79 s).
 _ring = [(10 + dx, 60, 10 - 2) for dx in (-1, 0, 1)] + [(10 + dx, 60, 10 + 2) for dx in (-1, 0, 1)] + \
         [(10 - 2, 60, 10 + dz) for dz in (-1, 0, 1)] + [(10 + 2, 60, 10 + dz) for dz in (-1, 0, 1)]
-# (frames missing, where we stand) → (stops, eyes per stop): every frame from the fewest spots outside the ring.
-for _miss, _here, _want in [(_ring, (14, 60, 10), (2, [8, 4])),
-                            (_ring[:3], (10, 60, 4), (1, [3])),
-                            (_ring[:1], (10, 60, 4), (1, [1])),
-                            ([], (10, 60, 4), (0, []))]:
-    _stops = END.eye_stops(_miss, (10, 60, 10), _here)
-    check(f"end portal: {len(_miss)} eyes placed from {_want[0]} stop(s) outside the ring",
-          (len(_stops), [len(fs) for _, fs in _stops]) == _want
-          and sorted(f for _, fs in _stops for f in fs) == sorted(_miss)
-          and all(max(abs(s[0] - 10), abs(s[2] - 10)) == 3 for s, _ in _stops))
+# (frames missing, floor over the lava solid, portal lit, a block carried) → (floor to fill, stand, eyes), or the
+# reason: the speedrun way — a block over the middle, stand on it, every missing eye from there.
+for _name, _miss, _solid, _lit, _block, _want in [
+        ("lava in the middle: block it, stand there, all 12", _ring, False, False, True,
+         ((10, 59, 10), (10, 60, 10), 12)),
+        ("9 eyes in: only the 3 missing", _ring[:3], True, False, True, (None, (10, 60, 10), 3)),
+        ("no block, lava below: a reason", _ring, False, False, False, "no block"),
+        ("lit already: nothing", _ring[:3], True, True, True, (None, None, 0)),
+        ("no frame missing: nothing", [], True, False, True, (None, None, 0))]:
+    try:
+        _f, _s, _fr = END.eye_plan(_miss, (10, 60, 10), _solid, _lit, _block)
+        _got = (_f, _s, len(_fr))
+        _reach = all(math.dist((_s[0] + .5, _s[1] + 1.62, _s[2] + .5), (f[0] + .5, f[1] + .8125, f[2] + .5)) <= 4.5
+                     for f in _fr)
+    except Exception as _e:
+        _got, _reach = ("no block" if "no block" in str(_e) else str(_e)), True
+    check(f"end portal: {_name}", _got == _want and _reach)
 # Real case 05:04: standing on the frame to place an eye slid into the opening's lava.
 check("end portal: eyes are placed from outside the ring",
       END.outside_spot((10, 60, 8), (10, 60, 10)) == (10, 60, 7)
