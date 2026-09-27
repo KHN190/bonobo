@@ -41,6 +41,25 @@ class Ordering(unittest.TestCase):
                                         now=now)
                 self.assertEqual(None if got is None else got.reason, want)
 
+    # The combinations the brain bench no longer runs (it moves one condition at a time): (PLAN proposals as kinds
+    # in the order proposed) → the kind that drives. What each cell of the old product decided, as one table.
+    PLAN_COMBOS = [
+        ("dusk and low food: the night's parts first", ["food stock", "night prep"], "night prep"),
+        ("low food and a queued task: food first", ["queue", "food stock"], "food stock"),
+        ("a broken tool under a held plan beats the queue", ["queue", "broken tool"], "broken tool"),
+        ("underground at night: the queue before the night's stock", ["night stock", "queue"], "queue"),
+        ("blocked path at dusk: night prep before bridge blocks", ["bridge stock", "night prep"], "night prep"),
+        ("an unknown kind ranks after every known one", ["mystery", "idle"], "idle"),
+        ("only waiting for day", ["wait for day"], "wait for day"),
+    ]
+
+    def test_plan_order_over_the_combinations(self):
+        for name, kinds, want in self.PLAN_COMBOS:
+            with self.subTest(name):
+                out = []
+                got = arbiter.arbitrate([intent("plan", k, out, at=0.0, kind=k) for k in kinds], now=0.0)
+                self.assertEqual(got.kind, want)
+
     def test_an_unknown_layer_is_refused(self):
         for layer in ("urgent", "", "PLAN"):
             with self.subTest(layer=layer), self.assertRaises(ValueError):
