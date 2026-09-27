@@ -139,6 +139,20 @@ class SeekHits(unittest.TestCase):
                 self.assertEqual(get.call_args[0][0], "/find?blocks=minecraft:iron_ore&radius=48&limit=60" + tail)
 
 
+class TakesBack(unittest.TestCase):
+    # (situation, block, pickaxe held) → break it to carry on
+    TABLE = [
+        ("a crafting table, by hand", ("minecraft:crafting_table", False), True),
+        ("a furnace with a pickaxe", ("minecraft:furnace", True), True),
+        ("a chest, by hand", ("chest", False), True),
+        ("must fail: a furnace by hand (17 s, no drop: smelt__base's timeout)", ("minecraft:furnace", False), False),
+        ("must fail: a blast furnace by hand", ("minecraft:blast_furnace", False), False),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.takes_back, self.TABLE)
+
+
 class CraftPlan(unittest.TestCase):
     """One sitting planned whole from the bag: single or chained, 2×2 or 3×3, the net delta verify checks."""
     P, S = "minecraft:oak_planks", "minecraft:stick"

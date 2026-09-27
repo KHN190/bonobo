@@ -8,7 +8,7 @@ import time
 from . import api, beliefs, blueprints, nav, world
 from .api import McError, NotAvailable, log
 from .skill import skill, world_signature
-from .data import (ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
+from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, RECIPES, bare, mid)
 from .knowledge import GROUP_RECIPES, members
 from .bag import mineable, pickup_whitelist, refused
@@ -86,6 +86,12 @@ def move_to_open_space(ctx):
 
 # ---------------------------------------------------------------- stations
 
+def takes_back(block, has_pickaxe):
+    """Pure: may a placed station be broken to carry it on? Only when it drops for what we hold: by hand
+    (`HAND_MINEABLE_SUFFIX`: a crafting table, a chest) or with a pickaxe (a furnace)."""
+    return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
+
+
 class Station:
     def __init__(self, ctx, block):
         self.ctx, self.block, self.pos, self.placed = ctx, block, None, False
@@ -133,6 +139,11 @@ class Station:
 
     def __exit__(self, *exc):
         api.post("/close")
+        if self.placed and not takes_back(self.block, bool(Inventory().tools("pickaxe"))):
+            # Left standing, remembered as a station: a furnace broken by hand takes ~17 s and drops nothing
+            # (smelt__base had its ingot at 10.9 s and timed out at 15 s picking the furnace back up).
+            log(f"   left the {bare(self.block)} standing: no pickaxe to take it back")
+            return False
         if self.placed:
             before = Inventory().count(self.block)
             held = lambda: Inventory().count(self.block)   # noqa: E731
