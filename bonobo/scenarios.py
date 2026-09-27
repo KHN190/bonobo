@@ -1740,6 +1740,22 @@ SURPRISES = {
                           setup=_floor("netherrack") + [_tp(), "give @p white_bed", "time set 18000"],
                           fails=r"nether|dimension|explod",
                           check=_all(_alive(18), _no_block_suffix(at(-4, -1, -4), at(4, 2, 4), "_bed"))),
+    # Must-fail controls, one per base that had none: the right failure, named, and the world untouched.
+    "nav_sealed_in": dict(base="nav", doc="the body sealed in bedrock: no way out, and it says so", replace_setup=True,
+                          setup=_floor() + [f"fill {_c(at(-1, -1, -1))} {_c(at(1, 2, 1))} bedrock",
+                                            f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air", _tp()],
+                          fails=r"no route|no path|unreachable|could not get|not reach",
+                          check=_all(_same_bag(), _at(at(0, 0, 0), 1.5))),
+    "craft_short_of_planks": dict(base="craft", doc="two planks and no sticks for a pickaxe: missing, named",
+                                  replace_setup=True,
+                                  setup=_floor() + [_tp(), "give @p oak_planks 2", "give @p crafting_table"],
+                                  fails=r"missing|short|not enough", check=_same_bag()),
+    "smelt_without_fuel": dict(base="smelt", doc="a furnace and raw iron, nothing to burn: no fuel, named",
+                               replace_setup=True, setup=_floor() + [_tp(), "give @p furnace", "give @p raw_iron 1"],
+                               fails=r"no coal|fuel|burn", check=_gain("minecraft:iron_ingot", 0, at_most=0)),
+    "eat_with_nothing": dict(base="eat", doc="hungry, nothing edible carried: nothing to eat, named",
+                             replace_setup=True, setup=_floor() + [_tp()], fails=r"nothing edible",
+                             check=_same_bag()),
     "lava_under_ore": dict(base="mine_iron", doc="lava right under the iron ore",
                            setup=[f"fill {_c(at(4, -2, -1))} {_c(at(5, -1, 1))} lava"],
                            check=_all(_gain("minecraft:raw_iron", 2), _alive(14))),
@@ -2712,7 +2728,9 @@ def _diamond_of(cell):
 # the world (bag, blocks, clock, height) and the order things appeared in the bag (`_first_times`), never log text.
 def _bed_then_log(cell):
     if cell["dusk"] == "plenty" and cell["food"] == "full":
-        return _all(_before_in_bag("log", "bed", or_never=True), _gain("log", 2)), "a day ahead: the task first"
+        return (_all(_before_in_bag("log", "bed", or_never=True), _gain("log", 2),
+                     lambda api, inv: inv.count("bed") == 0),
+                "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
         return _before_in_bag("minecraft:cooked_beef", "log"), "hungry: food before the task"
     return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
@@ -2724,7 +2742,7 @@ def _tool_rule(cell):
                      lambda api, inv: inv.count("minecraft:stone_pickaxe") + inv.count("minecraft:wooden_pickaxe") == 0,
                      _gain("minecraft:cobblestone", 3)), "broken: the best tier this bag crafts (iron)")
     return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", 3)),
-            "fresh: nothing crafted, the ingots kept")
+            "fresh: nothing crafted, the ingots kept (must not craft)")
 
 
 def _night_rule(cell):
@@ -2778,7 +2796,7 @@ def _seen_rule(cell):
     # straight, with no scan; an unnoted one is still found, by scanning.
     if cell["seen"] == "noted":
         return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"), _no_scan()),
-                "noted: straight there without a scan, the note retired")
+                "noted: straight there without a scan (must not scan), the note retired")
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
 
 
@@ -2969,7 +2987,7 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
 # platform to look for trees mid-fight and fell 125 blocks).
 SHEET["fight_before_upkeep"] = {
     "doc": "Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
-           "before any log is gathered, the player never leaves the arena",
+           "before any log is gathered (must not), the player never leaves the arena",
     "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": True, "stochastic": True,
     "tags": {"base": "brain", "family": "fight_first"},
     "setup": [c for c in _ARENA if "stone_pickaxe" not in c] + [

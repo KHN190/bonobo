@@ -500,16 +500,16 @@ class BrainGrid(unittest.TestCase):
 
     def test_rules(self):
         # (family, the cell's moved dimensions, the expectation it must get)
-        rows = [("night_first", {}, "a day ahead: the task first"),
+        rows = [("night_first", {}, "a day ahead: the task first, no bed made (must not)"),
                 ("night_first", {"dusk": "tight"}, "dusk or night on the surface, no bed: the night first"),
                 ("night_first", {"dusk": "night", "food": "low"}, "hungry: food before the task"),
                 ("tool_tier", {"tool": "one_use"}, "broken: the best tier this bag crafts (iron)"),
-                ("tool_tier", {}, "fresh: nothing crafted, the ingots kept"),
+                ("tool_tier", {}, "fresh: nothing crafted, the ingots kept (must not craft)"),
                 ("night_under", {"dusk": "night", "head": "underground"}, "night underground: work there (ore), no climb"),
                 ("night_under", {"dusk": "tight", "head": "underground"},
                  "dusk underground: already under cover, no climb to the surface (boundary)"),
                 ("night_under", {}, "daylight: no bed made, no sleep (must not)"),
-                ("seen_store", {"seen": "noted"}, "noted: straight there without a scan, the note retired"),
+                ("seen_store", {"seen": "noted"}, "noted: straight there without a scan (must not scan), the note retired"),
                 ("seen_store", {}, "not noted: found anyway, by scanning")]
         for fam, moved, want in rows:
             with self.subTest(fam, **moved):
@@ -683,3 +683,34 @@ class SkillsAreTimed(unittest.TestCase):
                 self.assertEqual(sc.SHEET[name]["run"].__qualname__ == "_timed.<locals>.go", want)
         sc.BASE.pop("run_s", None)
         self.assertEqual((sc._timed(lambda ctx: "done")(None), sc.BASE["run_s"] < 1.0), ("done", True))
+
+
+class EveryPartHasAMustFail(unittest.TestCase):
+    """Every base and every brain family has a control that must fail (a `fails=` row) or must not happen (a
+    reverse check, said "(must not" in its doc): a bench of only happy paths passes a skill that always succeeds."""
+
+    @staticmethod
+    def controls(rows):
+        return [n for n, r in rows if r.get("fails") or "(must not" in r.get("doc", "")]
+
+    def test_every_base(self):
+        for base in sc.BASES:
+            with self.subTest(base):
+                rows = [(n, r) for n, r in sc.SHEET.items() if r.get("tags", {}).get("base") == base]
+                self.assertNotEqual(self.controls(rows), [], f"{base}: no must-fail row")
+
+    def test_every_brain_family(self):
+        families = set(sc.BRAIN_FAMILIES) | {"fight_first"}
+        for fam in sorted(families):
+            with self.subTest(fam):
+                rows = [(n, r) for n, r in sc.SHEET.items() if fam in r.get("tags", {}).get("family", "").split("+")]
+                self.assertNotEqual(self.controls(rows), [], f"{fam}: no must-fail row")
+
+    def test_the_new_controls_name_their_failure(self):
+        rows = [("nav_sealed_in", r"no route|no path|unreachable|could not get|not reach"),
+                ("craft_short_of_planks", r"missing|short|not enough"),
+                ("smelt_without_fuel", r"no coal|fuel|burn"),
+                ("eat_with_nothing", r"nothing edible")]
+        for name, fails in rows:
+            with self.subTest(name):
+                self.assertEqual(sc.SHEET[name]["fails"], fails)

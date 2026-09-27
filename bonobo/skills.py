@@ -274,6 +274,11 @@ def smelt(ctx, output, input_token, count, fuel):
     inv = Inventory()
     inputs = [m for m in members(input_token) if inv.count(m)]
     fuels = [m for m in members(fuel) if inv.count(m)]
+    # Said before the furnace is touched: loading nothing waited out the stall with no reason given.
+    if not inputs:
+        raise NotAvailable(f"no {bare(input_token)} to smelt")
+    if not fuels:
+        raise NotAvailable(f"no {bare(fuel)} to burn")
     fuel_n = math.ceil(count / 8) if fuel == "coal" else math.ceil(count / 1.5)
     with Station(ctx, "minecraft:furnace"):
         try:
@@ -975,7 +980,7 @@ def eat(ctx=None, raw_ok=False):
         if 0.05 <= took <= 30.0:        # a queued or interrupted bite times the queue, not the bite
             beliefs.note("engage.eat_s", round(took, 3), where="eat")
         return True
-    return False
+    raise NotAvailable("nothing edible carried" + ("" if raw_ok else " (raw meat not allowed: not starving)"))
 
 
 def swimming(state):
