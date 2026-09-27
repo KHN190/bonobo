@@ -69,8 +69,7 @@ def plot_commands(centre, hoe, region=None):
     below = add(centre, (0, -1, 0))
     out = []
     if name(centre) not in ("water", "air"):
-        out.append({"type": "mine", "x": centre[0], "y": centre[1], "z": centre[2], "collect": False,
-                    "requireDrops": False})
+        out.append(nav.mine_task(centre))
     if name(centre) != "water":
         out.append(use_on_top("minecraft:water_bucket", below))
     for dx, dz in RING:
