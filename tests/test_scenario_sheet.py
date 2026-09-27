@@ -900,6 +900,34 @@ class KitRule(unittest.TestCase):
         self.assertNotIn(core.BEST_TOOLS["pickaxe"], sc.SCENARIOS["tool_tier__one_use"]["setup"])
 
 
+class SetupReplies(unittest.TestCase):
+    """bench.core.chat_lines / runner.difficulty_set over one batch's replies: the setup is sent a phase at a time and
+    read once, so the difficulty read-back has to find its line among the others."""
+
+    def test_chat_lines(self):
+        from bonobo.bench import core
+        rows = [("one chat line", "[12:00:01] [Render thread/INFO]: [CHAT] Set the time to 1000\n", ["Set the time to 1000"]),
+                ("chat among other log lines", "[x] loading chunk\n[y]: [CHAT] Cleared the inventory\n[z] tick\n",
+                 ["Cleared the inventory"]),
+                ("none", "[x] nothing said\n", []),
+                ("several, in order", "a [CHAT] one\nb [CHAT] two\n", ["one", "two"])]
+        for name, text, want in rows:
+            with self.subTest(name):
+                self.assertEqual(core.chat_lines(text), want)
+
+    def test_difficulty_among_a_batch(self):
+        from bonobo.bench import runner
+        batch = ["Cleared the inventory", "Set own game mode to Survival Mode", "The difficulty has been set to normal",
+                 "Gamerule random_tick_speed is now set to: 0"]
+        rows = [("normal asked, normal said", batch, "normal", True),
+                ("peaceful asked, normal said", batch, "peaceful", False),
+                ("already that difficulty", ["The difficulty did not change; it is already set to normal"], "normal", True),
+                ("no difficulty line at all", batch[:2], "normal", False)]
+        for name, lines, want, ok in rows:
+            with self.subTest(name):
+                self.assertIs(runner.difficulty_set(lines, want), ok)
+
+
 class TwoSites(unittest.TestCase):
     """The next row's world is built at site B while a row runs at A (bench.core classify / shift / split_setup)."""
 

@@ -603,22 +603,20 @@ def _setup(name, sc, feedback):
                 raise SetupInvalid(f"{t}: {n} on the server, expected ≥ {want}")
         return
 
-    # Empty bag first: a water bucket left from the previous scenario made any setup drop a water clutch trigger.
-    for cmd in ("clear @p", "gamemode survival @p", "effect clear @p", "time set day", "weather clear",
-                "gamerule spawn_mobs false", f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"):
-        _checked(ex(cmd), feedback)
-    # Normal unless the row asks: on peaceful every summoned hostile vanished at once ("0 zombie on the server").
-    # The reply is read back: the game said "already set to peaceful" on every row while we believed normal.
+    # The global state in ONE batch, its replies read once (a batch per phase, not a wait per command):
+    # empty bag first (a water bucket left from the previous scenario made any setup drop a water clutch trigger);
+    # normal difficulty unless the row asks (on peaceful every summoned hostile vanished) — its reply read back, the
+    # game said "already set to peaceful" on every row while we believed normal; no chance left in the world (no
+    # random ticks, weather, mob spawns; the clock only where the row needs it) — a rule the game does not know is
+    # a setup failure, never skipped.
     want = difficulty_of(sc)
-    said = _command(ex(f"difficulty {want}"), feedback)
+    said = _batch([ex(c) for c in ("clear @p", "gamemode survival @p", "effect clear @p", "time set day",
+                                   "weather clear", "gamerule spawn_mobs false",
+                                   f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}", f"difficulty {want}",
+                                   "gamerule random_tick_speed 0", "gamerule advance_weather false",
+                                   f"gamerule advance_time {'true' if needs_clock(sc) else 'false'}")], feedback)
     if not difficulty_set(said, want):
-        raise SetupInvalid(f"difficulty not {want}: {said[:1]}")
-    # No chance left in the world: no random ticks (leaf decay, crop growth, fire), no weather, no mob spawns, and
-    # the clock only where the row needs it (sleep, a night). 1.21.11 names (snake_case, read from the game jar);
-    # checked: a rule the game does not know is a setup failure, never skipped.
-    for cmd in ("gamerule random_tick_speed 0", "gamerule advance_weather false", "gamerule spawn_mobs false",
-                f"gamerule advance_time {'true' if needs_clock(sc) else 'false'}"):
-        _checked(ex(cmd), feedback)
+        raise SetupInvalid(f"difficulty not {want}: {[l for l in said if 'ifficulty' in l][:1] or said[:1]}")
     # Wait until the box's chunks are really loaded: a 1-block fill answers "not loaded" until then.
     probe = _c(at(0, BOX[1][1], 0))
     for _ in range(60):
@@ -629,13 +627,13 @@ def _setup(name, sc, feedback):
         raise SetupInvalid("scenario chunks never loaded")
     # Wait above the box on a glass block: no fall while the box is rebuilt (a fall fired the water clutch).
     glass = _c(at(0, BOX[1][1] + 2, 0))
-    _checked(ex(f"fill {glass} {glass} glass"), feedback)   # setblock errors when it's already glass; fill doesn't
-    _checked(ex(f"tp @p {_c(at(0, BOX[1][1] + 3, 0))}"), feedback)
+    # The waiting glass (fill: setblock errors when it's already glass), the body onto it, the previous row's mobs
+    # ("No entity was found" is fine) — one batch.
+    _batch([ex(f"fill {glass} {glass} glass"), ex(f"tp @p {_c(at(0, BOX[1][1] + 3, 0))}"),
+            ex(f"kill @e[type=!player,x={lo[0]},y={lo[1]},z={lo[2]},dx={hi[0] - lo[0]},dy={hi[1] - lo[1] + 6},"
+               f"dz={hi[2] - lo[2]}]")], feedback)
     if moved:
         time.sleep(3)            # the client loads the new dimension
-    # Mobs of the previous scenario ("No entity was found" is fine).
-    _command(ex(f"kill @e[type=!player,x={lo[0]},y={lo[1]},z={lo[2]},dx={hi[0] - lo[0]},dy={hi[1] - lo[1] + 6},"
-                f"dz={hi[2] - lo[2]}]"), feedback)
     # Leftovers of the previous scenario (lava!) go first — up to above the waiting glass: water poured on the glass
     # (y 211, outside the box) kept flowing back into every later setup (cross_lava: 48 water, 9 obsidian).
     # Two fills around the glass layer: removing the glass under the player dropped them for a moment.
@@ -663,18 +661,16 @@ def _setup(name, sc, feedback):
         t_body = time.time()
         _batch([ex(cmd) for cmd in rest], feedback)
     SETUP_S["body_s"] = round(time.time() - t_body, 2)
-    # The waiting glass must go once we're down: a 30-block fall landed on it 18 blocks early (water_clutch, hp 5).
-    _checked(ex(f"fill {glass} {glass} air"), feedback)
-    _command(ex("kill @e[type=item]"), feedback)
-    for cmd in body_reset(sc):
-        _checked(ex(cmd), feedback)
+    # The waiting glass gone once we're down (a 30-block fall landed on it 18 blocks early: water_clutch, hp 5), the
+    # setup's drops, the body reset — one batch.
+    _batch([ex(f"fill {glass} {glass} air"), ex("kill @e[type=item]")] + [ex(c) for c in body_reset(sc)], feedback)
     # The client sees the build a moment after the server made it (the first row, just teleported in, read 0 of 3
     # furnaces once): read again until the expectation holds, then judge.
-    for _ in range(10):
-        time.sleep(0.5)
-        bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", []))
+    for i in range(10):
+        bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", [])) if sc.get("expect") else []
         if not bad:
             break
+        time.sleep(0.5)          # read again only when it did not hold yet (a fixed 0.5 s first cost every row)
     for _ in range(12):          # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
         # Count on the server: the client's entity list missed a summoned ghast 18 blocks away ("seen: nothing").
         ents = [f"{t}: {n} on the server, expected ≥ {want}" for t, want in sc.get("expect_entities", [])
@@ -685,7 +681,7 @@ def _setup(name, sc, feedback):
             break
         if s.get("health", 0) < 18:
             _command(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
-        time.sleep(0.5)
+        time.sleep(0.25)
     bad += ents
     if bad:
         raise SetupInvalid("; ".join(bad))

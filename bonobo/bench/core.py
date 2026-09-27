@@ -247,44 +247,52 @@ def _chat_log():
     return os.path.join(api.INSTANCE, "logs", "latest.log")
 
 
-def _command(cmd, feedback, timeout=2.0):
-    """Send one command and wait for its chat feedback in the client log; returns the new chat lines."""
-    from .. import api
-    with CHAT_LOCK:
-        path = _chat_log()
-        size = os.path.getsize(path)
-        api.post("/chat", {"message": "/" + cmd})
-        t0, lines = time.time(), []
-        while time.time() - t0 < timeout:
-            time.sleep(0.15)
-            with open(path, "rb") as f:
-                f.seek(size)
-                new = f.read().decode(errors="replace")
-            lines = [l.split("[CHAT] ", 1)[1] for l in new.splitlines() if "[CHAT] " in l]
-            if lines:
-                break
-    feedback.append({"cmd": cmd, "reply": lines})
-    return lines
+REPLY_WAIT_S = 0.6        # the most a batch waits for its replies (they come within ~0.3 s; a silent one never)
+REPLY_POLL_S = 0.05
 
 
-def _batch(cmds, feedback, settle=0.6):
-    """Send commands back to back, then read all their chat replies at once; any error line fails the setup."""
+def chat_lines(text):
+    """Pure: the chat lines in a stretch of the client log (what follows "[CHAT] ")."""
+    return [l.split("[CHAT] ", 1)[1] for l in text.splitlines() if "[CHAT] " in l]
+
+
+def _send(cmds, expect, wait):
+    """Send `cmds` back to back and read the log until `expect` chat lines came back, or `wait` seconds. One settle
+    for the lot: a fixed 2 s per silent command, one at a time, was ~10 s of every row (116 waits in 2 rows)."""
     from .. import api
     with CHAT_LOCK:
         path = _chat_log()
         size = os.path.getsize(path)
         for cmd in cmds:
             api.post("/chat", {"message": "/" + cmd})
-        time.sleep(settle)
-        with open(path, "rb") as f:
-            f.seek(size)
-            lines = [l.split("[CHAT] ", 1)[1] for l in f.read().decode(errors="replace").splitlines()
-                     if "[CHAT] " in l]
-    feedback.append({"cmd": f"batch of {len(cmds)}", "cmds": cmds, "reply": lines})
+        t0, lines = time.time(), []
+        while time.time() - t0 < wait:
+            time.sleep(REPLY_POLL_S)
+            with open(path, "rb") as f:
+                f.seek(size)
+                lines = chat_lines(f.read().decode(errors="replace"))
+            if len(lines) >= expect:
+                break
+    return lines
+
+
+def _command(cmd, feedback, timeout=REPLY_WAIT_S):
+    """Send one command and wait for its chat feedback in the client log; returns the new chat lines."""
+    lines = _send([cmd], 1, timeout)
+    feedback.append({"cmd": cmd, "reply": lines})
+    return lines
+
+
+def _batch(cmds, feedback, settle=REPLY_WAIT_S):
+    """Send commands back to back, then read all their chat replies at once (until one per command came back, or
+    `settle`); any error line fails the setup. Returns the replies."""
+    lines = _send(list(cmds), len(cmds), settle) if cmds else []
+    feedback.append({"cmd": f"batch of {len(cmds)}", "cmds": list(cmds), "reply": lines})
     from .runner import feedback_errors      # runner imports core: ask for it when needed, not at import time
     bad = feedback_errors(lines)
     if bad:
         raise SetupInvalid(f"setup batch → {bad[0]}")
+    return lines
 
 
 def _checked(cmd, feedback):
