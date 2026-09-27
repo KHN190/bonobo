@@ -153,19 +153,21 @@ SCENARIOS.update({
         "budget": 60,
     },
     "activate_end_portal": {
-        "doc": "A stronghold portal ring of 12 empty frames, 12 eyes of ender → an open end portal.",
+        # 9 frames already hold their eye (a room found part-filled, as real ones are): the three on our side are
+        # the job, so the row fits 30 s and still ends in the portal opening.
+        "doc": "A stronghold portal ring, 9 frames with eyes and the 3 nearest empty, 3 eyes of ender → an open end portal.",
         "module": "end",
         "setup": [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone_bricks",
                   f"fill {_c(at(-1, 0, -2))} {_c(at(1, 0, -2))} end_portal_frame[facing=south]",
-                  f"fill {_c(at(-1, 0, 2))} {_c(at(1, 0, 2))} end_portal_frame[facing=north]",
-                  f"fill {_c(at(-2, 0, -1))} {_c(at(-2, 0, 1))} end_portal_frame[facing=east]",
-                  f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} end_portal_frame[facing=west]",
+                  f"fill {_c(at(-1, 0, 2))} {_c(at(1, 0, 2))} end_portal_frame[facing=north,eye=true]",
+                  f"fill {_c(at(-2, 0, -1))} {_c(at(-2, 0, 1))} end_portal_frame[facing=east,eye=true]",
+                  f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} end_portal_frame[facing=west,eye=true]",
                   f"fill {_c(at(-1, -1, -1))} {_c(at(1, -1, 1))} lava",
-                  f"tp @p {_c(at(0, 0, -5))}", "clear @p", "give @p ender_eye 12"],
+                  f"tp @p {_c(at(0, 0, -5))}", "clear @p", "give @p ender_eye 3"],
         "expect": [(at(-2, 0, -2), at(2, 0, 2), "end_portal_frame", 12, 12)],
         "run": lambda ctx: _drain(__import__("bonobo.end", fromlist=["activate_end_portal"]).activate_end_portal(ctx)),
         "check": lambda api, inv: _count_blocks(api, at(-1, 0, -1), at(1, 0, 1), "end_portal") == 9,
-        "budget": 45,
+        "budget": 30,
     },
     "enter_end": {
         "doc": "An open end portal in a stronghold room → jump in and arrive in the End.",
@@ -982,16 +984,29 @@ def _summon_perched_dragon(phase=6):
     return before
 
 
+def _worn_perched_dragon(ctx, _perch=_summon_perched_dragon(6)):
+    """The fight's last phase, built: the dragon on the pillar, crystals gone, 8 hp (WORN_DRAGON). Waiting for a
+    free-flying dragon to come down was most of a 60 s row; the crystals have their own row (break_caged_crystal).
+    Plain chaining: `_hooks` is defined further down."""
+    _perch(ctx)
+    _wear_dragon(ctx)
+
+
+SCENARIOS["fight_dragon"].update(
+    doc="The End's main island, the dragon perched and worn (crystals gone, 8 hp), diamond sword, shield, iron "
+        "armour, food, blocks → dragon dead.",
+    setup=[c for c in SCENARIOS["fight_dragon"]["setup"] if not c.startswith(("kill ", "summon ", "spreadplayers "))],
+    before=_worn_perched_dragon, budget=30)
+
 SCENARIOS["bed_bomb_kill"] = {
-    "doc": "Speedrun End kit, a fresh dragon → dead by bed bombs (release check: the whole fight).",
+    "doc": "Speedrun End kit, the dragon perched and worn (crystals gone, 8 hp) → dead by a bed bomb.",
     "module": "end", "raw": True, "combat": True, "dimension": "minecraft:the_end", "release": True,
-    "setup": ["spreadplayers 0 0 8 12 false @p", *SPEEDRUN_END_KIT],
-    # free-flying, worn: one or two bombs left (plain chaining: `_hooks` is defined further down)
-    "before": lambda ctx, _f=_summon_perched_dragon(0): (_f(ctx), _wear_dragon(ctx))[1],
+    "setup": list(SPEEDRUN_END_KIT),
+    "before": _worn_perched_dragon,
     # The driver, not the old single skill: crystals → pit → perch → one bomb → pit.
     "run": lambda ctx: __import__("bonobo.end", fromlist=["slay_dragon"]).slay_dragon(ctx),
     "check": lambda api, inv: _dragon_health() is None and not api.get("/state")["dead"],
-    "budget": 60,
+    "budget": 30,
 }
 
 for _name, _tags in {
@@ -2391,8 +2406,10 @@ def _queue(goal):
 
 # -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
 SHEET["portal_from_cast"] = {
+    # The plan's choice is under test, not the whole cast (cast_portal is that row): cut at the second obsidian
+    # cell cast from the pool — none is carried, so obsidian in the box is the plan casting — to fit 30 s.
     "doc": "The queue asks for a portal: no obsidian, no diamond pickaxe, buckets, blocks and flint, a lava pool "
-           "memory knows 3 blocks off → the plan casts it in place, and it is lit",
+           "memory knows 3 blocks off → the plan casts it in place (two frame cells cast)",
     "module": "decompose", "point": "C", "skills": ["cast:nether_portal"], "tier_fixed": "exception",
     "tags": {"base": "sources"},
     "setup": list(SCENARIOS["cast_portal"]["setup"]),
@@ -2400,10 +2417,10 @@ SHEET["portal_from_cast"] = {
     "before": _hooks(_start("portal_from_cast"),
                      lambda ctx: ctx.mem.note_seen("lava", at(3, -1, 0), "minecraft:overworld"),
                      _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
-    "run": _brain_rounds(60, lambda: bool(__import__("bonobo.world", fromlist=["find"]).find(
-        ["nether_portal"], radius=12, limit=1))),
-    "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
-    "budget": 60,
+    "run": _brain_rounds(25, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "obsidian") >= 2),
+    "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "obsidian") >= 2
+    and not inv.count("minecraft:obsidian"),
+    "budget": 30,
 }
 SHEET["pearls_from_barter"] = {
     "doc": "In the Nether, 2 gold ingots and a gold helmet, piglins 4 blocks off, no enderman → the plan barters",
