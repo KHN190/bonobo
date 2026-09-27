@@ -525,3 +525,9 @@ class WaitsCounted(unittest.TestCase):
                 for k in kinds:
                     arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k))
                 self.assertEqual(arbiter.waits(picks), want)
+
+
+def tearDownModule():
+    """A preemption here sets api.INTERRUPT (arbiter.Motion.preempt): it must not leak into the next module's skills
+    (test_skill_contract's runner raised Interrupted("lava") when run after this one)."""
+    api.INTERRUPT = None
