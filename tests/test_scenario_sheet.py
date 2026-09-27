@@ -116,17 +116,23 @@ class EverySkillIsProven(unittest.TestCase):
                 self.assertEqual(len(allowed) <= CEILING, True, f"{len(allowed)} over the ceiling {CEILING}")
 
 
-class TheCrossProductIsWhole(unittest.TestCase):
+class TheCoverIsWhole(unittest.TestCase):
+    """The sheet runs `cover`'s pairs, not the product: every base alone, every condition at least once, every base
+    of an axis at least once in it — each such row present and tagged with its condition."""
+
     def test_every_base_and_condition(self):
         for base in sc.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", sc.SHEET)
+        pairs = sc.cover(sc.CONDITIONS, sc.BASES, [("night", "chop")])
         for cond, spec in sc.CONDITIONS.items():
-            self.assertTrue(spec["bases"] <= set(sc.BASES), cond)
-            for base in spec["bases"]:
-                with self.subTest(condition=cond, base=base):
-                    row = sc.SHEET[f"{base}__{cond}"]
-                    self.assertEqual(row["tags"][spec["axis"]], cond)
+            self.assertEqual(spec["bases"] - set(sc.BASES), set(), cond)
+            with self.subTest(condition=cond):
+                self.assertIn(cond, {c for c, _b in pairs})
+        for cond, base in pairs:
+            with self.subTest(condition=cond, base=base):
+                row = sc.SHEET[f"{base}__{cond}"]
+                self.assertEqual(row["tags"][sc.CONDITIONS[cond]["axis"]], cond)
         for surprise in sc.SURPRISES:
             with self.subTest(surprise=surprise):
                 self.assertIn(surprise, sc.SHEET)
@@ -425,7 +431,10 @@ class Cover(unittest.TestCase):
             ("a pinned pair stays even when it adds little", A, "ab", [("x", "b")], [("x", "a"), ("x", "b"), ("y", "b")]),
             ("no condition applies: nothing", {"x": {"axis": "t", "bases": set()}}, "ab", (), []),
             ("a pinned pair that is not applicable is dropped", {"x": A["x"]}, "ab", [("x", "c")],
-             [("x", "a"), ("x", "b")])]
+             [("x", "a"), ("x", "b")]),
+            ("a must-fail condition: every base it applies to keeps its control",
+             {"x": A["x"], "f": {"axis": "t", "bases": {"a", "b"}, "fails": "full"}}, "ab", (),
+             [("x", "b"), ("f", "a"), ("f", "b")])]
 
     def test_cover(self):
         for name, conds, bases, pinned, want in self.ROWS:
@@ -548,7 +557,8 @@ class TimeoutSticks(unittest.TestCase):
 
 
 class BrainGrid(unittest.TestCase):
-    """The brain tier's families: cells from the fight sheet's walker, each family ≥ 4 cells and ≥ 2 expectations
+    """The brain tier's families: cells from the fight sheet's walker, each family ≥ 2 cells (the base and one value
+    off it; combinations are the arbiter's offline table) and ≥ 2 expectations
     (the decision and its boundary or must-not), every cell ≤ 60 s."""
 
     def test_families(self):
@@ -558,7 +568,7 @@ class BrainGrid(unittest.TestCase):
                 whys = {rule(c)[1] for c in grid}
                 cells = sc._grid_cells()
                 names = [sc.grid_name(cells[tuple(c[d] for d in sc.BRAIN_DIMS)]["families"], c) for c in grid]
-                self.assertEqual((len(grid) >= 4, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
+                self.assertEqual((len(grid) >= 2, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
                 self.assertEqual([n for n in names if sc.SHEET[n]["budget"] > 60 or sc.tier_of(n, sc.SHEET[n]) != "brain"],
                                  [])
 

@@ -1956,11 +1956,14 @@ for _base in BASES:
 def cover(conditions, bases, pinned=()):
     """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product. Every condition appears,
     and within each axis every base it applies to appears (the pairs that differ: one condition per base per axis,
-    one base per condition), greedily, most new coverage first, ties in table order. `pinned` pairs are kept."""
+    one base per condition), and every base that has a must-fail condition keeps one (its control), greedily, most
+    new coverage first, ties in table order. `pinned` pairs are kept."""
     order = list(bases)
     pairs = [(c, b) for c, v in conditions.items() for b in order if b in v["bases"]]
+    must = lambda c, b: {("must", b)} if conditions[c].get("fails") else set()     # noqa: E731
     need = {("cond", c) for c, _b in pairs} | {("axis", conditions[c]["axis"], b) for c, b in pairs}
-    new = lambda p: {("cond", p[0]), ("axis", conditions[p[0]]["axis"], p[1])} & need   # noqa: E731
+    need |= {m for c, b in pairs for m in must(c, b)}
+    new = lambda p: ({("cond", p[0]), ("axis", conditions[p[0]]["axis"], p[1])} | must(*p)) & need   # noqa: E731
     out = [p for p in pairs if p in set(pinned)]
     for p in out:
         need -= new(p)

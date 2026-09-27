@@ -966,9 +966,6 @@ def edible_carried(inv):
     return any(inv.count(f) for f in ALL_FOOD + RAW_MEAT)
 
 
-@skill(start=lambda c: api.get("/state")["food"],
-       verify=lambda c: api.get("/state")["food"] > c.base, budget=30, stall=30,
-       provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def bites_to_full(food, carried, raw_ok=False):
     """Pure: (item, bites) — what to eat to fill the bar from `food` points, and how many bites of it: the item whose
     restore fits the gap best (the biggest that does not overflow, else the smallest that does), raw meat only when
@@ -984,6 +981,9 @@ def bites_to_full(food, carried, raw_ok=False):
     return item, math.ceil(gap / points(item))
 
 
+@skill(start=lambda c: api.get("/state")["food"],
+       verify=lambda c: api.get("/state")["food"] > c.base, budget=30, stall=30,
+       provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
     """Eat one bite of the food that best fits the gap to a full bar (`bites_to_full`; raw meat too when starving).
     Returns False when the bar is already full."""

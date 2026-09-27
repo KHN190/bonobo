@@ -203,6 +203,7 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
         inv = type("Inv", (), {"count": lambda self, item: 1})
         with mock.patch.object(skills.time, "time", side_effect=[1000.0, 1000.0 + took]), \
                 mock.patch.object(skills, "Inventory", inv), \
+                mock.patch.object(skills.api, "get", return_value={"food": 0}), \
                 mock.patch.object(skills.api, "run", return_value={"status": "succeeded"}) as run:
             self.assertIs(skills.eat.__wrapped__(None, raw_ok=False), True)
             run.assert_called_once_with({"type": "eat", "item": ALL_FOOD[0]}, wait=30)
