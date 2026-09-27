@@ -271,7 +271,8 @@ def _fight(option, state):
 
 def _evade(option, state):
     x, y, z = option.target
-    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": True, "place": True,
+    brk, plc = nav.MOVES["evade"]                  # getting away never breaks a wall or builds (nav.MOVES)
+    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": brk, "place": plc,
              "placeBudget": int(state["inv"].count("building")), "avoid": []}]
 
 

@@ -66,7 +66,7 @@ def explore_for(ctx, types, legs=6, leg=40):
                 yield None
                 continue
             ty = ground
-        nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1)   # travel: one movement mechanism
+        nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")   # looking: walk, never dig
         found = entities(64, types)
         if found:
             e = found[0]
@@ -107,7 +107,7 @@ def seek_blocks(ctx, blocks, legs=6, leg=40):
                 continue
             ty = ground
         log(f"   looking for {bare(blocks[0])}: heading toward ({tx}, {tz})")
-        nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1)
+        nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")
         x, y, z = feet()
         yield (x, z)
     hits = find(blocks, radius=48, limit=5)

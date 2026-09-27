@@ -122,7 +122,8 @@ def find_fortress(ctx, legs=8, leg=48):
         dx, dz = [(1, 0), (0, 1), (-1, 0), (0, -1)][i % 4]
         length = leg * (i // 2 + 1)
         # Legs at y≈70: above the lava sea (y 31) and below most ceilings; travel bridges and tunnels as needed.
-        nav.go_to((x + dx * length, EXPLORE_Y, z + dz * length), ctx.policy, range_=8, attempts=1)
+        nav.go_to((x + dx * length, EXPLORE_Y, z + dz * length), ctx.policy, range_=8, attempts=1,
+                  purpose="explore")
         x, y, z = nav.feet_now()
         yield (x, z)
     # Out of legs (or supplies): go back to the arrival portal instead of wandering further from home.

@@ -286,9 +286,9 @@ class EachAnswerIsABatch(unittest.TestCase):
                 "threats": [row("minecraft:zombie", 5, 0)]}
 
     ROWS = [("fight: attack the target", ("fight", 42), {}, [{"type": "attack", "entity": 42}]),
-            ("evade: travel there, bridging with what we carry", ("evade", (-16, 64, 0)),
+            ("evade: travel there, never breaking or building (nav.MOVES)", ("evade", (-16, 64, 0)),
              {"counts": {"building": 12}},
-             [{"type": "travel", "x": -16, "y": 64, "z": 0, "range": 3, "break": True, "place": True,
+             [{"type": "travel", "x": -16, "y": 64, "z": 0, "range": 3, "break": False, "place": False,
                "placeBudget": 12, "avoid": []}]),
             ("eat the first food carried", ("eat",), {"counts": {"minecraft:cooked_beef": 3}},
              [{"type": "eat", "item": "minecraft:cooked_beef"}]),

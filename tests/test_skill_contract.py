@@ -227,6 +227,20 @@ AVOID = [("our wall on the straight line to the ore: it goes with the mine, the 
 
 
 class Arrive(_Clean):
+    def test_what_a_walk_may_do(self):
+        """nav.may_alter: a walk to work digs and bridges (as the round allows); looking around or getting away
+        never breaks or builds (through the arena's glass, off the sky platform)."""
+        P = nav.Policy
+        rows = [("to work, the round allows digging", "work", P(allow_dig=True), (True, True)),
+                ("to work, no pickaxe policy (no digging)", "work", P(allow_dig=False), (False, True)),
+                ("exploring", "explore", P(allow_dig=True), (False, False)),
+                ("evading", "evade", P(allow_dig=True), (False, False))]
+        for name, purpose, policy, want in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.may_alter(purpose, policy), want)
+        with self.assertRaises(KeyError):
+            nav.may_alter("wander", P())
+
     def test_avoid_over_the_table(self):
         for name, task, protected, want in AVOID:
             with self.subTest(name):

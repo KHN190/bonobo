@@ -224,7 +224,19 @@ def walked_closer(start, here, target):
     return math.dist(start, target) - math.dist(here, target) >= PROGRESS_BLOCKS
 
 
-def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards=True):
+# What a walk may do to the world, by why we walk: (break, place). A trip to work (a vein, a trunk, out of a cave)
+# digs and bridges its way; a walk to look around or to get away never breaks or builds — an explore leg went
+# through the arena's glass and off the sky platform, an evade through the wall. The one table for every walk.
+MOVES = {"work": (True, True), "explore": (False, False), "evade": (False, False)}
+
+
+def may_alter(purpose, policy):
+    """Pure: (may break, may place) for a walk made for `purpose`, within what the round's policy allows."""
+    brk, plc = MOVES[purpose]
+    return brk and bool(getattr(policy, "allow_dig", True)), plc and bool(getattr(policy, "allow_build", True))
+
+
+def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards=True, purpose="work"):
     """Walk; when the walker can't get there, build/dig a route toward the target.
 
     `min_hp` aborts the walk when health drops below it. It defaults to a real value because it used to
@@ -259,7 +271,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
             known = ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], [])
             for wp in roads.route(known, here, pos)[:-1]:
                 t0 = time.time()
-                if not moved(go_to(wp, policy, range_=6, attempts=1)):
+                if not moved(go_to(wp, policy, range_=6, attempts=1, purpose=purpose)):
                     break
                 roads.add_leg(known, here, feet_now(), time.time() - t0, time.time())
                 here = feet_now()
@@ -275,7 +287,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 if min_hp is not None and api.get("/state")["health"] < min_hp:
                     log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
                     return False
-                if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp)):
+                if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp, purpose=purpose)):
                     # This hop got nowhere. The trip is not over unless we are no nearer than when it started:
                     # the caller asked for the far end, and the next round carries on from wherever we stand.
                     return _arrived(_from, pos, _began, False,
@@ -295,6 +307,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         budget = place_budget(Inventory().count("building"))
         avoid = avoid_cells(policy.protected, here, pos)
         grounded = False
+        brk, plc = may_alter(purpose, policy)
         # A journey is made of LEGS. The mod walks until the ground, the pickaxe or its own search budget runs
         # out, then stops at the closest point it could reach and says "target unreachable". Read as a failure,
         # that put a two-minute cooldown on every far or deep target and none of them ever finished — though
@@ -303,7 +316,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         for _ in range(max(attempts, LEGS)):
             was = feet_now()
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                         "break": policy.allow_dig, "place": policy.allow_build, "placeBudget": budget,
+                         "break": brk, "place": plc, "placeBudget": budget,
                          "avoid": avoid}, wait=900)
             if there(api.get("/state"), pos, range_):
                 return _arrived(_from, pos, _began, True)
@@ -323,7 +336,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                     log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
                     pos = (pos[0], fy, pos[2])
                     api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                             "break": policy.allow_dig, "place": policy.allow_build, "placeBudget": budget,
+                             "break": brk, "place": plc, "placeBudget": budget,
                              "avoid": avoid}, wait=900)
                     if there(api.get("/state"), pos, range_):
                         return _arrived(_from, pos, _began, True)

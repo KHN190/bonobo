@@ -256,11 +256,11 @@ def _flat():
 ZOMBIE_EAST = [((5.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie", 1.0, 3.0)]
 BATCHES = [
     ("fight: attack that entity", Decision("fight", 42), fight_body(), [{"type": "attack", "entity": 42}]),
-    ("evade with blocks to bridge", Decision("evade", (10, 64, 0)), fight_body(_inv(cobblestone=8)),
-     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3, "break": True, "place": True, "placeBudget": 8,
+    ("evade with blocks: still a walk, nothing broken or built (nav.MOVES)", Decision("evade", (10, 64, 0)), fight_body(_inv(cobblestone=8)),
+     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3, "break": False, "place": False, "placeBudget": 8,
        "avoid": []}]),
     ("evade with nothing to place", Decision("evade", (10, 64, 0)), fight_body(),
-     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3, "break": True, "place": True, "placeBudget": 0,
+     [{"type": "travel", "x": 10, "y": 64, "z": 0, "range": 3, "break": False, "place": False, "placeBudget": 0,
        "avoid": []}]),
     ("eat: a cooked meal first", Decision("eat", None), fight_body(_inv(beef=2, cooked_beef=1)),
      [{"type": "eat", "item": "minecraft:cooked_beef"}]),
