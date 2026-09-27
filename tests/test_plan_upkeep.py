@@ -2527,3 +2527,20 @@ class FoodOnItsWay(unittest.TestCase):
                 b.needs.cost = lambda _s: c
                 b.needs.propose(snap, None, reads={"enclosed": False, "bed_near": False, "soft_ground": False})
                 self.assertEqual(any(k == "food stock" for k, _g, _w in b.needs.needs_now), want)
+
+
+class WhatTheFurnaceHolds(unittest.TestCase):
+    """skills.after_take: memory's furnace job after a take — over when nothing cooks, else what it still holds."""
+
+    def test_over_the_table(self):
+        job = {"id": "furnace-1", "item": "minecraft:cooked_beef", "count": 4, "input": "minecraft:beef",
+               "input_count": 4}
+        rows = [("all taken, nothing left cooking: over", 4, 0, None, None),
+                ("2 taken, 2 still in the input: holds 2, ready in 25 s", 2, 2, 1000, {"count": 2, "input_count": 2,
+                                                                                    "ready_at": 25.0,
+                                                                                    "ready_tick": 1000 + 420}),
+                ("nothing out yet, all 4 cooking", 0, 4, None, {"count": 4, "input_count": 4, "ready_at": 45.0}),
+                ("more taken than listed: never below 0", 6, 1, None, {"count": 0, "input_count": 1, "ready_at": 15.0})]
+        for name, got, cooking, tick, want in rows:
+            with self.subTest(name):
+                self.assertEqual(skills.after_take(job, got, cooking, 0.0, tick), want)

@@ -2761,12 +2761,29 @@ def _log_order(first, then):
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 
-def _furnace_lit(radius=16):
-    """A furnace within `radius` is lit (its block state), read from the world."""
-    from .world import Region, find
+def furnace_slots(reply):
+    """Pure: {slot: (item id, count)} from the game's answer to `data get block <pos> Items`
+    ("… has the following block data: [{Slot: 0b, id: "minecraft:beef", count: 2}, …]"). Slot 0 is the input,
+    1 the fuel, 2 the output. {} when it holds nothing (or said something else)."""
+    import re
+    text = " ".join(reply)
+    out = {}
+    for entry in re.findall(r"\{([^{}]*)\}", text):
+        slot = re.search(r"Slot:\s*(\d+)b", entry)
+        item = re.search(r'id:\s*"([^"]+)"', entry)
+        count = re.search(r"count:\s*(\d+)", entry)
+        if slot and item:
+            out[int(slot.group(1))] = (item.group(1), int(count.group(1)) if count else 1)
+    return out
+
+
+def _furnace_holds(items, radius=16):
+    """A furnace near holds one of `items` in its input or output slot, read from the world (the console's
+    `data get block … Items`): what is in the furnace, not whether it is lit."""
+    from .world import find
     for h in find(["furnace"], radius=radius, limit=8):
-        p = (h["x"], h["y"], h["z"])
-        if str(Region(p, p, props=True).prop(p, "lit")).lower() == "true":
+        slots = furnace_slots(_command(f"data get block {h['x']} {h['y']} {h['z']} Items", []))
+        if any(slots.get(s, ("", 0))[0] in items for s in (0, 2)):
             return True
     return False
 
@@ -2789,14 +2806,10 @@ def _first_times(ctx):
                 for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
                     if tok not in FIRST and inv.count(tok) > _base_count(tok):
                         FIRST[tok] = time.time() - t0
-            # Something cooking, read from the world: raw beef gone from the bag ("-beef") and a furnace lit near us
-            # ("furnace_lit", its block state). The jar cannot read a furnace's slots without opening it (/container
-            # is the open screen only), so the lit state stands for its contents: the only smeltable in the kit.
+            # Beef in a furnace (raw in the input or cooked in the output), read from the world: `data get block`.
             try:
-                if "-beef" not in FIRST and inv.count("minecraft:beef") < _base_count("minecraft:beef"):
-                    FIRST["-beef"] = time.time() - t0
-                if "furnace_lit" not in FIRST and _furnace_lit():
-                    FIRST["furnace_lit"] = time.time() - t0
+                if "furnace_beef" not in FIRST and _furnace_holds(("minecraft:beef", "minecraft:cooked_beef")):
+                    FIRST["furnace_beef"] = time.time() - t0
             except Exception:
                 pass
             time.sleep(0.5)
@@ -3042,11 +3055,10 @@ def _bed_then_log(cell):
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
-        # Food first, judged from the world: the raw beef out of the bag and a furnace lit, both before any log was
-        # gained — or cooked beef in the bag first — and the bar no lower at the end than the drain left it. Logs
-        # first with nothing cooking fails.
-        food_first = lambda api, inv: ((_before_in_bag("-beef", "log")(api, inv)                   # noqa: E731
-                                        and _before_in_bag("furnace_lit", "log")(api, inv))
+        # Food first, judged from the world: a furnace holding the beef (input) or the cooked beef (output) before
+        # any log was gained — or cooked beef in the bag first — and the bar no lower at the end than the drain left
+        # it. Logs first with nothing cooking fails.
+        food_first = lambda api, inv: (_before_in_bag("furnace_beef", "log")(api, inv)             # noqa: E731
                                        or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
         kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
