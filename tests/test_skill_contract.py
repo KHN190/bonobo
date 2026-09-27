@@ -192,6 +192,13 @@ THERE = [("on the platform, the target's cell", (3.5, 201.0, 3.5), (3, 201, 3), 
          ("two cells off at BESIDE: not beside", (5.5, 64.0, 3.5), (3, 64, 3), skills.BESIDE, False),
          ("a point target (an entity's position), exactly there", (10.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, True),
          ("a point target 2 blocks away at range 1", (12.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, False)]
+GROUND = {"onGround": True, "inWater": False, "climbing": False}
+# (situation, what holds the body up, feet y) → there, target (3, 200, 3) at range 0.4 (its cell only)
+AT_REST = [("in the target cell, on the ground", GROUND, 200.0, True),
+           ("in the target cell mid-jump (y 200.18, off the ground)", {**GROUND, "onGround": False}, 200.18, False),
+           ("in the target cell, swimming", {**GROUND, "onGround": False, "inWater": True}, 200.3, True),
+           ("in the target cell, on a ladder", {**GROUND, "onGround": False, "climbing": True}, 200.5, True),
+           ("one cell below, on the ground", GROUND, 199.0, False)]
 
 
 def xyz(*ps):
@@ -236,7 +243,12 @@ class Arrive(_Clean):
     def test_there_over_the_table(self):
         for name, (x, y, z), pos, range_, want in THERE:
             with self.subTest(name):
-                self.assertIs(nav.there({"x": x, "y": y, "z": z}, pos, range_), want)
+                self.assertIs(nav.there({"x": x, "y": y, "z": z, **GROUND}, pos, range_), want)
+
+    def test_there_only_at_rest(self):
+        for name, held, y, want in AT_REST:
+            with self.subTest(name):
+                self.assertIs(nav.there({"x": 3.5, "y": y, "z": 3.5, **held}, (3, 200, 3), 0.4), want)
 
     def test_a_walked_leg_is_not_arrival(self):
         """A leg that gained ground reads False as an answer to "there?" and True to `moved`: no caller can take

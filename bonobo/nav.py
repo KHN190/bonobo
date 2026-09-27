@@ -194,10 +194,18 @@ def there(state, pos, range_):
     (int coordinates: the walker's own test, TravelTask.arrived) or the feet to a point. The one arrival test: what
     the walker answered is not read, only where it left the body (a travel "succeeded" one step below the target;
     a leg that stopped short is not there)."""
+    if not at_rest(state):
+        return False                   # mid-jump over the target cell (y 200.18, off the ground) is not there
     body = (state["x"], state["y"], state["z"])
     if all(isinstance(p, int) for p in pos):
         body = tuple(math.floor(v) for v in body)
     return math.dist(body, pos) <= range_ + ARRIVE_SLACK
+
+
+def at_rest(state):
+    """Pure: the body is held up — on the ground, in water or on a ladder — not in the air. The jar's own arrival
+    condition (GotoTask: onGround or touching water; climbing from 0.1.41)."""
+    return bool(state.get("onGround") or state.get("inWater") or state.get("climbing"))
 
 
 def moved(got):
