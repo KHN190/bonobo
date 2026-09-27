@@ -883,7 +883,8 @@ from bonobo import arbiter as _arb  # noqa: E402
 _mk = lambda k: _arb.Intent("plan", lambda: None, k, at=0.0, kind=k)       # noqa: E731
 for _name, _chosen, _want in [("a wait for day chosen: counted", ["wait for day"], 1),
                               ("a task chosen: not a wait", ["queue"], 0),
-                              ("idle stocking twice and a task", ["idle", "queue", "idle"], 2),
+                              ("idle stocking twice and a task: work, not waits", ["idle", "queue", "idle"], 0),
+                              ("two waits for day beside idle stocking", ["wait for day", "idle", "wait for day"], 2),
                               ("nothing chosen (None): nothing counted", [None], 0),
                               ("no picks at all", [], 0)]:
     _p = _co.Counter()

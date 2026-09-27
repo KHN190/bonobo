@@ -293,7 +293,7 @@ class Invariants(unittest.TestCase):
                                  (None, "live", "stale"))
 
     def test_an_unknown_kind_ranks_after_every_known_one(self):
-        for kind in [k for k in self.KINDS if k not in arbiter.WAIT_KINDS]:     # waiting kinds: `gate`'s table
+        for kind in [k for k in self.KINDS if k not in arbiter.LAST_RESORT]:    # last-resort kinds: `gate`'s table
             with self.subTest(kind):
                 self.assertEqual(chosen([arbiter.Intent("plan", lambda: None, "?", at=0.0, kind="no such kind"),
                                          arbiter.Intent("plan", lambda: None, kind, at=0.0, kind=kind)]), kind)
@@ -506,3 +506,21 @@ class NoStarvation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WaitsCounted(unittest.TestCase):
+    """arbiter.waits: only rounds that did nothing count — idle stocking is work (six bench rows failed on it)."""
+
+    def test_over_the_table(self):
+        import collections
+        rows = [("an idle stocking pick: not a wait", ["idle"], 0),
+                ("a wait-for-day pick: a wait", ["wait for day"], 1),
+                ("a plain wait: a wait", ["wait"], 1),
+                ("the queue five times and idle once: none", ["queue"] * 5 + ["idle"], 0),
+                ("mixed: the two waits only", ["queue", "wait for day", "idle", "wait"], 2)]
+        for name, kinds, want in rows:
+            with self.subTest(name):
+                picks = collections.Counter()
+                for k in kinds:
+                    arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k))
+                self.assertEqual(arbiter.waits(picks), want)

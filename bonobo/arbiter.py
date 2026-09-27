@@ -174,9 +174,11 @@ PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food
               "queue", "night stock", "wait for day", "idle")
 
 
-# Waiting kinds: offered only when nothing else is (`gate`) — a round spent waiting while work was possible is the
-# one waste the bench counts (slice_report's waits).
-WAIT_KINDS = ("wait for day", "idle")
+# Last-resort kinds: offered only when nothing else is (`gate`) — idle stocking and waiting for day.
+LAST_RESORT = ("wait for day", "idle")
+# Waiting kinds: rounds that did nothing (slice_report's waits, the one waste the bench counts). Idle stocking is
+# work — a sword made after the queue ran dry — and counting it failed six rows whose tasks were all done.
+WAIT_KINDS = ("wait for day", "wait")
 
 
 def viable(intent, facts):
@@ -191,7 +193,7 @@ def gate(intents, facts=None):
     """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left. Filters,
     never reorders: the layers and PLAN_ORDER still choose among what passes."""
     live = [i for i in intents if viable(i, facts or {})]
-    work = [i for i in live if not (i.layer == "plan" and i.kind in WAIT_KINDS)]
+    work = [i for i in live if not (i.layer == "plan" and i.kind in LAST_RESORT)]
     return work or live
 
 
