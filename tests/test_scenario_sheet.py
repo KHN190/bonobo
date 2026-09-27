@@ -23,7 +23,7 @@ from bonobo import skill as skillkit  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
 
 # Skills without a real verify (the runner judges them by nothing). May only shrink.
-VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "fight_dragon",
+VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit",
                "shake_enderman", "slay_dragon", "station"}
 # Skills no scenario row proves in the world yet. May only shrink.
 SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "station"}
@@ -204,7 +204,7 @@ class Tiers(unittest.TestCase):
                 self.assertEqual(sc.SCENARIOS[name]["tier"], tier)
 
     def test_no_tier_run_includes_acceptance(self):
-        for tier in ("core", "common", "exception"):
+        for tier in ("core", "common", "brain", "exception"):
             with self.subTest(tier):
                 self.assertNotIn(sc.ACCEPTANCE_D, sc.select(sc.SCENARIOS, tier))
 

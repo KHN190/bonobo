@@ -280,7 +280,7 @@ class Cheaper(unittest.TestCase):
 
     def test_nearer_is_never_dearer(self):
         """The same plan with the trees nearer costs no more (the walk is priced, the work is the same)."""
-        for goal in (PICK1, goals.have(("log", 12))):
+        for goal in (PICK1, goals.have(("log", 12)), goals.have(("log", 1)), goals.have(("log", 4))):
             with self.subTest(goals.describe(goal)):
                 secs = [cost(snapshot(), oak_log=d, stone=3).plan_s(plan(goal, snapshot(), {"oak_log": d, "stone": 3}))
                         for d in (5, 20, 45)]
@@ -426,7 +426,7 @@ class EffectGoals(unittest.TestCase):
             self.assertEqual(str(caught.exception), f"effect {effect} needs {key} in its detail")
 
     def test_effects_nobody_provides(self):
-        for effect in ("teleport", "item:unobtainium", "dragons:breed"):
+        for effect in ("teleport", "item:unobtainium", "dragons:breed", "mine:", "place:nothing"):
             with self.subTest(effect), self.assertRaises(Unplannable):
                 decompose.decompose(snapshot().inv, goals.make("effect", effect=effect), cost())
 
@@ -524,7 +524,8 @@ class CostModel(unittest.TestCase):
 
     def test_measured_replaces_the_prior_after_enough_samples(self):
         step = Step("gather", "log", 2)
-        for samples, measured in ((skillkit.MIN_SAMPLES - 1, False), (skillkit.MIN_SAMPLES, True)):
+        for samples, measured in ((0, False), (skillkit.MIN_SAMPLES - 1, False), (skillkit.MIN_SAMPLES, True),
+                                  (skillkit.MIN_SAMPLES + 5, True)):
             with self.subTest(samples=samples), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
                 for _ in range(samples):
@@ -694,10 +695,15 @@ class Repairs(unittest.TestCase):
 
     def test_run_once_goals_are_done_by_their_plan_not_the_world(self):
         snap = snapshot()
-        for goal in (goals.make("road", a=[0, 64, 0], b=[9, 64, 0]), goals.make("skill", name="chop", args=[1])):
+        # (goal) → done? None: its plan decides; the must-not: an item goal is read off the bag
+        rows = [(goals.make("road", a=[0, 64, 0], b=[9, 64, 0]), None),
+                (goals.make("skill", name="chop", args=[1]), None),
+                (goals.make("effect", effect="mine:minecraft:stone", detail={"pos": [0, 64, 0]}), None),
+                (goals.have(("log", 1)), False)]
+        for goal, want in rows:
             with self.subTest(goal["goal"]):
-                self.assertIn(goal["goal"], goals.RUN_ONCE)
-                self.assertIsNone(goals.done(goal, snap, None))
+                self.assertEqual(goal["goal"] in goals.RUN_ONCE, want is None)
+                self.assertIs(goals.done(goal, snap, None), want)
 
 
 # ----------------------------------------------------------------------------------------------- held plans
@@ -1016,7 +1022,7 @@ def run_upkeep(row, tmp):
         table.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
     c, plan_s = cost(snap, **row.seen), {}
     table.cost = lambda _snap: c                    # the row's readings stand in for /find and /entities
-    for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):
+    for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):     # fixture: the two upkeep prices
         try:
             secs = c.plan_s(decompose.decompose(snap.inv, goal, c))
         except Unplannable:
@@ -1069,7 +1075,7 @@ class Upkeep(unittest.TestCase):
 
     def test_lead_moves_the_verdict(self):
         """The same dusk, the same bag: a longer lead inserts the bed, a shorter one does not."""
-        for lead, want in ((0.1, set()), (50.0, {(("bed", 1),)})):
+        for lead, want in ((0.0, set()), (0.1, set()), (50.0, {(("bed", 1),)}), (1000.0, {(("bed", 1),)})):
             row = Row(f"lead {lead}", None, time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)])
             with self.subTest(lead=lead), tempfile.TemporaryDirectory() as tmp, mock.patch.object(upkeep, "LEAD", lead):
                 _, queued, _ = run_upkeep(row, tmp)
@@ -1539,7 +1545,9 @@ class Queue(unittest.TestCase):
     def test_bad_input_is_refused(self):
         for name, call in (("unknown state", lambda p: tasks.mark("t1", "paused", path=p)),
                            ("unknown template", lambda p: goals.make("teleport")),
-                           ("unknown milestone", lambda p: goals.make("milestone", name="win"))):
+                           ("unknown milestone", lambda p: goals.make("milestone", name="win")),
+                           ("empty milestone name", lambda p: goals.make("milestone", name="")),
+                           ("made-up task state", lambda p: tasks.mark("t1", "bogus", path=p))):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 path = os.path.join(tmp, "tasks.json")
                 tasks.add(G1, path=path)
@@ -1585,7 +1593,9 @@ class NightPick(unittest.TestCase):
     def test_night_stock_plans_under_cover(self):
         """The ore the night digs for plans, from a stone pickaxe in a dark hole, as work NIGHT_WORK allows first."""
         for bag_, want in (([("stone_pickaxe", 1)], ["mine"]),
-                           ([("iron_pickaxe", 1), ("minecraft:raw_iron", 16)], ["mine"])):
+                           ([("stone_pickaxe", 1), ("minecraft:raw_iron", 15)], ["mine"]),     # one short
+                           ([("iron_pickaxe", 1), ("minecraft:raw_iron", 16)], ["mine"]),      # then diamonds
+                           ([("diamond_pickaxe", 1)], ["mine"])):
             with self.subTest(bag=bag_), tempfile.TemporaryDirectory() as tmp:
                 snap = snapshot(state(timeOfDay=NIGHT, skyLight=0, y=20.0), inventory(*bag_))
                 needs = next(n for n in goals.NIGHT_STOCK if goals.short(snap.inv, [tuple(x) for x in n]))
@@ -1675,8 +1685,16 @@ class WaterBucketBeforeAFall(unittest.TestCase):
         snap = snapshot(inv=inventory())
         steps = decompose.decompose(snap.inv, goals.have(("minecraft:water_bucket", 1)), cost(snap))
         got = [(s.kind, s.token) for s in steps]
-        for step in (("mine", "minecraft:raw_iron"), ("craft", "minecraft:bucket")):
-            self.assertIn(step, got)
+        # (step) → in the plan? — the iron route, in order; the must-nots: no diamond, no ready-made bucket found
+        for step, want in ((("mine", "minecraft:raw_iron"), True), (("smelt", "minecraft:iron_ingot"), True),
+                           (("craft", "minecraft:bucket"), True), (("fill", "minecraft:water_bucket"), True),
+                           (("mine", "minecraft:diamond"), False)):
+            with self.subTest(step=step):
+                self.assertEqual(step in got, want)
+        self.assertEqual([got.index(s) for s in (("mine", "minecraft:raw_iron"), ("smelt", "minecraft:iron_ingot"),
+                                                 ("craft", "minecraft:bucket"), ("fill", "minecraft:water_bucket"))],
+                         sorted(got.index(s) for s in (("mine", "minecraft:raw_iron"), ("smelt", "minecraft:iron_ingot"),
+                                                       ("craft", "minecraft:bucket"), ("fill", "minecraft:water_bucket"))))
 
 
 if __name__ == "__main__":

@@ -264,7 +264,7 @@ class Arrive(_Clean):
     def test_a_walked_leg_is_not_arrival(self):
         """A leg that gained ground reads False as an answer to "there?" and True to `moved`: no caller can take
         it for arrival by its truth value."""
-        for gained in (30.0, 3.0, 0.5):
+        for gained in (100.0, 30.0, 3.0, 0.5, nav.PROGRESS_BLOCKS):
             with self.subTest(gained=gained):
                 self.assertEqual((bool(W(gained)), nav.moved(W(gained))), (False, True))
 
@@ -399,7 +399,7 @@ def _judge(name, args, before, after, result=None, between=None):
     """start under `before`, verify under `after`: did the contract see a product?"""
     c = skillkit.REGISTRY[name]
     call = skillkit.Call(args, {})
-    for world in (before, after):
+    for world in (before, after):          # fixture: the two readings, not a table
         ps = world.patches()
         for p in ps:
             p.start()
@@ -546,7 +546,7 @@ class VerifyNeedsAProduct(unittest.TestCase):
 def shaft():
     """The body at the bottom of a 1×1 shaft three deep in solid stone."""
     r = world()
-    for y in (61, 62, 63):
+    for y in (61, 62, 63):                 # fixture: the shaft's three cells
         r.blocks.pop((0, y, 0), None)
     return r, state(x=0.5, y=61.0, z=0.5)
 
@@ -686,7 +686,11 @@ class Runner(unittest.TestCase):
                 self.assertEqual(retry.cause_of(caught.exception), "stuck")
 
     def test_can_run_asks_the_same_preconditions(self):
-        for pre, want in (([], (True, None)), ([_missing_pick], (False, "need a tier-1 pickaxe"))):
+        ok = lambda c: None      # noqa: E731  (a precondition that passes)
+        for pre, want in (([], (True, None)), ([ok], (True, None)),
+                          ([_missing_pick], (False, "need a tier-1 pickaxe")),
+                          ([ok, _missing_pick], (False, "need a tier-1 pickaxe")),
+                          ([lambda c: (_ for _ in ()).throw(RuntimeError())], (False, "RuntimeError"))):
             with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
                 runner = skillkit.skill(name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
                 self.assertEqual(skillkit.can_run(runner, None), want)
@@ -695,7 +699,9 @@ class Runner(unittest.TestCase):
         from bonobo.planner import Step
         for kind, token, want in (("mine", "minecraft:coal", ["mine:minecraft:coal", "item:minecraft:coal", "mine"]),
                                   ("gather", "log", ["gather:log", "item:log", "gather"]),
-                                  ("shelter", "dig in", ["shelter:dig in", "item:dig in", "shelter"])):
+                                  ("shelter", "dig in", ["shelter:dig in", "item:dig in", "shelter"]),
+                                  ("craft", "minecraft:stone_pickaxe",
+                                   ["craft:minecraft:stone_pickaxe", "item:minecraft:stone_pickaxe", "craft"])):
             with self.subTest(kind=kind, token=token):
                 self.assertEqual(skillkit.step_keys(Step(kind, token, 1)), want)
 
