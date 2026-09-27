@@ -173,5 +173,99 @@ class Faults(unittest.TestCase):
                 self.assertEqual(sorted(p["assumptions"]), sorted(fp.UNMEASURED))
 
 
+
+# ------------------------------------------------------------------------------ the dragon on the answer loop
+from bonobo import fight_loop  # noqa: E402
+
+DRAGON = {"id": 7, "type": "minecraft:ender_dragon", "x": 0.0, "y": 66.0, "z": 3.0, "health": 150.0, "phase": 5}
+CRYSTAL_NEAR = {"id": 11, "type": "minecraft:end_crystal", "x": 20.5, "y": 80.0, "z": 0.5}
+CRYSTAL_FAR = {"id": 12, "type": "minecraft:end_crystal", "x": 40.5, "y": 90.0, "z": 0.5}
+BOMB = ((2, 65, 0), "minecraft:red_bed", (3, 64, 0), (5, 62, 0), False)
+
+
+def view(**changes):
+    v = {"dead": False, "dragon": DRAGON, "crystals": [], "here": (10.0, 64.0, 0.0), "bed": None, "bed_cell": None,
+         "bomb": None, "reinforce": [], "escape": None, "cover": None}
+    v.update(changes)
+    return v
+
+
+A = fight_loop.Answer
+# (situation, the phase model's intent, the round's view) → the answer the loop posts (None: the fight stops)
+DRAGON_ANSWERS = [
+    ("perched, a window, a bed and the pit: the bomb", {"intent": "fire_window", "deadline_s": 3.0},
+     view(bed="minecraft:red_bed", bed_cell=(2, 65, 0), bomb=BOMB), A("bed_bomb", BOMB)),
+    ("perched, a window, no bed: melee on the dragon", {"intent": "fire_window", "deadline_s": 3.0}, view(),
+     A("fight", 7)),
+    ("flying, open crystals: shoot the first in order", {"intent": "shoot_crystal", "deadline_s": 5.0},
+     view(crystals=[CRYSTAL_NEAR, CRYSTAL_FAR]), A("shoot", CRYSTAL_NEAR)),
+    ("breath on us: away from the cloud before the cover", {"intent": "retreat"},
+     view(escape=(20, 64, 0), cover=(5, 62, 0)), A("evade", (20, 64, 0))),
+    ("retreat, no breath: into the cover", {"intent": "retreat"}, view(cover=(5, 62, 0)), A("evade", (5, 62, 0))),
+    ("a window with no time left: retreat, not a bomb caught in the open", {"intent": "fire_window", "deadline_s": 0.0},
+     view(bomb=BOMB, cover=(5, 62, 0)), A("evade", (5, 62, 0))),
+    ("shoot asked, no open crystal left: retreat (nothing to shoot)", {"intent": "shoot_crystal"}, view(),
+     A("evade", (10.0, 64.0, 0.0))),
+    ("the pit wanted: the dig skill, whole", {"intent": "dig_tunnel", "deadline_s": 20.0}, view(),
+     A("prep", "dig_tunnel")),
+    ("the dragon dead: the fight stops", {"intent": "fire_window"}, view(dead=True), None)]
+
+
+class DragonAnswer(unittest.TestCase):
+    def test_intent_to_answer(self):
+        for name, intent, v, want in DRAGON_ANSWERS:
+            with self.subTest(name):
+                self.assertEqual(fight_loop.dragon_answer(intent, v), want)
+
+    def test_every_answer_has_a_batch(self):
+        """Each answer kind the dragon uses is posted as a batch (or is a prep skill): none is empty from here."""
+        from bonobo import brain  # noqa: F401  (lends "shoot")
+        from tests.world import bag, inventory
+        st = {"state": {"x": 10.0, "y": 64.0, "z": 0.0}, "feet": (10, 64, 0),
+              "inv": bag(inventory(("red_bed", 2), ("bow", 1), ("arrow", 16), ("cobblestone", 32)))}
+        want = {"bed_bomb": ["travel", "bed_bomb", "travel"], "fight": ["attack"], "shoot": ["use_item"],
+                "evade": ["travel"]}
+        for name, intent, v, answer in DRAGON_ANSWERS:
+            if answer is None or answer.kind == "prep":
+                continue
+            with self.subTest(name):
+                self.assertEqual([t["type"] for t in fight_loop.batch(answer, st)], want[answer.kind])
+
+
+class Carry(unittest.TestCase):
+    """fight_loop.carry, the one answer loop: the same answer keeps its task, a new one /stops and posts."""
+
+    # (situation, the answers wanted pass by pass, the task statuses read, again) → the calls made, in order
+    ROWS = [("the same answer twice: posted once, then watched", [A("fight", 7), A("fight", 7)], ["running"], False,
+             ["post fight", "watch"]),
+            ("a new answer: stop, then post it", [A("fight", 7), A("shoot", "c")], [], False,
+             ["post fight", "/stop", "post shoot"]),
+            ("a retreat re-aimed 2 blocks off: the same walk", [A("evade", (5, 62, 0)), A("evade", (6, 63, 1))],
+             ["running"], False, ["post evade", "watch"]),
+            ("the task ended, the answer still wanted, again: posted again",
+             [A("shoot", "c"), A("shoot", "c"), A("shoot", "c")], ["succeeded"], True,
+             ["post shoot", "watch", "post shoot"]),
+            ("nothing left to do: the loop ends at once", [None], [], False, [])]
+
+    def test_passes(self):
+        from unittest import mock
+        from bonobo import api
+        for name, wants, statuses, again, want in self.ROWS:
+            calls, wants_, statuses_ = [], list(wants), list(statuses)
+
+            def answer(a):
+                calls.append(f"post {a.kind}")
+                return {"id": len(calls)}
+
+            def get(path):
+                calls.append("watch")
+                return {"status": statuses_.pop(0) if statuses_ else "running"}
+            with self.subTest(name), mock.patch.object(api, "post", side_effect=lambda p, b=None: calls.append(p)), \
+                    mock.patch.object(api, "get", side_effect=get), mock.patch.object(fight_loop.time, "sleep"):
+                held = {"done": None, "task_id": None}
+                list(fight_loop.carry(lambda: wants_.pop(0) if wants_ else None, answer, lambda: True, held,
+                                      again=again))
+                self.assertEqual(calls, want)
+
 if __name__ == "__main__":
     unittest.main()

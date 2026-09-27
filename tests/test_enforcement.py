@@ -102,7 +102,7 @@ class RulesAreWired(unittest.TestCase):
         ("the safety choice is made by the model", ("best_step", "slack_at", "min_tti"), {"end", "fight_plan", "nav"}),
         ("threats are bid for from perception", ("bid", "options"), {"fight_loop", "perception", "threat"}),
         ("perception interrupts on pressure, not health alone", ("pressure", "time_to_die"), {"perception", "threat"}),
-        ("the fight submits intents to one body", ("submit", "Motion"), {"end"}),
+        ("the fight is carried by the one answer loop", ("carry",), {"end", "fight_loop"}),
         ("the funnels ask who owns the body", ("owns",), {"api", "nav"}),
         ("preemption: perception, the fight, the end game", ("preempt",), {"end", "fight_loop", "perception"}),
         ("threat rows are differenced in one place", ("rows",), {"end", "threat"}),
@@ -180,11 +180,6 @@ class RulesAreWired(unittest.TestCase):
                 got = api.post(path, {})
                 self.assertEqual(wire.called, reached)
                 self.assertEqual(got["status"], want)
-
-    def test_tactics_are_preempted_not_nested_in_plans(self):
-        direct = {name_of(c) for c in calls_in("end", "_carry_out")}
-        self.assertNotIn("_retreat", direct, "a retreat inside a plan is a plan sub-step, not a tactic")
-        self.assertIn("tactic", {first_arg(c) for c in calls_in("end", "_carry_out") if name_of(c) == "preempt"})
 
     def test_danger_kinds_and_the_recovery_table_agree(self):
         # Perception emits kinds; the table keys on them exactly. A kind with no row falls to the default, which

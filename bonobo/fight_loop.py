@@ -68,36 +68,63 @@ def offer(option, worth, key, now, release, held, seen_at):
     return taken, refused, failure
 
 
+SAME_R = 4.0           # two walks to points this close are one answer: the posted walk keeps going
+
+
 def same(a, b):
-    """Is the new answer the one already being carried out? Then the posted task keeps running (append)."""
-    return a is b or (a is not None and b is not None and a.kind == b.kind and a.target == b.target)
+    """Is the new answer the one already being carried out? Then the posted task keeps running (append). A walk
+    to a point that drifted by less than SAME_R is the same walk (a retreat re-aimed from where we now stand)."""
+    if a is b:
+        return True
+    if a is None or b is None or a.kind != b.kind:
+        return False
+    if a.target == b.target:
+        return True
+    pa, pb = a.target, b.target
+    return (isinstance(pa, tuple) and isinstance(pb, tuple) and len(pa) == len(pb) == 3
+            and all(isinstance(v, (int, float)) for v in pa + pb) and math.dist(pa, pb) <= SAME_R)
+
+
+def carry(want_of, answer, going, held, again=False):
+    """The one loop that carries out answers, for a threat and for a boss: while `going()`, post what `want_of()`
+    answers — the same answer keeps the posted task running, a different one /stops it and posts its own. `held`
+    ({"done", "task_id"}) is the loop's memory, kept by the caller so a `finally` can stop what is still posted.
+    `again`: a task that ended while its answer is still wanted is posted again (a crystal still standing is shot
+    again); otherwise the loop waits for a new answer. Returns when want_of() says None (nothing left to do).
+    Yields once per pass, so a skill can `yield from` it."""
+    while going():
+        want = want_of()
+        if want is None:
+            return
+        if not same(want, held["done"]):
+            if held["task_id"] is not None:
+                api.post("/stop")
+            got = answer(want)
+            held["task_id"] = got.get("id") if isinstance(got, dict) else None
+            held["done"] = want
+        elif held["task_id"] is not None:
+            r = api.get(f"/task?id={held['task_id']}&wait=1")
+            if r.get("status") != "running":
+                held["task_id"] = None
+                if again:
+                    held["done"] = None
+        else:
+            time.sleep(POLL_S)
+        yield want.kind
 
 
 def _engagement(intent, failure):
     """The fight's own thread: carry out what perception wants, re-reading it every POLL_S, until the lease ends."""
-    done, task_id = None, None
+    held = {"done": None, "task_id": None}
     try:
         def loop():
-            nonlocal done, task_id
-            while arbiter.BODY.holder() is intent:
-                want = _ENG["want"]
-                if not same(want, done):
-                    if task_id is not None:
-                        api.post("/stop")          # a different answer: stop the posted one, post the new one
-                    got = ANSWER(want)
-                    task_id = got.get("id") if isinstance(got, dict) else None
-                    done = want
-                elif task_id is not None:
-                    r = api.get(f"/task?id={task_id}&wait=1")
-                    if r.get("status") != "running":
-                        task_id = None                  # the posted task ended: wait for the next answer
-                else:
-                    time.sleep(POLL_S)
+            for _ in carry(lambda: _ENG["want"], ANSWER, lambda: arbiter.BODY.holder() is intent, held):
+                pass
         arbiter.BODY.carry(intent, loop)
     except Exception as e:
         failure["failed"] = f"{type(e).__name__}: {e}"
     finally:
-        disengage(intent, stop=task_id is not None)
+        disengage(intent, stop=held["task_id"] is not None)
 
 
 def disengage(intent, stop=True):
@@ -243,7 +270,25 @@ def _reshape(option, state):
     return [{"type": "place", "item": item, "x": x + step[0], "y": y + i, "z": z + step[1]} for i in range(n)]
 
 
-BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape}
+def _bed_bomb(option, state):
+    """Into the bombing hole, detonate (use a bed already there, else place-and-use), back to cover: one window as
+    one batch — a round trip is ~0.1 s and the shortest window 0.4 s, so nothing in it waits for Python."""
+    bed, item, stand, cover, placed = option.target
+    bomb = ({"type": "use", "x": bed[0], "y": bed[1], "z": bed[2]} if placed
+            else {"type": "bed_bomb", "x": bed[0], "y": bed[1], "z": bed[2], "item": item})
+    return [{"type": "travel", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.8}, bomb,
+            {"type": "travel", "x": cover[0], "y": cover[1], "z": cover[2], "range": 0.6}]
+
+
+def _place(option, state):
+    cells, item = option.target
+    if not state["inv"].count(item):
+        return []
+    return [{"type": "place", "item": item, "x": x, "y": y, "z": z} for x, y, z in cells]
+
+
+BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape,
+         "bed_bomb": _bed_bomb, "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # What a batch needs read around the body, by kind: {kind: feet -> Region}. Skills that lend their batch register
 # both (skills.py: "wall_in" → pod_commands, _pod_region), so this module never imports the skill library.
 REGION = {}
@@ -272,3 +317,41 @@ def engage(decision, s, ctx):
     if not queued:
         raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")
     return {"id": queued[-1]["id"]}
+
+
+# ------------------------------------------------------------------------------------------------ the dragon
+# The boss fight is carried out by the same loop (`carry`) and the same batches as any threat. What to do is the
+# phase model's (fight_plan.Fight.plan, one intent per round); this maps its intent to an answer the loop posts.
+Answer = __import__("collections").namedtuple("Answer", "kind target")
+
+
+def dragon_answer(intent, view):
+    """Pure: the phase model's intent → the Answer the loop posts, or None when the dragon is dead (the fight
+    stops). `view`: {"dead", "dragon" (entry or None), "crystals" (open ones, in shooting order), "here", "bed" (item or None),
+    "bed_cell", "bomb" ((bed, item, stand, cover, placed) when a window can be bombed from here, else None),
+    "reinforce" (cells), "escape" (away from breath, or None), "cover" (retreat cell or None)}.
+      perched, a window  → a bed bomb on the bed cell, or melee without a bed (fire_window)
+      flying             → shoot the nearest open crystal (shoot_crystal)
+      breath, or a fault → back into cover / away from the cloud (retreat, the default)
+      prep while it flies → place the bed, obsidian on the mouth; dig the pit / shake an enderman are skills
+                            ("prep": the loop runs them whole)
+    An intent past its deadline is a retreat: starting a bomb with no window left is caught in the open."""
+    if view["dead"]:
+        return None
+    name = intent.get("intent")
+    retreat = Answer("evade", view["escape"] or view["cover"] or tuple(view["here"]))
+    if name != "retreat" and (intent.get("deadline_s") if intent.get("deadline_s") is not None else 1.0) <= 0.0:
+        return retreat
+    if name == "shoot_crystal" and view["crystals"]:
+        return Answer("shoot", view["crystals"][0])
+    if name == "fire_window" and view["dragon"] is not None:
+        if view.get("bomb"):
+            return Answer("bed_bomb", view["bomb"])
+        return Answer("fight", view["dragon"]["id"])
+    if name == "place_bed" and view["bed"] and view["bed_cell"]:
+        return Answer("place", ((tuple(view["bed_cell"]),), view["bed"]))
+    if name == "reinforce" and view.get("reinforce"):
+        return Answer("place", (tuple(map(tuple, view["reinforce"])), "minecraft:obsidian"))
+    if name in ("dig_tunnel", "water_bucket"):
+        return Answer("prep", name)
+    return retreat

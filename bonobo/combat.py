@@ -204,15 +204,6 @@ def shoot(entity, hold_ticks=22, near=None):
         raise McError(f"shooting failed: {r['message']}")
 
 
-def _strike(entity, seconds=8):
-    """A short melee burst: the attack task is stopped after `seconds` (a blaze rising out of reach isn't a failure,
-    the fight loop looks again)."""
-    try:
-        api.run(strike_batch(entity)[0], wait=seconds)
-    except api.TaskStuck:
-        pass
-
-
 BLAZE_QUIET_S = 30      # no blaze and no rod in sight for this long: this is not a spawner
 
 
@@ -251,45 +242,3 @@ def collect_blaze_rods(ctx, rods):
     raise McError("no rods collected")
 
 
-@skill(budget=1800, stall=300, per_unit=900)
-def fight_dragon(ctx):
-    """The End: shoot the end crystals (nearest, open ones first), then hit the dragon whenever it perches low."""
-    if api.get("/state")["dimension"] != "minecraft:the_end":
-        raise NotAvailable("not in the End")
-    unseen_since = None
-    for _ in range(400):
-        near = entities(128)
-        crystals = [e for e in near if e["type"] == "minecraft:end_crystal"]
-        from .end import dragon_entry
-        dragon = dragon_entry(near)    # the dragon itself, not a body part of the same type
-        if dragon is None:
-            # Not seen ≠ dead: a fresh dragon wasn't synced yet and one circling far out is beyond the entity scan
-            # (bench 05:29 declared victory in 1 s). Gone only after 5 s unseen, waiting near the portal meanwhile.
-            unseen_since = unseen_since or time.time()
-            if time.time() - unseen_since >= 5:
-                log("the ender dragon is gone")
-                ctx.mem.data["dragon_defeated"] = True
-                ctx.mem.save()
-                return True
-            api.run({"type": "wait", "ticks": 10}, wait=5)
-            yield None
-            continue
-        unseen_since = None
-        s = api.get("/state")
-        here = (s["x"], s["y"], s["z"])
-        s = api.get("/state")
-        low = dragon["y"] - s["y"] <= 4
-        move = engage(s["health"], low and dragon["distance"] <= 12)
-        if crystals and Inventory().count("minecraft:arrow"):
-            shoot(crystal_order(crystals, here)[0])
-        elif move == "attack":
-            # Down within reach of a jump: chase it and hit the nearest body part (mod ≥0.1.29 aims at parts).
-            _strike(dragon, seconds=6)
-        else:
-            # Flying, or we are hurt: keep out of the head and the breath instead of circling blindly (two bench
-            # fights died at 9 blocks in front of a perched dragon, health 20 → 0, without landing a hit).
-            band = (14, 20) if move == "retreat" else (8, 14)
-            for _ in station.__wrapped__(ctx, (0, 0), band=band, clear=1.0, rounds=6):
-                pass
-        yield (len(crystals), round(dragon.get("health", 0)))
-    raise McError("dragon fight ran out of rounds")

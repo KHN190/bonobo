@@ -603,7 +603,7 @@ def bed_bomb_window(ctx):
     pit_feet, stand, retreat_cell, bed, floor_y = PIT
     item = _bed_item()
     if item is None:
-        raise NotAvailable("out of beds (melee is combat.fight_dragon)")
+        raise NotAvailable("out of beds (melee is fight_loop.dragon_answer)")
     # Everything the window needs, checked before stepping into the dragon's reach: the pillar still in range, the
     # dragon really perched, full health, no breath on the bombing spot. One run kept going after being flung 80
     # blocks up and reported "no exit portal pillar in range" from wherever it landed.
@@ -640,16 +640,14 @@ def bed_bomb_window(ctx):
     #
     # The sequence lives here, in Python, not in the mod: composing tasks is strategy, and the mod stays a thing that
     # executes tasks and reports what it sees.
-    bomb = ({"type": "use", "x": bed[0], "y": bed[1], "z": bed[2]} if _R(bed, bed).solid(bed)
-            else {"type": "bed_bomb", "x": bed[0], "y": bed[1], "z": bed[2], "item": item})
+    from . import fight_loop
+    window = fight_loop.batch(fight_loop.Answer("bed_bomb", (tuple(bed), item, tuple(stand), tuple(retreat_cell),
+                                                             _R(bed, bed).solid(bed))), None)
     try:
         # Six seconds, not the default half hour: this is one detonation and a three-block walk. A window that has
         # not finished in six seconds has gone wrong, and waiting longer only means being outside for longer.
-        results = api.run_chain([bomb,
-                                 {"type": "travel", "x": retreat_cell[0], "y": retreat_cell[1],
-                                  "z": retreat_cell[2], "range": 0.6}],
-                                wait=6)
-        r = results[0] if results else {"status": "failed", "message": "no result"}
+        results = api.run_chain(window, wait=6)
+        r = results[1] if len(results) > 1 else {"status": "failed", "message": "no result"}
     except api.Interrupted as e:
         # Soft: the window is off, the fight isn't. The recovery table decides where to go; the driver calls us again.
         _recover(ctx, _soft_interrupt() or str(e))
@@ -876,65 +874,29 @@ def _solid(cell):
     return Region(cell, cell).solid(cell)
 
 
-def _carry_out(ctx, intent, state, near):
-    """Execute one planned intent. Dispatch only — every choice was already made by fight_plan.plan().
-
-    Split this way on purpose: choosing is a pure function a test can exercise a thousand times a second, and doing
-    is a thin layer with no judgement in it. The old loop mixed the two, which is why its order could only be
-    changed by editing the fight itself.
-
-    The deadline is honoured here. `plan` returns the latest moment an action may still be started and finished
-    inside the phase; ignoring it — which this did — means starting a bomb with 0.1 s of window left and being
-    caught in the open by the take-off.
-    """
-    from . import arbiter, combat
-    from .skillcore import place as _place
-    name = intent["intent"]
-    if intent.get("deadline_s", 1.0) <= 0.0 and name != "retreat":
-        log(f"   {name} missed its deadline: retreating instead")
-        arbiter.BODY.preempt("tactic", lambda: _retreat(ctx, near), "deadline missed")
-        return True
-    if name == "dig_tunnel":
-        build_bed_pit(ctx)
-    elif name == "place_bed":
-        if PIT and not _solid(PIT[3]) and _bed_item():
-            if nav.arrived(PIT[1], ctx.policy, range_=0.8, attempts=1, min_hp=15):
-                try:
-                    _place(_bed_item(), PIT[3])
-                    log(f"   bed on {PIT[3]} while it flies")
-                except (McError, api.NavFailed) as e:
-                    log(f"   bed not placed ({e})")
-    elif name == "reinforce":
-        from . import bunker
-        side = choose_side((api.get("/state")["x"], 0, api.get("/state")["z"]))
-        for cell in bunker.reinforce_cells(side, PIT[4] if PIT else 0):
-            if not _solid(cell):
-                try:
-                    _place("minecraft:obsidian", cell)
-                except McError:
-                    break
-    elif name == "shoot_crystal":
-        here = (api.get("/state")["x"], api.get("/state")["y"], api.get("/state")["z"])
-        open_ones = [e for e in near if e["type"] == "minecraft:end_crystal"
-                     and not caged((e["x"], e["y"], e["z"]), here)]
-        if open_ones:
-            try:
-                combat.shoot(combat.crystal_order(open_ones, here)[0], near=near)
-            except NotAvailable as e:
-                log(f"   holding the shot: {e}")
-    elif name == "water_bucket":
-        arbiter.BODY.preempt("tactic", lambda: shake_enderman(ctx), "shake enderman")
-    elif name == "fire_window":
-        # No await_perch here. The planner issues this intent only while the dragon is in a window phase, so
-        # waiting again re-decides what was already decided — and burns the window while deciding it.
-        if _bed_item():
-            bed_bomb_window(ctx)
-        else:
-            log("   fire_window without a bed: retreating")
-            arbiter.BODY.preempt("tactic", lambda: _retreat(ctx, near), "no bed")
-    else:                                                  # retreat: the default, and the answer to every fault
-        arbiter.BODY.preempt("tactic", lambda: _retreat(ctx, near), "retreat")
-    return True
+def dragon_view(near, s):
+    """What fight_loop.dragon_answer turns an intent into, read off one perception round: the dragon, the open
+    crystals, the bed and its cell, a bomb window that can be taken from here (the pit dug, a bed carried, the
+    dragon sitting, no breath on the bombing spot, health for the blast), the cells still to blast-proof, where
+    to run from breath, and the cover."""
+    from . import bunker
+    from .combat import crystal_order
+    d = dragon_entry(near)
+    here = (s["x"], s["y"], s["z"])
+    item = _bed_item()
+    bomb, reinforce = None, []
+    if PIT:
+        pit_feet, stand, retreat_cell, bed, floor_y = PIT
+        if item and bombable(d) and not breath_near(near, stand, 6.0) and s["health"] >= 19:
+            bomb = (tuple(bed), item, tuple(stand), tuple(retreat_cell), _solid(bed))
+        side = choose_side((s["x"], 0, s["z"]))
+        reinforce = [c for c in bunker.reinforce_cells(side, floor_y) if not _solid(c)]
+    return {"dead": dragon_dead(near), "dragon": d, "here": here, "bed": item,
+            "crystals": crystal_order([e for e in near if e["type"] == "minecraft:end_crystal"
+                                       and not caged((e["x"], e["y"], e["z"]), here)], here),
+            "bed_cell": tuple(PIT[3]) if PIT else None, "bomb": bomb, "reinforce": reinforce,
+            "escape": breath_escape(here, near) if breath_near(near, here) else None,
+            "cover": tuple(PIT[2]) if PIT else None}
 
 
 def _retreat(ctx, near=None):
@@ -981,75 +943,79 @@ def _track_phase(near):
     return phase
 
 
+DRAGON_PASSES = 2400     # passes of the fight loop (≈0.5 s each while waiting) before the fight is given up
+
+
 @skill(budget=1800, stall=300, soft=True)
 def slay_dragon(ctx):
-    """The fight, one planned intent at a time: perceive, plan, dispatch, repeat.
-
-    There is no fixed order here any more. What to do next comes from fight_plan.plan(), which vetoes anything that
-    cannot be finished and returned from inside the remaining phase time, then picks whatever saves the most seconds.
-    The order that used to be written out here (crystals, pit, perch, bomb) was unchangeable without editing the
-    fight, and it could not answer "is a tunnel worth it with one window left" at all.
-    """
+    """The fight is the fight loop's (fight_loop.carry), like any threat: each pass the phase model
+    (fight_plan.Fight.plan) picks one intent, fight_loop.dragon_answer turns it into a batch, and the loop keeps
+    the posted batch running while the answer holds or /stops it and posts the new one. This skill only holds the
+    body, reads the round, runs the two preparations that are skills of their own, and says when it is over."""
     if api.get("/state")["dimension"] != "minecraft:the_end":
         raise NotAvailable("not in the End")
-    from . import arbiter, fight_plan
+    from . import arbiter, fight_loop, fight_plan
     motion = arbiter.BODY                 # the one body; perception preempts on it from its own thread
     motion.engage(log=log)
     fight = fight_plan.Fight()
-    try:
-        yield from _fight_rounds(ctx, motion, fight)
-    finally:
-        motion.disengage()
+    held = {"done": None, "task_id": None}
+    passes = [0]
+    prep = {"dig_tunnel": build_bed_pit, "water_bucket": shake_enderman}
 
-
-def _fight_rounds(ctx, motion, fight):
-    for _ in range(120):
+    def want():
+        passes[0] += 1
         near = entities(128)
         _track_phase(near)
-        if dragon_dead(near):
-            ctx.mem.data["dragon_defeated"] = True
-            ctx.mem.save()
-            log("the exit portal is open — the dragon is dead")
-            return True
         s = api.get("/state")
-        # The planner decides. Not a hard-coded order any more: it reads the state, vetoes what cannot be finished
-        # safely, and returns one intent with a deadline. Everything below is dispatch — the choosing happens in
-        # fight_plan, which is a pure function and is tested without a game.
         try:
             state = fight_state(near, s, ctx)
             intent = fight.plan(state)
         except Exception as e:                            # a planner fault must never leave us standing in the open
             log(f"   planner failed ({e}): retreating")
-            intent = {"intent": "retreat", "benefit_s": 0.0, "deadline_s": 0.0}
-            state = {}
+            state, intent = {}, {"intent": "retreat", "benefit_s": 0.0, "deadline_s": 0.0}
         LAST_ROUND[:] = [state, intent]                   # what the bench dumps as an incident when this run dies
-        if intent.get("assumptions") and not _ASSUMPTIONS_LOGGED:
-            log(f"   planning on unmeasured parameters: {', '.join(intent['assumptions'])} "
-                f"(run `mc.py report --fit` after a recorded fight)")
-            _ASSUMPTIONS_LOGGED.append(True)
-        if intent.get("fault"):
-            # Loud on purpose. A fault means the plan cannot be trusted: either the state handed to the planner is
-            # malformed, or every productive action was refused and "retreat" is paralysis wearing a decision's
-            # clothes. Both looked like a normal round in the log until this line existed.
-            log(f"?? planner fault: {intent['fault']}")
-            log(f"   refused: {intent.get('rejected')}")
-        boss = state.get("boss", {})
-        log(f"   plan: {intent['intent']} (worth {intent['benefit_s']}s, phase "
-            f"{boss.get('phase')}, {boss.get('hp', 0):.0f} hp left)")
-        # Submit, do not act. The planner speaks at the ten-second scale; anything faster — a recovery, a retreat —
-        # overrides it without being scored against it. One exit drives the body.
-        motion.submit("plan", lambda: _carry_out(ctx, intent, state, near),
-                      intent["intent"], deadline_s=max(intent.get("deadline_s") or 0.0, 1.0),
-                      commit_s=intent.get("commitment_s"))
-        try:
-            chosen = motion.step()
-        except api.CommitmentExpired as e:
-            # The action is still running in the mod; what expired is our claim to ignore the world while it does.
-            # Round again with fresh perception — usually the same intent, sometimes not, which is the point.
-            log(f"   {e}")
-            chosen = ("plan", intent["intent"])
-        yield (chosen[1] if chosen else "nothing", round(s["health"]))
-    raise McError("the dragon fight ran out of rounds")
+        _say(intent, state)
+        return fight_loop.dragon_answer(intent, dragon_view(near, s))
+
+    def answer(a):
+        if a.kind == "prep":
+            prep[a.target](ctx)                           # a preparation runs whole, then the loop reads again
+            return None
+        return fight_loop.engage(a, api.get("/state"), ctx)
+
+    try:
+        for kind in fight_loop.carry(want, answer, lambda: passes[0] < DRAGON_PASSES, held, again=True):
+            yield kind
+        if passes[0] >= DRAGON_PASSES:
+            raise McError("the dragon fight ran out of rounds")
+        ctx.mem.data["dragon_defeated"] = True
+        ctx.mem.save()
+        log("the exit portal is open — the dragon is dead")
+        return True
+    finally:
+        if held["task_id"] is not None:
+            api.post("/stop")
+        motion.disengage()
+
+
+def _say(intent, state):
+    """The round in the log: the plan, and loudly a fault or the unmeasured numbers it rests on."""
+    if intent.get("assumptions") and not _ASSUMPTIONS_LOGGED:
+        log(f"   planning on unmeasured parameters: {', '.join(intent['assumptions'])} "
+            f"(run `mc.py report --fit` after a recorded fight)")
+        _ASSUMPTIONS_LOGGED.append(True)
+    if intent.get("fault"):
+        # Loud on purpose: a malformed state, or every productive action refused ("retreat" as paralysis).
+        log(f"?? planner fault: {intent['fault']}")
+        log(f"   refused: {intent.get('rejected')}")
+    boss = state.get("boss", {})
+    if intent.get("intent") != LAST_SAID[0]:
+        LAST_SAID[0] = intent.get("intent")
+        log(f"   plan: {intent['intent']} (worth {intent.get('benefit_s')}s, phase {boss.get('phase')}, "
+            f"{boss.get('hp', 0):.0f} hp left)")
+
+
+LAST_SAID = [None]
 
 
 def _floor_under(x, z, y_hint):

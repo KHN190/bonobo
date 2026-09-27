@@ -35,11 +35,13 @@ from .upkeep import bag_signature
 from .world import Inventory, Snapshot, entities
 
 # Wiring from the top, so the lower layers never import the skill library: the L0 rescues hazard.py dispatches, and
-# pod's command batch as the fight answer "wall_in".
+# pod's command batch as the fight answer "wall_in", the bow's as "shoot".
 hazard.SKILLS.update(find_air=lambda ctx: skills.find_air(ctx), unbury=lambda ctx: skills.unbury(ctx))
 from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: skills.pod_commands(state) if state.get("region") is not None else [],
                 region=skills._pod_region)
+fight_loop.lend("shoot", lambda option, state: combat.shoot_batch(
+    option.target, (state["state"]["x"], state["state"]["y"] + 1.62, state["state"]["z"])))
 
 IDLE_WAIT_TICKS = 100
 # Step kinds a night under cover can carry on with: no sun, no open ground. Everything else (a tree, an animal, a

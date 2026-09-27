@@ -367,7 +367,7 @@ def _wear_dragon(ctx):
 
 SCENARIOS["fight_dragon"] = {
     "doc": "The End's main island with the dragon, diamond sword, shield, iron armor, food, blocks → dragon dead.",
-    "module": "combat",
+    "module": "end",
     "raw": True,
     "combat": True,
     "dimension": "minecraft:the_end",
@@ -381,7 +381,7 @@ SCENARIOS["fight_dragon"] = {
               "item replace entity @p armor.feet with iron_boots",
               "give @p cooked_beef 32", "give @p cobblestone 64", "give @p water_bucket"],
     "before": _wear_dragon,
-    "run": lambda ctx: __import__("bonobo.combat", fromlist=["fight_dragon"]).fight_dragon(ctx),
+    "run": lambda ctx: __import__("bonobo.end", fromlist=["slay_dragon"]).slay_dragon(ctx),
     "check": lambda api, inv: not any(e["type"] == "minecraft:ender_dragon"
                                       for e in __import__("bonobo.world", fromlist=["entities"]).entities(200)),
     "budget": 60,
@@ -2681,7 +2681,7 @@ COVERS = {
     "collect_blaze_rods": ["collect_blaze_rods"], "activate_end_portal": ["activate_end_portal"], "enter_end": ["enter_end"],
     "craft_stone_tools": ["craft", "mine", "chop"], "iron_ingots": ["load_smelter", "start_smelt_job", "smelt"],
     "hunt_food": ["hunt"], "craft_eyes": ["craft"], "locate_stronghold": ["locate_stronghold"],
-    "find_portal_room_fresh": ["find_portal_room"], "fight_dragon": ["fight_dragon"], "loot_chest": ["loot_chest"],
+    "find_portal_room_fresh": ["find_portal_room"], "fight_dragon": ["slay_dragon"], "loot_chest": ["loot_chest"],
     "recover_items": ["recover_items"], "find_fortress": ["find_fortress"], "find_fortress_far": ["find_fortress"],
     "bed_bomb_kill": ["slay_dragon"], "cave_escape": ["travel_to"],
 }
