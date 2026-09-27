@@ -133,9 +133,15 @@ class HoldingADecision(unittest.TestCase):
                 last = choice.name
         return switches, reasons
 
+    # margin → (switches, re-decisions with a reason) over the seeded sweep (200 runs: 200 switches = never changed
+    # after the first choice). Every switch has a reason on record; a wider margin holds longer.
+    MARGINS = [(1.0, (506, 1166)), (kernel.MARGIN, (379, 1163)), (1.5, (212, 1004)),
+               (3.0, (200, 1000))]      # boundary: nothing ever beats the held choice by 3×
+
     def test_it_changes_no_more_often_than_it_has_reason_to(self):
-        """Seeded: 379 switches over 200 runs, each with a reason on record (1163 re-decisions with a reason)."""
-        self.assertEqual(self.sweep(), (379, 1163))
+        for margin, want in self.MARGINS:
+            with self.subTest(margin=margin):
+                self.assertEqual(self.sweep(margin=margin), want)
 
     def test_re_deciding_every_tick_would_dither(self):
         """The control: without holding, this fixture really does flip about — otherwise the test above is empty.
@@ -166,9 +172,6 @@ class HoldingADecision(unittest.TestCase):
                 if because is None:
                     self.assertIs(again, first)
 
-    def test_a_challenger_must_win_by_more_than_the_margin(self):
-        """A wider margin holds longer: switches over the seeded sweep at margins 1.0, the kernel's, and 1.5."""
-        self.assertEqual([self.sweep(margin=m)[0] for m in (1.0, kernel.MARGIN, 1.5)], [506, 379, 212])
 
 
 if __name__ == "__main__":

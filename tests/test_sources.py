@@ -101,10 +101,20 @@ class Sources(unittest.TestCase):
                 self.assertIn("default: no obsidian to be had here", str(caught.exception))
                 self.assertIn(reason, str(caught.exception))
 
-    def test_the_end_portal_is_done_by_its_plan(self):
-        inv, cost = world(items=[("ender_eye", 12)])
-        self.assertIsNone(goals.done(goals.make("milestone", name="end portal"), cost.snap, cost.mem))
+    # (goal, bag) → done? — None: done when its plan has run (RUN_AFTER), never read off the bag
+    DONE = [("end portal with 12 eyes: its plan decides", goals.make("milestone", name="end portal"),
+             [("ender_eye", 12)], None),
+            ("end portal with nothing: still the plan's", goals.make("milestone", name="end portal"), [], None),
+            ("stone tools held: done from the bag", goals.make("milestone", name="stone tools"),
+             [("stone_pickaxe", 1), ("stone_sword", 1), ("stone_axe", 1)], True),
+            ("stone tools, the axe missing: not done", goals.make("milestone", name="stone tools"),
+             [("stone_pickaxe", 1), ("stone_sword", 1)], False)]
 
+    def test_what_is_done_by_its_plan(self):
+        for name, goal, items, want in self.DONE:
+            with self.subTest(name):
+                inv, cost = world(items=items)
+                self.assertIs(goals.done(goal, cost.snap, cost.mem), want)
 
 if __name__ == "__main__":
     unittest.main()

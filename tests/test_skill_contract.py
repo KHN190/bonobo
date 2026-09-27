@@ -230,15 +230,26 @@ class Arrive(_Clean):
                 got = nav.with_avoid(task, protected)
                 self.assertEqual(got, task if want is None else {**task, "avoid": want})
 
-    def test_every_post_is_dressed(self):
-        """api.run and api.run_chain post the dressed task (brain sets api.DRESS each round)."""
-        posted = []
-        with mock.patch.object(api, "DRESS", lambda t: nav.with_avoid(t, WALL)), \
-                mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
-                                  {"status": "succeeded", "type": "mine", "message": "", "seconds": 0}):
-            api.run({"type": "mine", "x": 3, "y": 64, "z": 0})
-        self.assertEqual(posted, [{"type": "mine", "x": 3, "y": 64, "z": 0, "avoid": xyz((1, 64, 0), (1, 65, 0))}])
+    # (situation, the task a skill runs) → what api.run posts (brain sets api.DRESS each round)
+    DRESSED = [("a mine behind our wall gets the avoid list", {"type": "mine", "x": 3, "y": 64, "z": 0},
+                {"type": "mine", "x": 3, "y": 64, "z": 0, "avoid": xyz((1, 64, 0), (1, 65, 0))}),
+               ("a place near it too", {"type": "place", "x": 2, "y": 64, "z": 0, "item": "minecraft:stone"},
+                {"type": "place", "x": 2, "y": 64, "z": 0, "item": "minecraft:stone",
+                 "avoid": xyz((1, 64, 0), (1, 65, 0))}),
+               ("a look never approaches: posted as it was", {"type": "look", "x": 3, "y": 64, "z": 0},
+                {"type": "look", "x": 3, "y": 64, "z": 0}),
+               ("far from the wall: an empty avoid list", {"type": "mine", "x": 500, "y": 64, "z": 0},
+                {"type": "mine", "x": 500, "y": 64, "z": 0, "avoid": []})]
 
+    def test_every_post_is_dressed(self):
+        for name, task, want in self.DRESSED:
+            with self.subTest(name):
+                posted = []
+                with mock.patch.object(api, "DRESS", lambda t: nav.with_avoid(t, WALL)), \
+                        mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
+                                          {"status": "succeeded", "type": task["type"], "message": "", "seconds": 0}):
+                    api.run(dict(task))
+                self.assertEqual(posted, [want])
 
     def test_there_over_the_table(self):
         for name, (x, y, z), pos, range_, want in THERE:

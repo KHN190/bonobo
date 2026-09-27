@@ -214,14 +214,35 @@ class TheSkillsBatches(unittest.TestCase):
             with self.subTest(hand=hand, swords=swords):
                 self.assertEqual(combat.guard_batch(self.Bag(swords, hand), 90.0), want)
 
-    def test_strike_and_shoot_batches(self):
+    def test_strike_batch(self):
         from bonobo import combat
-        e = {"id": 9, "x": 10.0, "y": 64.0, "z": 0.0}
-        self.assertEqual(combat.strike_batch(e), [{"type": "attack", "entity": 9}])
-        (shot,) = combat.shoot_batch(e, (0.0, 65.62, 0.0))
-        aim = combat.bow_aim((0.0, 65.62, 0.0), (10.0, 64.0, 0.0), height=0.6)
-        self.assertEqual(shot, {"type": "use_item", "item": "minecraft:bow", "x": aim[0], "y": aim[1], "z": aim[2],
-                                "holdTicks": 22})
+        for name, e, want in [("by its id", {"id": 9, "x": 1.0, "y": 64.0, "z": 0.0}, [{"type": "attack", "entity": 9}]),
+                              ("id 0 is an id", {"id": 0}, [{"type": "attack", "entity": 0}]),
+                              ("position does not matter", {"id": 3, "x": 900.0}, [{"type": "attack", "entity": 3}]),
+                              ("no id: refused", {"x": 1.0}, KeyError)]:
+            with self.subTest(name):
+                if want is KeyError:
+                    with self.assertRaises(KeyError):
+                        combat.strike_batch(e)
+                else:
+                    self.assertEqual(combat.strike_batch(e), want)
+
+    def test_shoot_batch(self):
+        from bonobo import combat
+        eye = (0.0, 65.62, 0.0)
+        drop = lambda d: 0.5 * combat.GRAVITY * (d / combat.ARROW_SPEED) ** 2      # noqa: E731
+        # (situation, entity, hold) → where the arrow is aimed (x, y, z) and how long the draw
+        rows = [("10 blocks, default height: body at 0.6, raised by the drop", {"x": 10.0, "y": 64.0, "z": 0.0},
+                 22, (10.0, 64.6 + drop(10.0), 0.0)),
+                ("point blank: no drop", {"x": 0.0, "y": 64.0, "z": 0.0}, 22, (0.0, 64.6, 0.0)),
+                ("a tall target aims higher", {"x": 0.0, "y": 64.0, "z": 20.0, "height": 2.0}, 22,
+                 (0.0, 65.2 + drop(20.0), 20.0)),
+                ("a short draw", {"x": 10.0, "y": 64.0, "z": 0.0}, 10, (10.0, 64.6 + drop(10.0), 0.0))]
+        for name, e, hold, (x, y, z) in rows:
+            with self.subTest(name):
+                (shot,) = combat.shoot_batch(e, eye, hold_ticks=hold)
+                self.assertEqual((shot["type"], shot["item"], shot["holdTicks"]), ("use_item", "minecraft:bow", hold))
+                self.assertEqual([round(shot[k], 6) for k in "xyz"], [round(x, 6), round(y, 6), round(z, 6)])
 
     def test_a_fight_is_on_while_the_body_is_engaged(self):
         from bonobo import arbiter, fight_loop

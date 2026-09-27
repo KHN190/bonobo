@@ -120,12 +120,14 @@ class Direction(unittest.TestCase):
         for m in modules():
             if m in MAY_IMPORT_TOP:
                 continue
-            self.assertFalse(imports_of(m) & TOP,
-                             f"{m} imports {sorted(imports_of(m) & TOP)}; move the fact down, or wire it from the top")
+            with self.subTest(m):
+                self.assertEqual(sorted(imports_of(m) & TOP), [],
+                                 f"{m} imports deciders; move the fact down, or wire it from the top")
 
     def test_facts_import_only_facts(self):
         for m in sorted(FACTS):
-            self.assertFalse(imports_of(m) - FACTS, f"{m} is a fact module but imports {sorted(imports_of(m) - FACTS)}")
+            with self.subTest(m):
+                self.assertEqual(sorted(imports_of(m) - FACTS), [], f"{m} is a fact module")
 
 
 class ReRunKey(unittest.TestCase):
