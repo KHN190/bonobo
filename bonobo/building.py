@@ -93,7 +93,52 @@ def spot_options(bp, near, region, policy, radius=8, body=None):
                     out.append((len(prepare), math.dist(origin, near), origin, turns, tuple(prepare)))
                     break
     out.sort()
-    return [(cost, origin, turns, prepare) for cost, _d, origin, turns, prepare in out]
+    # A build already standing in part is resumed where it stands, before any fresh ground: the rest of it is the
+    # cheapest work there is (and a fresh frame beside a half-cast one wastes the half).
+    return ([(0, origin, turns, ()) for origin, turns in started_builds(bp, region, near)]
+            + [(cost, origin, turns, prepare) for cost, _d, origin, turns, prepare in out])
+
+
+def _free(region, c):
+    return not region.solid(c) or region.name(c) == "nether_portal"
+
+
+def started_builds(bp, region, near):
+    """Pure: [(origin, turns)] of builds of `bp` already half standing in `region` or more, the most complete and then
+    the nearest first. Only the blueprint's own items count (explicit ids, not group tokens like "stone"): a wall
+    of cobblestone is not half a shelter. Its clear cells must be free, or it could never work."""
+    own = [p for p in bp.parts if ":" in p.item]
+    if not own:
+        return []
+    items = {bare(p.item) for p in own}
+    seen, out = set(), []
+    for pos, name in region.blocks.items():
+        if name not in items:
+            continue
+        for part in own:
+            if bare(part.item) != name:
+                continue
+            for turns in range(4):
+                d = blueprints.rotate_offset(part.offset, turns)
+                origin = (pos[0] - d[0], pos[1] - d[1], pos[2] - d[2])
+                if (origin, turns) in seen:
+                    continue
+                seen.add((origin, turns))
+                standing = sum(1 for c, q, *_ in blueprints.placed(bp, origin, turns)
+                               if ":" in q.item and region.name(c) == bare(q.item))
+                if standing * 2 >= len(own) and all(_free(region, c) for c in blueprints.clear_cells(bp, origin, turns)):
+                    out.append((-standing, math.dist(origin, near), origin, turns))
+    out.sort()
+    return [(origin, turns) for _s, _d, origin, turns in out]
+
+
+def portal_todo(bp, origin, turns, name):
+    """Pure: (frame cells still to cast, whether it still needs lighting) for a portal at `origin`. `name(pos)` →
+    block name. Empty frame: every cell, and light; all cast: light only; lit: nothing."""
+    cast = [pos for pos, part, *_ in blueprints.placed(bp, origin, turns)
+            if part.item == "minecraft:obsidian" and name(pos) != "obsidian"]
+    lit = any(name(c) == "nether_portal" for c in blueprints.clear_cells(bp, origin, turns))
+    return cast, not lit
 
 
 def _prepare_for(bp, origin, turns, clearable, standable):
@@ -495,39 +540,41 @@ def cast_portal(ctx):
         raise NotAvailable("no blocks to mould the frame with")
     bp = blueprints.NETHER_PORTAL
     here = feet()
+    # A frame already standing in part is picked first (spot_options → started_builds), and only its missing
+    # cells are cast: the rest of the job, not the whole of it again.
     origin, turns, prepare = plan_machine_spot(bp, here, ctx.policy, body=here)
     prepare_spot(ctx, prepare)
     _CAST.update(origin=origin)
+    region = Region(add(origin, (-5, -2, -5)), add(origin, (5, 6, 5)))
+    todo, unlit = portal_todo(bp, origin, turns, region.name)
     for pos, part, *_ in blueprints.placed(bp, origin, turns):
-        if part.item != "minecraft:obsidian" and not Region(pos, pos).solid(pos):
+        if todo and part.item != "minecraft:obsidian" and not region.solid(pos):
             place(block, pos)            # the corners: what the lava is held against
     access = blueprints.access_spot(bp, origin, turns)
-    region = Region(add(origin, (-5, -2, -5)), add(origin, (5, 6, 5)))
     placed = []
-    for cell, mould in fluids.cast_frame_plan(bp, origin, turns, region.solid):
+    for cell, mould in [(c, m) for c, m in fluids.cast_frame_plan(bp, origin, turns, region.solid) if c in todo]:
         fluids._lava_bucket(ctx, feet())
         nav.arrive(access, ctx.policy, range_=1.5)
-        for m in mould:
-            if not Region(m, m).solid(m):
-                place(block, m)
-                placed.append(m)
-        fluids._use("minecraft:lava_bucket", fluids.floor_aim(cell), True)
-        fluids._use("minecraft:water_bucket", fluids.floor_aim(cell), True)
-        api.run({"type": "wait", "ticks": 10}, wait=5)
+        mould = [m for m in mould if not Region(m, m).solid(m)]
+        # One chain, no round trips: mould, lava, water on it, set, the water back (fight_loop's batch mechanism).
+        done = api.run_chain(
+            [{"type": "place", "item": block, "x": m[0], "y": m[1], "z": m[2]} for m in mould]
+            + [fluids.use_task("minecraft:lava_bucket", fluids.floor_aim(cell), True),
+               fluids.use_task("minecraft:water_bucket", fluids.floor_aim(cell), True),
+               {"type": "wait", "ticks": 10},
+               fluids.use_task("minecraft:bucket", fluids.surface_aim(add(cell, (0, 1, 0))), False)])
+        placed += mould
         if Region(cell, cell).name(cell) != "obsidian":
-            raise McError(f"no obsidian formed at {cell}")
-        try:
-            fluids._use("minecraft:bucket", fluids.surface_aim(add(cell, (0, 1, 0))), False)   # the water back
-        except api.INTERRUPTIONS:
-            raise
-        except McError:
-            pass
+            bad = next((t["message"] for t in done if t["status"] != "succeeded"), "")
+            raise McError(f"no obsidian formed at {cell} {bad}".rstrip())
         if not Inventory().count("minecraft:water_bucket"):
             fluids.fill_water_bucket(ctx)
-        for m in [m for m in fluids.mould_to_break(bp, origin, turns, placed) if Region(m, m).solid(m)]:
-            api.run(nav.mine_task(m), wait=20)
+        breaks = [nav.mine_task(m) for m in fluids.mould_to_break(bp, origin, turns, placed) if Region(m, m).solid(m)]
+        if breaks:
+            api.run_chain(breaks)
         yield cell
-    nav.arrive(access, ctx.policy, range_=1.0)
-    fluids.light_portal(ctx, origin, turns)
+    if unlit:
+        nav.arrive(access, ctx.policy, range_=1.0)
+        fluids.light_portal(ctx, origin, turns)
     ctx.mem.add_machine("nether_portal", origin, turns, ctx.dimension, bp.tags)
     return origin

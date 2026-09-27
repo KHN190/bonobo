@@ -900,10 +900,16 @@ check("dragon: hovering above the pillar isn't perched; the pillar top comes fro
 # Real case 05:20: eyes placed in search order crossed the ring 12 times (79 s).
 _ring = [(10 + dx, 60, 10 - 2) for dx in (-1, 0, 1)] + [(10 + dx, 60, 10 + 2) for dx in (-1, 0, 1)] + \
         [(10 - 2, 60, 10 + dz) for dz in (-1, 0, 1)] + [(10 + 2, 60, 10 + dz) for dz in (-1, 0, 1)]
-_stops = END.ring_stops(_ring, (10, 60, 10), (14, 60, 10))
-check("end portal: one stop per side, 3 eyes each, starting at the nearest side, walking around",
-      len(_stops) == 4 and all(len(fs) == 3 for _, fs in _stops) and _stops[0][0] == (13, 60, 10)
-      and {s for s, _ in _stops} == {(13, 60, 10), (7, 60, 10), (10, 60, 13), (10, 60, 7)})
+# (frames missing, where we stand) → (stops, eyes per stop): every frame from the fewest spots outside the ring.
+for _miss, _here, _want in [(_ring, (14, 60, 10), (2, [8, 4])),
+                            (_ring[:3], (10, 60, 4), (1, [3])),
+                            (_ring[:1], (10, 60, 4), (1, [1])),
+                            ([], (10, 60, 4), (0, []))]:
+    _stops = END.eye_stops(_miss, (10, 60, 10), _here)
+    check(f"end portal: {len(_miss)} eyes placed from {_want[0]} stop(s) outside the ring",
+          (len(_stops), [len(fs) for _, fs in _stops]) == _want
+          and sorted(f for _, fs in _stops for f in fs) == sorted(_miss)
+          and all(max(abs(s[0] - 10), abs(s[2] - 10)) == 3 for s, _ in _stops))
 # Real case 05:04: standing on the frame to place an eye slid into the opening's lava.
 check("end portal: eyes are placed from outside the ring",
       END.outside_spot((10, 60, 8), (10, 60, 10)) == (10, 60, 7)

@@ -25,26 +25,27 @@ def portal_centre(frames):
     return (min(xs) + max(xs)) // 2, frames[0][1], (min(zs) + max(zs)) // 2
 
 
-def ring_stops(frames, centre, here):
-    """Pure: [(stand spot, [frames])] — one stop per side of the ring (outside its middle), sides in walking order
-    around the ring starting with the one nearest `here`."""
-    import math as _m
-    sides = {}
-    for f in frames:
-        dx, dz = f[0] - centre[0], f[2] - centre[2]
-        key = ("x", 1 if dx > 0 else -1) if abs(dx) >= abs(dz) else ("z", 1 if dz > 0 else -1)
-        sides.setdefault(key, []).append(f)
-    stops = []
-    for (axis, sign), fs in sides.items():
-        mid = (centre[0] + 2 * sign + sign, fs[0][1], centre[2]) if axis == "x" else \
-              (centre[0], fs[0][1], centre[2] + 2 * sign + sign)
-        stops.append((mid, sorted(fs)))
-    if not stops:
-        return []
-    start = min(range(len(stops)), key=lambda i: _m.dist(stops[i][0], here))
-    by_angle = sorted(stops, key=lambda s: _m.atan2(s[0][2] - centre[2], s[0][0] - centre[0]))
-    i0 = by_angle.index(stops[start])
-    return by_angle[i0:] + by_angle[:i0]
+EYE_REACH = 4.5      # block interaction range, eye to the frame's top
+
+
+def eye_stops(frames, centre, here, reach=EYE_REACH):
+    """Pure: [(stand spot, [frames])] — the fewest spots just outside the ring (never on it: standing on a frame slid
+    the player into the opening's lava) from which every frame's top is in reach, nearest to `here` first. Each stop
+    places all its eyes in one batch without moving: two corners cover a whole ring, one side-middle covers a side."""
+    cx, y, cz = centre
+    ring = [(cx + dx, y, cz + dz) for dx in range(-3, 4) for dz in range(-3, 4) if max(abs(dx), abs(dz)) == 3]
+    eye = lambda s: (s[0] + 0.5, s[1] + 1.62, s[2] + 0.5)                     # noqa: E731
+    top = lambda f: (f[0] + 0.5, f[1] + 0.8125, f[2] + 0.5)                  # noqa: E731
+    left, out, at = list(frames), [], here
+    while left:
+        stop = max(ring, key=lambda s: (sum(math.dist(eye(s), top(f)) <= reach for f in left), -math.dist(s, at)))
+        got = sorted(f for f in left if math.dist(eye(stop), top(f)) <= reach)
+        if not got:
+            break                          # a frame no stop reaches: the caller finds it still empty
+        out.append((stop, got))
+        left = [f for f in left if f not in got]
+        at = stop
+    return out
 
 
 def outside_spot(frame, centre):
@@ -68,18 +69,16 @@ def activate_end_portal(ctx):
         raise NotAvailable(f"need {len(missing)} eyes of ender, have {Inventory().count('minecraft:ender_eye')}")
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in hits])
     here = nav.feet_now()
-    # One walk around the ring: a stop outside the middle of each side reaches that side's 3 frames. Placing them in
-    # search order crossed the ring for every eye (bench 05:20, 79 s for 12 eyes).
-    for stop, side in ring_stops(missing, centre, here):
-        # Outside the ring, not on top of it: standing on a frame slid the player into the opening's lava once.
+    # One stand per few frames, every eye from it in one chain: walking the ring eye by eye was 79 s for 12 (05:20).
+    for stop, side in eye_stops(missing, centre, here):
         if not nav.arrived(stop, ctx.policy, range_=0.8, attempts=1):
-            raise api.NavFailed(f"the ring side at {stop} is not reachable")
-        for f in side:
-            r = api.run({"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,
-                         "z": f[2] + 0.5, "onBlock": True}, wait=20)
-            if r["status"] != "succeeded":
-                raise McError(f"placing an eye on {f} failed: {r['message']}")
-            yield f
+            raise api.NavFailed(f"the ring spot at {stop} is not reachable")
+        done = api.run_chain([{"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,
+                               "z": f[2] + 0.5, "onBlock": True} for f in side], stop_on_failure=True, wait=20)
+        bad = [t for t in done if t["status"] != "succeeded"]
+        if bad or len(done) < len(side):
+            raise McError(f"placing eyes from {stop} failed: {bad[0]['message'] if bad else 'chain cut short'}")
+        yield stop
     if frames_missing_eye(_frame_region()):
         raise McError("some frames still have no eye")
     log("end portal activated")

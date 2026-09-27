@@ -99,9 +99,12 @@ def portal_light_aim(origin, turns):
     return x + 0.5, y + 1.0, z + 0.5
 
 
+def use_task(item, aim, on_block):
+    return {"type": "use_item", "item": item, "x": aim[0], "y": aim[1], "z": aim[2], "onBlock": on_block}
+
+
 def _use(item, aim, on_block):
-    r = api.run({"type": "use_item", "item": item, "x": aim[0], "y": aim[1], "z": aim[2], "onBlock": on_block},
-                wait=30)
+    r = api.run(use_task(item, aim, on_block), wait=30)
     if r["status"] != "succeeded":
         raise McError(f"using {item} failed: {r['message']}")
     res = r.get("result") or {}

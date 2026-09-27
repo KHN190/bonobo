@@ -1138,6 +1138,43 @@ class PortalCast(unittest.TestCase):
                 self.assertEqual((out[i], len(out)), (step, n))
                 self.assertEqual([c[1] for c, _ in out], sorted(c[1] for c, _ in out))   # bottom-up
 
+    def frame(self, cast, lit=False, origin=ORIGIN):
+        """A region holding the first `cast` obsidian cells of the frame at `origin` (turns 1), lit or not."""
+        from bonobo import blueprints
+        from bonobo.world import Region
+        r = Region.__new__(Region)
+        r.lo, r.hi, r.props = (-8, 60, -8), (8, 72, 8), {}
+        obs = [p for p, part, *_ in blueprints.placed(blueprints.NETHER_PORTAL, origin, 1)
+               if part.item == "minecraft:obsidian"]
+        r.blocks = {p: "obsidian" for p in sorted(obs, key=lambda p: (p[1], p[2]))[:cast]}
+        if lit:
+            r.blocks.update({c: "nether_portal" for c in blueprints.clear_cells(blueprints.NETHER_PORTAL, origin, 1)})
+        return r
+
+    def test_resume_a_started_frame(self):
+        from bonobo import blueprints, building
+        bp = blueprints.NETHER_PORTAL
+        # (situation, cells standing, lit) → (cells still to cast, light it?, frame picked up as started?)
+        rows = [("empty: cast all, light", 0, False, (10, True, False)),
+                ("a stray obsidian is no frame", 1, False, (9, True, False)),
+                ("8 of 10: cast the 2, light", 8, False, (2, True, True)),
+                ("all cast, unlit: light only", 10, False, (0, True, True)),
+                ("lit: leave it be", 10, True, (0, False, True))]
+        for name, cast, lit, want in rows:
+            with self.subTest(name):
+                region = self.frame(cast, lit)
+                todo, unlit = building.portal_todo(bp, self.ORIGIN, 1, region.name)
+                started = (self.ORIGIN, 1) in building.started_builds(bp, region, (0, 64, 3))
+                self.assertEqual((len(todo), unlit, started), want)
+
+    def test_spot_prefers_the_started_frame(self):
+        from bonobo import blueprints, building, nav
+        region = self.frame(8)
+        cost, origin, turns, prepare = building.spot_options(blueprints.NETHER_PORTAL, (0, 64, 3), region,
+                                                             nav.Policy(), radius=2)[0]
+        cells = lambda o, t: sorted(p for p, *_ in blueprints.placed(blueprints.NETHER_PORTAL, o, t))  # noqa: E731
+        self.assertEqual((cost, prepare, cells(origin, turns)), (0, (), cells(self.ORIGIN, 1)))   # the same frame
+
     def test_mould_to_break(self):
         from bonobo import blueprints, fluids
         rows = [
