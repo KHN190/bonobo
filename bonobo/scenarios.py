@@ -2756,6 +2756,12 @@ def _have(*needs):
     return __import__("bonobo.goals", fromlist=["goals"]).have(*needs)
 
 
+def _fresh_picks(ctx):
+    """`before` hook: the brain's pick counts start from this row."""
+    import collections
+    core.BRAIN.__dict__.setdefault("picks", collections.Counter()).clear()
+
+
 def _count(token, n):
     return lambda: _inv_now().count(token) - _base_count(token) >= n
 
@@ -3139,11 +3145,15 @@ UPKEEP_ROWS = [
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
      [_blocked_toward(at(9, 0, 0))], lambda: _at(at(9, 0, 0), 4)(__import__("bonobo.api", fromlist=["get"]), None),
      _at(at(9, 0, 0), 4)),
+    # The row tests the trigger, not the fill: topping up to BRIDGE_STOCK (32) is 25+ blocks, past any 30 s budget.
+    # Stopped at progress — 3 blocks gained under a "bridge stock" pick.
     ("bridge_stock", "the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks "
-     "fetched first (the bag gains building blocks, the gap still open)",
+     "fetched first (the bag gains ≥ 3 building blocks under a bridge stock pick, the gap still open)",
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 2",
                  "give @p stone_pickaxe"],
-     [_blocked_toward(at(9, 0, 0))], _count("minecraft:cobblestone", 8), _gain("minecraft:cobblestone", 8)),
+     [_blocked_toward(at(9, 0, 0)), _fresh_picks, _interrupt_when("minecraft:cobblestone", 3)],
+     lambda: _count("minecraft:cobblestone", 3)() and core.BRAIN.picks.get("bridge stock", 0) >= 1,
+     _gain("minecraft:cobblestone", 3)),
     ("unstuck", "a minute in the same block with the same bag (history set), open ground → moved off (≥ 5 blocks)",
      _floor() + [_tp()], [_stuck_for(70)], lambda: not _near(__import__("bonobo.api", fromlist=["get"]),
                                                            at(0, 0, 0), 5),
