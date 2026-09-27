@@ -57,6 +57,8 @@ def mod_features():
         _features = {"pillar"} if v >= (0, 1, 15) else set()
         if v >= (0, 1, 17):
             _features.add("travel")   # the mod plans and executes walk/dig/bridge/pillar routes itself
+        if v >= (0, 1, 40):
+            _features.add("approach_dig")   # mine/place/use dig their own way when walking finds none (ApproachTask)
     return _features
 
 

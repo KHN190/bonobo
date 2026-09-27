@@ -1697,5 +1697,22 @@ class WaterBucketBeforeAFall(unittest.TestCase):
                                                        ("craft", "minecraft:bucket"), ("fill", "minecraft:water_bucket"))))
 
 
+
+class ModFeatures(unittest.TestCase):
+    """nav.mod_features: what the running jar can do, by its version; "approach_dig" (0.1.40) means a mine the
+    walker cannot reach is dug to by the jar itself, so skills.mine does not tunnel for it a second time."""
+
+    ROWS = [("0.1.14: nothing", "0.1.14+mc1.21.11", set()), ("0.1.15: pillar", "0.1.15", {"pillar"}),
+            ("0.1.39: travel", "0.1.39+mc1.21.11", {"pillar", "travel"}),
+            ("0.1.40: the approach digs", "0.1.40+mc1.21.11", {"pillar", "travel", "approach_dig"}),
+            ("no version read: nothing assumed", "unknown", set())]
+
+    def test_version_to_features(self):
+        from bonobo import nav
+        for name, version, want in self.ROWS:
+            with self.subTest(name), mock.patch.object(nav, "_features", None), \
+                    mock.patch.object(api, "status", return_value={"version": version}):
+                self.assertEqual(nav.mod_features(), want)
+
 if __name__ == "__main__":
     unittest.main()

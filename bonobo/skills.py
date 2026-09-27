@@ -648,7 +648,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             # A way that was made is progress; a way that was made and changed nothing is not. The outer loop
             # runs ten times, so a tunneller that keeps "succeeding" without opening anything would spend them
             # all — count it against the same budget and let the place itself be the answer.
-            if nav.way_to(ctx, out.cells or vein):
+            # From 0.1.40 the mod's own approach already dug for it (ApproachTask → travel): "cannot reach" then
+            # means no way could be dug, and tunnelling again from here is the same attempt twice.
+            if "approach_dig" not in nav.mod_features() and nav.way_to(ctx, out.cells or vein):
                 unreachable += 1
                 _reach_budget(unreachable + 1, blocks, str(out))    # one more try than a plain refusal gets
                 continue
