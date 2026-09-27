@@ -266,15 +266,37 @@ def batch(option, state):
     return list(make(option, state)) if make else []
 
 
+# Between swings (jar AttackTask "footwork", ≥ 0.1.51): out of a melee mob's reach and in again as the swing
+# refills; across a ranged mob's line of fire. By what the target is (beliefs MOBS "ranged"), one table.
+FOOTWORK = {"melee": "back", "ranged": "strafe"}
+
+
+def footwork(target, state):
+    """Pure: the footwork for fighting entity `target`, read off the rows being answered (`threats`, `threat_ids`):
+    None when the target is not among them."""
+    from .beliefs import MOBS
+    rows, ids = state.get("threats") or [], list(state.get("threat_ids") or [])
+    if target not in ids or ids.index(target) >= len(rows):
+        return None
+    kind = rows[ids.index(target)][3]
+    return FOOTWORK["ranged" if MOBS.get(kind, {}).get("ranged") else "melee"]
+
+
+def _attack(option, state, **extra):
+    task = {"type": "attack", "entity": option.target, **extra}
+    step = footwork(option.target, state)
+    return [dict(task, footwork=step) if step else task]
+
+
 def _fight(option, state):
-    return [{"type": "attack", "entity": option.target}]
+    return _attack(option, state)
 
 
 def _fight_shielded(option, state):
     """The attack with the shield raised between swings (jar AttackTask "shield", ≥ 0.1.45)."""
     if state["inv"].offhand() != "minecraft:shield":
         return []
-    return [{"type": "attack", "entity": option.target, "shield": True}]
+    return _attack(option, state, shield=True)
 
 
 def _evade(option, state):
@@ -354,7 +376,8 @@ def engage(decision, s, ctx):
     from . import perception
     from .skillcore import body_state, feet
     read = REGION.get(decision.kind)
-    state = body_state(ctx, read(feet()) if read else None, threats=perception.threats_seen()[0])
+    rows, ids = perception.threats_seen()
+    state = body_state(ctx, read(feet()) if read else None, threats=rows, threat_ids=ids)
     tasks = batch(decision, state)
     if not tasks:
         raise NotAvailable(f"{decision.kind}: nothing to do it with from here")

@@ -675,3 +675,31 @@ class CycleSeconds(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Footwork(unittest.TestCase):
+    """fight_loop.footwork: between swings, back out of a melee mob's reach; sidestep a ranged mob's line."""
+
+    @staticmethod
+    def rows(*kinds):
+        from bonobo import threat
+        return [threat.row((float(3 + i), 64.0, 0.0), threat.MOBS[k]["reach"], (0.0, 0.0, 0.0), k)
+                for i, k in enumerate(kinds)]
+
+    def test_over_the_table(self):
+        bag = SimpleNamespace(offhand=lambda: "minecraft:shield")
+        both = dict(threats=self.rows("minecraft:zombie", "minecraft:skeleton", "minecraft:creeper"),
+                    threat_ids=[11, 12, 13], inv=bag)
+        rows = [  # (why, target, fight kind, state) → the attack task's footwork (None: no key)
+            ("a zombie: back out of its reach", 11, "fight", both, "back"),
+            ("a skeleton: strafe across its line", 12, "fight", both, "strafe"),
+            ("a creeper (melee): back, never standing in its blast", 13, "fight", both, "back"),
+            ("behind the shield, a skeleton: strafe too", 12, "fight_shielded", both, "strafe"),
+            ("a target not among the rows: no footwork", 99, "fight", both, None),
+            ("no rows at all: no footwork", 11, "fight", dict(inv=bag), None),
+        ]
+        for why, target, kind, state, want in rows:
+            with self.subTest(why):
+                task = fight_loop.batch(SimpleNamespace(kind=kind, target=target), state)[0]
+                self.assertEqual(task.get("footwork"), want)
+                self.assertEqual(task["entity"], target)
