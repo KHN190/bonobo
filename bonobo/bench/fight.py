@@ -26,8 +26,9 @@ ESCAPE_ROWS = paths.data("bench/escape.jsonl")
 # How each value of the shared vocabulary (`bench.cells.DIMENSIONS`) is realised in a running game. The names
 # come from there; this says only how to build them with commands.
 ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skeleton", "climber": "minecraft:spider",
-         "bomb": "minecraft:creeper", "teleporter": "minecraft:enderman",
-         "pack": "minecraft:zombie", "mixed": "minecraft:zombie"}
+         "bomb": "minecraft:creeper", "teleporter": "minecraft:enderman"}
+# "pack" and "mixed" (bench/cells.py) were zombies here too, the number coming from `count`: the same world as
+# "walker" under another name, so the same row twice. The pack is walker × count=three.
 
 COUNT = {"one": 1, "three": 3}
 
@@ -597,7 +598,9 @@ for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
     }
 
 # combat_arena, one cell per row (15 s a cell, the row under 30 s): the same cells, the same per-row rules.
-ARENA_SHARDS = _shards(_cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT), 1)
+# Nothing to answer is one control cell, not one per ground: the ground only prices answers to an enemy.
+ARENA_SHARDS = _shards([c for c in _cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT)
+                        if ENEMY[c["enemy"]] is not None or c["ground"] == "open"], 1)
 for _i, _shard in enumerate(ARENA_SHARDS, start=1):
     SCENARIOS[f"combat_arena__{_i}"] = {
         "doc": "combat_arena shard " + "; ".join(f"{c['enemy']}/{c['ground']}/{c['kit']}/{c['blood']}" for c in _shard)

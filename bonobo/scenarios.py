@@ -1953,9 +1953,27 @@ def _row(name, base, cond=None, extra=None):
 
 for _base in BASES:
     SHEET[f"{_base}__base"] = _row(f"{_base}__base", _base)
-for (_cname, _cond), _base in _it.product(CONDITIONS.items(), BASES):
-    if _base in _cond["bases"]:
-        SHEET[f"{_base}__{_cname}"] = _row(f"{_base}__{_cname}", _base, _cond)
+def cover(conditions, bases, pinned=()):
+    """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product. Every condition appears,
+    and within each axis every base it applies to appears (the pairs that differ: one condition per base per axis,
+    one base per condition), greedily, most new coverage first, ties in table order. `pinned` pairs are kept."""
+    order = list(bases)
+    pairs = [(c, b) for c, v in conditions.items() for b in order if b in v["bases"]]
+    need = {("cond", c) for c, _b in pairs} | {("axis", conditions[c]["axis"], b) for c, b in pairs}
+    new = lambda p: {("cond", p[0]), ("axis", conditions[p[0]]["axis"], p[1])} & need   # noqa: E731
+    out = [p for p in pairs if p in set(pinned)]
+    for p in out:
+        need -= new(p)
+    while need:
+        best = max(pairs, key=lambda p: (len(new(p)), -pairs.index(p)))
+        out.append(best)
+        need -= new(best)
+    return sorted(out, key=pairs.index)
+
+
+# One pair named by another row or check (dig_in_night's night is chop's).
+for _cname, _base in cover(CONDITIONS, BASES, pinned=[("night", "chop")]):
+    SHEET[f"{_base}__{_cname}"] = _row(f"{_base}__{_cname}", _base, CONDITIONS[_cname])
 for _sname, _s in SURPRISES.items():
     SHEET[_sname] = _row(_sname, _s["base"], None, _s)
 

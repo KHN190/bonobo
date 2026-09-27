@@ -415,6 +415,29 @@ class ThePoints(unittest.TestCase):
 
 
 
+class Cover(unittest.TestCase):
+    # (conditions, bases, pinned) → the pairs run: coverage, not the product
+    A = {"x": {"axis": "t", "bases": {"a", "b"}}, "y": {"axis": "t", "bases": {"b"}}}
+    ROWS = [("one condition, two bases: both bases in the axis", {"x": A["x"]}, "ab", (), [("x", "a"), ("x", "b")]),
+            ("the second condition covers the second base: two pairs, not three", A, "ab", (), [("x", "a"), ("y", "b")]),
+            ("another axis covers its bases again", dict(A, z={"axis": "u", "bases": {"a"}}), "ab", (),
+             [("x", "a"), ("y", "b"), ("z", "a")]),
+            ("a pinned pair stays even when it adds little", A, "ab", [("x", "b")], [("x", "a"), ("x", "b"), ("y", "b")]),
+            ("no condition applies: nothing", {"x": {"axis": "t", "bases": set()}}, "ab", (), []),
+            ("a pinned pair that is not applicable is dropped", {"x": A["x"]}, "ab", [("x", "c")],
+             [("x", "a"), ("x", "b")])]
+
+    def test_cover(self):
+        for name, conds, bases, pinned, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(sc.cover(conds, list(bases), pinned), want)
+
+    def test_real_sheet_covers_every_condition_and_axis_base(self):
+        pairs = sc.cover(sc.CONDITIONS, sc.BASES, [("night", "chop")])
+        self.assertEqual({c for c, _ in pairs}, set(sc.CONDITIONS))
+        self.assertEqual({(sc.CONDITIONS[c]["axis"], b) for c, b in pairs},
+                         {(v["axis"], b) for v in sc.CONDITIONS.values() for b in v["bases"] if b in sc.BASES})
+
 class EndgameBuilt(unittest.TestCase):
     # (row, what its setup must build so the job fits 30 s)
     ROWS = [("activate_end_portal", lambda r: "give @p ender_eye 3" in r["setup"]
