@@ -305,8 +305,8 @@ def arrive(pos, policy, range_=1.5, **kw):
     """Get there, or raise `api.NavFailed`. The call a skill makes when it needs to BE somewhere.
 
     `go_to` answers in three ways — True (there), `Walked` (nearer, not there; falsy) and False (no nearer); a skill
-    that read a leg stopped thirty blocks short as arrival began working on thin air. Here a leg that gained ground is followed by the next one, arrival returns True, and a leg
-    that gained nothing is the failure it is. A pending interrupt ends the walk between legs.
+    that read a leg stopped thirty blocks short as arrival began working on thin air. Here a leg that gained ground
+    is followed by the next one, arrival returns True, and a leg that gained nothing is the failure it is. A pending interrupt ends the walk between legs.
     """
     began = time.time()
     got = False
