@@ -666,6 +666,19 @@ def seek_hits(blocks, found, radius, blocked, protected):
     raise NotAvailable(f"no {blocks[0]} within {SEEK_RADII[-1]} blocks{why}")
 
 
+def noted_hits(notes, blocks, blocked, protected):
+    """Pure: the remembered cells of `blocks` (memory's seen notes) a mining pass may go straight to — the same
+    shape `/find` answers with, minus bans and our own builds. A noted ore is walked to with no scan: that is
+    what noting it was for (seen_store__noted scanned every pass)."""
+    names = {bare(b) for b in blocks}
+    out = []
+    for n in notes:
+        p = tuple(n["pos"])
+        if bare(n["kind"]) in names and not blocked(p) and p not in protected:
+            out.append({"x": p[0], "y": p[1], "z": p[2], "noted": True})
+    return out
+
+
 def mine_segment_commands(state, args):
     """Pure: one open-loop segment of mining — a single `mine_many` over `cells`, collecting `drop`, with the pickup
     filter a nearly full bag needs. `mine` is closed-loop (it looks for the next vein as it goes); this is the part
@@ -702,7 +715,10 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         require_pickaxe(tier)
         # Sealed or exposed alike: seeing through blocks is allowed, and the jar's approach (approach_dig) digs to
         # a buried block. Only a jar without it needs the open faces, asked separately below.
-        raw = find(blocks, radius=radius, limit=60)
+        # Remembered first: /find only when no noted cell of these blocks is left.
+        notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
+        noted = noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
+        raw = noted or find(blocks, radius=radius, limit=60)
         digs = "approach_dig" in nav.mod_features()
         exposed_cells = None if digs else {(h["x"], h["y"], h["z"])
                                            for h in find(blocks, radius=radius, limit=60, exposed=True)}
@@ -723,6 +739,10 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
+            continue
+        if hits[0].get("noted") and bare(region.name(seed)) not in {bare(b) for b in blocks}:
+            for b in blocks:
+                ctx.mem.forget_seen(b, seed, ctx.dimension, radius=0.5)     # gone from where it was noted
             continue
         vein = set(mineable((p for p in connected(region, seed, blocks) if not ctx.blocked(p)), start,
                             region, nav.SAFE_DROP))

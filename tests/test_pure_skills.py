@@ -179,6 +179,28 @@ class Returns(unittest.TestCase):
         self.assertEqual((stop([self.GO, self.MINE] * 3), stop([self.GO, self.MINE, self.GO])), (True, False))
 
 
+class NotedHits(unittest.TestCase):
+    """skills.noted_hits: a remembered ore is gone to straight, no /find (seen_store__noted scanned every pass)."""
+    TABLE = [
+        ("a noted diamond: that cell", ([{"kind": "diamond_ore", "pos": [4, 60, 0]}], ["diamond_ore"], set(), set()),
+         [(4, 60, 0)]),
+        ("a note of another block: nothing (then /find)", ([{"kind": "iron_ore", "pos": [4, 60, 0]}], ["diamond_ore"],
+                                                           set(), set()), []),
+        ("the noted cell banned: nothing", ([{"kind": "diamond_ore", "pos": [4, 60, 0]}], ["diamond_ore"],
+                                            {(4, 60, 0)}, set()), []),
+        ("the noted cell ours: nothing", ([{"kind": "diamond_ore", "pos": [4, 60, 0]}], ["diamond_ore"], set(),
+                                          {(4, 60, 0)}), []),
+        ("namespaced kinds match bare", ([{"kind": "minecraft:deepslate_diamond_ore", "pos": [1, 2, 3]}],
+                                         ["deepslate_diamond_ore"], set(), set()), [(1, 2, 3)]),
+    ]
+
+    def test_table(self):
+        for why, (notes, blocks, banned, protected), want in self.TABLE:
+            with self.subTest(why):
+                got = skills.noted_hits(notes, blocks, lambda p: p in banned, protected)
+                self.assertEqual([(h["x"], h["y"], h["z"]) for h in got], want)
+
+
 class TakeBackVerdict(unittest.TestCase):
     """skills.take_back_verdict: a station not picked up but still standing is left (a station there), not lost."""
     # (situation, (bag gained it, still standing)) → verdict
