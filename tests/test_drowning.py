@@ -178,7 +178,7 @@ class Surface(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(hazard._W, WATER), \
                     mock.patch.dict(hazard.SKILLS, find_air=lambda ctx: calls.append("find_air")), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(("post", path))), \
-                    mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"]))):
+                    mock.patch.object(api, "run", side_effect=lambda t, wait=0, awaits=None: calls.append(("run", t["type"]))):
                 got = hazard.due(st, buried=False)
                 self.assertEqual(got, due)
                 if got:

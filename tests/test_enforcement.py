@@ -118,7 +118,7 @@ class RulesAreWired(unittest.TestCase):
          False, ["api.post(/stop)"], False, POST_REFUSED),
         ("post /close: not the body's, never asks", lambda: api.post("/close", {}), False, [], True, {"status": "sent"}),
         ("post /click: likewise", lambda: api.post("/click", {}), False, [], True, {"status": "sent"}),
-        ("run a mine task, not the owner: a failed result, not a crash", lambda: api.run({"type": "mine"}), False,
+        ("run a mine task, not the owner: a failed result, not a crash", lambda: api.run({"type": "mine"}, awaits="the funnel test: refused or run"), False,
          ["api.run(mine)"], False, {"status": "failed", "type": "mine", "message": "body owned by the arbiter",
                                     "seconds": 0}),
         ("walk, not the owner: no walk, the interruption raised (never False: a False banned the target)",

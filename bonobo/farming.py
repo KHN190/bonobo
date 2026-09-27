@@ -159,7 +159,7 @@ def replant(ctx, base):
     if region.name(soil) not in SOIL or region.name(base) != "air":
         return False
     # one task, nothing to chain; its result decides the sapling job
-    r = api.run({"type": "place", "item": sapling, "x": base[0], "y": base[1], "z": base[2]}, wait=30)
+    r = api.run({"type": "place", "item": sapling, "x": base[0], "y": base[1], "z": base[2]}, wait=30, awaits="the sapling placed or not decides the next spot")
     if r["status"] != "succeeded":
         return False
     jobs.start(ctx.mem, "sapling", base, ctx.dimension, item="log", count=4)
@@ -236,7 +236,7 @@ def _reap(cells):
     # one mine_many task: already a batch (every ripe cell, one pickup)
     api.run({"type": "mine_many", "collect": True, "requireDrops": False,
              "only": ["minecraft:wheat", "minecraft:wheat_seeds"],
-             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}, wait=120)
+             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}, wait=120, awaits="the crops broken before the farmland is read to replant")
     got = gained(lambda: Inventory().count("minecraft:wheat"), before) - before
     log(f"reaped {got} wheat from {len(cells)} ripe cells")
     return got

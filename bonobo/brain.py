@@ -154,8 +154,7 @@ class Brain:
             for fb in entities(6, ["minecraft:fireball"]):
                 if fb["distance"] <= 4.5:
                     try:
-                        # closed loop: each fireball is one swing now, the next read decides the next (reflex latency)
-                        api.run({"type": "attack", "entity": fb["id"]}, wait=2)
+                        api.run({"type": "attack", "entity": fb["id"]}, wait=2, awaits="each fireball is one swing now, the next read decides the next (reflex latency)")
                     except McError:
                         pass
         inv = Inventory()
@@ -270,7 +269,7 @@ class Brain:
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting")
             intent.set("goal", "holding: nothing to do")
-            api.run({"type": "wait", "ticks": IDLE_WAIT_TICKS}, wait=15)     # one task: the idle round's wait
+            api.run({"type": "wait", "ticks": IDLE_WAIT_TICKS}, wait=15, awaits="one task: the idle round's wait")     # one task: the idle round's wait
             return
         self.idle_since = None
         intent.set("goal" if act.layer in ("task", "idle") else "safety", repr(act))

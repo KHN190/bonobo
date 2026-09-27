@@ -106,8 +106,7 @@ def trade(ctx, want):
     if not villagers:
         raise NotAvailable("no villager nearby")
     v = min(villagers, key=lambda e: e["distance"])
-    # closed loop: the trade window's offers are what the choice reads (choose_trade), only there once it opens
-    r = api.run({"type": "interact", "entity": v["id"]}, wait=45)
+    r = api.run({"type": "interact", "entity": v["id"]}, wait=45, awaits="the trade window's offers are what the choice reads (choose_trade), only there once it opens")
     if r["status"] != "succeeded":
         raise api.NavFailed(f"could not reach the villager: {r['message']}")
     try:

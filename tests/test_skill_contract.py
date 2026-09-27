@@ -276,7 +276,7 @@ class Arrive(_Clean):
                 with mock.patch.object(api, "DRESS", lambda t: nav.with_avoid(t, WALL)), \
                         mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
                                           {"status": "succeeded", "type": task["type"], "message": "", "seconds": 0}):
-                    api.run(dict(task))
+                    api.run(dict(task), awaits="the test reads what was posted")
                 self.assertEqual(posted, [want])
 
     def test_there_over_the_table(self):
@@ -496,6 +496,26 @@ class ChainStopsAtASegment(unittest.TestCase):
                     else:
                         api.run_chain(tasks, segment=6)
                 self.assertEqual(len(posted), posts)
+
+
+class ASingleSendSaysWhy(unittest.TestCase):
+    """api.run: one task alone must name the world result it waits for (`awaits`); else it belongs in a chain."""
+
+    def test_over_the_table(self):
+        ok = {"status": "succeeded", "type": "wait", "message": "", "seconds": 0}
+        rows = [("no reason: refused at the call", {}, TypeError),
+                ("an empty reason: refused", {"awaits": ""}, ValueError),
+                ("only spaces: refused", {"awaits": "   "}, ValueError),
+                ("a reason: sent", {"awaits": "the bed accepted"}, None),
+                ("not a string: refused", {"awaits": 1}, ValueError)]
+        for name, kw, want in rows:
+            with self.subTest(name), mock.patch.object(api, "post", return_value=ok), \
+                    mock.patch.object(api, "DRESS", None):
+                if want:
+                    with self.assertRaises(want):
+                        api.run({"type": "wait", "ticks": 1}, **kw)
+                else:
+                    self.assertEqual(api.run({"type": "wait", "ticks": 1}, **kw)["status"], "succeeded")
 
 
 class Outcomes(unittest.TestCase):

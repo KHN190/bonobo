@@ -148,7 +148,7 @@ class Station:
             raise StationMissing(self.block)
         for _ in range(3):
             try:
-                r = api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60)
+                r = api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60, awaits="the station's screen open")
             except api.Unreachable:
                 break                      # behind a wall or a fence: the station is not usable from here
             if r["status"] == "succeeded" and r["result"].get("screen") not in (None, "none"):
@@ -157,7 +157,7 @@ class Station:
         raise McError(f"could not open {bare(self.block)}")
 
     def reopen(self):
-        api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60)
+        api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60, awaits="the station's screen open again")
 
     def __exit__(self, *exc):
         api.post("/close")
@@ -176,7 +176,7 @@ class Station:
             except McError as e:
                 log(f"   could not break the {bare(self.block)} to take it back: {e}")
             if gained(held, before) <= before and not _standing(self.block, self.pos, tries=1):
-                api.run({"type": "collect", "radius": 6}, wait=30)   # the drop can land out of the sweep
+                api.run({"type": "collect", "radius": 6}, wait=30, awaits="the drop the break's own sweep missed")   # the drop can land out of the sweep
             verdict = take_back_verdict(gained(held, before) > before, _standing(self.block, self.pos, tries=1))
             if verdict != "left":
                 self.ctx.mem.remove_station(self.pos)      # in the bag, or gone: not a station here any more
@@ -589,7 +589,7 @@ def collect_job(ctx, job):
     if not nav.arrived(pos, ctx.policy, range_=3, attempts=2):
         raise api.NavFailed(f"furnace job at {pos} not reachable")
     before = Inventory().count(job["item"])
-    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40)
+    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40, awaits="the furnace's slots read on its screen")
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         if not find(["furnace"], radius=4, limit=1):
             ctx.mem.finish_job(job["id"])      # furnace is gone (broken, burnt down area): forget the job
@@ -862,7 +862,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 api.run_chain(seal, stop_on_failure=True, wait=60)
         before = Inventory().count(drop)
         try:
-            r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)
+            r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")
         except api.Unreachable as out:
             # The door raises for the whole package ("3 of 4 steps failed: … cannot reach …"), which is right —
             # nobody may read that as success. Here, though, it is the ordinary case and it has an answer: the
@@ -999,7 +999,7 @@ def strip_mine_step(ctx, length=16):
         end = i
     if end == 0:
         # Turning in place is not progress: say so, and let the retry policy decide (the next try faces a new way).
-        api.run({"type": "look", "yaw": (s["yaw"] + 90) % 360, "pitch": 0})
+        api.run({"type": "look", "yaw": (s["yaw"] + 90) % 360, "pitch": 0}, awaits="the next sight line read")
         raise NotAvailable("tunnel blocked ahead (turned to try another direction)")
     tasks.append({"type": "goto", "x": fx + dx * end, "y": fy, "z": fz + dz * end, "range": 1, "partial": True})
     log(f"strip mining {end} blocks at y={fy}")
@@ -1054,7 +1054,7 @@ def hunt(ctx, token, count, types, night):
                 ctx.ban((prey[0]["id"], 0, 0), 300)
                 raise api.NavFailed(f"could not get to the {bare(types[0])}")
         try:
-            api.run({"type": "attack", "entity": e["id"]}, wait=30)
+            api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
             # The kill worked; the drop can land where nothing stands (a branch, a ledge, the far side of a
             # fence). `sweep` makes a way to it and tries again — concluding "this cow dropped no beef" from an
             # item we could not walk to is how a whole herd was written off.
@@ -1372,7 +1372,7 @@ def reach_land(ctx):
         raise NotAvailable(route[2] if route else "no water to swim through and no land within 24 blocks")
     land = route[1]
     api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": nav.ASHORE_RANGE, "partial": True,
-             "useBoat": True}, wait=120)
+             "useBoat": True}, wait=120, awaits="ashore or not (nav.ashore) decides the climb out")
     # Judged by where the body is, not by the walker's answer (it calls a body in the water beside the bank arrived).
     if not nav.ashore(api.get("/state"), land) and not nav.climb_out(land):
         # The walker can't climb out (a 1-wide water shaft, a high bank): dig / pillar out instead.
@@ -1455,7 +1455,7 @@ def unbury(ctx):
     for _ in range(4):
         s = api.get("/state")
         eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
-        api.run(nav.mine_task(eye), wait=15)
+        api.run(nav.mine_task(eye), wait=15, awaits="the eye cell read again (sand keeps falling)")
         yield eye
 
 
@@ -1516,10 +1516,10 @@ def find_air(ctx):
         if why:
             log(f"   find_air: {why}")
         if kind == "dig":
-            api.run(nav.mine_task(c), wait=15)
+            api.run(nav.mine_task(c), wait=15, awaits="the air route read again after each step")
         else:
             api.run({"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5, "partial": True,
-                     "useBoat": False}, wait=20)
+                     "useBoat": False}, wait=20, awaits="the air route read again after each step")
             if kind == "land":
                 nav.climb_out(c)                   # beside the rim or the shore: onto it
             if kind == "pillar" and nav.building_item():
@@ -1545,6 +1545,12 @@ def bed_spot():
 # When a bed works at all. Mojang's rule, not ours: outside this window (and outside a thunderstorm) using a bed
 # says "you can only sleep at night" and nothing happens. A rule about the WORLD, so it is stated once, here.
 SLEEP_FROM_TICKS, SLEEP_TO_TICKS = 12541, 23458
+
+
+def _morning(timeout=7.0):
+    """Lain in a bed: read the clock until it is morning (the night skipped, ~5 s), at most `timeout` s."""
+    day = lambda t: int(t) % 24000 < 12500      # noqa: E731
+    return day(settle(lambda: api.get("/state")["timeOfDay"], day, timeout=timeout, stable_s=0.0, soft=True))
 
 
 def can_sleep(state):
@@ -1576,7 +1582,7 @@ def wait_for_day(ctx):
     """Sit the night out where we are (the plan put us under cover first): wait in ten-second slices until the sun
     is up. The other way to morning is a bed (`sleep`); the solver prices both."""
     while True:
-        api.run({"type": "wait", "ticks": 200}, wait=15)
+        api.run({"type": "wait", "ticks": 200}, wait=15, awaits="the time of day")
         yield api.get("/state")["timeOfDay"]
 
 
@@ -1593,15 +1599,17 @@ def sleep(ctx, night_policy):
         spot = bed_spot()
         if spot is None:
             raise NotAvailable("no flat 2-block spot for the bed")
-        place(bed, spot)
+        use = {"type": "use", "x": spot[0], "y": spot[1], "z": spot[2]}
         try:
+            # Placed and lain in as one chain; then morning is read, not waited a fixed 7 s for.
+            chain = [{"type": "place", "item": bed, "x": spot[0], "y": spot[1], "z": spot[2]}, use]
             for _ in range(3):
-                api.run({"type": "use", "x": spot[0], "y": spot[1], "z": spot[2]}, wait=30)
-                api.run({"type": "wait", "ticks": 20 * 7}, wait=20)
-                if api.get("/state")["timeOfDay"] < 12500:
+                api.run_chain(chain, stop_on_failure=True, wait=30)
+                if _morning():
                     ctx.mem.slept()
                     log("slept (carried bed)")
                     return
+                chain = [use]
             raise NotAvailable("could not fall asleep (monsters nearby?)")
         finally:
             mine_cell(ctx.policy, spot, wait=60)
@@ -1612,9 +1620,8 @@ def sleep(ctx, night_policy):
     if not nav.arrived(b, night_policy, range_=2.5, attempts=2):
         raise NotAvailable("bed not walkable tonight")
     for _ in range(3):
-        api.run({"type": "use", "x": b[0], "y": b[1], "z": b[2]}, wait=30)
-        api.run({"type": "wait", "ticks": 20 * 7}, wait=20)
-        if api.get("/state")["timeOfDay"] < 12500:
+        api.run_chain([{"type": "use", "x": b[0], "y": b[1], "z": b[2]}], wait=30)
+        if _morning():
             ctx.mem.slept()
             log("slept (site bed)")
             return
@@ -1723,7 +1730,7 @@ def take(ctx, token, count, blocks):
             ctx.ban(cell)
             continue
         mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)
-        api.run({"type": "collect", "radius": 4}, wait=20)
+        api.run({"type": "collect", "radius": 4}, wait=20, awaits="the drops the break left, counted after")
         yield None
         got += 1
         # The block is gone from the world whether or not the drop reached the bag: the map has to stop sending us
@@ -1871,7 +1878,7 @@ def light_area(ctx, radius=10, limit=6):
             break   # three unreachable spots in a row: the rest are behind walls too
         pos = (task["x"], task["y"], task["z"])
         try:
-            r = api.run(task, wait=40)
+            r = api.run(task, wait=40, awaits="the torch placed or the spot unreachable decides the next spot")
         except api.Unreachable:
             misses += 1                    # a dark spot behind a wall: the next one, as before
             continue
@@ -1964,7 +1971,7 @@ def tidy_inventory(ctx):
         raise NotAvailable("nothing to throw away")
     # Face the open side (in a tunnel: back the way we came) so the drops fly where we won't walk next.
     yaw = {(1, 0): -90.0, (-1, 0): 90.0, (0, 1): 0.0, (0, -1): 180.0}[direction]
-    api.run({"type": "look", "yaw": yaw, "pitch": 0}, wait=5)
+    api.run({"type": "look", "yaw": yaw, "pitch": 0}, wait=5, awaits="facing the open side before the throw clicks (UI, not tasks)")
     for s in throw:
         api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
         yield s["slot"]
@@ -1974,7 +1981,7 @@ def tidy_inventory(ctx):
              if (p[0] - x) * direction[0] + (p[2] - z) * direction[1] < 0]
     if spots:
         far = max(spots, key=lambda p: math.dist(p, (x, y, z)))
-        api.run({"type": "goto", "x": far[0], "y": far[1], "z": far[2], "range": 0.8, "partial": True}, wait=15)
+        api.run({"type": "goto", "x": far[0], "y": far[1], "z": far[2], "range": 0.8, "partial": True}, wait=15, awaits="away from the thrown drops before their pickup delay ends")
 
 
 def can_store_here(ctx, local_only=False):
@@ -2080,7 +2087,7 @@ def deposit(ctx, local_only=False):
     if c is None:
         c = _place_cache_chest(ctx)
         moving = store_plan(Inventory().slots)
-    r = api.run({"type": "use", "x": c[0], "y": c[1], "z": c[2]}, wait=60)
+    r = api.run({"type": "use", "x": c[0], "y": c[1], "z": c[2]}, wait=60, awaits="the chest's slots read on its screen")
     if r["result"].get("screen") in (None, "none"):
         raise McError("could not open the home chest")
     try:
@@ -2106,7 +2113,7 @@ def withdraw(ctx, item, count, pos):
     """Take `count` of `item` out of the container at `pos` (memory said it held them: memory.stored), and write
     down what is left in it."""
     nav.arrive(pos, ctx.policy, range_=3)
-    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30)
+    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots read on its screen")
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         ctx.mem.forget_container(pos)
         raise NotAvailable(f"the container at {pos} did not open")
@@ -2177,7 +2184,7 @@ def repair_site(ctx, site):
         if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=3, attempts=2):
             raise NotAvailable(f"{site['name']} not reachable")
         log(f"repairing {site['name']}: {len(blocks)} blocks")
-        api.run({"type": "build", "blocks": blocks}, wait=600)
+        api.run({"type": "build", "blocks": blocks}, wait=600, awaits="one build task: the site read back after")
     remaining = _site_missing(site)
     ctx.mem.update_site(site["name"], dirty=remaining > 0)
     if remaining:

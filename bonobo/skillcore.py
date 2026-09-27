@@ -29,7 +29,7 @@ def mine_cell(policy, cell, wanted=(), collect=True, require_drops=False, wait=3
         raise NotAvailable(f"{cell} is part of one of our own structures")
     started = time.time()
     out = api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": collect,
-                   **_collect_only(list(wanted)), "requireDrops": require_drops}, wait=wait)
+                   **_collect_only(list(wanted)), "requireDrops": require_drops}, wait=wait, awaits="one cell through the door that keeps our builds (callers chain mine_task)")
     _note_break(started)
     return out
 
@@ -259,7 +259,7 @@ def free_spots_here(block_under=True, reach=4, avoid=(), limit=5):
 
 
 def place(item, pos):
-    r = api.run({"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60)
+    r = api.run({"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60, awaits="one block, placed or not (callers chain place tasks)")
     if r["status"] != "succeeded":
         raise McError(f"placing {bare(item)} failed: {r['message']}")
 

@@ -107,7 +107,7 @@ def _leave_lava(ctx, s):
     api.post("/stop")
     # one task: nothing to chain (the climb out is the whole answer)
     api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 3, "z": s["blockZ"], "range": 3,
-             "partial": True}, wait=20)
+             "partial": True}, wait=20, awaits="out of the lava: the next reading decides")
 
 
 def _surface(ctx, s):

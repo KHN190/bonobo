@@ -436,8 +436,7 @@ def _recover_body(ctx, act):
     if act == "shake_enderman":
         shake_enderman(ctx)
     elif act == "water_clutch":
-        # closed loop: the fall's landing (onGround) before the next recovery act
-        api.run({"type": "wait", "ticks": 5}, wait=5)     # mid-air: the mod pours water under us
+        api.run({"type": "wait", "ticks": 5}, wait=5, awaits="the fall's landing (onGround) before the next recovery act")     # mid-air: the mod pours water under us
     elif act == "retreat_and_eat":
         _retreat(ctx)
         from . import skills
@@ -502,8 +501,7 @@ def await_perch(ctx):
         if not s.get("onGround") and s["y"] > floor_y + 3:
             # Flung by a take-off: pathing in mid-air does nothing. Hold still and let the mod's WaterClutch pour
             # under us (one run rode the knockback to y 144 and died on landing).
-            # closed loop: on the ground again after the fling (the mod's water clutch)
-            api.run({"type": "wait", "ticks": 5}, wait=5)
+            api.run({"type": "wait", "ticks": 5}, wait=5, awaits="on the ground again after the fling (the mod's water clutch)")
             yield ("airborne", round(s["y"]))
             continue
         if not in_pit(feet, pit_feet, floor_y):
@@ -624,19 +622,16 @@ def bed_bomb_window(ctx):
         if "unknown task" in (r.get("message") or "").lower():
             raise NotAvailable("the mod has no bed_bomb task (needs ≥0.1.31)")
         log(f"   bed bomb failed: {r['message']}")
-    # closed loop: the dragon's health and phase after the bomb decide a follow-up
-    api.run({"type": "wait", "ticks": 10}, wait=5)
+    api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the dragon's health and phase after the bomb decide a follow-up")
     # "Place, pop, place, pop": every blast shoves the dragon up, and the next bed catches it on the way. One bomb
     # per visit throws away the rest of a perch, which is why runners land 4–5 blasts in a single landing.
     for _ in range(2):
         d_now = dragon_entry(entities(128))
         if not bombable(d_now) or api.get("/state")["health"] < 19 or not _bed_item():
             break
-        # closed loop: each follow-up bomb waits on the dragon still perched and bombable
-        again = api.run({"type": "bed_bomb", "x": bed[0], "y": bed[1], "z": bed[2], "item": _bed_item()}, wait=8)
+        again = api.run({"type": "bed_bomb", "x": bed[0], "y": bed[1], "z": bed[2], "item": _bed_item()}, wait=8, awaits="each follow-up bomb waits on the dragon still perched and bombable")
         log(f"   follow-up bomb: {again['status']} ({(d_now or {}).get('health')} hp before)")
-        # closed loop: the dragon's phase after this bomb
-        api.run({"type": "wait", "ticks": 10}, wait=5)
+        api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the dragon's phase after this bomb")
     after = dragon_entry(entities(128))
     lost = round((before or {}).get("health", 0) - (after or {}).get("health", 0))
     log(f"   bed bomb: dragon {before.get('health') if before else None} → "
@@ -721,8 +716,7 @@ def shake_enderman(ctx):
         feet = nav.feet_now()
         try:
             place("minecraft:water_bucket", feet)
-            # closed loop: whether the enderman lets go while we stand in water
-            api.run({"type": "wait", "ticks": 20}, wait=5)
+            api.run({"type": "wait", "ticks": 20}, wait=5, awaits="whether the enderman lets go while we stand in water")
             yield "water"
             return True
         except McError as e:
@@ -735,8 +729,7 @@ def shake_enderman(ctx):
         dug = not any(_R((pit_feet[0], y, pit_feet[2]), (pit_feet[0], y, pit_feet[2])).solid((pit_feet[0], y, pit_feet[2]))
                       for y in range(pit_feet[1], floor_y))
         if dug and nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=1):
-            # closed loop: whether the enderman lets go while we sit in the pit
-            api.run({"type": "wait", "ticks": 20}, wait=5)
+            api.run({"type": "wait", "ticks": 20}, wait=5, awaits="whether the enderman lets go while we sit in the pit")
             yield "pit"
             return True
     # Away from the enderman AND away from the island centre: never shake one off by walking under the dragon.
@@ -750,8 +743,7 @@ def shake_enderman(ctx):
     away = (round(here[0] + ux / m * 12), round(here[1]), round(here[2] + uz / m * 12))
     # A plain goto with a short budget, not travel: being chased, 10 s of "no progress" before anything changes is
     # far too slow. Three seconds and we look at the world again.
-    # closed loop: one short leg, then the chase is read again (a lone task, nothing to chain)
-    api.run({"type": "goto", "x": away[0], "y": away[1], "z": away[2], "range": 2, "partial": True}, wait=3)
+    api.run({"type": "goto", "x": away[0], "y": away[1], "z": away[2], "range": 2, "partial": True}, wait=3, awaits="one short leg, then the chase is read again (a lone task, nothing to chain)")
     yield "away"
     return True
 
@@ -780,7 +772,7 @@ def break_caged_crystal(ctx, crystal):
         raise api.NavFailed(f"tower base {base} not reachable")
     if not api.get("/state").get("onGround"):
         # Pillaring needs something under the feet ("towering up failed: nothing solid to stand on").
-        api.run({"type": "wait", "ticks": 10}, wait=5)
+        api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the dragon's next reading decides the next move")
     # Up and through the cage in one chain (crystal_commands): the tower's height and the bars are known here.
     from .skillcore import body_state
     lo = tuple(min(c[i] for c in bars) for i in range(3))
@@ -805,11 +797,10 @@ def break_caged_crystal(ctx, crystal):
             log(f"   no water under our feet ({e}): hitting the crystal anyway")
     for _ in range(3):
         try:
-            # closed loop: the crystal gone (entity list) after each hit
-            api.run({"type": "attack", "entity": crystal["id"]}, wait=6)
+            api.run({"type": "attack", "entity": crystal["id"]}, wait=6, awaits="the crystal gone (entity list) after each hit")
         except api.TaskStuck:
             pass                     # out of reach for a moment: step closer and try again
-        api.run({"type": "wait", "ticks": 10}, wait=5)
+        api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the dragon's next reading decides the next move")
         if not [e for e in entities(128) if e["id"] == crystal["id"]]:
             return True
         nav.arrived((stand[0], stand[1], stand[2]), ctx.policy, range_=0.8, attempts=1)
@@ -933,8 +924,7 @@ def _retreat(ctx, near=None):
                 f"{tuple(round(c, 1) for c in away)} (slack {slack}s)")
             nav.go_to(away, ctx.policy, range_=2, attempts=1, min_hp=0)
             return "away"
-    # closed loop: the next threat reading decides the next move
-    api.run({"type": "wait", "ticks": 10}, wait=5)         # nothing nearby: waiting really is the answer
+    api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the next threat reading decides the next move")         # nothing nearby: waiting really is the answer
     return "clear"
 
 
@@ -1062,8 +1052,7 @@ def enter_end(ctx):
         raise NotAvailable("the end portal isn't active yet")
     nav.arrived(centre, ctx.policy, range_=0.6, attempts=1)
     for _ in range(10):
-        # closed loop: the dimension change after stepping in
-        api.run({"type": "wait", "ticks": 20}, wait=5)
+        api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the dimension change after stepping in")
         yield None
         if api.get("/state")["dimension"] == "minecraft:the_end":
             return True

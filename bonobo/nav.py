@@ -423,10 +423,9 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         # and only give up when one does not.
         for _ in range(max(attempts, LEGS)):
             was = feet_now()
-            # closed loop: where the leg left the body decides the next leg (walked_closer, the retry on the ground)
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                         "avoid": avoid}, wait=900)
+                         "avoid": avoid}, wait=900, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
             if there(api.get("/state"), pos, range_):
                 return _arrived(_from, pos, _began, True)
             if walked_closer(was, feet_now(), pos):
@@ -444,10 +443,9 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 if fy is not None and fy != pos[1]:
                     log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
                     pos = (pos[0], fy, pos[2])
-                    # closed loop: the retry's arrival is read before anything else is asked
                     api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                              "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                             "avoid": avoid}, wait=900)
+                             "avoid": avoid}, wait=900, awaits="the retry's arrival is read before anything else is asked")
                     if there(api.get("/state"), pos, range_):
                         return _arrived(_from, pos, _began, True)
         # The walker says it could not get all the way. Whether that is a failure depends on where it left us:
@@ -455,8 +453,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet_now(), pos))
     for _ in range(attempts):
         # A jar without `travel`: one step at a time, and the same rule — the mod says whether it got there.
-        # closed loop: whether the step arrived (`there`) decides the next attempt
-        api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True})
+        api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True}, awaits="whether the step arrived (`there`) decides the next attempt")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
     return _arrived(_from, pos, _began, False)
@@ -549,8 +546,7 @@ def sweep(ctx, radius=6, only=(), wait=30, tries=2):
     """
     for attempt in range(max(1, tries)):
         try:
-            # closed loop: an Unreachable answer names the cells a way is made to before the next sweep
-            return api.run({"type": "collect", "radius": radius, **({'only': list(only)} if only else {})}, wait=wait)
+            return api.run({"type": "collect", "radius": radius, **({'only': list(only)} if only else {})}, wait=wait, awaits="an Unreachable answer names the cells a way is made to before the next sweep")
         except api.Unreachable as out:
             if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet_now()], range_=1.5):
                 raise

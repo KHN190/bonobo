@@ -118,8 +118,7 @@ def light_commands(state, args):
 
 
 def _use(item, aim, on_block):
-    # closed loop: callers read where the click landed (the hit face) before the next use
-    r = api.run(use_task(item, aim, on_block), wait=30)
+    r = api.run(use_task(item, aim, on_block), wait=30, awaits="callers read where the click landed (the hit face) before the next use")
     if r["status"] != "succeeded":
         raise McError(f"using {item} failed: {r['message']}")
     res = r.get("result") or {}

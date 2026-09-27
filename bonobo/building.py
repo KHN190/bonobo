@@ -21,8 +21,7 @@ def _mod_at_least(version):
 
 
 def _open_container(pos):
-    # closed loop: the caller reads the opened container's slots next
-    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60)
+    r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60, awaits="the caller reads the opened container's slots next")
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         raise McError(f"could not open the container at {pos}: {r['message']}")
 
@@ -251,8 +250,7 @@ def place_oriented(ctx, pos, token, facing=None, against=None, either_way=False)
         task["against"] = {"x": against[0], "y": against[1], "z": against[2]}
     elif facing is not None:
         task["facing"] = facing
-    # closed loop: the placed block's `facing` is read back before the next part (a mirrored stair is re-done)
-    r = api.run(task, wait=90)
+    r = api.run(task, wait=90, awaits="the placed block's `facing` is read back before the next part (a mirrored stair is re-done)")
     if r["status"] != "succeeded":
         raise McError(f"placing {bare(item)} at {pos} failed: {r['message']}")
     if facing is None:
@@ -373,7 +371,7 @@ def _build_parts(ctx, bp, origin, turns):
         log(f"   clearing {len(foliage)} leaves/vines around the {bp.name} build")
         # one mine_many task: every leaf in one send already
         api.run({"type": "mine_many", "collect": False, "requireDrops": False,
-                 "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in foliage]}, wait=180)
+                 "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in foliage]}, wait=180, awaits="the site cleared: the build reads the region after")
     for pos, part, facing, against in cells:
         if block_matches(done_region.name(pos), part.item):
             continue   # resuming an interrupted build: this part is already in place
@@ -387,16 +385,13 @@ def _build_parts(ctx, bp, origin, turns):
             # left the eye at 121.6 under a face at 122: still "no reachable face".)
             f = feet()
             if (f[0], f[2]) != (access[0], access[2]):
-                # closed loop: the pillar below starts from where this step left the feet
                 api.run({"type": "goto", "x": access[0], "y": f[1], "z": access[2], "range": 0.3, "partial": False},
-                        wait=20)
+                        wait=20, awaits="the pillar below starts from where this step left the feet")
             for _ in range(6):
                 if pos[1] - feet()[1] < 2:
                     break
                 block = resolve_item("building")
-                # closed loop: each pillar step's height and "headroom" answer decide the next (the fallback after
-                # blueprint_commands' batch, for what the batch could not place)
-                r = api.run({"type": "pillar", "item": block}, wait=20)
+                r = api.run({"type": "pillar", "item": block}, wait=20, awaits="each pillar step's height and 'headroom' answer decide the next (the fallback after blueprint_commands' batch, for what the batch could not place)")
                 if r["status"] != "succeeded" and "headroom" in r["message"]:
                     # Leaves or a branch over the pillar spot: clear the cell above the head (never a protected or
                     # frame cell), then pillar again.
@@ -405,8 +400,8 @@ def _build_parts(ctx, bp, origin, turns):
                     if above in ctx.policy.protected:
                         raise McError(f"can't clear {above} above the pillar (protected)")
                     api.run({"type": "mine", "x": above[0], "y": above[1], "z": above[2], "collect": False,
-                             "requireDrops": False}, wait=30)
-                    r = api.run({"type": "pillar", "item": block}, wait=20)
+                             "requireDrops": False}, wait=30, awaits="the head cell cleared before the next pillar step")
+                    r = api.run({"type": "pillar", "item": block}, wait=20, awaits="each pillar step's height decides the next")
                 if r["status"] != "succeeded":
                     raise McError(f"couldn't pillar up to reach {pos}: {r['message']}")
                 yield feet()

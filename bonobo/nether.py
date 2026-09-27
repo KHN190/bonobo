@@ -69,21 +69,18 @@ def use_portal(ctx, to_dimension):
         raise api.NavFailed(f"portal at {cell} not reachable")
     # travel counts "within 1.5 blocks" as arrived — it once stopped one block beside the portal and waited there.
     # Step onto the exact cell.
-    # closed loop: the portal cell read after stepping on (still lit? else relight)
     api.run({"type": "goto", "x": cell[0], "y": cell[1], "z": cell[2], "range": 0.25, "partial": False,
-             "sprint": False}, wait=15)
+             "sprint": False}, wait=15, awaits="the portal cell read after stepping on (still lit? else relight)")
     from .world import Region
     if Region(cell, cell).name(cell) != "nether_portal" and Inventory().count("minecraft:flint_and_steel"):
         # A ghast fireball (or anything) put the portal out: relight it on the frame block under the opening.
         below = (cell[0], cell[1] - 1, cell[2])
         log(f"   portal at {cell} is out → relighting")
-        # closed loop: the relit portal, then the dimension change
         api.run({"type": "use_item", "item": "minecraft:flint_and_steel", "x": below[0] + 0.5, "y": below[1] + 1.0,
-                 "z": below[2] + 0.5, "onBlock": True}, wait=20)
+                 "z": below[2] + 0.5, "onBlock": True}, wait=20, awaits="the relit portal, then the dimension change")
     deadline = time.time() + 15
     while time.time() < deadline:
-        # closed loop: the dimension change (vanilla's portal delay)
-        api.run({"type": "wait", "ticks": 20}, wait=5)
+        api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the dimension change (vanilla's portal delay)")
         yield time.time()
         st = api.get("/state")
         if st["dimension"] == to_dimension:
@@ -93,9 +90,8 @@ def use_portal(ctx, to_dimension):
             # Step out of the portal: vanilla only teleports again after leaving it, and standing inside kept the
             # agent "buried" in portal blocks and blocked the next round's actions.
             for dx, dz in ((2, 0), (-2, 0), (0, 2), (0, -2)):
-                # closed loop: out of the portal block (in_portal) after each step
                 api.run({"type": "goto", "x": arrived[0] + dx, "y": arrived[1], "z": arrived[2] + dz, "range": 1.0,
-                         "partial": True, "sprint": False}, wait=10)
+                         "partial": True, "sprint": False}, wait=10, awaits="out of the portal block (in_portal) after each step")
                 if not in_portal(api.get("/state")):
                     break
             return arrived
@@ -227,14 +223,12 @@ def barter_piglin(ctx, ingots=8):
             slot = next((s["slot"] for s in Inventory().slots if s["id"] == "minecraft:gold_ingot"), None)
             if slot is None:
                 break
-            # closed loop: the throw is a UI click (/click), not a task: look, then click
-            api.run({"type": "look", "x": p["x"], "y": p["y"] + 0.5, "z": p["z"]}, wait=5)
+            api.run({"type": "look", "x": p["x"], "y": p["y"] + 0.5, "z": p["z"]}, wait=5, awaits="the throw is a UI click (/click), not a task: look, then click")
             api.post("/click", {"slot": 36 + slot if slot < 9 else slot, "button": 0, "action": "THROW"})
             thrown += 1
         if not Inventory().count("minecraft:gold_ingot") and thrown < ingots:
             thrown = ingots
-        # closed loop: the barter window (a piglin's inspection) before the sweep
-        api.run({"type": "wait", "ticks": 140}, wait=15)      # a piglin inspects gold for ~6 s
+        api.run({"type": "wait", "ticks": 140}, wait=15, awaits="the barter window (a piglin's inspection) before the sweep")      # a piglin inspects gold for ~6 s
         nav.sweep(ctx, radius=8, wait=30)
         yield Inventory().count("minecraft:ender_pearl")
     log(f"bartered with piglins: {Inventory().count('minecraft:ender_pearl')} pearls now")
@@ -287,8 +281,7 @@ def locate_stronghold(ctx):
         if Inventory().count("minecraft:ender_eye") < 1:
             raise NotAvailable("no eyes of ender left to throw")
         here = nav.feet_now()
-        # closed loop: the eye's flight is read right after the throw
-        api.run({"type": "use_item", "item": "minecraft:ender_eye", "yaw": 0, "pitch": -20}, wait=10)
+        api.run({"type": "use_item", "item": "minecraft:ender_eye", "yaw": 0, "pitch": -20}, wait=10, awaits="the eye's flight is read right after the throw")
         direction = _eye_direction()
         if direction is None:
             raise McError("couldn't follow the eye of ender")

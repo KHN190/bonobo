@@ -416,12 +416,18 @@ def vet_aim(task):
 DRESS = None
 
 
-def run(task, wait=900):
+def run(task, *, awaits, wait=900):
     """Runs one task to completion; returns its JSON (status may be failed — callers decide).
+
+    `awaits` (required, a non-empty string) names the world result the caller waits for before its next move ("bed
+    accepted", "dimension changed", "slots read"): a single send has to say why it is not part of a chain
+    (`run_chain`). No reason, no send — a TypeError at the call, a ValueError for an empty one.
 
     During a fight only the arbiter's chosen intent may issue tasks. A task from anywhere else is refused as a
     failed result rather than raised, so a stray caller degrades to "it did not work" instead of a crash.
     """
+    if not isinstance(awaits, str) or not awaits.strip():
+        raise ValueError("api.run: `awaits` must name the world result waited for (else send a chain)")
     from . import arbiter
     if not arbiter.BODY.owns(f"api.run({task.get('type')})"):
         return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}

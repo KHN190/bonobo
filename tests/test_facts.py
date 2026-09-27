@@ -267,7 +267,7 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
         from tests.world import bag, inventory
         for name, ours, cell, posted in self.DOOR:
             sent = []
-            with self.subTest(name), mock.patch.object(skillcore.api, "run", side_effect=lambda t, wait=0: sent.append(
+            with self.subTest(name), mock.patch.object(skillcore.api, "run", side_effect=lambda t, wait=0, awaits=None: sent.append(
                     (t["type"], (t["x"], t["y"], t["z"]))) or {"status": "succeeded"}), \
                     mock.patch.object(skillcore, "Inventory", lambda: bag(inventory())):
                 if posted is None:
