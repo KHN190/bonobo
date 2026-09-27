@@ -42,12 +42,15 @@ def dusk_s(snap):
     t = int(snap.time) % 24000
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
-def night_facts(soft, cooled=()):
-    """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None)
-    and the ways that failed here lately (`cooled`: their names, dropped from the pricing)."""
+def night_facts(soft, cooled=(), dig_site=True):
+    """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
+    the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
+    finish here (`dig_site`, skills.dig_in_site: False → dig in is not offered)."""
 
     out = {"soft_ground": False} if soft is None or soft is False else \
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
+    if not dig_site:
+        out["no_dig_site"] = True
     if cooled:
         out["cooled"] = sorted(cooled)
     return out
@@ -169,7 +172,7 @@ class Needs:
         """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone."""
 
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
-        enclosed, soft_ground = ground(reads)
+        enclosed, soft_ground, dig_site = ground(reads)
         blocked = b.reflexes.blocked_here(b.place)
         # a bed from what is carried skips the night: before any shelter and the night's work
         bed_tonight = _once(reads, "bed_tonight", lambda: self.bed_tonight(snap))
@@ -178,7 +181,7 @@ class Needs:
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
         # the night's way from here: the shelter reflex runs it when its parts are carried, else its parts are this round's need
         night_way = _once(None, "night_way", lambda: self.overnight(
-            snap, night_facts(soft_ground(), cooled_ways(b.ready)), bed_too=False))
+            snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site()), bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))
         if shelter_due():

@@ -2030,6 +2030,40 @@ class Overnight(unittest.TestCase):
             self.assertEqual(needs.cooled_ways(lambda key: key != needs.way_key("dig in")), ["dig in"])
             self.assertEqual(needs.cooled_ways(lambda key: True), [])
 
+    def test_only_a_dig_in_that_can_finish_is_offered(self):
+        """skills.dig_in_site over the ground under the feet, and the pricing that reads it (needs.night_facts):
+        a floor too thin to lid below the ground line is not offered — wall in is (search_night_resume)."""
+        from bonobo import skills
+        from tests.world import FakeRegion
+
+        def ground(bottom, dug=(), under=None):
+            blocks = {(x, y, z): "stone" for x in (-1, 0, 1) for z in (-1, 0, 1) for y in range(bottom, 64)}
+            for c in dug:
+                blocks.pop(c, None)
+            if under:
+                blocks[under[0]] = under[1]
+            return FakeRegion((-2, 55, -2), (2, 67, 2), blocks)
+        # (situation, the ground, the feet) → can a dig-in finish here
+        rows = [("deep stone", ground(57), (0, 64, 0), True),
+                ("four thick: the lid's floor stands", ground(60), (0, 64, 0), True),
+                ("resumed after a fall, two dug, deep stone", ground(57, dug=[(0, 63, 0), (0, 62, 0)]), (0, 62, 0),
+                 True),
+                ("must fail: three thick over air (the bench arena)", ground(61), (0, 64, 0), False),
+                ("must fail: lava in the third cell", ground(57, under=((0, 61, 0), "lava")), (0, 64, 0), False)]
+        for name, region, feet, want in rows:
+            with self.subTest(name):
+                self.assertIs(skills.dig_in_site(region, feet), want)
+        snap = snapshot(state(timeOfDay=NIGHT), inventory(("stone_pickaxe", 1), ("cobblestone", 16)))
+        for name, site, want in [("must fail: no dig-in site: walled in", False, "wall in")]:
+            with self.subTest(name):
+                got, _s, _st = needs.overnight(snap.inv, cost(snap), needs.night_facts(False, (), site), bed_too=False)
+                self.assertEqual(got, want)
+        with self.subTest("a dig-in site: dig in stays on offer"):
+            got, _s, _st = needs.overnight(snap.inv, cost(snap), needs.night_facts(False, (), True), bed_too=False)
+            self.assertIn(got, ("dig in", "wall in"))
+            without = needs.night_facts(False, (), False)
+            self.assertEqual(without.get("no_dig_site"), True)
+
     def test_stone_ground_dirt_near_walls_in(self):
         """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
         snap = snapshot(state(timeOfDay=NIGHT), inventory())

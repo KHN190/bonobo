@@ -148,7 +148,8 @@ SOURCES = {
                   "gives": "minecraft:dirt"}],
     # A night without a bed (needs.overnight): the default is the bed's plan; these are the other ways through it.
     "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
-                   "needs": [("tool", "pickaxe", 0)]},
+                   "needs": [("tool", "pickaxe", 0)],
+                   "unless": ("no_dig_site", "the ground here takes no lid below the ground line")},
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
                    "extra_s": "soft_walk_s"},        # the walk to that ground (skills.soft_spot) is part of it
@@ -172,6 +173,10 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
         if src["name"] in (facts or {}).get("cooled", ()):
             why.append(f"{src['name']}: failed here lately (cooling)")
             continue                 # a way that just failed is not priced again tonight: the next way is
+        unless = src.get("unless")
+        if unless and (facts or {}).get(unless[0]):
+            why.append(f"{src['name']}: {unless[1]}")
+            continue                 # only what can finish here is offered
         when = src.get("when")
         if when and not (facts or {}).get(when[0]):
             why.append(f"{src['name']}: {when[1]}")

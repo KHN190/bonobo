@@ -123,7 +123,11 @@ def nether_retreat(snap):
 def ground(reads=None):
     """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
 
-    return _once(reads, "enclosed", skills.enclosed), _once(reads, "soft_ground", skills.soft_ground_here)
+    both = _once(None, "night_ground", skills.night_ground)          # one region read answers the two below
+    soft = _once(reads, "soft_ground", lambda: both()[0])
+    # given readings without the dig-in site say nothing against it (a test's round reads no world)
+    site = (lambda: reads.get("dig_in_site", True)) if reads is not None else (lambda: both()[1])
+    return _once(reads, "enclosed", skills.enclosed), soft, site
 
 def _once(reads, key, read):
     """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
@@ -172,10 +176,11 @@ class Maintain:
         from . import needs
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         blocked = self.blocked_here(b.place)
-        enclosed, soft_ground = ground(reads)
+        enclosed, soft_ground, dig_site = ground(reads)
 
         def night_way():
-            return b.needs.overnight(snap, needs.night_facts(soft_ground(), needs.cooled_ways(b.ready)), bed_too=False)
+            return b.needs.overnight(snap, needs.night_facts(soft_ground(), needs.cooled_ways(b.ready), dig_site()),
+                                     bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
             "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(

@@ -1511,9 +1511,31 @@ def soft_spot():
 def soft_ground_here():
     """Seconds' walk to hand-diggable ground (0: underfoot), or None when none near."""
 
+    return night_ground()[0]
+
+
+def dig_in_site(region, feet_at, protected=()):
+    """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.dig_down_tasks, from
+    where a started dig began: dig_in_start), so its lid sits below the ground line? A 3-thick floor over air
+    gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe')."""
+    start = dig_in_start(region, tuple(feet_at))
+    try:
+        _tasks, safe = nav.dig_down_tasks(region, start, DIG_IN_DEPTH, protected, False, dug_to=feet_at[1])
+    except NotAvailable:
+        return False
+    return safe >= DIG_IN_DEPTH
+
+
+def night_ground():
+    """One region read around the feet for the night's pricing: (seconds' walk to hand-diggable ground or None,
+    whether a dig-in can finish right here)."""
+
     from .data import WALK_BLOCKS_PER_TICK
-    spot = soft_spot()
-    return None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)
+    from .terrain import SOFT_RADIUS, nearest_soft
+    x, y, z = feet()
+    region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
+    spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
+    return (None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)), dig_in_site(region, (x, y, z))
 
 @skill(gives=["state:sheltered"], needs={}, speed={"shovel": DIG_SHOVEL_S}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
