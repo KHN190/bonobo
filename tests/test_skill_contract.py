@@ -1214,6 +1214,25 @@ class BagRules(unittest.TestCase):
                     region = None if blocks is None else FakeRegion(lo, hi, blocks)
                 self.assertEqual(bag.mineable(cells, feet, region, nav.SAFE_DROP), want)
 
+    def test_open_faced_before_buried(self):
+        """bag.mineable: open-faced cells first; a buried one only when nothing open is left."""
+        from bonobo import bag
+        from tests.world import FakeRegion
+        lo, hi = (9990, 190, 9990), (10010, 205, 10010)
+        floor3 = {(x, y, z): "stone" for x in range(9994, 10007) for y in (197, 198, 199) for z in range(9994, 10007)}
+        feet = (10000, 200, 10000)
+        rows = [("a flat stone floor: the open top cells, not the buried ones under the ring",
+                 floor3, [(10001, 198, 10000), (10003, 199, 10000), (10002, 197, 10000)], [(10003, 199, 10000)]),
+                ("only buried cells asked: the buried ones then (the approach digs)", floor3,
+                 [(10002, 198, 10000), (10003, 198, 10000)], [(10002, 198, 10000), (10003, 198, 10000)]),
+                ("a sealed ore alone: allowed", {**floor3, (10004, 198, 10004): "diamond_ore"}, [(10004, 198, 10004)],
+                 [(10004, 198, 10004)]),
+                ("must fail: the ring under the feet, buried or not", floor3, [(10001, 199, 10000), (10000, 198, 10000)],
+                 [])]
+        for name, blocks, cells, want in rows:
+            with self.subTest(name):
+                self.assertEqual(bag.mineable(cells, feet, FakeRegion(lo, hi, blocks), nav.SAFE_DROP), want)
+
     def test_mineable_is_the_floor_rule(self):
         from bonobo import bag
         for name, cells, feet, want in self.MINEABLE:

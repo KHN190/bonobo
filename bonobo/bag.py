@@ -210,15 +210,19 @@ def floored(region, cell, drop):
     return False
 
 
+def buried(region, cell):
+    """Pure: every face of `cell` is solid (read): no way at it but digging."""
+    return all(region.inside(f) and region.solid(f) for f in (add(cell, d) for d in FACES))
+
+
 def stand_spot(region, cell, drop):
     """Pure: some open face of `cell` has a standing place beside it — feet in the face's cell or one below it
     (head in the face), room for the body, ground within `drop`. None of them: the only way at it is over a gap
     (upkeep__bridge_stock: the platform's edge cell, its one face over the void; the walker stepped out, 97 down).
     A cell with no open face at all is buried: the approach digs a way to it, and the check is for faces only."""
-    faces = [add(cell, d) for d in FACES]
-    if all(region.inside(f) and region.solid(f) for f in faces):
+    if buried(region, cell):
         return True
-    for face in faces:
+    for face in (add(cell, d) for d in FACES):
         if region.inside(face) and region.solid(face):
             continue
         for s in (face, add(face, (0, -1, 0))):
@@ -237,8 +241,14 @@ def mineable(cells, feet, region=None, drop=None):
     rule are this one predicate."""
     feet = tuple(feet)
     floor = supports(feet)
-    return [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
-            and (region is None or stand_spot(region, tuple(c), drop))]
+    ok = [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
+          and (region is None or stand_spot(region, tuple(c), drop))]
+    if region is None:
+        return ok
+    # Open-faced first; a buried cell only when nothing open is left — else a stone batch dug the buried cells under
+    # its own floor ring as readily as the open ones beside it (mine_stone__buried_by_sand: sand fell, a loop).
+    open_ = [c for c in ok if not buried(region, c)]
+    return open_ or ok
 
 
 def refused(cells, refused_before, jar_digs):
