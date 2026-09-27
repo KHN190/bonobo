@@ -301,6 +301,86 @@ class SkillNeeds(unittest.TestCase):
             solve(real_table(), dict(START), {"minecraft:unobtainium": 1})
 
 
+def given_tokens():
+    """{token: the skills whose producing tables give it} over every registered skill's `gives`."""
+    from bonobo import brain  # noqa: F401  (every skill module registers)
+    from bonobo.skill import REGISTRY
+    out = {}
+    for name, c in REGISTRY.items():
+        for table in (g for g in c.gives if not isinstance(g, str)):
+            for token in table.keys():
+                out.setdefault(token, set()).add(name)
+    return out
+
+
+def chain_faults(steps, token, handles):
+    """Pure: what is wrong with the planner's chain for one `token` from an empty bag — nothing planned, a step no
+    skill carries out (`handles`), a step run before what it uses was held, the token not held at the end, or a last
+    step that is not the token's own. [] for a whole chain."""
+    if not steps:
+        return ["no steps"]
+    faults = [f"no skill for {s}" for s in steps if not handles(s)]
+    early, held = replay_steps(steps, (token, 1))
+    faults += [f"{s} before {tok} was held" for s, tok in early] + ([] if held else ["not held at the end"])
+    return faults + ([] if steps[-1].token == token else [f"ends at {steps[-1].token}"])
+
+
+# Given tokens the solver cannot reach from an empty bag with the fixture's places, noted: a new one must be noted.
+UNREACHED = {"minecraft:bookshelf": "taken only, and no container in the fixture holds one",
+             "minecraft:hay_block": "taken only, and no container in the fixture holds one"}
+
+
+class EveryProduct(unittest.TestCase):
+    """Every item a producing skill gives is reachable from an empty bag: the planner's chain is whole (every step a
+    skill's, in an order the bag allows, ending at the token) and the solver's replays. A taken-only item is the
+    solver's alone (the planner plans no take); a variant of a group recipe (oak planks, a red bed) may be held stock
+    only — but any chain planned for it is whole too."""
+
+    def test_every_given_token_from_an_empty_bag(self):
+        from bonobo.skill import handles
+        variants = {mid(m) for g in knowledge.GROUP_RECIPES for m in GROUPS.get(g, ())}
+        table, faults, unreached, kinds = real_table(), [], set(), Counter()
+        for token, by in sorted(given_tokens().items()):
+            kind = ("held stock" if token in variants else
+                    "taken" if (knowledge.source(token) or ("",))[0] == "take" else "planned")
+            kinds[kind] += 1
+            try:
+                steps = Planner({}, [], NullCost()).plan([(token, 1)])
+                faults += [(token, sorted(by), f) for f in chain_faults(steps, token, handles)]
+            except Unplannable as e:
+                if kind == "planned":
+                    faults.append((token, sorted(by), str(e)))
+            try:
+                plan = solve(table, dict(START), {token: 1})
+                early, held = replay_plan(plan, START, {token: 1})
+                faults += [(token, "solve", e) for e in early] + ([] if held else [(token, "solve", "not held")])
+            except Unsolvable:
+                if kind != "held stock":
+                    unreached.add(token)
+        self.assertEqual(faults, [])
+        self.assertEqual(unreached, set(UNREACHED))
+        self.assertTrue(all(kinds[k] >= 1 for k in ("held stock", "taken", "planned")), kinds)
+
+    def test_a_broken_chain_is_caught(self):
+        from bonobo.skill import handles
+        from bonobo.planner import Step
+        steps = Planner({}, [], NullCost()).plan([("minecraft:stone_pickaxe", 1)])
+        rows = [("as planned", steps, []),
+                ("must fail: nothing planned", [], ["no steps"]),
+                ("must fail: the last step dropped", steps[:-1], ["not held at the end", f"ends at {steps[-2].token}"]),
+                ("must fail: a step no skill carries out", steps + [Step("teleport", "minecraft:stone_pickaxe", 1)],
+                 [f"no skill for {Step('teleport', 'minecraft:stone_pickaxe', 1)}"]),
+                ("must fail: the pickaxe before its sticks", [steps[-1]] + steps[:-1],
+                 lambda got: bool(got) and all("before" in f or f.startswith("ends at") for f in got))]
+        for name, chain, want in rows:
+            with self.subTest(name):
+                got = chain_faults(chain, "minecraft:stone_pickaxe", handles)
+                if callable(want):
+                    self.assertTrue(want(got), got)
+                else:
+                    self.assertEqual(got, want)
+
+
 class RipeFirst(unittest.TestCase):
     """A crop already grown is harvested (a take step) before a plot is sown (the farm step): the known-first rule."""
 
