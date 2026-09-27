@@ -89,3 +89,20 @@ def bucket_of(state):
 
 def for_state(state, speed=4.3, terrain=None):
     return Field(speed=speed, bucket=bucket_of(state), terrain=terrain)
+
+
+def bucket_at(region, here, radius):
+    """Pure: the bucket of the ground around `here` (feet), read off the blocks: "enclosed" when every side of the
+    feet and the head is solid and so is the cell above the head (a pod), "underground" when something solid is
+    over the head within `radius` (a roof, a cave), else "open". Water and air are not solid."""
+    x, y, z = (int(math.floor(v)) for v in here)
+    sides = [(x + dx, yy, z + dz) for yy in (y, y + 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+    above = [(x, y + 2 + k, z) for k in range(max(0, int(radius) - 1))]
+    if region.solid((x, y + 2, z)) and all(region.solid(c) for c in sides):
+        return "enclosed"
+    return "underground" if any(region.inside(c) and region.solid(c) for c in above) else "open"
+
+
+def from_region(region, here, radius, speed=4.3, terrain=None):
+    """The Field over the blocks read around `here` (perception.ground): its bucket from the blocks themselves."""
+    return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain)

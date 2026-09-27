@@ -272,11 +272,7 @@ class Watcher(threading.Thread):
             # the world was quiet — which is an answer, not a blind spot. `stale` can only happen if the read
             # failed, and that is the one case worth counting as blindness.
             return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
-        try:
-            state = dict(state, field=ground(state), **kit(kit_signature(state, now)))
-            state["footing"] = footing(state)
-        except Exception:
-            pass
+        state = perceived(state, now)
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
         price = lambda dhp: threat.hp_seconds(sstate, dhp)
         chosen = fight_loop.bid(state, rows, price, ids=THREAT_IDS)
@@ -438,11 +434,36 @@ GRID_TTL_S = 2.0
 _KIT, _KIT_SIG = {}, None
 
 
-def ground(state, now=None, radius=GRID_R):
-    """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved."""
+_FAILED = set()          # what perceived() already logged once: a failing read says so, and only once
+
+
+def perceived(state, now, ground_of=None, kit_of=None):
+    """The state the threat model prices: the kit (sword, armour, food…) merged, the ground (`field`) and the
+    footing evade walks on — each read on its own. One try around all three swallowed ground()'s AttributeError
+    on every call: the kit was never merged (sword 0: evade with an iron sword in hand), the region never kept
+    (evade unchecked: off the sky platform). A read that fails is logged once and leaves the rest standing."""
+    ground_of = ground_of or ground
+    kit_of = kit_of or (lambda st: kit(kit_signature(st, now)))
+    out = dict(state)
+    for name, read in (("kit", lambda: out.update(kit_of(state))),
+                       ("ground", lambda: out.update(field=ground_of(state))),
+                       ("footing", lambda: out.update(footing=footing(state)))):
+        try:
+            read()
+        except Exception as e:
+            if name not in _FAILED:
+                _FAILED.add(name)
+                api.log(f"!! perception: {name}: {type(e).__name__}: {e}")
+    return out
+
+
+def ground(state, now=None, radius=GRID_R, region_of=None):
+    """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved. `region_of`
+    (lo, hi) → the blocks (world.Region by default)."""
     global GRID, GRID_AT, GRID_AT_POS, REGION
     from . import field as _field
     from .world import Region
+    region_of = region_of or Region
     now = now if now is not None else time.time()
     here = tuple(int(math.floor(state[k])) for k in ("x", "y", "z"))
     if GRID is not None and now - GRID_AT < GRID_TTL_S and GRID_AT_POS == here:
@@ -450,7 +471,7 @@ def ground(state, now=None, radius=GRID_R):
     try:
         lo = tuple(here[i] - radius for i in range(3))
         hi = tuple(here[i] + radius for i in range(3))
-        region = Region(lo, hi)
+        region = region_of(lo, hi)
     except Exception:
         return GRID
     GRID, REGION = _field.from_region(region, here, radius), region
