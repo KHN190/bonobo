@@ -26,8 +26,7 @@ from bonobo.bench import runner  # noqa: E402
 VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "fight_dragon",
                "shake_enderman", "slay_dragon", "station"}
 # Skills no scenario row proves in the world yet. May only shrink.
-SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "shake_enderman",
-                 "station"}
+SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "station"}
 CEILING = 8        # neither list grows past this; lower it as they shrink
 
 COMMANDS = {"experience", "gamemode", "fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",
