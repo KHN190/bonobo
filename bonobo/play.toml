@@ -48,7 +48,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
              
               "attack_s", "speed", "exists_prior",
              
-              "max_prepare_blocks", "unit_s", "probe_r", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
+              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
@@ -116,9 +116,6 @@ interrupt_ttd_s = 4.0      # perception stops a task only when death is closer t
 
 [build]
 max_prepare_blocks = 12
-
-[nav]
-unit_s = 0.5               # seconds per move unit
 
 [water]
 surface_s = 4.0            # seconds to swim out from a working depth

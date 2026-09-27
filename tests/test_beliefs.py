@@ -243,7 +243,7 @@ class MeasurementsMoveTheNumber(unittest.TestCase):
     never past them, one odd sample cannot carry it, and what the game publishes never moves at all.
     """
 
-    PATH = "nav.unit_s"
+    PATH = "engage.eat_s"
     WIKI = "mobs.minecraft:zombie.hp"
 
     def setUp(self):
@@ -301,7 +301,7 @@ class TheHistoryIsNeverLost(unittest.TestCase):
         beliefs.COUNTS.clear(), beliefs.OBSERVED.clear()
         beliefs.LOG = os.path.join(__import__("tempfile").mkdtemp(), "beliefs.jsonl")
         try:
-            _v, n = beliefs.note("nav.unit_s", 0.9, where="test")
+            _v, n = beliefs.note("engage.eat_s", 0.9, where="test")
             self.assertEqual(n, 1, "a measurement counts the moment it is taken, not when it reaches the disk")
             self.assertEqual(beliefs.flush(), 1)
             self.assertEqual(beliefs.flush(), 0, "flushing twice does not write it twice")
@@ -317,12 +317,12 @@ class TheHistoryIsNeverLost(unittest.TestCase):
         import tempfile
         log = os.path.join(tempfile.mkdtemp(), "beliefs.jsonl")
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        code = "from bonobo import beliefs; beliefs.note('nav.unit_s', 0.9, where='exit test')"
+        code = "from bonobo import beliefs; beliefs.note('engage.eat_s', 0.9, where='exit test')"
         subprocess.run([sys.executable, "-c", code], cwd=root, env={**os.environ, "MC_BELIEFS": log},
                        check=True, timeout=60)
         with open(log) as f:
             rows = [json.loads(line) for line in f]
-        self.assertEqual([(r["path"], r["measured"], r["where"]) for r in rows], [("nav.unit_s", 0.9, "exit test")])
+        self.assertEqual([(r["path"], r["measured"], r["where"]) for r in rows], [("engage.eat_s", 0.9, "exit test")])
 
     def test_a_batch_is_written_when_it_fills(self):
         """Notes queue; the batch reaches the disk when it holds FLUSH_EVERY (the age clock held still here)."""
@@ -331,7 +331,7 @@ class TheHistoryIsNeverLost(unittest.TestCase):
                            (beliefs.FLUSH_EVERY + 1, beliefs.FLUSH_EVERY)):
             with self.subTest(n=n), Clean(), mock.patch.object(beliefs, "_last_flush", 1e12):
                 for _ in range(n):
-                    beliefs.note("nav.unit_s", 0.9, where="test")
+                    beliefs.note("engage.eat_s", 0.9, where="test")
                 lines = open(beliefs.LOG).read().splitlines() if os.path.exists(beliefs.LOG) else []
                 self.assertEqual(len(lines), on_disk)
 
