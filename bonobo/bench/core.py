@@ -236,6 +236,22 @@ def entity_mismatches(ents, expect):
 
 
 
+def reset_brain(brain, mem):
+    """Every row starts from a brain that knows nothing of the rows before it: fresh memory, no bans, no retry
+    ledger, no held plans, and a fresh upkeep table (its `working`/`broken` tool notes outlived `clear @p`: the
+    next row's first round reported "the axe broke" for an axe the previous row's setup had cleared)."""
+    from .. import fight_loop, nav, retry, skill as skillkit, upkeep
+    brain.mem = mem
+    skillkit.STATS = nav.ROAD_MEM = mem
+    brain.blacklist.clear()           # in place: fight_loop and every Context share this dict
+    brain.retry = retry.Retry()
+    brain.held = {}
+    brain.table = upkeep.Upkeep(brain)
+    brain.place = brain.idle_since = brain.committed = brain.last_failure = None
+    fight_loop.wire(brain.mem, lambda snap: brain.policy(snap, snap.night), brain.blacklist,
+                    prices=brain.price_table)
+
+
 def set_brain(brain):
     """`mc.py scenario` hands the bench the brain: plan-driven scenarios execute steps exactly as it does."""
     global BRAIN

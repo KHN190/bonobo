@@ -191,11 +191,7 @@ def cmd_scenario(a):
         # test must not write into the real world's notes.
         if os.path.exists(scenarios.NOTES):
             os.remove(scenarios.NOTES)
-        brain.mem = Memory(scenarios.NOTES)
-        skillkit.STATS = brain.mem
-        from bonobo import nav as _nav
-        _nav.ROAD_MEM = brain.mem
-        brain.blacklist = {}
+        scenarios.reset_brain(brain, Memory(scenarios.NOTES))
         def make_ctx():
             snap = Snapshot()
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.

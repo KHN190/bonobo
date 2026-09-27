@@ -1706,7 +1706,8 @@ def _row(name, base, cond=None, extra=None):
         check = _all(_failed_as_expected(), _alive(), effect)
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check,
-           "budget": int(b["budget"] * (2 if kind or c.get("hazard") else 1) * (3 if c.get("tick_rate", 20) < 20 else 1)),
+           # A lagging server multiplies the base's time; the cap is the bench's hard 60 s (runner.ROW_LIMIT_S).
+           "budget": min(60, int(b["budget"] * (2 if kind or c.get("hazard") else 1) * (3 if c.get("tick_rate", 20) < 20 else 1))),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: next(k for k, v in CONDITIONS.items() if v is c)} if c else {}),
                     **({"surprise": name} if x else {})}}
@@ -1805,11 +1806,11 @@ _ONE = {
                         lambda ctx: (ctx.mem.note_seen("iron_ore", at(17, 0, 0), "minecraft:overworld"),
                                      _skill("seek")(ctx, ["iron_ore"]))[1], _at(at(17, 0, 0), 6), 60),
     "smelt_in_background": (["start_smelt_job", "collect_job"], "load a furnace, walk off, come back → ingots",
-                            _floor() + [_tp(), "give @p furnace", "give @p raw_iron 4", "give @p coal 2"],
-                            lambda ctx: (_skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 4,
+                            _floor() + [_tp(), "give @p furnace", "give @p raw_iron 2", "give @p coal 1"],
+                            lambda ctx: (_skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 2,
                                                                    "coal"), _chat("tick sprint 400"), time.sleep(2),
                                          _skill("collect_job")(ctx, ctx.mem.jobs("minecraft:overworld")[0]))[2],
-                            _gain("minecraft:iron_ingot", 4), 90),
+                            _gain("minecraft:iron_ingot", 2), 40),
     "open_space_from_shaft": (["move_to_open_space"], "a full bag at the bottom of a 1×1 shaft → out where it is open",
                               _floor(depth=4) + [f"fill {_c(at(0, -3, 0))} {_c(at(0, -1, 0))} air", _tp(0, -3, 0),
                                                   "give @p dirt 2304", "give @p stone_pickaxe"],
@@ -1828,8 +1829,8 @@ _ONE = {
                           _blocks(at(2, 0, 0), at(2, 1, 0), "cobblestone", 2), 60),
     "wait_out_the_night": (["wait:day"], "night in a sealed stone room, no bed → waited until morning",
                            _floor() + [f"fill {_c(at(-2, 0, -2))} {_c(at(2, 4, 2))} stone hollow", _tp(0, 1, 0),
-                                       "time set 22000"],
-                           lambda ctx: _skill("wait_for_day")(ctx), _is_day(), 120),
+                                       "time set 23500"],     # 25 s before daybreak: the wait itself, not the night
+                           lambda ctx: _skill("wait_for_day")(ctx), _is_day(), 45),
     "withdraw_from_chest": (["withdraw"], "a chest of iron beside the body → 4 ingots taken out",
                             _floor() + _chest(at(2, 0, 0), "iron_ingot 9") + [_tp()],
                             lambda ctx: _skill("withdraw")(ctx, "minecraft:iron_ingot", 4, at(2, 0, 0)),
@@ -1859,7 +1860,7 @@ _ONE = {
                                                'give @p potion[potion_contents={potion:"minecraft:water"}] 3',
                                                "give @p nether_wart", "give @p magma_cream", "give @p blaze_powder 2"],
                                    lambda ctx: _skill("brew_fire_resistance")(ctx),
-                                   _slot_has("minecraft:potion", "fire_resistance"), 120),
+                                   _slot_has("minecraft:potion", "fire_resistance"), 50),
     "collect_auto_smelter": (["collect_machine"], "a remembered auto smelter whose output chest holds 8 ingots → "
                                                   "taken",
                              _floor() + _chest(at(3, 0, 0), "iron_ingot 8") + [_tp()],
@@ -1869,8 +1870,8 @@ _ONE = {
                        _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
                        lambda ctx: _skill("bridge_toward")(ctx, at(9, 0, 0)), _at(at(9, 0, 0), 4), 45),
     "plant_wheat": (["plant_farm"], "grass, seeds, a hoe, a water bucket → a wheat plot growing",
-                    _floor("grass_block") + [_tp(), "give @p wheat_seeds 8", "give @p stone_hoe", "give @p water_bucket"],
-                    lambda ctx: _skill("plant_farm")(ctx), _blocks(at(-4, 0, -4), at(4, 0, 4), "wheat", 4), 90),
+                    _floor("grass_block") + [_tp(), "give @p wheat_seeds 4", "give @p stone_hoe", "give @p water_bucket"],
+                    lambda ctx: _skill("plant_farm")(ctx), _blocks(at(-4, 0, -4), at(4, 0, 4), "wheat", 4), 60),
     "breed_cows": (["breed"], "two cows in a pen, wheat carried → wheat spent on them",
                    _floor("grass_block") + _pen("cow", 2) + [_tp(), "give @p wheat 4"],
                    lambda ctx: _skill("breed")(ctx), _mobs_near("minecraft:cow", 3), 45),
@@ -1908,6 +1909,8 @@ def _found_near(blocks, r=6):
         from .world import find
         return bool(find(blocks, radius=r, limit=1))
     return check
+# Brewing is game time (20 s a stage): the stand's clock runs at 60 ticks/s, the hands at their own pace.
+SHEET["brew_fire_resistance_stand"]["tick_rate"] = 60
 
 
 for _name, _row_ in {
@@ -1961,15 +1964,41 @@ SHEET["buried_by_sand"] = {
                      lambda ctx: _chat(f"fill {_c(at(0, 0, 0))} {_c(at(0, 3, 0))} sand")),
     "run": _brain_rounds(15, _head_clear), "check": _all(lambda api, inv: _head_clear(), _alive(10)), "budget": 20,
 }
+def _on_rim(top):
+    """Standing dry on the rim at `top` (the block under the feet is the rim, not water)."""
+    def check(api, inv):
+        s = api.get("/state")
+        return s["onGround"] and not s["inWater"] and s["y"] >= at(0, top + 1, 0)[1] - 0.5
+    return check
+
+
+def _surfaced(top, hold_s=2.0):
+    """Out of the water's grip: on the rim, or the air bar full with the head out of the water for `hold_s` (a
+    single sample passed a body bobbing at the surface that went down again)."""
+    def check(api, inv):
+        if _on_rim(top)(api, inv):
+            return True
+        if not _breathing(300)(api, inv):
+            return False
+        time.sleep(hold_s)
+        return _breathing(300)(api, inv) or _on_rim(top)(api, inv)
+    return check
+
+
+PIT_TOP = 4
 SHEET["drowning_in_a_pit"] = {
-    "doc": "Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else",
+    "doc": "Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else: on the "
+           "rim, or breathing with the head out for 2 s",
     "module": "brain", "point": "B", "skills": ["reach:air"], "tags": {"base": "l0", "hazard": "drowning"},
-    "setup": _tank(-1, 1, -1, 1, 9, water_top=8) + [_tp(0, -3, 0)],
+    # A 3×3 shaft 7 blocks deep, a stone rim one block above the water with air over it: somewhere to stand.
+    "setup": _tank(-1, 1, -1, 1, PIT_TOP - 1, water_top=PIT_TOP - 1, wall="stone")
+    + [f"fill {_c(at(-4, PIT_TOP, -4))} {_c(at(4, PIT_TOP, 4))} stone",
+       f"fill {_c(at(-1, PIT_TOP, -1))} {_c(at(1, PIT_TOP, 1))} water",
+       f"fill {_c(at(-4, PIT_TOP + 1, -4))} {_c(at(4, PIT_TOP + 3, 4))} air", _tp(0, -3, 0)],
     "before": _start("drowning_in_a_pit"),
-    # The rounds run until exactly what the check judges: a looser stop (air ≥ 250) passed the run and failed the row.
-    # Air lasts ~15 s at the bottom before L0 must answer, then the breath refills: rounds for up to 50 s.
-    "run": _brain_rounds(28, lambda: _breathing()(__import__("bonobo.api", fromlist=["get"]), None)),
-    "check": _all(_alive(8), _breathing()), "budget": 30,
+    # The rounds run until exactly what the check judges (a looser stop passed the run and failed the row).
+    "run": _brain_rounds(28, lambda: _surfaced(PIT_TOP, 0)(__import__("bonobo.api", fromlist=["get"]), None)),
+    "check": _all(_alive(8), _surfaced(PIT_TOP)), "budget": 30,
 }
 SHEET["interrupted_rescue_is_not_a_failure"] = {
     "doc": "Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
@@ -2305,56 +2334,59 @@ def _tasks_done_in_order(*descs):
 
 _PEN = lambda mob, n: _pen(mob, n, half=6)   # noqa: E731
 _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
-IRON_ORE_FREE, IRON_ORE_CAGED = at(6, 0, 0), at(-6, 0, 0)
-BRAIN_ROWS = {
+IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
+BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 min, the world built up to the decision
     "upkeep_preempts_task": (
-        "Dusk in 15 s, no bed, sheep in a pen, a long log task queued → the bed goes to the front, the night is "
-        "slept, then the logs",
-        _ARENA_B + _grove((5, 5)) + _PEN("sheep", 3) + [_tp(), "give @p iron_sword", "time set 11700"],
-        [_have(("log", 4))], lambda: _count("log", 4)() and _is_day()(None, None), 3,
-        _all(_log_order("upkeep: have bed", "task done: have log"), _is_day(), _gain("log", 4))),
+        "Dusk, no bed but wool + planks + a table carried, a log task queued → the bed goes to the front, the night "
+        "is slept, then the logs",
+        _ARENA_B + _grove((3, 0)) + [_tp(), "give @p white_wool 3", "give @p oak_planks 3", "give @p crafting_table",
+                                     "time set 12200"],
+        [_have(("log", 2))], lambda: _count("log", 2)() and _is_day()(None, None), 1,
+        _all(_log_order("upkeep: have bed", "task done: have log"), _is_day(), _gain("log", 2))),
     "upkeep_waits_in_daylight": (
-        "The same, at 1000 (a whole day ahead) → no bed goes to the front: the logs first (control)",
-        _ARENA_B + _grove((5, 5)) + _PEN("sheep", 3) + [_tp(), "give @p iron_sword", "time set 1000"],
-        [_have(("log", 4))], _count("log", 4), 1.5,
-        _all(_log_lacks("upkeep: have bed"), _gain("log", 4))),
+        "The same at 1000 (a whole day ahead) → no bed goes to the front: the logs first (control)",
+        _ARENA_B + _grove((3, 0)) + [_tp(), "give @p white_wool 3", "give @p oak_planks 3", "give @p crafting_table",
+                                     "time set 1000"],
+        [_have(("log", 2))], _count("log", 2), 0.75,
+        _all(_log_lacks("upkeep: have bed"), _gain("log", 2))),
     "food_lead": (
-        "Food 3, no meals, cows penned, furnace + coal carried, a log task queued → food to the front, eaten, then logs",
-        _ARENA_B + _grove((5, 5)) + _PEN("cow", 2) + [_tp(), "give @p iron_sword", "give @p furnace",
-                                                     "give @p coal 8", "give @p crafting_table"],
-        [_have(("log", 4))], _count("log", 4), 3,
-        _all(_log_order("upkeep: have food", "task done: have log"), _gain("log", 4))),
+        "Hungry, 2 raw beef + a furnace placed + coal carried, a log task queued → food to the front (cooked, eaten), "
+        "then the logs",
+        _ARENA_B + _grove((3, 0)) + [f"setblock {_c(at(-2, 0, 0))} furnace", _tp(), "give @p beef 2",
+                                     "give @p coal 2"],
+        [_have(("log", 2))], _count("log", 2), 1,
+        _all(_log_order("upkeep: have food", "task done: have log"), _gain("log", 2))),
     "broken_tool_best_tier": (
         "An iron pickaxe on its last use, iron + sticks + a table carried, cobblestone to mine → it breaks and an "
         "IRON pickaxe is made, not a stone one",
-        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=248]", "give @p iron_ingot 3",
+        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=249]", "give @p iron_ingot 3",
                            "give @p stick 2", "give @p crafting_table"],
-        [_have(("minecraft:cobblestone", 6))], _count("minecraft:cobblestone", 6), 2,
+        [_have(("minecraft:cobblestone", 3))], _count("minecraft:cobblestone", 3), 1,
         _all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1 and inv.count("minecraft:stone_pickaxe") == 0,
-             _gain("minecraft:cobblestone", 6))),
+             _gain("minecraft:cobblestone", 3))),
     "broken_tool_nothing_better": (
         "The same with only planks and sticks carried → a wooden pickaxe is made (the best this bag crafts; control)",
-        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=248]", "give @p oak_planks 6",
+        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=249]", "give @p oak_planks 6",
                            "give @p stick 2", "give @p crafting_table"],
-        [_have(("minecraft:cobblestone", 6))], _count("minecraft:cobblestone", 6), 2,
+        [_have(("minecraft:cobblestone", 3))], _count("minecraft:cobblestone", 3), 1,
         _all(lambda api, inv: inv.count("minecraft:wooden_pickaxe") + inv.count("minecraft:stone_pickaxe") >= 1,
-             _gain("minecraft:cobblestone", 6))),
+             _gain("minecraft:cobblestone", 3))),
     "plan_repair_on_event": (
         "Planks + cobblestone carried, a stone pickaxe asked; the table the plan puts down is taken away → that step "
         "is redone, the plan is not started over (≤ 2 plans)",
         _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3"],
-        [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 2,
+        [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 0.75,
         _all(lambda api, inv: inv.count("minecraft:stone_pickaxe") >= 1, _replans_at_most(2))),
     "plan_without_events": (
         "The same with nothing taken away → one plan (control)",
         _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3"],
-        [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 2,
+        [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 0.5,
         _all(lambda api, inv: inv.count("minecraft:stone_pickaxe") >= 1, _replans_at_most(1))),
     "ban_then_other_source": (
         "Two iron ores, one sealed in barrier → that cell is banned, the other is mined",
-        _floor() + [f"fill {_c(at(-7, -1, -1))} {_c(at(-5, 1, 1))} barrier", f"setblock {_c(IRON_ORE_CAGED)} iron_ore",
+        _floor() + [f"fill {_c(at(-5, -1, -1))} {_c(at(-3, 1, 1))} barrier", f"setblock {_c(IRON_ORE_CAGED)} iron_ore",
                     f"setblock {_c(IRON_ORE_FREE)} iron_ore", _tp(), "give @p stone_pickaxe"],
-        [_have(("minecraft:raw_iron", 1))], _count("minecraft:raw_iron", 1), 2,
+        [_have(("minecraft:raw_iron", 1))], _count("minecraft:raw_iron", 1), 1,
         _all(_gain("minecraft:raw_iron", 1), _blocks(IRON_ORE_CAGED, IRON_ORE_CAGED, "iron_ore", 1, 1),
              _blocks(IRON_ORE_FREE, IRON_ORE_FREE, "iron_ore", 0, 0))),
     "ban_needs_a_failure": (
@@ -2362,53 +2394,54 @@ BRAIN_ROWS = {
         "about the place (control)",
         _floor() + [f"setblock {_c(IRON_ORE_CAGED)} iron_ore", f"setblock {_c(IRON_ORE_FREE)} iron_ore", _tp(),
                     "give @p stone_pickaxe", "give @p iron_sword"],
-        [_have(("minecraft:raw_iron", 2))], _count("minecraft:raw_iron", 2), 2,
+        [_have(("minecraft:raw_iron", 2))], _count("minecraft:raw_iron", 2), 1,
         _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE))),
     "resume_after_combat": (
-        "Chopping 6 logs, a zombie summoned mid-way → fight_loop answers it, then the chopping resumes for what is "
-        "still missing",
-        _grove((3, 0), (-3, 2)) + [_tp(), "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate"],
-        [_have(("log", 6))], _count("log", 6), 2,
-        _all(_gain("log", 6, at_most=9), _gone(["minecraft:zombie"]), _alive(10))),
+        "Chopping 4 logs, a zombie summoned beside it mid-way → fight_loop answers it, then the chopping resumes for "
+        "what is still missing",
+        _grove((3, 0)) + [_tp(), "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate"],
+        [_have(("log", 4))], _count("log", 4), 1,
+        _all(_gain("log", 4, at_most=7), _gone(["minecraft:zombie"]), _alive(10))),
     "chop_without_interrupt": (
-        "The same with no zombie → no fight is logged, the same 6 logs (control)",
-        _grove((3, 0), (-3, 2)) + [_tp(), "give @p iron_sword"],
-        [_have(("log", 6))], _count("log", 6), 2,
-        _all(_gain("log", 6), _log_lacks("fight"))),
+        "The same with no zombie → no fight is logged, the same 4 logs (control)",
+        _grove((3, 0)) + [_tp(), "give @p iron_sword"],
+        [_have(("log", 4))], _count("log", 4), 0.75,
+        _all(_gain("log", 4), _log_lacks("fight"))),
     "seen_store_goes_back": (
-        "Diamond ore remembered 10 blocks away (not in sight: behind stone) → walked to and mined; the note is "
+        "Diamond ore remembered 6 blocks away (not in sight: behind stone) → walked to and mined; the note is "
         "retired once it is gone",
-        _floor(depth=4) + [f"fill {_c(at(8, 0, -2))} {_c(at(12, 3, 2))} stone", f"setblock {_c(at(10, 0, 0))} diamond_ore",
+        _floor(depth=4) + [f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(at(6, 0, 0))} diamond_ore",
                            _tp(), "give @p iron_pickaxe"],
-        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 2,
+        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 0.75,
         _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"))),
     "seen_store_forgotten": (
-        "The same ore, no note → the brain cannot know it: 1 minute passes without the diamond (must-fail control)",
-        _floor(depth=4) + [f"fill {_c(at(8, 0, -2))} {_c(at(12, 3, 2))} stone", f"setblock {_c(at(10, 0, 0))} diamond_ore",
+        "The same ore, no note → the brain cannot know it: 24 s pass without the diamond (must-fail control)",
+        _floor(depth=4) + [f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(at(6, 0, 0))} diamond_ore",
                            _tp(), "give @p iron_pickaxe"],
-        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 1,
-        _all(_blocks(at(10, 0, 0), at(10, 0, 0), "diamond_ore", 1, 1), _gain("minecraft:diamond", 0, at_most=0))),
+        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 0.4,
+        _all(_blocks(at(6, 0, 0), at(6, 0, 0), "diamond_ore", 1, 1), _gain("minecraft:diamond", 0, at_most=0))),
     "l3_two_goals_in_order": (
         "Two goals queued (logs, then cobblestone) → both done, in queue order",
-        _grove((3, 0)) + [f"fill {_c(at(-6, 0, 3))} {_c(at(-4, 1, 5))} stone", _tp(), "give @p wooden_pickaxe"],
-        [_have(("log", 3)), _have(("minecraft:cobblestone", 3))],
-        lambda: _count("log", 3)() and _count("minecraft:cobblestone", 3)(), 2,
-        _all(_tasks_done_in_order("have log", "have cobblestone"), _gain("log", 3), _gain("minecraft:cobblestone", 3))),
+        _grove((3, 0)) + [f"fill {_c(at(-3, 0, 2))} {_c(at(-2, 1, 3))} stone", _tp(), "give @p wooden_pickaxe"],
+        [_have(("log", 2)), _have(("minecraft:cobblestone", 2))],
+        lambda: _count("log", 2)() and _count("minecraft:cobblestone", 2)(), 1,
+        _all(_tasks_done_in_order("have log", "have cobblestone"), _gain("log", 2), _gain("minecraft:cobblestone", 2))),
     "l3_order_swapped": (
         "The same goals queued the other way → done the other way (control: the queue decides, not the cost)",
-        _grove((3, 0)) + [f"fill {_c(at(-6, 0, 3))} {_c(at(-4, 1, 5))} stone", _tp(), "give @p wooden_pickaxe"],
-        [_have(("minecraft:cobblestone", 3)), _have(("log", 3))],
-        lambda: _count("log", 3)() and _count("minecraft:cobblestone", 3)(), 2,
-        _all(_tasks_done_in_order("have cobblestone", "have log"), _gain("log", 3), _gain("minecraft:cobblestone", 3))),
+        _grove((3, 0)) + [f"fill {_c(at(-3, 0, 2))} {_c(at(-2, 1, 3))} stone", _tp(), "give @p wooden_pickaxe"],
+        [_have(("minecraft:cobblestone", 2)), _have(("log", 2))],
+        lambda: _count("log", 2)() and _count("minecraft:cobblestone", 2)(), 1,
+        _all(_tasks_done_in_order("have cobblestone", "have log"), _gain("log", 2), _gain("minecraft:cobblestone", 2))),
 }
 _BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
            "plan_without_events": [_count_replans],
            "resume_after_combat": [lambda ctx: _threading.Timer(4.0, lambda: _chat(
-               f"summon zombie {_c(at(4, 0, 4))} {{PersistenceRequired:1b}}")).start()],
+               f"summon zombie {_c(at(2, 0, 2))} {{PersistenceRequired:1b}}")).start()],
            "ban_then_other_source": [_clear_bans],
            "ban_needs_a_failure": [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
                f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()],
-           "seen_store_goes_back": [_seen("diamond_ore", at(10, 0, 0))],
+           "seen_store_goes_back": [_seen("diamond_ore", at(6, 0, 0))],
+           "food_lead": [lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5))],
            "seen_store_forgotten": [_forget_all("diamond_ore")]}
 for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items():
     SHEET[_name] = {
@@ -2416,7 +2449,7 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
         "combat": _name in ("resume_after_combat", "food_lead"), "tags": {"base": "brain"},
         "setup": list(_setup), "before": _hooks(_start(_name), *_BEFORE.get(_name, [])),
         "run": _slice(_done, _minutes, queue=_queue), "check": _all(_check, _slice_check(None)),
-        "budget": min(180, int(_minutes * 60)),
+        "budget": min(60, int(_minutes * 60) + 5),
     }
 
 # -- test point D: acceptance ------------------------------------------------------------------------------------

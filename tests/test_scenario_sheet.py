@@ -210,17 +210,12 @@ class Tiers(unittest.TestCase):
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
 LONG = {  # over the 60 s limit, still to be cut down by setup (may only shrink)
-    "ban_needs_a_failure", "ban_then_other_source", "barter_piglin", "bed_bomb_kill", "boat_across_the_lake",
-    "brew_fire_resistance_stand", "broken_tool_best_tier", "broken_tool_nothing_better", "bucket_before_the_shaft",
-    "build_shelter_flat", "cast_portal", "chop__pickup_lag", "chop_without_interrupt", "collect_blaze_rods",
-    "combat_arena", "dead_flicker_on_respawn", "escape", "explore_for_animals_real", "fight_blaze_3", "fight_dragon",
-    "fight_zombie_3", "find_fortress_far", "find_portal_room_fresh", "food_lead", "hunt__pickup_lag",
-    "interrupted_rescue_is_not_a_failure", "l3_order_swapped", "l3_two_goals_in_order", "locate_stronghold",
-    "loot__inventory_lag", "loot__pickup_lag", "mine_iron__pickup_lag", "mine_stone__pickup_lag",
-    "pearls_from_barter", "plan_repair_on_event", "plan_without_events", "plant_wheat", "portal_from_cast",
-    "resume_after_combat", "road_reuse", "seek_blocks_real", "seen_store_goes_back", "siege", "slice_nether_kit",
-    "slice_retreat", "smelt__inventory_lag", "smelt_in_background", "strip_mine_real", "trek_nether_150",
-    "trek_overworld_200", "upkeep_preempts_task", "upkeep_waits_in_daylight", "wait_out_the_night",
+    "barter_piglin", "bed_bomb_kill", "boat_across_the_lake", "bucket_before_the_shaft", "build_shelter_flat",
+    "cast_portal", "collect_blaze_rods", "combat_arena", "dead_flicker_on_respawn", "escape",
+    "explore_for_animals_real", "fight_blaze_3", "fight_dragon", "fight_zombie_3", "find_fortress_far",
+    "find_portal_room_fresh", "interrupted_rescue_is_not_a_failure", "locate_stronghold", "pearls_from_barter",
+    "portal_from_cast", "road_reuse", "seek_blocks_real", "siege", "slice_nether_kit", "slice_retreat",
+    "strip_mine_real", "trek_nether_150", "trek_overworld_200",
 }
 LIMIT_S = {"core": 30, "common": 60, "brain": 60, "exception": 60}
 
@@ -387,3 +382,25 @@ class ThePoints(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResetBrain(unittest.TestCase):
+    """bench.core.reset_brain: nothing a row learned reaches the next row (the "axe broke" leak)."""
+
+    def test_row_state_is_dropped(self):
+        from bonobo import brain as B
+        from bonobo.memory import Memory
+        br = B.Brain()
+        shared = br.blacklist
+        # (what the last row left, how to read it after the reset, the clean value)
+        rows = [("a broken axe note", lambda: br.table.broken.add("axe"), lambda: br.table.broken, set()),
+                ("a tier that worked", lambda: br.table.working.update(pickaxe=2), lambda: br.table.working, {}),
+                ("a ban", lambda: br.blacklist.update({(1, 2, 3): 9e9}), lambda: br.blacklist, {}),
+                ("a held plan", lambda: br.held.update(t1={}), lambda: br.held, {}),
+                ("a committed task", lambda: setattr(br, "committed", "t1"), lambda: br.committed, None),
+                ("the ban dict stays the one fight_loop holds", lambda: None, lambda: br.blacklist is shared, True)]
+        for name, dirty, read, clean in rows:
+            with self.subTest(name):
+                dirty()
+                sc.reset_brain(br, Memory(os.path.join(os.environ["MC_DATA"], "reset.json")))
+                self.assertEqual(read(), clean)
