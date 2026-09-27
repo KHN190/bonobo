@@ -17,7 +17,7 @@ import tempfile  # noqa: E402
 import time  # noqa: E402
 from unittest import mock  # noqa: E402
 
-from bonobo import api, hazard, perception, retry, skillcore, skills, upkeep  # noqa: E402
+from bonobo import api, hazard, needs, perception, reflexes, retry, skillcore, skills  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from tests.world import state  # noqa: E402
@@ -166,7 +166,7 @@ class Rescue(unittest.TestCase):
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
                 b.mem, b.retry, b.place = Memory(tmp + "/notes.json"), retry.Retry(), ("here", False)
-                b.table, b.last_failure = upkeep.Upkeep(b), None
+                b.needs, b.reflexes, b.last_failure = needs.Needs(b), reflexes.Maintain(b), None
                 ran, modes, posted = [], [], []
 
                 def rescue(ctx, st, _k):

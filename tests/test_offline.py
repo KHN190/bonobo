@@ -500,7 +500,7 @@ check("portal: walk-in cell is inside the frame (a clear cell)",
       _pc in B.clear_cells(B.NETHER_PORTAL, (0, 64, 0), 0))
 
 # -- wiki skills: combat, loot, End, brewing, upkeep, piglins, water clutch
-from bonobo import brewing as BW, combat as CB, end as EN, loot as LT, upkeep as UK  # noqa: E402
+from bonobo import brewing as BW, combat as CB, end as EN, loot as LT, needs as UK  # noqa: E402
 
 _a = CB.bow_aim((0, 65.6, 0), (30, 64, 0), height=1.0)
 check("bow: aims above the target to cover the drop", _a[1] > 65.0 and _a[0] == 30, _a)

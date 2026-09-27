@@ -1,35 +1,31 @@
-"""Upkeep: the brain's fixed table (layer 3 of brain.py) and the upkeep skills (recover dropped items after a
-death, repair a worn tool by combining two in the crafting grid).
-
-The table: the first row that applies takes the round. Rows that only QUEUE work put a task at the front of the
-queue instead (a pickaxe when none works, a tool that broke — at the best tier the bag can craft — food before it runs out, a bed before dark, blocks
-when the path is blocked and there is nothing to bridge with). Pure `repair_pair`, `dusk_s`, `nether_retreat` are
-offline-tested."""
+"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, food stock before it runs out, a
+tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore
+underground. Each is PROPOSED (`need` → `needs_now`), never queued: brain.need_act turns it into the next step of
+its plan and arbiter.PLAN_ORDER ranks it with the queue. The fixed maintenance reflexes (eat, land, the night's
+shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night
+(`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
 import json
 import math
 import time
 
-from . import api, decompose, goals, nav, nether, reflexes, skills, tape
-from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW  # noqa: F401  (the reflex table's thresholds)
+from . import api, decompose, goals, skills
+from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import BASE_MARKERS, COVERED_SKY, NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
+from .data import NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
 from .knowledge import food_count
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
 from .skillcore import gained, lost
-from .world import Inventory, find
+from .world import Inventory
 
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
 FOOD_POINTS = 6.0          # hunger points one cooked item restores, roughly
 DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
-JOB_RANGE = 96
-STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
 NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
-BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN
 # Plan steps that put the body where a fall can happen — portals, strongholds, fortresses, deep ore reached by
 # digging down. The jar's WaterClutch saves a fall only with a water bucket to hand, so a plan with one of these
@@ -100,20 +96,6 @@ def food_lasts_s(snap):
     return (float(snap.get("food", 20)) + FOOD_POINTS * food_count(snap.inv)) * drain
 
 
-def nether_retreat(snap):
-    """In the Nether, head home through the portal when food, health or bag room run low. Pure."""
-    if snap.dimension != "minecraft:the_nether":
-        return None
-    inv, s = snap.inv, snap.state
-    if food_count(inv) < 4:
-        return "food running out"
-    if s.get("health", 20) <= 8:
-        return "health low"
-    if inv.used_slots() >= 35:
-        return "bag full"
-    return None
-
-
 def working_tiers(inv):
     """{tool kind: best tier with a working one} for TOOL_KINDS. Pure over the bag."""
     out = {}
@@ -128,19 +110,6 @@ def craftable_tier(inv, kind):
     """The best tier of `kind` this bag crafts outright, or 0 (`Planner.craftable_tier`: one answer for every tool
     goal). Pure over the bag."""
     return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
-
-
-def _once(reads, key, read):
-    """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
-    box = {}
-    if reads and key in reads:
-        box["v"] = reads[key]
-
-    def get():
-        if "v" not in box:
-            box["v"] = read()
-        return box["v"]
-    return get
 
 
 def falls(step):
@@ -177,59 +146,32 @@ def broke(before, working):
     return {kind for kind, left in before.items() if left <= NEAR_BREAK and kind not in working}
 
 
-# A shelter step's token → the skill that makes it (decompose.SOURCES["overnight"] steps).
-SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skills.pod(ctx),
-               "hut": lambda ctx: skills.build_shelter(ctx)}
-
-
-class Upkeep:
-    """The table, and what it remembers between rounds: where the body has been (stuck), which tools worked last
-    round (broken), where the last path failure was going (blocked). `brain` supplies the failure policy
-    (`ready`, `failed`, `retry`), the movement policy and memory."""
+class Needs:
+    """What upkeep wants got, and what it remembers between rounds: which tools worked last round (broken), the
+    plans' prices (kept briefly), and this round's readings of the night that the shelter reflex shares."""
 
     def __init__(self, brain):
         self.brain = brain
         self.plan_s_cache = {}        # (goal json, bag signature) -> (time, seconds)
-        self.history = []             # (time, feet, bag signature) for "stuck in place"
-        self.escalated = {}
         self.working = {}             # tool kind -> tier that worked last round
         self.wear = {}                # tool kind -> least durability left last round
         self.broken = set()           # tool kinds that broke and are not replaced yet
         self.needs_now = []           # [(kind, goal, why)] this round proposes getting (need)
-        self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
+        self.round = {}               # this round's shared readings (enclosed, the night's way…): reflexes read them
 
-    # -- what the rounds tell it
     def observe(self, snap):
-        now = time.time()
-        self.history = [h for h in self.history if now - h[0] <= STUCK_LIMIT + 30]
-        self.history.append((now, snap.feet, bag_signature(snap.inv)))
         tiers, now_wear = working_tiers(snap.inv), wear(snap.inv)
         self.broken |= broke(self.wear, tiers)
         self.broken -= set(tiers)
         self.working, self.wear = tiers, now_wear
 
-    def failed(self, cause, err, place):
-        """A path failure is remembered with where it was going: the "path blocked" rows answer it."""
-        if cause == "nav":
-            self.blocked = {"t": time.time(), "place": place, "pos": getattr(err, "pos", None)}
-
-    # -- the table
-    def act(self, snap, ctx, reads=None):
-        """(name, run) of the reflex the arbiter picks among those that fire (`proposals`), or None."""
-        from . import arbiter
-        props = self.proposals(snap, ctx, reads)
-        got = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq) for seq, name, run in props])
-        return got.action if got else None
-
-    def proposals(self, snap, ctx, reads=None):
-        """[(seq, name, run)] of every maintenance reflex that fires (reflexes.TABLE, `seq` its place there), and
-        this round's needs in `needs_now` (PLAN proposals). `reads` = {"enclosed": bool,
-        "bed_near": bool} stands in for the world reads the rows make (offline); whatever is missing is read from
-        the world, once, when a row first asks."""
+    def propose(self, snap, ctx, reads=None):
+        """This round's needs into `needs_now` (PLAN proposals), and the readings the reflexes share in `round`.
+        `reads` = {"enclosed": bool, "bed_near": bool, "soft_ground": bool} stands in for world reads (offline);
+        whatever is missing is read from the world, once, when first asked."""
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         enclosed = _once(reads, "enclosed", skills.enclosed)
-        bed_near = _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1)))
-        blocked = self.blocked_here(b.place)
+        blocked = b.reflexes.blocked_here(b.place)
         # A bed skips the night, the fastest way through it: made from what is carried (craft only, no sun needed),
         # it comes before any shelter and before the night's work underground.
         bed_tonight = _once(reads, "bed_tonight", lambda: over and snap.night and inv.count("bed") == 0
@@ -237,48 +179,19 @@ class Upkeep:
         self.needs_now = []
         if bed_tonight():
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
-        # The night's way from here (dig in, wall in, a hut): the shelter row runs it when its parts are in the
+        # The night's way from here (dig in, wall in, a hut): the shelter reflex runs it when its parts are in the
         # bag; otherwise its parts are this round's need.
         night_way = _once(None, "night_way", lambda: overnight(
             inv, self.cost(snap), {"soft_ground": _once(reads, "soft_ground", skills.soft_ground_here)()},
             bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
-                            and not self.sheltered(snap, enclosed))
+                            and not b.reflexes.sheltered(snap, enclosed))
+        self.round = {"enclosed": enclosed, "night_way": night_way, "shelter_due": shelter_due,
+                      "blocked": blocked}
         if shelter_due():
             way, _secs, steps = night_way()
             if way is not None and any(st.kind != "shelter" for st in steps):
                 self.prepare_night(way, steps)
-        # The maintenance reflexes (reflexes.TABLE): their triggers read this view, their actions are here.
-        view = reflexes.View({
-            "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
-            "edible": lambda: skills.edible_carried(inv),
-            "swimming": lambda: skills.swimming(s),
-            "nether_bad": lambda: nether_retreat(snap) is not None,
-            "enclosed": enclosed,
-            "bed_works": lambda: skills.can_sleep(s) is None,
-            "bed_near": bed_near,
-            "shelter_ready": lambda: shelter_due() and night_way()[0] is not None
-            and all(st.kind == "shelter" for st in night_way()[2]),
-            "job_ready": lambda: self.ready_job(snap) is not None,
-            "machine_ready": lambda: self.ready_machine(snap) is not None,
-            "stuck": lambda: self.stuck_in_place(snap, enclosed),
-        }, food=s.get("food", 20), night=snap.night, overworld=over, bed_carried=inv.count("bed") > 0,
-            used_slots=inv.used_slots(), blocked=blocked is not None, building=inv.count("building"))
-        actions = {
-            "recover items": lambda: recover_items(ctx),
-            "eat": lambda: skills.eat(raw_ok=not food_count(inv)),
-            "reach land": lambda: skills.reach_land(ctx),
-            "leave the Nether": lambda: nether.use_portal(ctx, "minecraft:overworld"),
-            "dig out": lambda: skills.dig_out(ctx),
-            "sleep": lambda: skills.sleep(ctx, b.policy(snap, True)),
-            "shelter": lambda: self.shelter(snap, ctx, night_way()),
-            "collect job": lambda: self.collect_job(snap, ctx),
-            "collect machine": lambda: skills.collect_machine(ctx, self.ready_machine(snap)),
-            "empty the bag": lambda: self.empty_bag(snap, ctx),
-            "path blocked": lambda: self.bridge(ctx, blocked),
-            "unstuck": lambda: self.unstuck(snap, ctx),
-        }
-        due_rows = [(seq, name, actions[name]) for seq, name in reflexes.due(view, b.ready)]
         # Needs: what upkeep wants got, proposed (not queued) — the arbiter ranks them with the rows.
         # A tool is the plan's need (decompose puts one in any plan whose step wants it); upkeep only replaces one
         # that broke under a held plan that still wants it — "no working pickaxe" put a pickaxe (and its tree) in
@@ -299,9 +212,9 @@ class Upkeep:
         if over and not snap.night and inv.count("bed") == 0:
             way, seconds, steps = self.overnight(snap)
             if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
-                    and not self.sheltered(snap, enclosed):
+                    and not b.reflexes.sheltered(snap, enclosed):
                 self.prepare_night(way, steps)
-        return due_rows
+        return self.needs_now
 
     def overnight(self, snap):
         """(way, seconds, steps) of the cheapest way through the night from this bag, kept briefly."""
@@ -359,108 +272,6 @@ class Upkeep:
         cost = self.cost(snap)
         return all(cost.known_source(st) for st in steps)
 
-    # -- path blocked
-    def blocked_here(self, place):
-        """The last path failure, when it is recent, happened here and says where it was going; else None."""
-        bl = self.blocked
-        if bl is None or bl["pos"] is None or bl["place"] != place or time.time() - bl["t"] > BLOCKED_FOR_S:
-            return None
-        return bl
-
-    def bridge(self, ctx, blocked):
-        """Make the way by hand (skills.bridge_toward) toward where the failed walk was going."""
-        self.blocked = None
-        log(f"   path to {blocked['pos']} blocked → bridging toward it")
-        return skills.bridge_toward(ctx, blocked["pos"])
-
-    # -- night
-    def shelter(self, snap, ctx, night_way):
-        """Night, exposed, no bed to sleep in, the parts in the bag: the way `overnight` priced cheapest from this
-        bag and this ground (dig in — with a pickaxe, or by hand in dirt or sand — wall in, a hut). Its parts, when
-        missing, are the round's "night prep" need instead (`prepare_night`)."""
-        b = self.brain
-        ctx = b.context(snap.dimension, b.policy(snap, True))
-        way, _secs, steps = night_way
-        log(f"   the night: {way} ({' → '.join(map(str, steps))})")
-        return SHELTER_RUN[steps[-1].token](ctx)
-
-    def sheltered(self, snap, enclosed=None):
-        if snap.get("skyLight", 15) <= COVERED_SKY:
-            return True
-        try:
-            if (enclosed or skills.enclosed)():
-                return True
-        except (tape.ReplayMiss, McError):
-            pass
-        feet = list(snap.feet)
-        return any(feet in s.get("interior", []) for s in self.brain.mem.sites(snap.dimension))
-
-    # -- jobs and the bag
-    def ready_job(self, snap):
-        near = [j for j in self.brain.mem.jobs(snap.dimension)
-                if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
-        return min(near, key=lambda j: math.dist(j["pos"], snap.feet), default=None)
-
-    def ready_machine(self, snap):
-        """The nearest machine (auto smelter) whose loaded order is due, within JOB_RANGE."""
-        near = [m for m in self.brain.mem.machines(snap.dimension)
-                if skills.pending_ready(m) and math.dist(m["origin"], snap.feet) <= JOB_RANGE]
-        return min(near, key=lambda m: math.dist(m["origin"], snap.feet), default=None)
-
-    def collect_job(self, snap, ctx):
-        from . import jobs
-        job = self.ready_job(snap)
-        if job is not None:
-            jobs.collect(ctx, job)
-
-    def empty_bag(self, snap, ctx):
-        if skills.store_plan(snap.inv.slots) and skills.can_store_here(ctx, local_only=snap.night):
-            return skills.deposit(ctx, local_only=snap.night)
-        return skills.tidy_inventory(ctx)
-
-    # -- stuck
-    def stuck_in_place(self, snap, enclosed=None):
-        """Same block and the same bag for STUCK_LIMIT seconds (sheltered at night excluded)."""
-        if snap.night and self.sheltered(snap, enclosed):
-            return False
-        old = [h for h in self.history if time.time() - h[0] >= STUCK_LIMIT]
-        if not old:
-            return False
-        ref = old[-1]
-        return all(math.dist(h[1], ref[1]) < 2 and h[2] == ref[2] for h in self.history if h[0] >= ref[0])
-
-    def unstuck(self, snap, ctx):
-        """One way out per call — the nearest site, up, sideways, down — each skipped once it failed here."""
-        b = self.brain
-        x, y, z = snap.feet
-        site = b.mem.nearest_site(snap.feet, snap.dimension)
-        if site and math.dist(site["pos"], snap.feet) < 12:
-            site = None
-        methods = ([("site", tuple(site["pos"]))] if site else []) + [
-            ("up", (x, y + 12, z)), ("east", (x + 16, y, z)), ("west", (x - 16, y, z)),
-            ("south", (x, y, z + 16)), ("north", (x, y, z - 16)), ("down", (x, y - 8, z))]
-        for label, target in methods:
-            name = f"unstuck:{label}"
-            if not b.ready(name):
-                continue
-            log(f"no progress for {STUCK_LIMIT}s at {snap.feet} → unstuck by heading {label} {target}")
-            self.history.clear()
-            if nav.moved(nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1)):
-                b.retry.succeeded(name)
-                return
-            b.failed(name, NotAvailable(f"could not get {label} to {target}"))
-            raise NotAvailable(f"unstuck {label} failed")
-        self.escalate("stuck", f"every unstuck method failed at {snap.feet}")
-        raise NotAvailable("every unstuck method failed here")
-
-    def escalate(self, kind, what):
-        """A macro problem: one `?? STALL` line per kind per 20 min — supervise.sh wakes Claude on it."""
-        now = time.time()
-        if now - self.escalated.get(kind, 0) < 1200:
-            return
-        self.escalated[kind] = now
-        log(f"?? STALL {kind}: {what}")
-
 
 # ------------------------------------------------------------------------------------------------- upkeep skills
 
@@ -508,38 +319,3 @@ def repair_tool(ctx, kind="pickaxe"):
         raise McError(f"repairing {item.split(':')[1]} failed: {r['message']}")
     log(f"repaired a {item.split(':')[1]} by combining two")
     return item
-
-
-def _death_retired(c):
-    """The death note this call walked to is spent: what was there is carried, what was not is not coming back."""
-    death = c.args[0].mem.recent_death(api.get("/state")["dimension"])
-    return death is None or tuple(death["pos"]) != c.result
-
-
-def _drops_gone(c):
-    """World evidence, not our own note: no dropped items left around the death spot we walked to."""
-    from .world import entities
-    return _death_retired(c) and not entities(10, ["minecraft:item"])
-
-
-@skill(verify=_drops_gone, budget=300, stall=90, per_unit=120)
-def recover_items(ctx):
-    """Go back to the last death spot within 5 minutes and pick up what dropped there."""
-    s = api.get("/state")
-    death = ctx.mem.recent_death(s["dimension"])
-    if death is None:
-        raise NotAvailable("no recent death to recover from")
-    pos = tuple(death["pos"])
-    log(f"   recovering items at the death spot {pos}")
-    if not nav.arrived(pos, ctx.policy, range_=2, attempts=1):
-        raise api.NavFailed(f"death spot {pos} not reachable")
-    before = Inventory().used_slots()
-    nav.sweep(ctx, radius=10, wait=60)
-    yield Inventory().used_slots()
-    got = gained(lambda: Inventory().used_slots(), before) - before
-    # Either way the note is spent: what is here is now carried, and what is not here is not coming back. A record
-    # the world has already answered must be retired on arrival rather than left to expire on a timer, or the same
-    # sixty-block walk is worth the same seconds again five minutes later.
-    ctx.mem.forget_death(pos)
-    log(f"recovered {got} stacks at {pos}" if got else f"nothing left at {pos}: the drops are gone")
-    return pos

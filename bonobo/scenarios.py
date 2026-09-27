@@ -513,13 +513,13 @@ SCENARIOS["fall_without_bucket"] = {
 }
 SCENARIOS["recover_items"] = {
     "doc": "Died 10 blocks away a minute ago, 3 diamonds lie there → walk back and pick them up.",
-    "module": "upkeep",
+    "module": "reflexes",
     "setup": [f"fill {_c(at(-10, -2, -6))} {_c(at(12, -1, 6))} stone",
               f"tp @p {_c(at(-6, 0, 0))}", "clear @p"],
     "expect": [(at(-10, -1, -6), at(12, -1, 6), "stone", 299, 299)],
     "before": lambda ctx: (ctx.mem.log_death(at(6, 0, 0), "minecraft:overworld"),
                            _chat(f'summon item {_c(at(6, 0, 0))} {{Item:{{id:"minecraft:diamond",count:3}},Age:-32768}}')),
-    "run": lambda ctx: __import__("bonobo.upkeep", fromlist=["recover_items"]).recover_items(ctx),
+    "run": lambda ctx: __import__("bonobo.reflexes", fromlist=["recover_items"]).recover_items(ctx),
     "check": lambda api, inv: inv.count("minecraft:diamond") >= 3,
     "budget": 20,
 }
@@ -2548,7 +2548,7 @@ SHEET["pearls_from_barter"] = {
 SHEET["bucket_before_the_shaft"] = {
     "doc": "An empty bucket, water 2 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
            "before any digging (WaterClutch needs it in hand)",
-    "module": "upkeep", "point": "C", "skills": ["fill"], "tier_fixed": "exception", "tags": {"base": "upkeep"},
+    "module": "needs", "point": "C", "skills": ["fill"], "tier_fixed": "exception", "tags": {"base": "upkeep"},
     "setup": _floor(depth=4) + [f"setblock {_c(at(2, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
                                 "give @p stone_pickaxe", "give @p cooked_beef 8", "give @p white_bed"],
     "before": _hooks(_start("bucket_before_the_shaft"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
@@ -3011,7 +3011,7 @@ def _blocked_toward(pos):
         from . import retry
         from .world import Snapshot
         snap = Snapshot()
-        core.BRAIN.table.blocked = {"t": time.time(), "place": retry.place_signature(snap.feet, snap.night),
+        core.BRAIN.reflexes.blocked = {"t": time.time(), "place": retry.place_signature(snap.feet, snap.night),
                                     "pos": pos}
     return hook
 
@@ -3019,10 +3019,10 @@ def _blocked_toward(pos):
 def _stuck_for(seconds):
     """`before` hook: upkeep's history says we stood here, bag unchanged, for `seconds`."""
     def hook(ctx):
-        from .upkeep import bag_signature
+        from .needs import bag_signature
         from .world import Snapshot
         snap = Snapshot()
-        core.BRAIN.table.history = [(time.time() - seconds, snap.feet, bag_signature(snap.inv))]
+        core.BRAIN.reflexes.history = [(time.time() - seconds, snap.feet, bag_signature(snap.inv))]
     return hook
 
 
@@ -3102,7 +3102,7 @@ UPKEEP_ROWS += [
 for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
     _name = f"upkeep__{_line}"
     SHEET[_name] = {
-        "doc": f"upkeep, {_doc}", "module": "upkeep", "point": "C", "skills": [], "tier_fixed": "brain",
+        "doc": f"upkeep, {_doc}", "module": "reflexes", "point": "C", "skills": [], "tier_fixed": "brain",
         "combat": _line == "eat", "tags": {"base": "upkeep", "line": _line},
         "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_),
         "run": _brain_rounds(10 if _line == "eat_when_full" else 22, _done), "check": _check, "budget": 30,

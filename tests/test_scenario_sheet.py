@@ -491,8 +491,8 @@ class ResetBrain(unittest.TestCase):
         br = B.Brain()
         shared = br.blacklist
         # (what the last row left, how to read it after the reset, the clean value)
-        rows = [("a broken axe note", lambda: br.table.broken.add("axe"), lambda: br.table.broken, set()),
-                ("a tier that worked", lambda: br.table.working.update(pickaxe=2), lambda: br.table.working, {}),
+        rows = [("a broken axe note", lambda: br.needs.broken.add("axe"), lambda: br.needs.broken, set()),
+                ("a tier that worked", lambda: br.needs.working.update(pickaxe=2), lambda: br.needs.working, {}),
                 ("a ban", lambda: br.blacklist.update({(1, 2, 3): 9e9}), lambda: br.blacklist, {}),
                 ("a held plan", lambda: br.held.update(t1={}), lambda: br.held, {}),
                 ("a committed task", lambda: setattr(br, "committed", "t1"), lambda: br.committed, None),

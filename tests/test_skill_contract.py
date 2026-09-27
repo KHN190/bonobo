@@ -399,7 +399,7 @@ class Readings:
     whether the body is walled in, the free spots around. Patched where each module reads them (readings, not a
     game); the skill's own `start` and `verify` run unchanged."""
 
-    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "upkeep", "fluids", "brewing", "farming", "ui",
+    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "reflexes", "needs", "fluids", "brewing", "farming", "ui",
                "combat")
 
     def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=(), items=(),

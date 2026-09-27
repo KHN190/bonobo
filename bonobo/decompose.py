@@ -168,7 +168,7 @@ SOURCES = {
                                                     {"blocks": ["dirt", "grass_block"], "tier": None, "breaks": 1})],
                   "yields": 1, "needs": [], "near": (["dirt", "grass_block"], "no dirt or grass in sight"),
                   "gives": "minecraft:dirt"}],
-    # A night without a bed (upkeep.overnight): the default is the bed's plan; these are the other ways through it.
+    # A night without a bed (needs.overnight): the default is the bed's plan; these are the other ways through it.
     "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
                    "needs": [("tool", "pickaxe", 0)]},
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],

@@ -2,7 +2,7 @@
 
   1. the player holds control               → wait
   2. L0: a hazard on the body (hazard.py), or a fight holding it (fight_loop.py) → rescue / yield
-  3. upkeep, one table (upkeep.py)          → eat, sleep, shelter, land, furnace jobs, bag, path blocked, stuck — or
+  3. reflexes (reflexes.py), needs (needs.py) → eat, sleep, shelter, land, furnace jobs, bag, path blocked, stuck — or
                                               put a task at the front of the queue (food before it runs out, a bed
                                               before dark, a tool that broke, blocks to bridge with)
   4. the queue's head (tasks.py)            → hold its plan (decompose.py); each round only a cheap check of the next
@@ -20,7 +20,7 @@ import time
 import traceback
 
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
-               skills, tape, tasks, upkeep, world)
+               needs, reflexes, skills, tape, tasks, world)
 from . import skill as skillkit
 from . import skillcore
 # Every module that registers skills, so each step finds its provider (skill.provider). A new skill module is added
@@ -31,7 +31,7 @@ from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare
 from .memory import Memory
 from .planner import Unplannable, runnable
-from .upkeep import bag_signature
+from .needs import bag_signature
 from .world import Inventory, Snapshot, entities
 
 # Wiring from the top, so the lower layers never import the skill library: the L0 rescues hazard.py dispatches, and
@@ -87,7 +87,8 @@ class Brain:
         self.retry = retry.Retry()
         self.blacklist = {}           # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
-        self.table = upkeep.Upkeep(self)
+        self.needs = needs.Needs(self)          # what must be planned to be had (PLAN proposals)
+        self.reflexes = reflexes.Maintain(self)  # the fixed maintenance reflexes (MAINTAIN)
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None             # coarse location: what causes are cooled against
         self.idle_since = None
@@ -181,7 +182,7 @@ class Brain:
             return None
         self.mem.record_outcome(name, False)
         cause = retry.cause_of(err)
-        self.table.failed(cause, err, self.place)
+        self.reflexes.failed(cause, err, self.place)
         verdict = self.retry.failed(name, cause, str(err), time.time(), self.place)
         if verdict is not None and verdict.worth_logging:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
@@ -241,12 +242,13 @@ class Brain:
         self.place = retry.place_signature(snap.feet, snap.night)
         self.policy_cache = self.policy(snap, snap.night)
         if not getattr(self, "autoeat_set", False) and "autoeat" in nav.mod_features():
-            api.post("/autoeat", upkeep.autoeat_policy())          # the jar eats on the way; set once per process
+            api.post("/autoeat", needs.autoeat_policy())          # the jar eats on the way; set once per process
             self.autoeat_set = True
         protected = self.policy_cache.protected
         api.DRESS = lambda task: nav.with_avoid(task, protected)     # no approach digs through our own builds
         ctx = self.context(snap.dimension)
-        self.table.observe(snap)
+        self.needs.observe(snap)
+        self.reflexes.observe(snap)
         self.track(snap)
         if time.time() - self.last_scan >= SCAN_EVERY_S:
             self.last_scan = time.time()
@@ -287,9 +289,11 @@ class Brain:
             intents.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                 ctx, snap.state, self.attempt, self.ready))))
         if not intents:
+            self.needs.round = {}
+            self.needs.propose(snap, ctx)
             intents += [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq)
-                        for seq, name, run in self.table.proposals(snap, ctx)]
-            for kind, goal, _why in getattr(self.table, "needs_now", ()):
+                        for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            for kind, goal, _why in self.needs.needs_now:
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:
                     intents.append(arbiter.Intent("plan", act, kind=kind))
@@ -319,7 +323,7 @@ class Brain:
             return [arbiter.Intent("plan", act, kind="idle")] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: skills.wait_for_day(ctx)),
                               kind="wait for day")]
-        if "pickaxe" in self.table.working:
+        if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
             if act is not None:
                 out.append(arbiter.Intent("plan", act, kind="night stock"))
@@ -344,8 +348,8 @@ class Brain:
         return Act("upkeep", name, lambda: dispatch.execute(ctx, step, snap.night), step=step)
 
     def upkeep(self, snap, ctx):
-        """The upkeep table (upkeep.py): the first row that applies, as this round's act."""
-        got = self.table.act(snap, ctx)
+        """The reflex the arbiter picks this round (reflexes.Maintain.act), as an act."""
+        got = self.reflexes.act(snap, ctx)
         return Act("upkeep", *got) if got else None
 
     # -- the queue: hold a plan, check it cheaply, repair it on events

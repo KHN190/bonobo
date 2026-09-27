@@ -36,7 +36,7 @@ CLOSURE = {
     "bag": 11,
     "beliefs": 2,
     "blueprints": 1,
-    "brain": 53,
+    "brain": 54,            # + reflexes (the maintenance table split off needs)
     "brewing": 26,
     "building": 19,
     "bunker": 36,           # end → fight_loop: the dragon fight is carried by the answer loop
@@ -83,7 +83,8 @@ CLOSURE = {
     "terrain": 15,
     "threat": 6,
     "ui": 26,
-    "upkeep": 36,
+    "needs": 36,
+    "reflexes": 36,
     "wood": 25,
     "world": 9,
 }

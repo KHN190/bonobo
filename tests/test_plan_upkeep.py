@@ -26,7 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, decompose, goals, planner, retry, skillcore, skills, tasks, upkeep  # noqa: E402
+from bonobo import api, decompose, goals, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import COVERED_SKY, bare  # noqa: E402
@@ -669,7 +669,7 @@ class Repairs(unittest.TestCase):
                 held_a, why_a = brainmod.replan(task, goal, snap_a, cost(snap_a, **seen), pending=pending)
                 self.assertIsNone(why_b)
                 self.assertIsNone(why_a)
-                self.assertEqual(held_a["sig"], upkeep.bag_signature(snap_a.inv), "the held plan is stamped with its bag")
+                self.assertEqual(held_a["sig"], needs.bag_signature(snap_a.inv), "the held plan is stamped with its bag")
                 self.assertFalse(held_a["event"])
                 check(self, held_b["steps"], held_a["steps"])
 
@@ -721,7 +721,8 @@ class Queue_:
         b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
         b.mem = Memory(os.path.join(tmp, "notes.json"))
         b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
-        b.table, b.last_failure, b.committed, b.last_hold_log = upkeep.Upkeep(b), None, None, 0
+        b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+        b.last_failure, b.committed, b.last_hold_log = None, None, 0
         self.patches = [mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")),
                         mock.patch.object(brainmod, "Cost", lambda snap, mem=None, bl=None, **k: cost(snap, mem=mem,
                                                                                                     **self.seen)),
@@ -1014,7 +1015,8 @@ def run_upkeep(row, tmp):
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist = retry.Retry(), {}
     b.place = PLACE
-    b.table = table = upkeep.Upkeep(b)
+    b.needs = table = needs.Needs(b)
+    b.reflexes = rx = reflexes.Maintain(b)
     b.held = {"t1": {"steps": row.held}} if row.held else {}
     now = time.time()
     for name in row.cooling:
@@ -1030,11 +1032,12 @@ def run_upkeep(row, tmp):
     if row.last_round is not None:
         table.observe(snapshot(row.state, inventory(*row.last_round)))
     table.observe(snap)
+    rx.observe(snap)
     if row.stuck:
-        sig = upkeep.bag_signature(snap.inv)
-        table.history = [(now - 90 + i * 10, snap.feet, sig) for i in range(10)]
+        sig = needs.bag_signature(snap.inv)
+        rx.history = [(now - 90 + i * 10, snap.feet, sig) for i in range(10)]
     if row.blocked is not None:
-        table.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
+        rx.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
     c, plan_s = cost(snap, **row.seen), {}
     table.cost = lambda _snap: c                    # the row's readings stand in for /find and /entities
     for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):     # fixture: the two upkeep prices
@@ -1045,11 +1048,11 @@ def run_upkeep(row, tmp):
             secs, known = float("inf"), False
         plan_s[goal["args"]["needs"][0][0]] = secs
         plan_s[goal["args"]["needs"][0][0] + ":known"] = known
-    plan_s["overnight"] = upkeep.overnight(snap.inv, c)
+    plan_s["overnight"] = needs.overnight(snap.inv, c)
     plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
-        got = table.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen,
+        got = rx.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen,
                                                "soft_ground": False})
         # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
         queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
@@ -1074,7 +1077,7 @@ class Upkeep(unittest.TestCase):
         from tests.world import RESOURCES
         cells = worlds(resource=["bare", "herd", "village"], self_=["ready", "hungry", "underground", "nether"],
                        stock=["none", "logs", "stone_tools", "kit"])
-        for w, lead in ((w, lead) for w in cells for lead in (1.0, upkeep.LEAD, 3.0)):
+        for w, lead in ((w, lead) for w in cells for lead in (1.0, needs.LEAD, 3.0)):
             row = Row(repr(w), None)
             row.state, row.inv, row.seen = w.game_state(), w.inventory(), RESOURCES[w.dims["resource"]]
             snap = snapshot(row.state, row.inv)
@@ -1086,15 +1089,15 @@ class Upkeep(unittest.TestCase):
                 over = snap.dimension == OVER
                 way, secs, _ = plan_s["overnight"]
                 # A plan that knows where it goes leads by × LEAD; one that guesses waits for the real threshold.
-                bed_due = upkeep.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else upkeep.dusk_s(snap) <= 0
+                bed_due = needs.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else needs.dusk_s(snap) <= 0
                 bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" and bed_due \
                     and snap.get("skyLight", 15) > COVERED_SKY
-                food_due = upkeep.food_lasts_s(snap) < plan_s["food"] * lead if plan_s["food:known"] \
-                    else snap.get("food", 20) < upkeep.EAT_BELOW
+                food_due = needs.food_lasts_s(snap) < plan_s["food"] * lead if plan_s["food:known"] \
+                    else snap.get("food", 20) < reflexes.EAT_BELOW
                 food = food_count(snap.inv) < 8 and food_due
-                self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {upkeep.dusk_s(snap)} s, {way} plan "
+                self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {needs.dusk_s(snap)} s, {way} plan "
                                                                   f"{secs:.0f} s × {lead}")
-                self.assertEqual(((("food", 8),) in queued), food, f"food lasts {upkeep.food_lasts_s(snap):.0f} s, "
+                self.assertEqual(((("food", 8),) in queued), food, f"food lasts {needs.food_lasts_s(snap):.0f} s, "
                                                                     f"plan {plan_s['food']:.0f} s × {lead}")
 
     def test_lead_moves_the_verdict(self):
@@ -1108,10 +1111,10 @@ class Upkeep(unittest.TestCase):
     def test_dusk_clock(self):
         for tod, secs in ((0, 600.0), (6000, 300.0), (11500, 25.0), (12000, 0.0), (18000, 0.0), (24000 + 6000, 300.0)):
             with self.subTest(timeOfDay=tod):
-                self.assertEqual(upkeep.dusk_s(snapshot(state(timeOfDay=tod))), secs)
+                self.assertEqual(needs.dusk_s(snapshot(state(timeOfDay=tod))), secs)
 
     def test_food_clock_grows_with_food(self):
-        ladder = [upkeep.food_lasts_s(snapshot(state(food=f), inventory(("cooked_beef", m))))
+        ladder = [needs.food_lasts_s(snapshot(state(food=f), inventory(("cooked_beef", m))))
                   for f, m in ((2, 0), (10, 0), (20, 0), (20, 4))]
         self.assertEqual(ladder, sorted(ladder))
         self.assertEqual(len(set(ladder)), len(ladder))
@@ -1125,7 +1128,7 @@ class Upkeep(unittest.TestCase):
         for st, inv, why in rows:
             with self.subTest(st=st, inv=inv):
                 snap = snapshot(state(**st), full_bag("cooked_beef") if inv == "full" else inventory(*inv))
-                self.assertEqual(upkeep.nether_retreat(snap), why)
+                self.assertEqual(reflexes.nether_retreat(snap), why)
 
     def test_beds_work_at_night_in_the_overworld_only(self):
         rows = [({"timeOfDay": 18000}, True), ({"timeOfDay": 6000}, False), ({"timeOfDay": 6000, "thundering": True}, True),
@@ -1141,7 +1144,7 @@ class Upkeep(unittest.TestCase):
                 (inventory(slot("iron_axe", 1, 247)), {"axe": 2}), (inventory(slot("iron_axe", 1, 248)), {})]
         for inv, want in rows:
             with self.subTest(want=want):
-                self.assertEqual(upkeep.working_tiers(bag(inv)), want)
+                self.assertEqual(needs.working_tiers(bag(inv)), want)
 
 
 # (bag, tool kind, the tier a broken tool is replaced at: the best this bag crafts with crafting steps alone)
@@ -1165,12 +1168,12 @@ class Craftable(unittest.TestCase):
     def test_bag_to_replacement_tier(self):
         for name, inv, kind, tier in CRAFTABLE:
             with self.subTest(name):
-                self.assertEqual(upkeep.craftable_tier(bag(inv), kind), tier)
+                self.assertEqual(needs.craftable_tier(bag(inv), kind), tier)
 
     def test_every_tool_kind_has_a_row_or_is_wood(self):
-        for kind in upkeep.TOOL_KINDS:
+        for kind in needs.TOOL_KINDS:
             with self.subTest(kind):
-                self.assertEqual(upkeep.craftable_tier(bag(inventory()), kind), 0)
+                self.assertEqual(needs.craftable_tier(bag(inventory()), kind), 0)
 
 
 DAY_T = 24000
@@ -1400,7 +1403,7 @@ def new_brain(tmp):
     b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
     b.mem = Memory(os.path.join(tmp, "notes.json"))
     b.retry, b.blacklist, b.place = retry.Retry(), {}, HERE
-    b.table = upkeep.Upkeep(b)
+    b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
     return b
 
 
@@ -1425,7 +1428,7 @@ class Retry(unittest.TestCase):
                     self.assertEqual(b.ready(task, cause=cause), want, key)
                 if not counts:
                     self.assertEqual(b.retry.cooling, {}, "an interruption cooled something")
-                    self.assertIsNone(b.table.blocked, "an interruption was taken for a blocked path")
+                    self.assertIsNone(b.reflexes.blocked, "an interruption was taken for a blocked path")
 
     def test_cooldown_doubles_up_to_its_ceiling(self):
         r, now = retry.Retry(), 1000.0
@@ -1595,7 +1598,7 @@ class Queue(unittest.TestCase):
 # ------------------------------------------------------------------------------------------ the night's work
 class OneArbiter(unittest.TestCase):
     """Every layer proposes, arbiter.arbitrate chooses: the faster layer, then arbiter.PLAN_ORDER, then the place in
-    line. The day's failures, as the proposals each situation makes (brain.decide / upkeep.proposals)."""
+    line. The day's failures, as the proposals each situation makes (brain.decide / needs.proposals)."""
 
     @staticmethod
     def intent(layer, kind=None, seq=0, deadline_s=None, at=None):
@@ -1687,8 +1690,8 @@ class OneArbiter(unittest.TestCase):
         from unittest import mock
         b = brainmod.Brain.__new__(brainmod.Brain)
         b.retry, b.place = retry.Retry(), PLACE
-        b.table = mock.Mock(working={}, sheltered=lambda snap, enclosed=None: False,     # caught in the open
-                            proposals=lambda snap, ctx, reads=None: [])
+        b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
+        b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
         b.task_act = lambda task, snap, ctx: chop
         b.prepare = lambda snap: brainmod.Act("idle", "prepare", None)
@@ -1716,7 +1719,7 @@ class OneArbiter(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ a night's way
 class Overnight(unittest.TestCase):
-    """The cheapest way through a night from this bag (upkeep.overnight → decompose.cheapest over "overnight")."""
+    """The cheapest way through a night from this bag (needs.overnight → decompose.cheapest over "overnight")."""
 
     # (situation, bag, what is in sight) → the way chosen and its first step's kind
     ROWS = [("a pickaxe: dig in, nothing to fetch", [("stone_pickaxe", 1)], HERD, "dig in", ["shelter"]),
@@ -1736,18 +1739,18 @@ class Overnight(unittest.TestCase):
               ["gather", "craft", "craft", "craft", "craft", "shelter"])]
 
     def test_the_night_way_over_the_table(self):
-        """The shelter row asks the same pricing as the dusk lead (one choice, `upkeep.overnight`)."""
+        """The shelter row asks the same pricing as the dusk lead (one choice, `needs.overnight`)."""
         for name, carried, soft, way, kinds in self.NIGHT:
             with self.subTest(name):
                 snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
                 facts = None if soft is None else {"soft_ground": soft}
-                got, _secs, steps = upkeep.overnight(snap.inv, cost(snap), facts, bed_too=False)
+                got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=False)
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
 
     def test_stone_ground_dirt_near_walls_in(self):
         """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
-        got, _secs, steps = upkeep.overnight(snap.inv, cost(snap, dirt=4), {"soft_ground": False}, bed_too=False)
+        got, _secs, steps = needs.overnight(snap.inv, cost(snap, dirt=4), {"soft_ground": False}, bed_too=False)
         self.assertEqual((got, [(st.kind, st.token) for st in steps]),
                          ("wall in", [("mine", "minecraft:dirt"), ("shelter", "pod")]))
 
@@ -1766,7 +1769,7 @@ class Overnight(unittest.TestCase):
         for name, carried, seen, way, kinds in self.ROWS:
             with self.subTest(name):
                 snap = snapshot(state(timeOfDay=DUSK), inventory(*carried))
-                got, secs, steps = upkeep.overnight(snap.inv, cost(snap, **seen))
+                got, secs, steps = needs.overnight(snap.inv, cost(snap, **seen))
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
                 self.assertEqual(secs, sum(st.est for st in steps) / 20)
 
@@ -1790,8 +1793,8 @@ class WhatBroke(unittest.TestCase):
     def test_broke_over_the_table(self):
         for name, before, after, want in self.ROWS:
             with self.subTest(name):
-                was = upkeep.wear(bag(inventory(*before)))
-                self.assertEqual(upkeep.broke(was, upkeep.working_tiers(bag(inventory(*after)))), want)
+                was = needs.wear(bag(inventory(*before)))
+                self.assertEqual(needs.broke(was, needs.working_tiers(bag(inventory(*after)))), want)
 
 
 # -------------------------------------------------------------------------------------------- a bucket before a fall
@@ -1800,7 +1803,7 @@ def _plan(*steps):
 
 
 class WaterBucketBeforeAFall(unittest.TestCase):
-    """The jar's WaterClutch lands a fall only with a water bucket to hand: a plan with a fall in it (upkeep.FALL_RISK,
+    """The jar's WaterClutch lands a fall only with a water bucket to hand: a plan with a fall in it (needs.FALL_RISK,
     or ore dug down to) gets one first — outside the Nether, where water cannot be poured."""
 
     # (situation, dimension, bag, held plans) → a water bucket to the front?
@@ -1823,7 +1826,7 @@ class WaterBucketBeforeAFall(unittest.TestCase):
             with self.subTest(name):
                 snap = snapshot(inv=inventory(*items))
                 snap.state = dict(snap.state, dimension=dim)
-                self.assertEqual(upkeep.needs_water_bucket(snap, plans), want)
+                self.assertEqual(needs.needs_water_bucket(snap, plans), want)
 
     def test_no_iron_no_bucket_the_plan_goes_through_iron(self):
         """With nothing, the bucket's plan is the iron chain (mine, smelt, craft the bucket, fill it)."""
@@ -1901,7 +1904,8 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             def proposals(snap, ctx, reads=None, _busy=busy):
                 asked.append("upkeep")
                 return [(0, "u", None)] if _busy else []
-            b.table = mock.Mock(working={}, proposals=proposals)
+            b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
+            b.reflexes = mock.Mock(proposals=proposals)
             b.task_act = lambda task, snap, ctx: None
             b.prepare = lambda snap: None
             snap = snapshot(state(), inventory())
@@ -1957,7 +1961,7 @@ class StationGone(unittest.TestCase):
 
 
 class LeadOnlyFromKnownPlans(unittest.TestCase):
-    """upkeep.due_now: a plan that knows where it goes starts LEAD early; one priced by a guess (a seek, a source
+    """needs.due_now: a plan that knows where it goes starts LEAD early; one priced by a guess (a seek, a source
     nowhere known) waits for the real threshold — a guess × LEAD made food urgent on a full stomach."""
 
     # (situation, seconds left, plan seconds, the plan's places known, the real threshold reached) → due now
@@ -1970,7 +1974,7 @@ class LeadOnlyFromKnownPlans(unittest.TestCase):
     def test_due_over_the_table(self):
         for name, left, plan, known, threshold, want in self.ROWS:
             with self.subTest(name):
-                self.assertIs(upkeep.due_now(left, plan, known, threshold), want)
+                self.assertIs(needs.due_now(left, plan, known, threshold), want)
 
     def test_known_source(self):
         snap = snapshot(state(), inventory())
@@ -1995,7 +1999,7 @@ class ToolsAreThePlansNeed(unittest.TestCase):
                 ("nothing held", [], set())]
         for name, steps, want in rows:
             with self.subTest(name):
-                self.assertEqual(upkeep.tool_kinds(steps), want)
+                self.assertEqual(needs.tool_kinds(steps), want)
 
     def test_a_stone_plan_brings_its_pickaxe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2066,18 +2070,18 @@ class TheToolTheBagMakes(unittest.TestCase):
         for extra, tier in (([("iron_ingot", 3)], 2), ([("cobblestone", 3)], 1), ([("oak_planks", 3)], 0), ([], 0)):
             with self.subTest(extra=extra):
                 inv = bag(inventory(("stick", 2), ("crafting_table", 1), *extra))
-                self.assertEqual(upkeep.craftable_tier(inv, "pickaxe"), tier)
+                self.assertEqual(needs.craftable_tier(inv, "pickaxe"), tier)
 
 
 class EatOnTheWay(unittest.TestCase):
-    """What the jar is told to eat while walking (upkeep.autoeat_policy): the threshold sits where regen stops, above
+    """What the jar is told to eat while walking (needs.autoeat_policy): the threshold sits where regen stops, above
     the standing row's, and the foods go best first."""
 
     def test_policy(self):
-        p = upkeep.autoeat_policy()
+        p = needs.autoeat_policy()
         self.assertEqual((p["below"], p["foods"][:3]),
                          (18, ["minecraft:cooked_beef", "minecraft:cooked_porkchop", "minecraft:cooked_mutton"]))
-        self.assertGreater(p["below"], upkeep.EAT_BELOW)
+        self.assertGreater(p["below"], reflexes.EAT_BELOW)
         self.assertNotIn("minecraft:beef", p["foods"])          # raw meat is the standing row's, when starving
         self.assertNotIn("minecraft:rotten_flesh", p["foods"])
 
