@@ -161,6 +161,20 @@ class Returns(unittest.TestCase):
         self.assertEqual((stop([self.GO, self.MINE] * 3), stop([self.GO, self.MINE, self.GO])), (True, False))
 
 
+class TakeBackVerdict(unittest.TestCase):
+    """skills.take_back_verdict: a station not picked up but still standing is left (a station there), not lost."""
+    # (situation, (bag gained it, still standing)) → verdict
+    TABLE = [
+        ("picked up: taken", (True, False), "taken"),
+        ("in the bag though one still shows there (another table): taken", (True, True), "taken"),
+        ("the break did not happen: left standing, a station", (False, True), "left"),
+        ("must fail as a loss: gone and not in the bag", (False, False), "lost"),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.take_back_verdict, self.TABLE)
+
+
 class TakesBack(unittest.TestCase):
     # (situation, block, pickaxe held) → break it to carry on
     TABLE = [

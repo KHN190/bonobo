@@ -92,6 +92,26 @@ def takes_back(block, has_pickaxe):
     return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
 
 
+def take_back_verdict(gained, standing):
+    """Pure: what became of a placed station after picking it up — "taken" (the bag gained it), "left" (still
+    standing: the break did not happen; it stays a station where it is), "lost" (gone from the world and not in the
+    bag: the drop was not picked up). Only "lost" is a loss; "left" was once logged as one too."""
+    if gained:
+        return "taken"
+    return "left" if standing else "lost"
+
+
+def _standing(block, pos, tries=10):
+    """The world shows `block` at `pos` (read again a few ticks apart: the client sees a placement a moment after
+    the server made it — "could not open crafting_table" right after placing it)."""
+    for i in range(tries):
+        if any((b["x"], b["y"], b["z"]) == tuple(pos) for b in find([block], radius=6, limit=20)):
+            return True
+        if i < tries - 1:
+            time.sleep(0.1)
+    return False
+
+
 class Station:
     def __init__(self, ctx, block):
         self.ctx, self.block, self.pos, self.placed = ctx, block, None, False
@@ -117,7 +137,8 @@ class Station:
                 raise NotAvailable(f"no room to place {bare(self.block)} ({last})")
             self.placed = True
             self.ctx.mem.add_station(self.block, self.pos, self.ctx.dimension)
-            api.run({"type": "wait", "ticks": 5})
+            if not _standing(self.block, self.pos):
+                raise McError(f"placed {bare(self.block)} at {self.pos} but the world does not show it")
         else:
             # Gone from where memory has it: memory stops counting it, so the repaired plan makes one again.
             for s in self.ctx.mem.stations(self.ctx.dimension, near=feet(), within=8):
@@ -147,12 +168,20 @@ class Station:
         if self.placed:
             before = Inventory().count(self.block)
             held = lambda: Inventory().count(self.block)   # noqa: E731
-            mine_cell(self.ctx.policy, self.pos, wanted=[self.block], require_drops=True, wait=60)
-            if gained(held, before) <= before:
+            try:
+                mine_cell(self.ctx.policy, self.pos, wanted=[self.block], collect=True, require_drops=True, wait=60)
+            except api.INTERRUPTIONS:
+                raise
+            except McError as e:
+                log(f"   could not break the {bare(self.block)} to take it back: {e}")
+            if gained(held, before) <= before and not _standing(self.block, self.pos, tries=1):
                 api.run({"type": "collect", "radius": 6}, wait=30)   # the drop can land out of the sweep
-            if gained(held, before) > before:
-                self.ctx.mem.remove_station(self.pos)
-            else:
+            verdict = take_back_verdict(gained(held, before) > before, _standing(self.block, self.pos, tries=1))
+            if verdict != "left":
+                self.ctx.mem.remove_station(self.pos)      # in the bag, or gone: not a station here any more
+            if verdict == "left":
+                log(f"   left the {bare(self.block)} standing at {self.pos}: remembered as a station")
+            elif verdict == "lost":
                 log(f"   !! lost the carried {bare(self.block)} while picking it up")
         return False
 
