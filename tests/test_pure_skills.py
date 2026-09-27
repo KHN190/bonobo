@@ -139,6 +139,42 @@ class SeekHits(unittest.TestCase):
                 self.assertEqual(get.call_args[0][0], "/find?blocks=minecraft:iron_ore&radius=48&limit=60" + tail)
 
 
+class CraftPlan(unittest.TestCase):
+    """One sitting planned whole from the bag: single or chained, 2×2 or 3×3, the net delta verify checks."""
+    P, S = "minecraft:oak_planks", "minecraft:stick"
+    PICK = [P, P, P, None, S, None, None, S, None]
+    # (situation, recipes, bag) → (patterns and counts, needs a table, net delta) | the McError message
+    TABLE = [
+        ("single 3×3 recipe: the bench's wooden pickaxe", [("minecraft:wooden_pickaxe", 1)],
+         {"oak_planks": 8, "stick": 4, "crafting_table": 1},
+         ([(PICK, "minecraft:wooden_pickaxe", 1)], True, {P: -3, S: -2, "minecraft:wooden_pickaxe": 1})),
+        ("2-step chain, 2×2 then 3×3: planks made are the pickaxe's planks", [("planks", 1), ("minecraft:wooden_pickaxe", 1)],
+         {"oak_log": 1, "stick": 2},
+         ([(["minecraft:oak_log", None, None, None], P, 4), (PICK, "minecraft:wooden_pickaxe", 1)], True,
+          {"minecraft:oak_log": -1, P: 1, S: -2, "minecraft:wooden_pickaxe": 1})),
+        ("edge: 2×2 only, no table needed", [("minecraft:stick", 1)], {"oak_planks": 2},
+         ([([P, None, P, None], S, 4)], False, {P: -2, S: 4})),
+        ("a carried table is a station, never an input: it stays in the bag", [("minecraft:wooden_pickaxe", 1)],
+         {"oak_planks": 3, "stick": 2, "crafting_table": 1},
+         ([(PICK, "minecraft:wooden_pickaxe", 1)], True, {P: -3, S: -2, "minecraft:wooden_pickaxe": 1})),
+        ("must fail: two planks, no sticks → named, before a table is placed", [("minecraft:wooden_pickaxe", 1)],
+         {"oak_planks": 2, "crafting_table": 1}, "missing 3× planks for crafting"),
+        ("must fail: the chain's second step short even after the first", [("planks", 1), ("minecraft:wooden_pickaxe", 1)],
+         {"oak_log": 1}, "missing 2× minecraft:stick for crafting"),
+    ]
+
+    def test_table(self):
+        for why, recipes, have, want in self.TABLE:
+            with self.subTest(why):
+                inv = bag(inventory(**have))
+                if isinstance(want, str):
+                    with self.assertRaises(McError) as got:
+                        skills.craft_plan(recipes, inv)
+                    self.assertEqual(str(got.exception), want)
+                else:
+                    self.assertEqual(skills.craft_plan(recipes, inv), want)
+
+
 class MineSegmentCommands(unittest.TestCase):
     TABLE = [
         ("one cell, tool tier: drops required", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal", 0)),

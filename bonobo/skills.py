@@ -176,19 +176,56 @@ def output_of(token, concrete_pattern):
     return planks.replace("_planks", "_boat" if token == "boat" else "_door")
 
 
-def _craft_output(c):
-    token, times = c.args[1], c.args[2]
-    pattern, _ = GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
+def recipe_of(token):
+    """(pattern, output per craft) of a recipe token: a group recipe (planks, bed, boat) or a plain item."""
+    return GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
+
+
+class _BagAfter:
+    """A bag as it will be after some crafts: the real counts plus a delta (ids → change)."""
+
+    def __init__(self, inv, delta):
+        self.inv, self.delta = inv, delta
+
+    def count(self, item_or_group):
+        return self.inv.count(item_or_group) + sum(self.delta.get(i, 0)
+                                                   for i in GROUPS.get(item_or_group, [mid(item_or_group)]))
+
+
+def craft_plan(recipes, inv):
+    """Pure: one sitting's crafts from the bag `inv` — ([(concrete pattern, item, count)], needs a table, net bag
+    delta). Each recipe is resolved against the bag as the one before it leaves it, so a chain (logs → planks →
+    pickaxe) plans whole before a table is placed; a missing input raises McError naming it."""
+    delta, steps = {}, []
+    for token, times in recipes:
+        pattern, out = recipe_of(token)
+        concrete = resolve_pattern(pattern, times, _BagAfter(inv, delta))
+        item = output_of(token, concrete)
+        for c in concrete:
+            if c:
+                delta[c] = delta.get(c, 0) - times
+        delta[item] = delta.get(item, 0) + out * times
+        steps.append((concrete, item, out * times))
+    return steps, any(len(c) == 9 for c, _, _ in steps), {i: n for i, n in delta.items() if n}
+
+
+def _plan_start(recipes):
+    """`start` of both craft skills: the plan (raises on a missing input before anything moves) and the counts the
+    items it makes start from."""
     inv = Inventory()
-    item = output_of(token, resolve_pattern(pattern, times, inv))  # raises when an input is missing
-    return item, inv.count(item)
+    _, _, delta = craft_plan(recipes, inv)
+    return {i: (inv.count(i), n) for i, n in delta.items() if n > 0}
 
 
-@skill(start=_craft_output, verify=lambda c: Inventory().count(c.base[0]) > c.base[1], budget=90, stall=60,
-       per_unit=4, key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])})
-def craft(ctx, token, times):
-    """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
-    pattern, out = GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
+def _plan_made(c):
+    """`verify` of both craft skills: the real bag gained every item the plan nets, by at least what it nets."""
+    return all(Inventory().count(i) >= have + n for i, (have, n) in c.base.items())
+
+
+def _sitting(ctx, recipes):
+    """Craft `recipes` [(token, times)] in ONE sitting: the table opened (or placed) once, each recipe made in turn,
+    the table closed (or taken back) once. One craft per round opened the table, crafted, closed and — for a
+    carried table — placed and broke it again, every step (a craft took 9 s for a second's work)."""
     inv = Inventory()
     if inv.used_slots() >= 36:
         # The result needs a slot: a full bag makes every craft fail ("missing ingredient"). Drop the least
@@ -198,47 +235,34 @@ def craft(ctx, token, times):
             api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
             log(f"   dropped {bare(s['id'])} to make room for crafting")
         inv = Inventory()
-    concrete = resolve_pattern(pattern, times, inv)
-    item = output_of(token, concrete)
-    before = inv.count(item)
-    if len(pattern) == 9:
-        with Station(ctx, "minecraft:crafting_table"):
-            r = api.run({"type": "craft", "pattern": concrete, "count": out * times}, wait=120)
-    else:
-        close_screen()
-        r = api.run({"type": "craft", "pattern": concrete, "count": out * times}, wait=120)
-    if gained(lambda: Inventory().count(item), before) <= before:
-        raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
-
-
-@skill(verify=lambda c: c.result is not None and len(c.result) == len(c.args[1]), budget=120, stall=60,
-       key=lambda c: "craft")
-def craft_chain(ctx, recipes):
-    """Consecutive crafts of one plan in ONE sitting: the table opened (or placed) once, every recipe made in turn,
-    the table closed (or taken back) once. One craft per round opened the table, crafted, closed and — for a carried
-    table — placed and broke it again, every step (a craft took 9 s for a second's work). `recipes`: [(token, times)]
-    in plan order; each is resolved against the bag as the one before it left it."""
-    needs_table = any(len((GROUP_RECIPES[t] if t in GROUP_RECIPES else RECIPES[mid(t)])[0]) == 9 for t, _ in recipes)
-    made = []
+    steps, needs_table, _ = craft_plan(recipes, inv)
 
     def run_all():
-        for token, times in recipes:
-            pattern, out = GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
-            inv = Inventory()
-            concrete = resolve_pattern(pattern, times, inv)
-            item = output_of(token, concrete)
-            before = inv.count(item)
-            r = api.run({"type": "craft", "pattern": concrete, "count": out * times}, wait=120)
+        for concrete, item, n in steps:
+            before = Inventory().count(item)
+            r = api.run({"type": "craft", "pattern": concrete, "count": n}, wait=120)
             if gained(lambda: Inventory().count(item), before) <= before:
                 raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
-            made.append((token, times))
     if needs_table:
         with Station(ctx, "minecraft:crafting_table"):
             run_all()
     else:
         close_screen()
         run_all()
-    return made
+    return [(t, times) for t, times in recipes]
+
+
+@skill(start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
+       per_unit=4, key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])})
+def craft(ctx, token, times):
+    """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
+    return _sitting(ctx, [(token, times)])
+
+
+@skill(start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft")
+def craft_chain(ctx, recipes):
+    """Consecutive crafts of one plan in one sitting (`_sitting`). `recipes`: [(token, times)] in plan order."""
+    return _sitting(ctx, recipes)
 
 
 def move_into(ids, target_slot, amount):
