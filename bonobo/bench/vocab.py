@@ -20,7 +20,6 @@ import os
 import re
 import sys
 import time
-
 from . import core, runner
 from ..data import POD_BLOCKS
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
@@ -30,18 +29,13 @@ from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
-
-
 # real structures in the test world (seed 1234): no box; /locate gives the truth
 LEG_START = (10400, 200, 10400)
-
 LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
-
 LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
 
 def _leg_box(start, stronghold):
     """Pure: (x0, z0, x1, z1) around the leg the skill walks, perpendicular to the line to the stronghold, padded."""
-
     x, z = start
     d = math.dist(stronghold, start) or 1.0
     ex, ez = round(x - (stronghold[1] - z) / d * LEG), round(z + (stronghold[0] - x) / d * LEG)
@@ -49,7 +43,6 @@ def _leg_box(start, stronghold):
 
 def _stronghold_leg(ctx):
     """The walk between throws on a flat stone plane at sky height (real hills were most of a 60 s row)."""
-
     real = locate_reply(LAST_FEEDBACK)
     if not real:
         raise SetupInvalid("no /locate answer for the stronghold")
@@ -83,12 +76,10 @@ def _flat(x0, z0, x1, z1, y, block):
     return [f"fill {a} {y} {z0} {min(a + step - 1, x1)} {y} {z1} {block}" for a in range(x0, x1 + 1, step)]
 
 STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
-
 ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
 
 def _stronghold_piece(x, y, z):
     """Commands for a sealed stone-brick corridor ending in a portal room with 12 empty frames, without a /place structure."""
-
     f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
     cx = x + ROOM_OFF
     return [f((x - 3, y - 2, z - 6), (cx + 6, y + 5, z + 6), "stone"),
@@ -115,7 +106,6 @@ PORTAL_ROOM_OK = []
 
 def _portal_room_run(ctx):
     """Run the search and note whether the skill itself succeeded (a frame in range is not success)."""
-
     from ..end import find_portal_room
     PORTAL_ROOM_OK.clear()
     find_portal_room(ctx)
@@ -149,7 +139,6 @@ def _wait_landed(ctx, seconds=10):
 
 def _snap_survival(ctx, seconds=20):
     """Brain rounds until the body is back in the Overworld (leaving the Nether is an upkeep row)."""
-
     from .. import api
     t0 = time.time()
     while time.time() - t0 < seconds and api.get("/state")["dimension"] != "minecraft:overworld":
@@ -202,7 +191,6 @@ def _found_fortress_now():
 
 def _trek(dx, dz, dimension="minecraft:overworld"):
     """Walk a straight-line distance over real terrain; note seconds per 100 blocks (travel was 47 % of task time)."""
-
     def run(ctx):
         from .. import api, nav
         s = api.get("/state")
@@ -237,7 +225,6 @@ def _trek_check(api):
 
 def _road_reuse(ctx):
     """There, back, and there again over 150 blocks: the third trip follows the remembered legs, no slower than the first."""
-
     from .. import api, nav
     s = api.get("/state")
     a = (s["blockX"], s["blockY"], s["blockZ"])
@@ -252,18 +239,14 @@ def _road_reuse(ctx):
     return True
 
 ROAD_TIMES = []
-
 ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
-
 # -- slices: the cerebellum itself over a private task queue; measures scheduling and chaining (loops, idle holds, wrong-way unstucks)
 SLICE = {}
-
 # rounds given to a waiting kind: with work queued, any is a waste
 MAX_WAITS_WITH_QUEUE = 0
 
 def slice_report(lines, positions, target, idle_s, picks=None):
     """Pure: loops, the longest idle, and the total walked away from `target`, from a slice's log lines and samples."""
-
     from .. import review
     entries = []
     for raw in lines:
@@ -281,19 +264,16 @@ def slice_report(lines, positions, target, idle_s, picks=None):
 
 def queue_finished(items):
     """Pure: every task of a slice's queue left the live states — the slice's own work is over."""
-
     from ..tasks import LIVE
     return bool(items) and all(t["state"] not in LIVE for t in items)
 
 def tier_rows(rows, tier, named):
     """Pure: the rows a tier selects for `--failed` / `--pending`: never acceptance; only `tier`'s when one was named."""
-
     return [n for n, r in rows.items() if r["tier"] != "acceptance"
             and (not named or tier == "all" or r["tier"] == tier)]
 
 def _slice(done, minutes, target=None, queue=(), max_idle=15):
     """Run the whole cerebellum until done() or `minutes`, on a private task queue holding `queue`."""
-
     def run(ctx):
         from .. import api, tasks
         from ..world import Snapshot
@@ -357,7 +337,6 @@ def slice_verdict(finished, rep, queued, max_idle, max_loops, picks=None):
 
 def _slice_check(done, max_idle=15, max_loops=0):
     said = []
-
     def check(api, inv):
         if not SLICE:
             return False
@@ -386,7 +365,6 @@ def _in_overworld():
 
 def _portal_beside_player(ctx):
     """A lit portal three blocks east of the player, remembered as built."""
-
     from .. import api
     s = api.get("/state")
     x, y, z = s["blockX"] + 3, s["blockY"], s["blockZ"]
@@ -411,7 +389,6 @@ SPEEDRUN_END_KIT = ["clear @p", "give @p stone_sword", "give @p stone_pickaxe", 
 
 def _summon_perched_dragon(phase=6):
     """After setup: a dragon standing on the exit-portal pillar's real top (one summoned mid-air never perched)."""
-
     def before(ctx):
         from ..end import find_pillar_top
         top = find_pillar_top()
@@ -447,7 +424,6 @@ def _summon_perched_dragon(phase=6):
 
 def _worn_perched_dragon(ctx, _perch=_summon_perched_dragon(6)):
     """The fight's last phase, built: the dragon on the pillar, crystals gone, 8 hp (WORN_DRAGON)."""
-
     _perch(ctx)
     _wear_dragon(ctx)
 
@@ -496,23 +472,470 @@ def _trades(inv):
     given = ("minecraft:gold_ingot", "minecraft:golden_helmet", "minecraft:iron_sword", "minecraft:iron_helmet")
     return sum(s["count"] for s in inv.slots if s["id"] not in given)
 
-from . import fight           # noqa: E402,F401  (the fight sheet registers itself)
+# -- fights (the combat table's machinery): a cell of bench_combat's dimensions built, fought, recorded, judged ---
+import random  # noqa: E402
+from .. import estimate, paths  # noqa: E402,F401
+from .core import SWEEP, _platform  # noqa: E402
 
-from .fight import *         # noqa: E402,F403
+def _siege_kit():
+    """The armed baseline, plus what a long fight needs more of."""
+    return (scene(WEAPON["iron"] + ARMOUR["iron"] + KIT["full"])
+            + ["item replace entity @p armor.legs with iron_leggings",
+               "item replace entity @p armor.feet with iron_boots",
+               "give @p cooked_beef 16", "give @p cobblestone 128"])
 
-from .fight import _cells, _hostiles        # noqa: E402
+def _scatter(seed):
+    """A few blocks of relief on the floor: a step to stand on, a dip to drop into, something to put between us and it."""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(rng.randint(3, 6)):
+        x, z = rng.randint(-ARENA_REACH + 4, ARENA_REACH - 4), rng.randint(-ARENA_REACH + 4, ARENA_REACH - 4)
+        if abs(x) < 3 and abs(z) < 3:
+            continue                      # not under our own feet
+        if rng.random() < 0.5:
+            height = rng.randint(1, 2)
+            out.append(f"fill {_c(at(x, 0, z))} {_c(at(x + rng.randint(0, 2), height, z + rng.randint(0, 2)))} stone")
+        else:
+            out.append(f"fill {_c(at(x, -2, z))} {_c(at(x + rng.randint(1, 2), -1, z + rng.randint(1, 2)))} air")
+    return out
+
+def _roof():
+    """A lid and a floor on the walled platform: a cell is a room, not a clearing."""
+    lo, hi = at(-ARENA_REACH, 5, -ARENA_REACH), at(ARENA_REACH + 3, 5, ARENA_REACH)
+    return [f"fill {_c(lo)} {_c(hi)} stone"]
+
+def _cells(base, dims=None, repeat=1, over=None, table=None):
+    """The cells a pass visits: one dimension off the baseline at a time, or the product of `over`, each repeated."""
+    import itertools
+    table = DIMS if table is None else table     # another sheet's dimensions (the brain tier's) walk the same way
+    seen = []
+    if over:
+        for values in itertools.product(*(table[name] for name in over)):
+            seen.append(dict(base, **dict(zip(over, values))))
+    else:
+        seen.append(dict(base))
+    for name in (dims or ()):
+        for value in table[name]:
+            if value != base[name]:
+                seen.append(dict(base, **{name: value}))
+    for cell in seen:
+        for run in range(max(1, repeat)):
+            yield dict(cell, run=run)
+
+def _seed_of(cell):
+    """One seed per cell per pass lays out ground, enemies and mood, and goes into the row so it can be rebuilt exactly."""
+    return cell.get("seed") if cell.get("seed") is not None else random.randrange(1 << 30)
+
+def _build(cell):
+    """A cell, realised: a sealed room, then each dimension's own commands."""
+    seed = cell.setdefault("seed", _seed_of(cell))
+    out = (_platform(reach=ARENA_REACH, walled=True) + _roof() + _scatter(seed) + _revive()
+           # full health and food: health carried over makes `blood` two variables at once
+           + ["clear @p", "effect clear @p", "effect give @p minecraft:instant_health 10 1 true",
+              "effect give @p minecraft:saturation 1 10 true",
+              "difficulty normal", "time set day"])
+    for name in ("ground", "weapon", "armour", "kit", "blood"):
+        out += scene(DIMS[name][cell[name]])
+    out += FIGHT_BUCKET
+    kind = ENEMY[cell["enemy"]]
+    if kind is None:
+        return out
+    return out + _summon(((kind, COUNT[cell["count"]]),), spread=DISTANCE[cell["distance"]], seed=seed)
+
+def _kinds_of(cell):
+    return {ENEMY[cell["enemy"]]}
+
+def _carry(hp_lost, meals, blocks):
+    """The state the waves before left, in BLOOD's own form (magic damage: armour-proof)."""
+    return ([f"damage @p {hp_lost} minecraft:magic"] if hp_lost else []) + \
+        ([f"clear @p cooked_beef {meals}"] if meals else []) + ([f"clear @p cobblestone {blocks}"] if blocks else [])
+
+SHAPE_COLUMNS = {"reshape", "wall_in"}
+# wide enough for every answer (escape_spot walks up to 16; the first cell fell off a 9-block platform)
+ARENA_REACH = 24
+
+def _revive():
+    """Put the player back on their feet before a cell is built."""
+    from .. import api as _api
+    try:
+        if _api.get("/state").get("dead"):
+            _api.post("/respawn")
+            time.sleep(1.0)
+    except Exception:
+        pass
+    return ["gamemode survival @p", "effect clear @p"]
+
+def _columns_possible(cell):
+    """The columns this cell paid for: what the kit gave, minus what the situation cannot use."""
+    want = set(NEEDS.get(cell["kit"], ()))
+    if cell["blood"] != "hurt":
+        want.discard("eat")          # eating at full health is not an option anywhere
+    return want
+
+def _combat_intent(state):
+    """What the threat model wants, before anything moves: every column, its price, and the state it priced from."""
+    from .. import api as _api, fight_loop, perception, threat
+    near = _api.get("/entities?radius=24").get("entities", []) or []
+    now = time.time()
+    rows = perception.note_threats(near, now, here=(state["x"], state["y"], state["z"]))
+    if not rows:
+        return {"rows": 0, "held": "ignore", "worth_s": 0.0, "options": {}, "state": None}
+    try:
+        state = dict(state, field=perception.ground(state),
+                     **perception.kit(str(state.get("selected", "")) + str(state.get("screen"))))
+    except Exception:
+        pass
+    sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
+    price = lambda dhp: threat.hp_seconds(sstate, dhp)
+    st = fight_loop.threat_state(state, rows)
+    horizon, opts = threat.horizon_for(st), threat.options(st)
+    fight_loop.HELD = None
+    chosen = fight_loop.bid(state, rows, price, now=now)
+    return {"rows": len(rows),
+            "options": {o.kind: {"hp": round(o.hp, 2), "seconds": round(o.seconds, 2),
+                                 "leaves": round(o.leaves, 3), "why": o.why,
+                                 "saves": round(threat.saves(o, opts, price, horizon), 2)} for o in opts},
+            "held": chosen[0].kind if chosen else "ignore",
+            "worth_s": chosen[1] if chosen else 0.0,
+            "horizon_s": round(horizon, 2),
+            "hp_tax_s": round(estimate.pressure_hp_s(st["here"], rows, st.get("protection", 0.0),
+                                                     ground=st.get("field")), 3),
+            "no_go": len(threat.no_go(st)),
+            "seen_at": perception.seen_at(),
+            "state": st}          # the live state: measured from, then written down by `_plain`
+
+TRACE_EVERY_S = 0.2
+
+def _sampler(stop, out, began):
+    """The trace, on its own thread."""
+    from .. import api as _api
+    from ..world import entities
+    kinds = _threat_kinds()
+    while not stop.is_set():
+        try:
+            state = _api.get("/state")
+            near = [(e["type"], round(e["distance"], 2), round(e.get("health", 0.0), 1))
+                    for e in entities(24) if e.get("type") in kinds]
+            out.append({"t": round(time.time() - began, 2), "hp": state["health"],
+                        "pos": [round(state[k], 2) for k in ("x", "y", "z")], "near": near})
+        except Exception:
+            pass
+        stop.wait(TRACE_EVERY_S)
+
+def _restock(cell):
+    """Put the cell's enemies back."""
+    if not cell:
+        return
+    kind = ENEMY.get(cell.get("enemy"))
+    if not kind:
+        return
+    for command in _summon(((kind, COUNT[cell["count"]]),), spread=DISTANCE[cell["distance"]],
+                           seed=cell.get("seed")):
+        _chat(command)
+
+def _combat_execute(seconds, until=None, cell=None):
+    """Live in the cell with ONE layer driving, recording every look the threat layer took and a 5 Hz trace."""
+    import threading
+    from .. import perception
+    from ..world import Snapshot
+    if not perception.watching():
+        raise SetupInvalid("the threat layer is not running: nothing would answer, and nothing would be measured")
+    mark = len(perception.ANSWERED)
+    began, worst = time.time(), Snapshot().state["health"]
+    trace, stop = [], threading.Event()
+    watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)
+    watcher.start()
+    aside = getattr(core.BRAIN, "not_taking_part", None)
+    if not callable(aside):
+        # two decision-makers on one body cannot be measured: said before the window
+        raise SetupInvalid("the planner offers no way to stand down: a cell cannot measure one layer alone")
+    with aside("threat bench cell"):
+        try:
+            while time.time() - began < seconds and (until is None or until()):
+                state = Snapshot().state
+                worst = min(worst, state["health"])
+                if state["health"] <= 0:
+                    break
+                if cell and not _hostiles(radius=24, kinds={ENEMY.get(cell.get("enemy"))} - {None}):
+                    _restock(cell)
+                # the planner keeps taking rounds (its refusals must reach the tape), each refused while standing down
+                try:
+                    core.BRAIN.round()
+                except Exception as e:
+                    from .. import api as _api
+                    _api.log(f"!! round: {type(e).__name__}: {e}")
+                    time.sleep(TRACE_EVERY_S)
+        finally:
+            stop.set()
+            watcher.join(1.0)
+    worst = min([worst] + [s["hp"] for s in trace])
+    return perception.answered_since(mark), worst, round(time.time() - began, 1), trace
+
+def blind_s(looks, seconds):
+    """Seconds of the window in which the threat layer could not see: it had no rows, or only stale ones."""
+    if not looks:
+        return round(float(seconds), 2)
+    # quiet is an observation; blind is a tick that could not look
+    blind = sum(1 for look in looks if look["outcome"] in ("stale", "unwired", "soft"))
+    return round(float(seconds) * blind / len(looks), 2)
+
+def _threat_kinds():
+    from .. import threat
+    return set(threat.MOBS)
+
+BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured nothing
+# long enough to contain a fight (8 s caught a swing or two); noise averages across passes, by the jitter
+CELL_SECONDS = 15.0
+
+def _plain(state):
+    """The priced state as JSON: the row has to carry what the prediction assumed, and a row is data."""
+    if not state:
+        return None
+    ground = state.get("field")
+    return dict(state, hazards=[list(h) for h in state.get("hazards", ())],
+                field=None if ground is None else {"bucket": ground.bucket, "blocks": ground.blocks})
+
+def _fought(kinds, seconds):
+    """The shared record: price the cell, live in it, report the outcome and the clock's word on the pricing's numbers."""
+    def record(cell):
+        from ..world import Snapshot
+        before = Snapshot()
+        intent = _combat_intent(dict(before.state))
+        answered, worst, took, trace = _combat_execute(seconds, cell=cell)
+        after = Snapshot()
+        near = _hostiles(radius=24, kinds=kinds(cell))
+        # a window blind too long is not evidence
+        dark = blind_s(answered, took)
+        priced = intent.get("state") or {}
+        missing = sorted(_columns_possible(cell) - set(intent.get("options") or {})) if intent.get("rows") else []
+        intent = dict(intent, state=_plain(intent.get("state")), missing_column=missing,
+                      carried={k: priced.get(k) for k in ("blocks", "food_items", "shield", "sword")})
+        return {"intent": intent, "answered": answered, "trace": trace,
+                "blind_s": dark, "invalid": dark > took * BLIND_SHARE,
+                "outcome": {"hp": after.state["health"], "hp_before": before.state["health"], "worst_hp": worst,
+                            "hp_lost": round(before.state["health"] - after.state["health"], 1),
+                            "seconds": took, "moved": round(math.dist(before.pos, after.pos), 1),
+                            "left": len(near),
+                            "gap": round(min((e["distance"] for e in near), default=0.0), 1),
+                            "blocks_spent": before.inv.count("building") - after.inv.count("building")}}
+    return record
+
+def _where(row):
+    """A row's cell, named by the dimensions it carries (listing keys would copy the dimension table)."""
+    return "/".join(f"{k}={row[k]}" for k in DIMS if k in row) or str(row.get("line_up", "?"))
+
+def _answers_are_closed(rows):
+    """True of every cell: alive, a held column that went out and did not raise, a no-go zone for the planner."""
+    bad = []
+    for r in rows:
+        where = _where(r)
+        held, opts = r["intent"].get("held"), r["intent"].get("options") or {}
+        if r["outcome"]["hp"] <= 0:
+            bad.append(f"{where}: died")
+        if held != "ignore" and not r["answered"]:
+            bad.append(f"{where}: held '{held}' and nothing went out")
+        if held != "ignore" and opts.get(held, {}).get("saves", 0) <= 0:
+            bad.append(f"{where}: held a column that saves nothing")
+        missing = r["intent"].get("missing_column") or []
+        if missing:
+            bad.append(f"{where}: the cell paid for {missing} and no such column was offered "
+                       f"(carried {r['intent'].get('carried')})")
+        if r["intent"].get("rows") and not r["intent"].get("no_go"):
+            bad.append(f"{where}: threats in reach but no no-go circle for the planner")
+        looks = r["answered"]
+        bad += [f"{where}: {a.get('kind')} failed ({a['failed']})" for a in looks if a.get("failed")]
+        bad += [f"{where}: {a.get('kind')} was priced but the body refused it ({a.get('refused')})"
+                for a in looks if a["outcome"] == "refused" and a.get("refused") not in ("held",)]
+        hurt = r["outcome"]["worst_hp"] < r["outcome"]["hp_before"]
+        if hurt and not any(a["outcome"] == "answered" for a in looks):
+            silent = sorted({a["outcome"] for a in looks}) or ["never looked"]
+            bad.append(f"{where}: took damage and never answered ({', '.join(silent)})")
+        if not looks:
+            bad.append(f"{where}: the threat layer never looked at the world")
+    return bad
+
+def _shapes_fit_the_enemy(rows):
+    """What a column is FOR, read off the belief table rather than off an enemy's name."""
+    from .. import beliefs, field as _field
+    bad = []
+    for r in rows:
+        where, held = _where(r), r["intent"].get("held")
+        kind = ENEMY.get(r.get("enemy"))
+        mob = beliefs.mob(kind) if kind in beliefs.MOBS else {}
+        if held == "fight" and r.get("weapon") == "fist":
+            bad.append(f"{where}: swung with nothing in hand")
+        if held == "fight" and mob.get("burst"):
+            bad.append(f"{where}: traded health against a blast")
+        if held in SHAPE_COLUMNS and mob.get("squeezes"):
+            bad.append(f"{where}: shaped the ground against something that walks over it")
+        if held in SHAPE_COLUMNS and r.get("ground") == "open" \
+                and not _field.Field(bucket="open").blocks_worth_placing():
+            bad.append(f"{where}: placed blocks where there is nothing to place them against")
+    return bad
+
+def _more_of_them_costs_more(rows):
+    """Two rows differing in exactly one dimension: more of them can never cost less to ignore, or tax less."""
+    keys = [k for k in DIMS if k != "count"]
+    by, bad = {}, []
+    for r in rows:
+        if "count" in r:
+            by[tuple(r.get(k) for k in keys) + (r["count"],)] = r
+    for key, one in by.items():
+        if key[-1] != "one":
+            continue
+        three = by.get(key[:-1] + ("three",))
+        if not three:
+            continue
+        owed = lambda row: ((row["intent"].get("options") or {}).get("ignore", {}) or {}).get("leaves")
+        a, b = owed(one), owed(three)
+        if a is not None and b is not None and b < a - 1e-6:
+            bad.append(f"{_where(three)}: three leave less coming than one ({b} < {a})")
+        if one["intent"].get("hp_tax_s", 0) > three["intent"].get("hp_tax_s", 0) + 1e-6:
+            bad.append(f"{_where(three)}: three taxed the planner less than one")
+    return bad
+
+def _hostiles(radius=32, kinds=None):
+    from ..world import entities
+    kinds = kinds or {ENEMY[name] for _line_up, mobs, _carry_ in WAVES for name, _n in mobs}
+    return [e for e in entities(radius) if e["type"] in kinds and e.get("health", 1) > 0]
+
+def _summon(mobs, spread=4, seed=None):
+    """Where the enemies appear."""
+    out = []
+    rng = random.Random(seed)
+    for kind, n in mobs:
+        turn = rng.random() * 2 * math.pi if seed is not None else 0.0
+        for i in range(n):
+            angle = turn + 2 * math.pi * i / max(1, n)
+            # never closer than the dimension says; jitter only opens the range
+            reach = spread * (rng.uniform(1.0, 1.4) if seed is not None else 1.0)
+            dx, dz = round(reach * math.cos(angle)), round(reach * math.sin(angle))
+            out.append(f"summon {kind} ~{dx} ~ ~{dz}")
+    return out
+
+def _siege_build(cell):
+    """No reset between waves: the siege is cumulative."""
+    return _summon(tuple((ENEMY[name], n) for name, n in {w[0]: w[1] for w in WAVES}[cell["line_up"]]))
+
+def _siege_record(per_wave_s=90.0):
+    def record(cell):
+        from .. import api as _api
+        _api.log(f"=== siege wave {cell['wave']}: {cell['line_up']}")
+        row = _fought(lambda _c: None, seconds=per_wave_s)(cell)
+        row["cleared"] = row["outcome"]["left"] == 0 and row["outcome"]["hp"] > 0
+        _api.log(f"   wave {cell['wave']}: {'cleared' if row['cleared'] else 'NOT cleared'}"
+                 f" with {row['outcome']['hp']:.0f} hp")
+        return row
+    return record
+
+def _wave_cleared(rows):
+    return [] if rows and all(r["cleared"] for r in rows) else [f"wave {rows[-1]['wave'] if rows else '?'} not cleared"]
+
+def _siege_detail_of(name):
+    rows = SWEEP.get(name) or []
+    return (("cleared" if rows and rows[-1]["cleared"] else "not cleared")
+            + (f", {rows[-1]['outcome']['hp']:.0f} hp" if rows else ""))
+
+_FIGHT_SETUP = (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
+                + _platform(reach=ARENA_REACH, walled=True) + ["kill @e[type=!player,type=!item,distance=..48]"])
+# every fight carries a water bucket: a knock off a ledge is part of fighting
+FIGHT_BUCKET = ["give @p water_bucket"]
+# the cell is built in setup, so the exposure starts at setup's end
+ESCAPE_SECONDS = 25.0      # the row's limit is 30 s (the user's rule): the window is what is left of it
+ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: ~2 s of the window already spent
+BEHAVIOUR_SECONDS = 20.0
+GAP = [at(4, y, z) for y in (1, 2, 3) for z in (-1, 0, 1)]          # the corridor's one gap (GROUND["corridor"])
+
+def _last(name):
+    rows = SWEEP.get(name) or []
+    return rows[-1] if rows else None
+
+def _went_out(row, *kinds):
+    return any(a.get("kind") in kinds for a in row["answered"] if a.get("outcome") == "answered")
+
+def _first_out(row):
+    return next((a.get("kind") for a in row["answered"] if a.get("outcome") == "answered"), None)
+
+def _ys(row):
+    return [s["pos"][1] for s in row["trace"]] or [row["trace_start_y"]]
+
+def _gap_blocked(api):
+    from ..world import Region
+    lo, hi = at(4, 1, -1), at(4, 3, 1)
+    region = Region(lo, hi)
+    return sum(1 for c in GAP if region.solid(c))
+
+def _walled(row):
+    """Cobblestone (or any placed solid) on all four sides of the feet AND the head cell, where the body ended."""
+    from ..world import Region
+    x, y, z = (math.floor(v) for v in row["trace"][-1]["pos"])
+    region = Region((x - 1, y, z - 1), (x + 1, y + 1, z + 1))
+    return all(region.solid((x + dx, y + dy, z + dz))
+               for dy in (0, 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+
+def _offhand_shield():
+    from ..data import bare
+    from ..world import Inventory
+    return bare((Inventory().equipment.get("offhand") or {}).get("id", "")) == "shield"
+
+def _less_hurt_than(row, control):
+    base = _last(f"combat__{control}")
+    return base is not None and row["outcome"]["hp_lost"] < base["outcome"]["hp_lost"]
+
+START_Y = at(0, 0, 0)[1]
+# name: (cell off ARMED, what must hold, why); a control runs before the cell compared to it
+BEHAVIOURS = {
+    "block_gap": (dict(ground="corridor", kit="blocks", distance="across"),
+                  lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["gap"] >= 2
+                  and r["outcome"]["hp_lost"] <= 4,
+                  "a corridor with one gap, blocks carried: the gap closed, the walker kept outside it"),
+    "dig_in": (dict(ground="roofed", kit="blocks"),
+               lambda r, api: _went_out(r, "reshape", "wall_in") and min(_ys(r)) <= START_Y - 2
+               and r["outcome"]["hp_lost"] <= 4,
+               "a roof overhead, blocks and a pickaxe: dug two down into the floor out of reach, health kept"),
+    "pillar": (dict(ground="open", kit="blocks"),
+               lambda r, api: _went_out(r, "reshape") and max(_ys(r)) >= START_Y + 2,
+               "open ground, blocks: stood two up out of a walker's reach"),
+    "shield_arrows": (dict(enemy="archer", kit="shield", distance="across"),
+                      lambda r, api: _went_out(r, "shield") and _offhand_shield() and r["outcome"]["hp_lost"] <= 4,
+                      "an archer across open ground, a shield: raised against the arrows (still in the offhand)"),
+    "fight_without_shield": (dict(kit="nothing"),
+                             lambda r, api: _went_out(r, "fight") and not _went_out(r, "shield")
+                             and r["outcome"]["hp_lost"] > 0,
+                             "a walker, no shield (control): fought, never blocked, and hurt for it"),
+    "fight_and_block": (dict(kit="shield"),
+                        lambda r, api: _went_out(r, "fight") and _went_out(r, "shield") and r["outcome"]["left"] == 0
+                        and _less_hurt_than(r, "fight_without_shield"),
+                        "the same walker, sword and shield: struck and blocked in turn, the walker dead, and less "
+                        "hurt than the no-shield control"),
+    "wall_in": (dict(count="three", kit="blocks", blood="hurt"),
+                lambda r, api: _went_out(r, "wall_in") and _walled(r) and r["outcome"]["hp"] > 0,
+                "three walkers, hurt, blocks: walled in (feet and head cells closed on four sides)"),
+    "surrounded_low": (dict(count="three", blood="hurt", kit="full"),
+                       lambda r, api: _first_out(r) in ("evade", "wall_in", "reshape") and not _went_out(r, "fight")
+                       and r["outcome"]["hp"] > 0,
+                       "three walkers at 8 hp: got away or walled in, never swung; alive"),
+}
+
+def _behaviour_check(name, rule):
+    def check(api, _inv):
+        row = _last(name)
+        return row is not None and bool(rule(row, api))
+    return check
+
+def _record_with_start(record):
+    def rec(cell):
+        from ..world import Snapshot
+        y = Snapshot().state["y"]
+        return dict(record(cell), trace_start_y=y)
+    return rec
 
 # == the generated sheet (points A–D): BASES × CONDITIONS, each row judged by the world (bag delta, blocks, where the body stands), never by the skill's return
 import threading as _threading
-
 BASE = {}                 # the bag, the /state and the time at the start of the run (`_start`)
-
 FAILED_AS_EXPECTED = {}   # scenario → the failure message that matched its `fails` pattern
-
 INTERRUPTS = {}           # scenario → interruptions the run absorbed (injected or not)
-
 CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
-
 ACCEPTANCE_D = "accept_fresh_iron_pickaxe"
 
 def _skill(name):
@@ -563,11 +986,9 @@ def _alive(min_hp=1.0):
 def _at(pos, r):
     return lambda api, inv: _near(api, pos, r)
 
-
 def _blocks(lo, hi, name, least, most=None):
     """`name` blocks (or any of a tuple of names) in the box: at least `least`, at most `most`."""
     names = (name,) if isinstance(name, str) else tuple(name)
-
     def check(api, inv):
         n = sum(_count_blocks(api, lo, hi, nm) for nm in names)
         return n >= least and (most is None or n <= most)
@@ -624,7 +1045,6 @@ def _no_block_suffix(lo, hi, suffix):
 
 def fed_as_needed(food_before, carried_before, food_after, carried_after):
     """Pure: the eating filled the bar — every bite called for eaten, and the bar within the last bite of FULL_BAR."""
-
     from ..data import FULL_BAR, NUTRITION
     from ..skills import bite_plan
     plan = bite_plan(food_before, carried_before)
@@ -661,7 +1081,6 @@ def _all(*checks):
 
 def _named_all(named):
     """`_all` over (check, why) pairs that logs which part failed, once."""
-
     def check(api, inv):
         for c, why in named:
             if not c(api, inv):
@@ -673,7 +1092,6 @@ def _named_all(named):
 # -- run wrappers: timing and expected failures
 def _expect_failure(name, run, pattern):
     """An expected-failure row: the run must end with a failure naming the reason — not succeed, not fail otherwise."""
-
     def go(ctx):
         from .. import api
         try:
@@ -706,7 +1124,6 @@ def _resume(name, run, resume, tries=4):
 
 def _progress_of(base):
     """Pure: how this base's progress counts — ("bag", token), ("walk", target), or None."""
-
     token = (base.get("progress") or base.get("effect") or (None,))[0]
     if token:
         return "bag", token
@@ -716,21 +1133,17 @@ def _progress_of(base):
 
 def _on_progress(name, base, action, times=1):
     """`before` hook: `action()` the moment the run first makes progress."""
-
     how = _progress_of(base)
-
     def hook(ctx):
         from .. import api
         start = BASE["state"]
         here0 = (start["x"], start["y"], start["z"])
-
         def made(k):
             if how[0] == "bag":
                 return _inv_now().count(how[1]) - _base_count(how[1]) >= k
             s_ = api.get("/state")
             whole = math.dist(here0, how[1])
             return whole - math.dist((s_["x"], s_["y"], s_["z"]), how[1]) >= whole * k / (times + 1)
-
         def watch():
             t0, k = time.time(), 1
             while k <= times and time.time() - t0 < 120 and BASE.get("name") == name:
@@ -782,7 +1195,6 @@ def walked_at_least(m):
 
 def _when(progress, act, limit_s=120):
     """`before` hook: `act()` the first moment `progress()` holds — the world changes by progress, never by the clock."""
-
     def hook(ctx):
         def watch():
             from .. import api
@@ -800,7 +1212,6 @@ def _when(progress, act, limit_s=120):
 
 def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
     """`before` hook: interrupt the moment progress is first seen (a progress predicate, or a token with `n`)."""
-
     progress = when if callable(when) else gained_at_least(when, n)
     return _when(progress, lambda: setattr(__import__("bonobo.api", fromlist=["INTERRUPT"]), "INTERRUPT", message))
 
@@ -813,7 +1224,6 @@ def _unless_done(check, run):
 
 def _after_l0(name, run, resume, tries=4):
     """Run; on an L0 interruption let the brain's rounds rescue the body, then resume by what is still missing."""
-
     def go(ctx):
         from .. import api, hazard
         fn = run
@@ -831,7 +1241,6 @@ def _after_l0(name, run, resume, tries=4):
 
 def _sprint_after(delay, ticks):
     """`before` hook: `delay` s in, sprint the game `ticks` ahead so waits pass in a second."""
-
     def hook(ctx):
         def fire():
             time.sleep(delay)
@@ -899,7 +1308,6 @@ def _tp(dx=0, dy=0, dz=0):
 
 def _tree(x, z, wood="oak", height=5):
     """One tree built block by block: the same shape every run (a generated tree's log count decided rows by chance)."""
-
     return [f"fill {_c(at(x - 2, height - 2, z - 2))} {_c(at(x + 2, height - 1, z + 2))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x - 1, height, z - 1))} {_c(at(x + 1, height, z + 1))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x, 0, z))} {_c(at(x, height - 1, z))} {wood}_log"]
@@ -922,7 +1330,6 @@ def _pen(mob, n, half=7):
 
 def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_side=None):
     """A glass tank inside the box: floor at `floor_y`, four walls up to `top`, open above, water up to `water_top`."""
-
     lo, hi = (x0 - 1, floor_y, z0 - 1), (x1 + 1, top, z1 + 1)
     out = [f"fill {_c(at(lo[0], floor_y, lo[2]))} {_c(at(hi[0], floor_y, hi[2]))} stone"]
     for side, a, b in (("north", (lo[0], lo[2]), (hi[0], lo[2])), ("south", (lo[0], hi[2]), (hi[0], hi[2])),
@@ -935,7 +1342,6 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
 
 def eat_target_s(food, carried):
     """Pure: an eat row's speed target: per bite × the bites the bar's gap takes, with slack."""
-
     from ..skills import bites_to_full
     _item, bites = bites_to_full(food, carried)
     return TARGET_S["eat"] * bites * TARGET_SLACK if bites else None
@@ -960,7 +1366,6 @@ def _timed(run):
 
 def _skill_within(name, seconds):
     """The skill `name` itself (skill.LAST_S, no planning or walk) finished inside `seconds`."""
-
     return lambda api, inv: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.get(name, 1e9) <= seconds
 
 def _forget_skill_time(name):
@@ -981,13 +1386,8 @@ def _kept(token):
     """None of `token` left the bag (what the start held is still there)."""
     return lambda api, inv: inv.count(token) >= _base_count(token)
 
-def _product(base):
-    return (base.get("effect") or ("minecraft:cobblestone", 1))[0]
-
-
 def cover(conditions, bases, pinned=()):
     """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product."""
-
     order = list(bases)
     pairs = [(c, b) for c, v in conditions.items() for b in order if b in v["bases"]]
     must = lambda c, b: {("must", b)} if conditions[c].get("fails") else set()     # noqa: E731
@@ -1024,7 +1424,6 @@ def _found_near(blocks, r=6):
         return bool(find(blocks, radius=r, limit=1))
     return check
 
-
 def _on_rim(top):
     """Standing dry on the rim at `top` (the block under the feet is the rim, not water)."""
     def check(api, inv):
@@ -1034,7 +1433,6 @@ def _on_rim(top):
 
 def _surfaced(top, hold_s=2.0):
     """Out of the water's grip: on the rim, or a full air bar with the head out for `hold_s`."""
-
     def check(api, inv):
         if _on_rim(top)(api, inv):
             return True
@@ -1044,7 +1442,6 @@ def _surfaced(top, hold_s=2.0):
         return _breathing(300)(api, inv) or _on_rim(top)(api, inv)
     return check
 
-
 # -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × FIGHT_POLL_S)
 FIGHT_LOG = {"bids": []}
 
@@ -1053,7 +1450,6 @@ def _record_bids(ctx):
     from .. import fight_loop
     FIGHT_LOG["bids"] = []
     real = FIGHT_LOG.setdefault("real_bid", fight_loop.bid)
-
     def bid(*a, **k):
         FIGHT_LOG["bids"].append(time.time())
         return real(*a, **k)
@@ -1096,19 +1492,16 @@ _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-
           "item replace entity @p armor.chest with iron_chestplate",
           "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
           "item replace entity @p weapon.offhand with shield"]
-
 # (name, mob, count, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob left alone
 RESOLVE_GAP, RESOLVE_HOLD_S, RESOLVE_HP_LOSS = 6.0, 5.0, 4.0
 
 def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESOLVE_HP_LOSS):
     """The threat is over: every `kinds` dead or `gap` off and not closing for `hold_s`, health within `hp_loss`."""
-
     def check(api, inv):
         from ..world import feet
         start_hp = BASE["state"]["health"]
         if api.get("/state")["health"] < start_hp - hp_loss:
             return False
-
         def gaps():
             here = feet()
             return [math.dist(here, (e["x"], e["y"], e["z"])) for e in _hostiles(32, set(kinds))]
@@ -1120,8 +1513,6 @@ def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESO
         return (not last or (min(first) >= gap and min(last) >= gap and min(last) >= min(first) - 1.0)) and \
             api.get("/state")["health"] >= start_hp - hp_loss
     return check
-
-
 
 def _one_crystal(ctx):
     rows = __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
@@ -1170,14 +1561,11 @@ def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
             f'sell:{{id:"minecraft:{sell}",count:{n_sell}}},maxUses:12}}]}}}}')
 
 FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket"]
-
 FARM_TICK_SPEED = 1000      # random ticks per chunk section: a sown crop ripens within seconds (the bench keeps 0)
-
 RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
 
 def _growing(run):
     """The run with fast crop ticks, reset to 0 however it ends: the plan's own plot ripens within the row."""
-
     def go(ctx):
         _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
         try:
@@ -1186,15 +1574,12 @@ def _growing(run):
             _checked("execute in minecraft:overworld run gamerule random_tick_speed 0", [])
     return go
 
-
 # -- tier "brain": the whole brain on a private queue, the world set to the deciding moment, judged by the world and its log
 BRAIN_LOG = {"replans": 0}
-
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 def furnace_slots(reply):
     """Pure: {slot: (item id, count)} from the game's `data get block <pos> Items` answer."""
-
     import re
     text = " ".join(reply)
     out = {}
@@ -1208,7 +1593,6 @@ def furnace_slots(reply):
 
 def _furnace_holds(items, radius=16):
     """A furnace near holds one of `items` in input or output, read from the world."""
-
     from ..world import find
     for h in find(["furnace"], radius=radius, limit=8):
         slots = furnace_slots(_command(f"data get block {h['x']} {h['y']} {h['z']} Items", []))
@@ -1218,10 +1602,8 @@ def _furnace_holds(items, radius=16):
 
 def _first_times(ctx):
     """`before` hook: note when each token first rises above the row's start: the brain's decision order, read from the world."""
-
     FIRST.clear()
     t0 = time.time()
-
     def watch():
         from ..world import Inventory
         while time.time() - t0 < 70:
@@ -1257,7 +1639,6 @@ def _count_replans(ctx):
     from .. import brain
     BRAIN_LOG["replans"] = 0
     real = BRAIN_LOG.setdefault("real_replan", brain.replan)
-
     def replan(*a, **k):
         BRAIN_LOG["replans"] += 1
         return real(*a, **k)
@@ -1276,12 +1657,10 @@ def _goal(template, **kw):
 def _have(*needs):
     return __import__("bonobo.goals", fromlist=["goals"]).have(*needs)
 
-def _count(token, n):
-    return lambda: _inv_now().count(token) - _base_count(token) >= n
+_count = gained_at_least          # a queue's done: the same progress
 
 def _remove_table_when_placed(ctx):
     """`before` hook: remove the plan's crafting table the moment it stands (the plan must repair one step, not restart)."""
-
     def watch():
         from ..world import find
         t0 = time.time()
@@ -1318,25 +1697,17 @@ def _forget_all(kind):
     return before
 
 _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
-
 IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
-
 # -- the brain's decisions as a grid: one world holding every reachable resource, the moment set by dimensions; ore sealed nearby so three goals fit 30 s
 DIAMOND_UP, DIAMOND_DOWN = at(2, 0, -2), at(4, -9, 0)
-
 POCKET = at(0, -9, 0)
-
 LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `before` hook: harness, not budget)
-
 DRAIN_POLL_S = 0.05
-
 DRAIN_FAST, DRAIN_SLOW = 255, 30     # hunger amplifiers: ~6 points a second; ~0.8 (≤ 1 point between two polls)
-
 DRAIN_SLOW_FROM = 4                  # the last points above the stop are taken slowly
 
 def drain_step(food, saturation, level):
     """Pure: the drain's next move — "fast" with saturation or a high bar, "slow" for the last points, "stop" at `level` + 1."""
-
     if food <= level + 1:
         return "stop"
     if saturation >= 2 or food > level + 1 + DRAIN_SLOW_FROM:
@@ -1345,7 +1716,6 @@ def drain_step(food, saturation, level):
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
     """`before` hook: drain hunger to `level` + 1 (drain_step), read from /state every 50 ms."""
-
     def hook(ctx):
         from .. import api
         t0, now_amp = time.time(), None
@@ -1372,7 +1742,6 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
     return hook
 
 THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
-
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now), so the bed comes first
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
@@ -1386,13 +1755,9 @@ BRAIN_DIMS = {
     # filled by the hook; junk_full starts where the only open side is +x over the edge, so junk is thrown away from the tree
     "bag": {"room": [], "junk_full": [_tp(*THROW_START)], "valuables_full": []},
 }
-
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
-
 BAG_FILL = {"room": None, "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
-
 KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask for more than this, or it is met at once
-
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
                   f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
@@ -1451,11 +1816,9 @@ FINDS = {"diamond": 0}
 
 def _count_finds(ctx):
     """`before` hook: count /find scans for diamond ore during the row, at api.get."""
-
     from .. import api
     FINDS["diamond"] = 0
     real = FINDS.setdefault("real", api.get)
-
     def get(path, *a, **k):
         if path.startswith("/find") and "diamond" in path:
             FINDS["diamond"] += 1
@@ -1503,12 +1866,10 @@ def _cell_before(cell):
 
 def _cell_setup_hooks(cell):
     """`before` hooks that make the row's world, run before `_start` reads the base."""
-
     return [_fill_bag(*BAG_FILL[cell["bag"]])] if BAG_FILL[cell["bag"]] else []
 
 def _grid_cells():
     """Cells of every family, one row per distinct cell: a shared cell checks every family's expectation."""
-
     cells = {}
     for fam, (grid, queue, rule) in BRAIN_FAMILIES.items():
         for cell in grid:
@@ -1561,8 +1922,6 @@ def _machine_due(origin, n):
 
 _st = lambda api: api.get("/state")     # noqa: E731
 
-
-
 def _regen_fed(api, inv):
     """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
     from ..world import Inventory
@@ -1571,10 +1930,8 @@ def _regen_fed(api, inv):
 
 # the night's shelter by what the bag allows; a bed makes none of them (must not)
 _NIGHT_FLOOR = [f"fill {_c(at(-8, -6, -8))} {_c(at(8, -1, 8))} stone", _tp(), "time set 18000"]
-
 # no pickaxe in a fight: the "no pickaxe" row waits until it ends; a dirt patch on this ground is dug into by hand, one across a drop never
 DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
-
 
 def _in_the_patch_underground(api, inv):
     s = api.get("/state")
@@ -1584,12 +1941,10 @@ def _in_the_patch_underground(api, inv):
 
 # eating on the move by the jar's autoeat, still walking while chewing; control: mining is not interrupted to eat
 WALK = {}
-
 BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 
 def ate_on_the_way(frames):
     """Pure over trace frames: food rose during the walk, no frame ran "eat", and x grew through the bite (autoeat while walking)."""
-
     fed = [f for f in frames if f.get("food") is not None]
     if not fed or any((f.get("task") or {}).get("type") == "eat" for f in frames):
         return False
@@ -1657,15 +2012,10 @@ def _load_the_rest(ctx):
         _skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", left, "coal")
     return True
 
-# a creeper met with a sword: hit and back off past its blast; near our builds it is led away first
-CREEPER_AT = at(4, 0, 0)
-
 HOME_BED, HOME_FURNACE = (at(4, 0, 2), at(5, 0, 2)), at(4, 0, -2)
-
 
 def _home_is_ours(ctx):
     """`before` hook: the bed and furnace are a site of ours and the furnace a station — to be kept out of the blast."""
-
     blocks = {f"{c[0]},{c[1]},{c[2]}": "red_bed" for c in HOME_BED}
     blocks[f"{HOME_FURNACE[0]},{HOME_FURNACE[1]},{HOME_FURNACE[2]}"] = "furnace"
     core.BRAIN.mem.add_site("home", HOME_BED[0], "minecraft:overworld", snapshot={"blocks": blocks}, name="home")
@@ -1673,39 +2023,29 @@ def _home_is_ours(ctx):
 
 # knocked off a raised platform mid-fight: the combat kit's water bucket must catch the fall
 EDGE_Y = 4
-
 # -- a search interrupted mid-way (for the night) and taken up again: no section searched twice, no ore scanned again
 _goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
-
 SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
                 f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
-
 SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
 
 def _set_time(t):
     return lambda: _chat(f"time set {t}")
 
 SEARCH_FLAGS = {}
-
 # == tiers: core runs on every change, common when a related module changed, exception before a merge, acceptance alone
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
-
 # fighting is its own tier
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
-
 # fights whose names say otherwise; resume_after_combat left out on purpose
 COMBAT_ROWS = ("bed_bomb_kill", "collect_blaze_rods", "ghast_fireball")
-
 # the chain's first slice is common, not core: core is what every change can afford
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
                                              "iron_ingots", "bed_in_nether", "slice_start_tools", "water_clutch")
-
 COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work")
-
 # upkeep's rows and point-B hazards are everyday: common
 COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
           "slice_nether_kit")
-
 ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
@@ -1732,7 +2072,6 @@ def proves(entry, registry):
 
 def select(rows, tier="core", changed=None, registry=None):
     """Pure: the names to run."""
-
     picked = [n for n, r in rows.items() if tier == "all" or r.get("tier") == tier]
     if changed is None:
         return picked
@@ -1745,7 +2084,6 @@ def select(rows, tier="core", changed=None, registry=None):
 
 def touched_skills(hunks, spans):
     """Pure: skills whose function body a diff touched."""
-
     out = set()
     for name, (path, lo, hi) in spans.items():
         if any(lo <= ln <= hi for ln in hunks.get(path, ())):
@@ -1788,44 +2126,30 @@ def _kit_gives(row, jobs):
         mobs.add("ender_dragon")          # the End fight: the dragon is there, not summoned
     return [weapon_for(sorted(mobs)) if j == "sword" else BEST_TOOLS[j] for j in jobs]
 
-
 # -- positions ----------------------------------------------------------------------------------------------------
 def pos(p):
     """("@", dx, dy, dz) → the absolute position; anything else unchanged."""
     return at(*p[1:]) if isinstance(p, tuple) and len(p) == 4 and p[0] == "@" else p
 
-
 def _c(p):
     p = pos(p)
     return f"{p[0]} {p[1]} {p[2]}"
 
-
 # -- scene templates: (template, *params) → console commands -----------------------------------------------------
-
-
-
 
 SCENE = {
     "cmd": lambda text: [text],                                                   # a command with no position
     "fill": lambda lo, hi, block: [f"fill {_c(lo)} {_c(hi)} {block}"],
     "setblock": lambda p, block: [f"setblock {_c(p)} {block}"],
     "tp": lambda p: [f"tp @p {_c(p)}"],
-    "stand": lambda dx=0, dy=0, dz=0: [f"tp @p {_c(('@', dx + 0.5, dy, dz + 0.5))}"],   # the body, mid-block
+    "stand": lambda *d: [_tp(*d)],                                                  # the body, mid-block
     "give": lambda item, n=None: [f"give @p {item}" + ("" if n is None else f" {n}")],
     "time": lambda t: [f"time set {t}"],
     "summon": lambda mob, p, nbt=None: [f"summon {mob} {_c(p)}" + ("" if nbt is None else f" {nbt}")],
     "at": lambda template, *ps: [template.format(*[_c(p) for p in ps])],        # any other command with positions
-    "floor": lambda block="stone", half=8, depth=3: [f"fill {_c(('@', -half, -depth, -half))} "
-                                                     f"{_c(('@', half, -1, half))} {block}"],
-    "tree": _tree,
-    "grove": lambda *spots, wood="oak": ([f"fill {_c(('@', -8, -1, -8))} {_c(('@', 8, -1, 8))} grass_block"]
-                                        + [c for x, z in spots for c in _tree(x, z, wood)]),
-    "chest": lambda p, *items: [f"setblock {_c(p)} chest"] + [f"item replace block {_c(p)} container.{i} with {it}"
-                                                             for i, it in enumerate(items)],
-    "pen": _pen,
-    "tank": _tank,
+    "floor": _floor, "tree": _tree, "grove": _grove, "pen": _pen, "tank": _tank,       # the sheet's own builders
+    "chest": lambda p, *items: _chest(pos(p), *items),
 }
-
 
 def _scene_params(v):
     """Scene params → values: positions absolute, containers kept."""
@@ -1834,7 +2158,6 @@ def _scene_params(v):
     if isinstance(v, (list, tuple)):
         return type(v)(_scene_params(x) for x in v)
     return v
-
 
 def scene(items):
     """A row's scene → the setup command list, in order. ("sheet", NAME) is one of the old sheet's command lists
@@ -1850,61 +2173,46 @@ def scene(items):
             out += SCENE[kind](*params)
     return out
 
-
 # -- names --------------------------------------------------------------------------------------------------------
-def _scen():
-    """The words' own module: every helper a word names lives here."""
-    return sys.modules[__name__]
-
-
 def resolve(name):
     """A word → the sheet's function or value: "mod.path:attr", a sheet name (its own, or with the leading
     underscore the table drops), or a dotted module function."""
     if ":" in name:
         mod, attr = name.split(":")
         return getattr(importlib.import_module(mod), attr)
-    scen = _scen()
-    if hasattr(scen, name):
-        return getattr(scen, name)
-    if hasattr(scen, "_" + name):
-        return getattr(scen, "_" + name)
+    for n in (name, "_" + name):
+        if n in globals():
+            return globals()[n]
     if "." in name:
         mod, attr = name.rsplit(".", 1)
         return getattr(importlib.import_module(mod), attr)
     raise KeyError(f"no word {name!r}")
-
 
 # -- predicates: (kind, *args) over (api, inv) ---------------------------------------------------------------------
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq,
        "!=": operator.ne, "is": operator.is_, "is not": operator.is_not,
        "in": lambda a, b: a in b, "not in": lambda a, b: a not in b}
 
-
 def cmp(value, op=None, want=None):
     """Pure: `value op want`, or the value's truth when no op is given."""
     return bool(value) if op is None else OPS[op](value, want)
-
 
 def count(api, inv, token, op, want):
     """The bag's count of `token` (a group name counts its members) compared: ("count", "log", ">=", 4)."""
     return cmp(inv.count(token), op, want)
 
-
 def state(api, inv, key, op=None, want=None):
     """A /state field compared (or its truth): ("state", "dimension", "==", "minecraft:the_nether")."""
     return cmp(api.get("/state")[key], op, want)
-
 
 def bag(api, inv, method, args=(), op=None, want=None):
     """An Inventory reading compared: ("bag", "used_slots", [], "<", 34)."""
     return cmp(getattr(inv, method)(*args), op, want)
 
-
 def call(api, inv, name, args=(), op=None, want=None, resolve=None):
     """A named world helper's answer compared (or its truth); "$api"/"$inv" in `args` are the check's own."""
     fn = resolve(name)
     return cmp(fn(*[api if a == "$api" else inv if a == "$inv" else a for a in args]), op, want)
-
 
 PREDICATES = {"count": count, "state": state, "bag": bag, "call": call}
 LOGIC = ("all", "any", "not", "now")      # composition: all/any of predicates, not one, one read on the bag now
@@ -1912,17 +2220,13 @@ LOGIC = ("all", "any", "not", "now")      # composition: all/any of predicates, 
 # -- hooks the old sheet wrote as a lambda of several steps ---------------------------------------------------------
 def hungry(ctx):
     """The eat base's start: hunger at full strength for 5 s, the bar read before eating, the eat target set."""
-    import time
     from .. import api
-    scen = _scen()
-    scen._chat("effect give @p minecraft:hunger 5 255 true")
+    _chat("effect give @p minecraft:hunger 5 255 true")
     time.sleep(5.5)
-    scen.BASE.update(food_before=api.get("/state")["food"])
-    scen._eat_target(ctx)
-
+    BASE.update(food_before=api.get("/state")["food"])
+    _eat_target(ctx)
 
 HOOKS = {"hungry": hungry}
-
 
 # -- row templates: (template, params) → row data in these words ---------------------------------------------------
 def limit():
@@ -1930,29 +2234,23 @@ def limit():
     from .runner import ROW_LIMIT_S
     return ROW_LIMIT_S
 
-
 def nest(w):
     """A word at the top of a slot → the same word inside another's arguments (a one-off row's code: as is)."""
     return w if callable(w) or w[0].startswith(("!", "&")) else ("!" + w[0],) + tuple(w[1:])
 
-
 def top(w):
     return w if callable(w) else (w[0][1:],) + tuple(w[1:]) if w[0].startswith("!") else w
-
 
 def items(w):
     """A check word → the row's check list (an `all` is its parts)."""
     w = top(w)
     return [w] if callable(w) else [top(x) for x in w[1:]] if w[0] == "all" else [w]
 
-
 def _progress(b):
     return {k: b[k] for k in ("progress", "effect", "target") if k in b}
 
-
 BOX_EXPECT = [(("@", -10, -17, -10), ("@", 20, 9, 10), "*", 1, 10 ** 6)]      # a generated row's box signature
 SHEET_EXPECT = [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)]                    # the same, for a one-off row
-
 
 def base_row(name, base, cond=None, surprise=None):
     """A base changed by a condition or a surprise (the old sheet's `_row`), as data."""
@@ -2014,254 +2312,193 @@ def base_row(name, base, cond=None, surprise=None):
     row["expect"] = BOX_EXPECT
     return row
 
-
-# -- the fight sheet's rows (bench/fight.py): a cell of its dimensions, recorded by a sweep and judged by rules ---------
-FIGHT = "bonobo.bench.fight:"
+# -- the fight rows: a cell of bench_combat's dimensions, recorded by a sweep and judged by rules --------------------
 FIGHT_EXPECT = [(("@", -9, -1, -9), ("@", 12, -1, 9), "stone", 418, 418)]
+RULES = ("&_answers_are_closed",), ("&_shapes_fit_the_enemy",), ("&_more_of_them_costs_more",), ("&_wave_cleared",)
 
+def _fight_row(name, doc, scene, cells, build, record, jsonl, settle, rules, **more):
+    """A swept fight row: its cells built and fought one by one, each recorded, the rules judged over the rows."""
+    return {"name": name, "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
+            "doc": doc, "scene": scene, "run": ("bonobo.bench.core:_sweep", name, ("!iter", cells), build, record,
+                                                ("$data", jsonl), settle),
+            "check": [("bonobo.bench.core:_sweep_check", name, ("$data", jsonl), list(rules), 1)] if rules else [],
+            "budget": limit(), **more}
 
-def _f(name):
-    return resolve(FIGHT + name)
-
-
-def _sweep_row(name, cells, build, seconds, rows, settle, record=None):
-    return ("bonobo.bench.core:_sweep", name, ("!iter", cells), build,
-            record or ("!" + FIGHT + "_fought", ("&" + FIGHT + "_kinds_of",), seconds), ("$data", rows), settle)
-
+def _fought_for(seconds):
+    return ("!_fought", ("&_kinds_of",), seconds)
 
 def arena_row(name, enemy, ground, kit, blood):
     """combat_arena: one cell of (enemy, ground) × (kit, blood) per row."""
-    cell = dict(_f("ARMED"), enemy=enemy, ground=ground, kit=kit, blood=blood, run=0)
-    return {"name": name, "module": "threat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
-            "sweep": True, "variant": [sorted(cell.items())], "scene": [("sheet", FIGHT + "_FIGHT_SETUP")],
-            "doc": f"combat_arena shard {enemy}/{ground}/{kit}/{blood}: each cell writes the whole decision into "
-                   "bench/combat.jsonl; the rules are relations between rows.",
-            "expect": FIGHT_EXPECT,
-            "run": _sweep_row(name, [cell], ("&" + FIGHT + "_build",), _f("CELL_SECONDS"), "bench/combat.jsonl", 0.6),
-            "check": [("bonobo.bench.core:_sweep_check", name,
-                       ("$data", "bench/combat.jsonl"),
-                       [("&" + FIGHT + r,) for r in ("_answers_are_closed", "_shapes_fit_the_enemy",
-                                                     "_more_of_them_costs_more")], 1)],
-            "tick_rate": 60, "budget": limit()}
-
+    cell = dict(ARMED, enemy=enemy, ground=ground, kit=kit, blood=blood, run=0)
+    return _fight_row(name, f"combat_arena shard {enemy}/{ground}/{kit}/{blood}: each cell writes the whole decision "
+                            "into bench/combat.jsonl; the rules are relations between rows.",
+                      [("sheet", "_FIGHT_SETUP")], [cell], ("&_build",), _fought_for(CELL_SECONDS),
+                      "bench/combat.jsonl", 0.6, RULES[:3], module="threat", sweep=True,
+                      variant=[sorted(cell.items())], expect=FIGHT_EXPECT, tick_rate=60)
 
 def siege_row(name, wave):
     """The siege, one wave per row: from the wave's carry, cleared alive."""
-    line_up, _, left = _f("WAVES")[wave - 1]
-    return {"name": name, "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
-            "doc": f"Siege wave {wave} of {len(_f('WAVES'))} ({line_up}), sword, pickaxe, full iron, shield, food and "
-                   "blocks: every answer the model offers is available → the wave cleared alive.",
-            "scene": [("sheet", FIGHT + "_FIGHT_SETUP"), ("cmd", "effect give @p minecraft:instant_health 3 10 true"),
-                      ("built", FIGHT + "_siege_kit"), ("built", FIGHT + "_carry") + tuple(left)],
-            "run": _sweep_row(name, [{"wave": wave, "line_up": line_up}], ("&" + FIGHT + "_siege_build",), None,
-                          "bench/siege.jsonl", 0.6, record=("!" + FIGHT + "_siege_record", 24.0)),
-            "check": [("bonobo.bench.core:_sweep_check", name, ("$data", "bench/siege.jsonl"),
-                       [("&" + FIGHT + "_answers_are_closed",), ("&" + FIGHT + "_wave_cleared",)], 1)],
-            "detail": ("siege_detail", name), "budget": limit()}
-
+    line_up, _, left = WAVES[wave - 1]
+    return _fight_row(name, f"Siege wave {wave} of {len(WAVES)} ({line_up}), sword, pickaxe, full iron, shield, food "
+                            "and blocks: every answer the model offers is available → the wave cleared alive.",
+                      [("sheet", "_FIGHT_SETUP"), ("cmd", "effect give @p minecraft:instant_health 3 10 true"),
+                       ("built", "_siege_kit"), ("built", "_carry") + tuple(left)],
+                      [{"wave": wave, "line_up": line_up}], ("&_siege_build",), ("!_siege_record", 24.0),
+                      "bench/siege.jsonl", 0.6, (RULES[0], RULES[3]), detail=("siege_detail", name))
 
 def escape_row(name, enemy, ground, kit, seed=None):
-    """No weapon, no armour, one enemy: away by any answer but swinging. The cell's seed lays out the ground; none
-    given, one is drawn (the old sheet drew it at import)."""
-    import random
+    """No weapon, no armour, one enemy: away by any answer but swinging; no seed given, one is drawn (as at import)."""
     seed = random.randrange(1 << 30) if seed is None else seed
-    cell = dict(_f("UNARMED"), enemy=enemy, ground=ground, kit=kit, run=0, seed=seed)
-    return {"name": name, "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
-            "sweep": True,
-            "doc": f"No weapon, no armour, {enemy} on {ground} ground with {kit}, {_f('ESCAPE_SECONDS'):.0f} s: the "
-                   "answer has to come from somewhere other than swinging — back off, block the way, dig down, eat, "
-                   "or leave a teleporter alone (bench/escape.jsonl).",
-            "scene": [("cmd", "gamemode survival @p"), ("cmd", "kill @e[type=!player,type=!item,distance=..48]"),
-                      ("built", FIGHT + "_build", cell)],
-            "expect": FIGHT_EXPECT,
-            "run": _sweep_row(name, [cell], ("!constant", []), _f("ESCAPE_WATCH"), "bench/escape.jsonl", 0.0),
-            "check": [("bonobo.bench.core:_sweep_check", name, ("$data", "bench/escape.jsonl"),
-                       [("&" + FIGHT + "_answers_are_closed",), ("&" + FIGHT + "_shapes_fit_the_enemy",)], 1)],
-            "detail": ("escape_detail", name), "tick_rate": 60, "budget": limit()}
-
+    cell = dict(UNARMED, enemy=enemy, ground=ground, kit=kit, run=0, seed=seed)
+    return _fight_row(name, f"No weapon, no armour, {enemy} on {ground} ground with {kit}, {ESCAPE_SECONDS:.0f} s: the "
+                            "answer has to come from somewhere other than swinging — back off, block the way, dig "
+                            "down, eat, or leave a teleporter alone (bench/escape.jsonl).",
+                      [("cmd", "gamemode survival @p"), ("cmd", "kill @e[type=!player,type=!item,distance=..48]"),
+                       ("built", "_build", cell)], [cell], ("!constant", []), _fought_for(ESCAPE_WATCH),
+                      "bench/escape.jsonl", 0.0, RULES[:2], sweep=True, expect=FIGHT_EXPECT,
+                      detail=("escape_detail", name), tick_rate=60)
 
 def behaviour_row(name, behaviour):
     """One fight behaviour: a cell moved off ARMED so that one answer is worth the most; chosen and working."""
-    moved, _rule, why = _f("BEHAVIOURS")[behaviour]
-    cell = dict(dict(_f("ARMED"), **moved), run=0, seed=0)
-    return {"name": name, "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
-            "stochastic": True, "variant": sorted(cell.items()), "doc": f"Fight behaviour: {why}",
-            "scene": [("sheet", FIGHT + "_FIGHT_SETUP")], "expect": FIGHT_EXPECT,
-            "run": _sweep_row(name, [cell], ("&" + FIGHT + "_build",), None, "bench/behaviour.jsonl", 0.6,
-                          record=("!" + FIGHT + "_record_with_start",
-                                  ("!" + FIGHT + "_fought", ("&" + FIGHT + "_kinds_of",), _f("BEHAVIOUR_SECONDS")))),
-            "check": [("behaviour", behaviour)], "tick_rate": 60, "budget": limit()}
-
+    moved, _rule, why = BEHAVIOURS[behaviour]
+    cell = dict(dict(ARMED, **moved), run=0, seed=0)
+    row = _fight_row(name, f"Fight behaviour: {why}", [("sheet", "_FIGHT_SETUP")], [cell], ("&_build",),
+                     ("!_record_with_start", _fought_for(BEHAVIOUR_SECONDS)), "bench/behaviour.jsonl", 0.6, (),
+                     stochastic=True, variant=sorted(cell.items()), expect=FIGHT_EXPECT, tick_rate=60)
+    return dict(row, check=[("behaviour", behaviour)])
 
 def fight_cell_row(name, mob, n, tier, secs, hp, clear):
     """A walled arena, the iron kit, `n` of one mob: all dead (or kept off, or left alone when neutral)."""
     kinds = [f"minecraft:{mob}"]
     spots = ([(7, 0, 0)] if mob == "creeper" else [(4, 0, 0), (-3, 0, 3), (1, 0, -4)])[:n]
     nbt = "{PersistenceRequired:1b,Health:10f}" if mob == "blaze" and n > 1 else "{PersistenceRequired:1b}"
-    hold = resolve("RESOLVE_HOLD_S")
-    verdict = {True: "all dead", False: "left alone (neutral)", "resolved": f"dead, or kept off and not following "
-                                                                          f"for {hold:.0f} s"}[clear]
+    verdict = {True: "all dead", False: "left alone (neutral)",
+               "resolved": f"dead, or kept off and not following for {RESOLVE_HOLD_S:.0f} s"}[clear]
     check = ([("threat_resolved", kinds), ("decision_gaps_ok",)] if clear == "resolved"
              else [("hp_kept", hp), ("gone", kinds), ("decision_gaps_ok",)] if clear
              else [("hp_kept", hp), ("call", "hostiles", [24, ("$set", kinds)])])
-    return {"name": name, "module": "fight_loop", "combat": True, "point": "B", "skills": [], "tier_fixed": tier,
-            "doc": f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}, a threat decision every "
-                   "≤ 1.5 × FIGHT_POLL_S while engaged",
-            "tags": {"base": "fight", "enemy": mob, "count": n},
-            "scene": [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots],
-            "expect_entities": [(f"minecraft:{mob}", n)], "before": [("start", name), ("&record_bids",)],
-            "run": ("fight_until", kinds, secs - hold - 2 if clear == "resolved" else secs - 2)
-            + (() if clear is not False else (False,)),
-            "check": check, "budget": min(secs + 5, limit()), "expect": BOX_EXPECT}
-
+    return _row(name, f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}, a threat decision every "
+                      "≤ 1.5 × FIGHT_POLL_S while engaged", "fight_loop",
+                [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots],
+                ("fight_until", kinds, secs - RESOLVE_HOLD_S - 2 if clear == "resolved" else secs - 2)
+                + (() if clear is not False else (False,)), check, point="B", budget=min(secs + 5, limit()),
+                before=[("&record_bids",)], combat=True, skills=[], tier_fixed=tier,
+                tags={"base": "fight", "enemy": mob, "count": n}, expect_entities=[(f"minecraft:{mob}", n)])
 
 def siege_detail(name):
-    return lambda inv: _f("_siege_detail_of")(name)
-
+    return lambda inv: _siege_detail_of(name)
 
 def escape_detail(name):
     return lambda inv: "; ".join(f"{r['enemy']}: {r['outcome']['hp']:.0f} hp, gap {r['outcome']['gap']}"
-                                 for r in (_f("SWEEP").get(name) or []))
-
+                                 for r in (SWEEP.get(name) or []))
 
 def behaviour(name):
-    """The behaviour's own rule over its recorded row (bench/fight.py BEHAVIOURS)."""
-    return _f("_behaviour_check")(f"combat__{name}", _f("BEHAVIOURS")[name][1])
-
+    """The behaviour's own rule over its recorded row (BEHAVIOURS)."""
+    return _behaviour_check(f"combat__{name}", BEHAVIOURS[name][1])
 
 WORDS = {"siege_detail": siege_detail, "escape_detail": escape_detail, "behaviour": behaviour}
 
-
 # -- one-skill rows, the start-cell and placing rows, the upkeep lines and the brain's rows --------------------------
+def _row(name, doc, module, scene, run, check, point="A", budget=None, before=(), **more):
+    """A row's common frame: started (`_start`), the box signature, the bench's limit unless it asks less."""
+    return {"name": name, "doc": doc, "module": module, "point": point, "scene": list(scene),
+            "before": [("start", name)] + list(before), "run": run, "check": check,
+            "budget": budget or limit(), "expect": BOX_EXPECT, **more}
+
 def one_row(name, skills, doc, scene, run, check, budget, tick_rate=None):
     """One skill proven in the world, once (the old `_ONE`): timed when its skill has a speed target."""
-    from .bench_bases import TARGET_S, TARGET_SLACK
     target = TARGET_S[skills[0]] * TARGET_SLACK if skills[0] in TARGET_S else None
-    return {"name": name, "doc": doc, "module": "skills", "scene": scene, "before": [("start", name)],
-            "run": ("timed", nest(run)) if target else run, "check": items(check), "budget": budget,
-            "skills": list(skills), "point": "A", "tags": {"base": skills[0]},
-            **({"target_s": target} if target else {}), **({"tick_rate": tick_rate} if tick_rate else {}),
-            "expect": BOX_EXPECT}
-
+    return _row(name, doc, "skills", scene, ("timed", nest(run)) if target else run, items(check), budget=budget,
+                skills=list(skills), tags={"base": skills[0]}, **({"target_s": target} if target else {}),
+                **({"tick_rate": tick_rate} if tick_rate else {}))
 
 REAL_KIT = [("cmd", "spreadplayers 14200 14200 0 4 false @p"), ("cmd", "clear @p"), ("give", "stone_pickaxe"),
             ("give", "torch", 8), ("give", "cobblestone", 32), ("give", "cooked_beef", 8)]
 
-
 def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False):
     """On real terrain (raw), a target put in scan range: judged by what was found."""
-    return {"name": name, "doc": doc, "module": "skills", "raw": True, "release": True,
-            "scene": REAL_KIT + list(extra), "before": [("start", name)], "run": run, "check": items(check),
-            "budget": budget, "skills": list(skills), "point": "A", "tags": {"base": skills[0], "terrain": "real"},
-            **({"stochastic": True} if stochastic else {})}
-
+    row = _row(name, doc, "skills", REAL_KIT + list(extra), run, items(check), budget=budget, raw=True, release=True,
+               skills=list(skills), tags={"base": skills[0], "terrain": "real"},
+               **({"stochastic": True} if stochastic else {}))
+    del row["expect"]
+    return row
 
 def place_row(name, item, asked, want, tier):
     """Place a block asking a facing: the block reports the facing its own rule gives."""
     p = ("@", 3, 0, 0)
-    return {"name": name, "doc": f"Place {item.split(':')[1]} asking facing={asked} (the jar turns the body by the "
-                                 f"block's own rule) → the block reports facing={want}",
-            "module": "building", "point": "A", "skills": [], "tier_fixed": tier, "tags": {"base": "place"},
-            "variant": (item, asked), "scene": [("floor",), ("stand",), ("give", item.split(":")[1], 2)],
-            "before": [("start", name)], "run": ("place_facing", item, p, asked),
-            "check": [("placed_facing", p, want)], "budget": 20, "expect": BOX_EXPECT}
-
+    return _row(name, f"Place {item.split(':')[1]} asking facing={asked} (the jar turns the body by the block's own "
+                      f"rule) → the block reports facing={want}", "building",
+                [("floor",), ("stand",), ("give", item.split(":")[1], 2)], ("place_facing", item, p, asked),
+                [("placed_facing", p, want)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
+                variant=(item, asked))
 
 def start_row(name, what, start_scene, stand):
     """Walk 10 blocks from an awkward start cell → at the target."""
-    return {"name": name, "doc": f"Walk 10 blocks starting on {what} (GotoTask's start cell: '1 positions explored' "
-                                 f"reproduces here) → at the target",
-            "module": "nav", "point": "A", "skills": ["goto"], "tier_fixed": "common",
-            "tags": {"base": "nav", "start": what},
-            "scene": [("floor",), ("fill", ("@", 8, -3, -3), ("@", 12, -1, 3), "stone")] + list(start_scene)
-            + [("stand",) + tuple(stand)],
-            "before": [("start", name)], "run": ("skill", "travel_to", ("@", 10, 0, 0), 2),
-            "check": [("_at", ("@", 10, 0, 0), 3.5)], "budget": limit(), "expect": BOX_EXPECT}
-
+    return _row(name, f"Walk 10 blocks starting on {what} (GotoTask's start cell: '1 positions explored' reproduces "
+                      f"here) → at the target", "nav",
+                [("floor",), ("fill", ("@", 8, -3, -3), ("@", 12, -1, 3), "stone")] + list(start_scene)
+                + [("stand",) + tuple(stand)], ("skill", "travel_to", ("@", 10, 0, 0), 2),
+                [("_at", ("@", 10, 0, 0), 3.5)], skills=["goto"], tier_fixed="common",
+                tags={"base": "nav", "start": what})
 
 def upkeep_row(name, line, doc, scene, hooks, done, check):
     """One upkeep line through the whole brain, nothing queued: the moment built, the answer in the world."""
-    return {"name": name, "doc": f"upkeep, {doc}", "module": "reflexes", "point": "C", "skills": [],
-            "tier_fixed": "brain", "combat": line == "eat", "tags": {"base": "upkeep", "line": line},
-            "scene": scene, "before": [("start", name)] + list(hooks),
-            "run": ("brain_rounds", 10 if line == "eat_when_full" else 22, nest(done)), "check": items(check),
-            "budget": limit(), "expect": BOX_EXPECT}
-
+    return _row(name, f"upkeep, {doc}", "reflexes", scene,
+                ("brain_rounds", 10 if line == "eat_when_full" else 22, nest(done)), items(check), point="C",
+                before=hooks, skills=[], tier_fixed="brain", combat=line == "eat",
+                tags={"base": "upkeep", "line": line})
 
 def brain_row(name, doc, scene, queue, done, minutes, check, hooks=(), variant=()):
     """The whole brain on a private queue, the world built up to the decision; the slice judged too."""
-    return {"name": name, "doc": doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
-            "combat": name == "resume_after_combat", "tags": {"base": "brain"}, "scene": scene,
-            "before": [("start", name)] + list(hooks), "queue": queue, "variant": list(variant),
-            "run": ("slice", nest(done), min(minutes, 0.4), None, queue),
-            "check": [top(check), ("slice_check", None)],
-            "budget": limit(), "expect": BOX_EXPECT}
-
+    return _row(name, doc, "brain", scene, ("slice", nest(done), min(minutes, 0.4), None, queue),
+                [top(check), ("slice_check", None)], point="C", before=hooks, skills=[], tier_fixed="brain",
+                combat=name == "resume_after_combat", tags={"base": "brain"}, queue=queue, variant=list(variant))
 
 def dirt_row(name, doc, extra, done, check):
     """Dusk on stone, an empty bag, a dirt patch along the platform: dug in there by hand (or never walked to)."""
-    return {"name": name, "doc": doc, "module": "brain", "point": "C", "skills": ["shelter:dig in"],
-            "tier_fixed": "brain", "tags": {"base": "brain", "family": "night_dirt"},
-            "scene": [("floor",), ("fill", ("@", 7, -3, -1), ("@", 8, -1, 1), "dirt"),
-                      ("fill", ("@", 7, -4, -1), ("@", 8, -4, 1), "stone")] + list(extra) + [("stand",),
-                                                                                             ("time", 12500)],
-            "before": [("start", name)], "run": ("brain_rounds", 25, nest(done)), "check": items(check),
-            "budget": limit(), "expect": BOX_EXPECT}
-
+    return _row(name, doc, "brain", [("floor",), ("fill", ("@", 7, -3, -1), ("@", 8, -1, 1), "dirt"),
+                                     ("fill", ("@", 7, -4, -1), ("@", 8, -4, 1), "stone")]
+                + list(extra) + [("stand",), ("time", 12500)], ("brain_rounds", 25, nest(done)), items(check),
+                point="C", skills=["shelter:dig in"], tier_fixed="brain",
+                tags={"base": "brain", "family": "night_dirt"})
 
 def cell_row(name, *key):
-    """A cell of the brain's grid (dimensions off the base one at a time): its families' goals queued, every
-    family's rule judged, the slice too."""
-    scen = _scen()
-    entry = scen._grid_cells()[key]
+    """A cell of the brain's grid: its families' goals queued, every family's rule judged, the slice too."""
+    entry = _grid_cells()[key]
     cell, fams = entry["cell"], entry["families"]
-    judged = [scen.BRAIN_FAMILIES[f][2](cell) for f in fams]
-    dims = scen.BRAIN_DIMS
-    return {"name": name, "doc": f"{'+'.join(fams)}: " + ", ".join(f"{d} {cell[d]}" for d in dims) + " → "
-                                 + "; ".join(why for _c, why in judged),
-            "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": False,
-            "tags": {"base": "brain", "family": "+".join(fams), **{d: cell[d] for d in dims}},
-            "scene": [("sheet", "BRAIN_WORLD"), ("brain_dims",) + key], "before": [("brain_cell_hooks", name) + key],
-            "queue": list(entry["queue"]), "run": ("slice", None, 0.4, None, list(entry["queue"])),
-            "check": [("brain_rule", f) + key for f in fams] + [("slice_check", None)],
-            "why": [why for _c, why in judged] + ["the slice"], "budget": limit(), "expect": BOX_EXPECT}
-
+    judged = [BRAIN_FAMILIES[f][2](cell) for f in fams]
+    row = _row(name, f"{'+'.join(fams)}: " + ", ".join(f"{d} {cell[d]}" for d in BRAIN_DIMS) + " → "
+               + "; ".join(why for _c, why in judged), "brain", [("sheet", "BRAIN_WORLD"), ("brain_dims",) + key],
+               ("slice", None, 0.4, None, list(entry["queue"])),
+               [("brain_rule", f) + key for f in fams] + [("slice_check", None)], point="C", skills=[],
+               tier_fixed="brain", combat=False, queue=list(entry["queue"]),
+               tags={"base": "brain", "family": "+".join(fams), **{d: cell[d] for d in BRAIN_DIMS}},
+               why=[why for _c, why in judged] + ["the slice"])
+    return dict(row, before=[("brain_cell_hooks", name) + key])
 
 def _grid_cell(key):
-    scen = _scen()
-    return scen._grid_cells()[tuple(key)]["cell"]
-
+    return _grid_cells()[tuple(key)]["cell"]
 
 def brain_rule(fam, *key):
-    """A grid family's rule for one cell (vocab.BRAIN_FAMILIES): its check."""
-    return _scen().BRAIN_FAMILIES[fam][2](_grid_cell(key))[0]
-
+    """A grid family's rule for one cell (BRAIN_FAMILIES): its check."""
+    return BRAIN_FAMILIES[fam][2](_grid_cell(key))[0]
 
 def brain_cell_hooks(name, *key):
-    scen = _scen()
     cell = _grid_cell(key)
-    return scen._hooks(*scen._cell_setup_hooks(cell), scen._start(name), *scen._cell_before(cell))
-
+    return _hooks(*_cell_setup_hooks(cell), _start(name), *_cell_before(cell))
 
 WORDS.update(brain_rule=brain_rule, brain_cell_hooks=brain_cell_hooks)
-SCENE["brain_dims"] = lambda *key: [c for d, v in zip(_scen().BRAIN_DIMS, key) for c in _scen().BRAIN_DIMS[d][v]]
-
-
-TEMPLATES = {"base": base_row, "arena": arena_row, "siege": siege_row, "escape": escape_row,
-             "behaviour": behaviour_row, "fight_cell": fight_cell_row, "one": one_row, "real": real_row,
-             "place": place_row, "start": start_row, "upkeep": upkeep_row, "brain": brain_row, "dirt": dirt_row,
-             "cell": cell_row}
+SCENE["brain_dims"] = lambda *key: [c for d, v in zip(BRAIN_DIMS, key) for c in BRAIN_DIMS[d][v]]
+TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "arena", "siege", "escape", "behaviour", "fight_cell", "one",
+                                                "real", "place", "start", "upkeep", "brain", "dirt", "cell")}
 NAMES = {"base": lambda base, cond=None, surprise=None: surprise or f"{base}__{cond or 'base'}",
          "arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"siege__w{w}",
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "upkeep": lambda line, *p: f"upkeep__{line}",
-         "cell": lambda *key: _scen().grid_name(_scen()._grid_cells()[key]["families"], _grid_cell(key)),
+         "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          **{t: (lambda name, *p: name) for t in ("one", "real", "place", "start", "brain", "dirt")}}
 NAMED = {"arena", "fight_cell", "one", "real", "place", "start", "brain", "dirt"}          # templates whose first parameter is only the row's name
-
-
-__all__ = ["ORIGIN", "OPS", "PREDICATES", "LOGIC", "SCENE", "cmp", "pos", "resolve", "scene"]
-
-
 __all__ = [n for n in dir() if not n.startswith("__")]      # the tables write in every word here
+from .bench_combat import (ARMED, ARMOUR, BLOOD, COUNT, DIMS, DISTANCE, ENEMY, GROUND, KIT, NEEDS,  # noqa: E402
+                           UNARMED, WAVES, WEAPON)     # combat's dimensions, its data; last: its rows use these words

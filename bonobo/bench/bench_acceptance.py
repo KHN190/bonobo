@@ -2,14 +2,13 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 Built into the one SCENARIOS by table.py."""
 
-
 FAMILIES = [
-]
 
+]
 ROWS = [
     dict(name='accept_fresh_iron_pickaxe', module='brain',
-         doc=('Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe '
-              'within 30 minutes (stone tools → iron pickaxe milestones)'),
+         doc=('Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within '
+              '30 minutes (stone tools → iron pickaxe milestones)'),
          scene=[('cmd', 'spreadplayers 13000 13000 0 4 false @p'), ('cmd', 'clear @p'), ('time', 0)],
          run=('slice', ('!now', ('!count', 'minecraft:iron_pickaxe', '>=', 1)), 30, None,
               [{'goal': 'milestone', 'args': {'name': 'stone tools'}},

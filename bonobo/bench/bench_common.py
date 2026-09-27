@@ -2,7 +2,6 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
-
 FAMILIES = [
     ('base', [('nav', 'canopy'), ('loot', 'canopy'), ('mine_stone', 'cave'), ('chop', 'night'),
          ('mine_stone', 'interrupt_mid_work'), ('mine_stone', 'full_bag')]),
@@ -11,8 +10,8 @@ FAMILIES = [
            ('time', 18000)],
           ('skill', 'dig_in'), ('all', ('!state', 'blockY', '<', 200), ('!call', 'enclosed', [])), 25),
          ('reach_land_swim', ['reach:land'], 'night, treading water 10 blocks from shore → on dry land',
-          [('tank', -8, 9, -8, 8, 1, -1, -4, 'glass', 'east'),
-           ('fill', ('@', 10, -3, -8), ('@', 14, -1, 8), 'stone'), ('stand',), ('time', 18000)],
+          [('tank', -8, 9, -8, 8, 1, -1, -4, 'glass', 'east'), ('fill', ('@', 10, -3, -8), ('@', 14, -1, 8), 'stone'),
+           ('stand',), ('time', 18000)],
           ('skill', 'reach_land'), ('all', ('!state', 'onGround'), ('!not', ('!state', 'inWater'))), 25)]),
     ('place', [('place_furnace_north', 'minecraft:furnace', 'north', 'north', 'common'),
          ('place_furnace_south', 'minecraft:furnace', 'south', 'south', 'common'),
@@ -27,11 +26,9 @@ FAMILIES = [
           (0, 2)),
          ('nav_from_water', 'a pool one deep', [('fill', ('@', -1, 0, -1), ('@', 1, 0, 1), 'water')], ())]),
 ]
-
 ROWS = [
     dict(name='cave_escape', module='nav',
-         doc=('Sealed in a dark 1×2 pocket 4 blocks under the platform, pickaxe + blocks → back on the surface '
-              'platform.'),
+         doc='Sealed in a dark 1×2 pocket 4 blocks under the platform, pickaxe + blocks → back on the surface platform.',
          scene=[('floor', 'stone', 6, 12), ('fill', ('@', 0, -5, 0), ('@', 0, -4, 0), 'air'), ('stand', 0, -5),
                 ('cmd', 'clear @p'), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 32)],
          run=('do', 'bonobo.nav.go_to', [('@', 3, 0, 3), ('$ctx', 'policy')], {'range_': 0.6}),
@@ -46,12 +43,10 @@ ROWS = [
                 ('give', 'iron_sword'), ('give', 'bucket'), ('give', 'flint_and_steel'), ('give', 'gold_ingot', 5),
                 ('give', 'crafting_table'), ('give', 'cooked_beef', 8), ('give', 'cobblestone', 31),
                 ('summon', 'cow', ('@', -2, 0, 1))],
-         run=('slice',
-              ('!now', ('!any', ('!call', 'nether_kit_ready', []), ('!not', ('!call', 'in_overworld', [])))), 0.4,
-              None, [{'goal': 'milestone', 'args': {'name': 'nether kit'}}]),
+         run=('slice', ('!now', ('!any', ('!call', 'nether_kit_ready', []), ('!not', ('!call', 'in_overworld', [])))),
+              0.4, None, [{'goal': 'milestone', 'args': {'name': 'nether kit'}}]),
          before=[('do', 'portal_beside_player', ['$ctx'], {})],
-         check=[('slice_check',
-                 ('!now', ('!all', ('!call', 'nether_kit_ready', []), ('!call', 'in_overworld', []))))],
+         check=[('slice_check', ('!now', ('!all', ('!call', 'nether_kit_ready', []), ('!call', 'in_overworld', []))))],
          detail=('&slice_detail',), budget=25, expect=[(('@', 1, 0, -1), ('@', 1, 1, 1), 'stone', 6, 6)],
          expect_entities=[('minecraft:cow', 1)], point='C', chain=2),
     dict(name='cross_lava_8', module='nav',
@@ -64,8 +59,7 @@ ROWS = [
          run=('do', 'bonobo.nav.go_to', [('@', 11, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
          check=[('call', 'near', ['$api', ('@', 11, 0, 0), 2.5]), ('state', 'health', '>', 10)], budget=25,
          expect=[(('@', 2, -1, -3), ('@', 9, -1, 3), 'lava', 56, 56),
-                 (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28),
-                 (('@', -2, 0, -3), ('@', 13, 4, 3), '*', 0, 0)],
+                 (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28), (('@', -2, 0, -3), ('@', 13, 4, 3), '*', 0, 0)],
          point='B', skills=['travel_to']),
     dict(name='eat_while_walking', module='skills',
          doc=('Hungry, cooked beef carried, 20 blocks to walk → fed on the way without an eat task, still walking '
@@ -77,8 +71,8 @@ ROWS = [
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='mine_while_hungry', module='skills',
-         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: the beef '
-              'untouched (control for eat_while_walking)'),
+         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: the beef untouched '
+              '(control for eat_while_walking)'),
          scene=[('floor',), ('stand',), ('give', 'wooden_pickaxe'), ('give', 'cooked_beef', 4)],
          run=('skill', 'mine', 'minecraft:cobblestone', 3, ['stone'], 0),
          before=[('start', 'mine_while_hungry'), ('&hungry',)],
@@ -87,10 +81,8 @@ ROWS = [
          tags={'base': 'mine_stone', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
 ]
-
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
-
 CODE_ROWS = [
     base_row("chest_or_tree", "chop", surprise=dict(
         base="chop", doc="4 logs in a chest by the body, a tree 12 away: the brain takes the cheaper (plan-driven, "

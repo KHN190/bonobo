@@ -41,6 +41,17 @@ def as_json(v):
     return json.loads(json.dumps(v, default=lambda o: sorted(o) if isinstance(o, (set, frozenset)) else repr(o)))
 
 
+def canonical(v):
+    """A recorded word naming the fight helpers' old home (bench/fight.py) names the same helper in vocab now."""
+    if isinstance(v, str) and v[:1] in "!&" and "bonobo.bench.fight:" in v:
+        return v[0] + v.split(":", 1)[1]
+    if isinstance(v, list):
+        return [canonical(x) for x in v]
+    if isinstance(v, dict):
+        return {k: canonical(x) for k, x in v.items()}
+    return v
+
+
 def record_of(name, row):
     """A built row as the fixture records one: its plain fields, its check's words."""
     out = {k: as_json(v) for k, v in row.items() if k not in CALLABLE_KEYS}
@@ -65,7 +76,7 @@ class Equivalence(unittest.TestCase):
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
-                    want = dict(rec[name])
+                    want = canonical(dict(rec[name]))
                     seed = want.pop("seed", None)
                     got = record_of(name, built(tier, name, row, seed))
                     if "check_words" not in want:
@@ -300,13 +311,13 @@ NOT_ROW_TESTED = {
     "found_near": "find() over the live world",
     "food_up": "bite_plan over the knowledge tables (fed_as_needed has its own tests)",
     "now": "a read of the live bag and /state (the api module), the inner words are row-tested",
-    "&bonobo.bench.fight:_answers_are_closed": "a fight sweep's recorded rows (its own tests: test_pure_fight)",
-    "&bonobo.bench.fight:_shapes_fit_the_enemy": "a fight sweep's recorded rows",
-    "&bonobo.bench.fight:_more_of_them_costs_more": "a fight sweep's recorded rows",
-    "&bonobo.bench.fight:_wave_cleared": "a fight sweep's recorded rows",
+    "&_answers_are_closed": "a fight sweep's recorded rows (its own tests: test_pure_fight)",
+    "&_shapes_fit_the_enemy": "a fight sweep's recorded rows",
+    "&_more_of_them_costs_more": "a fight sweep's recorded rows",
+    "&_wave_cleared": "a fight sweep's recorded rows",
     "&has_stone_pickaxe": "the live bag",
     "&in_the_patch_underground": "the live /state and whether the body is enclosed (the live region)",
-    "behaviour": "a fight behaviour's rule over its recorded row (bench/fight.py BEHAVIOURS, test_pure_fight)",
+    "behaviour": "a fight behaviour's rule over its recorded row (vocab.BEHAVIOURS, test_pure_fight)",
     "brain_rule": "a brain grid family's rule for the cell (vocab.BRAIN_FAMILIES): the words it makes are the old ones",
     "hostiles": "the live entities (the gone/mobs_near rows read the same)",
 }

@@ -3,18 +3,13 @@ dicts (setup, run, check, before, budget, tier, …) — SCENARIOS, built here a
 decides; it reads the words back into vocab's helpers and predicates. The bench's other names (the runner's, the
 helpers') are reached through here too: `from bonobo.bench import table as sheet`."""
 import importlib
-
 from . import core, vocab
 from .vocab import *  # noqa: F401,F403  (the sheet's names: the runner's, the primitives', the helpers')
-
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
 RUNS = ("skill", "skill_bare", "do", "seq", "remember", "pause")          # the run words a lambda was written in (the rest: sheet factories)
 WORDS = ("hooks", "named_all", "interrupt_when", "iter", "constant", "now_api", "thunk", "api_only")    # the interpreter's own words
-
-
 resolve = vocab.resolve
-
 
 # -- values -------------------------------------------------------------------------------------------------------
 def dec(v):
@@ -39,7 +34,6 @@ def dec(v):
         return {k: dec(x) for k, x in v.items()}
     return v
 
-
 def _arg(a, ctx):
     """A run argument at run time: the context markers read, helpers called."""
     if a == "$ctx":
@@ -49,7 +43,6 @@ def _arg(a, ctx):
     if isinstance(a, tuple) and a and a[0] == "$call":
         return resolve(a[1])(*[_arg(x, ctx) for x in a[2:]])
     return dec(a)
-
 
 def _pred(kind, args):
     """A predicate word → check(api, inv)."""
@@ -70,14 +63,12 @@ def _pred(kind, args):
         return lambda api, inv: p()
     if kind == "now_api":
         p = dec(args[0])
-
         def now_api():
             from .. import api
             return p(api, None)
         return now_api
     if kind == "now":
         p = dec(args[0])
-
         def now():
             from .. import api
             from ..world import Inventory
@@ -88,7 +79,6 @@ def _pred(kind, args):
     if kind == "call":
         return lambda api, inv: f(api, inv, *vals, resolve=resolve)
     return lambda api, inv: f(api, inv, *vals)
-
 
 def _run(kind, args):
     if kind == "seq":
@@ -103,18 +93,15 @@ def _run(kind, args):
         return lambda ctx=None: time.sleep(args[0])
     if kind in ("skill", "skill_bare"):
         name, rest = args[0], args[1:]
-
         def skill_run(ctx):
             fn = resolve("_skill")(name)
             vals = [_arg(a, ctx) for a in rest]
             return fn(ctx, *vals) if kind == "skill" else fn(*vals)
         return skill_run
     target, pargs, kwargs = args
-
     def do(ctx):
         return resolve(target)(*[_arg(a, ctx) for a in pargs], **{k: _arg(v, ctx) for k, v in kwargs.items()})
     return do
-
 
 def make(item):
     """(kind, *args) → the callable it names, carrying its own data (`__table__`: what the tests read back). A
@@ -131,7 +118,6 @@ def make(item):
     except AttributeError:
         pass
     return f
-
 
 def _make(item):
     kind, args = item[0], item[1:]
@@ -157,7 +143,6 @@ def _make(item):
         return resolve("_interrupt_when")(*[dec(a) for a in args])
     return resolve(kind)(*[dec(a) for a in args])
 
-
 # -- rows ---------------------------------------------------------------------------------------------------------
 def _slot(items, wrap):
     """A slot's list (check, before) → one callable: the item alone, or `wrap` over them."""
@@ -165,7 +150,6 @@ def _slot(items, wrap):
         return items
     made = [make(i) for i in items]
     return made[0] if len(made) == 1 else wrap(made)
-
 
 def build(row, tier):
     """A table row → the runner's row dict."""
@@ -195,7 +179,6 @@ def build(row, tier):
         out["budget"] = min(out["budget"], ROW_LIMIT_S)
     return out
 
-
 def expand(families):
     """[(template, [params, ...])] → {name: row data}: one entry, many rows."""
     out = {}
@@ -204,7 +187,6 @@ def expand(families):
             row = vocab.TEMPLATES[template](vocab.NAMES[template](*p), *(p[1:] if template in vocab.NAMED else p))
             out[row["name"]] = row
     return out
-
 
 def rows(tier):
     """{name: row data} of one tier's table: its families expanded, its rows in words, its rows in code."""
@@ -216,11 +198,9 @@ def rows(tier):
         out[r["name"]] = r
     return out
 
-
 def sheet():
     """{name: runner row} of every table."""
     return {name: build(r, t) for t in TIERS for name, r in rows(t).items()}
-
 
 def load():
     """The one SCENARIOS (bench.core's dict, which the runner reads): every table's rows, built."""
@@ -228,6 +208,5 @@ def load():
     core.SCENARIOS.clear()
     core.SCENARIOS.update(built)
     return core.SCENARIOS
-
 
 SCENARIOS = load()

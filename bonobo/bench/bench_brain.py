@@ -2,20 +2,17 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
-
 FAMILIES = [
     ('brain', [('plan_repair_on_event',
-          'Planks + cobblestone + a wooden pickaxe carried (upkeep quiet), a stone pickaxe asked; the table the '
-          'plan puts down is taken away → that step is redone, the plan is not started over (≤ 2 plans)',
-          [('floor',), ('stand',), ('give', 'oak_planks', 12), ('give', 'cobblestone', 3),
-           ('give', 'wooden_pickaxe')],
+          'Planks + cobblestone + a wooden pickaxe carried (upkeep quiet), a stone pickaxe asked; the table the plan '
+          'puts down is taken away → that step is redone, the plan is not started over (≤ 2 plans)',
+          [('floor',), ('stand',), ('give', 'oak_planks', 12), ('give', 'cobblestone', 3), ('give', 'wooden_pickaxe')],
           [{'goal': 'have', 'args': {'needs': [['tool', 'pickaxe', 1]]}}],
           ('now', ('!count', 'minecraft:stone_pickaxe', '>=', 1)), 0.75,
           ('all', ('!count', 'minecraft:stone_pickaxe', '>=', 1), ('!replans_at_most', 2)),
           [('&count_replans',), ('&remove_table_when_placed',)], ['_count_replans', '_remove_table_when_placed']),
          ('plan_without_events', 'The same with nothing taken away → one plan (control)',
-          [('floor',), ('stand',), ('give', 'oak_planks', 12), ('give', 'cobblestone', 3),
-           ('give', 'wooden_pickaxe')],
+          [('floor',), ('stand',), ('give', 'oak_planks', 12), ('give', 'cobblestone', 3), ('give', 'wooden_pickaxe')],
           [{'goal': 'have', 'args': {'needs': [['tool', 'pickaxe', 1]]}}],
           ('now', ('!count', 'minecraft:stone_pickaxe', '>=', 1)), 0.5,
           ('all', ('!count', 'minecraft:stone_pickaxe', '>=', 1), ('!replans_at_most', 1)), [('&count_replans',)],
@@ -24,8 +21,7 @@ FAMILIES = [
           [('floor',), ('fill', ('@', -5, -1, -1), ('@', -3, 1, 1), 'barrier'),
            ('setblock', ('@', -4, 0, 0), 'iron_ore'), ('setblock', ('@', 4, 0, 0), 'iron_ore'), ('stand',),
            ('give', 'stone_pickaxe')],
-          [{'goal': 'have', 'args': {'needs': [['minecraft:raw_iron', 1]]}}], ('_count', 'minecraft:raw_iron', 1),
-          1,
+          [{'goal': 'have', 'args': {'needs': [['minecraft:raw_iron', 1]]}}], ('_count', 'minecraft:raw_iron', 1), 1,
           ('all', ('!gain', 'minecraft:raw_iron', 1),
            ('!blocks', ('@', -4, 0, 0), ('@', -4, 0, 0), ('iron_ore',), 1, 1),
            ('!blocks', ('@', 4, 0, 0), ('@', 4, 0, 0), ('iron_ore',), 0, 0)),
@@ -39,8 +35,7 @@ FAMILIES = [
            ('give', 'wooden_pickaxe')],
           [{'goal': 'have', 'args': {'needs': [['log', 2]]}},
            {'goal': 'have', 'args': {'needs': [['minecraft:cobblestone', 2]]}}],
-          ('now', ('!all', ('!thunk', ('!_count', 'log', 2)), ('!thunk', ('!_count', 'minecraft:cobblestone', 2)))),
-          1,
+          ('now', ('!all', ('!thunk', ('!_count', 'log', 2)), ('!thunk', ('!_count', 'minecraft:cobblestone', 2)))), 1,
           ('all', ('!before_in_bag', 'log', 'minecraft:cobblestone'), ('!gain', 'log', 2),
            ('!gain', 'minecraft:cobblestone', 2)),
           [('&first_times',)], ['_first_times']),
@@ -50,15 +45,12 @@ FAMILIES = [
            ('give', 'wooden_pickaxe')],
           [{'goal': 'have', 'args': {'needs': [['minecraft:cobblestone', 2]]}},
            {'goal': 'have', 'args': {'needs': [['log', 2]]}}],
-          ('now', ('!all', ('!thunk', ('!_count', 'log', 2)), ('!thunk', ('!_count', 'minecraft:cobblestone', 2)))),
-          1,
+          ('now', ('!all', ('!thunk', ('!_count', 'log', 2)), ('!thunk', ('!_count', 'minecraft:cobblestone', 2)))), 1,
           ('all', ('!before_in_bag', 'minecraft:cobblestone', 'log'), ('!gain', 'log', 2),
            ('!gain', 'minecraft:cobblestone', 2)),
           [('&first_times',)], ['_first_times'])]),
-    ('cell', [('plenty', 'full', 'fresh', 'surface', 'none', 'room'),
-         ('tight', 'full', 'fresh', 'surface', 'none', 'room'),
-         ('night', 'full', 'fresh', 'surface', 'none', 'room'),
-         ('plenty', 'low', 'fresh', 'surface', 'none', 'room'),
+    ('cell', [('plenty', 'full', 'fresh', 'surface', 'none', 'room'), ('tight', 'full', 'fresh', 'surface', 'none', 'room'),
+         ('night', 'full', 'fresh', 'surface', 'none', 'room'), ('plenty', 'low', 'fresh', 'surface', 'none', 'room'),
          ('plenty', 'full', 'one_use', 'surface', 'none', 'room'),
          ('plenty', 'full', 'fresh', 'underground', 'none', 'room'),
          ('plenty', 'full', 'fresh', 'surface', 'none', 'junk_full'),
@@ -87,19 +79,16 @@ FAMILIES = [
          ('path_blocked',
           'the last walk failed toward the far side of a 6-block gap, 16 blocks carried → bridged across',
           [('floor',), ('fill', ('@', 2, -3, -8), ('@', 7, -1, 8), 'air'), ('stand',), ('give', 'cobblestone', 16)],
-          [('blocked_toward', ('@', 9, 0, 0))], ('now_api', ('!_at', ('@', 9, 0, 0), 4)),
-          ('_at', ('@', 9, 0, 0), 4)),
+          [('blocked_toward', ('@', 9, 0, 0))], ('now_api', ('!_at', ('@', 9, 0, 0), 4)), ('_at', ('@', 9, 0, 0), 4)),
          ('bridge_stock',
-          'the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks fetched '
-          'first, to what the way across takes (bridge_stock), then across',
+          'the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks fetched first, '
+          'to what the way across takes (bridge_stock), then across',
           [('floor',), ('fill', ('@', 2, -3, -8), ('@', 7, -1, 8), 'air'), ('stand',), ('give', 'cobblestone', 2),
            ('give', 'diamond_pickaxe')],
           [('blocked_toward', ('@', 9, 0, 0))],
-          ('now',
-           ('!any', ('!api_only', ('!_at', ('@', 9, 0, 0), 4)), ('!count', 'minecraft:cobblestone', '>=', 9))),
+          ('now', ('!any', ('!api_only', ('!_at', ('@', 9, 0, 0), 4)), ('!count', 'minecraft:cobblestone', '>=', 9))),
           ('any', ('!_at', ('@', 9, 0, 0), 4), ('!count', 'minecraft:cobblestone', '>=', 9))),
-         ('unstuck',
-          'a minute in the same block with the same bag (history set), open ground → moved off (≥ 5 blocks)',
+         ('unstuck', 'a minute in the same block with the same bag (history set), open ground → moved off (≥ 5 blocks)',
           [('floor',), ('stand',)], [('stuck_for', 70)],
           ('now', ('!not', ('!call', 'near', ['$api', ('@', 0, 0, 0), 5]))),
           ('not', ('!call', 'near', ['$api', ('@', 0, 0, 0), 5]))),
@@ -113,8 +102,8 @@ FAMILIES = [
           [('sheet', '_NIGHT_FLOOR'), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 8)], [], ('&enclosed',),
           ('all', ('!call', 'enclosed', []), ('!state', 'y', '<', 199.5))),
          ('shelter_hut',
-          "night, no pickaxe, the hut's materials (cobblestone, a door, a torch) → sheltered by the way the "
-          "night's pricing chose",
+          "night, no pickaxe, the hut's materials (cobblestone, a door, a torch) → sheltered by the way the night's "
+          'pricing chose',
           [('sheet', '_NIGHT_FLOOR'), ('give', 'cobblestone', 32), ('give', 'oak_door'), ('give', 'torch', 2)], [],
           ('&enclosed',), ('call', 'enclosed', [])),
          ('shelter_wall_in', 'night, no pickaxe, cobblestone only → walled in where it stands',
@@ -124,22 +113,20 @@ FAMILIES = [
           [('sheet', '_NIGHT_FLOOR'), ('give', 'white_bed'), ('give', 'cobblestone', 16)], [], ('&is_day_now',),
           ('all', ('!is_day',), ('!blocks', ('@', -3, 0, -3), ('@', 3, 2, 3), ('cobblestone',), 0, 0)))]),
     ('dirt', [('night_dig_in_dirt',
-          'dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked there, dug in by '
-          'hand: two or more down in the dirt, sealed overhead',
+          'dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked there, dug in by hand: '
+          'two or more down in the dirt, sealed overhead',
           [], ('now', ('!call', 'in_the_patch_underground', ['$api', None])), ('&in_the_patch_underground',)),
          ('night_dig_in_dirt_unreachable',
-          "the same dirt across a drop to nothing, a pod's blocks carried → never walked to (must not): walled in "
-          'on its own side of the gap',
+          "the same dirt across a drop to nothing, a pod's blocks carried → never walked to (must not): walled in on "
+          'its own side of the gap',
           [('fill', ('@', 4, -3, -8), ('@', 5, -1, 8), 'air'), ('give', 'cobblestone', 10)], ('&enclosed',),
           ('state', 'blockX', '<', 10004))]),
 ]
-
 ROWS = [
-]
 
+]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
-
 _IRON_TWO = [("floor",), ("setblock", ("@", -4, 0, 0), "iron_ore"), ("setblock", ("@", 4, 0, 0), "iron_ore"), ("stand",)]
 CODE_ROWS = [
     # the zombie comes on a timer, not by progress: moved unchanged (the user's call)
