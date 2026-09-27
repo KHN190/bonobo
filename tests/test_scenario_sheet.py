@@ -256,7 +256,7 @@ class Tiers(unittest.TestCase):
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
 LONG = set()  # rows over the 60 s limit still to be cut down by setup: none left (may only stay empty)
-LIMIT_S = {t: 30 for t in ("core", "common", "brain", "combat", "exception")}
+LIMIT_S = {t: runner.ROW_LIMIT_S for t in ("core", "common", "brain", "combat", "exception")}   # the one limit
 
 
 def over_limit(rows_):
@@ -267,12 +267,12 @@ def over_limit(rows_):
 class Budgets(unittest.TestCase):
     # (situation, a sheet) → the rows over their limit
     ROWS = [("the real sheet: only the long list", None, None),
-            ("a core row at 31 s", {"x": {"tier": "core", "budget": 31}}, ["x"]),
-            ("a core row at 30 s", {"x": {"tier": "core", "budget": 30}}, []),
-            ("an exception row at 31 s", {"x": {"tier": "exception", "budget": 31}}, ["x"]),
-            ("a brain row at 31 s", {"x": {"tier": "brain", "budget": 31}}, ["x"]),
-            ("a combat row at 31 s", {"x": {"tier": "combat", "budget": 31}}, ["x"]),
-            ("a common row at 30 s", {"x": {"tier": "common", "budget": 30}}, []),
+            ("a core row over the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a core row at the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S}}, []),
+            ("an exception row over the limit", {"x": {"tier": "exception", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a brain row over the limit", {"x": {"tier": "brain", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a combat row over the limit", {"x": {"tier": "combat", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a common row at the limit", {"x": {"tier": "common", "budget": runner.ROW_LIMIT_S}}, []),
             ("acceptance is its own limit", {"x": {"tier": "acceptance", "budget": 1800}}, [])]
 
     def test_budget_limits(self):

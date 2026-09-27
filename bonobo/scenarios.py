@@ -3161,6 +3161,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
     return hook
 
 
+THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
     # At 11800 dusk was 10 s off: not yet due, the 6 s log task came first and the bed after it (brain__tight).
@@ -3168,10 +3169,20 @@ BRAIN_DIMS = {
     # Drained before the run to ~10 (`_drain_to`). The effect here only marks the row hungry for the body reset (no
     # saturation after setup): one second at level I drains nothing that matters; the drain proper is the hook's.
     "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
-    "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
+    # one_use: a crafting table stands by the start (within `_sitting`'s radius 6 of the start and the stone): the
+    # carried table's place, open and break-to-carry-back is not the row's behaviour (the tier chosen is) and costs
+    # seconds every run (measured 27.8 s against the 25 s limit; the cut is to be measured in-game). The kit's table
+    # item stays: nothing given, a block placed.
+    "tool": {"fresh": ["give @p iron_pickaxe"],
+             "one_use": ["give @p iron_pickaxe[damage=249]", f"setblock {_c(at(-2, 0, -1))} crafting_table"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
-    "bag": {"room": [], "one_slot": [], "junk_full": [], "valuables_full": []},     # filled by the `before` hook
+    # Filled by the `before` hook. one_slot (35 used ≥ reflexes.BAG_FULL: the bag is emptied first) starts at
+    # THROW_START: the only 3-deep open side is +x, over the arena's edge, so tidy_inventory throws the dirt away from
+    # the tree and steps back toward it. From the middle it throws +x as well — toward the tree — steps away to -x and
+    # walks back past the drops, where they can be picked up and the bag emptied again (measured 25.6 s against the
+    # 25 s limit; the cut is to be measured in-game).
+    "bag": {"room": [], "one_slot": [_tp(*THROW_START)], "junk_full": [], "valuables_full": []},
 }
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
 BAG_FILL = {"room": None, "one_slot": (1, "dirt"), "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
