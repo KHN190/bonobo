@@ -770,7 +770,7 @@ def run(name, make_ctx):
             LAST_FEEDBACK[:] = feedback
             fired = threading.Event()
             limit = sc["budget"]
-            timer = _watchdog(limit, fired)
+            timer = None
             try:
               try:
                 ctx = make_ctx()
@@ -781,9 +781,14 @@ def run(name, make_ctx):
                 if _sc.dead():
                     # Dead before the skill began (a dragon fight started at 0 hp): the setup is invalid, not the skill.
                     raise SetupInvalid("player dead before the skill started")
+                # The budget is the behaviour's: `before` hooks build the scene (a hunger drain took 19 s of
+                # night_first__low's 30), so the clock and the watchdog start here.
+                t0 = time.time()
+                timer = _watchdog(limit, fired)
                 result = sc["run"](ctx)
               finally:
-                timer.cancel()
+                if timer is not None:
+                    timer.cancel()
             except KeyboardInterrupt:
                 if not fired.is_set():
                     raise                      # the user's ^C, not the limit

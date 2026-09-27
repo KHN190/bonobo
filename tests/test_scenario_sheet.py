@@ -635,21 +635,19 @@ class BrainGrid(unittest.TestCase):
 
 
 class FoodFirstFromTheWorld(unittest.TestCase):
-    """night_first__low's check, from the world: raw beef out of the bag and a furnace lit (or cooked beef in the bag)
-    before any log, and the bar no
+    """night_first__low's check, from the world: a furnace holding the beef (or cooked beef in the bag) before any
+    log, and the bar no
     lower at the end than the drain left it. Logs first with nothing cooking must fail."""
 
     def test_over_the_table(self):
         from types import SimpleNamespace
         check = sc.BRAIN_FAMILIES["night_first"][2](dict(sc.BRAIN_BASE, dusk="night", food="low"))[0]
-        cooking = {"-beef": 1.5, "furnace_lit": 2.0}
-        rows = [("beef out, furnace lit at 2 s, logs at 9 s, food kept", {**cooking, "log": 9.0}, 12, True),
+        rows = [("beef in a furnace at 2 s, logs at 9 s, food kept", {"furnace_beef": 2.0, "log": 9.0}, 12, True),
                 ("cooked beef in the bag before logs", {"minecraft:cooked_beef": 3.0, "log": 9.0}, 12, True),
-                ("must fail: logs first, nothing cooking", {"log": 4.0}, 12, False),
-                ("must fail: logs at 3 s, the furnace lit only at 8 s", {"-beef": 1.5, "furnace_lit": 8.0, "log": 3.0},
-                 12, False),
-                ("must fail: the beef gone (eaten) but no furnace lit", {"-beef": 1.5, "log": 9.0}, 12, False),
-                ("must fail: food first but the bar fell below the drain", {**cooking, "log": 9.0}, 7, False)]
+                ("must fail: logs first, nothing in a furnace", {"log": 4.0}, 12, False),
+                ("must fail: logs at 3 s, the beef in the furnace only at 8 s", {"furnace_beef": 8.0, "log": 3.0}, 12,
+                 False),
+                ("must fail: food first but the bar fell below the drain", {"furnace_beef": 2.0, "log": 9.0}, 7, False)]
         for name, first, food_end, want in rows:
             with self.subTest(name):
                 fake = SimpleNamespace(get=lambda path, _f=food_end: {"food": _f})
@@ -664,6 +662,38 @@ class FoodFirstFromTheWorld(unittest.TestCase):
                     sc.FIRST.update(saved_first)
                     sc.BASE.clear()
                     sc.BASE.update(saved_base)
+
+
+class FurnaceSlots(unittest.TestCase):
+    """scenarios.furnace_slots: what a furnace holds, from the game's `data get block … Items` answer."""
+
+    def test_table(self):
+        head = "Furnace at 10000, 200, 10000 has the following block data: "
+        rows = [("empty", [head + "[]"], {}),
+                ("raw beef in the input", [head + '[{Slot: 0b, id: "minecraft:beef", count: 2}]'],
+                 {0: ("minecraft:beef", 2)}),
+                ("cooked beef in the output", [head + '[{count: 2, Slot: 2b, id: "minecraft:cooked_beef"}]'],
+                 {2: ("minecraft:cooked_beef", 2)}),
+                ("both, and the fuel", [head + '[{Slot: 0b, id: "minecraft:beef", count: 1}, {Slot: 1b, id: '
+                                               '"minecraft:coal", count: 1}, {Slot: 2b, id: "minecraft:cooked_beef", '
+                                               'count: 1}]'],
+                 {0: ("minecraft:beef", 1), 1: ("minecraft:coal", 1), 2: ("minecraft:cooked_beef", 1)}),
+                ("not a furnace answer", ["Found no elements matching Items"], {})]
+        for name, reply, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sc.furnace_slots(reply), want)
+
+
+class Drain(unittest.TestCase):
+    """scenarios.drain_done: the hunger drain stops at the level + 1 (one more point follows the clear)."""
+
+    def test_table(self):
+        rows = [("full: on", 20, 10, False), ("one above the stop: on", 12, 10, False),
+                ("at level + 1: stop", 11, 10, True), ("overshot to the level: stop", 10, 10, True),
+                ("well below: stop", 7, 10, True)]
+        for name, food, level, want in rows:
+            with self.subTest(name):
+                self.assertIs(sc.drain_done(food, level), want)
 
 
 class Chance(unittest.TestCase):

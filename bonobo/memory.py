@@ -195,15 +195,23 @@ class Memory:
     def jobs(self, dimension=None):
         return [j for j in self.data["jobs"] if dimension is None or j["dimension"] == dimension]
 
-    def add_job(self, kind, pos, dimension, item, count, ready_at, carried):
+    def add_job(self, kind, pos, dimension, item, count, ready_at, carried, **contents):
+        """A background job; `contents` says what went in (a furnace: input, input_count, fuel, fuel_count) — what
+        the furnace holds is known from here, never guessed."""
         # One id per job: three furnaces loaded in the same second shared "furnace-<second>", and finishing the
         # first finished all three (bench iron_ingots: 3 ordered, 2 collected).
         self.data["job_seq"] = self.data.get("job_seq", 0) + 1
         job = {"id": f"{kind}-{int(time.time())}-{self.data['job_seq']}", "kind": kind, "pos": list(pos), "dimension": dimension,
-               "item": item, "count": count, "ready_at": ready_at, "carried": carried}
+               "item": item, "count": count, "ready_at": ready_at, "carried": carried, **contents}
         self.data["jobs"].append(job)
         self.save()
         return job
+
+    def update_job(self, job_id, **fields):
+        for j in self.data["jobs"]:
+            if j["id"] == job_id:
+                j.update(fields)
+        self.save()
 
     def finish_job(self, job_id):
         self.data["jobs"] = [j for j in self.data["jobs"] if j["id"] != job_id]

@@ -464,7 +464,9 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
             api.post("/close")    # leave the furnace standing: that's the point
         ready_at = time.time() + 10 * k + 5
         tick = api.get("/state").get("gameTime")
-        job = ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed)
+        job = ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed,
+                              input=inputs[0] if inputs else None, input_count=k,
+                              fuel=fuels[0] if fuels else None, fuel_count=f)
         if tick is not None:
             job["ready_tick"] = tick + TICKS_PER_ITEM * k + 20
             ctx.mem.save()
@@ -504,6 +506,19 @@ def _smelter_for(ctx, s):
 TICKS_PER_ITEM = 200        # a furnace smelts one item in 200 game ticks (10 s at 20 tps)
 
 
+def after_take(job, got, still_cooking, now, tick=None):
+    """Pure: what memory knows of a furnace job after taking `got` of its output with `still_cooking` items left in
+    its input — None when the job is over (nothing left cooking), else the fields to update: what it still holds
+    and when it is next ready. Every load and take goes through memory; the planner and the food stock read it."""
+    if not still_cooking:
+        return None
+    out = {"count": max(0, job["count"] - got), "input_count": still_cooking,
+           "ready_at": now + 10 * still_cooking + 5}
+    if tick is not None:
+        out["ready_tick"] = tick + TICKS_PER_ITEM * still_cooking + 20
+    return out
+
+
 @skill(gives={}, needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]["item"]),
        verify=lambda c: Inventory().count(c.args[1]["item"]) > c.base, budget=240, stall=60, per_unit=20)
 def collect_job(ctx, job):
@@ -531,17 +546,9 @@ def collect_job(ctx, job):
     finally:
         api.post("/close")
     got = gained(lambda: Inventory().count(job["item"]), before) - before
-    if still_cooking:
-        ctx.mem.postpone_job(job["id"], 10 * still_cooking + 5)
-        tick = api.get("/state").get("gameTime")
-        for j in ctx.mem.data["jobs"]:
-            if j["id"] == job["id"] and tick is not None:
-                j["ready_tick"] = tick + TICKS_PER_ITEM * still_cooking + 20
-        job_left = job["count"] - got
-        for j in ctx.mem.data["jobs"]:
-            if j["id"] == job["id"]:
-                j["count"] = max(0, job_left)
-        ctx.mem.save()
+    left = after_take(job, got, still_cooking, time.time(), api.get("/state").get("gameTime"))
+    if left is not None:
+        ctx.mem.update_job(job["id"], **left)
         log(f"took {got}× {bare(job['item'])}; {still_cooking} still cooking")
         return
     if job.get("carried"):

@@ -2781,12 +2781,29 @@ def _log_order(first, then):
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 
-def _furnace_lit(radius=16):
-    """A furnace within `radius` is lit (its block state), read from the world."""
-    from .world import Region, find
+def furnace_slots(reply):
+    """Pure: {slot: (item id, count)} from the game's answer to `data get block <pos> Items`
+    ("… has the following block data: [{Slot: 0b, id: "minecraft:beef", count: 2}, …]"). Slot 0 is the input,
+    1 the fuel, 2 the output. {} when it holds nothing (or said something else)."""
+    import re
+    text = " ".join(reply)
+    out = {}
+    for entry in re.findall(r"\{([^{}]*)\}", text):
+        slot = re.search(r"Slot:\s*(\d+)b", entry)
+        item = re.search(r'id:\s*"([^"]+)"', entry)
+        count = re.search(r"count:\s*(\d+)", entry)
+        if slot and item:
+            out[int(slot.group(1))] = (item.group(1), int(count.group(1)) if count else 1)
+    return out
+
+
+def _furnace_holds(items, radius=16):
+    """A furnace near holds one of `items` in its input or output slot, read from the world (the console's
+    `data get block … Items`): what is in the furnace, not whether it is lit."""
+    from .world import find
     for h in find(["furnace"], radius=radius, limit=8):
-        p = (h["x"], h["y"], h["z"])
-        if str(Region(p, p, props=True).prop(p, "lit")).lower() == "true":
+        slots = furnace_slots(_command(f"data get block {h['x']} {h['y']} {h['z']} Items", []))
+        if any(slots.get(s, ("", 0))[0] in items for s in (0, 2)):
             return True
     return False
 
@@ -2809,14 +2826,10 @@ def _first_times(ctx):
                 for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
                     if tok not in FIRST and inv.count(tok) > _base_count(tok):
                         FIRST[tok] = time.time() - t0
-            # Something cooking, read from the world: raw beef gone from the bag ("-beef") and a furnace lit near us
-            # ("furnace_lit", its block state). The jar cannot read a furnace's slots without opening it (/container
-            # is the open screen only), so the lit state stands for its contents: the only smeltable in the kit.
+            # Beef in a furnace (raw in the input or cooked in the output), read from the world: `data get block`.
             try:
-                if "-beef" not in FIRST and inv.count("minecraft:beef") < _base_count("minecraft:beef"):
-                    FIRST["-beef"] = time.time() - t0
-                if "furnace_lit" not in FIRST and _furnace_lit():
-                    FIRST["furnace_lit"] = time.time() - t0
+                if "furnace_beef" not in FIRST and _furnace_holds(("minecraft:beef", "minecraft:cooked_beef")):
+                    FIRST["furnace_beef"] = time.time() - t0
             except Exception:
                 pass
             time.sleep(0.5)
@@ -3003,21 +3016,26 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
 # three goals in one slice fit 30 s only with the ore at hand (console-built, the goal kept).
 DIAMOND_UP, DIAMOND_DOWN = at(2, 0, -2), at(4, -9, 0)
 POCKET = at(0, -9, 0)
-LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # drained until food ≤ 10, then the hunger cleared (closed loop: 4 s left 14,
-                                      # 5 and 8 s left 0 and the raw beef was eaten starving)
-# Hunger at 255 drains ~6 points a second: a poll every 0.1 s over HTTP overshot to 0. At 60 it is ~1.5 a second,
-# slow enough to stop on the point.
-LOW_FOOD_AMP = 60
+LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `before` hook: harness, not budget)
+DRAIN_POLL_S = 0.05
+
+
+def drain_done(food, level):
+    """Pure: stop the drain now — food at `level` + 1 or below (the exhaustion left over takes about one more point
+    once the effect is cleared). Saturation goes first on its own: the bar only moves once it is empty."""
+    return food <= level + 1
 
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
-    """`before` hook: wait while setup's hunger drains the bar, and clear it the moment food ≤ `level`; the bar
-    must end inside `window` (default: hungry, not starving — STARVE < food < EAT_BELOW)."""
+    """`before` hook: hunger at full strength (~6 points a second: saturation first, then food), read from /state
+    every 50 ms, cleared at `level` + 1 — a few seconds, not the 19 s a slow drain took (saturation absorbed the
+    first 12.5 s). The bar must end inside `window` (default: hungry, not starving — STARVE < food < EAT_BELOW)."""
     def hook(ctx):
         from . import api
+        _chat("effect give @p minecraft:hunger 30 255 true")
         t0 = time.time()
-        while time.time() - t0 < max_s and api.get("/state").get("food", 20) > level:
-            time.sleep(0.1)
+        while time.time() - t0 < max_s and not drain_done(api.get("/state").get("food", 20), level):
+            time.sleep(DRAIN_POLL_S)
         _chat("effect clear @p minecraft:hunger")
         time.sleep(1.0)                   # what exhaustion was left takes its last point, if any
         food = api.get("/state").get("food", 20)
@@ -3027,12 +3045,15 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
         if not lo < food < hi:
             raise SetupInvalid(f"food {food} after the drain: wanted between {lo} and {hi}")
     return hook
+
+
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
     # At 11800 dusk was 10 s off: not yet due, the 6 s log task came first and the bed after it (brain__tight).
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
-    # Drained by the run's start to below EAT_BELOW (14): 4 s left the bar at exactly 14, and "food < 14" never held.
-    "food": {"full": [], "low": [f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} {LOW_FOOD_AMP} true"]},
+    # Drained before the run to ~10 (`_drain_to`). The effect here only marks the row hungry for the body reset (no
+    # saturation after setup): one second at level I drains nothing that matters; the drain proper is the hook's.
+    "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
     "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
@@ -3064,11 +3085,10 @@ def _bed_then_log(cell):
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
-        # Food first, judged from the world: the raw beef out of the bag and a furnace lit, both before any log was
-        # gained — or cooked beef in the bag first — and the bar no lower at the end than the drain left it. Logs
-        # first with nothing cooking fails.
-        food_first = lambda api, inv: ((_before_in_bag("-beef", "log")(api, inv)                   # noqa: E731
-                                        and _before_in_bag("furnace_lit", "log")(api, inv))
+        # Food first, judged from the world: a furnace holding the beef (input) or the cooked beef (output) before
+        # any log was gained — or cooked beef in the bag first — and the bar no lower at the end than the drain left
+        # it. Logs first with nothing cooking fails.
+        food_first = lambda api, inv: (_before_in_bag("furnace_beef", "log")(api, inv)             # noqa: E731
                                        or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
         kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
@@ -3285,7 +3305,7 @@ UPKEEP_ROWS = [
     # hurt with the bar short of full: no regen below 18 and slow below 20 — eaten to full though not hungry
     ("eat_to_regen", "hurt (instant damage), food 16 (not hungry: above EAT_BELOW), bread carried → eaten to a full "
      "bar, and health rises",
-     _floor() + [_tp(), "give @p bread 4", f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} {LOW_FOOD_AMP} true",
+     _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 1 0 true",
                  "effect give @p minecraft:instant_damage 1 0 true"],
      [_drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
       lambda ctx: BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"],
