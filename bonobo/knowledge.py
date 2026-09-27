@@ -110,6 +110,8 @@ STATIONS = {"minecraft:crafting_table", "minecraft:furnace"}
 COOKABLE_FOOD = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraft:cooked_mutton",
                  "minecraft:cooked_chicken", "minecraft:cooked_rabbit"]
 ALL_FOOD = [mid(f) for f in FOOD]
+# Raw meat: food that wants cooking — eaten raw only when starving, counted as the next meal while cooked is short.
+RAW_MEAT = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:chicken", "minecraft:rabbit"]
 
 # One definition of "enough food for the Nether trip". Six, not twelve: a speedrun crosses on a handful of steaks,
 # while twelve cooked items means a dozen kills plus smelting.

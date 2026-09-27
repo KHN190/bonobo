@@ -920,7 +920,7 @@ def torch_commands(state, args=(4, 1)):
             for p in spots[:limit]]
 
 
-RAW_MEAT = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken"]
+from .knowledge import RAW_MEAT  # noqa: E402  (one food table: knowledge.ALL_FOOD / RAW_MEAT)
 
 
 def edible_carried(inv):
@@ -936,8 +936,7 @@ def eat(ctx=None, raw_ok=False):
     """Eat the best food carried (raw meat too when starving). Returns False when there is none."""
     from .knowledge import ALL_FOOD
     inv = Inventory()
-    raw = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken"]
-    food = next((f for f in ALL_FOOD + (raw if raw_ok else []) if inv.count(f)), None)
+    food = next((f for f in ALL_FOOD + (RAW_MEAT if raw_ok else []) if inv.count(f)), None)
     if food:
         started = time.time()
         api.run({"type": "eat", "item": food}, wait=30)

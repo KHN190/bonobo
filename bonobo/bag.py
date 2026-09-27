@@ -59,7 +59,6 @@ def pickup_whitelist(used_slots, wanted=()):
     return sorted(ids)
 
 
-RAW_MEAT = ("minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:chicken", "minecraft:rabbit")
 
 # Upkeep's floor: what the bag never goes below, by kind — the next meals, blocks to bridge and wall with, light,
 # water, a bed, the two stations and fire. Tools and armour that still work are kept whole (spares included).
@@ -71,7 +70,7 @@ UNPRICED_S = 1.0          # seconds to get again when nothing prices an item: it
 
 
 def _floor_ids(token):
-    from .knowledge import ALL_FOOD, members
+    from .knowledge import ALL_FOOD, RAW_MEAT, members
     if token == "food":
         return list(ALL_FOOD) + list(RAW_MEAT)     # raw meat is the next meal while cooked food is short
     return list(members(token))

@@ -255,7 +255,6 @@ def still_worth(choice, field_model, price, horizon):
 
 # ------------------------------------------------------------------------------------------------ the batches
 
-RAW_OK = ("minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:rabbit", "minecraft:chicken")
 
 
 def batch(option, state):
@@ -285,8 +284,8 @@ def _evade(option, state):
 
 
 def _eat(option, state):
-    from .knowledge import ALL_FOOD
-    wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_OK)
+    from .knowledge import ALL_FOOD, RAW_MEAT
+    wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_MEAT)
     food = next((f for f in wanted if state["inv"].count(f)), None)
     return [{"type": "eat", "item": food}] if food else []
 
