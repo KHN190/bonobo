@@ -957,6 +957,7 @@ def torch_commands(state, args=(4, 1)):
 
 
 from .knowledge import RAW_MEAT  # noqa: E402  (one food table: knowledge.ALL_FOOD / RAW_MEAT)
+from .data import FULL_BAR, NUTRITION  # noqa: E402
 
 
 def edible_carried(inv):
@@ -968,11 +969,30 @@ def edible_carried(inv):
 @skill(start=lambda c: api.get("/state")["food"],
        verify=lambda c: api.get("/state")["food"] > c.base, budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
+def bites_to_full(food, carried, raw_ok=False):
+    """Pure: (item, bites) — what to eat to fill the bar from `food` points, and how many bites of it: the item whose
+    restore fits the gap best (the biggest that does not overflow, else the smallest that does), raw meat only when
+    `raw_ok` (starving). (None, 0) when the bar is full or nothing allowed is carried. `carried`: {item id: count}."""
+    from .knowledge import ALL_FOOD
+    gap = FULL_BAR - food
+    allowed = [f for f in ALL_FOOD + (RAW_MEAT if raw_ok else []) if carried.get(f, 0) > 0]
+    if gap <= 0 or not allowed:
+        return None, 0
+    points = lambda f: NUTRITION[f.split(":")[-1]]      # noqa: E731
+    fits = [f for f in allowed if points(f) <= gap]
+    item = max(fits, key=points) if fits else min(allowed, key=points)
+    return item, math.ceil(gap / points(item))
+
+
 def eat(ctx=None, raw_ok=False):
-    """Eat the best food carried (raw meat too when starving). Returns False when there is none."""
+    """Eat one bite of the food that best fits the gap to a full bar (`bites_to_full`; raw meat too when starving).
+    Returns False when the bar is already full."""
     from .knowledge import ALL_FOOD
     inv = Inventory()
-    food = next((f for f in ALL_FOOD + (RAW_MEAT if raw_ok else []) if inv.count(f)), None)
+    carried = {f: inv.count(f) for f in ALL_FOOD + RAW_MEAT}
+    food, _bites = bites_to_full(api.get("/state").get("food", 0), carried, raw_ok)
+    if food is None and any(carried.get(f) for f in ALL_FOOD + (RAW_MEAT if raw_ok else [])):
+        return False                    # full: nothing to eat for
     if food:
         started = time.time()
         api.run({"type": "eat", "item": food}, wait=30)

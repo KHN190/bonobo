@@ -31,6 +31,25 @@ def run_table(t, fn, table):
 BOAT = ["planks", None, "planks", "planks", "planks", "planks", None, None, None]   # 5 planks cells
 
 
+class BitesToFull(unittest.TestCase):
+    B, BEEF, APPLE, CARROT, RAW = ("minecraft:bread", "minecraft:cooked_beef", "minecraft:apple", "minecraft:carrot",
+                                   "minecraft:beef")
+    # (situation, food points, carried, raw ok) → (item, bites)
+    ROWS = [("two haunches short, bread: one bite", 16, {B: 3}, False, (B, 1)),
+            ("full: nothing", 20, {B: 3}, False, (None, 0)),
+            ("only raw meat, not starving: nothing", 10, {RAW: 5}, False, (None, 0)),
+            ("only raw meat, starving: raw, bites to full", 0, {RAW: 5}, True, (RAW, 7)),
+            ("several: the one that fills the gap exactly", 12, {B: 1, BEEF: 1, APPLE: 1}, False, (BEEF, 1)),
+            ("a small gap: the biggest that does not overflow", 17, {APPLE: 1, CARROT: 1}, False, (CARROT, 1)),
+            ("every item overflows: the smallest", 19, {BEEF: 1, B: 1}, False, (B, 1)),
+            ("none carried (count 0): nothing", 5, {B: 0}, True, (None, 0))]
+
+    def test_bites(self):
+        for name, food, carried, raw_ok, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(skills.bites_to_full(food, carried, raw_ok), want)
+
+
 class ResolvePattern(unittest.TestCase):
     TABLE = [
         ("one log for planks", (["log", None, None, None], 1, bag(inventory(oak_log=1))),

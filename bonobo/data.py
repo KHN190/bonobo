@@ -63,6 +63,12 @@ SMELTS = {"minecraft:stone": "minecraft:cobblestone", "minecraft:glass": "minecr
 FOOD = ["cooked_beef", "cooked_porkchop", "cooked_mutton", "cooked_chicken", "cooked_rabbit", "cooked_salmon",
         "cooked_cod", "bread", "baked_potato", "golden_carrot", "apple", "carrot", "sweet_berries", "glow_berries",
         "melon_slice", "cookie"]
+# Hunger points one item restores (vanilla), cooked and raw: what a bite is worth against the gap to a full bar.
+NUTRITION = {"cooked_beef": 8, "cooked_porkchop": 8, "cooked_mutton": 6, "cooked_chicken": 6, "cooked_rabbit": 5,
+             "cooked_salmon": 6, "cooked_cod": 5, "bread": 5, "baked_potato": 5, "golden_carrot": 6, "apple": 4,
+             "carrot": 3, "sweet_berries": 2, "glow_berries": 2, "melon_slice": 2, "cookie": 2,
+             "beef": 3, "porkchop": 3, "mutton": 2, "chicken": 2, "rabbit": 3}
+FULL_BAR = 20
 
 # Food is a group like planks or wool: recipes and plans want "something to eat", the world hands out a cooked
 # chop. Without the group, "food" was not a dimension the solver could reach, so the one terminal good the agent
