@@ -237,6 +237,25 @@ class Planner:
             self.speed_up("hunt", math.ceil(missing / per), depth)
             self.add_step(Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
                                                         "fighter": hunts_a_fighter(types)}))
+        elif kind == "farm":
+            # A plot (farming.plant_farm): a hoe, the seeds sown (given back at the harvest) and a water bucket that
+            # stays in it; one plot is `per` of the crop.
+            _, seeds, per = src
+            plots = math.ceil(missing / per)
+            self.need_tool("hoe", 0, depth)
+            self.need(seeds, per, depth + 1)
+            self.need("minecraft:water_bucket", plots, depth + 1)
+            self.add_step(Step("farm", token, plots * per, {"plots": plots,
+                                                            "inputs": {"minecraft:water_bucket": plots}}))
+            self.inv.add(seeds, per)
+            self.inv.add(token, plots * per)
+            self.inv.consume(token, missing)
+        elif kind == "trade":
+            # Sold to a villager for what it buys (the offer decides): nothing carried to plan, a villager to find.
+            _, types = src
+            self.add_step(Step("trade", token, missing, {"types": types}))
+        else:
+            raise Unplannable(f"{token}: its only source ({kind}) is not one the planner plans")
 
     def add_step(self, step):
         step.est = self.cost.estimate(step)
@@ -291,8 +310,10 @@ def runnable(step, inv):
         return inv.count("minecraft:bucket") >= 1
     if step.kind == "hunt":
         return tool_ok(inv, "sword", 1, min_left=1) if step.detail.get("fighter") else True
-    if step.kind == "gather":
+    if step.kind in ("gather", "trade"):
         return True
+    if step.kind == "farm":
+        return tool_ok(inv, "hoe", 0) and all(inv.count(t) >= n for t, n in step.detail.get("inputs", {}).items())
     if step.kind == "reach":
         return True      # getting the body somewhere it can work needs nothing but the body
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
@@ -313,4 +334,4 @@ class NullCost:
 
     def estimate(self, step):
         return {"craft": 60, "smelt": 200 * step.count, "mine": 80 * step.count, "gather": 60 * step.count,
-                "hunt": 400 * step.count}[step.kind]
+                "hunt": 400 * step.count, "fill": 100, "farm": 6000, "trade": 600}[step.kind]

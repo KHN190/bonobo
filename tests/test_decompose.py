@@ -26,13 +26,6 @@ START = {"bag_free": 20}
 STEP_BOUND = 20          # fixture: planner steps from an empty bag, at most (the iron pickaxe: 11)
 SOLVE_BOUND = 50         # fixture: solver columns run from an empty bag, at most (seeks included; a dispenser: 45)
 
-# Production gaps this contract found, pinned so that fixing one — or a new one appearing — fails here.
-GAPS = {
-    "closure": {"minecraft:water_bucket"},             # farm:wheat consumes it; source() says fill, no column fills
-    # a skill's hard need no column makes: the bucket (as above) and trade's emeralds (no villager column)
-    "skill_needs": {"minecraft:water_bucket", "minecraft:emerald"},
-    "planner": {"minecraft:bread"},                    # no wheat source for the planner; the solver farms it
-}
 
 
 def real_table():
@@ -166,7 +159,7 @@ class Declared(unittest.TestCase):
 class Closed(unittest.TestCase):
     def test_every_dim_used_is_made(self):
         real = real_table()
-        rows = [("the real table: only the pinned gaps", real, GAPS["closure"]),
+        rows = [("the real table: every dim made", real, set()),
                 ("a broken chain: an input nothing makes", [Action("craft:a", {"a": 1, "b": -1}, 1.0)], {"b"}),
                 ("a requirement nothing makes", [Action("work", {"a": 1}, 1.0, requires={"key": 1})], {"key"}),
                 ("a variant of a made group is held stock, not a gap",
@@ -179,7 +172,7 @@ class Closed(unittest.TestCase):
     def test_every_token_is_grounded_in_a_base(self):
         roots = [g[0] for g in goals() if g[0] != "tool"] + ["minecraft:iron_pickaxe"]
         cyclic = {"a": ("craft", ["b"], 1), "b": ("craft", ["a"], 1)}
-        rows = [("the real knowledge", knowledge.source, roots, GAPS["planner"] & {"minecraft:bread"}),
+        rows = [("the real knowledge", knowledge.source, roots, set()),
                 ("a cycle with no base entry", lambda t: cyclic.get(t), ["a"], {"a", "b"}),
                 ("a craft from nothing known", lambda t: {"a": ("craft", ["zzz"], 1)}.get(t), ["a"], {"a", "zzz"}),
                 ("a chain down to a mine", lambda t: {"a": ("craft", ["b"], 1), "b": ("mine", ["x"], 0)}.get(t),
@@ -203,7 +196,7 @@ class Replayed(unittest.TestCase):
             early, held = replay_steps(steps, goal)
             bad += [(goal, e) for e in early] + ([(goal, "not held at the end")] if not held else []) + \
                 ([(goal, f"{len(steps)} steps")] if len(steps) > STEP_BOUND else [])
-        self.assertEqual((bad, failed), ([], GAPS["planner"]))
+        self.assertEqual((bad, failed), ([], set()))
 
     def test_the_solver_from_an_empty_bag(self):
         table, bad, failed = real_table(), [], set()
@@ -240,7 +233,8 @@ def skill_need_keys():
     tiers = {t for _blocks, t in knowledge.MINE.values()} | {None}
     keys = {}
     for name, c in REGISTRY.items():
-        calls = [(None, None, None, None, t) for t in tiers] if c.needs_fn else [()]
+        # a call-dependent need at every argument that changes it: mine's tier, trade's want
+        calls = [(None, "minecraft:bread", None, None, t) for t in tiers] if c.needs_fn else [()]
         for args in calls:
             for k, n in needs_of(c, args).items():
                 keys[k] = max(keys.get(k, 0), n)
@@ -259,7 +253,7 @@ class SkillNeeds(unittest.TestCase):
 
     def test_needs_are_made(self):
         real = real_table()
-        rows = [("every registered skill: only the pinned gaps", skill_need_keys(), real, GAPS["skill_needs"]),
+        rows = [("every registered skill: every need made", skill_need_keys(), real, set()),
                 ("must fail: a need nothing makes", {"minecraft:unobtainium": 1}, real, {"minecraft:unobtainium"}),
                 ("a tool dimension is made", {"tool:pickaxe:2": 1}, real, set()),
                 ("a variant of a made group is held stock", {"minecraft:oak_log": 1},
@@ -271,8 +265,6 @@ class SkillNeeds(unittest.TestCase):
     def test_every_need_from_an_empty_bag(self):
         table, bad, failed = real_table(), [], set()
         for key, n in sorted(skill_need_keys().items()):
-            if key in GAPS["skill_needs"]:
-                continue
             try:
                 plan = solve(table, dict(START), {key: n})
             except Unsolvable:
@@ -282,6 +274,27 @@ class SkillNeeds(unittest.TestCase):
             bad += [(key, e) for e in early] + ([(key, "not held at the end")] if not held else []) + \
                 ([(key, f"{len(plan.steps())} steps")] if len(plan.steps()) > SOLVE_BOUND else [])
         self.assertEqual((bad, failed), ([], set()))
+
+    def test_a_dropped_producer_leaves_no_source(self):
+        """The producer tables are the skills' `gives`: take one away and its token has no source — for the planner
+        (Unplannable) and the solver (no column makes it)."""
+        rows = [("nothing dropped: the bucket is filled", None, "minecraft:water_bucket", True),
+                ("must fail: no filling skill, no water bucket", knowledge.GIVES_FILL, "minecraft:water_bucket", False),
+                ("must fail: no farm, no wheat (so no bread)", knowledge.GIVES_FARM, "minecraft:bread", False),
+                ("must fail: no trade, no emerald", knowledge.GIVES_TRADE, "minecraft:emerald", False)]
+        for name, dropped, token, want in rows:
+            with self.subTest(name):
+                knowledge.producers()
+                kept = [g for g in knowledge.PRODUCERS if g is not dropped]
+                with mock.patch.object(knowledge, "PRODUCERS", kept):
+                    try:
+                        Planner({}, [], NullCost()).plan([(token, 1)])
+                        planned = True
+                    except Unplannable:
+                        planned = False
+                    made = {d for a in real_table() for d, v in a.effect.items() if v > 0}
+                self.assertEqual((planned, token in made or token == "minecraft:bread"),
+                                 (want, want or token == "minecraft:bread"))
 
     def test_the_empty_bag_replay_fails_a_need_nothing_makes(self):
         with self.assertRaises(Unsolvable):

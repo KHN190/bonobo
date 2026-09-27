@@ -152,16 +152,23 @@ def needs_of(contract, args):
     return dict(contract.needs_fn(args)) if getattr(contract, "needs_fn", None) else dict(contract.needs)
 
 
-def declared(name, needs, speed):
+def declared(name, needs, speed, gives=()):
     """Every skill states its hard prerequisites (`needs`, {dimension: minimum}) and the optional tools that speed
     it up (`speed`, {tool kind: seconds saved per unit}) — written out, `{}` when there are none. A skill that says
     neither is refused at import: an unstated need is one the planner can never price."""
-    missing = [k for k, v in (("needs", needs), ("speed", speed)) if v is None]
+    missing = [k for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is None]
     if missing:
         raise TypeError(f"skill {name!r} declares no {' and no '.join(missing)} (write {{}} when there are none)")
 
 
-def skill(name=None, *, pre=(), needs=None, speed=None, start=None, done=None, verify=None, budget=300, stall=45,
+def gives_of(gives):
+    """A skill's `gives` as a list: producing tables (knowledge.Produces) and states it leaves ("state:sheltered")."""
+    if isinstance(gives, dict):
+        return [f"state:{k}" if not str(k).startswith("state:") else k for k in gives] if gives else []
+    return list(gives) if isinstance(gives, (list, tuple)) else [gives]
+
+
+def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, done=None, verify=None, budget=300, stall=45,
           per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
           fills_bag=False):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
@@ -171,7 +178,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, start=None, done=None, v
     forty seconds". The checks in `pre` stay as the runtime guard; `needs` is what the planner reads.
     """
     def wrap(fn):
-        declared(name or fn.__name__, needs, speed)
+        declared(name or fn.__name__, needs, speed, gives)
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft, commands, provides, prefer)
         # A need that depends on the call (the pickaxe tier of the block mined) is a function of the call's args;
@@ -179,6 +186,11 @@ def skill(name=None, *, pre=(), needs=None, speed=None, start=None, done=None, v
         contract.needs_fn = needs if callable(needs) else None
         contract.needs = {} if callable(needs) else dict(needs)
         contract.speed = dict(speed)
+        contract.gives = gives_of(gives)
+        from .knowledge import PRODUCERS
+        for g in contract.gives:
+            if not isinstance(g, str) and g not in PRODUCERS:
+                PRODUCERS.append(g)
         from .knowledge import SKILL_SPEED
         SKILL_SPEED[contract.name] = contract.speed
         # A gatherer: True (anything it takes needs a free slot) or c -> the item ids it gathers. Checked before it

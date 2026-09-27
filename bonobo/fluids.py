@@ -6,6 +6,7 @@ water, bottom-up; the water is taken back, the mould inside the frame broken, an
 Pure planners (`fill_spot`, `cast_frame_plan`, `portal_light_aim`) are offline-tested; the skills only execute them."""
 import math
 
+from . import knowledge as K
 from . import api, blueprints, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
@@ -114,7 +115,7 @@ def _use(item, aim, on_block):
     return res
 
 
-@skill(needs={"minecraft:bucket": 1}, speed={}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
+@skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, speed={}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
        budget=300, stall=120, per_unit=60, provides={"fill": lambda ctx, s: ()})
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""

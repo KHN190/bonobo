@@ -79,7 +79,7 @@ def unlooted_chests_cached(mem, snap, ttl=60):
     return _CACHE["hits"]
 
 
-@skill(needs={}, speed={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,
+@skill(gives={}, needs={}, speed={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,
        budget=240, stall=90, per_unit=60, provides={"loot": lambda ctx, s: ()}, fills_bag=True)
 def loot_chest(ctx):
     """Open the nearest chest that isn't ours and hasn't been looted, take the valuable stacks, remember it."""
