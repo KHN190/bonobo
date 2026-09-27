@@ -240,7 +240,14 @@ def reset_brain(brain, mem):
     """Every row starts from a brain that knows nothing of the rows before it: fresh memory, no bans, no retry
     ledger, no held plans, and a fresh upkeep table (its `working`/`broken` tool notes outlived `clear @p`: the
     next row's first round reported "the axe broke" for an axe the previous row's setup had cleared)."""
-    from .. import fight_loop, nav, retry, skill as skillkit, upkeep
+    from .. import arbiter, fight_loop, nav, retry, skill as skillkit, upkeep
+    # A fight the last row left engaged still holds the body: every later row failed "body owned by the arbiter".
+    held = fight_loop.engaged()
+    if held is not None:
+        fight_loop.disengage(held)
+    holder = arbiter.BODY.holder()
+    if holder is not None:
+        arbiter.BODY.hand_back(holder)
     brain.mem = mem
     skillkit.STATS = nav.ROAD_MEM = mem
     brain.blacklist.clear()           # in place: fight_loop and every Context share this dict

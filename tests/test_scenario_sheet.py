@@ -14,6 +14,7 @@ Driven from `skill.REGISTRY` and `scenarios.SCENARIOS`: a new skill or a new row
 import os
 import re
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -383,7 +384,7 @@ class ResetBrain(unittest.TestCase):
     """bench.core.reset_brain: nothing a row learned reaches the next row (the "axe broke" leak)."""
 
     def test_row_state_is_dropped(self):
-        from bonobo import brain as B
+        from bonobo import arbiter, brain as B
         from bonobo.memory import Memory
         br = B.Brain()
         shared = br.blacklist
@@ -393,7 +394,11 @@ class ResetBrain(unittest.TestCase):
                 ("a ban", lambda: br.blacklist.update({(1, 2, 3): 9e9}), lambda: br.blacklist, {}),
                 ("a held plan", lambda: br.held.update(t1={}), lambda: br.held, {}),
                 ("a committed task", lambda: setattr(br, "committed", "t1"), lambda: br.committed, None),
-                ("the ban dict stays the one fight_loop holds", lambda: None, lambda: br.blacklist is shared, True)]
+                ("the ban dict stays the one fight_loop holds", lambda: None, lambda: br.blacklist is shared, True),
+                ("a fight left holding the body: the next row starts with it free",
+                 lambda: setattr(arbiter.BODY, "lease", (arbiter.Intent(sorted(arbiter.SCALES)[0], "fight", "last row"),
+                                                          lambda: False, time.time())),
+                 lambda: arbiter.BODY.holder(), None)]
         for name, dirty, read, clean in rows:
             with self.subTest(name):
                 dirty()

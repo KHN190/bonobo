@@ -2097,7 +2097,10 @@ def _hp_kept(least):
     return lambda api, inv: api.get("/state")["health"] >= least and not api.get("/state")["dead"]
 
 
+# Walls of glass (the fight stays visible), a roof of stone: undead summoned under the sky burned to death before
+# the row began ("0 zombie on the server").
 _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
+          f"fill {_c(at(-9, 4, -9))} {_c(at(9, 4, 9))} stone",
           f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air", f"fill {_c(at(-9, -1, -9))} {_c(at(9, -1, 9))} stone", _tp(),
           "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate",
           "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
@@ -2114,7 +2117,8 @@ FIGHT_CELLS = [
 for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
     _kinds = [f"minecraft:{_mob}"]
     # Close enough to be in the fight at once: the walk to a far corner is not what these rows measure.
-    _spots = [(4, 0, 0), (-3, 0, 3), (1, 0, -4)][:_n]
+    # A creeper starts outside its blast reach: at 4 it went off before the first decision.
+    _spots = ([(7, 0, 0)] if _mob == "creeper" else [(4, 0, 0), (-3, 0, 3), (1, 0, -4)])[:_n]
     # Three blazes at full health outlast the 60 s limit on the approach alone: they start worn (the fight's
     # decisions are the same at 10 hp; the kill count, the health kept and the decision gaps are what is judged).
     _nbt = "{PersistenceRequired:1b,Health:10f}" if _mob == "blaze" and _n > 1 else "{PersistenceRequired:1b}"
