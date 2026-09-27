@@ -895,6 +895,10 @@ def river():
     return r
 
 
+CRYSTAL = {"id": 1, "x": 0.5, "y": 70.0, "z": 3.5}      # fixture: a caged crystal six above FEET's floor
+CAGE = [((x, y, z), "iron_bars") for x, z in ((1, 3), (-1, 3), (0, 4), (0, 2)) for y in (70, 71)]
+
+
 def types(batch):
     return [t["type"] for t in batch]
 
@@ -911,6 +915,24 @@ SPOT = {"x": 1, "y": 64, "z": 1}          # fixture: one dark spot /dark answere
 
 # skill → [(situation, state dict, expected)]; expected is an exception type or a check(batch) -> None (asserts).
 COMMANDS = {
+    # break_caged_crystal at the tower base: pillars to the crystal's height, then every bar still standing
+    "break_caged_crystal": [
+        ("six below a caged crystal: six pillars, the eight bars",
+         body(world(*CAGE), inv=inventory(cobblestone=16), _args=(CRYSTAL,)),
+         lambda t, b: t.assertEqual((types(b).count("pillar"), sorted(cells(b, "mine"))),
+                                    (6, sorted(c for c, _n in CAGE)))),
+        ("three bars already broken: only the five standing",
+         body(world(*CAGE[3:]), inv=inventory(cobblestone=16), _args=(CRYSTAL,)),
+         lambda t, b: t.assertEqual((types(b).count("pillar"), len(cells(b, "mine"))), (6, 5))),
+        ("resumed after an interrupt (three pillars and two bars done): only the rest, nothing twice",
+         body(world(*CAGE[2:]), feet=(0, 67, 0), inv=inventory(cobblestone=13), _args=(CRYSTAL,)),
+         lambda t, b: t.assertEqual((types(b).count("pillar"), sorted(cells(b, "mine"))),
+                                    (3, sorted(c for c, _n in CAGE[2:])))),
+        ("already at the crystal's height, no blocks: the bars only",
+         body(world(*CAGE), feet=(0, 70, 0), _args=(CRYSTAL,)),
+         lambda t, b: t.assertEqual(types(b), ["mine"] * 8)),
+        ("below it with nothing to tower with", body(world(*CAGE), _args=(CRYSTAL,)), NotAvailable),
+    ],
     # eat: (situation, the body) → the bites, back to back (bite_plan)
     "eat": [
         ("food 0, bread ×4: four bites (the gap 20 over bread's 5)", body(state=state(food=0), inv=inventory(bread=4)),

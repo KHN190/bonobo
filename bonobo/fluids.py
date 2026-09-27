@@ -105,6 +105,7 @@ def use_task(item, aim, on_block):
 
 
 def _use(item, aim, on_block):
+    # closed loop: callers read where the click landed (the hit face) before the next use
     r = api.run(use_task(item, aim, on_block), wait=30)
     if r["status"] != "succeeded":
         raise McError(f"using {item} failed: {r['message']}")
@@ -212,8 +213,11 @@ def light_portal(ctx, origin, turns):
         if attempt:
             d = blueprints.rotate_offset((2, 0, 0), turns)
             aim = (origin[0] + d[0] + 0.5, origin[1] + 1.0, origin[2] + d[2] + 0.5)
-        _use("minecraft:flint_and_steel", aim, True)
-        api.run({"type": "wait", "ticks": 10}, wait=5)
+        # The click and its settle as one chain; closed loop between attempts: the portal lit (portal_lit)
+        done = api.run_chain([use_task("minecraft:flint_and_steel", aim, True), {"type": "wait", "ticks": 10}],
+                             stop_on_failure=True)
+        if done and done[0]["status"] != "succeeded":
+            raise McError(f"using flint_and_steel failed: {done[0]['message']}")
         if portal_lit(origin):
             log(f"nether portal lit at {origin}")
             return
