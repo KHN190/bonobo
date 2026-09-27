@@ -618,18 +618,21 @@ class BrainGrid(unittest.TestCase):
 
 
 class FoodFirstFromTheWorld(unittest.TestCase):
-    """night_first__low's check: the beef set cooking (or cooked beef in the bag) before any log, and the bar no
+    """night_first__low's check, from the world: raw beef out of the bag and a furnace lit (or cooked beef in the bag)
+    before any log, and the bar no
     lower at the end than the drain left it. Logs first with nothing cooking must fail."""
 
     def test_over_the_table(self):
         from types import SimpleNamespace
         check = sc.BRAIN_FAMILIES["night_first"][2](dict(sc.BRAIN_BASE, dusk="night", food="low"))[0]
-        rows = [("smelt at 2 s, logs at 9 s, food kept", {"smelt:cooked_beef": 2.0, "log": 9.0}, 12, True),
+        cooking = {"-beef": 1.5, "furnace_lit": 2.0}
+        rows = [("beef out, furnace lit at 2 s, logs at 9 s, food kept", {**cooking, "log": 9.0}, 12, True),
                 ("cooked beef in the bag before logs", {"minecraft:cooked_beef": 3.0, "log": 9.0}, 12, True),
                 ("must fail: logs first, nothing cooking", {"log": 4.0}, 12, False),
-                ("must fail: logs at 3 s, the smelt only at 8 s", {"log": 3.0, "smelt:cooked_beef": 8.0}, 12, False),
-                ("must fail: food first but the bar fell below the drain", {"smelt:cooked_beef": 2.0, "log": 9.0}, 7,
-                 False)]
+                ("must fail: logs at 3 s, the furnace lit only at 8 s", {"-beef": 1.5, "furnace_lit": 8.0, "log": 3.0},
+                 12, False),
+                ("must fail: the beef gone (eaten) but no furnace lit", {"-beef": 1.5, "log": 9.0}, 12, False),
+                ("must fail: food first but the bar fell below the drain", {**cooking, "log": 9.0}, 7, False)]
         for name, first, food_end, want in rows:
             with self.subTest(name):
                 fake = SimpleNamespace(get=lambda path, _f=food_end: {"food": _f})

@@ -2761,6 +2761,16 @@ def _log_order(first, then):
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 
+def _furnace_lit(radius=16):
+    """A furnace within `radius` is lit (its block state), read from the world."""
+    from .world import Region, find
+    for h in find(["furnace"], radius=radius, limit=8):
+        p = (h["x"], h["y"], h["z"])
+        if str(Region(p, p, props=True).prop(p, "lit")).lower() == "true":
+            return True
+    return False
+
+
 def _first_times(ctx):
     """`before` hook: watch the bag during the run and note when each token first shows more than the row began
     with — the order of the brain's decisions, read from the world, not from its log."""
@@ -2779,12 +2789,14 @@ def _first_times(ctx):
                 for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
                     if tok not in FIRST and inv.count(tok) > _base_count(tok):
                         FIRST[tok] = time.time() - t0
-            # A smelt set going (a furnace job remembered): "smelt:<item>" — food first may mean cooking it in the
-            # background while the task goes on, which the bag shows only when the furnace is emptied.
+            # Something cooking, read from the world: raw beef gone from the bag ("-beef") and a furnace lit near us
+            # ("furnace_lit", its block state). The jar cannot read a furnace's slots without opening it (/container
+            # is the open screen only), so the lit state stands for its contents: the only smeltable in the kit.
             try:
-                for j in core.BRAIN.mem.jobs():
-                    tok = "smelt:" + j["item"].split(":")[-1]
-                    FIRST.setdefault(tok, time.time() - t0)
+                if "-beef" not in FIRST and inv.count("minecraft:beef") < _base_count("minecraft:beef"):
+                    FIRST["-beef"] = time.time() - t0
+                if "furnace_lit" not in FIRST and _furnace_lit():
+                    FIRST["furnace_lit"] = time.time() - t0
             except Exception:
                 pass
             time.sleep(0.5)
@@ -3030,10 +3042,11 @@ def _bed_then_log(cell):
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
-        # Food first, judged from the world: the raw beef set cooking (a furnace job) before any log was gained —
-        # or cooked beef in the bag first — and the bar no lower at the end than the drain left it. Logs first with
-        # nothing cooking fails.
-        food_first = lambda api, inv: (_before_in_bag("smelt:cooked_beef", "log")(api, inv)      # noqa: E731
+        # Food first, judged from the world: the raw beef out of the bag and a furnace lit, both before any log was
+        # gained — or cooked beef in the bag first — and the bar no lower at the end than the drain left it. Logs
+        # first with nothing cooking fails.
+        food_first = lambda api, inv: ((_before_in_bag("-beef", "log")(api, inv)                   # noqa: E731
+                                        and _before_in_bag("furnace_lit", "log")(api, inv))
                                        or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
         kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
