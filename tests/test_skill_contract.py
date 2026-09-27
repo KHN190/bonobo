@@ -559,6 +559,44 @@ class Outcomes(unittest.TestCase):
     def test_the_interruptions_are_exactly_the_interrupted_rows(self):
         self.assertEqual(set(api.INTERRUPTIONS), {type(e) for e, _, c in OUTCOMES if c == "interrupted"})
 
+    def test_one_table_for_every_reader(self):
+        """retry.EXCEPTIONS is the one table: every exception class the package defines has its own row, every row's
+        source has a resume rule, and cause_of / outcome_of read the row (a changed row changes both)."""
+        import importlib
+        import pkgutil
+        import bonobo
+        from bonobo import arbiter
+        ours = set()
+        for m in pkgutil.walk_packages(bonobo.__path__, "bonobo."):
+            mod = importlib.import_module(m.name)
+            ours |= {o for o in vars(mod).values() if isinstance(o, type) and issubclass(o, BaseException)
+                     and o.__module__ == mod.__name__}
+        self.assertEqual({c.__name__ for c in ours} - set(retry.EXCEPTIONS), set())
+        for name, (cause, source) in retry.EXCEPTIONS.items():
+            with self.subTest(name):
+                arbiter.resume_of(source)
+        with mock.patch.dict(retry.EXCEPTIONS, {"NavFailed": ("stuck", "player")}):
+            err = api.NavFailed("x")
+            self.assertEqual((retry.cause_of(err), brain.outcome_of(err)), ("stuck", ("interrupted", "player")))
+
+    def test_row_of(self):
+        """Nearest declared class; a class of ours with no row is a KeyError naming it (never its base's row)."""
+        Undeclared = type("Undeclared", (api.NotAvailable,), {"__module__": "bonobo.api"})
+        Foreign = type("Foreign", (ValueError,), {"__module__": "somewhere"})
+        rows = [("declared", api.NavFailed("x"), ("nav", "stuck")),
+                ("a builtin: the root row", ValueError("bug"), ("error", "crash")),
+                ("a foreign subclass: its base's row", Foreign("x"), ("error", "crash")),
+                ("must fail: a class of ours missing from the table", Undeclared("x"), KeyError)]
+        for name, err, want in rows:
+            with self.subTest(name):
+                if want is KeyError:
+                    with self.assertRaisesRegex(KeyError, "Undeclared"):
+                        retry.row_of(err)
+                    with self.assertRaisesRegex(KeyError, "Undeclared"):
+                        brain.outcome_of(err)
+                else:
+                    self.assertEqual(retry.row_of(err), want)
+
     def test_outcome_of(self):
         """What each means: interruptions never fail — each stands for its interrupt source (arbiter.RESUME_OF, whose
         rule says what first: a hand back, a wait); a real failure is "stuck", a bug of ours a "crash"."""

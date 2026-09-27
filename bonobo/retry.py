@@ -11,29 +11,47 @@ LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
 
-# The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
-INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "FightHolds", "PlayerTookControl", "Died", "DimensionChanged", "NightFell")
+# every exception an attempt can end in, by class name (this module imports nothing): (cause it is counted and
+# cooled under, interrupt source — arbiter.RESUME_OF says what that source means: resumed, or failed)
+EXCEPTIONS = {
+    "Exception": ("error", "crash"),                       # a bug of ours: anything not declared below
+    "McError": ("error", "stuck"),                         # a mod task failed (its text may say "nav": cause_of)
+    "GameUnreachable": ("game", "game lost"),
+    "NotAvailable": ("unavailable", "stuck"), "NavFailed": ("nav", "stuck"), "Unreachable": ("nav", "stuck"),
+    "TaskStuck": ("stuck", "stuck"),
+    "ToolMissing": ("tool", "stuck"), "NeedMissing": ("tool", "stuck"),
+    "StationMissing": ("replan", "stuck"),                 # the plan counted on a station that is gone
+    "CommitmentExpired": ("replan", "layer:plan"),         # the plan grew stale: nothing failed
+    "Interrupted": ("interrupt", "layer:safety"), "NightFell": ("interrupt", "night"),
+    "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
+    "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
+    "DimensionChanged": ("interrupt", "dimension change"),
+    "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
+    "SetupInvalid": ("error", "crash"),
+}
+INTERRUPTION_NAMES = tuple(n for n, (cause, _) in EXCEPTIONS.items() if cause == "interrupt")
+
+def row_of(err):
+    """(cause, source) of an exception: its nearest class with a row. An exception class of ours with no row of its
+    own is a KeyError naming it — never read silently as its base's; a foreign class (a builtin) is its base's."""
+    for cls in type(err).__mro__:
+        if cls.__name__ in EXCEPTIONS:
+            return EXCEPTIONS[cls.__name__]
+        if cls.__module__.split(".")[0] == "bonobo":
+            raise KeyError(f"exception {cls.__name__} ({cls.__module__}) has no row in retry.EXCEPTIONS")
+    raise KeyError(f"exception {type(err).__name__} is no Exception")
 
 def cause_of(err):
-    """The cause a failure is counted and cooled under, from the exception's class (and, for bare mod task messages, its text)."""
+    """The cause a failure is counted and cooled under (EXCEPTIONS; a bare mod failure by its text)."""
 
-    names = {c.__name__ for c in type(err).__mro__}
-    text = str(err).lower()
-    if "CommitmentExpired" in names or "StationMissing" in names:
-        return "replan"      # the plan grew stale (a station it counted on is gone): nothing failed, replan now
-    if names & set(INTERRUPTION_NAMES):
-        return "interrupt"   # a danger or another commander stopped it: not the skill's fault
-    if "GameUnreachable" in names:
-        return "game"        # the game is down or restarting: nothing about the place or the task
-    if "ToolMissing" in names or "NeedMissing" in names:
-        return "tool"
-    if "NavFailed" in names or "Unreachable" in names or any(m in text for m in UNREACHABLE):
+    cause = row_of(err)[0]
+    if cause in ("error", "unavailable", "stuck") and any(m in str(err).lower() for m in UNREACHABLE):
         return "nav"
-    if "NotAvailable" in names:
-        return "unavailable"
-    if "TaskStuck" in names:
-        return "stuck"
-    return "error"
+    return cause
+
+def source_of(err):
+    """The interrupt source an exception stands for (EXCEPTIONS): what is done about it is arbiter.RESUME_OF's."""
+    return row_of(err)[1]
 
 def place_signature(feet, night, bin_size=16):
     """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""

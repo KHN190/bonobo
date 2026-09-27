@@ -527,12 +527,6 @@ def step_key(step):
     """Pure: a step's failure key, shared by every goal that plans it (a failed gather is not retried for the next goal)."""
     return f"step:{step.kind}:{step.token}"
 
-# which interrupt source an exception stands for (first match, else crash); what is done about it is that source's rule
-SOURCE_OF = ((PlayerTookControl, "player"), (GameUnreachable, "game lost"), (api.FightHolds, "layer:tactic"),
-             (api.BodyContested, "manual"), (api.Died, "death"), (api.DimensionChanged, "dimension change"),
-             (api.CommitmentExpired, "layer:plan"), (api.NightFell, "night"), (api.Interrupted, "layer:safety"),
-             ((McError, skills.ToolMissing), "stuck"))
-
 def write(task, fields):
     """Apply a decision's task writes (task_act, after_step) to the task file: one update, nothing when unchanged."""
     if fields:
@@ -542,7 +536,7 @@ def outcome_of(err):
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
     if err is None:
         return "ok", None
-    source = next((s for cls, s in SOURCE_OF if isinstance(err, cls)), "crash")
+    source = retry.source_of(err)
     return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
 
 def replan(task, goal, snap, cost, pending=None):
