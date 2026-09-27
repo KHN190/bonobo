@@ -289,19 +289,35 @@ SCENARIOS["locate_stronghold"] = {
     "check": lambda api, inv: _stronghold_error() <= 64,
     "budget": 60,
 }
-def _fresh_stronghold(ctx):
-    """A brand-new stronghold for every run: /place structure at the next free slot along x (the real one gets dug
-    up by each search), an estimate 20 blocks off its start, the player on the surface above the estimate."""
-    from . import api
-    table = load_table()
-    n = sum(len(v) for v in table.get("find_portal_room_fresh", {}).values())
-    x, z = 20000 + 600 * n, 20000
-    # The spot must be loaded first ("That position is not loaded" 4×): force-load the area and probe until it is.
-    # A stronghold is ~80 blocks across: probing one column at the centre said "loaded" while the outskirts weren't,
-    # and /place structure answered "That position is not loaded" four runs in a row. Force-load the whole footprint
-    # and probe its corners, then give the placement a few tries while chunks finish loading.
-    _command(f"execute in minecraft:overworld run forceload add {x - 96} {z - 96} {x + 96} {z + 96}", [])
-    probes = [(x + dx, z + dz) for dx in (-80, 0, 80) for dz in (-80, 0, 80)]
+STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
+ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
+
+
+def _stronghold_piece(x, y, z):
+    """Commands for a corridor of stone bricks (3×3 inside) running 58 blocks east from the start, ending in a
+    portal room with a ring of 12 empty frames, all sealed in stone: the search, the brick-following and the walk,
+    without a /place structure and a 40-block dig down (most of the old 60 s)."""
+    f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
+    cx = x + ROOM_OFF
+    return [f((x - 3, y - 2, z - 6), (cx + 6, y + 5, z + 6), "stone"),
+            f((x - 1, y - 1, z - 2), (x + 58, y + 3, z + 2), "stone_bricks"),
+            f((x, y, z - 1), (x + 58, y + 2, z + 1), "air"),
+            f((cx - 5, y - 1, z - 5), (cx + 5, y + 4, z + 5), "stone_bricks"),
+            f((cx - 4, y, z - 4), (cx + 4, y + 3, z + 4), "air"),
+            f((x + 58, y, z - 1), (cx - 4, y + 2, z + 1), "air"),
+            f((cx - 1, y, z - 2), (cx + 1, y, z - 2), "end_portal_frame[facing=south]"),
+            f((cx - 1, y, z + 2), (cx + 1, y, z + 2), "end_portal_frame[facing=north]"),
+            f((cx - 2, y, z - 1), (cx - 2, y, z + 1), "end_portal_frame[facing=east]"),
+            f((cx + 2, y, z - 1), (cx + 2, y, z + 1), "end_portal_frame[facing=west]"),
+            f"tp @p {x + 1} {y} {z}"]
+
+
+def _built_stronghold(ctx):
+    """The piece built fresh every run (a run digs it up), the estimate at the corridor's start where we stand."""
+    x, y, z = STRONGHOLD_AT
+    # The spot must be loaded first ("That position is not loaded"): force-load the footprint, probe its corners.
+    _command(f"execute in minecraft:overworld run forceload add {x - 8} {z - 8} {x + ROOM_OFF + 8} {z + 8}", [])
+    probes = [(px, pz) for px in (x - 3, x + ROOM_OFF + 6) for pz in (z - 6, z + 6)]
     for _ in range(60):
         if not any("not loaded" in l for px, pz in probes for l in
                    _command(f"execute in minecraft:overworld run fill {px} 300 {pz} {px} 300 {pz} air", [])):
@@ -309,17 +325,12 @@ def _fresh_stronghold(ctx):
         time.sleep(0.5)
     else:
         raise SetupInvalid("stronghold area never loaded")
-    for attempt in range(5):
-        lines = _command(f"execute in minecraft:overworld run place structure minecraft:stronghold {x} 30 {z}", [])
-        if any("Generated" in l or "placed" in l.lower() for l in lines):
-            break
-        time.sleep(1.0)
-    else:
-        raise SetupInvalid(f"stronghold not placed: {lines[:1]}")
-    est = (x + 4, 30, z - 3)          # close: the search itself, not a long walk to it
-    ctx.mem.add_site("stronghold", est, "minecraft:overworld", name="stronghold")
-    api.post("/chat", {"message": f"/spreadplayers {est[0]} {est[2]} 0 4 false @p"})
-    time.sleep(4)
+    for cmd in _stronghold_piece(x, y, z):
+        lines = _command(f"execute in minecraft:overworld run {cmd}", [])
+        if any("not loaded" in l or "Unknown" in l for l in lines):
+            raise SetupInvalid(f"stronghold piece: {cmd}: {lines[:1]}")
+    ctx.mem.add_site("stronghold", (x + 1, y, z), "minecraft:overworld", name="stronghold")
+    time.sleep(1)
 
 
 PORTAL_ROOM_OK = []
@@ -344,16 +355,17 @@ def _portal_room_found():
 
 
 SCENARIOS["find_portal_room_fresh"] = {
-    "doc": "A freshly generated stronghold (new place every run), estimate 20 off, surface start → portal frame found.",
+    "doc": "A stronghold piece built every run (a brick corridor, the room 64 blocks on, past the scan), standing on "
+           "the estimate → bricks followed, portal frame found and reached.",
     "module": "end", "raw": True, "release": True,
     "setup": ["clear @p", "give @p diamond_pickaxe", "give @p cobblestone 64", "give @p cooked_beef 16",
               "give @p torch 32", "give @p water_bucket"],
-    "before": _fresh_stronghold,
+    "before": _built_stronghold,
     # The skill has to succeed AND the frames have to be right here: a run that raised "finished without reaching its
     # goal" counted as PASS because any frame within 48 blocks satisfied the old check.
     "run": _portal_room_run,
     "check": lambda api, inv: _portal_room_found(),
-    "budget": 60,
+    "budget": 30,
 }
 # find_portal_room (the real stronghold, dug up by every run) was replaced by find_portal_room_fresh.
 # A dragon already worn down, its crystals gone: the fight's last phase (the approach, the perch, the finishing
