@@ -1,8 +1,10 @@
-"""The bench as data tables (bonobo/bench/bench_<tier>.py: families of rows made by a template from their
-parameters, and one-off rows in words), proven against the old sheet offline: every table row builds to the old
-row (setup, queue, budget, tier, every other field, and the same check words), every old row is tabled or listed
-with its reason, names are unique, the tier rules hold, and every word says yes and no on recorded data."""
+"""The bench as tables (bonobo/bench/bench_<tier>.py: families of rows made by a template from their parameters,
+one-off rows in words, one-off rows in code), proven against the old sheet offline: the old sheet's 271 rows were
+recorded (tests/fixtures/bench_rows.json: every plain field, the check's words, the escape rows' seeds) before
+scenarios.py was deleted, and every row built now must equal its record. Names are unique, the tier rules hold,
+and every word says yes and no on recorded data."""
 import importlib
+import json
 import os
 import re
 import sys
@@ -10,116 +12,106 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import scenarios as sc  # noqa: E402
 from bonobo.bench import core, runner, table, vocab  # noqa: E402
+from bonobo.bench import table as sc  # noqa: E402  (the sheet: its helpers and its one SCENARIOS)
 from tests import bench_words as words  # noqa: E402
 
 CALLABLE_KEYS = ("run", "check", "before", "detail")
+FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "bench_rows.json")
+
+
+def recorded():
+    with open(FIXTURE, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def tables():
     return {t: table.rows(t) for t in table.TIERS}
 
 
-def not_expressed():
-    return {t: importlib.import_module(table.TABLES[t]).NOT_EXPRESSED for t in table.TIERS}
-
-
 def check_words(check):
-    """A check's words, read back from the callables (the old sheet's or the table's); None when unreadable."""
+    """A check's words, read back from its callables; None when no word reads them."""
     try:
-        w = words.enc(check)
+        return words.enc(check)
     except words.NotExpressible:
         return None
-    return w[1] if isinstance(w, tuple) and w[0] == "!all" and len(w) == 2 else w
 
 
-def old_seed(name):
-    """An escape row's cell seed, drawn at import by the old sheet (the table draws its own)."""
-    run = sc.SCENARIOS[name]["run"]
-    cells = dict(zip(run.__code__.co_freevars, [c.cell_contents for c in run.__closure__]))["cells"]
-    return cells.__defaults__[0]["seed"]
+def as_json(v):
+    return json.loads(json.dumps(v, default=lambda o: sorted(o) if isinstance(o, (set, frozenset)) else repr(o)))
 
 
-def built(tier, name, row):
-    if name.startswith("escape__"):              # the same cell, the old sheet's seed
-        row = vocab.escape_row(name, *name[8:].split("_", 2), seed=old_seed(name))
+def canonical(v):
+    """A recorded word naming the fight helpers' old home (bench/fight.py) names the same helper in vocab now."""
+    if isinstance(v, str) and v[:1] in "!&" and "bonobo.bench.fight:" in v:
+        return v[0] + v.split(":", 1)[1]
+    if isinstance(v, list):
+        return [canonical(x) for x in v]
+    if isinstance(v, dict):
+        return {k: canonical(x) for k, x in v.items()}
+    return v
+
+
+def record_of(name, row):
+    """A built row as the fixture records one: its plain fields, its check's words."""
+    out = {k: as_json(v) for k, v in row.items() if k not in CALLABLE_KEYS}
+    w = check_words(row["check"])
+    if w is not None:
+        out["check_words"] = as_json(w)
+    return out
+
+
+def built(tier, name, row, seed=None):
+    if name.startswith("escape__"):              # the same cell, the recorded seed
+        row = vocab.escape_row(name, *name[8:].split("_", 2), seed=seed)
     return table.build(row, tier)
 
 
 class Equivalence(unittest.TestCase):
-    """The sweep: each table row, built, is the old row."""
+    """The sweep: each row built from the tables is its recorded old row."""
 
-    def test_every_row_builds_to_the_old_one(self):
+    def test_every_row_is_its_record(self):
+        rec = recorded()
+        self.assertEqual(len(rec), 271)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
-                    old, new = sc.SCENARIOS[name], built(tier, name, row)
-                    for k in ("setup", "queue", "budget", "tier"):
-                        self.assertEqual(new.get(k), old.get(k), k)
-                    for k in set(old) | set(new):
-                        if k not in CALLABLE_KEYS:
-                            self.assertEqual(new.get(k), old.get(k), k)
+                    want = canonical(dict(rec[name]))
+                    seed = want.pop("seed", None)
+                    got = record_of(name, built(tier, name, row, seed))
+                    if "check_words" not in want:
+                        got.pop("check_words", None)     # the old check was code no word read: the fields stand
+                    self.assertEqual(got, want)
 
-    def test_the_check_words_are_the_old_ones(self):
-        seen = 0
-        for tier, rows in tables().items():
-            for name, row in rows.items():
-                want = check_words(sc.SCENARIOS[name]["check"])
-                if want is None:
-                    continue                     # the old check is code no word reads (the table's words stand)
-                seen += 1
-                with self.subTest(name):
-                    self.assertEqual(check_words(built(tier, name, row)["check"]), want)
-        self.assertGreater(seen, 200)
+    def test_every_recorded_row_is_built(self):
+        self.assertEqual(sorted(set(recorded()) ^ set(sc.SCENARIOS)), [])
+        for name, want in recorded().items():
+            with self.subTest(name):
+                self.assertEqual(sc.SCENARIOS[name]["tier"], want["tier"])
 
     def test_a_changed_row_is_caught(self):
         # must fail: a scene, budget, queue, tier or check off by one reads as another row
         name, row = "iron_ingots", table.rows("core")["iron_ingots"]
-        old = sc.SCENARIOS[name]
-        rows = [("scene: one block moved", dict(row, scene=[("floor", "stone", 8, 5)] + row["scene"][1:]), "setup"),
-                ("budget one less", dict(row, budget=row["budget"] - 1), "budget"),
-                ("a queue where there was none", dict(row, queue=[{"goal": "have", "args": {"needs": [["log", 1]]}}]),
-                 "queue"),
-                ("another tier", row, "tier"),
-                ("another check", dict(row, check=[("count", "minecraft:iron_ingot", ">=", 2)]), "check")]
-        for why, changed, key in rows:
+        want = recorded()[name]
+        rows = [("scene: one block moved", dict(row, scene=[("floor", "stone", 8, 5)] + row["scene"][1:])),
+                ("budget one less", dict(row, budget=row["budget"] - 1)),
+                ("a queue where there was none", dict(row, queue=[{"goal": "have", "args": {"needs": [["log", 1]]}}])),
+                ("another check", dict(row, check=[("count", "minecraft:iron_ingot", ">=", 2)]))]
+        for why, changed in rows:
             with self.subTest(why):
-                new = table.build(changed, "exception" if key == "tier" else "core")
-                if key == "check":
-                    self.assertNotEqual(check_words(new["check"]), check_words(old["check"]))
-                else:
-                    self.assertNotEqual(new.get(key), old.get(key))
+                self.assertNotEqual(record_of(name, table.build(changed, "core")), want)
+        with self.subTest("another tier"):
+            self.assertNotEqual(record_of(name, table.build(row, "exception")), want)
 
     def test_a_family_entry_makes_many_rows(self):
         mod = importlib.import_module(table.TABLES["exception"])
         made = sum(len(params) for _t, params in mod.FAMILIES)
         self.assertGreater(made, len(mod.FAMILIES))
-        self.assertEqual(len(table.rows("exception")), made + len(mod.ROWS))     # no name made twice
+        self.assertEqual(len(table.rows("exception")), made + len(mod.ROWS) + len(mod.CODE_ROWS))
 
 
 class Coverage(unittest.TestCase):
-    def test_every_old_row_is_tabled_or_listed(self):
-        tabled = {n: t for t, rows in tables().items() for n in rows}
-        listed = {n: t for t, rows in not_expressed().items() for n in rows}
-        self.assertEqual(sorted(set(tabled) & set(listed)), [])
-        self.assertEqual(sorted(set(sc.SCENARIOS) - set(tabled) - set(listed)), [])
-        self.assertEqual(sorted((set(tabled) | set(listed)) - set(sc.SCENARIOS)), [])
-        for n, t in {**tabled, **listed}.items():
-            with self.subTest(n):
-                self.assertEqual(t, sc.SCENARIOS[n]["tier"])
-
-    def test_a_listed_lambda_really_has_no_words(self):
-        # must fail: a row listed for code no word reads is refused by the reader too
-        for tier, rows in not_expressed().items():
-            for name, why in rows.items():
-                with self.subTest(name):
-                    self.assertTrue(why)
-                    if "lambda" in why:
-                        with self.assertRaises(words.NotExpressible):
-                            words.row_of(name, sc.SCENARIOS[name])
-
-    def test_rows_hold_no_code(self):
+    def test_word_rows_hold_no_code(self):
         def plain(v):
             if isinstance(v, (list, tuple)):
                 return all(plain(x) for x in v)
@@ -134,6 +126,11 @@ class Coverage(unittest.TestCase):
         for data in (bench_bases.BASES, bench_bases.CONDITIONS, bench_bases.SURPRISES, bench_bases.KIT):
             self.assertTrue(plain(data))
         self.assertFalse(plain({"check": [lambda api, inv: True]}))      # must fail: a lambda is code
+
+    def test_code_rows_are_few(self):
+        # the rows no word earns its place for: 24 when the tables were made; may only fall
+        n = sum(len(getattr(importlib.import_module(table.TABLES[t]), "CODE_ROWS", ())) for t in table.TIERS)
+        self.assertLessEqual(n, 24)
 
 
 HOSTILE = re.compile(r"\b(zombie|skeleton|creeper|blaze|ghast|spider|cave_spider|enderman|witch|slime|magma_cube|"
@@ -171,7 +168,7 @@ class TierRules(unittest.TestCase):
 
     def test_fight_rows_only_in_combat(self):
         out = sorted(n for t, rows in tables().items() for n, r in rows.items()
-                     if t != "combat" and n not in self.EXEMPT and fights(vocab.scene(r["scene"]), r))
+                     if t != "combat" and n not in self.EXEMPT and fights(vocab.scene(r["scene"]) if "scene" in r else r["setup"], r))
         self.assertEqual(out, [])
 
     def test_the_fight_check_sees_a_fight(self):
@@ -314,14 +311,14 @@ NOT_ROW_TESTED = {
     "found_near": "find() over the live world",
     "food_up": "bite_plan over the knowledge tables (fed_as_needed has its own tests)",
     "now": "a read of the live bag and /state (the api module), the inner words are row-tested",
-    "&bonobo.bench.fight:_answers_are_closed": "a fight sweep's recorded rows (its own tests: test_pure_fight)",
-    "&bonobo.bench.fight:_shapes_fit_the_enemy": "a fight sweep's recorded rows",
-    "&bonobo.bench.fight:_more_of_them_costs_more": "a fight sweep's recorded rows",
-    "&bonobo.bench.fight:_wave_cleared": "a fight sweep's recorded rows",
+    "&_answers_are_closed": "a fight sweep's recorded rows (its own tests: test_pure_fight)",
+    "&_shapes_fit_the_enemy": "a fight sweep's recorded rows",
+    "&_more_of_them_costs_more": "a fight sweep's recorded rows",
+    "&_wave_cleared": "a fight sweep's recorded rows",
     "&has_stone_pickaxe": "the live bag",
     "&in_the_patch_underground": "the live /state and whether the body is enclosed (the live region)",
-    "behaviour": "a fight behaviour's rule over its recorded row (bench/fight.py BEHAVIOURS, test_pure_fight)",
-    "brain_rule": "a brain grid family's rule for the cell (scenarios.BRAIN_FAMILIES): the words it makes are the old ones",
+    "behaviour": "a fight behaviour's rule over its recorded row (vocab.BEHAVIOURS, test_pure_fight)",
+    "brain_rule": "a brain grid family's rule for the cell (vocab.BRAIN_FAMILIES): the words it makes are the old ones",
     "hostiles": "the live entities (the gone/mobs_near rows read the same)",
 }
 
@@ -392,7 +389,7 @@ class Predicates(unittest.TestCase):
                     walk(a)
         for rows in tables().values():
             for row in rows.values():
-                for item in row["check"]:
+                for item in ([] if callable(row["check"]) else row["check"]):
                     walk(item, True)
         self.assertEqual(sorted(used - tested - set(NOT_ROW_TESTED)), [])
 

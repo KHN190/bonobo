@@ -4,8 +4,8 @@ makes a row of (base, condition | surprise)). Plain data in `vocab`'s words; the
 BASES = {
     'nav': dict(skills=['goto'], doc='walk 8 blocks east over the arena', point='A',
               scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 10, -1, 3), 'stone'), ('stand',)],
-              run=('skill', 'travel_to', ('@', 8, 0, 0), 2), check=('_at', ('@', 8, 0, 0), 3.5), budget=15,
-              arena=16, target=('@', 8, 0, 0)),
+              run=('skill', 'travel_to', ('@', 8, 0, 0), 2), check=('_at', ('@', 8, 0, 0), 3.5), budget=15, arena=16,
+              target=('@', 8, 0, 0)),
     'chop': dict(skills=['item:log'], bound=('log', 2, 10), doc='one oak beside the body → 2 logs', point='A',
                scene=[('grove', (2, 0)), ('stand',)], run=('skill', 'chop', 2), check=('gain', 'log', 2),
                needs=[('log', 2)], effect=('log', 1), budget=15),
@@ -15,8 +15,8 @@ BASES = {
                      run=('skill', 'mine', 'minecraft:cobblestone', 3, ['stone'], 0),
                      check=('gain', 'minecraft:cobblestone', 3), needs=[('minecraft:cobblestone', 3)],
                      effect=('minecraft:cobblestone', 1), budget=15),
-    'mine_iron': dict(skills=['mine'],
-                    doc="one iron ore in a stone wall at arm's length, a stone pickaxe → 1 raw iron", point='A',
+    'mine_iron': dict(skills=['mine'], doc="one iron ore in a stone wall at arm's length, a stone pickaxe → 1 raw iron",
+                    point='A',
                     scene=[('floor',), ('fill', ('@', 2, 0, -1), ('@', 3, 2, 1), 'stone'),
                            ('setblock', ('@', 2, 0, 0), 'iron_ore'), ('stand',), ('give', 'stone_pickaxe')],
                     run=('skill', 'mine', 'minecraft:raw_iron', 1, ['iron_ore'], 1),
@@ -26,9 +26,9 @@ BASES = {
                 doc='planks, sticks, a table carried → a wooden pickaxe', point='A',
                 scene=[('floor',), ('stand',), ('give', 'oak_planks', 8), ('give', 'stick', 4),
                        ('give', 'crafting_table')],
-                run=('skill', 'craft', 'minecraft:wooden_pickaxe', 1),
-                check=('gain', 'minecraft:wooden_pickaxe', 1, 1), needs=[('minecraft:wooden_pickaxe', 1)],
-                effect=('minecraft:wooden_pickaxe', 1), progress=('planks', 1), budget=15),
+                run=('skill', 'craft', 'minecraft:wooden_pickaxe', 1), check=('gain', 'minecraft:wooden_pickaxe', 1, 1),
+                needs=[('minecraft:wooden_pickaxe', 1)], effect=('minecraft:wooden_pickaxe', 1), progress=('planks', 1),
+                budget=15),
     'smelt': dict(skills=['smelt'], bound=('minecraft:iron_ingot', 1, 1),
                 doc='a furnace, 1 raw iron, coal → 1 iron ingot', point='A',
                 scene=[('floor',), ('stand',), ('give', 'furnace'), ('give', 'raw_iron', 1), ('give', 'coal', 1)],
@@ -52,7 +52,6 @@ BASES = {
                run=('skill', 'loot_chest'), check=('gain', 'minecraft:iron_ingot', 5),
                effect=('minecraft:iron_ingot', 1), budget=15),
 }
-
 CONDITIONS = {
     'canopy': dict(axis='terrain', doc='under a closed leaf canopy', bases=['chop', 'hunt', 'loot', 'nav', 'sleep'],
                  scene=[('fill', ('@', -8, 6, -8), ('@', 8, 7, 8), 'oak_leaves[persistent=true]')]),
@@ -89,20 +88,20 @@ CONDITIONS = {
                           bases=['chop', 'nav'], interrupt='player'),
     'buried_by_sand': dict(axis='hazard', doc='sand drops on the head mid-job', hazard='sand',
                          bases=['chop', 'craft', 'mine_stone', 'nav', 'smelt']),
-    'lava_edge': dict(axis='hazard', doc='a lava channel runs along the arena, one block beside the work',
-                    hazard='lava', bases=['chop', 'hunt', 'loot', 'mine_stone', 'nav'],
+    'lava_edge': dict(axis='hazard', doc='a lava channel runs along the arena, one block beside the work', hazard='lava',
+                    bases=['chop', 'hunt', 'loot', 'mine_stone', 'nav'],
                     scene=[('fill', ('@', -8, -1, 2), ('@', 15, -1, 2), 'lava')]),
     'one_slot': dict(axis='inventory', doc='one free slot left: the product still fits, the job is done',
                    bases=['chop', 'hunt', 'loot', 'mine_stone'], before=('fill_bag', 1)),
     'stack_room': dict(axis='inventory',
-                     doc=("no free slot, but the product's own stack has room for all of it → done as usual, no "
-                          "'bag full'"),
+                     doc=("no free slot, but the product's own stack has room for all of it → done as usual, no 'bag "
+                          "full'"),
                      bases=['chop', 'mine_stone'],
                      scene_for={'chop': [('give', 'oak_log', 62)], 'mine_stone': [('give', 'cobblestone', 61)]},
                      before=('fill_bag', 0)),
     'valuables_full': dict(axis='inventory',
-                         doc=('every slot full of diamonds: nothing new fits and nothing in the bag may be thrown '
-                              '→ failed with the bag named, no diamond lost'),
+                         doc=('every slot full of diamonds: nothing new fits and nothing in the bag may be thrown → '
+                              'failed with the bag named, no diamond lost'),
                          bases=['chop', 'hunt', 'loot', 'mine_stone'], before=('fill_bag', 0, 'diamond'),
                          fails='bag|full|room|slot',
                          fails_check={'chop': ('kept', 'minecraft:diamond'),
@@ -129,7 +128,6 @@ CONDITIONS = {
     'goal_met': dict(axis='inventory', doc='the bag already holds the goal: plan nothing, do nothing',
                    bases=['chop', 'craft', 'hunt', 'mine_iron', 'mine_stone', 'smelt'], goal_met=True),
 }
-
 SURPRISES = {
     'leaves_block_trunk': dict(base='chop', doc='leaves packed round the trunk at head height',
                              scene=[('fill', ('@', 3, 0, -1), ('@', 5, 2, 1), 'oak_leaves[persistent=true]'),
@@ -153,26 +151,22 @@ SURPRISES = {
                         dimension='minecraft:the_nether', replace_setup=True,
                         scene=[('floor', 'netherrack'), ('stand',), ('give', 'white_bed'), ('time', 18000)],
                         fails='nether|dimension|explod',
-                        check=('all', ('!alive', 18),
-                               ('!no_block_suffix', ('@', -4, -1, -4), ('@', 4, 2, 4), '_bed'))),
-    'nav_sealed_in': dict(base='nav', doc='the body sealed in bedrock: no way out, and it says so',
-                        replace_setup=True,
+                        check=('all', ('!alive', 18), ('!no_block_suffix', ('@', -4, -1, -4), ('@', 4, 2, 4), '_bed'))),
+    'nav_sealed_in': dict(base='nav', doc='the body sealed in bedrock: no way out, and it says so', replace_setup=True,
                         scene=[('floor',), ('fill', ('@', -1, -1, -1), ('@', 1, 2, 1), 'bedrock'),
                                ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'), ('stand',)],
                         fails='no route|no path|unreachable|could not get|not reach',
                         check=('all', ('!same_bag',), ('!_at', ('@', 0, 0, 0), 1.5))),
     'craft_short_of_planks': dict(base='craft', doc='two planks and no sticks for a pickaxe: missing, named',
                                 replace_setup=True,
-                                scene=[('floor',), ('stand',), ('give', 'oak_planks', 2),
-                                       ('give', 'crafting_table')],
+                                scene=[('floor',), ('stand',), ('give', 'oak_planks', 2), ('give', 'crafting_table')],
                                 fails='missing|short|not enough', check=('same_bag',)),
     'smelt_without_fuel': dict(base='smelt', doc='a furnace and raw iron, nothing to burn: no fuel, named',
                              replace_setup=True,
                              scene=[('floor',), ('stand',), ('give', 'furnace'), ('give', 'raw_iron', 1)],
                              fails='no coal|fuel|burn', check=('gain', 'minecraft:iron_ingot', 0, 0)),
-    'eat_with_nothing': dict(base='eat', doc='hungry, nothing edible carried: nothing to eat, named',
-                           replace_setup=True, scene=[('floor',), ('stand',)], fails='nothing edible',
-                           check=('same_bag',)),
+    'eat_with_nothing': dict(base='eat', doc='hungry, nothing edible carried: nothing to eat, named', replace_setup=True,
+                           scene=[('floor',), ('stand',)], fails='nothing edible', check=('same_bag',)),
     'lava_under_ore': dict(base='mine_iron', doc='lava right under the iron ore, blocks carried → sealed, then mined',
                          scene=[('setblock', ('@', 2, -1, 0), 'lava'), ('give', 'cobblestone', 4)],
                          check=('all', ('!gain', 'minecraft:raw_iron', 1), ('!alive', 14))),
@@ -189,10 +183,8 @@ SURPRISES = {
                                       ('fill', ('@', 0, 0, 0), ('@', 1, 1, 0), 'air'),
                                       ('setblock', ('@', 0, 2, 0), 'stone_slab')]),
 }
-
 TARGET_S = {'chop': 10.0, 'mine_stone': 8.0, 'craft': 8.0, 'eat': 2.0, 'find_air': 5.0}     # a base's own speed target (s), × TARGET_SLACK
 TARGET_SLACK = 1.5
-
 # The kit rule (bench.core.BEST_TOOLS / weapon_for): the rows whose work uses a tool, by the tools it uses.
 KIT = {n: list(jobs) for jobs, names in {
     ('axe',): ['brain__night', 'brain__tight', 'chest_or_tree', 'chop__base', 'chop__lava_edge', 'chop__night',

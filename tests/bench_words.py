@@ -61,7 +61,7 @@ def enc(v, depth=0):
 
 
 def _scen():
-    return sys.modules.get("bonobo.scenarios") or __import__("bonobo.scenarios", fromlist=["x"])
+    return sys.modules.get("bonobo.bench.vocab") or __import__("bonobo.bench.vocab", fromlist=["x"])
 
 
 def name_of(f):
@@ -533,10 +533,9 @@ def _trim(word, defaults):
 def _sheet_lists():
     """The old sheet's shared command lists (NAME → commands), longest first."""
     import bonobo.bench.core as core_mod
-    import bonobo.bench.fight as fight_mod
-    scen = sys.modules["bonobo.scenarios"]
+    scen = _scen()
     out = {}
-    for mod, prefix in ((scen, ""), (fight_mod, "bonobo.bench.fight:"), (core_mod, "bonobo.bench.core:")):
+    for mod, prefix in ((scen, ""), (core_mod, "bonobo.bench.core:")):
         for k, v in vars(mod).items():
             if isinstance(v, list) and len(v) >= 2 and all(isinstance(c, str) for c in v) and k.isupper() or \
                     isinstance(v, list) and len(v) >= 2 and k.startswith("_") and k[1:].isupper() \

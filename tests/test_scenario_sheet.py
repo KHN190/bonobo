@@ -1,4 +1,4 @@
-"""The scenario sheet's shape (bonobo/scenarios.py), offline. The rows are run in the game, never here.
+"""The scenario sheet's shape (the bench tables, bonobo/bench/bench_<tier>.py, built by table.py), offline. The rows are run in the game, never here.
 
 What is checked is what makes the sheet trustworthy before anyone runs it:
   - every row is well-formed: setup commands, a run, a WORLD check, a budget, the skills it proves, its test point
@@ -9,7 +9,7 @@ What is checked is what makes the sheet trustworthy before anyone runs it:
     axis (terrain, timing, inventory) and every surprise is there
   - expected-failure rows name a specific reason (a regex that is not a catch-all)
   - the named rows of test points A–D exist, in the right order, with the right budgets
-Driven from `skill.REGISTRY` and `scenarios.SCENARIOS`: a new skill or a new row needs no edit here.
+Driven from `skill.REGISTRY` and `table.SCENARIOS`: a new skill or a new row needs no edit here.
 """
 import os
 import re
@@ -19,7 +19,8 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import brain, fight_loop, scenarios as sc  # noqa: E402,F401  (brain/fight_loop: every skill module)
+from bonobo import brain, fight_loop  # noqa: E402,F401
+from bonobo.bench import table as sc  # noqa: E402,F401  (brain/fight_loop: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
 
@@ -69,7 +70,7 @@ class EveryRow(unittest.TestCase):
         and becomes the next row's surprise."""
         (x0, y0, z0), (x1, y1, z1) = sc.BOX
         ox, oy, oz = sc.ORIGIN
-        for name, row in sorted(sc.SHEET.items()):
+        for name, row in sorted(sc.SCENARIOS.items()):
             if row.get("raw"):
                 continue
             for cmd in row["setup"]:
@@ -123,19 +124,19 @@ class TheCoverIsWhole(unittest.TestCase):
     def test_every_base_and_condition(self):
         for base in sc.BASES:
             with self.subTest(base=base):
-                self.assertIn(f"{base}__base", sc.SHEET)
+                self.assertIn(f"{base}__base", sc.SCENARIOS)
         pairs = sc.cover(sc.CONDITIONS, sc.BASES, [("night", "chop")])
         for cond, spec in sc.CONDITIONS.items():
-            self.assertEqual(spec["bases"] - set(sc.BASES), set(), cond)
+            self.assertEqual(set(spec["bases"]) - set(sc.BASES), set(), cond)
             with self.subTest(condition=cond):
                 self.assertIn(cond, {c for c, _b in pairs})
         for cond, base in pairs:
             with self.subTest(condition=cond, base=base):
-                row = sc.SHEET[f"{base}__{cond}"]
+                row = sc.SCENARIOS[f"{base}__{cond}"]
                 self.assertEqual(row["tags"][sc.CONDITIONS[cond]["axis"]], cond)
         for surprise in sc.SURPRISES:
             with self.subTest(surprise=surprise):
-                self.assertIn(surprise, sc.SHEET)
+                self.assertIn(surprise, sc.SCENARIOS)
 
     def test_every_axis_is_covered(self):
         axes = {spec["axis"] for spec in sc.CONDITIONS.values()}
@@ -149,21 +150,21 @@ class TheCoverIsWhole(unittest.TestCase):
         inventory = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "inventory"}
         self.assertTrue({"full_bag", "tool_one_use", "wrong_tool", "goal_met"} <= inventory)
         self.assertIn("inventory_lag", timing)
-        self.assertIn("dead_flicker_on_respawn", sc.SHEET)
+        self.assertIn("dead_flicker_on_respawn", sc.SCENARIOS)
         self.assertTrue({"leaves_block_trunk", "floating_logs", "empty_chest", "bed_obstructed", "bed_in_nether",
                          "lava_under_ore", "falling_gravel"} <= set(sc.SURPRISES))
 
     def test_interrupted_rows_resume_and_count(self):
-        for name, row in sorted(sc.SHEET.items()):
-            if sc.CONDITIONS.get(row["tags"].get("timing"), {}).get("interrupt"):
+        for name, row in sorted(sc.SCENARIOS.items()):
+            if sc.CONDITIONS.get(row.get("tags", {}).get("timing"), {}).get("interrupt"):
                 with self.subTest(name):
                     self.assertEqual(row["budget"], sc.BASES[row["tags"]["base"]]["budget"],
                                      "an interrupted run keeps the base's time: the base is small enough to resume")
 
     def test_every_timing_row_runs(self):
         """No row stands in for a missing hook: every timing condition injects its interruption for real."""
-        for name, row in sc.SHEET.items():
-            if row["tags"].get("timing"):
+        for name, row in sc.SCENARIOS.items():
+            if row.get("tags", {}).get("timing"):
                 with self.subTest(name):
                     self.assertNotIn("hook", row)
                     self.assertTrue(sc.CONDITIONS[row["tags"]["timing"]].get("interrupt")
@@ -190,7 +191,7 @@ class Unique(unittest.TestCase):
         return out
 
     def test_unique(self):
-        some = dict(list(sc.SHEET.items())[:3])
+        some = dict(list(sc.SCENARIOS.items())[:3])
         first = next(iter(some))
         rows = [("the real sheet", sc.SCENARIOS, []),
                 ("a copy under another name", {**some, "zz_copy": dict(some[first])}, [(first, "zz_copy")]),
@@ -265,18 +266,20 @@ def over_limit(rows_):
 
 
 class SheetMerge(unittest.TestCase):
-    """Every generated row reaches SCENARIOS: the merge is the one door and SHEET is sealed after it
-    (search_night_resume was added after the merge and was in no run)."""
+    """Every table row reaches SCENARIOS: table.py builds the one sheet (search_night_resume once missed the merge
+    and was in no run)."""
 
-    def test_every_sheet_row_is_a_scenario(self):
-        self.assertEqual(sorted(set(sc.SHEET) - set(sc.SCENARIOS)), [])
+    def test_every_table_row_is_a_scenario(self):
+        self.assertEqual(sorted(set(sc.sheet()) ^ set(sc.SCENARIOS)), [])
         self.assertIn("search_night_resume", sc.SCENARIOS)
 
-    def test_a_row_added_after_the_merge_is_refused(self):
-        # must fail: a late SHEET row is an error at import, never a row silently left out
-        with self.assertRaises(TypeError):
-            sc.SHEET["late_row"] = {"budget": 1}
-        self.assertNotIn("late_row", sc.SCENARIOS)
+    def test_a_row_made_twice_is_refused(self):
+        # must fail: two rows of one name in a tier's table are an error at build, never one silently dropped
+        from unittest import mock
+        mod = __import__("bonobo.bench.bench_core", fromlist=["ROWS"])
+        with mock.patch.object(mod, "ROWS", list(mod.ROWS) + [dict(mod.ROWS[0])]):
+            with self.assertRaises(ValueError):
+                sc.rows("core")
 
 
 class FightRowsInCombat(unittest.TestCase):
@@ -664,7 +667,7 @@ class BrainGrid(unittest.TestCase):
                 cells = sc._grid_cells()
                 names = [sc.grid_name(cells[tuple(c[d] for d in sc.BRAIN_DIMS)]["families"], c) for c in grid]
                 self.assertEqual((len(grid) >= 2, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
-                self.assertEqual([n for n in names if sc.SHEET[n]["budget"] > 60 or sc.tier_of(n, sc.SHEET[n]) != "brain"],
+                self.assertEqual([n for n in names if sc.SCENARIOS[n]["budget"] > 60 or sc.tier_of(n, sc.SCENARIOS[n]) != "brain"],
                                  [])
 
     def test_rules(self):
@@ -716,7 +719,7 @@ class FoodFirstFromTheWorld(unittest.TestCase):
 
 
 class FurnaceSlots(unittest.TestCase):
-    """scenarios.furnace_slots: what a furnace holds, from the game's `data get block … Items` answer."""
+    """vocab.furnace_slots: what a furnace holds, from the game's `data get block … Items` answer."""
 
     def test_table(self):
         head = "Furnace at 10000, 200, 10000 has the following block data: "
@@ -736,7 +739,7 @@ class FurnaceSlots(unittest.TestCase):
 
 
 class Drain(unittest.TestCase):
-    """scenarios.drain_step: fast while saturation is left or the bar is high, slow for the last points, stop at
+    """vocab.drain_step: fast while saturation is left or the bar is high, slow for the last points, stop at
     the level + 1 — at full strength all the way it overshot to 0 and 4."""
 
     def test_table(self):
@@ -753,7 +756,7 @@ class Drain(unittest.TestCase):
 
 
 class EatTarget(unittest.TestCase):
-    """scenarios.eat_target_s: per bite × the bites the gap takes (a flat 3 s failed a 4-bite meal at 7.2 s)."""
+    """vocab.eat_target_s: per bite × the bites the gap takes (a flat 3 s failed a 4-bite meal at 7.2 s)."""
 
     def test_table(self):
         per = sc.TARGET_S["eat"] * sc.TARGET_SLACK
@@ -915,7 +918,7 @@ class Pending(unittest.TestCase):
 
 
 class SkillsAreTimed(unittest.TestCase):
-    """A skill row fails past TARGET_SLACK × its target, timed from its own run (scenarios.TARGET_S)."""
+    """A skill row fails past TARGET_SLACK × its target, timed from its own run (bench_bases.TARGET_S)."""
 
     # (situation, run_s, target_s) → ok, and the note names slowness (the outcome itself was reached)
     QUICK = [("chop in 12 s against 15: inside", 12.0, 15.0, True, None),
@@ -937,8 +940,8 @@ class SkillsAreTimed(unittest.TestCase):
         for name, want in (("chop__base", True), ("mine_stone__base", True), ("craft__base", True), ("eat__base", True),
                            ("find_air_capped", True), ("smelt__base", False), ("chop__night", False)):
             with self.subTest(name):
-                self.assertEqual(sc.SHEET[name]["run"].__qualname__ == "_timed.<locals>.go", want)
-                self.assertEqual("target_s" in sc.SHEET[name], want)
+                self.assertEqual(sc.SCENARIOS[name]["run"].__qualname__ == "_timed.<locals>.go", want)
+                self.assertEqual("target_s" in sc.SCENARIOS[name], want)
         sc.BASE.pop("run_s", None)
         self.assertEqual((sc._timed(lambda ctx: "done")(None), sc.BASE["run_s"] < 1.0), ("done", True))
 
@@ -954,14 +957,14 @@ class EveryPartHasAMustFail(unittest.TestCase):
     def test_every_base(self):
         for base in sc.BASES:
             with self.subTest(base):
-                rows = [(n, r) for n, r in sc.SHEET.items() if r.get("tags", {}).get("base") == base]
+                rows = [(n, r) for n, r in sc.SCENARIOS.items() if r.get("tags", {}).get("base") == base]
                 self.assertNotEqual(self.controls(rows), [], f"{base}: no must-fail row")
 
     def test_every_brain_family(self):
         families = set(sc.BRAIN_FAMILIES) | {"fight_first"}
         for fam in sorted(families):
             with self.subTest(fam):
-                rows = [(n, r) for n, r in sc.SHEET.items() if fam in r.get("tags", {}).get("family", "").split("+")]
+                rows = [(n, r) for n, r in sc.SCENARIOS.items() if fam in r.get("tags", {}).get("family", "").split("+")]
                 self.assertNotEqual(self.controls(rows), [], f"{fam}: no must-fail row")
 
     def test_the_new_controls_name_their_failure(self):
@@ -971,7 +974,7 @@ class EveryPartHasAMustFail(unittest.TestCase):
                 ("eat_with_nothing", r"nothing edible")]
         for name, fails in rows:
             with self.subTest(name):
-                self.assertEqual(sc.SHEET[name]["fails"], fails)
+                self.assertEqual(sc.SCENARIOS[name]["fails"], fails)
 
 
 def walk_frames(speed=4.0, rise_at=3.0, stop=(None, None), task=None, food0=10, back=False):
@@ -1005,7 +1008,7 @@ class EatingOnTheWay(unittest.TestCase):
 
 
 class SliceVerdict(unittest.TestCase):
-    """scenarios.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""
+    """vocab.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""
 
     def test_over_the_table(self):
         ok = {"idle_s": 3.0, "loops": [], "waits": 0}
@@ -1024,7 +1027,7 @@ class SliceVerdict(unittest.TestCase):
 
 
 class KitRule(unittest.TestCase):
-    """bench.core.weapon_for / scenarios.KIT_JOBS: iron for ordinary mobs, diamond for the high tier; the best work
+    """bench.core.weapon_for / bench_bases.KIT: iron for ordinary mobs, diamond for the high tier; the best work
     tool for every row whose work uses one."""
 
     def test_weapon_for(self):
@@ -1204,8 +1207,8 @@ class RowKey(unittest.TestCase):
 
     def test_row_hash(self):
         from bonobo.bench import runner
-        row = dict(sc.SHEET["chop__base"])
-        other = dict(sc.SHEET["craft__base"])
+        row = dict(sc.SCENARIOS["chop__base"])
+        other = dict(sc.SCENARIOS["craft__base"])
         base = runner.row_hash(row)
         rows = [("the same row: same", dict(row), True),
                 ("its setup changed: new", dict(row, setup=list(row["setup"]) + ["give @p dirt"]), False),

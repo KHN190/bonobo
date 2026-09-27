@@ -681,7 +681,7 @@ def run(name, make_ctx):
                 inv_after = Inventory()
                 reached = bool(sc["check"](api, inv_after))
                 # a crash of ours is never a pass
-                from .. import scenarios as _rows
+                from . import vocab as _rows
                 ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
                                   _rows.BASE.get("target_s") or sc.get("target_s"))   # a row's own, measured at start
                 ok = ok and not fired.is_set()

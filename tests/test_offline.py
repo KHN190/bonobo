@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bonobo import arbiter, bag as BG, blueprints as B, brewing as BW, combat as CB, combat_model as CM  # noqa: E402
 from bonobo import end as END, farming as FM, fluids as FL, loot as LT, nav, needs as UK, nether as NT  # noqa: E402
-from bonobo import review as RV, roads as ROADS, scenarios as SC, skills, ui as UI  # noqa: E402
+from bonobo import review as RV, roads as ROADS, skills, ui as UI  # noqa: E402
+from bonobo.bench import table as SC  # noqa: E402
 from bonobo.api import NavFailed  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
 from bonobo.data import RECIPES  # noqa: E402

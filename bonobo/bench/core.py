@@ -1,4 +1,4 @@
-"""The bench's primitives: where a scenario stands, how a command is sent, and the sweep engine under every swept bench. Everything here is shared by the sheets (`bench.fight`, `scenarios`) and by the runner; nothing here knows about any particular scenario."""
+"""The bench's primitives: where a scenario stands, how a command is sent, and the sweep engine under every swept bench. Everything here is shared by the tables (`bench.vocab`) and by the runner; nothing here knows about any particular scenario."""
 
 import json
 import os
