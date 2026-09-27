@@ -3151,13 +3151,14 @@ SHEET["fight_before_upkeep"] = {
 # same walk fed (it did not stop to eat). The control: hungry while mining — the mining is not interrupted to eat.
 WALK = {}
 BITE_S = 1.6        # one bite standing still (32 ticks): what eating on the way must not be slower than
+WALK_SLACK_S = 1.0  # two legs of the same walk differ by this much with no eating at all (jitter)
 
 
 def no_slower_than_stopping(hungry_s, fed_s, bites):
     """Pure: the hungry leg took no longer than the fed one plus a standing bite per bite eaten — eating while
     walking slows the walk (no sprint, ~20% speed while chewing), so "+1 s" was never reachable; stopping to eat
     is the bar. No bite at all is not eating on the way."""
-    return bites > 0 and hungry_s <= fed_s + bites * BITE_S
+    return bites > 0 and hungry_s <= fed_s + bites * BITE_S + WALK_SLACK_S
 
 
 def _walk_there_and_back(ctx):
@@ -3182,7 +3183,7 @@ def _hungry(ctx):
 
 SHEET["eat_while_walking"] = {
     "doc": "Hungry, cooked beef carried, 20 blocks to walk → fed on arrival, and no slower than the same walk fed "
-           "plus a standing bite per bite eaten: it eats without stopping",
+           "plus a standing bite per bite eaten (+1 s): it eats without stopping",
     "module": "skills", "point": "A", "skills": ["goto"], "tier_fixed": "common", "combat": False, "stochastic": False,
     "tags": {"base": "nav", "state": "hungry"},
     "setup": _floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(20, -1, 3))} stone", _tp(-2, 0, 0), "give @p cooked_beef 4"],

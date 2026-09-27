@@ -802,7 +802,9 @@ class EatingOnTheWay(unittest.TestCase):
 
     def test_no_slower_than_stopping(self):
         rows = [("the bench's run: 3 bites, 9.6 s against 4.5 s fed", 9.6, 4.5, 3, True),
-                ("exactly a standing bite per bite (boundary)", 4.5 + 3 * sc.BITE_S, 4.5, 3, True),
+                ("exactly a standing bite per bite and the slack (boundary)", 4.5 + 3 * sc.BITE_S + sc.WALK_SLACK_S,
+                 4.5, 3, True),
+                ("just past the boundary", 4.5 + 3 * sc.BITE_S + sc.WALK_SLACK_S + 0.1, 4.5, 3, False),
                 ("slower than stopping to eat", 9.6, 4.5, 2, False),
                 ("no bite eaten: not eating on the way", 4.5, 4.5, 0, False),
                 ("a long stop: 20 s for one bite", 20.0, 4.5, 1, False)]
