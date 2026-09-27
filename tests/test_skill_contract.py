@@ -411,6 +411,37 @@ class AWalkCutShortIsNotAFailure(unittest.TestCase):
                 nav.arrived((5, 64, 5), nav.Policy(), range_=1.5)
 
 
+class DigInSeals(unittest.TestCase):
+    """skills.dig_in_commands: the hole is always lidded — with a carried block, else with what the dig brings up
+    (an empty bag dug a lidless hole: night_dig_in_dirt)."""
+
+    def test_over_the_table(self):
+        feet = (0, 64, 0)
+
+        def ground(top, rest):
+            return FakeRegion((-2, 55, -2), (2, 67, 2), {**{(x, y, z): rest for x in range(-2, 3) for z in range(-2, 3)
+                                                              for y in range(56, 63)},
+                                                           **{(x, 63, z): top for x in range(-2, 3) for z in range(-2, 3)}})
+        full = inventory(*[("minecraft:rotten_flesh", 64)] * 36)
+        rows = [("an empty bag, dirt: the dug dirt is the lid, the dig collects it", ground("dirt", "dirt"), inventory(),
+                 "minecraft:dirt", True),
+                ("an empty bag, grass on top: the lid is dirt (what grass drops)", ground("grass_block", "dirt"),
+                 inventory(), "minecraft:dirt", True),
+                ("cobblestone carried: the carried block, nothing collected for it", ground("dirt", "dirt"),
+                 inventory(("cobblestone", 8)), "minecraft:cobblestone", False),
+                ("must fail: a full bag, nothing to seal with", ground("dirt", "dirt"), full, NotAvailable, None)]
+        for name, region, inv, want, collects in rows:
+            with self.subTest(name):
+                st = {"feet": feet, "region": region, "inv": bag(inv), "protected": set()}
+                if want is NotAvailable:
+                    with self.assertRaises(NotAvailable):
+                        skills.dig_in_commands(st)
+                    continue
+                tasks = skills.dig_in_commands(st)
+                self.assertEqual((tasks[-1]["type"], tasks[-1]["item"]), ("place", want))
+                self.assertEqual({t["collect"] for t in tasks if t["type"] == "mine"}, {collects})
+
+
 class Outcomes(unittest.TestCase):
     def test_every_exception_maps_to_one_cause_and_one_class(self):
         for err, cause, cls in OUTCOMES:
@@ -862,7 +893,8 @@ COMMANDS = {
         ("flat stone, blocks carried: three down and a lid", body(world(), inv=inventory(cobblestone=16)),
          lambda t, b: (t.assertEqual(types(b), ["mine", "wait"] * 3 + ["place"]),
                        t.assertEqual(cells(b), [(0, 63, 0)]))),
-        ("no blocks: three down, no lid", body(world()), lambda t, b: t.assertEqual(types(b), ["mine", "wait"] * 3)),
+        ("no blocks: three down, lidded with what the dig brought up", body(world()),
+         lambda t, b: t.assertEqual(types(b), ["mine", "wait"] * 3 + ["place"])),
         ("lava beside the second cell: stops at one", body(world(((1, 62, 0), "lava")), inv=inventory(cobblestone=4)),
          lambda t, b: (t.assertEqual(types(b), ["mine", "wait", "place"]), t.assertEqual(cells(b), [(0, 65, 0)]))),
         ("a cave right under the first cell", body(world(((0, 62, 0), "air"))), NotAvailable),

@@ -1482,10 +1482,22 @@ def dig_in_commands(state, args=()):
     """Pure: dig up to DIG_IN_DEPTH straight down (`nav.dig_down_tasks`) and seal the opening over the head.
     `state["region"]` is `nav.dig_down_region(feet, DIG_IN_DEPTH)`."""
     x, y, z = state["feet"]
-    tasks, safe = nav.dig_down_tasks(state["region"], state["feet"], DIG_IN_DEPTH, state["protected"], False)
-    block = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
-    if block:
-        tasks.append({"type": "place", "item": block, "x": x, "y": y - safe + 2, "z": z})
+    region, inv = state["region"], state["inv"]
+    tasks, safe = nav.dig_down_tasks(region, state["feet"], DIG_IN_DEPTH, state["protected"], False)
+    block = next((b for b in GROUPS["building"] if inv.count(b)), None)
+    if block is None:
+        # Nothing carried to seal with: the roof is what the dig itself brings up (dirt from a dirt pit). Planned
+        # from the bag alone, an empty bag dug a hole with no lid and enclosed() never held (night_dig_in_dirt).
+        dug = [t for t in tasks if t["type"] == "mine"]
+        if not dug:
+            raise NotAvailable("nothing to seal the hole with: no block carried, none dug")
+        if inv.free_slots() < 1:
+            raise NotAvailable("nothing to seal the hole with, and no room in the bag for the block dug")
+        for t in dug:
+            t["collect"] = True
+        name = bare(region.name((dug[0]["x"], dug[0]["y"], dug[0]["z"])))
+        block = mid(PLACEABLE_AS.get(name, name))
+    tasks.append({"type": "place", "item": block, "x": x, "y": y - safe + 2, "z": z})
     return tasks
 
 
