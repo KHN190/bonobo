@@ -10,6 +10,20 @@ UNREACHABLE = ("unreachable", "not reachable", "no reachable face", "cannot reac
 _CANNOT_REACH = __import__("re").compile(r"cannot reach (-?\d+), (-?\d+), (-?\d+)")
 
 
+def memo_ttl(cache, key, ttl, make, now, one=False):
+    """cache[key]'s value while younger than `ttl` s (cache: {key: (at, value)}), else `make()` kept with `now`.
+    `one`: a single slot — any other key is forgotten when a new value is kept. The one short-lived memo (perception's
+    ground, needs' plan prices)."""
+    hit = cache.get(key)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]
+    value = make()
+    if one:
+        cache.clear()
+    cache[key] = (now, value)
+    return value
+
+
 def cannot_reach(message):
     """Pure: the cells a mod answer names as "cannot reach x, y, z" — {(x, y, z)}, empty when it names none."""
     return {tuple(int(g) for g in m.groups()) for m in _CANNOT_REACH.finditer(message or "")}

@@ -5,6 +5,7 @@ import threading
 import time
 
 from . import api, arbiter, fight_loop, hazard, paths
+from .data import memo_ttl
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE
@@ -341,6 +342,7 @@ def watching():
     return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
 GRID, GRID_AT, GRID_AT_POS = None, 0.0, None
+_GROUND = {}        # here → (at, (grid, region)): one slot, data.memo_ttl
 REGION = None       # the blocks GRID was read from: evade asks it where a walk lands (nav.landing)
 GRID_R = 8
 GRID_TTL_S = 2.0
@@ -374,16 +376,14 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
     region_of = region_of or Region
     now = now if now is not None else time.time()
     here = tuple(int(math.floor(state[k])) for k in ("x", "y", "z"))
-    if GRID is not None and now - GRID_AT < GRID_TTL_S and GRID_AT_POS == here:
-        return GRID
+    def read():
+        region = region_of(tuple(here[i] - radius for i in range(3)), tuple(here[i] + radius for i in range(3)))
+        return _field.from_region(region, here, radius), region
     try:
-        lo = tuple(here[i] - radius for i in range(3))
-        hi = tuple(here[i] + radius for i in range(3))
-        region = region_of(lo, hi)
+        GRID, REGION = memo_ttl(_GROUND, here, GRID_TTL_S, read, now, one=True)
     except Exception:
-        return GRID
-    GRID, REGION = _field.from_region(region, here, radius), region
-    GRID_AT, GRID_AT_POS = now, here
+        return GRID                  # a failed read keeps the last field
+    GRID_AT, GRID_AT_POS = _GROUND[here][0], here
     return GRID
 
 def footing(state):

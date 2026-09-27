@@ -21,6 +21,7 @@ R = range(-8, 9)
 
 def fresh():
     perception.GRID, perception.GRID_AT, perception.GRID_AT_POS, perception.REGION = None, 0.0, None, None
+    perception._GROUND.clear()
 
 
 class Ground(unittest.TestCase):

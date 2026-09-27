@@ -72,5 +72,23 @@ class RoomClicks(unittest.TestCase):
                 if want is not None:
                     self.assertEqual(sorted(c["slot"] for c in got), sorted(screen_slot(at[w]) for w in want))
 
+
+class MemoTtl(unittest.TestCase):
+    """data.memo_ttl: the one short-lived memo (perception's ground, needs' plan prices)."""
+
+    def test_rows(self):
+        # (situation, cache before, key, now, one) → (value returned, made again?, keys after)
+        rows = [("fresh hit: kept value, nothing made", {"a": (10.0, "old")}, "a", 11.0, False, ("old", False, ["a"])),
+                ("expired: made again", {"a": (10.0, "old")}, "a", 13.0, False, ("new", True, ["a"])),
+                ("another key: made, both kept", {"a": (10.0, "old")}, "b", 11.0, False, ("new", True, ["a", "b"])),
+                ("one slot: another key forgets the first", {"a": (10.0, "old")}, "b", 11.0, True, ("new", True, ["b"])),
+                ("must fail: exactly at the ttl is stale", {"a": (10.0, "old")}, "a", 12.0, False, ("new", True, ["a"]))]
+        for name, cache, key, now, one, want in rows:
+            with self.subTest(name):
+                made = []
+                got = data.memo_ttl(cache, key, 2.0, lambda: made.append(1) or "new", now, one=one)
+                self.assertEqual((got, bool(made), sorted(cache)), want)
+
+
 if __name__ == "__main__":
     unittest.main()
