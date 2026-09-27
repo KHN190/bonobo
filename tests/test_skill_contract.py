@@ -180,7 +180,30 @@ ARRIVE = [
 ]
 
 
+# (situation, body x y z, target, range) → there: the one arrival test, read from where the walk left the body
+THERE = [("on the platform, the target's cell", (3.5, 201.0, 3.5), (3, 201, 3), 0.6, True),
+         ("cave_escape: travel stopped a step below the target (y 199.3 vs 201)", (3.5, 199.3, 3.5), (3, 201, 3), 0.6,
+          False),
+         ("one cell diagonally off at range 0.6 (the old range + 1 accepted it)", (4.5, 201.0, 4.5), (3, 201, 3), 0.6,
+          False),
+         ("one cell off at range 1.5", (4.5, 64.0, 3.5), (3, 64, 3), 1.5, True),
+         ("a point target (an entity's position), exactly there", (10.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, True),
+         ("a point target 2 blocks away at range 1", (12.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, False)]
+
+
 class Arrive(_Clean):
+    def test_there_over_the_table(self):
+        for name, (x, y, z), pos, range_, want in THERE:
+            with self.subTest(name):
+                self.assertIs(nav.there({"x": x, "y": y, "z": z}, pos, range_), want)
+
+    def test_a_walked_leg_is_not_arrival(self):
+        """A leg that gained ground reads False as an answer to "there?" and True to `moved`: no caller can take
+        it for arrival by its truth value."""
+        for gained in (30.0, 3.0, 0.5):
+            with self.subTest(gained=gained):
+                self.assertEqual((bool(W(gained)), nav.moved(W(gained))), (False, True))
+
     def test_what_counts_as_moving(self):
         """`nav.moved`: there, or a leg that gained ground — never a bare truth value of the answer."""
         for got, want in ((True, True), (W(3.0), True), (W(0.5), True), (False, False), (None, False), (1, False)):

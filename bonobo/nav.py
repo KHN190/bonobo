@@ -122,8 +122,8 @@ PLAYER_SPEED = 4.3
 def _arrived(start, target, began, ok, closer=False):
     """Feed one walk back into the terrain estimate, and say what the leg achieved.
 
-    Returns True when we got there, `Walked` when we only got nearer — truthy, so every caller that asks "did the
-    walk work" still reads it as yes, while a caller that cares can tell the difference. Without this a deep
+    Returns True when we got there (`there`), `Walked` when we only got nearer — falsy, so a caller that asks "did
+    the walk get there" reads no, and `moved` reads the progress. Without this a deep
     target was a failure every round, cooled for two minutes, and never finished, though every attempt dug
     another ten blocks toward it.
     """
@@ -141,7 +141,11 @@ def _arrived(start, target, began, ok, closer=False):
 
 
 class Walked(float):
-    """A leg that got nearer without arriving. Truthy, and carries how many blocks it gained."""
+    """A leg that got nearer without arriving: never arrival, so falsy (a travel stopped 1.7 below the platform read
+    as True and the scenario was over). Carries how many blocks it gained; `moved` reads it as progress."""
+
+    def __bool__(self):
+        return False
 
     def __repr__(self):
         return f"Walked({float(self):.0f} blocks nearer)"
@@ -155,6 +159,17 @@ PROGRESS_BLOCKS = 2.0
 # How many legs one call may walk before it hands the round back. Enough that a deep or far target is reached in
 # one errand; few enough that the body comes up for air and the planner can change its mind.
 LEGS = 6
+
+
+ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
+
+
+def there(state, pos, range_):
+    """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — feet to a block's centre (int
+    coordinates) or to the point itself. The one arrival test: what the walker answered is not read, only where it
+    left the body (a travel "succeeded" one step below the target; a leg that stopped short is not there)."""
+    goal = [p + 0.5 if isinstance(p, int) and i != 1 else p for i, p in enumerate(pos)]
+    return math.dist((state["x"], state["y"], state["z"]), goal) <= range_ + ARRIVE_SLACK
 
 
 def moved(got):
@@ -203,7 +218,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
             known = ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], [])
             for wp in roads.route(known, here, pos)[:-1]:
                 t0 = time.time()
-                if not go_to(wp, policy, range_=6, attempts=1):
+                if not moved(go_to(wp, policy, range_=6, attempts=1)):
                     break
                 roads.add_leg(known, here, feet_now(), time.time() - t0, time.time())
                 here = feet_now()
@@ -219,7 +234,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 if min_hp is not None and api.get("/state")["health"] < min_hp:
                     log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
                     return False
-                if not go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp):
+                if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp)):
                     # This hop got nowhere. The trip is not over unless we are no nearer than when it started:
                     # the caller asked for the far end, and the next round carries on from wherever we stand.
                     return _arrived(_from, pos, _began, False,
@@ -250,8 +265,8 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": policy.allow_dig, "place": policy.allow_build, "placeBudget": budget,
                          "avoid": avoid}, wait=900)
-            if r["status"] == "succeeded" or math.dist(feet_now(), pos) <= range_ + 1:
-                return True
+            if there(api.get("/state"), pos, range_):
+                return _arrived(_from, pos, _began, True)
             if walked_closer(was, feet_now(), pos):
                 budget = place_budget(Inventory().count("building"))
                 continue                     # that leg gained ground: the next one starts from here
@@ -267,20 +282,19 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 if fy is not None and fy != pos[1]:
                     log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
                     pos = (pos[0], fy, pos[2])
-                    r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                                 "break": policy.allow_dig, "place": policy.allow_build, "placeBudget": budget,
-                                 "avoid": avoid}, wait=900)
-                    if r["status"] == "succeeded" or math.dist(feet_now(), pos) <= range_ + 1:
-                        return True
+                    api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
+                             "break": policy.allow_dig, "place": policy.allow_build, "placeBudget": budget,
+                             "avoid": avoid}, wait=900)
+                    if there(api.get("/state"), pos, range_):
+                        return _arrived(_from, pos, _began, True)
         # The walker says it could not get all the way. Whether that is a failure depends on where it left us:
         # a leg that ended thirty blocks nearer is progress, and the next round continues from there.
         return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet_now(), pos))
     for _ in range(attempts):
         # A jar without `travel`: one step at a time, and the same rule — the mod says whether it got there.
-        r = api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True})
-        here = feet_now()
-        if r["status"] == "succeeded" or math.dist(here, pos) <= range_ + 1:
-            return True
+        api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True})
+        if there(api.get("/state"), pos, range_):
+            return _arrived(_from, pos, _began, True)
     return _arrived(_from, pos, _began, False)
 
 
@@ -290,9 +304,8 @@ ARRIVE_CALLS = 8          # go_to calls one `arrive` may chain while each keeps 
 def arrive(pos, policy, range_=1.5, **kw):
     """Get there, or raise `api.NavFailed`. The call a skill makes when it needs to BE somewhere.
 
-    `go_to` answers in three ways — True (there), `Walked` (nearer, not there) and False (no nearer) — and `Walked`
-    is truthy, so a skill that asked "did it work" read a leg that stopped thirty blocks short as arrival and began
-    working on thin air. Here a leg that gained ground is followed by the next one, arrival returns True, and a leg
+    `go_to` answers in three ways — True (there), `Walked` (nearer, not there; falsy) and False (no nearer); a skill
+    that read a leg stopped thirty blocks short as arrival began working on thin air. Here a leg that gained ground is followed by the next one, arrival returns True, and a leg
     that gained nothing is the failure it is. A pending interrupt ends the walk between legs.
     """
     began = time.time()
@@ -301,7 +314,7 @@ def arrive(pos, policy, range_=1.5, **kw):
         got = go_to(pos, policy, range_=range_, **kw)
         if got is True:
             return True
-        if not got:
+        if not moved(got):
             raise api.NavFailed(f"could not get to {tuple(pos)} (no nearer after walking)", pos=pos)
         api.check_interrupt(began, api.SOFT)
     raise api.NavFailed(f"still {math.dist(feet_now(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks",
