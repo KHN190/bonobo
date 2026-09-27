@@ -73,11 +73,17 @@ class Cost:
         return hit[1] if hit else None
 
     def distance(self, blocks, radius=48):
-        """Blocks to the nearest one of these: in sight now (one cached /find), else remembered, else None."""
+        """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find),
+        else None. Remembered first: an estimate that asked /find for a noted diamond scanned every round and
+        undid what noting it was for (seen_store__noted's _no_scan; cost._source ← needs.plan / decompose)."""
         key = ("find", tuple(blocks), radius)
         if key not in self.cache and self._finds is not None:
             got = [self._finds[b] for b in blocks if b in self._finds and self._finds[b] <= radius]
             self.cache[key] = min(got) if got else self._known(blocks)
+        if key not in self.cache:
+            known = self._known(blocks)
+            if known is not None and known <= radius:
+                self.cache[key] = known
         if key not in self.cache:
             try:
                 hits = [h for h in find(list(blocks), radius=radius, limit=20)

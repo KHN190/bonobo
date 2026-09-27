@@ -2364,3 +2364,25 @@ class RawOnlyWhenStarving(unittest.TestCase):
             with self.subTest(name):
                 inv = bag(inventory(*items))
                 self.assertIs(reflexes.meal(food, inv, lambda: reflexes.can_cook(inv, furnace_near)), want)
+
+
+class EstimatesRememberFirst(unittest.TestCase):
+    """cost.Cost.distance: a remembered cell answers without a world read — /find only when memory knows none."""
+
+    def test_over_the_table(self):
+        from bonobo.cost import Cost
+        rows = [("a noted diamond 10 off: remembered, no /find", {"diamond_ore": 10.0}, ["diamond_ore"], 48, 10.0, 0),
+                ("nothing noted: /find asked", {}, ["diamond_ore"], 48, 7.0, 1),
+                ("noted but past the radius: /find asked", {"diamond_ore": 40.0}, ["diamond_ore"], 32, 7.0, 1),
+                ("a noted tree for logs: no /find", {"oak_log": 5.0}, ["oak_log"], 48, 5.0, 0)]
+        for name, noted, blocks, radius, want, finds in rows:
+            with self.subTest(name):
+                asked = []
+
+                def fake_find(bl, radius=48, limit=20, exposed=False):
+                    asked.append(bl)
+                    return [{"x": 7, "y": 64, "z": 0, "distance": 7.0}]
+                c = Cost(snapshot(state(), inventory()), known=lambda kinds: min(
+                    (noted[k] for k in kinds if k in noted), default=None))
+                with mock.patch("bonobo.cost.find", side_effect=fake_find):
+                    self.assertEqual((c.distance(blocks, radius), len(asked)), (want, finds))
