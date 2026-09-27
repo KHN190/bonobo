@@ -90,5 +90,33 @@ class MemoTtl(unittest.TestCase):
                 self.assertEqual((got, bool(made), sorted(cache)), want)
 
 
+
+class ReflexesReadTheRoundsLook(unittest.TestCase):
+    """reflexes.in_sight: a reflex asks the round's one batched look (world.nearest), never /find while deciding."""
+
+    def test_rows(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from bonobo import reflexes, world
+        seen = [{"block": "minecraft:red_bed", "distance": 30.0}, {"block": "minecraft:lava", "distance": 5.0},
+                {"block": "minecraft:barrel", "distance": 4.0}]
+        asked = []
+
+        def get(path):
+            asked.append(path)
+            return {"blocks": seen}
+        snap = SimpleNamespace(feet=(0, 64, 0), dimension="minecraft:overworld")
+        rows = [("a bed 30 away, within 48", ["red_bed", "white_bed"], 48, True),
+                ("a chest group: the barrel 4 away, within 6", ["chest", "barrel"], 6, True),
+                ("must fail: lava 5 away is not within 3", ["lava"], 3, False),
+                ("must fail: nothing of it seen", ["diamond_ore"], 48, False)]
+        with mock.patch.object(world.api, "get", get), mock.patch.object(world, "_PER_BLOCK", [True]), \
+                mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}}):
+            for name, kinds, radius, want in rows:
+                with self.subTest(name):
+                    self.assertEqual(reflexes.in_sight(snap, kinds, radius), want)
+        self.assertEqual(len(asked), 1, "one look answers every reflex ask in the round")
+
+
 if __name__ == "__main__":
     unittest.main()
