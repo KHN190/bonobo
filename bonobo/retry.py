@@ -10,7 +10,7 @@ An interruption (`api.interrupted`) is not a failure and never reaches this modu
 offline-testable."""
 
 NAV_MARKERS = ("no path", "unreachable", "not reachable", "no reachable face", "gave up after", "could not get",
-               "cannot reach", "can't reach", "positions explored")
+               "cannot reach", "can't reach", "positions explored", "cannot hold a stand spot")
 BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
 # The ceiling the doubling runs into, by what went wrong. "The world does not offer this here" ages fast (mobs
 # wander, the sun moves, we walk); a bug does not.

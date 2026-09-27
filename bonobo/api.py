@@ -405,7 +405,8 @@ def run(task, wait=900):
 # What the mod says when the body simply could not get to something: no standing spot, no path, an item that
 # landed where nothing can stand. Not an error in the usual sense — a fact about WAYS, and the answer to it is to
 # make one (`skills.way_to`), never to conclude the thing does not exist.
-UNREACHABLE = ("unreachable", "cannot reach", "can't reach", "no path found", "positions explored")
+UNREACHABLE = ("unreachable", "cannot reach", "can't reach", "no path found", "positions explored",
+               "cannot hold a stand spot")      # jar ≥ 0.1.48: mining ↔ approaching flipped on one block (MineTask)
 
 
 class Unreachable(NotAvailable):
