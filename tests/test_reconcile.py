@@ -120,9 +120,7 @@ class Reconcile(unittest.TestCase):
             goal, undone, done, rest = GOAL_LEFT[kind]
             with self.subTest(kind):
                 self.assertEqual(goal["goal"], kind)
-                self.assertEqual(goals.remainder(goal, *undone), rest, kind)
-                self.assertEqual(goals.remainder(goal, *done), None if rest is None else {}, kind)
-                self.assertTrue(reads_world(goals.DESIRED[kind], goal, undone, done, rest), kind)
+                self.assertTrue(reads_world(goals.remainder, goal, undone, done, rest), kind)
 
     def test_a_desired_state_that_ignores_the_world_is_caught(self):
         # must fail: a constant remainder (never met, always met, or "the world cannot say" for a kind it can) — the

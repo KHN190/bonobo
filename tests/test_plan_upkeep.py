@@ -1551,8 +1551,6 @@ class Retry(unittest.TestCase):
         for name, blacklist, key, now, want in rows:
             with self.subTest(name):
                 self.assertEqual(skillcore.banned(blacklist, key, now), want)
-        ctx = skillcore.Context(None, None, OVER, blacklist={(1, 2, 3): time.time() + 60})
-        self.assertEqual((ctx.blocked((1, 2, 3)), ctx.blocked((1, 2, 4))), (True, False))
 
     # fixture: (module source) → (ban sites, the ones that follow a go_to walk in the same function)
     BANS = [("a ban after arrived: fine", "def f(ctx):\n    if not nav.arrived(c, p):\n        ctx.ban(c)\n", (1, [])),

@@ -147,6 +147,26 @@ class Safest(unittest.TestCase):
                 self.assertEqual(cm.safest(frame(0, **kw), options=options), want)
 
 
+class BestStep(unittest.TestCase):
+    def test_table(self):
+        # (situation, here, hazards [(centre, radius, velocity)], cover) → (spot, slack), rounded
+        rows = [("a hazard coming: the step away from its path", (0, 64, 0), [((3, 64, 0), 1.0, (-2, 0, 0))], None,
+                 ((-2.828427, 64, 2.828427), INF)),
+                ("boxed in by four: the gap between them", (0, 64, 0),
+                 [((6, 64, 0), 1.0, (-8, 0, 0)), ((-6, 64, 0), 1.0, (8, 0, 0)), ((0, 64, 6), 1.0, (0, 0, -8)),
+                  ((0, 64, -6), 1.0, (0, 0, 8))], None, ((1.414214, 64, 1.414214), INF)),
+                ("standing in it, nowhere out: stay, the least bad", (0, 64, 0), [((0, 64, 0), 10.0, (0, 0, 0))],
+                 None, ((0, 64, 0), -0.3)),
+                ("a cover further than a step: taken", (0, 64, 0), [((2, 64, 2), 1.0, (-1, 0, -1))], (-6, 64, 0),
+                 ((-6, 64, 0), INF)),
+                ("must fail: no cover offered, a sidestep instead", (0, 64, 0), [((2, 64, 2), 1.0, (-1, 0, -1))],
+                 None, ((-4.0, 64, 0.0), INF))]
+        for name, here, hazards, cover, want in rows:
+            with self.subTest(name):
+                spot, slack = cm.best_step(here, hazards, cover=cover)
+                self.assertEqual((tuple(round(c, 6) + 0.0 for c in spot), slack), want)
+
+
 class Windows(unittest.TestCase):
     def test_table(self):
         rows = [

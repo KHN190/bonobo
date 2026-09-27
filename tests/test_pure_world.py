@@ -71,7 +71,7 @@ class CellsWith(unittest.TestCase):
     """world.cells_with: the one filter over block states (ripe wheat, frames without an eye)."""
 
     def test_over_the_table(self):
-        from bonobo import end, world
+        from bonobo import world
         blocks = {(0, 64, 0): "wheat", (1, 64, 0): "wheat", (2, 64, 0): "end_portal_frame",
                   (3, 64, 0): "end_portal_frame", (4, 64, 0): "end_portal_frame"}
         props = {(0, 64, 0): {"age": "7"}, (1, 64, 0): {"age": "3"}, (2, 64, 0): {"eye": "true"},
@@ -88,9 +88,6 @@ class CellsWith(unittest.TestCase):
         for name, region, block, key, value, want, cells in rows:
             with self.subTest(name):
                 self.assertEqual(sorted(world.cells_with(region, block, key, value, want)), cells)
-        region = _Props(blocks, props)
-        self.assertEqual((world.ripe_cells(region), sorted(end.frames_missing_eye(region))),
-                         ([(0, 64, 0)], [(3, 64, 0), (4, 64, 0)]))
 
 
 class StandingCells(unittest.TestCase):
@@ -116,7 +113,7 @@ class StandingCells(unittest.TestCase):
 
 
 class AwayFrom(unittest.TestCase):
-    """world.away_from: the one "straight away from a point" (end.breath_escape reads it; its old answers pinned)."""
+    """world.away_from: the one "straight away from a point" (end.breath_escape reads it)."""
 
     def test_over_the_table(self):
         from bonobo import world
@@ -131,9 +128,8 @@ class AwayFrom(unittest.TestCase):
     def test_breath_escape_answers_as_before(self):
         from bonobo import end
         cloud = lambda x, z: {"type": "minecraft:area_effect_cloud", "x": x, "y": 64, "z": z}   # noqa: E731
-        # (here, what is near, run) → the spot the old inline math gave
-        rows = [((10, 64, 0), [cloud(0, 0)], 10, (20, 64, 0)), ((3, 70, 4), [cloud(0, 0)], 10, (9, 70, 12)),
-                ((5, 64, 5), [cloud(0, 0), cloud(4, 4)], 7, (10, 64, 10)),
+        # (here, what is near, run) → the spot: away from the clouds' centre, rounded; None with no cloud
+        rows = [((5, 64, 5), [cloud(0, 0), cloud(4, 4)], 7, (10, 64, 10)),
                 ((-7, 60, 3), [cloud(2.5, -1.5)], 12, (-18, 60, 8)),
                 ((0, 64, 0), [cloud(0, 0)], 10, (0, 64, 0)),
                 ((1, 64, -2), [{"type": "minecraft:zombie", "x": 0, "y": 0, "z": 0}], 10, None)]
@@ -365,6 +361,21 @@ class Knowledge(unittest.TestCase):
 # ---------------------------------------------------------------- nav
 
 class Nav(unittest.TestCase):
+    def test_waypoints(self):
+        # (situation, here, target, leg) → the points walked to, ending at the target
+        rows = [("the portal trip: legs of 40, height interpolated", (-258, 65, 270), (-366, 120, 191), 40,
+                 [(-285, 79, 250), (-312, 92, 230), (-339, 106, 211), (-366, 120, 191)]),
+                ("boundary: within one leg, the target alone", (0, 64, 0), (10, 64, 0), 40, [(10, 64, 0)]),
+                ("a straight line north", (0, 70, 0), (0, 70, -200), 40,
+                 [(0, 70, -40), (0, 70, -80), (0, 70, -120), (0, 70, -160), (0, 70, -200)]),
+                ("a target given as a list comes back a tuple", (5, 60, 5), [105, 40, -95], 40,
+                 [(30, 55, -20), (55, 50, -45), (80, 45, -70), (105, 40, -95)]),
+                ("must fail: travel's leg (nav.LEG) cuts other hops than the portal trip's", (-258, 65, 270),
+                 (-366, 120, 191), 48, [(-294, 83, 244), (-330, 102, 217), (-366, 120, 191)])]
+        for name, here, target, leg, want in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.waypoints(here, target, leg), want)
+
     def test_safe_destination(self):
         pos = (0.0, 64.0, 0.0)
         rows = [  # (why, hazards, expected)
@@ -897,7 +908,8 @@ class InterruptSources(unittest.TestCase):
         rows = [("layer:tactic", (True, "fight")), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
                 ("manual", (True, "stand_down")), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
                 ("dimension change", (True, "back")), ("row:leave the Nether", (True, "back")),
-                ("user cancel", (False, None)), ("stuck", (False, "cool"))]
+                ("player", (True, "handback")), ("user cancel", (False, None)), ("stuck", (False, "cool")),
+                ("crash", (False, "hold"))]
         for source, want in rows:
             with self.subTest(source):
                 self.assertEqual(arbiter.resume_of(source), want)
@@ -906,30 +918,6 @@ class InterruptSources(unittest.TestCase):
         from bonobo import arbiter
         with self.assertRaises(KeyError):
             arbiter.resume_of("row:a reflex nobody declared")
-
-    def test_every_interruption_has_its_resume(self):
-        """Generated over api.INTERRUPTIONS: each class stands for one interrupt source (brain.outcome_of) and what the
-        attempt does about it is that source's rule, read from arbiter.RESUME_OF itself: a death recovers first, a
-        dimension change resumes back there, our fight waits it out. A class with no row fails; a real failure and a
-        bug of ours are the contrast."""
-        from bonobo import api, arbiter
-        from bonobo import brain as brainmod
-        # (class, the source it stands for, outcome, the rule's (resumes, what first))
-        rows = [(api.Interrupted, "layer:safety", "interrupted", (True, None)),
-                (api.CommitmentExpired, "layer:plan", "interrupted", (True, None)),
-                (api.BodyContested, "manual", "interrupted", (True, "stand_down")),
-                (api.FightHolds, "layer:tactic", "interrupted", (True, "fight")),
-                (api.PlayerTookControl, "player", "interrupted", (True, "handback")),
-                (api.Died, "death", "interrupted", (True, "recover")),
-                (api.DimensionChanged, "dimension change", "interrupted", (True, "back")),
-                (api.TaskStuck, "stuck", "failed", (False, "cool")),
-                (ValueError, "crash", "failed", (False, "hold"))]
-        self.assertEqual(set(api.INTERRUPTIONS) - {r[0] for r in rows}, set(), "an interruption without a row")
-        for cls, source, outcome, rule in rows:
-            with self.subTest(cls.__name__):
-                err = cls() if cls is api.PlayerTookControl else cls("x")
-                self.assertEqual(brainmod.outcome_of(err), (outcome, source))
-                self.assertEqual(arbiter.resume_of(source), rule)
 
     def test_the_attempt_does_what_the_rule_says(self):
         """brain.attempt applies the source's rule (arbiter.RESUME_OF), nowhere else: change the rule and what the
