@@ -44,9 +44,9 @@ fight_loop.lend("shoot", lambda option, state: combat.shoot_batch(
     option.target, (state["state"]["x"], state["state"]["y"] + 1.62, state["state"]["z"])))
 
 IDLE_WAIT_TICKS = 100
-# Step kinds a night under cover can carry on with: no sun, no open ground. Everything else (a tree, an animal, a
-# plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
-NIGHT_WORK = frozenset({"mine", "craft", "smelt"})
+# Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's
+# wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
+from .data import NIGHT_WORK  # noqa: E402
 
 
 def surface_closed(night, dimension):

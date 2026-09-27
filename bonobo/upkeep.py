@@ -12,7 +12,7 @@ import time
 from . import api, decompose, goals, nav, nether, skills, tape, tasks
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import BASE_MARKERS, COVERED_SKY, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
+from .data import BASE_MARKERS, COVERED_SKY, NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
 from .knowledge import food_count
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -223,6 +223,12 @@ class Upkeep:
         enclosed = _once(reads, "enclosed", skills.enclosed)
         bed_near = _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1)))
         blocked = self.blocked_here(b.place)
+        # A bed skips the night, the fastest way through it: made from what is carried (craft only, no sun needed),
+        # it comes before any shelter and before the night's work underground.
+        bed_tonight = _once(reads, "bed_tonight", lambda: over and snap.night and inv.count("bed") == 0
+                            and skills.can_sleep(s) is None and self.bed_tonight(snap))
+        if bed_tonight():
+            self.urgent(goals.have(("bed", 1)), "a bed skips the night")
         rows = [
             ("recover items", lambda: b.mem.recent_death(snap.dimension) is not None, lambda: recover_items(ctx)),
             ("eat", lambda: s.get("food", 20) < EAT_BELOW and skills.edible_carried(inv),
@@ -234,7 +240,7 @@ class Upkeep:
             ("sleep", lambda: over and snap.night and skills.can_sleep(s) is None
              and (inv.count("bed") > 0 or bed_near()),
              lambda: skills.sleep(ctx, b.policy(snap, True))),
-            ("shelter", lambda: over and snap.night and not self.sheltered(snap, enclosed),
+            ("shelter", lambda: over and snap.night and not bed_tonight() and not self.sheltered(snap, enclosed),
              lambda: self.shelter(snap, ctx)),
             ("collect job", lambda: self.ready_job(snap) is not None, lambda: self.collect_job(snap, ctx)),
             ("collect machine", lambda: self.ready_machine(snap) is not None,
@@ -279,6 +285,11 @@ class Upkeep:
         got = overnight(snap.inv, self.cost(snap))
         self.plan_s_cache[key] = (time.time(), got)
         return got
+
+    def bed_tonight(self, snap):
+        """The cheapest way through the night is a bed whose plan needs no sun (NIGHT_WORK steps only)."""
+        way, _secs, steps = self.overnight(snap)
+        return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)
 
     def prepare_night(self, way, steps):
         """Dark comes before the chosen way could be had: its missing parts to the front. The bed is a plan of its
