@@ -7,6 +7,13 @@
 # spent re-deciding whether "oak_planks" needs a colon.
 _MID, _BARE = {}, {}
 
+# What the mod says when the body simply could not get to something: no standing spot, no path, an item that
+# landed where nothing can stand. One list: api raises Unreachable on it, retry cools it as a nav failure. Not an
+# error in the usual sense — a fact about WAYS, and the answer is to make one (`skills.way_to`).
+UNREACHABLE = ("unreachable", "not reachable", "no reachable face", "cannot reach", "can't reach", "no path",
+               "positions explored", "gave up after", "could not get",
+               "cannot hold a stand spot")      # jar ≥ 0.1.48: mining ↔ approaching flipped on one block (MineTask)
+
 
 def mid(name):
     """The full id: "oak_planks" → "minecraft:oak_planks". Already-qualified names pass through."""

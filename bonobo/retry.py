@@ -9,8 +9,8 @@ A failure is (task, cause). Two facts, kept apart on purpose:
 An interruption (`api.interrupted`) is not a failure and never reaches this module. Pure (time is passed in):
 offline-testable."""
 
-NAV_MARKERS = ("no path", "unreachable", "not reachable", "no reachable face", "gave up after", "could not get",
-               "cannot reach", "can't reach", "positions explored", "cannot hold a stand spot")
+from .data import UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
+
 BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
 # The ceiling the doubling runs into, by what went wrong. "The world does not offer this here" ages fast (mobs
 # wander, the sun moves, we walk); a bug does not.
@@ -38,7 +38,7 @@ def cause_of(err):
         return "game"        # the game is down or restarting: nothing about the place or the task
     if "ToolMissing" in names:
         return "tool"
-    if "NavFailed" in names or "Unreachable" in names or any(m in text for m in NAV_MARKERS):
+    if "NavFailed" in names or "Unreachable" in names or any(m in text for m in UNREACHABLE):
         return "nav"
     if "NotAvailable" in names:
         return "unavailable"
