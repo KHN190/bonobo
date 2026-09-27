@@ -13,7 +13,7 @@ from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_ret
 from .api import McError, NotAvailable, log
 from .cost import Cost
 from .data import NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
-from .knowledge import food_count
+from .knowledge import food_count, food_points
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
 from .skillcore import gained, lost
@@ -21,7 +21,6 @@ from .world import Inventory
 
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
-FOOD_POINTS = 6.0          # hunger points one cooked item restores, roughly
 DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
@@ -93,7 +92,7 @@ def food_lasts_s(snap):
     """Seconds of work the stomach and the meals in the bag cover (`risk.food_drain_s` per hunger point)."""
     from . import beliefs
     drain = float(beliefs.value("risk.food_drain_s"))
-    return (float(snap.get("food", 20)) + FOOD_POINTS * food_count(snap.inv)) * drain
+    return (float(snap.get("food", 20)) + food_points(snap.inv)) * drain
 
 
 def working_tiers(inv):

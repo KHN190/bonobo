@@ -1,5 +1,5 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
-from .data import COLORS, FOOD, GROUPS, RECIPES, SMELTS, WOODS, bare, mid
+from .data import COLORS, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS, bare, mid
 
 # Group-level recipes: output type follows the input variant (spruce logs → spruce planks, white wool → white bed).
 # The craft skill resolves each group token to ONE owned member with enough items.
@@ -111,7 +111,7 @@ COOKABLE_FOOD = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraf
                  "minecraft:cooked_chicken", "minecraft:cooked_rabbit"]
 ALL_FOOD = [mid(f) for f in FOOD]
 # Raw meat: food that wants cooking — eaten raw only when starving, counted as the next meal while cooked is short.
-RAW_MEAT = ["minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:chicken", "minecraft:rabbit"]
+RAW_MEAT = [mid(f) for f in RAW]
 
 # One definition of "enough food for the Nether trip". Six, not twelve: a speedrun crosses on a handful of steaks,
 # while twelve cooked items means a dozen kills plus smelting.
@@ -124,6 +124,11 @@ DRAGON_BEDS = 8
 def food_count(inv):
     """The one definition of 'food carried': cooked/ready food only (raw meat must be cooked first)."""
     return sum(inv.count(f) for f in ALL_FOOD)
+
+
+def food_points(inv):
+    """Hunger points the ready food carried restores, from the one table (data.NUTRITION)."""
+    return sum(inv.count(mid(f)) * NUTRITION[f] for f in FOOD)
 
 
 def nether_kit_missing(inv):
