@@ -106,7 +106,7 @@ def repeated(entries, at_least=5):
     return "\n".join(f"- ×{n} {t}" for n, t in top) or "- none"
 
 
-def packet(minutes=5, state=None, inventory=None, memory=None, lines=None):
+def packet(minutes=5, state=None, inventory=None, memory=None, lines=None, readiness=None):
     if lines is None:
         try:
             with open(LOG) as f:
@@ -121,12 +121,9 @@ def packet(minutes=5, state=None, inventory=None, memory=None, lines=None):
                    f"hp {state['health']}, food {state['food']}, air {state['air']}, sky {state.get('skyLight')}")
     if inventory is not None:
         out.append(f"- bag: {inventory.used_slots()} slots; pickaxes {inventory.tools('pickaxe')}")
-    try:
-        from . import scenarios
+    if readiness is not None:   # the caller's (mc.py): the review itself does not import the bench
         out.append("- bench readiness (current code):")
-        out += scenarios.readiness_lines()
-    except Exception as e:      # the review must never fail because of the bench table
-        out.append(f"- bench readiness unavailable: {e}")
+        out += readiness
     try:
         import json
         import time

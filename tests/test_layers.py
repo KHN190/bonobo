@@ -70,7 +70,7 @@ CLOSURE = {
     "planner": 13,
     "recovery": 1,
     "retry": 1,
-    "review": 55,
+    "review": 16,
     "roads": 1,
     "scenarios": 55,
     "skill": 13,

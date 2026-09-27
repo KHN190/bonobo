@@ -331,7 +331,12 @@ def cmd_review(a):
         state, inv = api.get("/state"), Inventory()
     except McError:
         state, inv = None, None
-    print(review.packet(a.minutes, state, inv, Memory()))
+    try:
+        from bonobo import scenarios
+        readiness = scenarios.readiness_lines()
+    except Exception as e:      # the review must never fail because of the bench table
+        readiness = [f"  unavailable: {e}"]
+    print(review.packet(a.minutes, state, inv, Memory(), readiness=readiness))
 
 
 def cmd_notes(_):

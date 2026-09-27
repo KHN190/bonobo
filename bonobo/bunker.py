@@ -15,6 +15,7 @@ outward from it along the same side axis. The pit stays the place a bed is click
 """
 import math
 
+from . import nav
 from .end import BED_R, BED_TOP, EYE, PIT_DEPTH, PIT_R, REACH
 from .fight_plan import CONFIG as _CFG
 
@@ -83,10 +84,9 @@ def dig_batch(side, floor_y, solid, centre=(0, 0), length=TUNNEL_LEN):
     out = []
     for y in range(floor_y - 1, my - 1, -1):
         if solid((mx, y, mz)):
-            out.append({"type": "mine", "x": mx, "y": y, "z": mz, "collect": True})
+            out.append(nav.mine_task((mx, y, mz), collect=True))
         out.append({"type": "travel", "x": mx, "y": y, "z": mz, "range": 0.5})
-    out += [{"type": "mine", "x": x, "y": y, "z": z, "collect": True}
-            for x, y, z in dig_plan(side, floor_y, centre, length)[2:] if solid((x, y, z))]
+    out += [nav.mine_task(c, collect=True) for c in dig_plan(side, floor_y, centre, length)[2:] if solid(c)]
     return out
 
 

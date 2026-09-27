@@ -13,7 +13,7 @@
   QUEUE       a sequence of queue operations → task states and the head
 
 Plans are made by the real planner and cost model over readings (`world.cost`: what /find saw). The upkeep table is
-the real `upkeep.Upkeep` run by a real (unstarted) Brain, its three world reads answered from the row
+the real `needs.Needs` and `reflexes.Maintain` run by a real (unstarted) Brain, its three world reads answered from the row
 (`skills.enclosed`, a bed seen by /find); any other request fails the test.
 """
 import json
@@ -1052,8 +1052,11 @@ def run_upkeep(row, tmp):
     plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
-        got = rx.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen,
-                                               "soft_ground": False})
+        reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
+        got = rx.act(snap, ctx=None, reads=dict(reads))
+        table.propose(snap, None, reads=dict(reads))
+        if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
+            table.needs_now = []
         # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
         queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
     return (got[0] if got else None), queued, plan_s
@@ -1082,7 +1085,7 @@ class Upkeep(unittest.TestCase):
             row.state, row.inv, row.seen = w.game_state(), w.inventory(), RESOURCES[w.dims["resource"]]
             snap = snapshot(row.state, row.inv)
             with self.subTest(world=w, lead=lead), tempfile.TemporaryDirectory() as tmp, \
-                    mock.patch.object(upkeep, "LEAD", lead):
+                    mock.patch.object(needs, "LEAD", lead):
                 chosen, queued, plan_s = run_upkeep(row, tmp)
                 if chosen is not None:
                     continue                                # a row took the round: nothing is queued this round
@@ -1104,7 +1107,7 @@ class Upkeep(unittest.TestCase):
         """The same dusk, the same bag: a longer lead inserts the bed, a shorter one does not."""
         for lead, want in ((0.0, set()), (0.1, set()), (50.0, {(("bed", 1),)}), (1000.0, {(("bed", 1),)})):
             row = Row(f"lead {lead}", None, time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)])
-            with self.subTest(lead=lead), tempfile.TemporaryDirectory() as tmp, mock.patch.object(upkeep, "LEAD", lead):
+            with self.subTest(lead=lead), tempfile.TemporaryDirectory() as tmp, mock.patch.object(needs, "LEAD", lead):
                 _, queued, _ = run_upkeep(row, tmp)
                 self.assertEqual(set(queued) & {(("bed", 1),)}, want)
 
