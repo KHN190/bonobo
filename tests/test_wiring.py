@@ -238,3 +238,101 @@ class TheDragonFightRunsOnTheModel(unittest.TestCase):
         calm = self.run_frames([({}, dict(bomb=BOMB))])
         pressed = self.run_frames([({"threats": self.HEAD}, dict(bomb=BOMB, cover=(5, 62, 0)))])
         self.assertNotEqual(calm, pressed)
+
+
+class FakeEnd:
+    """The api, answered from a tiny End: end stone up to y 64, a bedrock pillar at the centre (or none), the body
+    where the last walk put it, blocks gone where a mine task was posted. Only what the posts ask about is kept:
+    this records the orchestration (what was posted, in order), it does not simulate the game."""
+
+    def __init__(self, start, pillar=True):
+        self.pos, self.mined, self.posted = tuple(start), set(), []
+        self.bedrock = {(x, y, z) for x in (-1, 0, 1) for z in (-1, 0, 1) for y in (60, 61, 62, 63, 64)} if pillar \
+            else set()
+
+    def solid(self, c):
+        return c not in self.mined and (c in self.bedrock or c[1] <= 64)
+
+    def __call__(self, method, path, body=None, timeout=None):
+        route, _, query = path.partition("?")
+        q = dict(kv.split("=", 1) for kv in query.split("&") if "=" in kv)
+        if method == "POST" and route == "/task":
+            self.posted.append(dict(body))
+            if body["type"] == "mine":
+                self.mined.add((body["x"], body["y"], body["z"]))
+            elif body["type"] in ("travel", "goto"):
+                self.pos = (int(body["x"]), int(body["y"]), int(body["z"]))
+            return {"status": "succeeded", "type": body["type"], "message": "", "seconds": 0, "result": {}}
+        if method == "POST":
+            return {"status": "ok"}
+        if route == "/state":
+            x, y, z = self.pos
+            return {"dimension": "minecraft:the_end", "x": x + 0.5, "y": float(y), "z": z + 0.5, "blockX": x,
+                    "blockY": y, "blockZ": z, "health": 20.0, "food": 20, "dead": False, "onGround": True,
+                    "inWater": False, "inLava": False, "air": 300, "control": {}, "screen": "none"}
+        if route == "/status":
+            return {"version": "0.1.47"}
+        if route == "/inventory":
+            return {"slots": [], "equipment": {}, "selectedSlot": 0}
+        if route == "/entities":
+            return {"entities": []}
+        if route == "/find":
+            wanted = q.get("blocks", "")
+            return {"blocks": [{"x": x, "y": y, "z": z, "block": "minecraft:bedrock", "distance": 0.0}
+                               for x, y, z in sorted(self.bedrock)] if "bedrock" in wanted else []}
+        if route == "/blocks":
+            a = [int(v) for v in q["from"].split(",")]
+            b = [int(v) for v in q["to"].split(",")]
+            cells = [(x, y, z) for x in range(min(a[0], b[0]), max(a[0], b[0]) + 1)
+                     for y in range(min(a[1], b[1]), max(a[1], b[1]) + 1)
+                     for z in range(min(a[2], b[2]), max(a[2], b[2]) + 1) if self.solid((x, y, z))]
+            return {"palette": ["minecraft:end_stone", "minecraft:bedrock"],
+                    "blocks": [[x, y, z, 1 if (x, y, z) in self.bedrock else 0] for x, y, z in cells]}
+        raise AssertionError(f"FakeEnd: nothing answers {method} {path}")
+
+
+class TheBunkerDigIsTheGeometry(unittest.TestCase):
+    """The dragon fight's prep (end.build_bed_pit, which slay_dragon runs for the planner's "dig_tunnel"): the corridor
+    it mines is bunker.dig_plan's for the side the body stands on and the floor it found — another side, another
+    corridor; no pillar to dig beside, nothing mined."""
+
+    def dig(self, start, pillar=True):
+        import tempfile
+        from bonobo import skillcore
+        from bonobo.memory import Memory
+        fake = FakeEnd(start, pillar)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("bonobo.api.api", side_effect=fake), \
+                mock.patch.object(nav, "_features", None), mock.patch.object(nav, "ROAD_MEM", None), \
+                mock.patch.object(end, "PIT", []):
+            ctx = skillcore.Context(Memory(os.path.join(tmp, "n.json")), nav.Policy(), "minecraft:the_end", {})
+            try:
+                end.build_bed_pit(ctx)
+            except Exception as e:                         # the failure row is judged by what was posted
+                fake.error = e
+            pit = list(end.PIT)
+        mined = [(t["x"], t["y"], t["z"]) for t in fake.posted if t["type"] == "mine"]
+        return fake, mined, pit
+
+    def corridor(self, start, pit):
+        return set(bunker.dig_plan(end.choose_side(start), pit[4])[2:])
+
+    def test_the_corridor_is_dig_plans(self):
+        rows = [("east of the portal", (10, 65, 0)), ("north of it", (0, 65, -10)), ("west", (-10, 65, 0)),
+                ("south", (0, 65, 10))]
+        for name, start in rows:
+            with self.subTest(name):
+                _fake, mined, pit = self.dig(start)
+                self.assertTrue(pit, "no pit recorded")
+                self.assertTrue(self.corridor(start, pit) <= set(mined), mined)
+
+    def test_another_side_another_corridor(self):
+        _f, east, pit_e = self.dig((10, 65, 0))
+        _f, north, pit_n = self.dig((0, 65, -10))
+        self.assertNotEqual(set(east), set(north))
+        self.assertNotEqual(self.corridor((10, 65, 0), pit_e), self.corridor((0, 65, -10), pit_n))
+
+    def test_no_pillar_nothing_dug(self):
+        """Must fail: no exit-portal pillar to dig beside — said so, and not one block mined."""
+        fake, mined, pit = self.dig((10, 65, 0), pillar=False)
+        self.assertEqual((mined, pit), ([], []))
+        self.assertIn("pillar", str(getattr(fake, "error", "")))
