@@ -66,7 +66,7 @@ ROWS = [
               "forward while it chewed (ate_on_the_way over the walk's trace)"),
          scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 20, -1, 3), 'stone'), ('stand', -2),
                 ('give', 'cooked_beef', 4)],
-         run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hungry',)],
+         run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hunger_drained',)],
          check=[('call', 'walk_ate', []), ('_at', ('@', 18, 0, 0), 3)], budget=25, skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
@@ -74,7 +74,7 @@ ROWS = [
          doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: no eat task, every '
               "bite inside the running mine, the bar no lower at the end (worked_fed over the run's trace)"),
          scene=[('floor',), ('stand',), ('give', 'wooden_pickaxe'), ('give', 'cooked_beef', 4)],
-         run=('&mine_hungry',), before=[('start', 'mine_while_hungry'), ('&hungry',)],
+         run=('&mine_hungry',), before=[('start', 'mine_while_hungry'), ('&hunger_drained',)],
          check=[('gain', 'minecraft:cobblestone', 3), ('call', 'mine_fed', [])], budget=15,
          skills=['mine'], tier_fixed='common', combat=False, stochastic=False,
          tags={'base': 'mine_stone', 'state': 'hungry'},

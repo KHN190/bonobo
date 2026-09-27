@@ -1059,6 +1059,26 @@ class EatingWhileWorking(unittest.TestCase):
                 self.assertIs(vocab.call(None, None, "mine_fed", [], resolve=vocab.resolve), want)
 
 
+class HungryRowsTarget(unittest.TestCase):
+    """A row made hungry for its own work is judged by its check, not held to the eat base's time: only an eat row's
+    `before` sets BASE["target_s"] (the runner's judge fails a slower run against it)."""
+    ROWS = [("eat_while_walking: drained, no eat target", "eat_while_walking", False),
+            ("mine_while_hungry: drained, no eat target", "mine_while_hungry", False),
+            ("must fail: the eat base sets its target", "eat__base", True),
+            ("must fail: an eat row under water sets it too", "eat__underwater", True)]
+
+    def test_only_eat_rows_set_a_target(self):
+        from bonobo import api
+        from bonobo.bench import vocab
+        world = {"/state": {"food": 8, "health": 20.0}, "/inventory": {"slots": [], "selectedSlot": 0, "equipment": {}}}
+        for name, row, want in self.ROWS:
+            with self.subTest(name), mock.patch.object(vocab, "_chat"), mock.patch.object(vocab.time, "sleep"), \
+                    mock.patch.object(api, "get", side_effect=lambda path, *a, **k: world[path.split("?")[0]]), \
+                    mock.patch.dict(vocab.BASE, clear=True):
+                sc.SCENARIOS[row]["before"](None)
+                self.assertIs("target_s" in vocab.BASE, want)
+
+
 class SliceVerdict(unittest.TestCase):
     """vocab.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""
 

@@ -2007,8 +2007,9 @@ def _mine_hungry(ctx):
         stop.set()
         WALK["mine"] = frames
 
-def _hungry(ctx):
-    """`before` hook: food drained to about half (hunger at full strength for 5 s), and the level remembered."""
+def _hunger_drained(ctx):
+    """`before` hook: food drained to about half (hunger at full strength for 5 s), and the level remembered — no eat
+    target set (that is the eat base's `hungry`, whose word a row saying "&hungry" got)."""
     WALK.clear()
     _chat("effect give @p minecraft:hunger 5 255 true")
     time.sleep(5.5)
