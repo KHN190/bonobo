@@ -24,6 +24,8 @@ from bonobo.bench import table as sc  # noqa: E402,F401  (brain/fight_loop: ever
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
 
+CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
+
 # Skills without a real verify (the runner judges them by nothing). May only shrink.
 VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit",
                "shake_enderman", "slay_dragon", "station"}
@@ -217,7 +219,7 @@ class Tiers(unittest.TestCase):
         for base in sc.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", core)
-        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", sc.CHAIN_C[0], sc.CHAIN_C[1]):
+        for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", CHAIN_C[0], CHAIN_C[1]):
             with self.subTest(name):
                 self.assertIn(name, core)
 
@@ -454,8 +456,8 @@ class ThePoints(unittest.TestCase):
 
     def test_c_chain_in_order(self):
         chain = sorted((r["chain"], n) for n, r in sc.SCENARIOS.items() if "chain" in r)
-        self.assertEqual([n for _, n in chain], list(sc.CHAIN_C))
-        for name in sc.CHAIN_C:
+        self.assertEqual([n for _, n in chain], list(CHAIN_C))
+        for name in CHAIN_C:
             with self.subTest(name):
                 self.assertEqual(sc.SCENARIOS[name]["point"], "C")
 

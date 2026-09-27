@@ -75,8 +75,6 @@ def consume(token, n):
 
 # -- the state vector
 
-# footing (solid underfoot) and hands_free (not drowning, falling or player-held) fail and mend differently; swimming keeps hands_free, or no river could be crossed
-BODY_DIMS = ("footing", "hands_free")
 # `day` while the sun is up: surface work needs it, so a dusk plan mines first and gets the tree after the night
 DAY_DIM = "day"
 NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left

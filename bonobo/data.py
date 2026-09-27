@@ -175,7 +175,6 @@ PASSABLE = {"nether_portal", "end_portal", "end_gateway",   # standing in one is
             "allium", "azure_bluet", "oxeye_daisy", "cornflower", "lily_of_the_valley", "pink_petals", "rail",
             "brown_mushroom", "red_mushroom", "seagrass", "kelp", "redstone_wire", "lever", "cave_air", "ladder"}
 HAZARD = {"lava", "water", "fire", "soul_fire", "magma_block", "powder_snow", "pointed_dripstone", "cactus"}
-FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}
 UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")

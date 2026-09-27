@@ -8,8 +8,6 @@ FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has 
 # MAINTAIN (reflexes.TABLE): faster than any plan, slower than a fight
 SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAINTAIN, "plan": PLAN}
 
-# why an answer did not get the body, a closed set so a bench can tell "outbid" from "locked out"
-REFUSED = ("layer", "held", "expired", "stood_down")
 
 def fresh_enough(seen_at, now=None, within=1.0):
     """Was this reading taken recently enough to compare with?"""

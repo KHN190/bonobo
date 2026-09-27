@@ -317,7 +317,6 @@ class Watcher(threading.Thread):
             api.log(f"!! perception: {reason} → interrupting the current task")
 
 LAST_HERE = None       # where we stood when the rows were read: the reading and the position are one observation
-OUTCOMES = ("answered", "refused", "nothing_pays", "quiet", "stale", "repeat", "eating", "soft", "unwired")
 ANSWERED = []
 ANSWERED_MAX = 500
 
