@@ -180,7 +180,8 @@ def body_state(ctx, region=None, **extra):
     touch, and the blocks around it. Read once, here; `commands` itself reads nothing."""
     s = api.get("/state")
     return dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
-                 "protected": set(getattr(ctx.policy, "protected", ()) or ()), "region": region}, **extra)
+                 "protected": set(getattr(getattr(ctx, "policy", None), "protected", ()) or ()), "region": region},
+                **extra)
 
 
 def carried_total():

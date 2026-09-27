@@ -318,18 +318,16 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
                 c.base, c.want, c.keep = kept
             elif contract.start:
                 c.base = contract.start(c)
-            if any(not isinstance(g, str) for g in contract.gives):
-                bag_now = {"inv": skillcore.Inventory()}
-                if c.want is None:
-                    c.want = wanted(contract, bag_now, args)
-                elif kept is not None:
-                    # Resumed: the rest read off the bag against the bag this call wanted — done while away, or
-                    # asked again for only what is missing.
-                    rest = remaining_of(contract, bag_now, c)
-                    if rest == {}:
-                        return None
-                    args = with_rest(contract, args, rest or {})
-                    c.args = args
+            if c.want is None and any(not isinstance(g, str) for g in contract.gives):
+                c.want = wanted(contract, {"inv": skillcore.Inventory()}, args)
+            elif kept is not None:
+                # Resumed: the rest read off the world against what this call wanted (its own `remaining`, or the
+                # bag it wanted) — done while away, or asked again for only what is missing.
+                rest = remaining_of(contract, skillcore.body_state(args[0] if args else None), c)
+                if rest == {}:
+                    return None
+                args = with_rest(contract, args, rest or {})
+                c.args = args
             if contract.done and contract.done(c):
                 return None
             bag_check(contract, c)

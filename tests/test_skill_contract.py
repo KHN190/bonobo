@@ -1743,35 +1743,48 @@ class ResumeFromTheWorld(unittest.TestCase):
                 self.assertEqual(bool(resume_faults("pod", fn, st0)), bad)
 
     def test_every_interruption_keeps_the_call_for_its_resume(self):
-        # (interruption) → the same call again asks only for the rest of its item, or finishes having it all
-        gives = skillkit.REGISTRY["chop"].gives[:1]
-        token = next(iter(gives[0].keys()))
-        item = "minecraft:" + _item_of(token)
+        # (situation, gives, remaining, the world when cut off) → the counts the body was asked for: the same call
+        # again asks only for the rest of its item, or returns at once when the world shows it done while away — an
+        # item skill's rest from the bag it wanted, a world-effect skill's from its own `remaining`
+        from bonobo import knowledge
+        chop = skillkit.REGISTRY["chop"].gives[:1]
+        token = next(iter(chop[0].keys()))
+        fed = ["state:fed"]
+        rows = [("item: 1 of 3 before it, asks for 2", chop, None, {"n": 1, "food": 5}, [3, 2]),
+                ("item: 3 of 3 before it, finished", chop, None, {"n": 3, "food": 5}, [3]),
+                ("state: fed while away, finished", fed, knowledge.fed, {"n": 0, "food": 20}, [3]),
+                ("state: half fed, runs again for the rest", fed, knowledge.fed, {"n": 0, "food": 14}, [3, 3]),
+                ("state: nothing done yet, runs again", fed, knowledge.fed, {"n": 0, "food": 5}, [3, 3]),
+                ("state: a reading the runner does not take (no region) is not a done", fed, knowledge.walled_sides,
+                 {"n": 0, "food": 20}, [3, 3])]
         for source in api.INTERRUPTIONS:
-            for got_before, left in [(1, 2), (3, 0)]:
-                with self.subTest(f"{source.__name__}, {got_before} of 3 before it"):
-                    held, asked = {"n": 0}, []
+            for situation, gives, remaining, cut_off, want in rows:
+                with self.subTest(f"{source.__name__}: {situation}"):
+                    world, asked = {"n": 0, "food": 5}, []
 
                     def fn(ctx, tok, count):
                         asked.append(count)
                         if len(asked) == 1:
-                            held["n"] += got_before
+                            world.update(cut_off)
                             raise source("cut off")
-                        held["n"] += count
+                        world["n"] += count if remaining is None else 0
+                        world["food"] = 20
                         return count
                     fn.__name__ = "_dummy_resume"
-                    inv = lambda: bag(inventory(**({_item_of(token): held["n"]} if held["n"] else {})))  # noqa: E731
+                    inv = lambda: bag(inventory(**({_item_of(token): world["n"]} if world["n"] else {})))  # noqa: E731
                     try:
-                        with mock.patch.object(skillcore, "Inventory", inv), mock.patch.dict(skillkit.RESUME, clear=True):
-                            runner = skillkit.skill(needs={}, speed={}, gives=gives)(fn)
+                        with mock.patch.object(skillcore, "Inventory", inv), \
+                                mock.patch.object(api, "get", lambda path, *a, **k: state(food=world["food"])), \
+                                mock.patch.dict(skillkit.RESUME, clear=True):
+                            runner = skillkit.skill(needs={}, speed={}, gives=gives, remaining=remaining)(fn)
                             with self.assertRaises(source):
                                 runner(None, token, 3)
                             runner(None, token, 3)
                     finally:
                         skillkit.REGISTRY.pop("_dummy_resume", None)
                         __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_resume", None)
-                    self.assertEqual(asked, [3, left] if left else [3])
-                    self.assertEqual(held["n"], 3, item)
+                    self.assertEqual(asked, want, situation)
+                    self.assertEqual(world["n"] if remaining is None else world["food"], 3 if remaining is None else 20)
 
 
 class BagRules(unittest.TestCase):
