@@ -931,34 +931,22 @@ class InterruptSources(unittest.TestCase):
                 self.assertEqual(brainmod.outcome_of(err), (outcome, source))
                 self.assertEqual(arbiter.resume_of(source), rule)
 
-    def test_the_attempt_does_what_the_rule_says(self):
-        """brain.attempt applies the source's rule (arbiter.RESUME_OF), nowhere else: change the rule and what the
-        attempt does changes with it — a rule ignored is caught."""
-        import tempfile
-        from bonobo import api, arbiter, retry
+    def test_a_changed_rule_changes_the_outcome(self):
+        """The rule is data (arbiter.RESUME_OF) and outcome_of reads it: change a source's rule and what an exception
+        means changes with it — a rule ignored is caught. (What brain.attempt then does on the body — the wait, the
+        /stop — is the bench's: resume_after_combat.)"""
+        from bonobo import api, arbiter
         from bonobo import brain as brainmod
-        from bonobo.memory import Memory
-        # (situation, the error, a rule changed {source: rule}, outcome, recorded as a failure, waited out a fight)
-        rows = [("died: interrupted, not counted", api.Died("x"), {}, "interrupted", False, False),
-                ("must fail: the death rule made a failure — counted", api.Died("x"), {"death": "cooled"}, "failed",
-                 True, False),
-                ("a real failure: counted", api.TaskStuck("no progress"), {}, "failed", True, False),
-                ("must fail: a stuck rule that resumes — not counted", api.TaskStuck("no progress"),
-                 {"stuck": "same"}, "interrupted", False, False),
-                ("our fight: waited out", api.FightHolds("x"), {}, "interrupted", False, True),
-                ("must fail: the fight rule made plain — not waited", api.FightHolds("x"), {"layer:tactic": "same"},
-                 "interrupted", False, False)]
-        for name, err, changed, outcome, counted, waited in rows:
-            with self.subTest(name):
-                b = brainmod.Brain.__new__(brainmod.Brain)
-                b.retry, b.place = retry.Retry(), ("here", False)
-                b.mem = Memory(os.path.join(tempfile.mkdtemp(prefix="attempt"), "notes.json"))
-                b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
-                fights, outcomes = [], []
-                b.mem.record_outcome = lambda name, ok: outcomes.append(ok)
-                with mock.patch.dict(arbiter.RESUME_OF, changed), mock.patch.object(api, "post"), \
-                        mock.patch.object(brainmod, "log"), mock.patch.object(brainmod.time, "sleep", lambda s: None), \
-                        mock.patch.object(brainmod, "wait_out_fight", lambda: fights.append(1)):
-                    got = b.attempt("task t1", lambda: (_ for _ in ()).throw(err))
-                self.assertEqual((got, False in outcomes, bool(fights)), (outcome, counted, waited))
+        # (situation, the error, a rule changed {source: rule}) → (outcome, what first)
+        rows = [("died: interrupted, the items first", api.Died("x"), {}, ("interrupted", "recover")),
+                ("must fail: the death rule made a failure", api.Died("x"), {"death": "cooled"}, ("failed", "cool")),
+                ("a real failure: cooled", api.TaskStuck("no progress"), {}, ("failed", "cool")),
+                ("must fail: a stuck rule that resumes", api.TaskStuck("no progress"), {"stuck": "same"},
+                 ("interrupted", None)),
+                ("our fight: waited out", api.FightHolds("x"), {}, ("interrupted", "fight")),
+                ("a bug of ours: held", ValueError("x"), {}, ("failed", "hold"))]
+        for name, err, changed, want in rows:
+            with self.subTest(name), mock.patch.dict(arbiter.RESUME_OF, changed):
+                outcome, source = brainmod.outcome_of(err)
+                self.assertEqual((outcome, arbiter.resume_of(source)[1]), want)
 

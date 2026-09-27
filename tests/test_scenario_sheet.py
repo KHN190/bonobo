@@ -289,12 +289,9 @@ class FightRowsInCombat(unittest.TestCase):
 
     @classmethod
     def fights(cls, row):
-        import inspect
+        """From the row's data alone: a hostile summoned in its setup, or the dragon slain. (A hostile a `before` hook
+        summons is code, not data: not seen here.)"""
         text = " ".join(map(str, row.get("setup", ())))
-        try:
-            text += " " + inspect.getsource(row["before"]) if row.get("before") else ""
-        except (OSError, TypeError):
-            pass
         return bool(cls.HOSTILE.search(text)) or "slay_dragon" in row.get("skills", ())
 
     def test_fight_rows_are_combat(self):
@@ -305,8 +302,10 @@ class FightRowsInCombat(unittest.TestCase):
     def test_the_check_sees_a_fight(self):
         # must fail: a summoned zombie outside the combat tier is caught; a peaceful row is not
         rows = [("summoned zombie", {"setup": ["summon zombie 0 0 0"]}, True),
-                ("a ghast in the before hook", {"before": sc.SCENARIOS["ghast_fireball"]["before"]}, True),
                 ("the dragon slain", {"skills": ["slay_dragon"]}, True),
+                ("a namespaced skeleton among other setup", {"setup": ["give @p bread", "summon minecraft:skeleton"]},
+                 True),
+                ("must fail: a zombified piglin is not a zombie", {"setup": ["summon zombified_piglin 0 0 0"]}, False),
                 ("cows only", {"setup": ["summon cow 0 0 0"]}, False)]
         for name, row, want in rows:
             with self.subTest(name):

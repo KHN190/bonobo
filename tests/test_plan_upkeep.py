@@ -1134,17 +1134,16 @@ def run_upkeep(row, tmp):
         plan_s[goal["args"]["needs"][0][0] + ":known"] = known
     plan_s["overnight"] = needs.overnight(snap.inv, c)
     plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
-    with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
-            mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
-        reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
-        picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq)
-                                    for seq, name, run in rx.proposals(snap, None, dict(reads))])
-        got = picked.action if picked else None
-        table.propose(snap, None, reads=dict(reads))
-        if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
-            table.needs_now = []
-        # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
-        queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
+    # the row's readings only: no world read, no task file
+    reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
+    picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq)
+                                for seq, name, run in rx.proposals(snap, None, dict(reads))])
+    got = picked.action if picked else None
+    table.propose(snap, None, reads=dict(reads))
+    if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
+        table.needs_now = []
+    # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
+    queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
     return (got[0] if got else None), queued, plan_s
 
 

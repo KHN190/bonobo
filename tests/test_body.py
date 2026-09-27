@@ -26,10 +26,11 @@ PAIRS = [(slow, fast) for i, slow in enumerate(ORDER) for fast in ORDER[:i]]
 FASTER = tuple(fast for slow, fast in PAIRS if slow == "plan")
 
 
-def body_with(running, now=0.0):
-    """A body with `running` already submitted and about to be defended."""
+def body_with(running):
+    """A body that `running` is driving: the state Motion._run holds while ordinary play's action runs on its own
+    thread, and a challenge arrives from another."""
     body = arbiter.Motion()
-    body.pending = [running]
+    body.driving = running
     return body
 
 
