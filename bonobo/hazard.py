@@ -13,7 +13,7 @@ import time
 from . import api
 from .beliefs import CONFIG as _CONFIG
 from .api import log
-from .skillcore import head_buried, head_underwater
+from .skillcore import head_buried
 
 # The rescue skills (find_air, unbury), lent by skills.py at import: this module detects and dispatches, and never
 # imports the skill library — or everything that reads a hazard (perception, nav) would drag all of it in.
@@ -110,12 +110,11 @@ def _leave_lava(ctx, s):
 
 
 def _surface(ctx, s):
-    if s.get("air", 300) < 150 and head_underwater(s):
-        SKILLS["find_air"](ctx)       # capped water: dig or swim to the nearest air
-        return
+    """Drowning (`due` decides when, once): find_air, the one way out of water — to the nearest dry cell to stand
+    on, a block at the surface, or through the cap. Swimming straight up six rose to the top of a shaft's column
+    and sank back under."""
     api.post("/stop")
-    api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 6, "z": s["blockZ"], "range": 2,
-             "partial": True, "useBoat": False}, wait=20)
+    SKILLS["find_air"](ctx)
 
 
 def _unbury(ctx, s):

@@ -158,5 +158,32 @@ class Breathed(unittest.TestCase):
                 self.assertEqual(skills.breathed(samples), want)
 
 
+
+class Surface(unittest.TestCase):
+    """L0's drowning rescue is find_air and only find_air: `due` decides when (once), find_air where to. The old
+    second branch swam straight up six blocks — to the top of a shaft's column, and back under."""
+
+    # (situation, state) → the hazard due, and the calls its rescue makes
+    ROWS = [("head under, air nearly gone", wet(60), "drowning", [("post", "/stop"), "find_air"]),
+            ("on the bottom digging, air at the floor", wet(110, on_ground=True), "drowning",
+             [("post", "/stop"), "find_air"]),
+            ("air for 7 s between tasks (slack ≤ 2)", wet(140), "drowning", [("post", "/stop"), "find_air"]),
+            ("full lungs, swimming: nothing due", wet(300), None, []),
+            ("dry land: nothing due", DRY, None, [])]
+
+    def test_rescue_over_the_table(self):
+        from unittest import mock
+        for name, st, due, want in self.ROWS:
+            calls = []
+            with self.subTest(name), mock.patch.dict(hazard._W, WATER), \
+                    mock.patch.dict(hazard.SKILLS, find_air=lambda ctx: calls.append("find_air")), \
+                    mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(("post", path))), \
+                    mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"]))):
+                got = hazard.due(st, buried=False)
+                self.assertEqual(got, due)
+                if got:
+                    hazard.RESCUE[got](None, st)
+                self.assertEqual(calls, want)
+
 if __name__ == "__main__":
     unittest.main()
