@@ -219,6 +219,10 @@ class Brain:
         elif then == "fight":
             log(f"   {name} interrupted by our fight: resuming when it ends")
             wait_out_fight()
+        elif then in ("recover", "elsewhere"):
+            # Died: the recover reflex runs next round, then this replans from where the body stands. Elsewhere:
+            # the task stays live for its own dimension. Neither is counted, cooled or banned.
+            log(f"   {name} interrupted ({then}): {err}")
         elif then is None:
             log(f"   {name} interrupted: {err}")     # no count, no /stop, no cooldown
         elif then == "stop":
@@ -568,6 +572,10 @@ def outcome_of(err):
         return "interrupted", "fight"           # our own fight: back when it ends, not 10 s later
     if isinstance(err, api.BodyContested):
         return "interrupted", "stand_down"      # an outside driver (manual, another process)
+    if isinstance(err, api.Died):
+        return "interrupted", "recover"         # the recover reflex first, then a replan from here, target kept
+    if isinstance(err, api.DimensionChanged):
+        return "interrupted", "elsewhere"       # resumed only back in the task's own dimension
     if isinstance(err, api.INTERRUPTIONS):
         return "interrupted", None
     if isinstance(err, (McError, skills.ToolMissing)):

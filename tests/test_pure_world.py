@@ -820,3 +820,20 @@ class InterruptSources(unittest.TestCase):
         from bonobo import arbiter
         with self.assertRaises(KeyError):
             arbiter.resume_of("row:a reflex nobody declared")
+
+    def test_every_interruption_has_its_resume(self):
+        """Generated from api.INTERRUPTIONS: what the attempt does (brain.outcome_of) meets the declared resume rule
+        of its source — a death recovers first, a dimension change resumes back there — and a real failure is the
+        contrast: counted and cooled."""
+        from bonobo import api, arbiter
+        from bonobo import brain as brainmod
+        source_of = {"recover": "death", "elsewhere": "dimension change", "fight": "layer:tactic",
+                     "stand_down": "manual", "handback": "manual", None: "layer:maintain"}
+        for cls in api.INTERRUPTIONS:
+            with self.subTest(cls.__name__):
+                outcome, then = brainmod.outcome_of(cls() if cls is api.PlayerTookControl else cls("x"))
+                self.assertEqual(outcome, "interrupted")
+                resumes, _first = arbiter.resume_of(source_of[then])
+                self.assertIs(resumes, True)
+        self.assertEqual((brainmod.outcome_of(api.TaskStuck("no progress")), arbiter.resume_of("stuck")),
+                         (("failed", "stop"), (False, "cool")))

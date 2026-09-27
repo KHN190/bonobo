@@ -144,7 +144,18 @@ class BodyContested(McError):
 # The three outcomes of any attempt: success, failure (with a cause), or interrupted. These are the interrupted ones:
 # something else took the body or the world asked for a decision. None of them says anything about the skill, so
 # none of them counts as a retry, bans a cell, sends /stop or cools anything down.
-INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl)
+class Died(McError):
+    """The body died mid-task: an interruption, not the task's failure — the items are recovered first (the recover
+    reflex), then the task replans from where the body now stands, its target kept. Nothing cooled or banned."""
+
+
+class DimensionChanged(McError):
+    """The body is in another dimension than the task began in (a portal, a death in the Nether): the task stays
+    live and resumes only back in its own dimension — the frontier map and every note are per dimension."""
+
+
+INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl, Died,
+                 DimensionChanged)
 
 
 def interrupted(err):

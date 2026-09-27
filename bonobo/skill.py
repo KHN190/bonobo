@@ -310,6 +310,7 @@ def _heartbeat(name):
 
 def _drive(contract, c, gen):
     t0 = time.time()
+    dim0 = api.get("/state").get("dimension")
     last, since = world_signature(), t0
     try:
         while True:
@@ -320,11 +321,15 @@ def _drive(contract, c, gen):
             now = time.time()
             _heartbeat(contract.name)
             api.check_interrupt(t0, contract.soft)   # Python-side loops stop too, not only mod tasks
-            if skillcore.dead():
-                # Dead ends every skill now: a dragon fight kept issuing 20+ "travel: no route" after dying.
-                raise McError(f"{contract.name}: died")
+            s = api.get("/state")
+            if skillcore.dead(s):
+                # Dead ends every skill now: a dragon fight kept issuing 20+ "travel: no route" after dying. An
+                # interruption, not the skill's failure (brain.outcome_of: recover first, then replan).
+                raise api.Died(f"{contract.name}: died")
             if contract.done and contract.done(c):
-                return None
+                return None          # before the dimension: a portal skill's goal IS the other dimension
+            if s.get("dimension") and dim0 and s["dimension"] != dim0:
+                raise api.DimensionChanged(f"{contract.name}: now in {s['dimension']}, begun in {dim0}")
             bag_check(contract, c)
             metric = marker if marker is not None else world_signature()
             if metric != last:

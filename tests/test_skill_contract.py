@@ -338,6 +338,8 @@ OUTCOMES = [
     (api.BodyContested("another commander posted a task"), "interrupt", "interrupted"),
     (api.FightHolds("our fight holds the body"), "interrupt", "interrupted"),
     (api.PlayerTookControl(), "interrupt", "interrupted"),
+    (api.Died("chop: died"), "interrupt", "interrupted"),
+    (api.DimensionChanged("mine: now in the Nether"), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
     (skillcore.ToolMissing("pickaxe", 1), "tool", "failure"),
@@ -517,7 +519,8 @@ class Outcomes(unittest.TestCase):
     def test_outcome_of(self):
         """What the attempt does about each: interruptions never fail (and some need a hand back or a wait)."""
         special = {api.PlayerTookControl: ("interrupted", "handback"), api.GameUnreachable: ("interrupted", "wait_game"),
-                   api.BodyContested: ("interrupted", "stand_down"), api.FightHolds: ("interrupted", "fight")}
+                   api.BodyContested: ("interrupted", "stand_down"), api.FightHolds: ("interrupted", "fight"),
+                   api.Died: ("interrupted", "recover"), api.DimensionChanged: ("interrupted", "elsewhere")}
         rows = [(err, special.get(type(err), ("interrupted", None) if cls == "interrupted" else ("failed", "stop")))
                 for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]
