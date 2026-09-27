@@ -122,20 +122,6 @@ class Intent:
         return f"Intent({self.layer}, {self.reason!r})"
 
 
-def wants_body(body, running, now=None):
-    """Is there a reason to take the body from `running` right now?
-
-    A faster layer waiting for it — and nothing else. The commitment used to be read as a timer, so a walk to a
-    chest forty blocks away was abandoned every ten seconds, re-scored, and walked again: the agent paced back and
-    forth for a session. Time passing is not a reason; somebody faster wanting the body is.
-    """
-    if running is None:
-        return False
-    with body._lock:
-        pending = list(body.pending)
-    return any(p.scale < running.scale and not p.expired(now) for p in pending)
-
-
 # The PLAN layer's one order — every planned proposal ranks here and nowhere else: what upkeep needs got (the
 # night's parts, a tool that broke, a bucket, blocks, food), then what the queue asks, then the night's work under
 # cover and idle stocking. They only PROPOSE; `arbitrate` chooses. (The MAINTAIN layer's reflexes rank by their
@@ -257,7 +243,6 @@ class Motion:
         self.watch_handover = bool(watch_handover)
         self._lock = threading.RLock()
         self._local = threading.local()
-        self.pending = []
         self.last = None
         self.engaged = False
         self.preempted_at = 0.0          # when a fast layer last overrode; plans older than this are stale
@@ -277,7 +262,6 @@ class Motion:
     def engage(self, log=None):
         with self._lock:
             self.engaged = True
-            self.pending = []
             self.preempted_at, self.preempted_by = 0.0, None
             if log:
                 self._log = log
@@ -285,7 +269,6 @@ class Motion:
     def disengage(self):
         with self._lock:
             self.engaged = False
-            self.pending = []
 
     def ceiling_now(self):
         """The ceiling in force: this process's own, or the one another process wrote."""
@@ -431,7 +414,6 @@ class Motion:
             # re-entering it mid-action is how the threat layer once stopped itself every tick.
             return refuse("held", f"   motion: {layer} '{reason}' waits: its own '{driving.reason}' is running")
         with self._lock:
-            self.pending = [p for p in self.pending if p.scale <= intent.scale]
             self.preempted_at, self.preempted_by = intent.at, intent
             if release is not None:
                 # Taking the body and saying so are one step. While they were two, the /stop below woke the

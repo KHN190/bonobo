@@ -21,8 +21,8 @@ so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>
 """
 import math
 
-from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
-                   seen_class)
+from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
+                   mid, seen_class)
 from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced)
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
@@ -262,8 +262,8 @@ def _stations_near(snap, mem):
 def _standing_at(kinds, snap, mem):
     """Is one of these within arm's reach of where we stand, as far as memory knows?"""
     for kind in kinds:
-        # A mob that moves counts only when seen just now (2 minutes of game time).
-        within = 2400 if seen_class(kind) == "mobile" else None
+        # A mob that moves counts only when seen just now: the "here" note's life (data.VOLATILITY).
+        within = VOLATILITY["here"]["ttl"] if seen_class(kind) == "mobile" else None
         if any(math.dist(r["pos"], snap.feet) <= ARRIVED_R for r in mem.seen(kind, snap.dimension, within)):
             return True
     return False

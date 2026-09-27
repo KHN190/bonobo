@@ -352,13 +352,6 @@ def await_task(task_id, wait, exempt=("wait",)):
     while True:
         r = get(f"/task?id={task_id}&wait=2")
         check_interrupt(began, SOFT)
-        # Where the seconds go: every long action here is a task and a wait on it, so this is where the body
-        # changes hands. It changes hands when a faster layer is waiting for it — never because a clock ran out.
-        from . import arbiter
-        current = arbiter.BODY.current()
-        if current is not None and r["status"] == "running" and arbiter.wants_body(arbiter.BODY, current):
-            raise CommitmentExpired(f"{r['type']} gives the body up: a faster layer is waiting "
-                                    f"(was '{current.reason}')")
         if r["status"] != "running":
             return r
         if time.time() > deadline:

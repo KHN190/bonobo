@@ -1714,7 +1714,13 @@ def dig_in(ctx):
     log("dug in for the night")
 
 
-@skill(gives=K.GIVES_TAKE, needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
+def _take_needs(token):
+    """The tool a take of `token` needs, from the one table (knowledge.TAKEABLE's `tool`, as MINE's tier is mine's)."""
+    tool = K.TAKEABLE.get(token, {}).get("tool")
+    return {} if tool is None else {f"tool:{tool[0]}:{tool[1]}": 1}
+
+
+@skill(gives=K.GIVES_TAKE, needs=lambda a: _take_needs(a[1]), speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=180, stall=45, per_unit=8, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])},
        fills_bag=lambda c: members(c.args[1]))
 def take(ctx, token, count, blocks):

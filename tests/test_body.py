@@ -27,10 +27,8 @@ FASTER = tuple(fast for slow, fast in PAIRS if slow == "plan")
 
 
 def body_with(running, now=0.0):
-    """A body with `running` already submitted and about to be defended."""
-    body = arbiter.Motion()
-    body.pending = [running]
-    return body
+    """A fresh body about to defend `running` (the intent each row names; the Motion holds nothing of it)."""
+    return arbiter.Motion()
 
 
 class LayeringIsHard(unittest.TestCase):

@@ -468,7 +468,10 @@ class CallNeeds(unittest.TestCase):
                     "blocks": ["diamond_ore"], "tier": 2})], True),
                 ("must fail: a spider hunted bare-handed", [Step("hunt", "minecraft:string", 1, {
                     "types": ["minecraft:spider"], "kills": 1})], True),
-                ("a cow hunted bare-handed", [Step("hunt", "minecraft:beef", 1, {"types": ["minecraft:cow"]})], False)]
+                ("a cow hunted bare-handed", [Step("hunt", "minecraft:beef", 1, {"types": ["minecraft:cow"]})], False),
+                ("must fail: a furnace taken bare-handed (take's needs: TAKEABLE's tool)",
+                 [Step("take", "minecraft:furnace", 1, {"blocks": ["furnace"]})], True),
+                ("a bed taken bare-handed", [Step("take", "bed", 1, {"blocks": ["red_bed"]})], False)]
         for name, steps, bad in rows:
             with self.subTest(name):
                 self.assertEqual(bool(needs_faults(steps)), bad, needs_faults(steps))
