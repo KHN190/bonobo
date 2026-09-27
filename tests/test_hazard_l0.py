@@ -84,7 +84,7 @@ class Hazards(unittest.TestCase):
                 self.assertIn(due, set(hazard.RESCUE) | {None})
 
     # (situation, /state changes) → seconds of slack before the water must be left (air/20 − surfacing − reaction)
-    CLOCK = [("dry land has no clock", {"air": 0}, float("inf")),
+    CLOCK = [("must fail: dry land has no clock", {"air": 0}, float("inf")),
              ("full lungs under water", {"inWater": True, "air": 300}, 300 / 20 - W["surface_s"] - W["reaction_s"]),
              ("half a breath", {"inWater": True, "air": 150}, 150 / 20 - W["surface_s"] - W["reaction_s"]),
              ("at the clock's zero", {"inWater": True, "air": DROWN_AIR}, 0.0),
@@ -125,7 +125,7 @@ FALLS = [
                                    (70, False, False, False), (64, True, False, False)], [0, 0, 4, 14, 0]),
     ("jump: up before down", [(64, False, False, False), (65.2, False, False, False), (64, False, False, False)],
      [0, 0, 1.2]),
-    ("fall into water resets", [(90, False, False, False), (70, False, False, False), (60, False, True, False)],
+    ("must fail: fall into water resets", [(90, False, False, False), (70, False, False, False), (60, False, True, False)],
      [0, 20, 0]),
     ("fall into lava resets (lava is its own hazard)", [(90, False, False, False), (75, False, False, True)], [0, 0]),
 ]
@@ -151,7 +151,7 @@ RESCUES = [
      [(True, "drowning", False)]),
     ("burning: rescued (water on it)", {"onFire": True, "health": 5.0}, False, OK, [(True, "burning", False)]),
     ("falling: stop-only, the round is not used", {"onGround": False}, False, OK, [(False, None, False)]),
-    ("nothing wrong", {}, False, OK, [(False, None, False)]),
+    ("must fail: nothing wrong", {}, False, OK, [(False, None, False)]),
     ("the rescue fails: /stop, and the cause cools here — the next round does not try again",
      {"inLava": True}, False, FAILS, [(True, "lava", True), (False, None, False)]),
     ("the rescue is interrupted: no /stop, no cooling, tried again next round",
@@ -347,7 +347,7 @@ ENGAGEMENTS = [
      "handed back"),
     ("the same answer again: appended, nothing re-posted", [("offer", A), ("offer", A2), ("release",)], 0.01, [A],
      False, "handed back"),
-    ("the answer fails: recorded, handed back", [("raise",), ("offer", A)], 0.01, [], False, "failed"),
+    ("must fail: the answer fails: recorded, handed back", [("raise",), ("offer", A)], 0.01, [], False, "failed"),
     ("a faster layer takes the body: the engagement ends", [("offer", A), ("preempt", "safety")], 0.01, [A], False,
      "preempted"),
     ("a slow game: perception still never waits", [("offer", A), ("offer", B), ("release",)], 0.3, [A, B], True,
@@ -434,7 +434,7 @@ class Disengage(unittest.TestCase):
         ("our lease, still running a task: /stop, handed back, forgotten", "ours", True, True, False,
          (True, None, True)),
         ("our lease, nothing running: handed back without a /stop", "ours", True, False, False, (False, None, True)),
-        ("a faster layer took the body: not ours to stop or hand back", "theirs", True, True, False,
+        ("must fail: a faster layer took the body: not ours to stop or hand back", "theirs", True, True, False,
          (False, "theirs", True)),
         ("the /stop fails: still handed back", "ours", True, True, True, (True, None, True)),
         ("an older engagement ending late: the current one is not forgotten", "ours", False, False, False,

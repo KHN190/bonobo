@@ -41,7 +41,7 @@ class Scoring(unittest.TestCase):
          ("cheap", 20.0, 5.0, 15.0, [], [])),
         ("two hours saved for three of work loses to a small cheap saving",
          [("grand", 0.0, 500.0), ("small", 90.0, 1.0)], None, (), ("small", 10.0, 1.0, 9.0, [], [])),
-        ("saving less than it costs is not offered", [("busywork", 99.0, 10.0)], ("idle", 100.0, 0.0), (),
+        ("must fail: saving less than it costs is not offered", [("busywork", 99.0, 10.0)], ("idle", 100.0, 0.0), (),
          ("idle", 0.0, 0.0, 0.0, [], [])),
         ("making things worse is not offered", [("harmful", 150.0, 0.0)], ("idle", 100.0, 0.0), (),
          ("idle", 0.0, 0.0, 0.0, [], [])),
@@ -70,7 +70,7 @@ class Scoring(unittest.TestCase):
 
 class Commitment(unittest.TestCase):
     # (cost_s, declared commitment or None) → what the kernel commits to: unsaid means atomic
-    ROWS = [(6.0, None, 6.0), (6.0, 0.8, 0.8), (0.0, None, 0.0), (6.0, 6.0, 6.0), (6.0, 0.0, 0.0)]
+    ROWS = [(6.0, None, 6.0), (6.0, 0.8, 0.8), (0.0, None, 0.0), (6.0, 6.0, 6.0), (6.0, 0.0, 0.0)]  # must fail: a declared zero commits to nothing, not to the cost
 
     def test_commitment_over_the_table(self):
         for cost, commit, want in self.ROWS:
@@ -135,7 +135,7 @@ class HoldingADecision(unittest.TestCase):
 
     # margin → (switches, re-decisions with a reason) over the seeded sweep (200 runs: 200 switches = never changed
     # after the first choice). Every switch has a reason on record; a wider margin holds longer.
-    MARGINS = [(1.0, (506, 1166)), (kernel.MARGIN, (379, 1163)), (1.5, (212, 1004)),
+    MARGINS = [(1.0, (506, 1166)), (kernel.MARGIN, (379, 1163)), (1.5, (212, 1004)),  # must fail: no margin switches the most
                (3.0, (200, 1000))]      # boundary: nothing ever beats the held choice by 3×
 
     def test_it_changes_no_more_often_than_it_has_reason_to(self):
@@ -157,7 +157,7 @@ class HoldingADecision(unittest.TestCase):
         self.assertEqual(self.sweep()[0], 379)
 
     # (does the held choice's assumption still stand, seconds later) → why it was re-decided (None: it was kept)
-    RELEASE = [(True, 0.01, None), (False, 0.01, "assumption"), (True, 60.0, "commitment"),
+    RELEASE = [(True, 0.01, None), (False, 0.01, "assumption"), (True, 60.0, "commitment"),  # must fail: an assumption standing, early: kept, no re-decision
                (False, 60.0, "assumption"), (None, 0.01, None)]
 
     def test_what_releases_a_held_decision(self):

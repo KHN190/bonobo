@@ -121,7 +121,7 @@ class TheColumns(unittest.TestCase):
 
     def test_every_column(self):
         """Every column: costs time, does or needs something, becomes an executable step with seconds on it."""
-        rules = [("costs no time", lambda a: a.cost_s <= 0),
+        rules = [("costs no time", lambda a: a.cost_s <= 0),  # must fail: each rule is a failure no column may show
                  ("does nothing and needs nothing", lambda a: not (a.effect or a.requires)),
                  ("becomes a step with no seconds", lambda a: actions.to_step(a, 1).est <= 0),
                  ("becomes a step of no kind", lambda a: not actions.to_step(a, 1).kind)]

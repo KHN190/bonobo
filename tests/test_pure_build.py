@@ -33,7 +33,7 @@ class EmptyHow(unittest.TestCase):
             ("a chest near, the junk not worth the walk: drop", [FLESH, STRING, GEM], 1, 10.0, False, "drop"),
             ("a chest near, diamonds to free a slot: deposit", [GEM], 1, 10.0, False, "deposit"),
             ("lava near and a chest: deposit, nothing burns", [FLESH], 1, 10.0, True, "deposit"),
-            ("lava near, no chest: nothing may go", [FLESH], 1, None, True, "lava is near"),
+            ("must fail: lava near, no chest: nothing may go", [FLESH], 1, None, True, "lava is near"),
             ("the bag holds nothing that may go", [], 1, None, False, "every stack is needed")]
 
     def test_empty_how(self):
@@ -197,7 +197,7 @@ class Interrupts(unittest.TestCase):
         rows = [
             # pending        returned       why
             ("lava",         "lava",        "the pending reason is handed over"),
-            (None,           None,          "boundary: nothing pending"),
+            (None,           None,          "boundary: nothing pending"),  # must fail: nothing pending hands nothing over
             ("",             "",            "empty reason returned as is"),
             ("creeper near", "creeper near", "any text"),
         ]
@@ -240,7 +240,7 @@ class RegetSeconds(unittest.TestCase):
             ({"id": "minecraft:dirt", "count": 10},   None,  bag.UNPRICED_S * 10,   "no price model: unpriced"),
             ({"id": "minecraft:dirt", "count": 10},   two,   20.0,                  "price × count"),
             ({"id": "minecraft:dirt"},                two,   2.0,                   "count defaults to one"),
-            ({"id": "minecraft:dirt", "count": 3},    none,  bag.UNPRICED_S * 3,    "model has no price: unpriced"),
+            ({"id": "minecraft:dirt", "count": 3},    none,  bag.UNPRICED_S * 3,    "model has no price: unpriced"),  # must fail: no price is unpriced, not free
             ({"id": "minecraft:dirt", "count": 3},    zero,  0.0,                   "boundary: a zero price is a price"),
             ({"id": "minecraft:dirt", "count": 0},    two,   0.0,                   "boundary: empty stack"),
         ]

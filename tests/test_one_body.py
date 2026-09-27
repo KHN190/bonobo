@@ -130,7 +130,7 @@ class TheLease(unittest.TestCase):
                              f"seed {seed}: another thread drove while answering still paid")
 
     # (the lease holder's layer, is it still paying, who asks next) → taken by the asker?
-    LEASE = [("tactic", True, "safety", True), ("tactic", True, "reflex", True), ("tactic", True, "tactic", False),
+    LEASE = [("tactic", True, "safety", True), ("tactic", True, "reflex", True), ("tactic", True, "tactic", False),  # must fail: its own layer while it pays is not taken
              ("tactic", True, "plan", False), ("tactic", False, "tactic", True), ("tactic", False, "plan", True),
              ("safety", True, "tactic", False), ("safety", False, "tactic", True)]
 
@@ -146,7 +146,7 @@ class TheLease(unittest.TestCase):
                 self.assertEqual(got is not None, taken, why)
 
     # (the layer holding a lease, the path posted from outside it) → what the post answers, before the game is asked
-    POSTS = [("tactic", "/task?wait=0", "failed"), ("tactic", "/stop", "failed"), ("safety", "/task?wait=0", "failed"),
+    POSTS = [("tactic", "/task?wait=0", "failed"), ("tactic", "/stop", "failed"), ("safety", "/task?wait=0", "failed"),  # must fail: a post from outside the lease fails
              ("tactic", "/close", "sent"), (None, "/task?wait=0", "sent")]
 
     def test_a_refused_thread_is_told_so_not_robbed(self):

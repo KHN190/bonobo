@@ -117,7 +117,7 @@ class Direction(unittest.TestCase):
             ("a cycle ends", {"a": "from . import b\n", "b": "from . import a\n"}, "a", ["a", "b"]),
             ("a fact reaching a decider: the key shows it (what the tests below fail on)",
              {"data": "from .brain import decide\n", "brain": ""}, "data", ["brain", "data"]),
-            ("not edges: the standard library, a module that is not there", {"a": "import os\nfrom .gone import X\n"},
+            ("must fail: not edges: the standard library, a module that is not there", {"a": "import os\nfrom .gone import X\n"},
              "a", ["a"])]
 
     def test_the_key_follows_every_package_import(self):

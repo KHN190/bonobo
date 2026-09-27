@@ -54,7 +54,7 @@ class BitesToFull(unittest.TestCase):
                                    "minecraft:beef")
     # (situation, food points, carried, raw ok) → (item, bites)
     ROWS = [("two haunches short, bread: one bite", 16, {B: 3}, False, (B, 1)),
-            ("full: nothing", 20, {B: 3}, False, (None, 0)),
+            ("must fail: full: nothing", 20, {B: 3}, False, (None, 0)),
             ("only raw meat, not starving: nothing", 10, {RAW: 5}, False, (None, 0)),
             ("only raw meat, starving: raw, bites to full", 0, {RAW: 5}, True, (RAW, 7)),
             ("several: the one that fills the gap exactly", 12, {B: 1, BEEF: 1, APPLE: 1}, False, (BEEF, 1)),
