@@ -3204,6 +3204,7 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
 # there and digs in by hand (terrain.nearest_soft + the walk in the price). The control: the same patch across a
 # drop to nothing — it is not on this ground, so the body never goes there.
 DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
+DIRT_FLOOR = (at(7, -4, -1), at(8, -4, 1))      # the stone the dirt lies on
 
 
 def _in_the_patch_underground(api, inv):
@@ -3223,7 +3224,10 @@ for _name, _doc, _extra, _done, _check in [
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": ["shelter:dig in"], "tier_fixed": "brain",
         "tags": {"base": "brain", "family": "night_dirt"},
-        "setup": _floor() + [f"fill {_c(DIRT_PATCH[0])} {_c(DIRT_PATCH[1])} dirt"] + _extra + [_tp(), "time set 12500"],
+        # Stone under the dirt: soft ground needs something to stand on under its three soft cells (terrain.soft_below);
+        # over the void (y 196) there was no soft spot at all and the body walled in instead.
+        "setup": _floor() + [f"fill {_c(DIRT_PATCH[0])} {_c(DIRT_PATCH[1])} dirt",
+                             f"fill {_c(DIRT_FLOOR[0])} {_c(DIRT_FLOOR[1])} stone"] + _extra + [_tp(), "time set 12500"],
         "before": _start(_name),
         "run": _brain_rounds(25, _done), "check": _check, "budget": 30,
     }
