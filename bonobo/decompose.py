@@ -1,14 +1,5 @@
-"""L2: a goal and a bag in, an ordered list of steps out. The brain calls only this.
+"""L2: a goal and a bag in, an ordered list of steps out. The brain calls only this. decompose(inv, goal, cost, solver=None, pending=None) -> [Step] Item goals (have, craft, milestone) go to a SOLVER; the rest become action steps, after whatever materials they need (build). Solvers are registered by name: `planner` (planner.py, recursive descent over the requirement graph) is the default; `solve` (solve.py over the action columns) is tried when it cannot plan, or chosen by name per task. Every solver gets the same cost model (cost.Cost), so their steps are priced in the same ticks. Pure apart from what the cost model reads (one cached /find per kind)."""
 
-    decompose(inv, goal, cost, solver=None, pending=None) -> [Step]
-
-Item goals (have, craft, milestone) go to a SOLVER; the rest become action steps, after whatever materials they
-need (build). Solvers are registered by name: `planner` (planner.py, recursive descent over the requirement graph)
-is the default; `solve` (solve.py over the action columns) is tried when it cannot plan, or chosen by name per task. Every
-solver gets the same cost model (cost.Cost), so their steps are priced in the same ticks.
-
-Pure apart from what the cost model reads (one cached /find per kind).
-"""
 import math
 
 from . import blueprints, goals, knowledge
@@ -19,25 +10,20 @@ from .planner import Planner, Step, Unplannable
 SOLVERS = {}          # name -> fn(inv, needs, cost, pending) -> [Step]
 ORDER = []            # fallback order when no solver is named
 
-
 def register(name, fn):
     """Add a solver. The first registered is the default."""
     SOLVERS[name] = fn
     if name not in ORDER:
         ORDER.append(name)
 
-
 def _planner(inv, needs, cost, pending=None):
     return Planner.from_inventory(inv, cost, pending).plan(needs)
 
-
 register("planner", _planner)
 
-
 def _solve(inv, needs, cost, pending=None):
-    """The column solver (solve.py over actions.table): slower, and it can see further — where to go for a thing,
-    what to take that is already made, which half-done work to finish. Reads the bag from the cost model's snapshot,
-    so it needs one (and memory, for the places it knows)."""
+    """The column solver (solve."""
+
     from . import actions as act
     from .solve import Unsolvable, solve
     target = act.target_of(needs)
@@ -52,9 +38,7 @@ def _solve(inv, needs, cost, pending=None):
         raise Unplannable(str(e))
     return [act.to_step(a, n) for a, n in found.steps()]
 
-
 register("solve", _solve)
-
 
 def solve_needs(inv, needs, cost, solver=None, pending=None):
     """Steps that make `needs` held. The named solver, else each registered one in turn until one plans."""
@@ -73,10 +57,9 @@ def solve_needs(inv, needs, cost, solver=None, pending=None):
             last = e
     raise last or Unplannable("no solver could plan this")
 
-
 def from_containers(inv, needs, cost, solver=None, pending=None):
-    """Take what containers hold (memory.stored) where that is cheaper than making it: (withdraw steps, pending).
-    What is taken counts as on its way (`pending`) for whatever is planned after it."""
+    """Take what containers hold (memory."""
+
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     extra = dict(pending or {})
     if mem is None or snap is None or not hasattr(mem, "stored"):
@@ -106,10 +89,9 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
                 short -= take
     return steps, extra
 
-
 def effect_detail(kind, token, count):
-    """What an effect step's skill reads from `detail`, filled from the tables where the tables know it: what a
-    hunt chases, what a mine breaks, what a take breaks, how many times a craft runs. The rest comes from the goal."""
+    """What an effect step's skill reads from `detail`, filled from the tables where the tables know it: what a hunt chases, what a mine breaks, what a take breaks, how many times a craft runs."""
+
     from . import knowledge
     from .data import mid
     if kind == "hunt" and token in knowledge.HUNT:
@@ -123,10 +105,9 @@ def effect_detail(kind, token, count):
         return {"times": count, "inputs": {}}
     return {}
 
-
 def missing_detail(step):
-    """The detail key the step's providers ask for and the step lacks, or None. Asked of each provider's adapter
-    offline: a KeyError on `detail` is a missing argument; anything that needs the world is the skill's own check."""
+    """The detail key the step's providers ask for and the step lacks, or None."""
+
     from . import skill
 
     class _Detail(dict):
@@ -144,7 +125,6 @@ def missing_detail(step):
             except Exception:
                 return None                  # it needs the world (ctx) to say: not refusable offline
     return missing
-
 
 # Things that are only found in one place: (step kind, token) → [(step kind, token, detail)] to put before it —
 # the dimension it lives in, then the structure — unless the snapshot / memory says we are already there.
@@ -184,12 +164,9 @@ SOURCES = {
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items())}],
 }
 
-
 def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=None):
-    """The cheapest way to `key` × amount: `default()` (the solver's steps; raises Unplannable) or each SOURCES[key]
-    source's runs plus the plan for what they need. Returns (steps, chosen name) — steps None when the default
-    wins; raises Unplannable naming every way's reason when none can be had. `facts`: what the caller read of the
-    place ({"soft_ground": bool}); a source's `when` names the fact it needs (absent = not so)."""
+    """The cheapest way to `key` × amount: `default()` (the solver's steps; raises Unplannable) or each SOURCES[key] source's runs plus the plan for what they need."""
+
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     why = []
     try:
@@ -239,14 +216,12 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
         raise Unplannable(f"no way to {key}: " + "; ".join(why))
     return best_steps, name
 
-
 # Milestones that end in doing, not holding: after their items, these steps (run once — goals.done says None).
 THEN = {"end portal": [("seek", "stronghold", {}), ("seek", "portal_room", {}), ("activate", "end_portal", {})]}
 
-
 def from_sources(inv, needs, cost, solver=None, pending=None):
-    """For each need with other sources (SOURCES), the cheapest way from this bag (`cheapest`). Returns (steps for
-    the chosen sources, pending with what they bring counted as on its way)."""
+    """For each need with other sources (SOURCES), the cheapest way from this bag (`cheapest`)."""
+
     extra, steps = dict(pending or {}), []
     for need in needs:
         if need[0] == "tool" or need[0] not in SOURCES:
@@ -264,10 +239,9 @@ def from_sources(inv, needs, cost, solver=None, pending=None):
             extra[gives] = extra.get(gives, 0) + short
     return steps, extra
 
-
 def where_it_lives(steps, cost):
-    """Put the way to where a thing lives before the step that gets it: blaze rods come from a Nether fortress,
-    so "have blaze_rod" is the portal, the fortress, then collecting (fighting is fight_loop's)."""
+    """Put the way to where a thing lives before the step that gets it: blaze rods come from a Nether fortress, so "have blaze_rod" is the portal, the fortress, then collecting (fighting is fight_loop's)."""
+
     snap, mem = getattr(cost, "snap", None), getattr(cost, "mem", None)
     out = []
     for step in steps:
@@ -282,23 +256,20 @@ def where_it_lives(steps, cost):
         out.append(step)
     return out
 
-
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)
     step.est = cost.estimate(step)
     return step
 
-
 def decompose(inv, goal, cost, solver=None, pending=None):
-    """Ordered steps for `goal` from this bag. Raises Unplannable when no registered solver can reach it, or when a
-    step asks for an effect no registered skill provides (skill.handles)."""
+    """Ordered steps for `goal` from this bag."""
+
     from . import skill
     steps = _decompose(inv, goal, cost, solver, pending)
     missing = [s for s in steps if not skill.handles(s)]
     if missing:
         raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     return steps
-
 
 def _decompose(inv, goal, cost, solver, pending):
     template, args = goal["goal"], goal.get("args", {})
@@ -347,17 +318,14 @@ def _decompose(inv, goal, cost, solver, pending):
         return _prepared(inv, step, cost, solver, pending)
     raise Unplannable(f"no way to decompose a {template!r} goal")
 
-
 def _prepared(inv, step, cost, solver, pending):
-    """The steps that get what `step`'s skill needs held for its call (knowledge.step_call → needs_of: the bed of a
-    sleep, the pickaxe of a mine), then the step — what planner.before does for the planner's own steps."""
+    """The steps that get what `step`'s skill needs held for its call (knowledge."""
+
     needs, _speed = knowledge.step_call(step)
     return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]
 
-
 def to_dict(step):
     return {"kind": step.kind, "token": step.token, "count": step.count, "detail": step.detail, "est": step.est}
-
 
 def from_dict(d):
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))

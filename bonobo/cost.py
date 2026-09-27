@@ -1,12 +1,5 @@
-"""What a step costs, in ticks: the walk to where it happens plus how long the work takes. The one cost model, shared
-by every solver (decompose.py): the planner asks `estimate`, the column solver (actions.table) asks the seconds
-methods at the bottom (`work_s`, `seek_s`, `find_p`, `where`). One walk-time estimate: `walk_ticks`. No survival model, no prices of health: distance and measured durations, nothing else.
+"""What a step costs, in ticks: the walk to where it happens plus how long the work takes. The one cost model, shared by every solver (decompose.py): the planner asks `estimate`, the column solver (actions.table) asks the seconds methods at the bottom (`work_s`, `seek_s`, `find_p`, `where`). One walk-time estimate: `walk_ticks`. No survival model, no prices of health: distance and measured durations, nothing else. Durations are measured (`memory.duration`, the same keys the skill runner records under) once a key has `skill.MIN_SAMPLES` runs; until then the priors below stand. Distances come from memory (the resource map, sightings, stations) and from one cached `/find` per kind per round — the calls a recorded round carries, so a replay answers the same way."""
 
-Durations are measured (`memory.duration`, the same keys the skill runner records under) once a key has
-`skill.MIN_SAMPLES` runs; until then the priors below stand. Distances come from memory (the resource map, sightings,
-stations) and from one cached `/find` per kind per round — the calls a recorded round carries, so a replay answers
-the same way.
-"""
 import math
 
 from .api import McError
@@ -30,20 +23,16 @@ STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s:
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
              "craft": lambda s: ("craft", 1)}
 
-
 def walk_ticks(distance):
     """Ticks to walk `distance` straight-line blocks, detours included: the one walk-time estimate."""
     return int(float(distance) * WALK_TICKS_PER_BLOCK)
 
-
 class Cost:
-    """The cost model a planner is given. `snap` is this round's snapshot; `mem` and `blacklist` are optional (a
-    test passes neither and gets the priors and straight lines)."""
+    """The cost model a planner is given."""
 
     def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None):
-        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
-        `finds`: {block or mob type: distance} standing in for /find and /entities (offline: nothing is queried).
-        `policy`: the round's movement policy — the route cache is keyed by what a walk may dig and build."""
+        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world)."""
+
         self.snap, self.mem = snap, mem
         self.blacklist = blacklist or {}
         self.cache = {}
@@ -54,8 +43,8 @@ class Cost:
 
     # -- where things are
     def _nearest(self, kinds):
-        """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None.
-        Memory only, never a fresh query, so a recorded round replays the same."""
+        """(position, distance) of the nearest remembered one of these (memory."""
+
         if self.mem is None or self.snap is None:
             return None
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
@@ -65,8 +54,8 @@ class Cost:
         return (best, math.dist(best, here)) if best is not None else None
 
     def ripe(self, token):
-        """Ripe crop cells known to give `token`: the crop jobs of it that are due (memory only — an estimate never
-        touches the world; the farm step itself looks for a ripe crop before it sows, farming.plant_farm)."""
+        """Ripe crop cells known to give `token`: the crop jobs of it that are due (memory only — an estimate never touches the world; the farm step itself looks for a ripe crop before it sows, farming."""
+
         if token != "minecraft:wheat":
             return 0
         if self._ripe is not None:
@@ -89,9 +78,8 @@ class Cost:
         return hit[1] if hit else None
 
     def distance(self, blocks, radius=48):
-        """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find),
-        else None. Remembered first: an estimate that asked /find for a noted diamond scanned every round and
-        undid what noting it was for (seen_store__noted's _no_scan; cost._source ← needs.plan / decompose)."""
+        """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find), else None."""
+
         key = ("find", tuple(blocks), radius)
         if key not in self.cache and self._finds is not None:
             got = [self._finds[b] for b in blocks if b in self._finds and self._finds[b] <= radius]
@@ -154,16 +142,15 @@ class Cost:
         return int(per * max(1, units) * TICKS_PER_S) if per is not None else None
 
     def estimate(self, step):
-        """Ticks this step takes from here: measured work when there is enough of it, the prior otherwise, plus the
-        walk to where it happens."""
+        """Ticks this step takes from here: measured work when there is enough of it, the prior otherwise, plus the walk to where it happens."""
+
         measured = self.measured(step)
         work = measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
         return work + self._walk(step)
 
     def _sped_up(self, step):
-        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge.step_call —
-        every skill's `speed`, seconds saved per unit) for each tool the bag holds, times the step's units. A measured
-        time already has the tools in it."""
+        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge."""
+
         inv = getattr(self.snap, "inv", None)
         if inv is None:
             return 0
@@ -197,8 +184,8 @@ class Cost:
         return self._entity(step.detail.get("types", ()))
 
     def known_source(self, step):
-        """Is where this step goes known (in sight or remembered)? A seek, or a gather/mine/hunt with nowhere
-        known, is priced by a prior — a guess, not a plan (upkeep's lead reads only plans it knows)."""
+        """Is where this step goes known (in sight or remembered)?"""
+
         if step.kind == "seek":
             return False
         return step.kind not in self.SOURCED or self._source(step) is not None
@@ -236,8 +223,8 @@ class Cost:
         return hit[0] if hit else None
 
     def seek_s(self, kinds):
-        """Seconds to go to one of these: what the game already said the route takes, else the known distance, else
-        walked (`walk_ticks`); else the declared prior."""
+        """Seconds to go to one of these: what the game already said the route takes, else the known distance, else walked (`walk_ticks`); else the declared prior."""
+
         seconds = self.route_s(kinds)
         if seconds is not None:
             return max(1.0, round(float(seconds), 1))
@@ -247,8 +234,8 @@ class Cost:
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
-        """The game's own estimate for walking to the nearest known one, when it has already been asked this round
-        (nav's route cache; read, never added to — whoever is about to act asks the game)."""
+        """The game's own estimate for walking to the nearest known one, when it has already been asked this round (nav's route cache; read, never added to — whoever is about to act asks the game)."""
+
         where = self.where(kinds)
         if where is None:
             return None
@@ -261,10 +248,8 @@ class Cost:
         """The chance a look for one of these finds it: the declared prior."""
         return float(_PLAY["plan"]["exists_prior"])
 
-
 class Prices:
-    """{item: seconds to get one another way} for skills that ask what a thing is worth (the looter). Each price is
-    what the planner would spend making one from an empty bag with the tools we hold; asked lazily and kept."""
+    """{item: seconds to get one another way} for skills that ask what a thing is worth (the looter)."""
 
     def __init__(self, cost, inv):
         self.cost, self.inv, self.cache = cost, inv, {}

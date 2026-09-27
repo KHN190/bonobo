@@ -1,5 +1,5 @@
-"""The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them
-(tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
+"""The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
+
 from .world import add
 
 PICKUP_FILTER_AT = 28
@@ -8,20 +8,18 @@ PICKUP_FILTER_AT = 28
 # touch them: tidy once threw the planks a wheat-farm plan had just crafted, every 8 s, and the plan re-crafted them.
 RESERVED = set()
 
-
 def reserved_stacks(slots):
-    """Pure: the stacks kept for open goals' plans — the biggest stack of each reserved item id, not all of them
-    (reserving every cobblestone stack would make the bag impossible to tidy)."""
+    """Pure: the stacks kept for open goals' plans — the biggest stack of each reserved item id, not all of them (reserving every cobblestone stack would make the bag impossible to tidy)."""
+
     best = {}
     for s in slots:
         if s["id"] in RESERVED and (s["id"] not in best or s.get("count", 1) > best[s["id"]].get("count", 1)):
             best[s["id"]] = s
     return list(best.values())
 
-
 def reserved_ids(plan, needs=()):
-    """Pure: every item id a plan consumes or produces on the way (step inputs, intermediate outputs) plus the goal's
-    own needs — the one reservation list bag, deposit and free_slots all read."""
+    """Pure: every item id a plan consumes or produces on the way (step inputs, intermediate outputs) plus the goal's own needs — the one reservation list bag, deposit and free_slots all read."""
+
     from .knowledge import members
     tokens = set()
     for step in plan:
@@ -35,18 +33,15 @@ def reserved_ids(plan, needs=()):
         ids.update(members(t))
     return ids
 
-
 # What a nearly full bag still walks over to pick up: the floor (blocks aside: a tunnel is made of them) and what
 # the route to the dragon is made of.
 PICKUP_ALWAYS = ("minecraft:raw_iron", "minecraft:raw_gold", "minecraft:iron_ingot", "minecraft:gold_ingot",
                  "minecraft:diamond", "minecraft:ender_pearl", "minecraft:blaze_rod", "minecraft:obsidian",
                  "minecraft:string", "minecraft:flint")
 
-
 def pickup_whitelist(used_slots, wanted=()):
-    """Pure: None (collect everything) below PICKUP_FILTER_AT slots; from there only the keep list, basic supplies
-    and what the task is for. Vanilla pickup itself can't be filtered, but the collect sweep can stop walking onto
-    cobblestone and dirt — the source of the bag filling up in tunnels and shafts."""
+    """Pure: None (collect everything) below PICKUP_FILTER_AT slots; from there only the keep list, basic supplies and what the task is for."""
+
     if used_slots < PICKUP_FILTER_AT:
         return None
     from .knowledge import members
@@ -57,8 +52,6 @@ def pickup_whitelist(used_slots, wanted=()):
         ids |= set(members(token))
     return sorted(ids)
 
-
-
 # Upkeep's floor: what the bag never goes below, by kind — the next meals, blocks to bridge and wall with, light,
 # water, a bed, the two stations and fire. Tools and armour that still work are kept whole (spares included).
 # Everything else is priced: what it costs to get again (`let_go`). One table, instead of seven that disagreed.
@@ -67,22 +60,19 @@ FLOOR = {"food": 8, "building": 64, "minecraft:torch": 16, "minecraft:bucket": 1
          "minecraft:flint_and_steel": 1, "minecraft:shield": 1, "coal": 16}
 UNPRICED_S = 1.0          # seconds to get again when nothing prices an item: it goes first (junk)
 
-
 def _floor_ids(token):
     from .knowledge import ALL_FOOD, RAW_MEAT, members
     if token == "food":
         return list(ALL_FOOD) + list(RAW_MEAT)     # raw meat is the next meal while cooked food is short
     return list(members(token))
 
-
 def dead(s):
     """A tool or armour at <= 1 durability: the mod refuses it, it only takes a slot."""
     return bool(s.get("maxDamage")) and s["maxDamage"] - s.get("damage", 0) <= 1
 
-
 def kept(slots):
-    """Pure: the stacks the bag keeps whatever — one stack of each item a held plan uses (RESERVED), working tools
-    and armour, and the biggest stacks that fill the FLOOR."""
+    """Pure: the stacks the bag keeps whatever — one stack of each item a held plan uses (RESERVED), working tools and armour, and the biggest stacks that fill the FLOOR."""
+
     keep = list(reserved_stacks(slots)) + [s for s in slots if s.get("maxDamage") and not dead(s)]
     for token, n in FLOOR.items():
         ids, have = set(_floor_ids(token)), 0
@@ -94,18 +84,14 @@ def kept(slots):
             have += st.get("count", 1)
     return keep
 
-
 def reget_seconds(s, price=None):
     """Seconds to get this stack again: the planner's price of one (cost.Prices, `price(item)`) × its count."""
     one = price(s["id"]) if price else None
     return (UNPRICED_S if one is None else float(one)) * s.get("count", 1)
 
-
 def let_go(slots, need, price=None, chest_s=None, lava_near=False):
-    """Pure: [(stack, "drop" | "deposit")] freeing `need` slots. Never what is `kept`; dead tools first; then the
-    cheapest to get again (`reget_seconds`: dirt before diamonds). A stack worth more than the walk to a chest
-    (`chest_s`) is deposited, not dropped. Nothing is dropped with lava near (it burns): deposit or keep.
-    Raises NotAvailable saying why when not one slot can be freed."""
+    """Pure: [(stack, "drop" | "deposit")] freeing `need` slots."""
+
     from .api import NotAvailable
     keep = kept(slots)
     order = [s for s in slots if dead(s)] + sorted(
@@ -126,14 +112,11 @@ def let_go(slots, need, price=None, chest_s=None, lava_near=False):
                            + (" and lava is near: nothing is dropped" if lava_near else ""))
     return out
 
-
 def empty_how(slots, need, price=None, chest_s=None, lava_near=False):
-    """Pure: how the bag is emptied this time — "deposit" when `let_go` puts any stack in a chest that already
-    exists (`chest_s`: seconds to reach it, None when there is none), else "drop" (the cheapest stacks thrown). No
-    chest is ever made for it. Raises NotAvailable (let_go's reason) when nothing can go."""
+    """Pure: how the bag is emptied this time — "deposit" when `let_go` puts any stack in a chest that already exists (`chest_s`: seconds to reach it, None when there is none), else "drop" (the cheapest stacks thrown)."""
+
     plan = let_go(slots, need, price, chest_s, lava_near)
     return "deposit" if any(how == "deposit" for _s, how in plan) else "drop"
-
 
 def free_slots_plan(slots, need=0, price=None):
     """Pure: the stacks to drop to free `need` slots (let_go without a chest); dead tools always go."""
@@ -143,13 +126,11 @@ def free_slots_plan(slots, need=0, price=None):
         plan = []
     return plan + [s for s in slots if dead(s) and s not in plan]
 
-
 FREE_SLOTS_TARGET = 5     # keep this many slots free: crafting, pickups and loot need room
 
-
 def throw_direction(region, inside):
-    """Pure: a horizontal side open at feet and head height to throw items into — the one with the most open room
-    beyond (a tunnel's way back rather than a 1-block niche), or None in a sealed shaft."""
+    """Pure: a horizontal side open at feet and head height to throw items into — the one with the most open room beyond (a tunnel's way back rather than a 1-block niche), or None in a sealed shaft."""
+
     x, y, z = inside
     best, best_room = None, 0
     for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -164,43 +145,34 @@ def throw_direction(region, inside):
     # Thrown items fly ~2 blocks: into a 1–2 block niche they land back at our feet and get picked up again.
     return best if best_room >= 3 else None
 
-
 def store_plan(slots):
     """Pure: the player stacks to move into a chest — everything the bag does not keep (`kept`), dead tools too."""
     keep = kept(slots)
     return [s for s in slots if s not in keep]
 
-
 STACK = 64
 
-
 def has_room(slots, free, ids):
-    """Pure: can one more of these (`ids`) go in the bag — a free slot, or a stack of one of them not yet full.
-    A gatherer on a full bag breaks what it cannot pick up, and a miner kept breaking the floor under itself."""
+    """Pure: can one more of these (`ids`) go in the bag — a free slot, or a stack of one of them not yet full."""
+
     return free > 0 or any(s["id"] in ids and int(s.get("count", 1)) < STACK for s in slots)
 
-
 def supports(feet):
-    """Pure: the cells the body stands on — the one under the feet and the ring around it the body's edge can rest
-    on — never mined by a skill that is not digging down on purpose (a full-bag miner broke its own floor and fell
-    through the platform; a stone batch dug the floor ring at its feet)."""
+    """Pure: the cells the body stands on — the one under the feet and the ring around it the body's edge can rest on — never mined by a skill that is not digging down on purpose (a full-bag miner broke its own floor and fell through the platform; a stone batch dug the floor ring at its feet)."""
+
     x, y, z = feet
     return {(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
 
-
 def under(feet, cell):
-    """Pure: `cell` is in the body's own column below the feet, at any depth. Only dig_in digs there on purpose: a
-    building batch mined (10000,198) under the platform floor, then (10000,197) with the body standing on it, and
-    fell through a three-thick sky platform."""
-    return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
+    """Pure: `cell` is in the body's own column below the feet, at any depth."""
 
+    return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
 
 FACES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))
 
-
 def floored(region, cell, drop):
-    """Pure: a body standing in `cell` has ground within `drop` blocks under it. Unread is not ground: a region
-    that ended three below the platform called the void floored (read it at least `drop` + 2 down)."""
+    """Pure: a body standing in `cell` has ground within `drop` blocks under it."""
+
     x, y, z = cell
     for k in range(1, drop + 2):
         c = (x, y - k, z)
@@ -210,17 +182,13 @@ def floored(region, cell, drop):
             return True
     return False
 
-
 def buried(region, cell):
     """Pure: every face of `cell` is solid (read): no way at it but digging."""
     return all(region.inside(f) and region.solid(f) for f in (add(cell, d) for d in FACES))
 
-
 def stand_spot(region, cell, drop):
-    """Pure: some open face of `cell` has a standing place beside it — feet in the face's cell or one below it
-    (head in the face), room for the body, ground within `drop`. None of them: the only way at it is over a gap
-    (upkeep__bridge_stock: the platform's edge cell, its one face over the void; the walker stepped out, 97 down).
-    A cell with no open face at all is buried: the approach digs a way to it, and the check is for faces only."""
+    """Pure: some open face of `cell` has a standing place beside it — feet in the face's cell or one below it (head in the face), room for the body, ground within `drop`."""
+
     if buried(region, cell):
         return True
     for face in (add(cell, d) for d in FACES):
@@ -234,12 +202,9 @@ def stand_spot(region, cell, drop):
                 return True
     return False
 
-
 def mineable(cells, feet, region=None, drop=None):
-    """Pure: the cells a skill may break standing at `feet`, in the order given — never the floor under or around
-    the feet (`supports`), nor anything in the body's own column below it (`under`), nor (with `region`) a cell
-    whose every open face is over a drop deeper than `drop` (`stand_spot`). Target selection and the no-floor
-    rule are this one predicate."""
+    """Pure: the cells a skill may break standing at `feet`, in the order given — never the floor under or around the feet (`supports`), nor anything in the body's own column below it (`under`), nor (with `region`) a cell whose every open face is over a drop deeper than `drop` (`stand_spot`)."""
+
     feet = tuple(feet)
     floor = supports(feet)
     ok = [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
@@ -251,11 +216,9 @@ def mineable(cells, feet, region=None, drop=None):
     open_ = [c for c in ok if not buried(region, c)]
     return open_ or ok
 
-
 def refused(cells, refused_before, jar_digs):
-    """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped). A cell refused
-    before is dropped — asking again is the same attempt (mine_stone looped on one floor block until its budget
-    ran out). So is every cell when the jar's own approach already dug for it (approach_dig)."""
+    """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped)."""
+
     cells = {tuple(c) for c in cells}
     if jar_digs:
         return set(), cells

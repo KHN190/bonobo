@@ -1,8 +1,5 @@
-"""The scenario sheets: one situation per entry, built with commands in the test world, run the way the agent
-plays, and judged by the outcome. The primitives live in `bench.core`, the runner and the readiness table in
-`bench.runner`, the fighting benches in `bench.fight`; this module is the sheet of everything else, and the name
-the rest of the codebase still imports.
-"""
+"""The scenario sheets: one situation per entry, built with commands in the test world, run the way the agent plays, and judged by the outcome. The primitives live in `bench.core`, the runner and the readiness table in `bench.runner`, the fighting benches in `bench.fight`; this module is the sheet of everything else, and the name the rest of the codebase still imports."""
+
 import json
 import math
 import os
@@ -191,7 +188,6 @@ SCENARIOS.update({
     },
 })
 
-
 def _lava_lake(width):
     """Variant: a `width`-block lava strip between two stone platforms (one layout passing can be luck)."""
     far = 2 + width
@@ -211,7 +207,6 @@ def _lava_lake(width):
         "check": lambda api, inv: _near(api, at(far + 1, 0, 0), 2.5) and api.get("/state")["health"] > 10,
         "budget": 10 + 4 * width,
     }
-
 
 SCENARIOS["cross_lava_lake"] = _lava_lake(12)
 
@@ -301,19 +296,17 @@ SCENARIOS["locate_stronghold"] = {
 LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
 LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
 
-
 def _leg_box(start, stronghold):
-    """Pure: (x0, z0, x1, z1) around the leg the skill walks — perpendicular to the line to the stronghold,
-    (-dz, dx) as the skill turns it — padded on every side."""
+    """Pure: (x0, z0, x1, z1) around the leg the skill walks — perpendicular to the line to the stronghold, (-dz, dx) as the skill turns it — padded on every side."""
+
     x, z = start
     d = math.dist(stronghold, start) or 1.0
     ex, ez = round(x - (stronghold[1] - z) / d * LEG), round(z + (stronghold[0] - x) / d * LEG)
     return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
 
-
 def _stronghold_leg(ctx):
-    """The walk between the throws on a flat stone plane at sky height, with speed: 200 blocks of real hills were
-    most of a 60 s row. The throws, the eye's flight and the triangulation are the skill's own."""
+    """The walk between the throws on a flat stone plane at sky height, with speed: 200 blocks of real hills were most of a 60 s row."""
+
     real = locate_reply(LAST_FEEDBACK)
     if not real:
         raise SetupInvalid("no /locate answer for the stronghold")
@@ -333,7 +326,6 @@ def _load_area(x0, z0, x1, z1):
         time.sleep(0.5)
     raise SetupInvalid(f"area {x0},{z0}..{x1},{z1} never loaded")
 
-
 def _overworld(cmds):
     """Commands run in the Overworld from a hook; a refused one is a setup that did not happen."""
     for cmd in cmds:
@@ -341,21 +333,17 @@ def _overworld(cmds):
         if any("not loaded" in l or "Unknown" in l or "Too many" in l for l in lines):
             raise SetupInvalid(f"{cmd}: {lines[:1]}")
 
-
 def _flat(x0, z0, x1, z1, y, block):
     """Pure: fills covering a flat rectangle, each under the game's 32768-block limit."""
     step = max(1, 32768 // (z1 - z0 + 1))
     return [f"fill {a} {y} {z0} {min(a + step - 1, x1)} {y} {z1} {block}" for a in range(x0, x1 + 1, step)]
 
-
 STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
 ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
 
-
 def _stronghold_piece(x, y, z):
-    """Commands for a corridor of stone bricks (3×3 inside) running 58 blocks east from the start, ending in a
-    portal room with a ring of 12 empty frames, all sealed in stone: the search, the brick-following and the walk,
-    without a /place structure and a 40-block dig down (most of the old 60 s)."""
+    """Commands for a corridor of stone bricks (3×3 inside) running 58 blocks east from the start, ending in a portal room with a ring of 12 empty frames, all sealed in stone: the search, the brick-following and the walk, without a /place structure and a 40-block dig down (most of the old 60 s)."""
+
     f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
     cx = x + ROOM_OFF
     return [f((x - 3, y - 2, z - 6), (cx + 6, y + 5, z + 6), "stone"),
@@ -370,7 +358,6 @@ def _stronghold_piece(x, y, z):
             f((cx + 2, y, z - 1), (cx + 2, y, z + 1), "end_portal_frame[facing=west]"),
             f"tp @p {x + 1} {y} {z}"]
 
-
 def _built_stronghold(ctx):
     """The piece built fresh every run (a run digs it up), the estimate at the corridor's start where we stand."""
     x, y, z = STRONGHOLD_AT
@@ -379,19 +366,16 @@ def _built_stronghold(ctx):
     ctx.mem.add_site("stronghold", (x + 1, y, z), "minecraft:overworld", name="stronghold")
     time.sleep(1)
 
-
 PORTAL_ROOM_OK = []
 
-
 def _portal_room_run(ctx):
-    """Run the search and remember whether the skill itself succeeded: a run that raised "finished without reaching
-    its goal" was recorded as PASS because the check only asked whether any frame stood within 48 blocks."""
+    """Run the search and remember whether the skill itself succeeded: a run that raised "finished without reaching its goal" was recorded as PASS because the check only asked whether any frame stood within 48 blocks."""
+
     from .end import find_portal_room
     PORTAL_ROOM_OK.clear()
     find_portal_room(ctx)
     PORTAL_ROOM_OK.append(True)
     return True
-
 
 def _portal_room_found():
     from .end import ROOM_REACH
@@ -399,7 +383,6 @@ def _portal_room_found():
     # The same number the skill's contract uses: three different radii (scan 48, contract 32, check 12) was how a
     # run could log "room found", fail its own verify, and still be recorded as a pass.
     return bool(PORTAL_ROOM_OK) and bool(_find(["end_portal_frame"], radius=ROOM_REACH, limit=1))
-
 
 SCENARIOS["find_portal_room_fresh"] = {
     "doc": "A stronghold piece built every run (a brick corridor, the room 64 blocks on, past the scan), standing on "
@@ -419,12 +402,10 @@ SCENARIOS["find_portal_room_fresh"] = {
 # blows) is what a row can judge inside 60 s; the full fight from 200 hp is the acceptance run's.
 WORN_DRAGON = ["kill @e[type=end_crystal]", "data merge entity @e[type=ender_dragon,limit=1] {Health:8f}"]
 
-
 def _wear_dragon(ctx):
     for cmd in WORN_DRAGON:
         _chat(f"execute in minecraft:the_end run {cmd}")
     time.sleep(0.5)
-
 
 SCENARIOS["fight_dragon"] = {
     "doc": "The End's main island with the dragon, diamond sword, shield, iron armor, food, blocks → dragon dead.",
@@ -452,7 +433,6 @@ def _worn_head():
     from .world import Inventory
     return ((Inventory().equipment.get("head") or {}).get("id") or "")
 
-
 def _wait_landed(ctx, seconds=10):
     from . import api
     from .skillcore import settle
@@ -460,16 +440,14 @@ def _wait_landed(ctx, seconds=10):
                timeout=seconds, stable_s=1.0, soft=True)
     return bool(s.get("onGround") or s.get("inWater") or s.get("dead"))
 
-
 def _snap_survival(ctx, seconds=20):
-    """Brain rounds until the body is back in the Overworld: leaving the Nether is an upkeep row now (low food,
-    health or room → `nether.use_portal`), not an L0 rescue."""
+    """Brain rounds until the body is back in the Overworld: leaving the Nether is an upkeep row now (low food, health or room → `nether."""
+
     from . import api
     t0 = time.time()
     while time.time() - t0 < seconds and api.get("/state")["dimension"] != "minecraft:overworld":
         core.BRAIN.round()
     return api.get("/state")["dimension"] == "minecraft:overworld"
-
 
 SCENARIOS["loot_chest"] = {
     "doc": "A chest with 5 iron ingots and bread 6 blocks away → take the valuable stacks.",
@@ -586,7 +564,6 @@ def _reflex_for(seconds):
         return True
     return run
 
-
 SCENARIOS["ghast_fireball"] = {
     "doc": "Nether hall open to one side, a ghast 20 blocks out, sword + armor → 30 s of reflexes, still healthy.",
     "module": "brain",
@@ -610,7 +587,6 @@ SCENARIOS["ghast_fireball"] = {
 
 FORTRESS_RUN = {}
 
-
 def _far_from_fortress(ctx):
     """Stand ~20 blocks from the real fortress, below the roof (spreadplayers 'under 90' picks a floor there)."""
     real = locate_reply(LAST_FEEDBACK)
@@ -628,7 +604,6 @@ def _far_from_fortress(ctx):
     FORTRESS_RUN["before"] = {tuple(round(c) for c in site["pos"])
                               for site in Memory(NOTES).sites("minecraft:the_nether", kinds=["fortress"])}
 
-
 def _found_fortress_now():
     """The run passed only if it wrote a fortress site this time, and one the player actually walked to."""
     from .memory import Memory
@@ -641,7 +616,6 @@ def _found_fortress_now():
         if start and math.hypot(pos[0] - start[0], pos[2] - start[2]) >= 60:
             return True
     return False
-
 
 SCENARIOS["find_fortress_far"] = {
     "doc": "The real Nether: ~20 blocks from a fortress (lava sea likely between), blocks + food → fortress found.",
@@ -661,8 +635,8 @@ SCENARIOS["find_fortress_far"] = {
 }
 
 def _trek(dx, dz, dimension="minecraft:overworld"):
-    """Walk a straight-line distance over real terrain; the note gets seconds per 100 blocks (the main time sink:
-    travel + goto were 47 % of 5.5 h of task time)."""
+    """Walk a straight-line distance over real terrain; the note gets seconds per 100 blocks (the main time sink: travel + goto were 47 % of 5."""
+
     def run(ctx):
         from . import api, nav
         s = api.get("/state")
@@ -681,9 +655,7 @@ def _trek(dx, dz, dimension="minecraft:overworld"):
         return True
     return run
 
-
 TREK = {}
-
 
 def _trek_detail(inv):
     if not TREK.get("end"):
@@ -692,14 +664,11 @@ def _trek_detail(inv):
     left = math.hypot(TREK["end"][0] - TREK["target"][0], TREK["end"][2] - TREK["target"][2])
     return f"{dist:.0f} blocks, {TREK['seconds'] / dist * 100:.1f} s/100 (wall), ended {left:.0f} from target"
 
-
 def _trek_check(api):
     if not TREK.get("end"):
         return False
     left = math.hypot(TREK["end"][0] - TREK["target"][0], TREK["end"][2] - TREK["target"][2])
     return left <= 14 and not api.get("/state")["dead"]
-
-
 
 SCENARIOS["trek_overworld_30"] = {
     "doc": "Real Overworld terrain (hills, forest, water), 30 blocks east (18 walked: arrival is 12 off), basic kit → arrive; seconds per 100 blocks.",
@@ -748,8 +717,8 @@ for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_ov
               "trek_nether_25"):
     SCENARIOS[_name]["release"] = True       # minutes each: run by name before a live run, not in every round
 def _road_reuse(ctx):
-    """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs
-    (roads.py) and take no longer than the first. Times are kept for the check."""
+    """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs (roads."""
+
     from . import api, nav
     s = api.get("/state")
     a = (s["blockX"], s["blockY"], s["blockZ"])
@@ -762,7 +731,6 @@ def _road_reuse(ctx):
         times.append(time.time() - t0)
     ROAD_TIMES[:] = times
     return True
-
 
 ROAD_TIMES = []
 ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
@@ -781,15 +749,13 @@ SCENARIOS["road_reuse"] = {
 # were scheduling and chaining (loops, idle holds, wrong-way unstucks, repeated exits), so each slice measures them.
 SLICE = {}
 
-
 # Rounds the arbiter gave to a waiting kind (brain.picks, arbiter.waits). With work queued, any is a waste
 # (arbiter.gate should have offered the work).
 MAX_WAITS_WITH_QUEUE = 0
 
-
 def slice_report(lines, positions, target, idle_s, picks=None):
-    """Pure: loops (review.repeated over the brain's own log), longest idle, and how far the player moved away from
-    `target` in total (walking the wrong way) — from the slice's log lines and (t, pos) samples."""
+    """Pure: loops (review."""
+
     from . import review
     entries = []
     for raw in lines:
@@ -806,29 +772,21 @@ def slice_report(lines, positions, target, idle_s, picks=None):
     from .arbiter import waits
     return {"loops": loops, "idle_s": round(idle_s), "away_m": round(away), "waits": waits(picks or {})}
 
-
 def queue_finished(items):
-    """Pure: every task of a slice's queue has left the live states (done, failed or cancelled) — the slice's own
-    work is over, whatever the brain would stock up on next. An empty queue is never finished (nothing was asked)."""
+    """Pure: every task of a slice's queue has left the live states (done, failed or cancelled) — the slice's own work is over, whatever the brain would stock up on next."""
+
     from .tasks import LIVE
     return bool(items) and all(t["state"] not in LIVE for t in items)
 
-
 def tier_rows(rows, tier, named):
-    """Pure: the rows a tier selects for `--failed` / `--pending` — never acceptance (its own run); only `tier`'s
-    rows when a tier was named on the command line (`named`) and it is not "all"."""
+    """Pure: the rows a tier selects for `--failed` / `--pending` — never acceptance (its own run); only `tier`'s rows when a tier was named on the command line (`named`) and it is not "all"."""
+
     return [n for n, r in rows.items() if r["tier"] != "acceptance"
             and (not named or tier == "all" or r["tier"] == tier)]
 
-
 def _slice(done, minutes, target=None, queue=(), max_idle=15):
-    """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private task queue holding `queue`
-    (goals, in order; empty = the brain prepares on its own). Stops at once on a
-    loop (the same decision line 4×) or an idle hold longer than `max_idle` — a report, not a timeout.
+    """Run the whole cerebellum (brain."""
 
-    `done=None` means the window itself is the test: run the full `minutes` and let the scenario's own check say
-    whether it went well. That is what the e2e markers need — surviving a night has no completion, only an end.
-    """
     def run(ctx):
         from . import api, tasks
         from .world import Snapshot
@@ -874,16 +832,12 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         return True
     return run
 
-
 def _slice_detail(inv):
     if not SLICE:
         return ""
     rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"], SLICE.get("picks"))
     return (f"loops: {'; '.join(rep['loops'][:3]) or '0'}, {SLICE['seconds']:.0f}s, longest idle {rep['idle_s']}s, "
             f"walked away {rep['away_m']} m, waits {rep['waits']}")
-
-
-
 
 def slice_verdict(finished, rep, queued, max_idle, max_loops, picks=None):
     """Pure: (passed, the one line that says why) — every part named, so a failed slice carries its reason."""
@@ -893,7 +847,6 @@ def slice_verdict(finished, rep, queued, max_idle, max_loops, picks=None):
         and not (queued and rep["waits"] > MAX_WAITS_WITH_QUEUE)
     return ok, (f"slice check: done={finished} idle_s={rep['idle_s']}/{max_idle} loops={len(rep['loops'])}/{max_loops}"
                 f" waits={rep['waits']}/{MAX_WAITS_WITH_QUEUE if queued else '-'} {waited}")
-
 
 def _slice_check(done, max_idle=15, max_loops=0):
     said = []
@@ -911,22 +864,18 @@ def _slice_check(done, max_idle=15, max_loops=0):
         return ok
     return check
 
-
 def _has_stone_pickaxe():
     from .world import Inventory
     return Inventory().count("minecraft:stone_pickaxe") >= 1
-
 
 def _nether_kit_ready():
     from .knowledge import nether_kit_missing
     from .world import Inventory
     return not nether_kit_missing(Inventory())
 
-
 def _in_overworld():
     from . import api
     return api.get("/state")["dimension"] == "minecraft:overworld"
-
 
 SCENARIOS["slice_start_tools"] = {
     "doc": "Slice: the whole cerebellum, a crafting table beside it, planks, sticks and 3 cobblestone carried, a "
@@ -944,10 +893,9 @@ SCENARIOS["slice_start_tools"] = {
     "budget": 30,
 }
 
-
 def _portal_beside_player(ctx):
-    """A lit portal three blocks east of wherever the player landed, remembered as built — the slice starts in the
-    'nether kit' milestone. Without it the slice hunted sheep for a bed for 5 minutes before the kit."""
+    """A lit portal three blocks east of wherever the player landed, remembered as built — the slice starts in the 'nether kit' milestone."""
+
     from . import api
     s = api.get("/state")
     x, y, z = s["blockX"] + 3, s["blockY"], s["blockZ"]
@@ -956,7 +904,6 @@ def _portal_beside_player(ctx):
         _chat(f"execute in minecraft:overworld run {cmd}")
     ctx.mem.add_machine("nether_portal", (x, y - 1, z - 1), 1, "minecraft:overworld", ["portal"])
     ctx.mem.add_site("portal", (x, y, z), "minecraft:overworld", name="portal-overworld")
-
 
 SCENARIOS["slice_nether_kit"] = {
     "doc": "Slice: at a lit portal, the kit two steps short (one block, the gold helmet) → kit complete (food, blocks, gold helmet) without "
@@ -1003,7 +950,6 @@ for _name in ("trek_overworld_30", "trek_nether_25", "cave_escape", "return_to_p
 for _name in ("enter_nether", "return_from_nether", "relight_portal", "return_to_portal", "retreat_from_nether"):
     SCENARIOS[_name]["mod_extra"] = ["state"]
 
-
 def _dragon_health():
     import re
     lines = _command("execute in minecraft:the_end run data get entity @e[type=minecraft:ender_dragon,limit=1] Health",
@@ -1014,14 +960,12 @@ def _dragon_health():
             return float(m.group(1))
     return None
 
-
 SPEEDRUN_END_KIT = ["clear @p", "give @p stone_sword", "give @p stone_pickaxe", "give @p white_bed 6",
                     "give @p cobblestone 64", "give @p cooked_beef 16", "give @p water_bucket"]
 
-
 def _summon_perched_dragon(phase=6):
-    """After setup: a dragon standing ON the exit-portal pillar (its real top read from the world, not a guessed y —
-    a dragon summoned in mid-air at y 70 never perched and the fight stood still)."""
+    """After setup: a dragon standing ON the exit-portal pillar (its real top read from the world, not a guessed y — a dragon summoned in mid-air at y 70 never perched and the fight stood still)."""
+
     def before(ctx):
         from .end import find_pillar_top
         top = find_pillar_top()
@@ -1060,14 +1004,11 @@ def _summon_perched_dragon(phase=6):
         _chat("execute in minecraft:the_end run effect clear @p minecraft:instant_health")
     return before
 
-
 def _worn_perched_dragon(ctx, _perch=_summon_perched_dragon(6)):
-    """The fight's last phase, built: the dragon on the pillar, crystals gone, 8 hp (WORN_DRAGON). Waiting for a
-    free-flying dragon to come down was most of a 60 s row; the crystals have their own row (break_caged_crystal).
-    Plain chaining: `_hooks` is defined further down."""
+    """The fight's last phase, built: the dragon on the pillar, crystals gone, 8 hp (WORN_DRAGON)."""
+
     _perch(ctx)
     _wear_dragon(ctx)
-
 
 SCENARIOS["fight_dragon"].update(
     doc="The End's main island, the dragon perched and worn (crystals gone, 8 hp), diamond sword, shield, iron "
@@ -1096,8 +1037,6 @@ for _name, _tags in {
 for _name in ("iron_ingots", "barter_piglin"):
     SCENARIOS[_name]["tick_rate"] = 60
 
-
-
 def locate_reply(feedback):
     """Pure: (x, z) from '/locate structure' feedback ('... is at [x, ~, z] (N blocks away)'), or None."""
     import re
@@ -1108,7 +1047,6 @@ def locate_reply(feedback):
                 return int(m.group(1)), int(m.group(2))
     return None
 
-
 def _stronghold_error():
     import math
     from .memory import Memory
@@ -1117,7 +1055,6 @@ def _stronghold_error():
     if not real or not sites:
         return 1e9
     return math.dist(real, (sites[0]["pos"][0], sites[0]["pos"][2]))
-
 
 SCENARIOS["cross_lava_3"] = _lava_lake(3)
 SCENARIOS["cross_lava_8"] = _lava_lake(8)
@@ -1129,7 +1066,6 @@ SCENARIOS["gather_logs_birch"] = {
                (at(-8, 0, -8), at(8, 8, 8), "birch_log", 8, 20)],
 }
 
-
 # Milestones (goals.MILESTONES) → the scenarios that prove the skills they need. The review lists the milestones
 # whose scenarios are not ready, so a live-run failure there is expected rather than a surprise.
 MILESTONE_SCENARIOS = {
@@ -1137,7 +1073,6 @@ MILESTONE_SCENARIOS = {
     "food": ["hunt_food"], "iron pickaxe": ["iron_ingots"], "water bucket": ["fill_water_bucket"],
     "nether kit": ["slice_nether_kit"], "blaze rods": ["collect_blaze_rods"], "eyes of ender": ["craft_eyes"],
 }
-
 
 def readiness_lines(table=None):
     """Lines for the review: every scenario's verdict for the current code, then milestones not yet proven."""
@@ -1153,18 +1088,14 @@ def readiness_lines(table=None):
         out.append(f"  milestones not proven on the bench: {', '.join(unproven)}")
     return out
 
-
 def _trades(inv):
     """Items a piglin trade can give (anything but what the scenario handed out)."""
     given = ("minecraft:gold_ingot", "minecraft:golden_helmet", "minecraft:iron_sword", "minecraft:iron_helmet")
     return sum(s["count"] for s in inv.slots if s["id"] not in given)
 
-
-
 from .bench import fight           # noqa: E402,F401  (the fight sheet registers itself)
 from .bench.fight import *         # noqa: E402,F403
 from .bench.fight import _cells, _hostiles        # noqa: E402
-
 
 # ================================================================================================================
 # The generated sheet (test points A–D). Basics × the conditions that break them, as a cross-product: a BASE is one
@@ -1184,18 +1115,15 @@ SHEET = {}                # the generated rows, by name (also in SCENARIOS)
 CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
 ACCEPTANCE_D = "accept_fresh_iron_pickaxe"
 
-
 def _skill(name):
     """The registered runner of a skill (every skill module is imported by the brain)."""
     from . import brain  # noqa: F401
     from .skill import REGISTRY
     return REGISTRY[name].runner
 
-
 def _inv_now():
     from .world import Inventory
     return Inventory()
-
 
 def _start(name):
     """`before` hook head: forget the last run's verdicts and remember the bag and body this run starts from."""
@@ -1207,11 +1135,9 @@ def _start(name):
         BASE.update(name=name, inv=api.get("/inventory"), state=api.get("/state"), t=time.time())
     return hook
 
-
 def _base_count(token):
     from .world import Inventory
     return Inventory(BASE["inv"]).count(token) if BASE.get("inv") else 0
-
 
 # -- checks: what the world must show afterwards ----------------------------------------------------------------
 def _gain(token, n, at_most=None):
@@ -1220,7 +1146,6 @@ def _gain(token, n, at_most=None):
         got = inv.count(token) - _base_count(token)
         return got >= n and (at_most is None or got <= at_most)
     return check
-
 
 def _same_bag_and_place(r=1.5):
     """Goal already met: nothing taken, nothing spent, the body did not wander off."""
@@ -1232,17 +1157,13 @@ def _same_bag_and_place(r=1.5):
         return before == after and math.dist((s0["x"], s0["y"], s0["z"]), (s1["x"], s1["y"], s1["z"])) <= r
     return check
 
-
 def _alive(min_hp=1.0):
     return lambda api, inv: not api.get("/state")["dead"] and api.get("/state")["health"] >= min_hp
-
 
 def _at(pos, r):
     return lambda api, inv: _near(api, pos, r)
 
-
 TORCHES = ("torch", "wall_torch")          # a torch on a wall is the same light, and reads as another block
-
 
 def _blocks(lo, hi, name, least, most=None):
     """`name` blocks (or any of a tuple of names) in the box: at least `least`, at most `most`."""
@@ -1253,7 +1174,6 @@ def _blocks(lo, hi, name, least, most=None):
         return n >= least and (most is None or n <= most)
     return check
 
-
 def _same_bag():
     """Nothing taken, nothing spent: the bag reads as it did at the start."""
     def check(api, inv):
@@ -1262,10 +1182,8 @@ def _same_bag():
         return before == sorted((s_["id"], s_["count"]) for s_ in inv.slots)
     return check
 
-
 def _not(check):
     return lambda api, inv: not check(api, inv)
-
 
 def _slot_has(item, *words):
     """A carried `item` whose slot mentions all of `words` (enchantments, potion contents), as the mod reports it."""
@@ -1273,13 +1191,11 @@ def _slot_has(item, *words):
         return any(s_["id"] == item and all(w in json.dumps(s_) for w in words) for s_ in inv.slots)
     return check
 
-
 def _mobs_near(kind, least, r=16):
     def check(api, inv):
         from .world import entities
         return len(entities(r, [kind])) >= least
     return check
-
 
 def _under_feet(*names):
     def check(api, inv):
@@ -1289,13 +1205,11 @@ def _under_feet(*names):
         return Region(p, p).name(p) in names
     return check
 
-
 def _room_to_work():
     def check(api, inv):
         from .skillcore import free_spots_here
         return bool(free_spots_here())
     return check
-
 
 def _dropped_nothing():
     def check(api, inv):
@@ -1303,18 +1217,15 @@ def _dropped_nothing():
         return not entities(8, ["minecraft:item"])
     return check
 
-
 def _no_block_suffix(lo, hi, suffix):
     def check(api, inv):
         from .world import Region
         return not any(n.endswith(suffix) for n in Region(lo, hi).blocks.values())
     return check
 
-
 def fed_as_needed(food_before, carried_before, food_after, carried_after):
-    """Pure: the eating filled the bar — every bite the gap called for was eaten (the food carried fell by exactly
-    `bite_plan`'s bites) and the bar reached FULL_BAR − (the last bite's points − 1) or better. One bite of four
-    left the body hungry with bread in the bag; "the bar rose" passed it."""
+    """Pure: the eating filled the bar — every bite the gap called for was eaten (the food carried fell by exactly `bite_plan`'s bites) and the bar reached FULL_BAR − (the last bite's points − 1) or better."""
+
     from .data import FULL_BAR, NUTRITION
     from .skills import bite_plan
     plan = bite_plan(food_before, carried_before)
@@ -1322,7 +1233,6 @@ def fed_as_needed(food_before, carried_before, food_after, carried_after):
     if not plan:
         return eaten == 0
     return eaten == len(plan) and food_after >= FULL_BAR - (NUTRITION[plan[-1].split(":")[-1]] - 1)
-
 
 def _food_up():
     """The row's eating filled the bar as needed (`fed_as_needed`), from where it stood when the eating began."""
@@ -1335,30 +1245,24 @@ def _food_up():
                              api.get("/state")["food"], {f: inv.count(f) for f in ALL_FOOD})
     return check
 
-
 def _is_day():
     return lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 12500
-
 
 def _free_slots(n):
     return lambda api, inv: inv.free_slots() >= n
 
-
 def _interrupted(least=1):
     return lambda api, inv: INTERRUPTS.get(BASE.get("name"), 0) >= least
-
 
 def _failed_as_expected():
     return lambda api, inv: BASE.get("name") in FAILED_AS_EXPECTED
 
-
 def _all(*checks):
     return lambda api, inv: all(c(api, inv) for c in checks)
 
-
 def _named_all(named):
-    """`_all` over (check, why) pairs that says which one failed, once, in the log ("check: False — <why>"), with
-    the order the bag showed things in (FIRST): a row whose own check fails must say which part."""
+    """`_all` over (check, why) pairs that says which one failed, once, in the log ("check: False — <why>"), with the order the bag showed things in (FIRST): a row whose own check fails must say which part."""
+
     def check(api, inv):
         for c, why in named:
             if not c(api, inv):
@@ -1367,11 +1271,10 @@ def _named_all(named):
         return True
     return check
 
-
 # -- run wrappers: timing and expected failures -----------------------------------------------------------------
 def _expect_failure(name, run, pattern):
-    """An expected-failure row: the run must END (the budget still applies) with a failure whose message names the
-    reason — not succeed, not fail for some other reason."""
+    """An expected-failure row: the run must END (the budget still applies) with a failure whose message names the reason — not succeed, not fail for some other reason."""
+
     def go(ctx):
         from . import api
         try:
@@ -1383,7 +1286,6 @@ def _expect_failure(name, run, pattern):
             raise
         raise api.McError(f"expected to fail ({pattern}), reported success instead: {out!r}")
     return go
-
 
 def _resume(name, run, resume, tries=4):
     """Run; when an interruption stops it, count it and resume by what is still missing (`resume`, plan-driven)."""
@@ -1403,10 +1305,9 @@ def _resume(name, run, resume, tries=4):
                 api.INTERRUPT = None       # an injected interrupt that landed after the end must not stop the next row
     return go
 
-
 def _progress_of(base):
-    """Pure: how this base's progress is counted — ("bag", token) by its products (`progress`, else `effect`), or
-    ("walk", target) by the distance walked toward its target; None when neither is known."""
+    """Pure: how this base's progress is counted — ("bag", token) by its products (`progress`, else `effect`), or ("walk", target) by the distance walked toward its target; None when neither is known."""
+
     token = (base.get("progress") or base.get("effect") or (None,))[0]
     if token:
         return "bag", token
@@ -1414,11 +1315,9 @@ def _progress_of(base):
         return "walk", base["target"]
     return None
 
-
 def _on_progress(name, base, action, times=1):
-    """`before` hook: `action()` the moment the run has made progress — the k-th product in the bag, or k/(times+1)
-    of the walk to the target — for k = 1..times. Only while this row is the one running: a trigger left over from a
-    row that already ended fires nothing (it used to interrupt the next row at 0 s)."""
+    """`before` hook: `action()` the moment the run has made progress — the k-th product in the bag, or k/(times+1) of the walk to the target — for k = 1."""
+
     how = _progress_of(base)
 
     def hook(ctx):
@@ -1447,15 +1346,12 @@ def _on_progress(name, base, action, times=1):
         _threading.Thread(target=watch, daemon=True).start()
     return hook
 
-
 def _inject_interrupt():
     __import__("bonobo.api", fromlist=["INTERRUPT"]).INTERRUPT = "bench: injected interrupt"
-
 
 def _post_foreign_task():
     """Another commander posts a task straight to the mod (BodyContested for the skill)."""
     __import__("bonobo.api", fromlist=["api"]).api("POST", "/task?wait=0", {"type": "wait", "ticks": 40})
-
 
 def _take_over(hold=3):
     """The player presses the toggle key (jar /control, as the key does), then hands back after `hold` s."""
@@ -1463,28 +1359,23 @@ def _take_over(hold=3):
     api.api("POST", "/control", {"paused": True})
     _threading.Timer(hold, lambda: api.api("POST", "/control", {"paused": False})).start()
 
-
 def _sand_on_head():
     from . import api
     s_ = api.get("/state")
     x, y, z = s_["blockX"], s_["blockY"], s_["blockZ"]
     _chat(f"fill {x} {y + 1} {z} {x} {y + 3} {z} sand")
 
-
 def gained_at_least(token, n):
     """Progress: the bag holds `n` more `token` than at the start."""
     return lambda: _inv_now().count(token) - _base_count(token) >= n
-
 
 def spent_at_least(token, n):
     """Progress: the bag holds `n` fewer `token` than at the start (what a build or a sowing uses up)."""
     return lambda: _base_count(token) - _inv_now().count(token) >= n
 
-
 def placed_at_least(lo, hi, block, n):
     """Progress: `n` or more `block` stand in the box lo..hi (a build's parts in the world)."""
     return lambda: _count_blocks(None, lo, hi, block) >= n
-
 
 def walked_at_least(m):
     """Progress: the body stands `m` or more blocks (sideways) from where the row began."""
@@ -1494,10 +1385,9 @@ def walked_at_least(m):
         return math.hypot(s["x"] - b["x"], s["z"] - b["z"]) >= m
     return done
 
-
 def _when(progress, act, limit_s=120):
-    """`before` hook: `act()` the first moment `progress()` holds — the one way a row changes the world mid-run
-    (a summoned zombie, the clock set to night, a hunger): by progress, never by the clock."""
+    """`before` hook: `act()` the first moment `progress()` holds — the one way a row changes the world mid-run (a summoned zombie, the clock set to night, a hunger): by progress, never by the clock."""
+
     def hook(ctx):
         def watch():
             from . import api
@@ -1513,14 +1403,11 @@ def _when(progress, act, limit_s=120):
         _threading.Thread(target=watch, daemon=True).start()
     return hook
 
-
 def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
-    """`before` hook: the interrupt lands the moment progress is first seen — `when` a progress predicate on the
-    world (`gained_at_least`, `spent_at_least`, `placed_at_least`, `walked_at_least`), or a token with `n` (items
-    gained)."""
+    """`before` hook: the interrupt lands the moment progress is first seen — `when` a progress predicate on the world (`gained_at_least`, `spent_at_least`, `placed_at_least`, `walked_at_least`), or a token with `n` (items gained)."""
+
     progress = when if callable(when) else gained_at_least(when, n)
     return _when(progress, lambda: setattr(__import__("bonobo.api", fromlist=["INTERRUPT"]), "INTERRUPT", message))
-
 
 def _unless_done(check, run):
     """Resume only what is not done: an interruption that landed at the moment of success leaves nothing to redo."""
@@ -1529,10 +1416,9 @@ def _unless_done(check, run):
         return True if check(api, _inv_now()) else run(ctx)
     return go
 
-
 def _after_l0(name, run, resume, tries=4):
-    """Run; when an interruption stops it (L0 preempted for a hazard), let the brain's own rounds rescue the body —
-    L0 goes first in every round — then resume by what is still missing. The interruption is counted, never failed."""
+    """Run; when an interruption stops it (L0 preempted for a hazard), let the brain's own rounds rescue the body — L0 goes first in every round — then resume by what is still missing."""
+
     def go(ctx):
         from . import api, hazard
         fn = run
@@ -1548,10 +1434,9 @@ def _after_l0(name, run, resume, tries=4):
         raise api.McError(f"still interrupted after {tries} tries")
     return go
 
-
 def _sprint_after(delay, ticks):
-    """`before` hook: `delay` s into the run, the game sprints `ticks` ahead (/tick sprint): a furnace, a night, a
-    crop is waited out in a second instead of in real time."""
+    """`before` hook: `delay` s into the run, the game sprints `ticks` ahead (/tick sprint): a furnace, a night, a crop is waited out in a second instead of in real time."""
+
     def hook(ctx):
         def fire():
             time.sleep(delay)
@@ -1559,16 +1444,12 @@ def _sprint_after(delay, ticks):
         _threading.Thread(target=fire, daemon=True).start()
     return hook
 
-
-
 def _hooks(*hooks):
     hooks = [h for h in hooks if h is not None]
     return lambda ctx: [h(ctx) for h in hooks] and None
 
-
 # The furnace clock is game time: sprint it twice, once the load is in and once more late (see the row's doc).
 SCENARIOS["iron_ingots"]["before"] = _hooks(_start("iron_ingots"), _sprint_after(4, 700), _sprint_after(10, 700))
-
 
 def _achieve_needs(needs, rounds=12):
     """Resume by amount: plan the needs from the bag as it is now and run the plan (the brain's own path)."""
@@ -1577,7 +1458,6 @@ def _achieve_needs(needs, rounds=12):
         done = lambda: all(_inv_now().count(t) >= n for t, n, *_ in want if t != "tool")  # noqa: E731
         return _achieve(ctx, want, done, rounds=rounds)
     return run
-
 
 def _plan_is_empty(needs):
     """Goal already met: the planner, asked from the real bag, plans nothing — and nothing is run."""
@@ -1592,7 +1472,6 @@ def _plan_is_empty(needs):
         return True
     return run
 
-
 def _brain_rounds(seconds, until):
     """The whole cerebellum for up to `seconds` (L0 and upkeep included), until `until()`."""
     def run(ctx):
@@ -1602,12 +1481,10 @@ def _brain_rounds(seconds, until):
         return until()
     return run
 
-
 def _enclosed():
     """Walled in, feet and head, and covered: what a burrow, a pod or a dug-in hole must leave."""
     from . import skills
     return skills.enclosed()
-
 
 def _breathing(least=280):
     """Out of the water's grip: the air bar back near full and the head out of the water."""
@@ -1617,40 +1494,32 @@ def _breathing(least=280):
         return s["air"] >= least and not skills.head_underwater(s)
     return check
 
-
 def _head_clear():
     from . import skills
     return not skills.head_buried()
-
 
 # -- arena pieces (relative to ORIGIN) ----------------------------------------------------------------------------
 def _floor(block="stone", half=8, depth=3):
     return [f"fill {_c(at(-half, -depth, -half))} {_c(at(half, -1, half))} {block}"]
 
-
 def _tp(dx=0, dy=0, dz=0):
     return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
 
-
 def _tree(x, z, wood="oak", height=5):
-    """One tree built block by block: the same trunk and crown every run (a generated feature is a random shape,
-    and its log count decided rows by chance). Leaves persistent: nothing decays under them."""
+    """One tree built block by block: the same trunk and crown every run (a generated feature is a random shape, and its log count decided rows by chance)."""
+
     return [f"fill {_c(at(x - 2, height - 2, z - 2))} {_c(at(x + 2, height - 1, z + 2))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x - 1, height, z - 1))} {_c(at(x + 1, height, z + 1))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x, 0, z))} {_c(at(x, height - 1, z))} {wood}_log"]
 
-
 CHOP_TREE = (2, 0)       # the chop base's one oak (x, z): rows that must leave it standing read it here
-
 
 def _grove(*spots, wood="oak"):
     return [f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block"] + [c for x, z in spots for c in _tree(x, z, wood)]
 
-
 def _chest(pos, *items):
     return [f"setblock {_c(pos)} chest"] + \
         [f"item replace block {_c(pos)} container.{i} with {item}" for i, item in enumerate(items)]
-
 
 def _pen(mob, n, half=7):
     walls = [f"fill {_c(at(a, 0, b))} {_c(at(c, 0, d))} oak_fence" for a, b, c, d in
@@ -1659,11 +1528,9 @@ def _pen(mob, n, half=7):
     spots = [(3, 2), (-3, 2), (2, -4), (-4, -3), (4, -1), (-1, 4)][:n]
     return walls + [f"summon {mob} {_c(at(x, 0, z))}" for x, z in spots]
 
-
 def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_side=None):
-    """A glass tank inside the box: floor at `floor_y`, four walls up to `top`, open above, water up to `water_top`.
-    `open_side` ("north", "south", "west", "east"): that wall stops at the water line, so a shore built beyond it
-    can be swum to and climbed onto."""
+    """A glass tank inside the box: floor at `floor_y`, four walls up to `top`, open above, water up to `water_top`."""
+
     lo, hi = (x0 - 1, floor_y, z0 - 1), (x1 + 1, top, z1 + 1)
     out = [f"fill {_c(at(lo[0], floor_y, lo[2]))} {_c(at(hi[0], floor_y, hi[2]))} stone"]
     for side, a, b in (("north", (lo[0], lo[2]), (hi[0], lo[2])), ("south", (lo[0], hi[2]), (hi[0], hi[2])),
@@ -1673,7 +1540,6 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
     if water_top is not None:
         out.append(f"fill {_c(at(x0, floor_y + 1, z0))} {_c(at(x1, water_top, z1))} water")
     return out
-
 
 # -- the bases: one skill, one job, one arena ---------------------------------------------------------------------
 # `skills` names what a row proves: an effect a skill provides (`@skill(provides=...)`, e.g. "item:log", "sleep") —
@@ -1689,15 +1555,12 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
 TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air": 5.0}   # eat: per BITE (eat_target_s)
 TARGET_SLACK = 1.5
 
-
 def eat_target_s(food, carried):
-    """Pure: an eat row's speed target — per bite × the bites the bar's gap takes from what is carried
-    (skills.bites_to_full), with the slack. Eating is every bite in one go (~1.6 s each): a flat 3 s failed a
-    4-bite meal that ran 7.2 s. None when nothing is to be eaten."""
+    """Pure: an eat row's speed target — per bite × the bites the bar's gap takes from what is carried (skills."""
+
     from .skills import bites_to_full
     _item, bites = bites_to_full(food, carried)
     return TARGET_S["eat"] * bites * TARGET_SLACK if bites else None
-
 
 def _eat_target(ctx):
     """`before` hook (after the drain): the eat row's target from the bar and the bag it starts with."""
@@ -1706,7 +1569,6 @@ def _eat_target(ctx):
     inv = Inventory()
     food = __import__("bonobo.api", fromlist=["get"]).get("/state")["food"]
     BASE["target_s"] = eat_target_s(food, {f: inv.count(f) for f in ALL_FOOD})
-
 
 def _timed(run):
     """The run, its own seconds kept in BASE["run_s"] (the runner's `judge` reads them against row["target_s"])."""
@@ -1718,23 +1580,17 @@ def _timed(run):
             BASE["run_s"] = time.time() - t0
     return go
 
-
 def _skill_within(name, seconds):
-    """The skill `name` itself (skill.LAST_S: from its own start, no planning, setup or walk to it) finished inside
-    `seconds` — for rows whose run is the brain, where the run's own clock counts the plan too."""
-    return lambda api, inv: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.get(name, 1e9) <= seconds
+    """The skill `name` itself (skill."""
 
+    return lambda api, inv: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.get(name, 1e9) <= seconds
 
 def _forget_skill_time(name):
     return lambda ctx: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.pop(name, None)
 
-
-
-
 # The speedrun standard, from the moment the body stands where the job is done (the setup puts it there):
 # 12 eyes' worth of ring filled from one spot ≤ 3 s; the last two frame cells cast and the portal lit ≤ 5 s.
 SCENARIOS["activate_end_portal"].update(run=_timed(SCENARIOS["activate_end_portal"]["run"]), target_s=3.0)
-
 
 BASES = {
     # Every base is one small job (≤ 15 s): the conditions and surprises add to it, and a row stays under 30 s.
@@ -1801,15 +1657,12 @@ def _fill_bag(free, item="dirt", stack=64):
             time.sleep(0.5)
     return hook
 
-
 def _kept(token):
     """None of `token` left the bag (what the start held is still there)."""
     return lambda api, inv: inv.count(token) >= _base_count(token)
 
-
 def _product(base):
     return (base.get("effect") or ("minecraft:cobblestone", 1))[0]
-
 
 def _stack_room_setup(base):
     """A stack of the base's product with room for exactly what the base makes (64 − n), then the bag full."""
@@ -1817,13 +1670,11 @@ def _stack_room_setup(base):
     item = "oak_log" if token == "log" else token.split(":")[-1]
     return [f"give @p {item} {64 - n}"]
 
-
 # -- the conditions ------------------------------------------------------------------------------------------------
 # name → dict(axis, doc, bases it applies to, and what it changes). `setup` is appended to the base's; `fails` makes
 # the row an expected failure with that reason; `check` (a function of the base) replaces the base's effect check;
 # `run` (a function of name, base) wraps the base's run; `before` hooks run after the start snapshot.
 H = 6        # canopy height
-
 
 CONDITIONS = {
     # terrain
@@ -1961,7 +1812,6 @@ SURPRISES = {
                                                               at(CHOP_TREE[0], 6, CHOP_TREE[1]), "oak_log", 3))),
 }
 
-
 def _row(name, base, cond=None, extra=None):
     """One row: the base, changed by a condition or a surprise."""
     b, c, x = BASES[base], cond or {}, extra or {}
@@ -2037,14 +1887,11 @@ def _row(name, base, cond=None, extra=None):
         row["combat"] = True
     return row
 
-
 for _base in BASES:
     SHEET[f"{_base}__base"] = _row(f"{_base}__base", _base)
 def cover(conditions, bases, pinned=()):
-    """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product. Every condition appears,
-    and within each axis every base it applies to appears (the pairs that differ: one condition per base per axis,
-    one base per condition), and every base that has a must-fail condition keeps one (its control), greedily, most
-    new coverage first, ties in table order. `pinned` pairs are kept."""
+    """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product."""
+
     order = list(bases)
     pairs = [(c, b) for c, v in conditions.items() for b in order if b in v["bases"]]
     must = lambda c, b: {("must", b)} if conditions[c].get("fails") else set()     # noqa: E731
@@ -2059,7 +1906,6 @@ def cover(conditions, bases, pinned=()):
         out.append(best)
         need -= new(best)
     return sorted(out, key=pairs.index)
-
 
 # One pair named by another row or check (dig_in_night's night is chop's).
 for _cname, _base in cover(CONDITIONS, BASES, pinned=[("night", "chop")]):
@@ -2218,12 +2064,10 @@ _ONE = {
                              _gain("minecraft:potion", 3), 30),
 }
 
-
 def _bench_machine(ctx, origin):
     """The arena's auto smelter as memory knows a built one (the dict `upkeep.ready_machine` hands the skill)."""
     name = ctx.mem.add_machine("auto_smelter", origin, 0, "minecraft:overworld", ["smelting"])
     return next(m for m in ctx.mem.machines("minecraft:overworld") if m["name"] == name)
-
 
 def _broken_hut(ctx):
     """The hut in the arena as a remembered site whose snapshot is the whole wall (taken before it was broken)."""
@@ -2233,7 +2077,6 @@ def _broken_hut(ctx):
     site = ctx.mem.add_site("shelter", at(4, 0, 0), "minecraft:overworld", name="bench-hut",
                             snapshot={"lo": list(lo), "hi": list(hi), "blocks": blocks})
     return site
-
 
 for _name, (_skills, _doc, _setup, _run, _check, _budget) in _ONE.items():
     _target = TARGET_S[_skills[0]] * TARGET_SLACK if _skills[0] in TARGET_S else None
@@ -2250,7 +2093,6 @@ def _found_near(blocks, r=6):
     return check
 # Brewing is game time (20 s a stage): the stand's clock runs at 60 ticks/s, the hands at their own pace.
 SHEET["brew_fire_resistance_stand"]["tick_rate"] = 60
-
 
 # What a *_real row looks for, put 16 blocks off on the real ground: in scan range, not in arm's reach — the walk
 # to it is the job, a minute of wandering until the terrain happens to offer one is not (30 s per row).
@@ -2350,10 +2192,9 @@ def _on_rim(top):
         return s["onGround"] and not s["inWater"] and s["y"] >= at(0, top + 1, 0)[1] - 0.5
     return check
 
-
 def _surfaced(top, hold_s=2.0):
-    """Out of the water's grip: on the rim, or the air bar full with the head out of the water for `hold_s` (a
-    single sample passed a body bobbing at the surface that went down again)."""
+    """Out of the water's grip: on the rim, or the air bar full with the head out of the water for `hold_s` (a single sample passed a body bobbing at the surface that went down again)."""
+
     def check(api, inv):
         if _on_rim(top)(api, inv):
             return True
@@ -2362,7 +2203,6 @@ def _surfaced(top, hold_s=2.0):
         time.sleep(hold_s)
         return _breathing(300)(api, inv) or _on_rim(top)(api, inv)
     return check
-
 
 PIT_TOP = 4
 SHEET["drowning_in_a_pit"] = {
@@ -2399,7 +2239,6 @@ for _name in ("water_clutch", "cross_lava_8", "cave_escape"):
 # than 1.5 × FIGHT_POLL_S.
 FIGHT_LOG = {"bids": []}
 
-
 def _record_bids(ctx):
     """`before` hook: time every bid the threat layer makes during this row (the fight's decision clock)."""
     from . import fight_loop
@@ -2410,7 +2249,6 @@ def _record_bids(ctx):
         FIGHT_LOG["bids"].append(time.time())
         return real(*a, **k)
     fight_loop.bid = bid
-
 
 def _fight_until(kinds, seconds, clear=True):
     """Brain rounds (which yield while the fight holds the body) until the line-up is gone, or `seconds`."""
@@ -2427,7 +2265,6 @@ def _fight_until(kinds, seconds, clear=True):
             fight_loop.bid = FIGHT_LOG.get("real_bid", fight_loop.bid)
     return run
 
-
 def _decision_gaps_ok(factor=1.5):
     def check(api, inv):
         from . import fight_loop
@@ -2436,14 +2273,11 @@ def _decision_gaps_ok(factor=1.5):
         return bool(t) and max(gaps, default=0.0) <= fight_loop.FIGHT_POLL_S * factor
     return check
 
-
 def _gone(kinds):
     return lambda api, inv: not _hostiles(24, set(kinds))
 
-
 def _hp_kept(least):
     return lambda api, inv: api.get("/state")["health"] >= least and not api.get("/state")["dead"]
-
 
 # Walls of glass (the fight stays visible), a roof of stone: undead summoned under the sky burned to death before
 # the row began ("0 zombie on the server").
@@ -2457,10 +2291,9 @@ _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-
 # (name, mob, how many, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob, left alone
 RESOLVE_GAP, RESOLVE_HOLD_S, RESOLVE_HP_LOSS = 6.0, 5.0, 4.0
 
-
 def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESOLVE_HP_LOSS):
-    """The threat is over: every one of `kinds` dead, or all at least `gap` blocks off and not closing in for
-    `hold_s` seconds (watched now) — and health within `hp_loss` of where the row began."""
+    """The threat is over: every one of `kinds` dead, or all at least `gap` blocks off and not closing in for `hold_s` seconds (watched now) — and health within `hp_loss` of where the row began."""
+
     def check(api, inv):
         from .world import feet
         start_hp = BASE["state"]["health"]
@@ -2478,7 +2311,6 @@ def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESO
         return (not last or (min(first) >= gap and min(last) >= gap and min(last) >= min(first) - 1.0)) and \
             api.get("/state")["health"] >= start_hp - hp_loss
     return check
-
 
 FIGHT_CELLS = [
     ("fight_zombie_1", "zombie", 1, "common", 25, 12, True),
@@ -2517,17 +2349,14 @@ for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
 CRYSTAL_AT = at(5, 6, 0)     # on a 6-high obsidian pillar, iron bars around it: one caged tower of the End
 _cr = lambda dx, dy, dz: _c(at(5 + dx, 6 + dy, dz))   # noqa: E731  (a cell beside the crystal)
 
-
 def _one_crystal(ctx):
     rows = __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
     if not rows:
         raise SetupInvalid("no end crystal after setup")
     return rows[0]
 
-
 def _crystals_left(api, inv):
     return __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
-
 
 # The dragon rows start with the crystals gone (WORN_DRAGON): breaking one is this row's job, on its own.
 SCENARIOS["break_caged_crystal"] = {
@@ -2546,7 +2375,6 @@ SCENARIOS["break_caged_crystal"] = {
     "check": lambda api, inv: not _crystals_left(api, inv) and not api.get("/state")["dead"],
     "budget": 60,
 }
-
 
 # A fight on a full bag: the drops cannot be picked up, and that must not change the fight (no pause to collect).
 SHEET["fight_zombie_1_full_bag"] = dict(
@@ -2572,7 +2400,6 @@ SHEET["nether_full_bag"] = {
     "budget": 30,
 }
 
-
 # -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells --------------------------------------------------
 def _placed_facing(pos, facing):
     """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""
@@ -2582,13 +2409,11 @@ def _placed_facing(pos, facing):
         return r.name(pos) != "air" and r.prop(pos, "facing") == facing
     return check
 
-
 def _place_facing(item, pos, facing):
     def run(ctx):
         from .building import place_oriented
         return place_oriented(ctx, pos, item, facing) or True
     return run
-
 
 PLACE_ROWS = [   # (name, item, facing asked, facing the block must report, tier)
     ("place_furnace_north", "minecraft:furnace", "north", "north", "common"),
@@ -2630,7 +2455,6 @@ def _queue(goal):
         from . import tasks
         tasks.add(goal, front=True, source="bench")
     return hook
-
 
 # -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
 # A frame at at(-3, 0, 2), along x (blueprints.NETHER_PORTAL, turns 0): obsidian but for the bottom two cells,
@@ -2677,15 +2501,13 @@ def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
             f'type:"minecraft:plains"}},Offers:{{Recipes:[{{buy:{{id:"minecraft:{buy}",count:{n_buy}}},'
             f'sell:{{id:"minecraft:{sell}",count:{n_sell}}},maxUses:12}}]}}}}')
 
-
 FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket"]
 FARM_TICK_SPEED = 1000      # random ticks per chunk section: a sown crop ripens within seconds (the bench keeps 0)
 RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
 
-
 def _growing(run):
-    """The run with crops growing fast (`gamerule random_tick_speed`), put back to the bench's 0 however it ends —
-    the plan's own plot ripens within the row, its planting and harvest still the plan's."""
+    """The run with crops growing fast (`gamerule random_tick_speed`), put back to the bench's 0 however it ends — the plan's own plot ripens within the row, its planting and harvest still the plan's."""
+
     def go(ctx):
         _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
         try:
@@ -2693,7 +2515,6 @@ def _growing(run):
         finally:
             _checked("execute in minecraft:overworld run gamerule random_tick_speed 0", [])
     return go
-
 
 for _name, _doc, _setup, _run, _check in [
         ("bread_from_a_farm", "grass, a hoe, 8 seeds, a water bucket, nothing else → the plan plants a plot (its farm "
@@ -2815,18 +2636,14 @@ for _name, _what, _start_cmds, (_dx, _dy, _dz) in START_ROWS:
 # that matters — dusk, hunger, a tool on its last use — and is judged by the world and by the brain's own log.
 BRAIN_LOG = {"replans": 0}
 
-
 def _log_lines():
     return list(LAST_LINES)
 
-
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
-
 def furnace_slots(reply):
-    """Pure: {slot: (item id, count)} from the game's answer to `data get block <pos> Items`
-    ("… has the following block data: [{Slot: 0b, id: "minecraft:beef", count: 2}, …]"). Slot 0 is the input,
-    1 the fuel, 2 the output. {} when it holds nothing (or said something else)."""
+    """Pure: {slot: (item id, count)} from the game's answer to `data get block <pos> Items` ("… has the following block data: [{Slot: 0b, id: "minecraft:beef", count: 2}, …]")."""
+
     import re
     text = " ".join(reply)
     out = {}
@@ -2838,10 +2655,9 @@ def furnace_slots(reply):
             out[int(slot.group(1))] = (item.group(1), int(count.group(1)) if count else 1)
     return out
 
-
 def _furnace_holds(items, radius=16):
-    """A furnace near holds one of `items` in its input or output slot, read from the world (the console's
-    `data get block … Items`): what is in the furnace, not whether it is lit."""
+    """A furnace near holds one of `items` in its input or output slot, read from the world (the console's `data get block … Items`): what is in the furnace, not whether it is lit."""
+
     from .world import find
     for h in find(["furnace"], radius=radius, limit=8):
         slots = furnace_slots(_command(f"data get block {h['x']} {h['y']} {h['z']} Items", []))
@@ -2849,10 +2665,9 @@ def _furnace_holds(items, radius=16):
             return True
     return False
 
-
 def _first_times(ctx):
-    """`before` hook: watch the bag during the run and note when each token first shows more than the row began
-    with — the order of the brain's decisions, read from the world, not from its log."""
+    """`before` hook: watch the bag during the run and note when each token first shows more than the row began with — the order of the brain's decisions, read from the world, not from its log."""
+
     FIRST.clear()
     t0 = time.time()
 
@@ -2877,7 +2692,6 @@ def _first_times(ctx):
             time.sleep(0.5)
     _threading.Thread(target=watch, daemon=True).start()
 
-
 def _before_in_bag(first, then, or_never=False):
     """`first` appeared in the bag before `then` did (with `or_never`: or `then` never did)."""
     def check(api, inv):
@@ -2886,7 +2700,6 @@ def _before_in_bag(first, then, or_never=False):
             return or_never and a is not None
         return a is not None and a < b
     return check
-
 
 def _count_replans(ctx):
     """`before` hook: count the brain's plans for the row (brain.replan), the repair measure."""
@@ -2899,7 +2712,6 @@ def _count_replans(ctx):
         return real(*a, **k)
     brain.replan = replan
 
-
 def _replans_at_most(n):
     def check(api, inv):
         from . import brain
@@ -2907,22 +2719,18 @@ def _replans_at_most(n):
         return 1 <= BRAIN_LOG["replans"] <= n
     return check
 
-
 def _goal(template, **kw):
     return __import__("bonobo.goals", fromlist=["goals"]).make(template, **kw)
-
 
 def _have(*needs):
     return __import__("bonobo.goals", fromlist=["goals"]).have(*needs)
 
-
 def _count(token, n):
     return lambda: _inv_now().count(token) - _base_count(token) >= n
 
-
 def _remove_table_when_placed(ctx):
-    """`before` hook: the moment the plan's crafting table stands in the world, take it away (the plan must repair
-    that one step, not start over)."""
+    """`before` hook: the moment the plan's crafting table stands in the world, take it away (the plan must repair that one step, not start over)."""
+
     def watch():
         from .world import find
         t0 = time.time()
@@ -2938,35 +2746,28 @@ def _remove_table_when_placed(ctx):
             time.sleep(0.2)
     _threading.Thread(target=watch, daemon=True).start()
 
-
 def _banned(pos):
     return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) > time.time()
-
 
 def _not_banned(pos):
     return lambda api, inv: core.BRAIN.blacklist.get(tuple(pos), 0) <= time.time()
 
-
 def _clear_bans(ctx):
     core.BRAIN.blacklist.clear()
-
 
 def _seen(kind, pos):
     def before(ctx):
         core.BRAIN.mem.note_seen(kind, pos, "minecraft:overworld")
     return before
 
-
 def _not_remembered(kind):
     return lambda api, inv: core.BRAIN.mem.seen(kind, "minecraft:overworld") == []
-
 
 def _forget_all(kind):
     def before(ctx):
         for r in core.BRAIN.mem.seen(kind, "minecraft:overworld"):
             core.BRAIN.mem.forget_seen(kind, r["pos"], "minecraft:overworld")
     return before
-
 
 _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
 IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
@@ -3056,27 +2857,21 @@ POCKET = at(0, -9, 0)
 LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `before` hook: harness, not budget)
 DRAIN_POLL_S = 0.05
 
-
 DRAIN_FAST, DRAIN_SLOW = 255, 30     # hunger amplifiers: ~6 points a second; ~0.8 (≤ 1 point between two polls)
 DRAIN_SLOW_FROM = 4                  # the last points above the stop are taken slowly
 
-
 def drain_step(food, saturation, level):
-    """Pure: the drain's next move from /state — "fast" while saturation is left or food is more than
-    DRAIN_SLOW_FROM above `level` + 1, "slow" for the last points, "stop" at `level` + 1 or below (clearing the
-    effect leaves at most one point of stored exhaustion). At full strength all the way the poll could not keep up:
-    the bar ended at 0 and 4, three setups refused."""
+    """Pure: the drain's next move from /state — "fast" while saturation is left or food is more than DRAIN_SLOW_FROM above `level` + 1, "slow" for the last points, "stop" at `level` + 1 or below (clearing the effect leaves at most one point of stored exhaustion)."""
+
     if food <= level + 1:
         return "stop"
     if saturation >= 2 or food > level + 1 + DRAIN_SLOW_FROM:
         return "fast"
     return "slow"
 
-
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
-    """`before` hook: hunger fast while saturation is left and the bar is high, slow for its last points, cleared
-    at `level` + 1 (drain_step), read from /state every 50 ms. The bar must end inside `window` (default: hungry, not
-    starving — STARVE < food < EAT_BELOW)."""
+    """`before` hook: hunger fast while saturation is left and the bar is high, slow for its last points, cleared at `level` + 1 (drain_step), read from /state every 50 ms."""
+
     def hook(ctx):
         from . import api
         t0, now_amp = time.time(), None
@@ -3101,7 +2896,6 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
         if not lo < food < hi:
             raise SetupInvalid(f"food {food} after the drain: wanted between {lo} and {hi}")
     return hook
-
 
 THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 BRAIN_DIMS = {
@@ -3140,10 +2934,8 @@ BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone
                   "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}",
                   "give @p diamond_axe"])       # the best axe: logs are not the tool test here (kit rule)
 
-
 def _diamond_of(cell):
     return DIAMOND_DOWN if cell["head"] == "underground" else DIAMOND_UP
-
 
 # family → (grid, the queue, what each cell must show). A rule answers (check, why) from the cell; the checks read
 # the world (bag, blocks, clock, height) and the order things appeared in the bag (`_first_times`), never log text.
@@ -3162,7 +2954,6 @@ def _bed_then_log(cell):
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
     return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
 
-
 def _tool_rule(cell):
     if cell["tool"] == "one_use":
         return (_all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1,
@@ -3170,7 +2961,6 @@ def _tool_rule(cell):
                      _gain("minecraft:cobblestone", 3)), "broken: the best tier this bag crafts (iron)")
     return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", 3)),
             "fresh: nothing crafted, the ingots kept (must not craft)")
-
 
 def _night_rule(cell):
     below = lambda api, inv: api.get("/state")["blockY"] < at(0, -3, 0)[1]      # noqa: E731
@@ -3183,7 +2973,6 @@ def _night_rule(cell):
     return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 13000 and inv.count("bed") == 0,
             "daylight: no bed made, no sleep (must not)")
 
-
 def _bag_rule(cell):
     if cell["bag"] == "valuables_full":
         return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
@@ -3192,13 +2981,11 @@ def _bag_rule(cell):
                 "a bag past BAG_FULL, junk: junk thrown, then the task done")
     return _gain("log", 2), "room for it: the task done as usual"
 
-
 FINDS = {"diamond": 0}
 
-
 def _count_finds(ctx):
-    """`before` hook: count the world scans (/find asked for diamond ore) during the row, at the one door every
-    module's `find` goes through (api.get)."""
+    """`before` hook: count the world scans (/find asked for diamond ore) during the row, at the one door every module's `find` goes through (api."""
+
     from . import api
     FINDS["diamond"] = 0
     real = FINDS.setdefault("real", api.get)
@@ -3209,14 +2996,12 @@ def _count_finds(ctx):
         return real(path, *a, **k)
     api.get = get
 
-
 def _no_scan():
     def check(api_, inv):
         from . import api
         api.get = FINDS.get("real", api.get)
         return FINDS["diamond"] == 0
     return check
-
 
 def _seen_rule(cell):
     # Seeing through stone is allowed (user, 2026-09-27): memory's worth is speed — a noted ore is walked to
@@ -3225,7 +3010,6 @@ def _seen_rule(cell):
         return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"), _no_scan()),
                 "noted: straight there without a scan (must not scan), the note retired")
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
-
 
 # One value off the base at a time (each value once, plus the base), not the product: which combination wins is the
 # arbiter's decision, tested offline (arbiter.arbitrate's table, reflexes.TABLE, needs); a row here confirms that a
@@ -3241,11 +3025,9 @@ BRAIN_FAMILIES = {
                    [_have(("minecraft:diamond", 1))], _seen_rule),
 }
 
-
 def _cell_name(family, cell):
     moved = [cell[d] for d in BRAIN_DIMS if cell[d] != BRAIN_BASE[d]]
     return f"{family}__" + ("_".join(moved) or "base")
-
 
 def _cell_before(cell):
     hooks = [_clear_bans, _forget_all("diamond_ore"), _first_times]
@@ -3256,16 +3038,14 @@ def _cell_before(cell):
         hooks.append(_drain_to(LOW_FOOD))       # setup's hunger drains the bar; cleared at LOW_FOOD
     return hooks
 
-
 def _cell_setup_hooks(cell):
-    """`before` hooks that make the row's world and so run before `_start` takes the base: a bag filled after the
-    base was read made "dirt < base" (junk thrown) impossible — base dirt 0 (tidy_then_task__junk_full)."""
+    """`before` hooks that make the row's world and so run before `_start` takes the base: a bag filled after the base was read made "dirt < base" (junk thrown) impossible — base dirt 0 (tidy_then_task__junk_full)."""
+
     return [_fill_bag(*BAG_FILL[cell["bag"]])] if BAG_FILL[cell["bag"]] else []
 
-
 def _grid_cells():
-    """Cells of every family, one row per distinct cell: a cell two families share (the base, dusk, underground) is
-    one scenario whose check is every family's expectation and whose queue is every family's goals, in order."""
+    """Cells of every family, one row per distinct cell: a cell two families share (the base, dusk, underground) is one scenario whose check is every family's expectation and whose queue is every family's goals, in order."""
+
     cells = {}
     for fam, (grid, queue, rule) in BRAIN_FAMILIES.items():
         for cell in grid:
@@ -3276,11 +3056,9 @@ def _grid_cells():
             entry["rules"].append(rule)
     return cells
 
-
 def grid_name(families, cell):
     """The row of a cell: its family's name when only one family has it, else "brain"."""
     return _cell_name(families[0] if len(families) == 1 else "brain", cell)
-
 
 for _key, _entry in _grid_cells().items():
     _cell = _entry["cell"]
@@ -3299,7 +3077,6 @@ for _key, _entry in _grid_cells().items():
         "budget": 30,
     }
 
-
 # -- every upkeep line, triggered through the whole brain (nothing queued): the moment is built, upkeep must see it
 # and its answer must show in the world. (line, setup, `before` hooks, done, check) — one table, one loop.
 def _job_ready_at(pos, item, n):
@@ -3308,10 +3085,8 @@ def _job_ready_at(pos, item, n):
         ctx.mem.add_job("furnace", pos, "minecraft:overworld", item, n, time.time() - 1, False)
     return hook
 
-
 def _is_day_now():
     return _is_day()(__import__("bonobo.api", fromlist=["get"]), None)
-
 
 def _blocked_toward(pos):
     """`before` hook: upkeep's memory of a walk that failed here, toward `pos` (what `Upkeep.failed` writes)."""
@@ -3323,7 +3098,6 @@ def _blocked_toward(pos):
                                     "pos": pos}
     return hook
 
-
 def _stuck_for(seconds):
     """`before` hook: upkeep's history says we stood here, bag unchanged, for `seconds`."""
     def hook(ctx):
@@ -3333,14 +3107,12 @@ def _stuck_for(seconds):
         core.BRAIN.reflexes.history = [(time.time() - seconds, snap.feet, bag_signature(snap.inv))]
     return hook
 
-
 def _machine_due(origin, n):
     """`before` hook: memory holds an auto smelter at `origin` with an order of `n` ingots already due."""
     def hook(ctx):
         m = _bench_machine(ctx, origin)
         ctx.mem.add_pending(m["name"], "minecraft:iron_ingot", n, time.time() - 1)
     return hook
-
 
 _st = lambda api: api.get("/state")     # noqa: E731
 UPKEEP_FURNACE = at(2, 0, 0)
@@ -3350,7 +3122,6 @@ def _regen_fed(api, inv):
     from .world import Inventory
     inv = inv if inv is not None else Inventory()
     return inv.count("minecraft:bread") < 4 and api.get("/state")["food"] >= 18
-
 
 UPKEEP_ROWS = [
     ("reach_land", "treading water 6 blocks from a shore → on dry land",
@@ -3446,7 +3217,6 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
         "run": _brain_rounds(10 if _line == "eat_when_full" else 22, _done), "check": _check, "budget": 30,
     }
 
-
 # A fight with no pickaxe in the bag: upkeep's "no pickaxe" must wait until the fight is over — the zombie dealt
 # with first, no log gathered while it stands, and the player still inside the arena (it walked off the sky
 # platform to look for trees mid-fight and fell 125 blocks).
@@ -3456,13 +3226,11 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
 DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
 DIRT_FLOOR = (at(7, -4, -1), at(8, -4, 1))      # the stone the dirt lies on
 
-
 def _in_the_patch_underground(api, inv):
     s = api.get("/state")
     (x0, _y0, z0), (x1, _y1, z1) = DIRT_PATCH
     return (x0 <= s["blockX"] <= x1 and z0 <= s["blockZ"] <= z1 and s["blockY"] <= at(0, 0, 0)[1] - 2
             and _enclosed())
-
 
 for _name, _doc, _extra, _done, _check in [
         ("night_dig_in_dirt", "dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked "
@@ -3484,7 +3252,6 @@ for _name, _doc, _extra, _done, _check in [
         "run": _brain_rounds(25, _done), "check": _check, "budget": 30,
     }
 
-
 SHEET["fight_before_upkeep"] = {
     "doc": "Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
            "before any log is gathered (must not), the player never leaves the arena",
@@ -3500,18 +3267,15 @@ SHEET["fight_before_upkeep"] = {
     "budget": 30,
 }
 
-
 # Eating on the move: hungry, cooked beef carried, one 20-block walk east → fed on the way, by the jar's autoeat
 # (no separate eat task), and still walking forward while it chewed. The control: hungry while mining — the mining
 # is not interrupted to eat.
 WALK = {}
 BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 
-
 def ate_on_the_way(frames):
-    """Pure, over trace frames ({"t", "x", "food", "task"}, the runner's `_trace` shape): the food bar rose during the
-    walk; no frame ran an "eat" task (it was the autoeat, not a stop); and over the bite before the rise, x grew in
-    every second (the walk went on while chewing)."""
+    """Pure, over trace frames ({"t", "x", "food", "task"}, the runner's `_trace` shape): the food bar rose during the walk; no frame ran an "eat" task (it was the autoeat, not a stop); and over the bite before the rise, x grew in every second (the walk went on while chewing)."""
+
     fed = [f for f in frames if f.get("food") is not None]
     if not fed or any((f.get("task") or {}).get("type") == "eat" for f in frames):
         return False
@@ -3527,7 +3291,6 @@ def ate_on_the_way(frames):
     xs = [x for k, x in enumerate(xs) if k == 0 or x != xs[k - 1] or k < len(xs) - 1]
     return all(b > a for a, b in zip(xs, xs[1:]))
 
-
 def _walk_once(ctx):
     """Walk 20 east hungry, the whole walk traced (the runner's `_trace`: position, food, the jar's task)."""
     import threading
@@ -3540,7 +3303,6 @@ def _walk_once(ctx):
         WALK["frames"] = frames
     return True
 
-
 def _hungry(ctx):
     """`before` hook: food drained to about half (hunger at full strength for 5 s), and the level remembered."""
     WALK.clear()
@@ -3548,11 +3310,9 @@ def _hungry(ctx):
     time.sleep(5.5)
     BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"])
 
-
 # Loading three furnaces is a chain per furnace (open, read, load, close): interrupted once the first one took its
 # share, the job resumes by what is still in the bag — every raw iron in some furnace, none loaded twice.
 SMELT_FURNACES = (at(2, 0, -2), at(2, 0, 2), at(-2, 0, 2))
-
 
 def _interrupt_once_loaded(ctx):
     """`before` hook: the interrupt lands the moment raw iron first leaves the bag (a furnace took its share)."""
@@ -3568,7 +3328,6 @@ def _interrupt_once_loaded(ctx):
             time.sleep(0.05)
     _threading.Thread(target=watch, daemon=True).start()
 
-
 def _iron_in_furnaces():
     """Raw iron and iron ingots the three furnaces hold, read from the world (data get block … Items)."""
     total = 0
@@ -3578,14 +3337,12 @@ def _iron_in_furnaces():
                      and item in ("minecraft:raw_iron", "minecraft:iron_ingot"))
     return total
 
-
 def _load_the_rest(ctx):
     """Resume: what is still in the bag, loaded — recomputed from the world, not from where the chain stopped."""
     left = _inv_now().count("minecraft:raw_iron")
     if left:
         _skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", left, "coal")
     return True
-
 
 SHEET["smelt_job_interrupted"] = {
     "doc": "Three furnaces, 6 raw iron and coal; interrupted once the first furnace took its share → resumed by what "
@@ -3602,7 +3359,6 @@ SHEET["smelt_job_interrupted"] = {
                   lambda api, inv: INTERRUPTS.get("smelt_job_interrupted", 0) >= 1),
     "budget": BASES["smelt"]["budget"],        # an interrupted run keeps its base's time
 }
-
 
 SHEET["eat_while_walking"] = {
     "doc": "Hungry, cooked beef carried, 20 blocks to walk → fed on the way without an eat task, still walking "
@@ -3642,13 +3398,11 @@ SHEET["combat__low_hp_eat"] = {
     "budget": 30,
 }
 
-
 # A creeper met with a sword: hit and back out of its blast (jar footwork "keepoff") — dead, or blown up in the air,
 # either way gone; the health kept. Next to our own builds it is first led away from them: a bed (the least blast
 # resistant block we own) and a furnace within 3 of it, registered as ours, are still standing after.
 CREEPER_AT = at(4, 0, 0)
 HOME_BED, HOME_FURNACE = (at(4, 0, 2), at(5, 0, 2)), at(4, 0, -2)
-
 
 def _creeper_row(name, extra_setup=(), before=(), check=()):
     return {
@@ -3665,15 +3419,13 @@ def _creeper_row(name, extra_setup=(), before=(), check=()):
         "budget": 30,
     }
 
-
 def _home_is_ours(ctx):
-    """`before` hook: the bed and the furnace are a site of ours (memory.protected_cells) and the furnace a station
-    — what the fight has to keep out of the blast."""
+    """`before` hook: the bed and the furnace are a site of ours (memory."""
+
     blocks = {f"{c[0]},{c[1]},{c[2]}": "red_bed" for c in HOME_BED}
     blocks[f"{HOME_FURNACE[0]},{HOME_FURNACE[1]},{HOME_FURNACE[2]}"] = "furnace"
     core.BRAIN.mem.add_site("home", HOME_BED[0], "minecraft:overworld", snapshot={"blocks": blocks}, name="home")
     core.BRAIN.mem.add_station("minecraft:furnace", HOME_FURNACE, "minecraft:overworld")
-
 
 SHEET["fight_creeper_sword"] = _creeper_row("fight_creeper_sword")
 SHEET["fight_creeper_by_home"] = _creeper_row(
@@ -3683,7 +3435,6 @@ SHEET["fight_creeper_by_home"] = _creeper_row(
                  f"setblock {_c(HOME_FURNACE)} furnace"],
     before=[_home_is_ours],
     check=[_blocks(HOME_BED[0], HOME_BED[1], "red_bed", 2), _blocks(HOME_FURNACE, HOME_FURNACE, "furnace", 1)])
-
 
 # Fighting at the edge of a raised platform, knocked off it: a zombie with a strong knockback on a 5×5 platform
 # 20 blocks above the floor. The combat kit's water bucket (every combat row carries one) must catch the fall.
@@ -3708,7 +3459,6 @@ SHEET["combat__knocked_off_edge"] = {
                   lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
     "budget": 30,
 }
-
 
 # -- test point D: acceptance ------------------------------------------------------------------------------------
 SCENARIOS[ACCEPTANCE_D] = {
@@ -3752,10 +3502,8 @@ SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",         
                 f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
 SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
 
-
 def _set_time(t):
     return lambda: _chat(f"time set {t}")
-
 
 SEARCH_ROWS = {
     "search_night_resume": (
@@ -3776,7 +3524,6 @@ for _name, (_doc, _setup, _queue, _hooks_, _done, _check) in SEARCH_ROWS.items()
                     "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_), "queue": list(_queue),
                     "run": _slice(_done, 0.45, queue=list(_queue)), "check": _check, "budget": 30}
 
-
 for _row_ in SHEET.values():              # the runner's setup signature: the box holds what the setup built
     if not _row_.get("raw"):
         _row_.setdefault("expect", [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)])
@@ -3789,7 +3536,6 @@ for _name in ("slice_retreat",):
 for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one skill: they carry an empty list
     _row_.setdefault("skills", [])
     _row_.setdefault("point", "A")
-
 
 # ================================================================================================================
 # Tiers (docs/refactor.md §1). core: every basic action on the default arena, the three L0 hazards, the start of the
@@ -3812,7 +3558,6 @@ COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "c
           "slice_nether_kit")
 ACCEPTANCE = (ACCEPTANCE_D,)
 
-
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
     if name.startswith(COMBAT_PREFIXES) or name in COMBAT_ROWS or row.get("module") == "fight_loop":
@@ -3830,7 +3575,6 @@ def tier_of(name, row):
         return "common"
     return "exception"
 
-
 for _name, _row_ in SCENARIOS.items():
     _row_["tier"] = tier_of(_name, _row_)
     if _row_["tier"] != "acceptance" and _row_["budget"] > runner.ROW_LIMIT_S:
@@ -3838,17 +3582,14 @@ for _name, _row_ in SCENARIOS.items():
         # cut down to fit keeps its work and meets the limit: it is reported TIMEOUT, the honest answer, until its setup is squeezed.
         _row_["budget"] = runner.ROW_LIMIT_S
 
-
 def proves(entry, registry):
     """The skill names a row's `skills` entry proves: a registered name, or every skill providing that effect."""
     by_effect = {n for n, c in registry.items() if entry in getattr(c, "provides", {})}
     return ({entry} if entry in registry else set()) | by_effect
 
-
 def select(rows, tier="core", changed=None, registry=None):
-    """Pure: the names to run. `tier` one of TIERS or "all". `changed` (skill names whose code changed; None = not
-    asked) narrows to the rows proving any of them, by name or by an effect they provide — and when a change touches
-    no skill any row proves, the core rows stand in for it."""
+    """Pure: the names to run."""
+
     picked = [n for n, r in rows.items() if tier == "all" or r.get("tier") == tier]
     if changed is None:
         return picked
@@ -3859,16 +3600,14 @@ def select(rows, tier="core", changed=None, registry=None):
         return hit
     return [n for n, r in rows.items() if r.get("tier") == "core"]
 
-
 def touched_skills(hunks, spans):
-    """Pure: skills whose function body a diff touched. `hunks` {path: [changed line numbers]} (new-file numbering);
-    `spans` {skill name: (path, first line, last line)}."""
+    """Pure: skills whose function body a diff touched."""
+
     out = set()
     for name, (path, lo, hi) in spans.items():
         if any(lo <= ln <= hi for ln in hunks.get(path, ())):
             out.add(name)
     return out
-
 
 def diff_hunks(diff_text):
     """Pure: {path: [line numbers]} of lines added or changed, from `git diff -U0` output."""
@@ -3882,7 +3621,6 @@ def diff_hunks(diff_text):
             out.setdefault(path, []).extend(range(start, start + max(n, 1)))
     return out
 
-
 def skill_spans(registry, root):
     """{skill name: (path relative to `root`, first line, last line)} of each registered skill's function."""
     import inspect
@@ -3895,7 +3633,6 @@ def skill_spans(registry, root):
             continue
         out[name] = (path, first, first + len(lines) - 1)
     return out
-
 
 # -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
 # Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
@@ -3936,7 +3673,6 @@ KIT_JOBS = {
     ],
 }
 
-
 def _kit_gives(row, jobs):
     """The gives the kit rule adds to `row`: the best work tool per job, and for a fight the sword its mobs call for."""
     import re
@@ -3947,7 +3683,6 @@ def _kit_gives(row, jobs):
     if any(k in s for s in list(row.get("skills", ())) + [str(row.get("doc", ""))] for k in ("dragon", "crystal")):
         mobs.add("ender_dragon")          # the End fight: the dragon is there, not summoned
     return [weapon_for(sorted(mobs)) if j == "sword" else BEST_TOOLS[j] for j in jobs]
-
 
 for _jobs, _rows in KIT_JOBS.items():
     for _name in _rows:

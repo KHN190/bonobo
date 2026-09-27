@@ -1,13 +1,4 @@
-"""One failure policy for every attempt the brain makes (task steps, upkeep, rescues).
-
-A failure is (task, cause). Two facts, kept apart on purpose:
-- the COUNT belongs to the pair: "mine iron failed for nav" three times means three sources were tried and none
-  could be reached. After SOURCES_TRIED the task stops retrying and is reported upward (L3: task state + reason);
-- the COOLDOWN belongs to the cause, at a place: `cause@place`. The same wall stops every task that would walk into
-  it, and is asked about once between them — a body treading water fails to dig, place, build and shelter, one fact.
-  Nothing else cools: there is no per-task timer.
-An interruption (`api.interrupted`) is not a failure and never reaches this module. Pure (time is passed in):
-offline-testable."""
+"""One failure policy for every attempt the brain makes (task steps, upkeep, rescues). A failure is (task, cause). Two facts, kept apart on purpose: - the COUNT belongs to the pair: "mine iron failed for nav" three times means three sources were tried and none could be reached. After SOURCES_TRIED the task stops retrying and is reported upward (L3: task state + reason); - the COOLDOWN belongs to the cause, at a place: `cause@place`. The same wall stops every task that would walk into it, and is asked about once between them — a body treading water fails to dig, place, build and shelter, one fact. Nothing else cools: there is no per-task timer. An interruption (`api.interrupted`) is not a failure and never reaches this module. Pure (time is passed in): offline-testable."""
 
 from .data import UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
 
@@ -22,14 +13,12 @@ NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2    # a replan in a row this often with nothing done between is a failure ("unavailable"): the
                     # repaired plan failed the same way (plan_repair_on_event replanned every second, forever)
 
-
 # The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
 INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "FightHolds", "PlayerTookControl", "Died", "DimensionChanged")
 
-
 def cause_of(err):
-    """The cause a failure is counted and cooled under, from the exception's class (and, for bare mod task
-    messages, its text)."""
+    """The cause a failure is counted and cooled under, from the exception's class (and, for bare mod task messages, its text)."""
+
     names = {c.__name__ for c in type(err).__mro__}
     text = str(err).lower()
     if "CommitmentExpired" in names or "StationMissing" in names:
@@ -48,26 +37,21 @@ def cause_of(err):
         return "stuck"
     return "error"
 
-
 def place_signature(feet, night, bin_size=16):
     """Where we are, coarsely, and whether it is dark. What a cause is cooled against."""
     return tuple(int(c) // bin_size for c in feet), bool(night)
 
-
 def cause_key(cause, place):
     return f"{cause}@{place}"
 
-
 class Verdict:
-    """What a failure means: how often this (task, cause) has failed, how long the cause cools here, and whether the
-    task is out of sources and must be reported upward."""
+    """What a failure means: how often this (task, cause) has failed, how long the cause cools here, and whether the task is out of sources and must be reported upward."""
 
     def __init__(self, n, wait, escalate, worth_logging):
         self.n, self.wait, self.escalate, self.worth_logging = n, wait, escalate, worth_logging
 
     def __iter__(self):            # (n, wait, worth_logging), the shape callers unpacked before
         return iter((self.n, self.wait, self.worth_logging))
-
 
 class Retry:
     def __init__(self):
@@ -117,8 +101,8 @@ class Retry:
         return max(0.0, c["until"] - now) if c else 0.0
 
     def ready(self, task, now, place=None, cause=None):
-        """May `task` be tried now? Not while it is held, and not while any cause it failed with — or the cause the
-        caller knows would stop it — is cooling at this place. Its own count is `exhausted`'s business."""
+        """May `task` be tried now?"""
+
         if self.holds.get(task, 0) > now:
             return False
         for c in set(self.causes(task)) | ({cause} if cause else set()):
@@ -140,8 +124,8 @@ class Retry:
             self.entries.pop(key)
 
     def exhausted(self, task):
-        """(cause, message) once some cause has beaten SOURCES_TRIED sources for this task, else None. That is the
-        report upward: the task has failed, and this is why."""
+        """(cause, message) once some cause has beaten SOURCES_TRIED sources for this task, else None."""
+
         worst = max(((cause, e) for (t, cause), e in self.entries.items() if t == task and cause != "replan"),
                     key=lambda ce: ce[1]["n"], default=None)
         if worst is None or worst[1]["n"] < SOURCES_TRIED:

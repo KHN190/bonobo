@@ -1,24 +1,5 @@
-"""The action table: every column the solver may use, and the state vector it acts on. Pure given a cost model (cost.Cost).
+"""The action table: every column the solver may use, and the state vector it acts on. Pure given a cost model (cost.Cost). This is the layer that used to be `knowledge.source()` plus `planner.need()`'s recursive descent. The difference is not the data — the recipes are the same — but the shape: each way of changing the world is one column, and the solver combines columns. Three things fall out of that which the descent could not express. Fixed cost versus variable cost. Mining ten coal is one walk and ten breaks. A recursive planner folded the walk into the step and multiplied it by ten, or folded it in once and lost it when the step was split. Here the walk is its own column — `travel:coal_ore` produces the dimension `at:coal_ore` — and `mine:coal` requires that dimension without consuming it. The walk is paid once however much is mined, because the solver runs that column once. Position, therefore, is part of the plan rather than an assumption inside a skill. So is being sheltered, having slept, or standing at the place where the last death dropped its items: they are rows like any other. Several ways to reach one state are several columns (`dig in` / `wall in` / `sleep in a hut`), so the choice is the solver's and depends on what this world costs right now — not an if-chain's order inside a skill. Dimension names are strings, and the only rules are: an item's dimension is its planner token ("log", "planks", "minecraft:coal"), a tool is `tool:<kind>:<tier>` and is cumulative downward (an iron pickaxe produces tier 1 and 2, so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>`, and a fact is a bare word."""
 
-This is the layer that used to be `knowledge.source()` plus `planner.need()`'s recursive descent. The difference is
-not the data — the recipes are the same — but the shape: each way of changing the world is one column, and the
-solver combines columns. Three things fall out of that which the descent could not express.
-
-Fixed cost versus variable cost. Mining ten coal is one walk and ten breaks. A recursive planner folded the walk
-into the step and multiplied it by ten, or folded it in once and lost it when the step was split. Here the walk is
-its own column — `travel:coal_ore` produces the dimension `at:coal_ore` — and `mine:coal` requires that dimension
-without consuming it. The walk is paid once however much is mined, because the solver runs that column once.
-
-Position, therefore, is part of the plan rather than an assumption inside a skill. So is being sheltered, having
-slept, or standing at the place where the last death dropped its items: they are rows like any other.
-
-Several ways to reach one state are several columns (`dig in` / `wall in` / `sleep in a hut`), so the choice is the
-solver's and depends on what this world costs right now — not an if-chain's order inside a skill.
-
-Dimension names are strings, and the only rules are: an item's dimension is its planner token ("log", "planks",
-"minecraft:coal"), a tool is `tool:<kind>:<tier>` and is cumulative downward (an iron pickaxe produces tier 1 and 2,
-so "two wooden pickaxes" can never add up to an iron one), a place is `at:<what>`, and a fact is a bare word.
-"""
 import math
 
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
@@ -37,18 +18,9 @@ TOOL_USES = {"wooden": 59, "stone": 131, "iron": 250, "diamond": 1561, "netherit
 
 FIGHTERS = {"minecraft:spider", "minecraft:enderman", "minecraft:blaze", "minecraft:slime"}
 
-
 def exposure_of(action, state):
-    """Seconds of damage an action's shape implies, priced by the threat layer.
+    """Seconds of damage an action's shape implies, priced by the threat layer."""
 
-    Lives here, not in `solve`: the solver is arithmetic and must not know what a zombie is. `table()` attaches it
-    to every column it builds, so an action can answer for its own exposure without the solver importing the
-    threat model — the shape is the action's business, the pricing is the threat layer's.
-
-    Standing work (mining, crafting, smelting) takes the pressure for its whole duration. Leaving takes it only
-    until it is out of reach, which is the difference between "running from a zombie is as lethal as fighting it"
-    and the truth.
-    """
     from . import threat
     hazards = [h for h in state.get("hazards", ()) if h[3] in threat.MOBS]
     if not hazards:
@@ -61,36 +33,26 @@ def exposure_of(action, state):
         return estimate.leaving_hp(press, action.cost_s)
     return press * action.cost_s
 
-
 def with_exposure(action):
     """Teach one column how to price its own exposure. Returns it, so it can wrap a construction."""
     action._exposure = exposure_of
     return action
 
-
 def uses_dim(kind):
-    """How many more blocks this kind of tool can break before it is gone.
+    """How many more blocks this kind of tool can break before it is gone."""
 
-    A tier says a tool EXISTS; this says how much of it is left. Without it the planner prices a twenty-block
-    tunnel against a pickaxe with three points on it, the plan dies in the middle, and `ToolMissing` is discovered
-    by failing — the same shape as a full bag, and the same fix: make it a resource the plan can spend and refill.
-    """
     return f"uses:{kind}"
-
 
 def tool_dim(kind, tier):
     return f"tool:{kind}:{tier}"
 
-
 def at(what):
     return f"at:{what}"
-
 
 # Which groups a token belongs to never changes — the tables are loaded once — but this was being recomputed by
 # walking every group for every ingredient of every recipe, several million times a session (21 s of a 129 s
 # replay). The membership is worked out once per token, the amounts on top of it.
 _GROUPS_OF = {}
-
 
 def groups_of(token):
     """The groups this token counts toward ("oak_planks" → ("planks",)). Computed once per token."""
@@ -102,25 +64,18 @@ def groups_of(token):
             if group != token and (token in members or short in members or full in members))
     return got
 
-
 def produce(token, n):
-    """{dimension: amount} for making `n` of `token`: the item itself and every group it belongs to.
+    """{dimension: amount} for making `n` of `token`: the item itself and every group it belongs to."""
 
-    Recipes are written against groups ("planks", "coal", "wool") and the world hands out members ("oak_planks",
-    "minecraft:coal"). Without this the two halves of the requirement graph never meet — a torch was unplannable
-    because mining produced `minecraft:coal` and the recipe asked for `coal`.
-    """
     out = {token: n}
     for group in groups_of(token):
         out[group] = out.get(group, 0) + n
     return out
 
-
 def consume(token, n):
-    """{dimension: -amount} for spending `n` of `token`. Spending a member spends the group with it, or the plan
-    could craft with the same logs twice — once as "log", once as "minecraft:oak_log"."""
-    return {d: -v for d, v in produce(token, n).items()}
+    """{dimension: -amount} for spending `n` of `token`."""
 
+    return {d: -v for d, v in produce(token, n).items()}
 
 # ------------------------------------------------------------------------------------------------- the state vector
 
@@ -144,7 +99,6 @@ DAY_DIM = "day"
 NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
 DROWNING_TICKS = 100          # about five seconds of air left: below this, getting a breath comes first
 
-
 def body_dims(state):
     """{dimension: 1} for what the body can do where it is. Pure: reads the snapshot, asks the world nothing."""
     state = state or {}
@@ -159,13 +113,9 @@ def body_dims(state):
         out["hands_free"] = 1
     return out
 
-
 def state_of(snap, mem, extra=None, reachable=None):
-    """The world as a vector, from the snapshot and memory only — no world reads, so recorded rounds still replay.
+    """The world as a vector, from the snapshot and memory only — no world reads, so recorded rounds still replay."""
 
-    Items are counted by every token that names them (an oak log counts as "log" and as "minecraft:oak_log"),
-    because recipes are written against groups and inventories hold members.
-    """
     inv = snap.inv
     x = {}
     for slot in inv.slots:
@@ -219,14 +169,12 @@ def state_of(snap, mem, extra=None, reachable=None):
     x.update(extra or {})
     return {d: v for d, v in x.items() if v}
 
-
 def _is_night(snap):
     night = getattr(snap, "night", None)
     if night is not None:
         return bool(night)
     t = int((getattr(snap, "state", None) or {}).get("timeOfDay", 0)) % 24000
     return DAY_END <= t <= NIGHT_END
-
 
 def _dawn_s(snap):
     """Seconds until the sun is up again, from the snapshot's clock; a whole night when it cannot say."""
@@ -236,14 +184,12 @@ def _dawn_s(snap):
     t = int(state["timeOfDay"]) % 24000
     return max(1.0, ((NIGHT_END - t) % 24000) / 20.0)
 
-
 # Close enough to work on it without walking: the skills' own reach.
 ARRIVED_R = 5.0
 # Close enough to walk over and use: a station a few steps away is one we have.
 STATION_R = 8.0
 # What a built machine provides, by the tag the blueprint carries. One table, so a new machine kind is one line.
 MACHINE_PROVIDES = {"smelting": "minecraft:furnace", "crafting": "minecraft:crafting_table"}
-
 
 def _stations_near(snap, mem):
     """[(block id, position)] of the stations and machines within reach of where we stand, from memory alone."""
@@ -258,7 +204,6 @@ def _stations_near(snap, mem):
                 out.append((MACHINE_PROVIDES[tag], tuple(m["origin"])))
     return out
 
-
 def _standing_at(kinds, snap, mem):
     """Is one of these within arm's reach of where we stand, as far as memory knows?"""
     for kind in kinds:
@@ -268,13 +213,11 @@ def _standing_at(kinds, snap, mem):
             return True
     return False
 
-
 def _sheltered(snap, mem):
     if snap.get("skyLight", 15) <= COVERED_SKY:
         return True
     site = mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
     return bool(site) and math.dist(site["pos"], snap.feet) <= 64
-
 
 # ------------------------------------------------------------------------------------------------- the columns
 
@@ -282,14 +225,8 @@ def work_s(cost, kind, token, count=1):
     """Seconds this piece of work takes: what this kind costs per unit, times how many."""
     return float(cost.work_s(kind, token)) * float(count)
 
-
 class Table(list):
-    """The round's columns, carrying their own identity.
-
-    `solve` memoises on "which columns, at what cost" and asking a plain list that question means sorting two
-    hundred pairs every time it is asked — hundreds of times a round. Computed once, here, where the list is
-    built; a subclass because the thing IS a list of columns and every caller treats it as one.
-    """
+    """The round's columns, carrying their own identity."""
 
     __slots__ = ("key",)
 
@@ -297,24 +234,16 @@ class Table(list):
         super().__init__(columns)
         self.key = tuple(sorted((a.name, a.cost_s) for a in self))
 
-
 def table(cost, state, wants=()):
-    """Every action available in this world, as solver columns. `cost` (cost.Cost) answers what an estimate needs:
-    `seek_s(kinds)`, `find_p(kinds)`, `where(kinds)` and `work_s(kind, token)` (seconds per unit of work once there). `wants` narrows the table to what is relevant;
-    empty means everything.
-    """
+    """Every action available in this world, as solver columns."""
+
     return Table(base_table(cost) + [with_exposure(a) for a in
                                      _shelter(cost, state) + _room(cost, state)
                                      + _body(cost, state)])
 
-
 def base_table(cost):
-    """The columns that do NOT depend on what we hold — everything but shelter and room.
+    """The columns that do NOT depend on what we hold — everything but shelter and room."""
 
-    Pricing the future asks for a table once per imagined state, and rebuilding all of it every time is most of
-    what that costs (63 of 69 ms of a solve). These columns answer to the WORLD, which is not what the
-    imagining changes, so they are built once per cost model and shared.
-    """
     # Cached ON the cost model, not in a table keyed by its id: an id is reused the moment the object is
     # collected, and a recycled one served another world's columns (a room that cost less than flat ground).
     hit = getattr(cost, "_base_columns", None)
@@ -328,23 +257,9 @@ def base_table(cost):
             pass                    # a cost model that will not hold it simply rebuilds; correctness first
     return hit
 
-
 def _seek(cost):
-    """One column per findable thing: go to where one of these is.
+    """One column per findable thing: go to where one of these is."""
 
-    Ore used to have `prospect` (dig until you hit some) and everything else had `travel`, which only existed when
-    the resource map already knew a location. So "no sheep recorded" meant sheep did not exist: wool unreachable,
-    therefore no bed, no food, and every goal wanting a furnace unplannable. Finding is one action, and not knowing
-    where is a price, not an absence.
-
-    The price is an EXPECTED time, because a look can fail:
-
-        seek_s = (go there + sweep for one) / p(it is here × the note still holds × there is a route)
-
-    Time over chance, and nothing else. Without the division a thing that
-    is not in this biome cost exactly what one underfoot costs: "could not find white_wool" sixty times, at nine
-    seconds a try, winning the round every time.
-    """
     out = []
     for what, kinds in _findable():
         go_s = cost.seek_s(kinds)
@@ -354,11 +269,9 @@ def _seek(cost):
                           tag=("seek", what, kinds, cost.where(kinds))))
     return out
 
-
 # A look that succeeds one time in fifty is not impossible, it is a day's work. The floor keeps the division from
 # becoming a wall — "unreachable" is still a price, which is the whole point of the seek column.
 MIN_FIND_P = 0.02
-
 
 def _surface():
     """What is found on the surface, where the dark is dangerous: trees, animals, villages."""
@@ -367,9 +280,7 @@ def _surface():
     out |= {row["blocks"][0] for row in TAKEABLE.values()}
     return frozenset(out)
 
-
 _SURFACE = _surface()
-
 
 def _findable():
     """(dimension name, block/entity kinds) for everything worth going to."""
@@ -386,11 +297,9 @@ def _findable():
     seen.setdefault("water", ["minecraft:water"])
     return sorted(seen.items())
 
-
 def _gather(cost):
     return [Action("gather:log", produce("log", 1), work_s(cost, "gather", "log"),
                    requires={at("tree"): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("gather", "log"))]
-
 
 def _mine(cost):
     out = []
@@ -410,17 +319,9 @@ def _mine(cost):
                           tag=("mine", token, blocks, tier)))
     return out
 
-
 def _take(cost):
-    """One column per finished thing the world already holds: go to it, break it, keep it.
+    """One column per finished thing the world already holds: go to it, break it, keep it."""
 
-    The village the agent spawned in had beds, furnaces, tables and hay in it, and the table could only say
-    "craft". A column that says "take" makes the comparison arithmetic — a bed twenty blocks away beats three
-    sheep and a shearing, the same bed half a kilometre away does not — and nobody writes the rule.
-
-    Priced like mining, because it IS mining: being there is a requirement (`seek` satisfies it), room in the bag
-    is a requirement, the tool is a requirement where the block needs one, and the seconds are the block's own.
-    """
     out = []
     for token, row in produced("take"):
         requires = {at(row["blocks"][0]): 1, "bag_free": 1}
@@ -438,17 +339,11 @@ def _take(cost):
                           tag=("take", token, list(row["blocks"]))))
     return out
 
-
 GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # a wheat plot to ripe; a bred animal to grown (jobs.DURATION)
 
-
 def _farm(cost):
-    """Food that is grown rather than found: the other half of "hunt or farm".
+    """Food that is grown rather than found: the other half of "hunt or farm"."""
 
-    A wheat plot (`plant_farm`): a hoe, 8 seeds (sown, and given back at the harvest) and a water bucket that stays
-    in the plot; one harvest is PLOT_CELLS wheat, ripe after the crop has grown. Breeding (`breed`): two of a kind
-    fed their food, standing at them; one more animal to hunt once it has grown. Each is priced by the work AND the
-    waiting, so with animals in sight the hunt wins and with none anywhere the farm does."""
     if not produced("farm"):
         return []
     out = [Action("farm:wheat", dict(produce("minecraft:wheat", PLOT_CELLS), **{"minecraft:water_bucket": -1}),
@@ -468,21 +363,18 @@ def _farm(cost):
                           tag=("breed", kind)))
     return out
 
-
 def _fill(cost):
     """A container filled at a source (fluids.fill_water_bucket): the empty one in, the full one out, at water."""
     return [Action(f"fill:{token}", {token: 1, container: -1}, work_s(cost, "fill", token),
                    requires={at("water"): 1, "hands_free": 1}, tag=("fill", token, container))
             for token, container in produced("fill")]
 
-
 def _trade(cost):
-    """Sold to someone who buys (ui.trade): what the offer asks is the trader's to name, the one requirement is
-    standing at one."""
+    """Sold to someone who buys (ui."""
+
     return [Action(f"trade:{token}", {token: 1}, work_s(cost, "trade", token),
                    requires={at(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("trade", token, types))
             for token, types in produced("trade")]
-
 
 def _hunt(cost):
     out = []
@@ -497,14 +389,12 @@ def _hunt(cost):
                           tag=("hunt", token, types)))
     return out
 
-
 # What a craft or a smelt DOES never changes — the recipes are a table loaded once. Only what it COSTS depends on
 # the round (`work_s` reads the measured durations). Rebuilding the effects every time meant walking every recipe,
 # every ingredient and every group on every call: 36 of a 129-second replay, spent re-deriving that four planks
 # make a crafting table. The shapes are built once; each round puts its own seconds on them.
 _CRAFT_SPEC = None
 _SMELT_SPEC = None
-
 
 def _craft_specs():
     """[(name, token, effect, requires, tag)] for every recipe, computed once."""
@@ -541,11 +431,9 @@ def _craft_specs():
     _CRAFT_SPEC = specs
     return specs
 
-
 def _craft(cost):
     return [Action(name, dict(effect), work_s(cost, "craft", token), requires=dict(requires), tag=tag)
             for name, token, effect, requires, tag in _craft_specs()]
-
 
 def _smelt_specs():
     """[(token, effect, tag)] for every smelt, computed once."""
@@ -563,21 +451,14 @@ def _smelt_specs():
     _SMELT_SPEC = specs
     return specs
 
-
 def _smelt(cost):
     return [Action(f"smelt:{token}", dict(effect), work_s(cost, "smelt", token),
                    requires={"minecraft:furnace": 1, "hands_free": 1, "footing": 1}, tag=tag)
             for token, effect, tag in _smelt_specs()]
 
-
 def _body(cost, state):
-    """Mending the body's own preconditions — each in the way that is actually cheapest.
+    """Mending the body's own preconditions — each in the way that is actually cheapest."""
 
-    Two ways to get footing, and the solver picks: stand on the nearest ground, or put ONE block down under the
-    feet. Choosing "swim to the nearest shore" for you is how the agent spent twenty-two seconds of an eight
-    second breath swimming toward a bank four blocks above its head, three rounds running. Breathing is its own
-    column because it is its own need: straight up is metres away, the shore is not.
-    """
     out = []
     if not state.get("hands_free"):
         # Up. The one answer to being out of air, and never more than the depth away.
@@ -592,14 +473,12 @@ def _body(cost, state):
                           work_s(cost, "place", "footing"), limit=1, tag=("reach", "footing")))
     return out
 
-
 def _room(cost, state):
     """Ways to free bag space. Without these the requirement above would simply make a full bag unplannable."""
     return [
         Action("room:tidy", {"bag_free": 8}, work_s(cost, "room", "tidy"), limit=1, tag=("room", "tidy")),
         Action("room:deposit", {"bag_free": 16}, work_s(cost, "room", "deposit"), limit=1, tag=("room", "deposit")),
     ]
-
 
 def _shelter(cost, state):
     """Several ways to survive a night, each with its own price. The solver chooses; no if-chain decides."""
@@ -620,23 +499,9 @@ def _shelter(cost, state):
                           requires={"sheltered": 1}, limit=1, tag=("wait", "day")))
     return out
 
-
 def marginal_batch(step, shadow, demand, bag_free, stack=64):
-    """How much to actually take, from the margin rather than from the shortfall.
+    """How much to actually take, from the margin rather than from the shortfall."""
 
-    The plan asks for what THIS goal needs — one cobblestone for a furnace — and the body pays the same approach,
-    task chain and re-decision for one as for forty. But "always take eight" is a constant nobody can defend, and
-    it hoards gold as eagerly as stone.
-
-    The margin can be defended, and every term is already computed:
-
-        take one more   while   shadow[token]  >=  pick_s + slot_cost_s(free)/stack
-
-    `shadow` is the round's dual (`solve.reach_cost` / `Plan.shadow`): what one more unit of this token saves
-    everything that wants it. `demand` is what the open goals still want of it in total, so the extra is never
-    imaginary — gold nothing asks for has demand 0 and is taken exactly as planned, while logs and stone, which
-    half the plan passes through, are taken until the bag says stop. No dimensionless factors, no per-item table.
-    """
     if step.kind not in ("mine", "gather", "take"):
         return step
     per_unit = float(shadow.get(step.token, 0.0) or 0.0)
@@ -660,15 +525,13 @@ def marginal_batch(step, shadow, demand, bag_free, stack=64):
     step.count = want
     return step
 
-
 def _cap_for(bag_free, stack):
     """The most units the bag could hold, leaving a slot to move in."""
     return int(max(0.0, float(bag_free) - 1.0) * float(stack))
 
-
 def target_of(needs):
-    """A goal's `needs` as a target vector. Accepts both shapes the goals are written in: ("token", n) and
-    ("tool", kind, tier)."""
+    """A goal's `needs` as a target vector."""
+
     target = {}
     for item in needs or ():
         if item and item[0] == "tool" and len(item) == 3:
@@ -679,25 +542,14 @@ def target_of(needs):
             target[token] = max(target.get(token, 0), n)
     return target
 
-
 # ------------------------------------------------------------------------------------------------- execution
 
 def to_step(action, times):
-    """A solver column, as the Step the executor already understands, carrying the seconds the column was priced at.
+    """A solver column, as the Step the executor already understands, carrying the seconds the column was priced at."""
 
-    The executor's interface is `Step(kind, token, count, detail)` and it stays that way: which skill carries out a
-    piece of work is not the planner's business, and keeping the boundary meant replacing the planner without
-    touching a single skill. `tag` is what each column carries for exactly this translation.
-
-    `est` matters as much as the rest of it. A Step built without one defaults to zero ticks, and a step that
-    costs nothing is promised the body for nothing: every commitment collapsed to its floor and a fifteen-second
-    mine was interrupted every six seconds, round after round, "mine_many outlived the 6.0s commitment". The
-    column already knows what it costs — this is the one place that was throwing the number away.
-    """
     step = _shape(action, times)
     step.est = int(round(action.cost_s * times * TICKS_PER_S))
     return step
-
 
 def _shape(action, times):
     from .planner import Step

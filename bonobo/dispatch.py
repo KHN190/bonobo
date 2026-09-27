@@ -1,5 +1,5 @@
-"""One plan step, carried out: the skill that provides it (`skill.provider`), and where to look when nothing is in
-range. No switch on kinds here — a new skill is one decorated function. Everything it needs comes on the Context."""
+"""One plan step, carried out: the skill that provides it (`skill.provider`), and where to look when nothing is in range. No switch on kinds here — a new skill is one decorated function. Everything it needs comes on the Context."""
+
 import math
 
 from . import api, nav, retry, skillcore, skills
@@ -8,9 +8,7 @@ from .api import GameUnreachable, McError, NotAvailable, log
 from .data import GROUPS, bare, mid, seen_class
 from .knowledge import FIND_AT
 
-
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
-
 
 def execute(ctx, step, night):
     log(f"   → {step}")
@@ -31,7 +29,6 @@ def execute(ctx, step, night):
     if not (isinstance(out, dict) and "ordered" in out):
         ctx.mem.record_outcome(key, True)   # a furnace loaded is not a step done: that is when it is held
 
-
 def runner_for(ctx, step):
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
     if step.kind == "skill":
@@ -39,20 +36,18 @@ def runner_for(ctx, step):
         return None if contract is None else (contract.runner, tuple(step.detail.get("args", ())))
     return skillkit.provider(ctx, step)
 
-
 def can_start(ctx, step):
-    """Would the skill for `step` pass its own preconditions right now (`skill.can_run`)? Asked before the step is
-    offered, so a refusal the skill already knows about is not discovered by failing."""
+    """Would the skill for `step` pass its own preconditions right now (`skill."""
+
     found = runner_for(ctx, step)
     if found is None:
         return False
     runner, args = found
     return skillkit.can_run(runner, ctx, *args)[0]
 
-
 def still_there(blocks, spot):
-    """Is one of `blocks` at the noted `spot`? The cell itself is read (/blocks), not searched for (/find): going to
-    a noted ore and scanning for it on arrival was the scan the note was meant to spare (seen_store__noted)."""
+    """Is one of `blocks` at the noted `spot`?"""
+
     from .world import Region
     try:
         name = bare(Region(spot, spot).name(tuple(spot)))
@@ -60,10 +55,9 @@ def still_there(blocks, spot):
         return False
     return name in {bare(b) for b in blocks}
 
-
 def run_step(ctx, step, night, seek=True):
-    """Carry out one step with the skill that provides it. A seeking step that finds nothing in range returns the
-    NotAvailable instead of raising it, so `execute` can look elsewhere first."""
+    """Carry out one step with the skill that provides it."""
+
     ctx.night = night
     found = runner_for(ctx, step)
     if found is None:
@@ -76,12 +70,9 @@ def run_step(ctx, step, night, seek=True):
             return e
         raise
 
-
 def go_find(ctx, step):
-    """Where to look when nothing is in range, in a fixed order: what memory has seen of it (static and slow notes
-    checked on arrival and retired when missing; mobile ones are an area to look in), the depth the kind is richest
-    at (knowledge.FIND_AT), a spiral. Half-done work is not remembered: the search from wherever the body is (/find
-    sees 48 blocks) finds it again. True when the body got somewhere new to look."""
+    """Where to look when nothing is in range, in a fixed order: what memory has seen of it (static and slow notes checked on arrival and retired when missing; mobile ones are an area to look in), the depth the kind is richest at (knowledge."""
+
     here, dim, mem = skillcore.feet(), ctx.dimension, ctx.mem
     blocks = list(step.detail.get("blocks", ()))
     names = {"gather": ["tree"], "mine": blocks, "hunt": list(step.detail.get("types", ()))}.get(step.kind, [])

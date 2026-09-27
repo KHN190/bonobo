@@ -1,20 +1,11 @@
-"""Machines as data: what a build is for, its parts (relative cells, items, intended orientation, role) and the
-facing each needs (the jar turns the body to get it). Pure data + geometry; the build/use skills live in skills.py.
+"""Machines as data: what a build is for, its parts (relative cells, items, intended orientation, role) and the facing each needs (the jar turns the body to get it). Pure data + geometry; the build/use skills live in skills.py. Orientation (vanilla Java): - Hoppers output into the block that was clicked (`against`); clicking a top/bottom face outputs down. - Furnaces, chests, pistons, observers, dispensers, repeaters take their `facing` from the body orientation at the click. The default rule assumes the block faces the player (so the player looks the opposite way); builds verify the resulting `facing` property and the build skill learns a per-item correction when that's wrong. Adding a machine = one Blueprint entry. Materials come from `materials()`, so the planner resolves them."""
 
-Orientation (vanilla Java):
-  - Hoppers output into the block that was clicked (`against`); clicking a top/bottom face outputs down.
-  - Furnaces, chests, pistons, observers, dispensers, repeaters take their `facing` from the body orientation at
-    the click. The default rule assumes the block faces the player (so the player looks the opposite way); builds
-    verify the resulting `facing` property and the build skill learns a per-item correction when that's wrong.
-
-Adding a machine = one Blueprint entry. Materials come from `materials()`, so the planner resolves them."""
 from dataclasses import dataclass, field
 
 DIRS = {"north": (0, 0, -1), "south": (0, 0, 1), "east": (1, 0, 0), "west": (-1, 0, 0), "up": (0, 1, 0),
         "down": (0, -1, 0)}
 OPPOSITE = {"north": "south", "south": "north", "east": "west", "west": "east", "up": "down", "down": "up"}
 CLOCKWISE = {"north": "east", "east": "south", "south": "west", "west": "north", "up": "up", "down": "down"}
-
 
 @dataclass(frozen=True)
 class Part:
@@ -25,7 +16,6 @@ class Part:
     role: str = None              # "input" / "fuel" / "output" containers etc.
     either_way: bool = False      # the opposite facing works as well (doors)
 
-
 @dataclass(frozen=True)
 class Blueprint:
     name: str
@@ -34,7 +24,6 @@ class Blueprint:
     access: tuple = (0, 0, -2)    # relative standing spot from which every part is in reach
     tags: tuple = field(default=())
     clear: tuple = ()             # relative cells that must be free (interior, door top); y=0 ones need a floor
-
 
 AUTO_SMELTER = Blueprint(
     name="auto_smelter",
@@ -88,7 +77,6 @@ NETHER_PORTAL = Blueprint(
 
 REGISTRY = {bp.name: bp for bp in (AUTO_SMELTER, SHELTER, NETHER_PORTAL)}
 
-
 def clear_cells(bp, origin, turns=0):
     out = []
     for c in bp.clear:
@@ -96,18 +84,15 @@ def clear_cells(bp, origin, turns=0):
         out.append((origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]))
     return out
 
-
 def materials(bp):
     out = {}
     for part in bp.parts:
         out[part.item] = out.get(part.item, 0) + 1
     return out
 
-
 def footprint(bp):
     """All cells the machine occupies, relative."""
     return [p.offset for p in bp.parts]
-
 
 def rotate_offset(offset, turns):
     x, y, z = offset
@@ -115,12 +100,10 @@ def rotate_offset(offset, turns):
         x, z = -z, x
     return x, y, z
 
-
 def rotate_dir(direction, turns):
     for _ in range(turns % 4):
         direction = CLOCKWISE[direction]
     return direction
-
 
 def placed(bp, origin, turns=0):
     """The blueprint's parts in world coordinates: [(pos, part, facing, against_pos)]."""
@@ -136,11 +119,9 @@ def placed(bp, origin, turns=0):
         out.append((pos, part, facing, against))
     return out
 
-
 def remaining(bp, origin, turns, name_at):
-    """Pure: materials still missing from a started build — {item token: count} for parts whose cell doesn't hold
-    the part yet. `name_at(pos)` → block name there. The goal must ask for these, not the full list: it once asked
-    for all 10 obsidian while 5 stood in the frame, and mined its own frame to get them."""
+    """Pure: materials still missing from a started build — {item token: count} for parts whose cell doesn't hold the part yet."""
+
     need = {}
     for pos, part, *_ in placed(bp, origin, turns):
         name = name_at(pos).split(":")[-1]
@@ -149,7 +130,6 @@ def remaining(bp, origin, turns, name_at):
         if not ok:
             need[token] = need.get(token, 0) + 1
     return need
-
 
 def access_spot(bp, origin, turns=0):
     d = rotate_offset(bp.access, turns)

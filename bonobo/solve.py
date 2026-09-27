@@ -1,32 +1,5 @@
-"""The planner's solver: what to do, as an integer program. Pure, exact, no dependencies.
+"""The planner's solver: what to do, as an integer program. Pure, exact, no dependencies. The old planner resolved a goal by recursive descent — need(bed) → need(wool) → need(planks) → … — which is a depth-first walk of the recipe graph, not a plan. Three consequences, all of them visible in play: * it could only reason about ITEMS, because "recursive descent on a requirement" has nothing to say about being somewhere, having dug something, or being sheltered; * it produced ONE decomposition, so a goal had exactly one way to be achieved and one step's failure cooled the whole goal (dig_in → burrow → pod was an if-chain inside a skill, invisible to the planner); * shared intermediates were merged AFTERWARDS (`merged()`), so the cost it reported was not the cost of the plan it had chosen — 16 planks for a door and a table were planned twice and merged once. Here the world is a vector, an action is a column, and a plan is the integer combination of columns that reaches the target for the fewest seconds: minimise   cᵀn                     n_j = how many times action j runs, integer ≥ 0 subject to x₀ + A·n ≥ b            A's column j is action j's effect on the state vector Everything follows from that. Several ways to reach the same state are several columns and the solver picks the cheap one; a place, a dug hole or a night's shelter is another row; sharing is exact because the same column serves every row that needs it. Solved with a two-phase simplex over exact rationals (matrices are small and their entries are recipe counts, so double precision with an explicit tolerance is exact in practice and about fifty times faster than rationals — which matters, because the search below calls it hundreds of times), then branch and bound for integrality. Requirements that are needed but not consumed — a pickaxe to mine, a table to craft, standing at the vein — sit around the matrix rather than in it (see `solve`), because as rows they destroy the linear relaxation and the search explodes. When one cannot be met, the action that asked for it is banned and the solver finds another column to the same state: that is what makes "dig in needs a pickaxe, wall in does not" a choice and not a dead end."""
 
-The old planner resolved a goal by recursive descent — need(bed) → need(wool) → need(planks) → … — which is a
-depth-first walk of the recipe graph, not a plan. Three consequences, all of them visible in play:
-
-  * it could only reason about ITEMS, because "recursive descent on a requirement" has nothing to say about being
-    somewhere, having dug something, or being sheltered;
-  * it produced ONE decomposition, so a goal had exactly one way to be achieved and one step's failure cooled the
-    whole goal (dig_in → burrow → pod was an if-chain inside a skill, invisible to the planner);
-  * shared intermediates were merged AFTERWARDS (`merged()`), so the cost it reported was not the cost of the plan
-    it had chosen — 16 planks for a door and a table were planned twice and merged once.
-
-Here the world is a vector, an action is a column, and a plan is the integer combination of columns that reaches
-the target for the fewest seconds:
-
-    minimise   cᵀn                     n_j = how many times action j runs, integer ≥ 0
-    subject to x₀ + A·n ≥ b            A's column j is action j's effect on the state vector
-
-Everything follows from that. Several ways to reach the same state are several columns and the solver picks the
-cheap one; a place, a dug hole or a night's shelter is another row; sharing is exact because the same column
-serves every row that needs it. Solved with a two-phase simplex over exact rationals (matrices are small and their entries are recipe counts, so double precision with an explicit tolerance is exact
-in practice and about fifty times faster than rationals — which matters, because the search below calls it
-hundreds of times), then branch and bound for integrality.
-
-Requirements that are needed but not consumed — a pickaxe to mine, a table to craft, standing at the vein — sit
-around the matrix rather than in it (see `solve`), because as rows they destroy the linear relaxation and the search
-explodes. When one cannot be met, the action that asked for it is banned and the solver finds another column to the
-same state: that is what makes "dig in needs a pickaxe, wall in does not" a choice and not a dead end.
-"""
 EPS = 1e-9               # zero tolerance: these matrices are small integers, so anything smaller is noise
 
 MAX_NODES = 4000         # branch-and-bound budget. Large because a node is now one float simplex (tens of
@@ -36,7 +9,6 @@ BIG = 64                 # indicator scale when an action has no explicit limit
 KEEP_PER_DIM = 4         # cheapest producers kept per dimension; the rest cannot be in a sensible plan
 MAX_DEPTH = 12           # recipe chains are shallow; deeper than this is a cycle in the action table
 
-
 class Unsolvable(Exception):
     """No combination of the known actions reaches the target. Carries what was still missing."""
 
@@ -44,28 +16,14 @@ class Unsolvable(Exception):
         super().__init__("no plan reaches: " + ", ".join(f"{d}≥{v:g}" for d, v in sorted(missing.items())))
         self.missing = missing
 
-
 class Action:
-    """One column of the matrix.
-
-    effect:   {dimension: delta} — negative consumes, positive produces.
-    cost_s:   seconds to run it once (the only currency).
-    requires: {dimension: minimum} — must hold to run it, and is NOT consumed (a pickaxe tier, a crafting table,
-              standing at the vein). Handled by the fixed point, not by the matrix.
-    limit:    the most times it may run in one plan (None = unbounded); a gather that the world cannot supply
-              twenty times says so here.
-    """
+    """One column of the matrix."""
 
     __slots__ = ("name", "effect", "cost_s", "requires", "limit", "tag", "_exposure")
 
     def exposure(self, state):
-        """Seconds of damage this action's shape implies. Zero unless someone has taught it how to price that.
+        """Seconds of damage this action's shape implies."""
 
-        The shape is the action's own business — standing work takes the pressure for its whole duration, leaving
-        takes it only until it is out of reach — but the pricing belongs to whoever knows about threats. So the
-        function is injected (`actions.with_exposure`) rather than imported: this module is the solver, and a
-        solver that imports the threat model is no longer a fact about arithmetic.
-        """
         fn = getattr(self, "_exposure", None)
         return float(fn(self, state)) if fn else 0.0
 
@@ -84,7 +42,6 @@ class Action:
 
     def __repr__(self):
         return f"Action({self.name}, {self.cost_s}s)"
-
 
 class Plan:
     """The solution: how many times to run each action, what it costs, and the state it leaves behind."""
@@ -106,12 +63,8 @@ class Plan:
         return not self.counts
 
     def steps(self):
-        """(action, times) in an order that can be executed: an action runs only once whatever it consumes exists.
+        """(action, times) in an order that can be executed: an action runs only once whatever it consumes exists."""
 
-        The matrix says WHAT to run; this says WHEN. A topological order by production suffices because the plan
-        is feasible by construction — at every point some remaining action's inputs are satisfied, or the plan
-        would not have reached the target.
-        """
         if self.order is not None:
             return list(self.order)
         remaining = dict(self.counts)
@@ -143,23 +96,14 @@ class Plan:
                 break
         return out
 
-
 # ---------------------------------------------------------------------------------------------------- the program
 
 _PRICES = {}
 
-
 def reach_cost(cols, state):
-    """Pure: {dimension: cheapest seconds to obtain one unit}, ignoring how much is needed.
+    """Pure: {dimension: cheapest seconds to obtain one unit}, ignoring how much is needed."""
 
-    The global relaxation, computed once per round and shared by every layer of the descent — it is what lets a
-    layer treat "and then the rest of the chain" as a single number instead of unrolling it. A column's cost is its
-    own seconds plus the cost of everything it consumes and requires; a dimension's cost is the cheapest column
-    that produces it; iterate to a fixed point. Unreachable dimensions stay at infinity, which is how "this world
-    has no way to iron" becomes a number rather than a special case.
-    """
     return reach_tree(cols, state)[0]
-
 
 # What makes two relaxations the same question. Not the whole state: this is a table of "cheapest way to get one
 # of each dimension", and whether we HOLD something changes it, while how much food is in the bar does not. With
@@ -167,34 +111,23 @@ def reach_cost(cols, state):
 # calls a round — was rebuilt from nothing each time.
 _UNPRICED = ("lever:", "food", "bag_free")
 
-
 def _state_key(state):
-    """Only what a price depends on: what is held, in coarse steps. Holding one plank or four changes what is
-    cheapest; holding 17.3 versus 17.4 points of food does not."""
+    """Only what a price depends on: what is held, in coarse steps."""
+
     return tuple(sorted((d, min(int(v), 64)) for d, v in state.items()
                         if v and not str(d).startswith(_UNPRICED)))
 
-
 def _columns_key(cols):
-    """The table's identity: its columns and what they cost.
+    """The table's identity: its columns and what they cost."""
 
-    Carried ON the table when it is one (`actions.Table` keeps it), computed from the contents otherwise. It is
-    NOT keyed by id(): a table is built per round, the old one is collected, and Python hands the same id to the
-    next — which served one world's prices for another's ground, and made a room come out cheaper than open air.
-    """
     got = getattr(cols, "key", None)
     if got is not None:
         return got
     return tuple(sorted((a.name, a.cost_s) for a in cols))
 
-
 def reach_tree(cols, state):
-    """The same relaxation, keeping the CHOICE: ({dimension: seconds}, {dimension: column that made it cheapest}).
+    """The same relaxation, keeping the CHOICE: ({dimension: seconds}, {dimension: column that made it cheapest})."""
 
-    The choices form a tree — the cheapest route to everything — and that tree is what makes pricing the future
-    affordable. Asking honestly what a plan leaves behind means a second relaxation per candidate; reading it off
-    this tree is a walk down one route (see `credits`).
-    """
     key = (_columns_key(cols), _state_key(state))
     if key in _PRICES:
         return _PRICES[key]
@@ -223,37 +156,17 @@ def reach_tree(cols, state):
     _PRICES[key] = (cost, via)
     return cost, via
 
-
 _MEMO = {}            # (columns, state, target) -> Plan. Bounded; cleared when it grows past MEMO_MAX.
 MEMO_MAX = 4000
 
-
 def _memo_key(actions, state, target, integral):
-    """What makes two solves the same question: the columns offered, what we hold, what is wanted.
+    """What makes two solves the same question: the columns offered, what we hold, what is wanted."""
 
-    The same coarse reading of the state as `reach_tree` uses, and for the same reason: a plan does not change
-    because the food bar ticked down a tenth, and keying on the raw state meant every round asked a question
-    nobody had ever asked before.
-    """
     return (_columns_key(actions), _state_key(state), tuple(sorted(target.items())), integral)
 
-
 def solve(actions, state, target, integral=True):
-    """Pure: the cheapest plan from `state` reaching `target` ({dimension: minimum}), or raise Unsolvable.
+    """Pure: the cheapest plan from `state` reaching `target` ({dimension: minimum}), or raise Unsolvable."""
 
-    Layered descent, not one big program. Putting the whole supply chain in a single matrix is correct and it is
-    what the first version did — but a bed dragged wool, sheep, travel, planks, logs, trees and a bench into one
-    38-column, 53-row problem, and the size grew with the game rather than with the decision. Almost none of that
-    is a decision: whether to cut a log is not in question once you know a bed needs planks.
-
-    So one layer at a time. Each layer is a matrix over the few columns that produce what this layer wants, plus one
-    "pay for it" column per input priced by `reach_cost` — a global relaxation computed once. The choices stay in
-    the matrix (four ways to be sheltered, two ways to reach iron, how many logs per plank); the chain below is a
-    number. Typical layer: about ten columns by eight rows, and constant in the size of the game.
-
-    Sharing across layers is kept by carrying one running inventory through the descent, so planks made for a table
-    are seen by the bed that comes after.
-    """
     need = {d: v for d, v in target.items() if state.get(d, 0) < v}
     if not need:
         return Plan({}, 0.0, dict(state), [], shadow=reach_cost(actions, state))
@@ -279,7 +192,6 @@ def solve(actions, state, target, integral=True):
     _MEMO[key] = out
     return out
 
-
 def _expand(actions, have, need, price, integral, depth):
     """Depth-first: buy the inputs, then run the actions of this layer. `have` is updated as the plan proceeds."""
     if depth > MAX_DEPTH:
@@ -303,14 +215,9 @@ def _expand(actions, have, need, price, integral, depth):
             have[d] = have.get(d, 0) + delta * n
     return out
 
-
 def _layer(actions, have, need, price, integral):
-    """One layer: which columns produce what this layer wants, and how many times.
+    """One layer: which columns produce what this layer wants, and how many times."""
 
-    Columns are the producers of the wanted dimensions (the cheapest few, by reachable cost) plus, for every input
-    those producers consume or require, a synthetic column that supplies one unit at its `reach_cost`. The synthetic
-    columns are what keep the matrix shallow: they stand in for the whole chain below without unrolling it.
-    """
     wanted = set(need)
     producers = []
     for d in wanted:
@@ -362,18 +269,15 @@ def _layer(actions, have, need, price, integral):
             run.append((a, times))
     return {"run": run, "buy": buy}
 
-
 def _relaxed(rows, b, c, upper):
     lp = _simplex(rows, b, c, [0] * len(c), list(upper))
     return lp[1] if lp else None
-
 
 def _priced(action, dim, price, have):
     """Seconds per unit of `dim` from this column, counting what it consumes and needs at relaxation prices."""
     spent = sum(price.get(d, float("inf")) * -v for d, v in action.effect.items() if v < 0 and have.get(d, 0) <= 0)
     unmet = sum(price.get(d, float("inf")) for d, v in action.requires.items() if have.get(d, 0) < v)
     return (action.cost_s + spent + unmet) / action.effect[dim]
-
 
 def _branch_and_bound(A, b, c, upper, nodes=None):
     """Integer minimum of cᵀn subject to A·n ≥ b, 0 ≤ n ≤ upper. Depth-first on the most fractional variable."""
@@ -406,14 +310,9 @@ def _branch_and_bound(A, b, c, upper, nodes=None):
     dive([0] * len(c), list(upper))
     return best[1]
 
-
 def _round_up(A, b, c, x, hi):
-    """The relaxed solution rounded up, if it is feasible: an integer plan in hand before the search starts.
+    """The relaxed solution rounded up, if it is feasible: an integer plan in hand before the search starts."""
 
-    Rounding up can only add actions, so it stays feasible whenever nothing has an upper bound in the way. Cheap to
-    test, and it gives branch and bound a bound from the first node instead of the thousandth — which is the
-    difference between finding the good plan and running out of budget next to it.
-    """
     n = [float(int(v // 1)) + (1.0 if v - int(v // 1) > 1e-6 else 0.0) for v in x]
     for j, v in enumerate(n):
         if hi[j] is not None and v > hi[j]:
@@ -423,20 +322,14 @@ def _round_up(A, b, c, x, hi):
             return None
     return sum(c[j] * n[j] for j in range(len(n))), n
 
-
 def _with(bounds, j, value):
     out = list(bounds)
     out[j] = value
     return out
 
-
 def _simplex(A, b, c, lo, hi):
-    """Two-phase simplex over exact rationals. Returns (objective, x) or None when infeasible.
+    """Two-phase simplex over exact rationals."""
 
-    Variables are shifted by their lower bounds and upper bounds become extra rows, so the tableau only ever sees
-    x ≥ 0 — the textbook form, at the price of a few more rows. These programs have tens of rows; exactness is
-    worth far more here than speed.
-    """
     m0, n = len(A), len(c)
     rows, rhs = [], []
     for i in range(m0):                               # A·n ≥ b  →  -A·(n-lo) ≤ -(b - A·lo)
@@ -457,16 +350,9 @@ def _simplex(A, b, c, lo, hi):
     value, x = out
     return value + base, [x[j] + lo[j] for j in range(n)]
 
-
 def _two_phase(rows, rhs, obj):
-    """min objᵀx subject to rows·x ≤ rhs, x ≥ 0. Exact rationals. Returns (objective, x) or None if infeasible.
+    """min objᵀx subject to rows·x ≤ rhs, x ≥ 0."""
 
-    Big-M in one phase rather than two. The two-phase version needed to drive artificials out of the basis and then
-    delete their columns, and the index bookkeeping around that deletion was wrong in exactly the case that matters
-    here — a program with both a flipped row and an upper-bound row — so it returned solutions that violated the
-    bounds it had been given. One phase has none of those seams: the artificials simply cost M, and a solution that
-    still uses one is infeasible. M is derived from the data, so it is always big enough and never a magic number.
-    """
     m, n = len(rows), len(obj)
     if m == 0:
         return (0.0, [0.0] * n) if all(v >= 0 for v in obj) else None
@@ -513,10 +399,9 @@ def _two_phase(rows, rhs, obj):
             x[basis[i]] = tableau[i][-1]
     return sum(float(obj[j]) * x[j] for j in range(n)), x
 
-
 def _pivot_to_optimal(T, basis, z, total, guard=600):
-    """Bland's rule: the lowest index with a negative reduced cost. Slower than steepest edge, and it cannot cycle —
-    these tableaux are degenerate often enough that cycling is a real risk, not a textbook one."""
+    """Bland's rule: the lowest index with a negative reduced cost."""
+
     for _ in range(guard):
         j = next((k for k in range(total) if z[k] < -EPS), None)
         if j is None:
@@ -535,7 +420,6 @@ def _pivot_to_optimal(T, basis, z, total, guard=600):
             for k in range(total + 1):
                 z[k] -= f * T[best_i][k]
     return False
-
 
 def _pivot(T, basis, i, j):
     p = T[i][j]

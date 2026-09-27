@@ -1,6 +1,5 @@
-"""Requirement resolution: turns needs like [('minecraft:bucket', 1), ('tool', 'pickaxe', 2)] into an ordered,
-merged, cost-estimated list of steps, simulating the inventory as it goes. Pure logic: all world knowledge comes
-through a cost model, so it can be tested offline."""
+"""Requirement resolution: turns needs like [('minecraft:bucket', 1), ('tool', 'pickaxe', 2)] into an ordered, merged, cost-estimated list of steps, simulating the inventory as it goes. Pure logic: all world knowledge comes through a cost model, so it can be tested offline."""
+
 import math
 from collections import Counter
 from dataclasses import dataclass, field
@@ -13,10 +12,8 @@ from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MI
 
 MAX_DEPTH = 14
 
-
 class Unplannable(McError):
     pass
-
 
 @dataclass
 class Step:
@@ -31,7 +28,6 @@ class Step:
 
     def __str__(self):
         return f"{self.kind} {self.count}× {bare(self.token)} (~{self.est // 20}s)"
-
 
 class VirtualInventory:
     """Counts what we'd hold after the planned steps run."""
@@ -64,7 +60,6 @@ class VirtualInventory:
     def has_tool(self, kind, tier, min_left):
         return any(k == kind and t >= tier and d >= min_left for k, t, d in self.tools)
 
-
 def cooked_from_carried(options, available, n):
     """Pure: [(cooked item, how many)] made from raw meat already carried, most carried first, up to `n` in all."""
     raw = sorted(((c, available(c.replace("cooked_", ""))) for c in options), key=lambda x: -x[1])
@@ -75,7 +70,6 @@ def cooked_from_carried(options, available, n):
             out.append((cooked, k))
     return out
 
-
 class Planner:
     def __init__(self, counts, tools, cost):
         self.inv = VirtualInventory(counts, tools)
@@ -85,8 +79,8 @@ class Planner:
 
     @classmethod
     def from_inventory(cls, inv, cost, extra=None):
-        """`extra`: items on their way (e.g. smelting in a machine) that count as held but aren't usable yet —
-        steps consuming them stay unrunnable until they arrive, so nothing is mined twice."""
+        """`extra`: items on their way (e."""
+
         counts = Counter()
         for item, n in (extra or {}).items():
             counts[item] += n
@@ -124,8 +118,8 @@ class Planner:
         self.inv.tools.append((kind, tier, 999))
 
     def craftable_tier(self, kind):
-        """The best tier of `kind` this (planned) bag crafts outright — crafting steps only, nothing to gather, mine
-        or smelt — or 0. The one answer for every tool goal (the planner's own needs and upkeep's replacement)."""
+        """The best tier of `kind` this (planned) bag crafts outright — crafting steps only, nothing to gather, mine or smelt — or 0."""
+
         for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
             probe = Planner(self.inv.counts, [], NullCost())
             probe.inv.produced = Counter(self.inv.produced)
@@ -139,9 +133,8 @@ class Planner:
         return 0
 
     def before(self, step, depth):
-        """Every step passes here before it is added: what the skill carrying it out needs held (knowledge.step_call
-        — its `needs` for this call: tools first, then items, planned and kept, never used up by it), then the tools
-        it runs faster with where making one pays (`speed_up`). The one place a step's skill is asked."""
+        """Every step passes here before it is added: what the skill carrying it out needs held (knowledge."""
+
         needs, speed = step_call(step)
         for dim, n in sorted(needs.items(), key=lambda kv: not kv[0].startswith("tool:")):
             if dim.startswith("tool:"):
@@ -155,10 +148,8 @@ class Planner:
         self.speed_up(step.kind, speed, units, depth)
 
     def speed_up(self, kind, speed, units, depth):
-        """Before `units` of work of step `kind`: the optional tools its skill runs faster with here (`speed`: its
-        `@skill(speed=...)`, seconds saved per unit — a shovel only on soft ground, step_call), made when making one
-        costs less than it saves — and only from what does not need this same work (an axe that needs the logs it
-        would speed up is made after them, too late)."""
+        """Before `units` of work of step `kind`: the optional tools its skill runs faster with here (`speed`: its `@skill(speed=."""
+
         if self.probing:
             return
         for tool, saved in speed.items():
@@ -288,9 +279,8 @@ class Planner:
     MERGEABLE_CRAFTS = {"planks", "minecraft:stick", "minecraft:torch", "minecraft:ladder"}
 
     def merged(self):
-        """Same-kind steps for the same token merge into the earliest one: gather, mine, smelt and craft
-        intermediates once for everything. Merging into the earliest position keeps dependencies valid because the
-        steps that feed it (gather/mine) are merged into their own earliest positions, which come before."""
+        """Same-kind steps for the same token merge into the earliest one: gather, mine, smelt and craft intermediates once for everything."""
+
         out, index = [], {}
         for s in self.steps:
             k = s.key()
@@ -310,21 +300,17 @@ class Planner:
                 out.append(s)
         return out
 
-
 def hunts_a_fighter(types):
     """Does this hunt target something that fights back (beliefs.fights_back)? Animals do not."""
     return fights_back(types)
 
-
 def runnable(step, inv):
-    """Can this step start from the bag now? What the skill carrying it out needs held (knowledge.step_call — the
-    same needs the plan was made to satisfy: the pickaxe of a mine, the sword of a fight, the bucket of a fill, the
-    emerald of a trade), and a step with `inputs` (craft, smelt, farm) those on hand."""
+    """Can this step start from the bag now?"""
+
     needs, _speed = step_call(step)
     if have_remainder(inv, needs_rows(needs)):
         return False
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
-
 
 class NullCost:
     """Offline cost model for tests."""

@@ -1,13 +1,5 @@
-"""Perception thread: watches /state ~5 times a second and sorts what it sees into two kinds of trouble.
+"""Perception thread: watches /state ~5 times a second and sorts what it sees into two kinds of trouble. environment (hazard.py)    lava, fire, water, a fall, a buried head: preempt at SAFETY with a /stop, and let the brain run the rescue at the top of its next round (hazard.handle). hostiles (fight_loop.py)   critical health, dragon breath, a provoked enderman, mobs that would kill us before the planner decides again: the threat model chooses an answer and fight_loop carries it out. Hunger is not trouble here: eating belongs to the brain's upkeep. The mod still owns per-tick nets (LavaGuard, forced surfacing, WaterClutch); this is the layer between those nets and the brain. Never acts while the player holds control, and never interrupts a rescue already running (api.MODE == "survival")."""
 
-  environment (hazard.py)    lava, fire, water, a fall, a buried head: preempt at SAFETY with a /stop, and let the
-                             brain run the rescue at the top of its next round (hazard.handle).
-  hostiles (fight_loop.py)   critical health, dragon breath, a provoked enderman, mobs that would kill us before the
-                             planner decides again: the threat model chooses an answer and fight_loop carries it out.
-
-Hunger is not trouble here: eating belongs to the brain's upkeep. The mod still owns per-tick nets (LavaGuard,
-forced surfacing, WaterClutch); this is the layer between those nets and the brain. Never acts while the player
-holds control, and never interrupts a rescue already running (api.MODE == "survival")."""
 import math
 import threading
 import time
@@ -26,7 +18,6 @@ HURT_RATE = 0.0       # health per second, measured
 _HP_SEEN = None       # (health, when) from the previous read
 
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
-
 
 def note_hurt(state, now=None):
     """Differentiate the health bar. Called every perception round; decays to zero when nothing is hitting us."""
@@ -47,37 +38,20 @@ def note_hurt(state, now=None):
     HURT_RATE = rate if rate > HURT_RATE else HURT_RATE * _CONFIG["risk"]["hurt_decay"]
     return HURT_RATE
 
-
 def hurt_rate():
-    """The pressure, MEASURED: how fast the health bar has actually been falling. The estimated twin is
-    `estimate.pressure_hp_s`; keeping both is the point — the residual between them is what `fit` reads."""
+    """The pressure, MEASURED: how fast the health bar has actually been falling."""
+
     return HURT_RATE
 
-
 def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
-    """The pressure we are actually under: the model's rate or the measured one, whichever is worse.
+    """The pressure we are actually under: the model's rate or the measured one, whichever is worse."""
 
-    The one place the two twins meet. Both are the same quantity — one estimated from what is in reach, one read
-    off the health bar — and every caller that needs "what is happening to us now" asks here rather than picking
-    a side: a skeleton that aims well outdoes the model, and that difference was a death.
-
-    `horizon` is the seconds the question is about, and the caller owns it: "what presses me while I work" is the
-    work horizon, "what can kill me before the planner decides again" is the interrupt window. Asked over twenty
-    seconds, two zombies seventeen blocks away came out at 8.5 hp/s and the interrupt fired every round for a
-    danger that was still four seconds' walk away — while every column priced over the same seconds saved
-    nothing, so the body was stopped over and over and never answered.
-    """
     from . import estimate
     return max(estimate.pressure_hp_s(here, rows, prot, ground=field, horizon=horizon), hurt_rate())
 
-
 def note_threats(near, now=None, here=None):
-    """Record the threat rows and their entity ids. Pure apart from the clock and the differencing memory.
+    """Record the threat rows and their entity ids."""
 
-    `here` is where we stand: a mob that has not noticed us yet is less of a threat than one that has, and how far
-    it notices from is a distance, so the rows cannot be built without knowing where we are. Without it every
-    hostile counts as having noticed us — the old behaviour, and the safe direction to be wrong in.
-    """
     global THREAT_ROWS, THREAT_IDS, THREAT_AT
     import time as _t
     from . import threat
@@ -87,7 +61,6 @@ def note_threats(near, now=None, here=None):
     THREAT_AT = now
     return THREAT_ROWS
 
-
 def threats_seen(max_age_s=3.0, now=None):
     """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""
     import time as _t
@@ -95,41 +68,29 @@ def threats_seen(max_age_s=3.0, now=None):
         return [], []
     return list(THREAT_ROWS), list(THREAT_IDS)
 
-
 def seen_at():
-    """When the rows above were read. Every layer polls the same world at its own rate, so a reading has to say
-    when it was taken or nothing can tell whether two decisions describe the same world."""
-    return THREAT_AT
+    """When the rows above were read."""
 
+    return THREAT_AT
 
 _SEEN = {}            # entity id -> (pos, when): velocity differencing, owned by this thread
 PAUSED = False         # the scenario bench sets this while commands rebuild the world (no clutch on a setup fall)
 INTERRUPT_TTD_S = float(_ENGAGE["interrupt_ttd_s"])     # floor: never look less far ahead than this
 
-
 def interrupt_within_s():
-    """Seconds until the planner next gets to decide — the running commitment, measured from the last segment.
+    """Seconds until the planner next gets to decide — the running commitment, measured from the last segment."""
 
-    Not a horizon: `estimate.horizon_s` is how long the account runs, this is how soon a danger has to land for
-    the reflex to be the one that answers it. Sharing the word was enough to make them look like one number.
-
-    A constant here, beside a skill that held the body until it finished, was wrong at both ends: too short to
-    catch anything while the skill ran, too long once the skill yields every block.
-    """
     from . import api as _api
     return max(INTERRUPT_TTD_S, _api.LAST_SEGMENT_S)
 REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let the rescue work)
 
-
 HOSTILE = ("critical_health", "breath", "enderman", "hostiles")
 DANGERS = hazard.KINDS + HOSTILE
 
-
 def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None,
            buried=False, fallen=0.0):
-    """Pure: the danger kind to interrupt for (one of DANGERS), or None. The environment first (`hazard.kind`), then
-    the hostile kinds. `hostiles_within(r)` → nearest hostile distance or None; it is only called when health is low
-    (entity queries cost more than a state read)."""
+    """Pure: the danger kind to interrupt for (one of DANGERS), or None."""
+
     if state.get("dead") or state.get("control", {}).get("paused"):
         return None
     env = hazard.kind(state, buried=buried, fallen=fallen)
@@ -164,7 +125,6 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
             return "hostiles"
     return None
 
-
 def _running_skill():
     from .skill import HEARTBEAT
     try:
@@ -174,12 +134,10 @@ def _running_skill():
     except (OSError, ValueError):
         return None
 
-
 def _eating():
-    """Eating is running: nothing may cut in. Every bite in the dragon bench was cancelled by the next task and the
-    log filled with "no bite" while health went to zero."""
-    return _running_skill() == "eat"
+    """Eating is running: nothing may cut in."""
 
+    return _running_skill() == "eat"
 
 class Watcher(threading.Thread):
     def __init__(self):
@@ -191,11 +149,8 @@ class Watcher(threading.Thread):
         self.hazard = hazard.Watch()     # how far we have fallen, whether the head is in a block
 
     def _hostiles_within(self, radius):
-        """How close the nearest thing that can hurt us is, from THIS tick's reading.
+        """How close the nearest thing that can hurt us is, from THIS tick's reading."""
 
-        It used to take a reading of its own. Two reads a tick is two worlds a tick, and the danger check could
-        disagree with the answer chosen a millisecond later about whether anything was there at all.
-        """
         try:
             rows, _ids = threats_seen()
             here = LAST_HERE
@@ -206,8 +161,8 @@ class Watcher(threading.Thread):
         return min(near, default=None)
 
     def _time_to_die(self, s):
-        """Seconds to death at the current threat pressure, or None. At most once a second: entity queries cost
-        more than a state read, and one second is inside the interrupt threshold anyway."""
+        """Seconds to death at the current threat pressure, or None."""
+
         now = time.time()
         if now - self._ttd_t < 1.0:
             return self._ttd
@@ -228,12 +183,8 @@ class Watcher(threading.Thread):
         return self._ttd
 
     def _look(self, s):
-        """One read of what is near, shared by everything that asks this tick.
+        """One read of what is near, shared by everything that asks this tick."""
 
-        `note_threats` stamps the rows with when they were taken (`seen_at`), so a decision made from them can say
-        which world it describes — and a decision made from rows nobody refreshed can be told apart from a
-        decision that the world was quiet.
-        """
         global LAST_HERE
         try:
             near = api.get("/entities?radius=24").get("entities", []) or []
@@ -244,12 +195,8 @@ class Watcher(threading.Thread):
         return note_threats(near, time.time(), here=LAST_HERE)
 
     def _answer_threats(self, state):
-        """One look at the world, one outcome recorded — an answer, or a named reason there was none.
+        """One look at the world, one outcome recorded — an answer, or a named reason there was none."""
 
-        Every tick writes exactly one entry (`observe`). Silence used to be indistinguishable from "nothing was
-        worth answering": a bench read fourteen empty cells and could not tell a model that chose to carry on
-        from a layer that never looked.
-        """
         from . import threat
         now = time.time()
         if not fight_loop.wired():
@@ -284,8 +231,8 @@ class Watcher(threading.Thread):
             api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
 
     def _breath_within(self, radius):
-        """A dragon breath cloud within `radius`. Only asked in the End, and at most every second: entity queries
-        cost more than a state read."""
+        """A dragon breath cloud within `radius`."""
+
         now = time.time()
         if now - getattr(self, "_breath_t", 0) < 1.0:
             return getattr(self, "_breath_seen", False)
@@ -299,8 +246,8 @@ class Watcher(threading.Thread):
         return self._breath_seen
 
     def _enderman_after_us(self, radius):
-        """An enderman that is actually provoked within `radius` (mod ≥0.1.33 reports `angry`). Same 1 s cache as the
-        breath check."""
+        """An enderman that is actually provoked within `radius` (mod ≥0.1.33 reports `angry`). Same 1 s cache as the breath check."""
+
         now = time.time()
         if now - getattr(self, "_ender_t", 0) < 1.0:
             return getattr(self, "_ender_seen", False)
@@ -389,18 +336,15 @@ class Watcher(threading.Thread):
                 pass
             api.log(f"!! perception: {reason} → interrupting the current task")
 
-
 LAST_HERE = None       # where we stood when the rows were read: the reading and the position are one observation
 OUTCOMES = ("answered", "refused", "nothing_pays", "quiet", "stale", "repeat", "eating", "soft", "unwired")
 ANSWERED = []
 ANSWERED_MAX = 500
 
-
 def answering(now=None, within=2.0):
     """Did the threat layer just choose an answer? The interrupt's one permission to stop ordinary work."""
     now = time.time() if now is None else now
     return any(now - a["t"] <= within and a["outcome"] in ("answered", "refused") for a in ANSWERED[-20:])
-
 
 def observe(t, outcome, **facts):
     """Record what this look at the world came to. Returns None so a caller can `return observe(...)`."""
@@ -408,15 +352,13 @@ def observe(t, outcome, **facts):
     del ANSWERED[:-ANSWERED_MAX]
     return None
 
-
 def answered_since(mark=0):
     """Every look taken after `mark` (a length read before the stretch of interest)."""
     return list(ANSWERED[mark:])
 
-
 def watching():
-    """Is the layer that answers threats actually running? A bench that does not ask this measures nothing and
-    says nothing: the body was never going to move."""
+    """Is the layer that answers threats actually running?"""
+
     return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
 GRID, GRID_AT, GRID_AT_POS = None, 0.0, None
@@ -425,15 +367,11 @@ GRID_R = 8
 GRID_TTL_S = 2.0
 _KIT, _KIT_SIG = {}, None
 
-
 _FAILED = set()          # what perceived() already logged once: a failing read says so, and only once
 
-
 def perceived(state, now, ground_of=None, kit_of=None):
-    """The state the threat model prices: the kit (sword, armour, food…) merged, the ground (`field`) and the
-    footing evade walks on — each read on its own. One try around all three swallowed ground()'s AttributeError
-    on every call: the kit was never merged (sword 0: evade with an iron sword in hand), the region never kept
-    (evade unchecked: off the sky platform). A read that fails is logged once and leaves the rest standing."""
+    """The state the threat model prices: the kit (sword, armour, food…) merged, the ground (`field`) and the footing evade walks on — each read on its own."""
+
     ground_of = ground_of or ground
     kit_of = kit_of or (lambda st: kit(kit_signature(st, now)))
     out = dict(state)
@@ -448,10 +386,9 @@ def perceived(state, now, ground_of=None, kit_of=None):
                 api.log(f"!! perception: {name}: {type(e).__name__}: {e}")
     return out
 
-
 def ground(state, now=None, radius=GRID_R, region_of=None):
-    """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved. `region_of`
-    (lo, hi) → the blocks (world.Region by default)."""
+    """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved."""
+
     global GRID, GRID_AT, GRID_AT_POS, REGION
     from . import field as _field
     from .world import Region
@@ -470,30 +407,24 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
     GRID_AT, GRID_AT_POS = now, here
     return GRID
 
-
 def footing(state):
-    """spot → where a walk toward it lands on connected ground (nav.landing over REGION), for evade; None
-    before the ground was read (the threat model then prices evade as before)."""
+    """spot → where a walk toward it lands on connected ground (nav."""
+
     from . import nav
     region, here = REGION, (state["x"], state["y"], state["z"])
     return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
-
 KIT_TTL_S = 2.0      # the bag is re-read at least this often: /state says nothing of a sword given or picked up
 
-
 def kit_signature(state, now):
-    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or KIT_TTL_S passed.
-    It read `state["selected"]`, a key /state never had ("selectedSlot"): the kit was read once per process, and
-    a bench row that gave an iron sword fought with the fist of the row before (sword 0: evade, not fight)."""
+    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or KIT_TTL_S passed."""
+
     return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // KIT_TTL_S))
 
-
 def sword_level(tiers):
-    """Pure: the dps table's sword level from the sword tiers carried (working ones): 0 = no sword (fist); a wooden
-    or golden sword (material tier 0) is level 1, as the table says ("1" = wood/stone); at most 3."""
-    return min(3, max(1, max(tiers))) if tiers else 0
+    """Pure: the dps table's sword level from the sword tiers carried (working ones): 0 = no sword (fist); a wooden or golden sword (material tier 0) is level 1, as the table says ("1" = wood/stone); at most 3."""
 
+    return min(3, max(1, max(tiers))) if tiers else 0
 
 def kit(signature):
     """What we are carrying, re-read only when `kit_signature` changes: this runs at 5 Hz."""
@@ -511,7 +442,6 @@ def kit(signature):
             "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple")}     # a hole down needs no blocks
     _KIT_SIG = signature
     return _KIT
-
 
 def start():
     w = Watcher()

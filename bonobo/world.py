@@ -13,10 +13,8 @@ ROUTES = {}
 
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
-
 def add(p, d):
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
-
 
 class Inventory:
     def __init__(self, data=None):
@@ -66,7 +64,6 @@ class Inventory:
     def used_slots(self):
         return len(self.slots)
 
-
 def ticks_until_dusk(time_of_day):
     """Ticks until the next dusk. 0 during the night; at dawn (after NIGHT_END) a whole day lies ahead."""
     t = time_of_day % 24000
@@ -75,7 +72,6 @@ def ticks_until_dusk(time_of_day):
     if t > NIGHT_END:
         return 24000 - t + DAY_END
     return 0
-
 
 class Snapshot:
     """One consistent read of the player: state + inventory."""
@@ -129,11 +125,9 @@ class Snapshot:
     def get(self, key, default=None):
         return self.state.get(key, default)
 
-
 SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
 _SIGHT = {"key": None, "t": 0.0, "near": {}}
 _PER_BLOCK = []            # [bool] once known: the running jar answers /find?perBlock (≥ 0.1.55)
-
 
 def _per_block_ok():
     if not _PER_BLOCK:
@@ -145,12 +139,9 @@ def _per_block_ok():
         _PER_BLOCK.append(v >= (0, 1, 55))
     return _PER_BLOCK[0]
 
-
 def nearest(kinds, feet, dimension, radius=48, union=()):
-    """Blocks to the nearest of `kinds` in sight, or None — for estimates (the cost model), which never search the
-    world themselves. On a jar with /find?perBlock: ONE scan of the whole `union` per round (kept while the feet
-    stay put and for SIGHT_TTL_S), every later kind answered from it — fifteen scans a cold round were 1.5 s of a
-    1.95 s decide. On an older jar: one scan of `kinds`, kept the same way."""
+    """Blocks to the nearest of `kinds` in sight, or None — for estimates (the cost model), which never search the world themselves."""
+
     names = [bare(k) for k in kinds]
     key = (tuple(feet), dimension)
     fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
@@ -176,40 +167,33 @@ def nearest(kinds, feet, dimension, radius=48, union=()):
     got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
-
 def find(blocks, radius=32, limit=50, exposed=False):
-    """What `/find` sees. Seeing through blocks is allowed: sealed blocks are found unless `exposed` is asked for,
-    and then the flag is sent only as true (a jar that reads the key's presence took `exposed=false` as strict)."""
+    """What `/find` sees."""
+
     ids = ",".join(mid(b) for b in blocks)
     return api.get(f"/find?blocks={ids}&radius={radius}&limit={limit}" + ("&exposed=true" if exposed else ""))["blocks"]
-
 
 def entities(radius=16, types=None):
     out = api.get(f"/entities?radius={radius}")["entities"]
     return [e for e in out if types is None or e["type"] in types]
 
-
 def dark_spots(radius=4, max_light=7, limit=30):
     return api.get(f"/dark?radius={radius}&maxLight={max_light}&limit={limit}")["spots"]
-
 
 def container():
     return api.get("/container")
 
-
 REGION_MAX = 32 * 32 * 32       # the most cells one /blocks answers (the jar's MAX_REGION_VOLUME)
 
-
 def slabs(lo, hi, most=REGION_MAX):
-    """Pure: the box lo..hi cut along x into boxes of at most `most` cells, in order — one read per slab. A box
-    past the jar's limit was refused ("region too large") however much the caller needed it (reach_land: 49 wide)."""
+    """Pure: the box lo."""
+
     lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
     face = (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1)
     if face > most:
         raise ValueError(f"a y-z face of {face} cells is past the {most}-cell read")
     width = max(1, most // face)
     return [((x, lo[1], lo[2]), (min(hi[0], x + width - 1), hi[1], hi[2])) for x in range(lo[0], hi[0] + 1, width)]
-
 
 class Region:
     """Blocks in a box (from /blocks, in slabs the jar accepts); unknown cells outside the box are not inside."""
@@ -249,14 +233,12 @@ class Region:
     def player_made(self, p):
         return self.name(p).endswith(PLAYER_MADE_SUFFIX)
 
-
 def region_around(points, pad=3, max_volume=32768):
     lo = [min(p[i] for p in points) - pad for i in range(3)]
     hi = [max(p[i] for p in points) + pad for i in range(3)]
     if (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1) > max_volume:
         return None
     return Region(lo, hi)
-
 
 def connected(region, seed, ids):
     """Flood-fill a vein of the given block ids from a seed position."""
@@ -270,46 +252,39 @@ def connected(region, seed, ids):
         todo.extend(add(p, d) for d in NEIGHBOURS6)
     return out
 
-
 def job_ready(job, tick=None, now=None):
-    """Pure given `tick`/`now`: is a background job done? By the game's clock when both the job and the reading
-    have one — the furnace cooks in ticks, so a lagging server or a sprinted clock (the iron bench's /tick sprint)
-    moves it; the wall clock (`ready_at`) only as a fallback (a jar without gameTime)."""
+    """Pure given `tick`/`now`: is a background job done?"""
+
     if job.get("ready_tick") is not None and tick is not None:
         return tick >= job["ready_tick"]
     return job["ready_at"] <= (time.time() if now is None else now)
 
-
 def feet():
-    """The block the feet are in, (x, y, z): one /state read. The one home of this reading (nav reads it here, below
-    the skills; skillcore passes it on to them)."""
+    """The block the feet are in, (x, y, z): one /state read."""
+
     s = api.get("/state")
     return s["blockX"], s["blockY"], s["blockZ"]
 
-
 def away_from(here, point, blocks):
-    """Pure: the spot `blocks` from `here` straight away from `point`, on the horizontal (y kept; unrounded). On the
-    point itself, nowhere to go: `here`."""
+    """Pure: the spot `blocks` from `here` straight away from `point`, on the horizontal (y kept; unrounded)."""
+
     dx, dz = here[0] - point[0], here[2] - point[2]
     n = math.hypot(dx, dz) or 1.0
     return here[0] + dx / n * blocks, here[1], here[2] + dz / n * blocks
 
-
 def cells_with(region, name, key, value, want=True):
-    """Pure: the `name` blocks of `region` whose block state `key` reads `value` (`want=False`: reads anything
-    else). [] from a region read without block states."""
+    """Pure: the `name` blocks of `region` whose block state `key` reads `value` (`want=False`: reads anything else)."""
+
     prop = getattr(region, "prop", None)
     return [p for p, n in region.blocks.items() if n == name and prop and (str(prop(p, key)) == value) == want]
-
 
 def ripe_cells(region):
     """Pure: wheat blocks at full growth (age 7)."""
     return cells_with(region, "wheat", "age", "7")
 
-
 def ripe_near(feet, radius=32):
-    """Ripe wheat cells within `radius` of `feet` (one /find, then the block states read): a plot already grown is
-    harvested before a new one is sown (cost.ripe)."""
+    """Ripe wheat cells within `radius` of `feet` (one /find, then the block states read): a plot already grown is harvested before a new one is sown (cost."""
+
     hits = find(["wheat"], radius=radius, limit=64) or []
     if not hits or feet is None:
         return []

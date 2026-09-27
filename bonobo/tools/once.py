@@ -1,11 +1,5 @@
-"""Run one bench scenario exactly ONCE and stop.
+"""Run one bench scenario exactly ONCE and stop. `mc.py scenario run` retries a failing scenario up to five times, which is right for flaky fights but wrong when the point is a single honest measurement ("test it once"). This waits for any running bench to finish, starts the scenario, and stops it the moment the first verdict line appears. Usage: one_shot.py SCENARIO [LOGPATH]"""
 
-`mc.py scenario run` retries a failing scenario up to five times, which is right for flaky fights but wrong when the
-point is a single honest measurement ("test it once"). This waits for any running bench to finish, starts the
-scenario, and stops it the moment the first verdict line appears.
-
-Usage: one_shot.py SCENARIO [LOGPATH]
-"""
 import os
 import re
 import subprocess
@@ -16,11 +10,9 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 VERDICT = re.compile(r"^(PASS|FAIL) .*$", re.M)
 
-
 def bench_running():
     out = subprocess.run(["pgrep", "-f", "mc.py scenario"], capture_output=True).stdout.strip()
     return bool(out)
-
 
 def main():
     if len(sys.argv) < 2:
@@ -57,7 +49,6 @@ def main():
             verdict = "no verdict (log unreadable)"
     print(f"{scenario}: {verdict}")
     print(f"log: {log}")
-
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,4 @@
-"""Potions for the Nether and the End: water bottles, awkward potions (nether wart), fire resistance (magma cream).
-A brewing stand's slots: 0–2 bottles, 3 ingredient, 4 fuel (blaze powder). Pure `brew_steps` is offline-tested."""
+"""Potions for the Nether and the End: water bottles, awkward potions (nether wart), fire resistance (magma cream). A brewing stand's slots: 0–2 bottles, 3 ingredient, 4 fuel (blaze powder). Pure `brew_steps` is offline-tested."""
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore
@@ -10,10 +9,9 @@ from .world import Inventory, find
 
 FIRE_RES_CHAIN = [("minecraft:nether_wart", "awkward"), ("minecraft:magma_cream", "fire_resistance")]
 
-
 def brew_steps(have):
-    """Pure: which ingredients still need brewing, given item counts `have`. Water bottles → awkward (nether wart)
-    → fire resistance (magma cream). Returns [] when potions are already there, None when inputs are missing."""
+    """Pure: which ingredients still need brewing, given item counts `have`."""
+
     if have.get("minecraft:potion:fire_resistance", 0) >= 3:
         return []
     bottles = have.get("minecraft:potion:water", 0) + have.get("minecraft:potion:awkward", 0)
@@ -29,10 +27,9 @@ def brew_steps(have):
     steps.append("minecraft:magma_cream")
     return steps
 
-
 def bottle_commands(state, args):
-    """`commands` for fill_bottles: one fill per bottle wanted and carried, all aimed at the water source
-    (`state["source"]`, from fluids.fill_spot), back to back. NotAvailable with no bottle or no source."""
+    """`commands` for fill_bottles: one fill per bottle wanted and carried, all aimed at the water source (`state["source"]`, from fluids."""
+
     count = args[0] if args else 3
     bottles = state["inv"].count("minecraft:glass_bottle")
     if bottles < 1:
@@ -42,7 +39,6 @@ def bottle_commands(state, args):
         raise NotAvailable("no reachable still water for bottles")
     return [{"type": "use_item", "item": "minecraft:glass_bottle", "x": source[0] + 0.5, "y": source[1] + 0.5,
              "z": source[2] + 0.5}] * min(count, bottles)
-
 
 @skill(gives=["state:bottles_filled"], remaining=_k.more_than_at_start(lambda c: "minecraft:potion", lambda c: c.args[1] if len(c.args) > 1 else 3), needs={"minecraft:glass_bottle": 1}, speed={}, start=lambda c: Inventory().count("minecraft:potion"),
        commands=lambda state, args: bottle_commands(state, args),
@@ -69,21 +65,18 @@ def fill_bottles(ctx, count=3):
         return True
     raise NotAvailable("no reachable still water for bottles")
 
-
 FIRE_RESISTANCE = ("minecraft:fire_resistance", "minecraft:long_fire_resistance")
-
 
 def _fire_resistance_held():
     """Potions of fire resistance carried: the product itself (the jar reports a stack's `potion` from 0.1.39)."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s.get("potion") in FIRE_RESISTANCE)
 
-
 @skill(gives=["state:brewed"], remaining=_k.potions(lambda s: s.get("potion") in FIRE_RESISTANCE), needs={"minecraft:nether_wart": 1, "minecraft:blaze_powder": 1, "minecraft:glass_bottle": 1}, speed={}, start=lambda c: _fire_resistance_held(), verify=lambda c: _fire_resistance_held() > c.base,
        budget=300, stall=120, per_unit=60,
        provides={"brew:fire_resistance": lambda ctx, s: ()})
 def brew_fire_resistance(ctx):
-    """At a brewing stand (found or placed from the bag): 3 water bottles + nether wart → awkward, + magma cream →
-    fire resistance, blaze powder as fuel. Each ingredient takes 20 s."""
+    """At a brewing stand (found or placed from the bag): 3 water bottles + nether wart → awkward, + magma cream → fire resistance, blaze powder as fuel."""
+
     from .skills import Station, _open_container
     inv = Inventory()
     if inv.count("minecraft:blaze_powder") < 1:

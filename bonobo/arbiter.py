@@ -1,26 +1,5 @@
-"""One body, one exit, priority by time scale.
+"""One body, one exit, priority by time scale. The survey found 124 places that issue movement and no one adjudicating between them. Most of them do not need rewriting, because HOW to move already funnels through nav.go_to and api.run; what had no funnel was WHO may move the body right now. In a multi-threat fight that is where it breaks: the perception thread stops a task, the dispatcher starts an action, a recovery walks somewhere else, all inside one second. Subsumption, not scoring. Layers run at their own time scale and a faster layer overrides a slower one unconditionally — a reflex is not weighed against a plan, it vetoes it: REFLEX   (tick, in the jar)   lava, drowning, a fireball already in the air SAFETY   (~0.2 s, here)       stop what is running, leave a hazard, get into cover TACTIC   (~1 s)               take position, retreat, shake pursuit PLAN     (~10 s)              dig, place, reinforce, fire a window Two channels, kept distinct on purpose: * BODY (this module) is the ONLY thing that drives the body. Slow layers `submit` and wait for `step`; fast layers `preempt`, which runs at once and marks the slow layers stale until they re-plan. * api.INTERRUPT is a message, not a command: "a faster layer has spoken". A slow action that is already running reads it and abandons itself. It never moves the body. The body is a singleton — one process, one player — so BODY is module state. Actions are per fight; the body is not."""
 
-The survey found 124 places that issue movement and no one adjudicating between them. Most of them do not need
-rewriting, because HOW to move already funnels through nav.go_to and api.run; what had no funnel was WHO may move
-the body right now. In a multi-threat fight that is where it breaks: the perception thread stops a task, the
-dispatcher starts an action, a recovery walks somewhere else, all inside one second.
-
-Subsumption, not scoring. Layers run at their own time scale and a faster layer overrides a slower one
-unconditionally — a reflex is not weighed against a plan, it vetoes it:
-
-    REFLEX   (tick, in the jar)   lava, drowning, a fireball already in the air
-    SAFETY   (~0.2 s, here)       stop what is running, leave a hazard, get into cover
-    TACTIC   (~1 s)               take position, retreat, shake pursuit
-    PLAN     (~10 s)              dig, place, reinforce, fire a window
-
-Two channels, kept distinct on purpose:
-  * BODY (this module) is the ONLY thing that drives the body. Slow layers `submit` and wait for `step`; fast
-    layers `preempt`, which runs at once and marks the slow layers stale until they re-plan.
-  * api.INTERRUPT is a message, not a command: "a faster layer has spoken". A slow action that is already running
-    reads it and abandons itself. It never moves the body.
-
-The body is a singleton — one process, one player — so BODY is module state. Actions are per fight; the body is not.
-"""
 import json
 import threading
 import time
@@ -43,14 +22,12 @@ SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAIN
 #   stood_down  the body was handed to Claude; only reflexes still run
 REFUSED = ("layer", "held", "expired", "stood_down")
 
-
 # Standing down outlives the process that asked for it: `mc.py` is a second process, and a flag held in memory
 # there says nothing to the loop that is actually playing. So the handover is a file, re-read at most every
 # HANDOVER_POLL_S, and the live loop sees it within one round.
 HANDOVER = paths.data("handover.json", env="MC_HANDOVER")
 HANDOVER_POLL_S = 0.5
 _HANDOVER = (0.0, None)
-
 
 def handed_over(now=None):
     """The layer kept by the agent while Claude drives, or None. Cached: this is asked at every tick."""
@@ -67,18 +44,12 @@ def handed_over(now=None):
     _HANDOVER = (now, value if value in SCALES else None)
     return _HANDOVER[1]
 
-
 def fresh_enough(seen_at, now=None, within=1.0):
-    """Was this reading taken recently enough to compare with?
+    """Was this reading taken recently enough to compare with?"""
 
-    Every layer polls the same world at its own rate, so two decisions can be made from readings seconds apart.
-    Without a timestamp neither can tell, and a decision made from a thirty-second-old world defends itself
-    against one made from the current world as if they were equals.
-    """
     if seen_at is None:
         return False
     return (now if now is not None else time.time()) - float(seen_at) <= float(within)
-
 
 class Intent:
     """What a layer would like the body to do. Data, not a command — the arbiter decides whether it happens."""
@@ -121,7 +92,6 @@ class Intent:
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
 
-
 # The PLAN layer's one order — every planned proposal ranks here and nowhere else: what upkeep needs got (the
 # night's parts, a tool that broke, a bucket, blocks, food), then what the queue asks, then the night's work under
 # cover and idle stocking. They only PROPOSE; `arbitrate` chooses. (The MAINTAIN layer's reflexes rank by their
@@ -152,15 +122,12 @@ RESUME_OF = {
     "dimension change": "dimension", "user cancel": "none", "stuck": "cooled", "crash": "crashed",
 }
 
-
 def resume_of(source):
     """Pure: (resumes, what first) for work interrupted by `source` — KeyError for a source nobody declared."""
     return RESUME_RULES[RESUME_OF[source]]
 
-
 PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food stock",
               "queue", "night stock", "wait for day", "idle")
-
 
 # Last-resort kinds: offered only when nothing else is (`gate`) — idle stocking and waiting for day.
 LAST_RESORT = ("wait for day", "idle")
@@ -168,47 +135,37 @@ LAST_RESORT = ("wait for day", "idle")
 # work — a sword made after the queue ran dry — and counting it failed six rows whose tasks were all done.
 WAIT_KINDS = ("wait for day", "wait")
 
-
 def viable(intent, facts):
-    """Pure: may this proposal be offered at all? Not when the round's facts say its goal is already met in the bag,
-    it is cooling (retry), or it cannot be planned from here now (planner.Unplannable, found once this round).
-    `facts`: {"met": keys, "cooling": keys, "unplannable": keys}."""
+    """Pure: may this proposal be offered at all?"""
+
     key = intent.key
     return key is None or not any(key in facts.get(f, ()) for f in ("met", "cooling", "unplannable"))
 
-
 def gate(intents, facts=None):
-    """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left. Filters,
-    never reorders: the layers and PLAN_ORDER still choose among what passes."""
+    """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left."""
+
     live = [i for i in intents if viable(i, facts or {})]
     work = [i for i in live if not (i.layer == "plan" and i.kind in LAST_RESORT)]
     return work or live
 
-
 def note_pick(picks, intent):
-    """Count the chosen intent by its kind (a Counter the brain keeps): how many rounds went to waiting is read here,
-    not from log text."""
+    """Count the chosen intent by its kind (a Counter the brain keeps): how many rounds went to waiting is read here, not from log text."""
+
     if intent is not None:
         picks[intent.kind or intent.layer] += 1
     return picks
-
 
 def waits(picks):
     """Rounds spent on a waiting kind."""
     return sum(picks.get(k, 0) for k in WAIT_KINDS)
 
-
 def plan_rank(kind):
     """Pure: a PLAN proposal's place in PLAN_ORDER (an unknown kind after all of them)."""
     return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
 
-
 def first_live(groups, facts_of):
-    """Pure given its callables: the proposals of the first group, in order, that still has a useful one after the
-    gate (`gate`, with `facts_of(intents)` — the round's facts for that group's keys). A later group is asked only
-    when every earlier one gated to nothing: the queue, dear to ask, is still asked late, but no longer lost when the
-    needs before it were all cooling (plan_without_events: the needs gated out, the queue never asked, every round
-    idle). Returns (live, facts) — [] and {} when every group is empty."""
+    """Pure given its callables: the proposals of the first group, in order, that still has a useful one after the gate (`gate`, with `facts_of(intents)` — the round's facts for that group's keys)."""
+
     for ask in groups:
         intents = ask()
         facts = facts_of(intents)
@@ -217,24 +174,16 @@ def first_live(groups, facts_of):
             return live, facts
     return [], {}
 
-
 def arbitrate(intents, now=None, facts=None):
-    """Pure: the one intent that may drive the body, or None. Only useful proposals are considered (`gate`); fastest
-    layer wins; within the PLAN layer the PLAN_ORDER rank, then the place in line; otherwise the newest. Expired
-    intents are dropped, never run late."""
+    """Pure: the one intent that may drive the body, or None."""
+
     live = gate([i for i in intents if not i.expired(now)], facts)
     if not live:
         return None
     return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
 
-
 class Motion:
-    """The body's single entry point. Thread-safe: the perception thread preempts, the fight loop steps.
-
-    `engaged` is true while a fight owns the body. Outside a fight nothing is refused — ordinary play (mining,
-    building) keeps its skills unchanged. Inside one, any call that drives the body from outside the current
-    intent is a violation: refused, counted, logged. That is the ownership check nav.go_to and api.run make.
-    """
+    """The body's single entry point."""
 
     def __init__(self, log=None, watch_handover=False):
         # Only the one real body watches the handover file. A Motion built for a test is its own world, and having
@@ -303,8 +252,8 @@ class Motion:
         return getattr(self._local, "current", None)
 
     def carry(self, intent, action):
-        """Run `action` on THIS thread as `intent`: a held decision handed to a worker thread keeps the ownership
-        (`owns`) of the thread that took it. The fight answers on its own thread so perception never waits on it."""
+        """Run `action` on THIS thread as `intent`: a held decision handed to a worker thread keeps the ownership (`owns`) of the thread that took it."""
+
         prev = getattr(self._local, "current", None)
         self._local.current = intent
         try:
@@ -320,13 +269,8 @@ class Motion:
                 self._log(f"   motion: {intent.layer} '{intent.reason}' hands the body back")
 
     def holder(self):
-        """The decision currently held by the body, or None.
+        """The decision currently held by the body, or None."""
 
-        A held decision outlives the call that took it: an answer is not done when its first task returns, it is
-        done when answering stops being worth more than working. It is a DECISION, not a lock — `kernel.Held`
-        says when one may be replaced, and the same rule applies here so that the second answer of one fight is a
-        re-decision rather than an intruder.
-        """
         with self._lock:
             if self.lease is None:
                 return None
@@ -342,12 +286,8 @@ class Motion:
             return intent
 
     def owns(self, what):
-        """Is the calling thread allowed to drive the body right now?
+        """Is the calling thread allowed to drive the body right now?"""
 
-        While a lease stands, only the thread running that intent may drive. This used to be gated on `engaged`
-        (a boss fight), so in ordinary play every thread was allowed and whoever posted last won: the threat
-        answer took the body, the planner's next mine task replaced it, and the agent stood still being hit.
-        """
         holder = self.holder()
         if holder is not None and self.current() is not holder:
             self.violations.append((time.time(), what))
@@ -363,26 +303,8 @@ class Motion:
 
     def preempt(self, layer, action, reason="", worth_s=None, now=None, clear_first=False, release=None,
                 held=None, seen_at=None, fresh_within=FRESH_WITHIN_S):
-        """A fast layer speaks: run now, on this thread, and mark every slower intent stale.
+        """A fast layer speaks: run now, on this thread, and mark every slower intent stale."""
 
-        Returns `((layer, reason), None)` when it took the body, or `(None, why)` when it did not, with `why` one
-        of REFUSED. A refusal that cannot say which rule stopped it is indistinguishable from a threat nobody
-        priced, which is what a whole bench pass could not tell apart.
-
-        This is the only judgement here, and it is not a price:
-
-            faster layer   takes the body, unconditionally — subsumption, not a contest
-            slower layer   refused: "layer"
-            same layer     the LAYER's own held decision answers, through `release()`: still paying means keep,
-                           stopped paying means hand over. The arbiter does not compare two worths; the moment it
-                           does it is both the lock and the judge, and the layer above is left holding a decision
-                           nobody will run.
-
-        `held` is the challenger's own held decision, told `note_denied(why)` when it is refused — being unable to
-        reach the body is an assumption that has stopped holding, and a layer that is not told re-decides the same
-        thing every tick. `seen_at` is when the reading behind this answer was taken: a decision made from a stale
-        world does not defend itself against one made from the current world.
-        """
         intent = Intent(layer, action, reason)
 
         def refuse(why, note=""):
@@ -438,19 +360,12 @@ class Motion:
         return (intent.layer, intent.reason), None
 
     def drive(self, layer, action, reason="", commit_s=None, resumable=True, redo_s=0.0):
-        """Run `action` now, on this thread, under a commitment. Ordinary play's entry point.
+        """Run `action` now, on this thread, under a commitment."""
 
-        Ordinary play runs one chosen candidate per round. What it needs from the arbiter is the commitment:
-        `api.await_task` reads the current intent, and without one a skill keeps the body for as long as it likes —
-        which is why a zombie could beat on the agent for the length of a mining task.
-
-        Returns whether it ran: a stood-down agent does not drive itself.
-        """
         if not self.allows(layer):
             self._log(f"   motion: {layer} '{reason}' stands down: the body is Claude's")
             return False
         self._run(Intent(layer, action, reason, commit_s=commit_s, resumable=resumable, redo_s=redo_s))
         return True
-
 
 BODY = Motion(watch_handover=True)      # the one player this process drives

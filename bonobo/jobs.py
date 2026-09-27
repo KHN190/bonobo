@@ -1,14 +1,11 @@
-"""One model for everything that runs on its own after it is started: a furnace smelting, crops growing, a sapling
-turning into a tree, animals' breeding cooldown. A job is {id, kind, pos, dimension, item, count, ready_at, ...}
-in memory; the upkeep table collects the nearest ready one (`upkeep` "collect job"), and `collect` dispatches by
-kind. New long waits are new kinds here — never blocking loops."""
+"""One model for everything that runs on its own after it is started: a furnace smelting, crops growing, a sapling turning into a tree, animals' breeding cooldown. A job is {id, kind, pos, dimension, item, count, ready_at, ...} in memory; the upkeep table collects the nearest ready one (`upkeep` "collect job"), and `collect` dispatches by kind. New long waits are new kinds here — never blocking loops."""
+
 import time
 
 from .api import NotAvailable, log
 
 # How long each kind takes when started (seconds); furnace jobs compute theirs from the item count.
 DURATION = {"crop": 15 * 60, "sapling": 20 * 60, "breed": 5 * 60}
-
 
 def start(mem, kind, pos, dimension, item=None, count=0, seconds=None, **extra):
     """Record a job; `seconds` defaults to the kind's typical duration."""
@@ -20,7 +17,6 @@ def start(mem, kind, pos, dimension, item=None, count=0, seconds=None, **extra):
                 j.update(extra)
         mem.save()
     return job
-
 
 def collect(ctx, job):
     """Finish a ready job by kind. Kinds without a pickup (breeding cooldown) just expire."""

@@ -1,9 +1,5 @@
-"""Fluids and the Nether portal: fill a water bucket, cast a portal frame in place, light it.
+"""Fluids and the Nether portal: fill a water bucket, cast a portal frame in place, light it. Route (the speedrun way): no diamond pickaxe and no mining of obsidian — the frame is cast where it stands. Each frame cell is walled in by a mould of throwaway blocks, filled with lava from a bucket and turned to obsidian with water, bottom-up; the water is taken back, the mould inside the frame broken, and the frame lit with flint and steel. Pure planners (`fill_spot`, `cast_frame_plan`, `portal_light_aim`) are offline-tested; the skills only execute them."""
 
-Route (the speedrun way): no diamond pickaxe and no mining of obsidian — the frame is cast where it stands. Each
-frame cell is walled in by a mould of throwaway blocks, filled with lava from a bucket and turned to obsidian with
-water, bottom-up; the water is taken back, the mould inside the frame broken, and the frame lit with flint and steel.
-Pure planners (`fill_spot`, `cast_frame_plan`, `portal_light_aim`) are offline-tested; the skills only execute them."""
 import math
 
 from . import knowledge as K
@@ -15,10 +11,8 @@ from .world import Inventory, Region, add, find
 
 REACH = 4.0
 
-
 def _eye(cell):
     return cell[0] + 0.5, cell[1] + 1.62, cell[2] + 0.5
-
 
 def is_source(region, p, fluid):
     """A still source block of `fluid` (level 0). Regions without block properties count every fluid cell."""
@@ -28,17 +22,14 @@ def is_source(region, p, fluid):
     level = prop(p, "level") if prop else None
     return level is None or str(level) == "0"
 
-
 def standable(region, p):
     below, head = add(p, (0, -1, 0)), add(p, (0, 1, 0))
     return (region.inside(below) and region.solid(below) and not region.hazard(below)
             and not region.solid(p) and not region.hazard(p) and not region.solid(head) and not region.hazard(head))
 
-
 def clear_line(region, eye, target_cell, target_point, margin=0.2):
-    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0.1 block, with a margin for
-    aim error). A bucket clicks whatever the crosshair meets first: water behind a stone wall was 'filled' into the
-    stone, and a pour grazing a cache chest opened the chest instead of placing water."""
+    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0."""
+
     steps = max(1, int(math.dist(eye, target_point) / 0.1))
     target = tuple(target_cell)
     offsets = [(dx, dz) for dx in (-margin, 0, margin) for dz in (-margin, 0, margin)]
@@ -51,7 +42,6 @@ def clear_line(region, eye, target_cell, target_point, margin=0.2):
                 return False
     return True
 
-
 def lava_within(region, p, r):
     """Lava in the box of half-size r around p (feet, head and the floor layers)."""
     for dx in range(-r, r + 1):
@@ -61,16 +51,14 @@ def lava_within(region, p, r):
                     return True
     return False
 
-
 def surface_aim(cell):
-    """Pure: where to point a bucket at a source block — just under its top face, so the ray comes down onto the
-    surface instead of crossing neighbouring (flowing) water on the way in."""
+    """Pure: where to point a bucket at a source block — just under its top face, so the ray comes down onto the surface instead of crossing neighbouring (flowing) water on the way in."""
+
     return cell[0] + 0.5, cell[1] + 0.95, cell[2] + 0.5
 
-
 def fill_spot(region, here, fluid="water", reach=REACH):
-    """Pure: (stand, source) to fill a bucket from — a dry standable cell whose eye is within reach of a source
-    block's top face, never below its surface (and, for lava, never within 2 blocks of lava itself). Nearest to `here` first."""
+    """Pure: (stand, source) to fill a bucket from — a dry standable cell whose eye is within reach of a source block's top face, never below its surface (and, for lava, never within 2 blocks of lava itself)."""
+
     best = None
     sources = [p for p in region.blocks if is_source(region, p, fluid)]
     for w in sources:
@@ -92,32 +80,27 @@ def fill_spot(region, here, fluid="water", reach=REACH):
                         best = (d, s, w)
     return None if best is None else (best[1], best[2])
 
-
 def portal_light_cell(origin, turns, attempt=0):
     """Pure: the frame's inner bottom obsidian clicked with flint and steel (the second attempt one block further in)."""
     d = blueprints.rotate_offset((2 if attempt else 1, 0, 0), turns)
     return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
-
 
 def portal_light_aim(origin, turns):
     """Pure: the point to click with flint and steel — the top face of the frame's inner bottom obsidian."""
     t = nav.use_on_top("minecraft:flint_and_steel", portal_light_cell(origin, turns))
     return t["x"], t["y"], t["z"]
 
-
 def use_task(item, aim, on_block):
     return {"type": "use_item", "item": item, "x": aim[0], "y": aim[1], "z": aim[2], "onBlock": on_block}
 
-
 def light_commands(state, args):
-    """Pure: the chain that lights the frame at `origin` — flint and steel on the inner bottom obsidian (the second
-    attempt one block further in), then half a second for the portal blocks to appear."""
+    """Pure: the chain that lights the frame at `origin` — flint and steel on the inner bottom obsidian (the second attempt one block further in), then half a second for the portal blocks to appear."""
+
     origin, turns, attempt = args
     if not state["inv"].count("minecraft:flint_and_steel"):
         raise NotAvailable("no flint and steel to light the portal")
     return [nav.use_on_top("minecraft:flint_and_steel", portal_light_cell(origin, turns, attempt)),
             {"type": "wait", "ticks": 10}]
-
 
 def _use(item, aim, on_block):
     r = api.run(use_task(item, aim, on_block), wait=30, awaits="callers read where the click landed (the hit face) before the next use")
@@ -128,7 +111,6 @@ def _use(item, aim, on_block):
         log(f"   {item.split(':')[1]} clicked {(res['hitX'], res['hitY'], res['hitZ'])} face {res.get('face')} "
             f"(aimed at {tuple(round(v, 2) for v in aim)})")
     return res
-
 
 @skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, speed={}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
        budget=300, stall=120, per_unit=60, provides={"fill": lambda ctx, s: ()})
@@ -160,11 +142,9 @@ def fill_water_bucket(ctx):
         raise NotAvailable(f"clicked water at {source} but the bucket stayed empty")
     raise NotAvailable("no still water with a clear line of sight within 48 blocks")
 
-
 def cast_frame_plan(bp, origin, turns, solid):
-    """Pure: [(cell, mould)] — the frame's obsidian cells bottom-up, each with the mould cells to fill first: every
-    neighbour a lava source would run into (the four sides and below) that `solid(cell)` says is open. Mould on a
-    future frame cell or inside the frame is broken again later (`mould_to_break`)."""
+    """Pure: [(cell, mould)] — the frame's obsidian cells bottom-up, each with the mould cells to fill first: every neighbour a lava source would run into (the four sides and below) that `solid(cell)` says is open."""
+
     obs = [pos for pos, part, *_ in blueprints.placed(bp, origin, turns) if part.item == "minecraft:obsidian"]
     frame = set(pos for pos, *_ in blueprints.placed(bp, origin, turns))
     out, done = [], set()
@@ -180,14 +160,12 @@ def cast_frame_plan(bp, origin, turns, solid):
         done.add(c)
     return out
 
-
 def mould_to_break(bp, origin, turns, placed_mould):
-    """Pure: the mould blocks that must go again — inside the frame (the portal needs the air) or on a frame cell
-    still to be cast (the lava goes there)."""
+    """Pure: the mould blocks that must go again — inside the frame (the portal needs the air) or on a frame cell still to be cast (the lava goes there)."""
+
     inside = set(blueprints.clear_cells(bp, origin, turns))
     frame = set(pos for pos, *_ in blueprints.placed(bp, origin, turns))
     return [m for m in placed_mould if m in inside or m in frame]
-
 
 def _lava_bucket(ctx, here):
     """A lava bucket in hand: carried, or filled from the nearest lava source a stand spot reaches."""
@@ -209,16 +187,13 @@ def _lava_bucket(ctx, here):
         ctx.ban(c)
     raise NotAvailable("no lava source within reach to fill a bucket from")
 
-
 def floor_aim(cell):
     """The top face of the block under `cell`: a bucket clicked there empties into `cell`."""
     return cell[0] + 0.5, cell[1] + 0.02, cell[2] + 0.5
 
-
 def portal_lit(origin):
     """A nether_portal block inside the frame at `origin`: the one proof a portal stands."""
     return any(n == "nether_portal" for n in Region(add(origin, (-3, 0, -3)), add(origin, (3, 4, 3))).blocks.values())
-
 
 def light_portal(ctx, origin, turns):
     """Flint and steel on the inner bottom obsidian; verified by a nether_portal block inside the frame."""

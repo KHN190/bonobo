@@ -1,14 +1,5 @@
-"""Ordinary play's threat layer: who can hurt us, how soon, and whether to fight, walk away or wall in. Pure.
+"""Ordinary play's threat layer: who can hurt us, how soon, and whether to fight, walk away or wall in. Pure. The old rule was two if-statements — "hostile within 5 blocks and hp > 10 → attack it", "hp ≤ 10 and hostile within 6 → run straight away" — so a skeleton twelve blocks out shot the agent dead while it kept mining, and a zombie was punched bare-handed for thirty seconds. Neither statement knew what the enemy does, only where it stands. Same shape as the fight planner: threats are (centre, reach, velocity, kind) rows with several futures each (combat_model.hypotheses), the state is a dict, the currency is seconds and hit points, and the answer is the cheapest option — fight when the expected damage of killing everything leaves a reserve, otherwise leave its reach, or wall in when leaving costs more than building does. Numbers live in play.toml under [mobs], [player], [engage]."""
 
-The old rule was two if-statements — "hostile within 5 blocks and hp > 10 → attack it", "hp ≤ 10 and hostile within
-6 → run straight away" — so a skeleton twelve blocks out shot the agent dead while it kept mining, and a zombie was
-punched bare-handed for thirty seconds. Neither statement knew what the enemy does, only where it stands.
-
-Same shape as the fight planner: threats are (centre, reach, velocity, kind) rows with several futures each
-(combat_model.hypotheses), the state is a dict, the currency is seconds and hit points, and the answer is the cheapest
-option — fight when the expected damage of killing everything leaves a reserve, otherwise leave its reach, or wall in
-when leaving costs more than building does. Numbers live in play.toml under [mobs], [player], [engage].
-"""
 import math
 
 from . import beliefs, estimate
@@ -20,7 +11,6 @@ ENGAGE = CONFIG["engage"]
 # How long the account runs is `estimate.horizon_s`, and there is only one of it: a second horizon here meant
 # pressure was measured over four seconds and charged over twenty.
 
-
 class Decision:
     """kind: ignore | fight | evade | wall_in. target: entity id (fight) or spot (evade). why: for the log."""
 
@@ -29,7 +19,6 @@ class Decision:
 
     def __repr__(self):
         return f"Decision({self.kind}, {self.target}, {self.why!r})"
-
 
 # -- perception → rows -------------------------------------------------------------------------------------------------
 
@@ -40,18 +29,9 @@ NEUTRAL_MOBS = {"minecraft:zombified_piglin", "minecraft:piglin", "minecraft:end
                 "minecraft:bee", "minecraft:iron_golem", "minecraft:polar_bear", "minecraft:llama", "minecraft:panda",
                 "minecraft:dolphin", "minecraft:spider", "minecraft:cave_spider"}
 
-
 def awareness(e, here=None):
-    """0..1: how much of this mob's damage is actually coming at us.
+    """0."""
 
-    Three things about a threat vary, and all three used to be constants: how far it is, whether it has noticed
-    us, and how hard it hits. This is the second one, and it replaces the old boolean `is_threat`. A neutral mob
-    that has not been provoked is a 0 — not "not a threat", but a threat with nothing coming out of it, which is
-    the same number the model already knows how to handle. Anger it and it becomes a 1 without a single branch
-    changing anywhere. Outside its detection range a hostile mob is not yet a fight, but it is not nothing either:
-    it fades in over the last stretch, so the planner starts drifting away before the aggro line rather than
-    discovering it.
-    """
     if e.get("type") in NEUTRAL_MOBS and not e.get("angry"):
         return 0.0
     # Being in the hazard table IS the hostility test: `rows` is only ever given types its caller already calls
@@ -64,27 +44,14 @@ def awareness(e, here=None):
         return 1.0
     return max(0.0, 1.0 - (d - notice) / notice)
 
-
 def is_threat(e):
-    """Whether this mob is worth noticing at all: hostile, and not a neutral standing about. Kept as a name
-    because the perception watcher reads it."""
+    """Whether this mob is worth noticing at all: hostile, and not a neutral standing about."""
+
     return bool(e.get("hostile")) and awareness(e) > 0.0
 
-
-
-
-
 def rows(near, memory, now, kinds, here=None):
-    """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach}).
+    """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach})."""
 
-    Velocity is differenced against `memory` ({entity id: (pos, when)}), which the caller keeps between rounds.
-    Declaring (0,0,0) instead made every closed-form root return infinity: "nothing is coming" no matter what came.
-
-    The last two are the two things about a threat that a table cannot know: whether it has noticed us, and how
-    hard this particular one hits. Rows with no awareness at all are dropped — a neutral mob standing there is not
-    a hazard to route around — but the moment it is angered `awareness` returns 1 and it appears, with no branch
-    anywhere else changing.
-    """
     out = []
     for e in near or []:
         kind = e.get("type")
@@ -107,23 +74,16 @@ def rows(near, memory, now, kinds, here=None):
         del memory[key]          # or the table grows for the length of the session
     return out
 
-
 def hostile_rows(near, memory, now, here=None):
-    """Rows for the mobs the table knows. Neutral and unnoticing mobs fall out by having no awareness, not by a
-    filter: `rows` drops what is not coming at us (see `awareness`).
+    """Rows for the mobs the table knows."""
 
-    `here` is where we stand; without it every hostile counts as having noticed us, which is the old behaviour and
-    the safe direction to be wrong in.
-    """
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
     return rows(near or [], memory, now, kinds, here=here)
-
 
 def ids_by_row(near, hazards):
     """Entity id for each row (matched on position), so a fight decision can name its target."""
     by_pos = {(e["x"], e["y"], e["z"]): e.get("id") for e in near or []}
     return [by_pos.get(h[0]) for h in hazards]
-
 
 # The quantities live in `estimate`; these are the names this module's readers know them by. Aliases, not copies —
 # a second definition here is exactly what put four of this agent's deaths in the log. Anything this module adds is
@@ -138,15 +98,11 @@ time_to_die = estimate.time_to_die_s
 fight_cost = estimate.fight_cost
 hide_ratio = estimate.reaches_share
 
-
 # -- the model ---------------------------------------------------------------------------------------------------------
 
 def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
-    """Where to walk to leave every threat's reach: away from the dps-weighted centre of the threats, `blocks` far,
-    checked with the same slack rule the fight uses; `cover` (a known safe cell) is offered as a candidate.
-    `footing(spot)` (terrain.landing over the ground read around us) turns each candidate into the cell a walk
-    toward it reaches on connected ground, or None: a spot past a lethal drop is no escape. None when no
-    candidate is left — there is nowhere to leave to."""
+    """Where to walk to leave every threat's reach: away from the dps-weighted centre of the threats, `blocks` far, checked with the same slack rule the fight uses; `cover` (a known safe cell) is offered as a candidate."""
+
     blocks = float(ENGAGE["evade_blocks"]) if blocks is None else blocks
     weights = [float(MOBS.get(h[3], {}).get("dps", 1.0)) for h in hazards]
     wsum = sum(weights) or 1.0
@@ -178,20 +134,13 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
             best, best_key = opt, key
     return tuple(round(c) for c in best)
 
-
 def evade_cost(here, spot, hazards, prot):
     """hp lost walking from here to `spot`: the pressure here, over the walk, as an integral."""
     walk_s = math.dist(here, spot) / float(PLAYER["speed"])
     return estimate.leaving_hp(estimate.pressure_hp_s(here, hazards, prot), walk_s)
 
-
 class Option:
-    """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind.
-
-    Priced, not ranked. The pool converts health into seconds with the survival model and compares these against
-    mining and crafting in the same currency — which is the whole point: "run away" and "keep digging" were never
-    comparable while one was an if-statement above the other.
-    """
+    """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind."""
 
     def __init__(self, kind, target, hp, seconds, why, leaves=0.0, heals=0.0, protects=0.0, blast_after=0.0):
         self.kind, self.target, self.hp, self.seconds, self.why = kind, target, hp, seconds, why
@@ -209,24 +158,15 @@ class Option:
         return self.kind
 
     def effect(self, state):
-        """The state afterwards: what is still coming at us for the rest of the work.
+        """The state afterwards: what is still coming at us for the rest of the work."""
 
-        `hp` is not here — it is what the answer COSTS, not what the world looks like after it, and putting a
-        transition cost into a state is how the same health came to be counted twice.
-        """
         return dict(state, pending_hp=self.leaves * state["work_s"] + self.blast_after)
-
 
 SHAPES = ("between", "under", "down")
 
-
 def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
-    """Blocking the way, standing on a block and digging down are one column with a different place to put the
-    work: each is n units of the same currency (seconds, and blood while exposed) buying the same two effects —
-    they take longer to reach us, or they stop being able to see us.
+    """Blocking the way, standing on a block and digging down are one column with a different place to put the work: each is n units of the same currency (seconds, and blood while exposed) buying the same two effects — they take longer to reach us, or they stop being able to see us."""
 
-    The effects are heuristics; what they are worth is not. Seconds come from the one price function, as always.
-    """
     carried = int(state.get("blocks", 0))
     cap = int(ENGAGE.get("block_max", 4))
     # Digging down spends no blocks — only ground that digs (`dig_ok`: by hand or with the pickaxe carried); the
@@ -264,12 +204,9 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
                               f"{where}: {n} × {each_s}s", leaves=round(leaves, 3), blast_after=blast_after))
     return out
 
-
 def eat_options(state, hp, press, blast_here):
-    """Pure: eating in a fight. Ordinary food gives health back only through saturation regen, over the seconds
-    after, and only while nothing is hitting us: it is an answer once walled in or left behind (pressure below
-    `eat_safe_press`), never mid-melee. A golden apple heals at once, so it is an answer anywhere. A full hunger
-    bar cannot eat ordinary food at all."""
+    """Pure: eating in a fight."""
+
     max_hp = float(PLAYER.get("max_hp", 20))
     if hp >= max_hp:
         return []
@@ -285,20 +222,10 @@ def eat_options(state, hp, press, blast_here):
                        f"eat: +{heal:.0f} hp by regen, nothing reaching us", leaves=press, heals=heal)]
     return []
 
-
 def horizon_for(state):
-    """Seconds of "carrying on" the options are priced over, which is `estimate.horizon_s` and nothing else.
+    """Seconds of "carrying on" the options are priced over, which is `estimate."""
 
-    It used to stop at our own death, because with a flat horizon every answer priced out as the same certain
-    death and the cheapest one (doing nothing) won. That flattening had a different cause — `ignore` was charged
-    for its damage AND for the state that damage is — and truncating the horizon was how the symptom was held
-    down. With the double count gone the cap does the harm instead: the account ends at death, so dying costs
-    whatever health is left and any answer dearer than that looks worse than dying. A hundred and eight cells of
-    the swept table stood still with a sword in hand; without the cap, twelve, and those are the ones where
-    nothing genuinely helps.
-    """
     return estimate.horizon_s(state.get("work_s"))
-
 
 def _evade_option(here, spot, hazards, prot, press, out):
     """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
@@ -325,14 +252,9 @@ def _evade_option(here, spot, hazards, prot, press, out):
                   round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
                   blast_after=blast)
 
-
 def options(state):
-    """Pure: every answer worth considering, priced. Always includes `ignore` — carrying on is a choice with a cost.
+    """Pure: every answer worth considering, priced."""
 
-    state: here (x,y,z), hp, sword (tier), protection (0..1), night (bool), blocks (building blocks carried),
-           hazards (rows), ids (entity id per row, optional), cover (spot, optional), work_s (how long we would
-           stay exposed if we carried on)
-    """
     here, hp = tuple(state["here"]), float(state["hp"])
     hazards = [h for h in state.get("hazards", ()) if h[3] in MOBS]
     prot = float(state.get("protection", 0.0))
@@ -401,25 +323,16 @@ def options(state):
                           f"wall in, ~{wall_s}s exposed", leaves=round(through, 3)))
     return out
 
-
 def action_cost(option, price, work_s=None):
-    """kernel's `cost_s` for an option: its seconds, plus the health it spends priced ON TOP of what it still
-    leaves owed (`work_s` given) — one price of all the damage, not two. Priced apart, two sums past what kills
-    each counted a whole death, so at four hearts leaving cost more than staying and the agent stood still.
+    """kernel's `cost_s` for an option: its seconds, plus the health it spends priced ON TOP of what it still leaves owed (`work_s` given) — one price of all the damage, not two."""
 
-    Health spent acting is a cost, not a state: after the fight the mobs are gone either way, and what separates
-    the answers is what getting there took out of us.
-    """
     if work_s is None:
         return estimate.act_cost_s(option.seconds, option.hp, price)
     left = owed(option, work_s)
     return float(option.seconds) + price(left + float(option.hp)) - price(left)
 
-
 class Answer:
-    """One option, wearing kernel's action contract. The option prices health and time; what turns that into a
-    single `cost_s` is the price of health, which belongs to the caller, so the two are joined here and not in
-    `Option` — the same option costs different seconds to a full-health agent and a dying one."""
+    """One option, wearing kernel's action contract."""
 
     __slots__ = ("option", "name", "cost_s")
 
@@ -432,16 +345,8 @@ class Answer:
     def __repr__(self):
         return f"Answer({self.name}, {self.cost_s:.1f}s)"
 
-
 class Field:
-    """The threats around us, as a kernel model: one state, one price, a column per answer.
-
-    The same planner the fight uses (kernel.choose), with a horizon of one decision round instead of one fight.
-    `decide` and the pool's `saves` are both this — there is no second opinion left to disagree with.
-
-    The state is one number: the health still owed to us if we carry on for `work_s`. Everything else about the
-    field (who, where, how fast) is in the options, which price it.
-    """
+    """The threats around us, as a kernel model: one state, one price, a column per answer."""
 
     def __init__(self, state, price=None):
         self.field = state
@@ -451,12 +356,8 @@ class Field:
         self.default = next(a for a in self.opts if a.name == "ignore")
 
     def state(self):
-        """The kernel state: what carrying on still owes us, which is exactly what the `ignore` column leaves.
+        """The kernel state: what carrying on still owes us, which is exactly what the `ignore` column leaves."""
 
-        Read off that column rather than recomputed, so the state and the do-nothing action cannot disagree — when
-        they did, `ignore` scored its own damage twice and every other answer looked four times better than the
-        planner thought it was.
-        """
         return {"pending_hp": self.default.option.leaves * self.work_s + self.default.option.blast_after,
                 "work_s": self.work_s}
 
@@ -467,50 +368,36 @@ class Field:
         return self.opts
 
     def admissible(self, state, option):
-        """Nothing here is refused. The veto exists for actions that can strand us — an answer to a threat cannot:
-        the worst of them is priced, and a price is the pool's business, not the veto's."""
+        """Nothing here is refused."""
+
         return True, ""
 
-
 def owed(option, work_s):
-    """Pure: health still owed to us after this answer — the rate it leaves, over the work, plus any blast that
-    still reaches us. The state, in other words: `Option.effect` is this and nothing else."""
+    """Pure: health still owed to us after this answer — the rate it leaves, over the work, plus any blast that still reaches us."""
+
     return option.leaves * work_s + option.blast_after
 
-
 def total_cost(option, price, work_s):
-    """Pure: everything this answer costs — the time and health it takes (`action_cost`) plus what it leaves
-    owed. THE comparison; there is only this one."""
+    """Pure: everything this answer costs — the time and health it takes (`action_cost`) plus what it leaves owed."""
+
     return action_cost(option, price, work_s) + price(owed(option, work_s))
 
-
 def saves(option, opts, price, work_s):
-    """Pure: seconds this answer saves against carrying on.
+    """Pure: seconds this answer saves against carrying on."""
 
-    Literally kernel's score — `price(state) − price(effect) − cost_s` — for a caller that already has the options
-    in hand (the pool offers each one separately and lets them compete with mining). It was written as the
-    difference of two `total_cost`s, which charged carrying on for its damage AND for the state that damage IS:
-    the numbers came out about four times too big, and the live bench caught the planner holding `ignore` in a row
-    whose columns claimed to save a hundred and sixty seconds.
-    """
     doing_nothing = next((o for o in opts if o.kind == "ignore"), None)
     if doing_nothing is None:
         return 0.0
     return estimate.saved_s(price, owed(doing_nothing, work_s), owed(option, work_s),
                             action_cost(option, price, work_s))
 
-
 def decide(state, price=None):
-    """Pure: the best answer, decided by `kernel.choose` like every other plan this agent makes.
+    """Pure: the best answer, decided by `kernel."""
 
-    `price(hp)` turns health into seconds; without it health counts as itself, which is only right for tests — the
-    pool passes the survival model.
-    """
     from . import kernel
     field = Field(state, price)
     best = (kernel.choose(field, field.state()).action or field.default).option
     return Decision(best.kind, best.target, best.why, best.hp)
-
 
 # -- what the fight tells ordinary play ---------------------------------------------------------------------------
 # Two things, never a decision: a RATE and a set of circles. The rate is `estimate.pressure_hp_s` — the same
@@ -518,16 +405,11 @@ def decide(state, price=None):
 # which takes the worse of it and what the health bar is actually doing). There is no tax function here: a second
 # name for one number is how the two planners came to disagree about what a corridor costs.
 
-
 def no_go(state, margin=None):
-    """Pure: [(centre, radius)] the normal planner must not route through or plan work inside.
+    """Pure: [(centre, radius)] the normal planner must not route through or plan work inside."""
 
-    A field, not an answer. It is true of the world for as long as those mobs are there, so it can be consulted
-    when a plan is MADE — which is the whole reason the two planners exchange prices and not decisions.
-    """
     margin = float(ENGAGE["no_go_margin"] if margin is None else margin)
     return [(tuple(h[0]), float(h[1]) + margin) for h in state.get("hazards", ()) if h[3] in MOBS]
-
 
 # ------------------------------------------------------------------------------- the price of health
 # What losing health costs in seconds depends on the state it is lost from: a chance of dying plus a loss of margin
@@ -535,21 +417,14 @@ def no_go(state, margin=None):
 # planner any more — the survival brain runs a fixed order and does not score.
 _T, _R, _K = beliefs.CONFIG["time"], beliefs.CONFIG["risk"], beliefs.CONFIG["tools"]
 
-
 def bag_loss(s):
-    """Seconds lost to a full bag: work whose output falls on the floor.
+    """Seconds lost to a full bag: work whose output falls on the floor."""
 
-    A full bag does not stop the agent, it stops the agent from KEEPING anything — so the next stretch of mining
-    is time spent for nothing. That cost was never in the model; tidying was worth a legacy three points (thirty
-    seconds) and lost to whatever else was going, while the bag stayed full and the ore kept dropping.
-    """
     free = float(s.get("bag_free", 36))
     if free >= _R["bag_comfortable"]:
         return 0.0
     share = (_R["bag_comfortable"] - free) / _R["bag_comfortable"]
     return share * _T["day_s"] * _K["mining_share_of_day"]
-
-
 
 def price_state(**kw):
     """The survival state health and time are priced in (`hp_seconds`); unknown keys are refused."""
@@ -565,45 +440,31 @@ def price_state(**kw):
     s.update(kw)
     return s
 
-
 def _protection(s):
-    """This state's damage reduction, from the belief table. Private: `beliefs.protection` is the one owner, and a
-    second public function of the same name is how the same chestplate came to be worth two different things."""
+    """This state's damage reduction, from the belief table."""
+
     return beliefs.protection(s["armor"], s["shield"])
 
-
 def encounter_damage(s):
-    """(seconds, health) one ordinary encounter costs at this weapon and armour.
+    """(seconds, health) one ordinary encounter costs at this weapon and armour."""
 
-    One reference mob, met at arm's length, priced by the same `estimate.fight_cost` the threat layer uses to
-    decide whether to swing at the real thing. They were two arithmetics over one question — what a fight costs —
-    so a sword could be worth making and not worth using.
-    """
     kind = _R["reference_mob"]
     here = (0.0, 0.0, 0.0)
     row = estimate.row((float(beliefs.PLAYER["melee_reach"]), 0.0, 0.0), beliefs.mob(kind)["reach"],
                        (0.0, 0.0, 0.0), kind)
     return estimate.fight_cost(here, [row], s["sword"], _protection(s))
 
-
 _fatal_chance = estimate.fatal_chance     # one curve, in the module that owns the five quantities
 
-
 def fight_loss(s):
-    """Seconds a day of ordinary encounters costs at this weapon and armour — at full health.
+    """Seconds a day of ordinary encounters costs at this weapon and armour — at full health."""
 
-    Full health on purpose: over a day the bar refills, so the day's risk is a property of the gear, not of this
-    minute's health. What being hurt RIGHT NOW costs is `hurt_loss`, and keeping them apart is what stopped the
-    model from saying that dying was cheaper than being at four hearts (it priced four hearts as if they lasted
-    all day, which came to more than the cost of respawning).
-    """
     kill_s, damage = encounter_damage(s)
     return _R["encounters_per_day"] * (kill_s + _fatal_chance(20, damage) * _T["death_cost_s"])
 
-
 def hurt_loss(s):
-    """Seconds the current health deficit costs: the time to regenerate it, plus the extra chance of dying in the
-    encounters that happen before it is back."""
+    """Seconds the current health deficit costs: the time to regenerate it, plus the extra chance of dying in the encounters that happen before it is back."""
+
     hp = max(0.1, float(s["hp"]))
     if hp >= 20:
         return 0.0
@@ -613,10 +474,9 @@ def hurt_loss(s):
     extra = _fatal_chance(hp, damage) - _fatal_chance(20, damage)
     return regen_s + meetings * max(0.0, extra) * _T["death_cost_s"]
 
-
 def night_loss(s):
-    """Seconds the coming night is expected to cost. A bed skips it — but only where we can sleep: a bed in the
-    open is interrupted by the mobs standing over it, which is why a shelter is worth building even carrying one."""
+    """Seconds the coming night is expected to cost."""
+
     if s["bed"]:
         return 0.0 if s["sheltered"] else _R["night_bed_open"] * (1.0 - _protection(s)) * _T["death_cost_s"]
     p = _R["night_sheltered"] if s["sheltered"] else _R["night_open"]
@@ -628,14 +488,9 @@ def night_loss(s):
     idle = 0.0 if s["sheltered"] else _T["night_s"]
     return p * (1.0 - _protection(s)) * _T["death_cost_s"] + idle
 
-
 def hunger_loss(s):
-    """Seconds the CURRENT hunger costs before the next meal: work lost to not sprinting and not regenerating.
+    """Seconds the CURRENT hunger costs before the next meal: work lost to not sprinting and not regenerating."""
 
-    The bar itself, not the larder. Without this term eating was worth exactly nothing — `food_loss` looked only at
-    how many meals were carried, and eating one does not change that count, so the benefit of eating was zero at
-    every hunger level and the agent starved with a full bag of cooked pork.
-    """
     food = float(s["food"])
     if food >= _R["food_full"]:
         return 0.0
@@ -644,7 +499,6 @@ def hunger_loss(s):
     if food <= _R["food_low"]:
         slowed = max(slowed, _R["starving_slowdown"])   # below the floor nothing sprints and nothing heals
     return span * slowed
-
 
 def larder_loss(s):
     """Seconds the lack of MEALS costs over the next day: hunger we will not be able to answer."""
@@ -657,15 +511,10 @@ def larder_loss(s):
         loss += _R["starving_death"] * _T["death_cost_s"]
     return loss
 
-
 def food_loss(s):
-    """What hunger costs: what it is costing now, plus what having nothing to eat will cost.
+    """What hunger costs: what it is costing now, plus what having nothing to eat will cost."""
 
-    Two terms because there are two actions. Eating answers the first; cooking and hunting answer the second. One
-    number could only ever justify one of them, and it justified the wrong one.
-    """
     return hunger_loss(s) + larder_loss(s)
-
 
 def tool_loss(s):
     """Seconds the day's mining costs beyond what an iron pickaxe would take, plus fighting unarmed."""
@@ -674,30 +523,18 @@ def tool_loss(s):
     loss = mining * (mult - _K["mine_time_iron"])
     return loss
 
-
 def light_loss(s):
     return 0.0 if s["torches"] else _R["dark_work_death"] * _T["death_cost_s"]
 
-
 def expected_loss(s):
-    """The fifth quantity for ordinary play: seconds expected to be lost from here, given what we lack.
+    """The fifth quantity for ordinary play: seconds expected to be lost from here, given what we lack."""
 
-    `kernel` reaches it through `estimate.state_price_s`, the pool through `benefit`; both are the same number,
-    and every goal is worth exactly the reduction it makes to it.
-    """
     return (night_loss(s) + food_loss(s) + tool_loss(s) + light_loss(s) + fight_loss(s) + hurt_loss(s)
             + bag_loss(s))
 
-
 def hp_seconds(s, dhp):
-    """The fourth quantity, implemented here because health is only worth what being hurt costs FROM THIS STATE:
-    seconds that expecting to lose `dhp` health costs.
+    """The fourth quantity, implemented here because health is only worth what being hurt costs FROM THIS STATE: seconds that expecting to lose `dhp` health costs."""
 
-    Damage is a chance of dying plus a loss of margin, both continuous. The version with a branch at `dhp >= hp`
-    priced every answer in a bad spot as the same certain death, so fighting, fleeing and carrying on all came out
-    equal and the cheapest one (doing nothing) won. The curve is `estimate.fatal_chance`, the same one the fight
-    planner's two risks and `fight_loss` read.
-    """
     if dhp <= 0:
         return 0.0
     hp = float(s["hp"])

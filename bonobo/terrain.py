@@ -1,15 +1,14 @@
-"""Terrain reading: pure planners over a Region — where land is, where to shelter or burrow, how to get out of an
-enclosure or up to air, where there is room to sort the bag. No game access; skills.py and brain.py execute."""
+"""Terrain reading: pure planners over a Region — where land is, where to shelter or burrow, how to get out of an enclosure or up to air, where there is room to sort the bag. No game access; skills.py and brain.py execute."""
+
 import math
 
 from . import nav
 from .bag import throw_direction
 from .world import add
 
-
 def standing_cells(region, here, radius):
-    """Pure: every cell within `radius` of `here` one could stand in — a solid, harmless floor under it and two free
-    cells (air, cave air) from it up — in the region's own order."""
+    """Pure: every cell within `radius` of `here` one could stand in — a solid, harmless floor under it and two free cells (air, cave air) from it up — in the region's own order."""
+
     for (x, y, z), _name in region.blocks.items():
         cell = (x, y + 1, z)
         if math.dist(cell, here) > radius or not region.solid((x, y, z)) or region.hazard((x, y, z)):
@@ -18,10 +17,9 @@ def standing_cells(region, here, radius):
             continue
         yield cell
 
-
 def find_open_spot(region, here, radius=12):
-    """Pure: the nearest standable cell where inventory work can happen — a direction with 3+ blocks of room to
-    throw into and air above a neighbouring floor cell for a chest. Shafts and 1-wide tunnels have neither."""
+    """Pure: the nearest standable cell where inventory work can happen — a direction with 3+ blocks of room to throw into and air above a neighbouring floor cell for a chest."""
+
     best = None
     for cell in standing_cells(region, here, radius):
         x, y, z = cell[0], cell[1] - 1, cell[2]
@@ -36,20 +34,16 @@ def find_open_spot(region, here, radius=12):
             best = (d, cell)
     return None if best is None else best[1]
 
-
 def chest_spot_ok(region, spot):
     """Pure: a chest only opens with no solid block directly above it."""
     return not region.solid(spot) and not region.solid(add(spot, (0, 1, 0)))
 
-
 LAND = ["grass_block", "dirt", "stone", "sand", "gravel", "deepslate", "andesite", "diorite", "granite", "tuff",
         "podzol", "coarse_dirt", "snow_block", "cobblestone", "moss_block", "clay"]
 
-
 def underground_target(region, here, depth=(3, 6), radius=3):
-    """Pure: a cell to tunnel to for the night — a 2-high space-to-be with at least 2 solid, non-hazard blocks
-    straight above its head, so arriving there means no sky. Walking "6 blocks lower" on a hillside only reached
-    open ground further down. Nearest first; None when the ground here is too thin or wet."""
+    """Pure: a cell to tunnel to for the night — a 2-high space-to-be with at least 2 solid, non-hazard blocks straight above its head, so arriving there means no sky."""
+
     x, y, z = here
     best = None
     for dy in range(depth[0], depth[1] + 1):
@@ -74,11 +68,9 @@ def underground_target(region, here, depth=(3, 6), radius=3):
                     best = (d, c)
     return None if best is None else best[1]
 
-
 def shelter_method_at(region, cell, protected=()):
-    """Pure: which night shelter works with the body standing at `cell`, or None.
-    "burrow" = a solid hillside beside it; "dig" = 3 solid, safe blocks straight below (dig in and seal above);
-    "pod" = every open wall/roof cell has a solid neighbour to place against (so walling in can actually finish)."""
+    """Pure: which night shelter works with the body standing at `cell`, or None."""
+
     x, y, z = cell
     if choose_burrow(region, cell, protected):
         return "burrow"
@@ -101,10 +93,9 @@ def shelter_method_at(region, cell, protected=()):
             return None
     return "pod"
 
-
 def find_shelter_spot(region, here, radius=10, protected=()):
-    """Pure: the nearest standable cell (solid floor, two free cells above, no water) where some shelter method
-    works, as (cell, method). Standing on a thin pillar or a peak, nothing works in place: walk to a better spot."""
+    """Pure: the nearest standable cell (solid floor, two free cells above, no water) where some shelter method works, as (cell, method)."""
+
     best = None
     for cell in standing_cells(region, here, radius):
         method = shelter_method_at(region, cell, protected)
@@ -115,11 +106,9 @@ def find_shelter_spot(region, here, radius=10, protected=()):
             best = (rank, cell, method)
     return None if best is None else (best[1], best[2])
 
-
 def choose_burrow(region, inside, protected=()):
-    """Pure: a horizontal direction to tunnel 2 blocks into solid ground for the night — both cells of both steps
-    solid (feet and head), a floor under them, a roof over them, nothing hazardous or protected around. The
-    classic hillside shelter: works on terrain where walling in on the spot can't be done."""
+    """Pure: a horizontal direction to tunnel 2 blocks into solid ground for the night — both cells of both steps solid (feet and head), a floor under them, a roof over them, nothing hazardous or protected around."""
+
     x, y, z = inside
     best = None
     for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -139,13 +128,11 @@ def choose_burrow(region, inside, protected=()):
             best = (depth, (dx, dz))
     return None if best is None else best[1]
 
-
 NEIGHBOURS6_LOCAL = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
-
 def choose_exit(region, inside, protected=()):
-    """Pure: the best way out of a 1×2 enclosure. Returns (cells to mine, where to stand after) or None.
-    Prefers a side whose outside cell is standable; never opens a wall touching lava/water or a protected cell."""
+    """Pure: the best way out of a 1×2 enclosure."""
+
     x, y, z = inside
     best = None
     for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -163,33 +150,27 @@ def choose_exit(region, inside, protected=()):
             best = (score, [c for c in walls if region.solid(c)], out)
     return None if best is None else (best[1], best[2])
 
-
 def stands(region, feet_c):
-    """Pure: a cell a body can stand in on dry land — a solid, non-hazard LAND floor under it and two free (not
-    water) cells from the feet up."""
+    """Pure: a cell a body can stand in on dry land — a solid, non-hazard LAND floor under it and two free (not water) cells from the feet up."""
+
     head_c, floor = (feet_c[0], feet_c[1] + 1, feet_c[2]), (feet_c[0], feet_c[1] - 1, feet_c[2])
     return region.inside(head_c) and region.inside(floor) and region.name(floor) in LAND \
         and region.name(feet_c) in ("air", "cave_air") and region.name(head_c) in ("air", "cave_air")
 
-
 def soft_below(region, feet, depth):
-    """Pure: the `depth` cells under the feet all dig by hand (dirt, sand, gravel… `HAND_MINEABLE_SUFFIX`) and
-    something solid under the last one to stand on — a hole to hide in needs no pickaxe there. Air, water or stone
-    under us: not; a cave under the soft layer: not (the dig stops short and the lid ends above ground)."""
+    """Pure: the `depth` cells under the feet all dig by hand (dirt, sand, gravel… `HAND_MINEABLE_SUFFIX`) and something solid under the last one to stand on — a hole to hide in needs no pickaxe there."""
+
     from .data import HAND_MINEABLE_SUFFIX, bare
     x, y, z = feet
     names = [bare(region.name((x, y - k, z))) for k in range(1, depth + 1)]
     return all(n not in ("air", "cave_air", "water") and n.endswith(HAND_MINEABLE_SUFFIX) for n in names) \
         and region.solid((x, y - depth - 1, z))
 
-
 SOFT_RADIUS = 16          # how far along the ground a spot to dig in by hand is looked for
 
-
 def nearest_soft(region, feet, depth, radius=SOFT_RADIUS):
-    """Pure: (cell, steps) — the nearest spot on the same connected ground (breadth-first over standing cells, one
-    block up or down a step, within `radius` sideways) whose `depth` cells below all dig by hand (`soft_below`);
-    (feet, 0) when it is right here; None when there is none. A dirt patch across a gap is not on this ground."""
+    """Pure: (cell, steps) — the nearest spot on the same connected ground (breadth-first over standing cells, one block up or down a step, within `radius` sideways) whose `depth` cells below all dig by hand (`soft_below`); (feet, 0) when it is right here; None when there is none."""
+
     from collections import deque
     if soft_below(region, feet, depth):
         return feet, 0
@@ -209,13 +190,9 @@ def nearest_soft(region, feet, depth, radius=SOFT_RADIUS):
                 frontier.append((n, d + 1))
     return None
 
-
 def air_route(region, head):
-    """Pure: where a drowning body goes to breathe, as (kind, cell, why) or None.
-    "land": the nearest cell to stand on dry land reached by swimming from `head` (breadth-first through water and
-    the air lying on it, upward first) — a shaft's rim, a lake's shore: surfacing in a shaft sank back under;
-    "pillar": no land within reach, only the surface: stand on a block placed there;
-    "dig": no air at all, the water capped: the first solid block over the column."""
+    """Pure: where a drowning body goes to breathe, as (kind, cell, why) or None."""
+
     from collections import deque
     order = [(0, 1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, -1, 0)]
     frontier, seen, surface = deque([head]), {head}, None
@@ -243,16 +220,14 @@ def air_route(region, head):
     return ("dig", c, "water capped, no air within reach: dig the cap") if region.inside(c) and region.solid(c) \
         else None
 
-
 def is_enclosed(region, inside):
-    """Pure: no 2-high opening on any side and a solid roof. A torch or flower in one side cell doesn't make an exit
-    when the cell above it is solid: neither the player nor a zombie fits through a 1-high gap."""
+    """Pure: no 2-high opening on any side and a solid roof."""
+
     return not openings(region, inside)
 
-
 def openings(region, inside):
-    """Pure: what an enclosure around `inside` still lacks — {cell: "wall"} for each side with a 2-high gap (its feet
-    cell) and the roof — {} when enclosed. The remainder of every body shelter (skill `remaining`)."""
+    """Pure: what an enclosure around `inside` still lacks — {cell: "wall"} for each side with a 2-high gap (its feet cell) and the roof — {} when enclosed."""
+
     x, y, z = inside
     out = {}
     for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:

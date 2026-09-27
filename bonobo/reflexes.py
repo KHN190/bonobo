@@ -1,14 +1,5 @@
-"""The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered
-table (the shape of `recovery.TABLE`), the arbiter's MAINTAIN layer: faster than any plan, slower than a fight.
+"""The maintenance reflexes: a fixed trigger in, a fixed action out — no planning, a second's work. One ordered table (the shape of `recovery.TABLE`), the arbiter's MAINTAIN layer: faster than any plan, slower than a fight. eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad · dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck What must be PLANNED to be had — a bed, food stock, a tool, a bucket, blocks, the night's ore — is not here: those are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per round, lazily); the action is the upkeep executor's."""
 
-    eat on a hungry stomach with food carried · out of the water · home from the Nether when it turns bad ·
-    dug out in the morning · into a bed at night · the night's shelter from what is carried · a finished furnace
-    or machine emptied · a full bag emptied · a way made where a walk was blocked · unstuck
-
-What must be PLANNED to be had — a bed, food stock, a tool, a bucket, blocks, the night's ore — is not here: those
-are PLAN proposals (upkeep's needs, `decompose`). A trigger reads only its view (`view`: readings made once per
-round, lazily); the action is the upkeep executor's.
-"""
 import math
 import time
 
@@ -30,32 +21,27 @@ JOB_RANGE = 96
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 
-
 # (name, trigger over the round's view) — in order: the first that fires is the reflex the layer proposes first.
 # (name, trigger over the round's view, action(m: Maintain, v: view)) — one row per reflex, trigger and action
 # together; in order: the first that fires is the one the layer proposes first.
 FUELS = ("coal", "charcoal", "planks", "log")
 STATION_R = 8          # a furnace of ours this near counts as one to cook in
 
-
 def can_cook(inv, furnace_near):
-    """Pure: raw meat carried can be cooked from here — fuel in the bag, and a furnace carried, one near, or the
-    eight cobblestone to make one."""
+    """Pure: raw meat carried can be cooked from here — fuel in the bag, and a furnace carried, one near, or the eight cobblestone to make one."""
+
     fuel = any(inv.count(f) for f in FUELS)
     furnace = inv.count("minecraft:furnace") or furnace_near or inv.count("minecraft:cobblestone") >= 8
     return bool(fuel and furnace)
 
-
 def meal(food, inv, cookable):
-    """Pure: what the eat row eats — None (nothing now), False (a meal: cooked food only), True (raw meat too).
-    Raw only when starving (food ≤ STARVE) or when it cannot be cooked (`cookable()`); otherwise raw carried is
-    cooked by the plan first (night_first__low ate both raw beef at 8 and had nothing left to cook)."""
+    """Pure: what the eat row eats — None (nothing now), False (a meal: cooked food only), True (raw meat too)."""
+
     if food_count(inv):
         return False
     if not any(inv.count(f) for f in RAW_MEAT):
         return None
     return True if food <= STARVE or not cookable() else None
-
 
 TABLE = [
     ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
@@ -91,21 +77,17 @@ PROGRESS = {"empty the bag": lambda v: v["used_slots"], "unstuck": lambda v: v["
             "reach land": lambda v: v["feet"], "eat": lambda v: v["food"]}
 NO_PROGRESS = "stuck"          # the retry cause a reflex that changed nothing fails with
 
-
 def progress_of(name, view):
     """Pure: the reading a run of `name` should move."""
     return PROGRESS.get(name, lambda v: (v["feet"], v["used_slots"], v["food"]))(view)
-
 
 def stalled(fires_again, before, after):
     """Pure: a reflex that ran and fires again with its progress unchanged made no progress."""
     return bool(fires_again) and before == after
 
-
 def latched(fired, view):
     """Pure: the rows still inside their hysteresis after this round — fired, with an exit not yet reached."""
     return frozenset(n for n in fired if n in EXIT and not EXIT[n](view))
-
 
 class View(dict):
     """The round's readings, each made on first ask (`providers`: {key: zero-argument reader}), then kept."""
@@ -119,13 +101,11 @@ class View(dict):
         self[key] = value
         return value
 
-
 def due(view, ready=lambda name: True, active=frozenset()):
-    """[(seq, name)] of the reflexes that fire, in table order, skipping those cooling (`ready`): the trigger holds,
-    or the row is `active` (it fired last round) and has an exit that does not hold yet."""
+    """[(seq, name)] of the reflexes that fire, in table order, skipping those cooling (`ready`): the trigger holds, or the row is `active` (it fired last round) and has an exit that does not hold yet."""
+
     return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
             if ready(name) and (trigger(view) or (name in active and name in EXIT and not EXIT[name](view)))]
-
 
 def nether_retreat(snap):
     """In the Nether, head home through the portal when food, health or bag room run low. Pure."""
@@ -140,13 +120,10 @@ def nether_retreat(snap):
         return "bag full"
     return None
 
-
 def ground(reads=None):
-    """The two readings of the ground under the body both needs and reflexes ask (lazy, each read once when first
-    asked; `reads` stands in offline): enclosed (skills.enclosed → terrain.is_enclosed) and soft ground to dig in by
-    hand (skills.soft_ground_here → terrain.soft_below). One place for both askers."""
-    return _once(reads, "enclosed", skills.enclosed), _once(reads, "soft_ground", skills.soft_ground_here)
+    """The two readings of the ground under the body both needs and reflexes ask (lazy, each read once when first asked; `reads` stands in offline): enclosed (skills."""
 
+    return _once(reads, "enclosed", skills.enclosed), _once(reads, "soft_ground", skills.soft_ground_here)
 
 def _once(reads, key, read):
     """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
@@ -160,16 +137,12 @@ def _once(reads, key, read):
         return box["v"]
     return get
 
-
 # A shelter step's token → the skill that makes it (decompose.SOURCES["overnight"] steps).
 SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skills.pod(ctx),
                "hut": lambda ctx: skills.build_shelter(ctx)}
 
-
 class Maintain:
-    """The reflex table's executor, and what it remembers between rounds: where the body has been (stuck), where
-    the last path failure was going (blocked). `brain` supplies the failure policy (`ready`, `failed`, `retry`),
-    the movement policy and memory."""
+    """The reflex table's executor, and what it remembers between rounds: where the body has been (stuck), where the last path failure was going (blocked)."""
 
     def __init__(self, brain):
         self.brain = brain
@@ -194,10 +167,8 @@ class Maintain:
             self.blocked = {"t": time.time(), "place": place, "pos": getattr(err, "pos", None)}
 
     def proposals(self, snap, ctx, reads=None):
-        """[(seq, name, run)] of every reflex that fires (TABLE, `seq` its place there): each trigger reads this
-        round's view of the snapshot, made here — nothing another step of the round left behind, so the order in
-        which needs and reflexes are asked makes no difference. `reads` = {"enclosed", "bed_near", "soft_ground"}
-        stands in for world reads (offline); whatever is missing is read, once, when first asked."""
+        """[(seq, name, run)] of every reflex that fires (TABLE, `seq` its place there): each trigger reads this round's view of the snapshot, made here — nothing another step of the round left behind, so the order in which needs and reflexes are asked makes no difference."""
+
         from . import needs
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         blocked = self.blocked_here(b.place)
@@ -257,9 +228,8 @@ class Maintain:
 
     # -- night
     def shelter(self, snap, ctx, night_way):
-        """Night, exposed, no bed to sleep in, the parts in the bag: the way `overnight` priced cheapest from this
-        bag and this ground (dig in — with a pickaxe, or by hand in dirt or sand — wall in, a hut). Its parts, when
-        missing, are the round's "night prep" need instead (`prepare_night`)."""
+        """Night, exposed, no bed to sleep in, the parts in the bag: the way `overnight` priced cheapest from this bag and this ground (dig in — with a pickaxe, or by hand in dirt or sand — wall in, a hut)."""
+
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
         way, _secs, steps = night_way
@@ -296,9 +266,8 @@ class Maintain:
             jobs.collect(ctx, job)
 
     def empty_bag(self, snap, ctx):
-        """One decision (bag.empty_how over bag.let_go's pricing): deposit into a chest that already exists when a
-        stack is worth the walk, else drop the cheapest — never a chest crafted for it (no chest and no planks
-        cooled the row for 180 s while dirt could simply be thrown)."""
+        """One decision (bag."""
+
         from .bag import FREE_SLOTS_TARGET, empty_how
         need = max(1, snap.inv.used_slots() - (36 - FREE_SLOTS_TARGET))
         lava = bool(find(["lava"], radius=3, limit=1))
@@ -306,8 +275,8 @@ class Maintain:
         return skills.deposit(ctx, local_only=snap.night) if how == "deposit" else skills.tidy_inventory(ctx)
 
     def chest_seconds(self, snap, ctx):
-        """Seconds to a chest that already exists (one in reach, or a remembered site's; none at night beyond
-        reach), or None."""
+        """Seconds to a chest that already exists (one in reach, or a remembered site's; none at night beyond reach), or None."""
+
         from .data import WALK_BLOCKS_PER_TICK
         if find(["chest", "barrel"], radius=6, limit=1):
             return 2.0
@@ -362,19 +331,15 @@ class Maintain:
         self.escalated[kind] = now
         log(f"?? STALL {kind}: {what}")
 
-
-
 def _death_retired(c):
     """The death note this call walked to is spent: what was there is carried, what was not is not coming back."""
     death = c.args[0].mem.recent_death(api.get("/state")["dimension"])
     return death is None or tuple(death["pos"]) != c.result
 
-
 def _drops_gone(c):
     """World evidence, not our own note: no dropped items left around the death spot we walked to."""
     from .world import entities
     return _death_retired(c) and not entities(10, ["minecraft:item"])
-
 
 @skill(gives=["state:recovered"], remaining=_k.none_of("minecraft:item", within=6.0), needs={}, speed={}, verify=_drops_gone, budget=300, stall=90, per_unit=120)
 def recover_items(ctx):

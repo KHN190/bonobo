@@ -1,8 +1,5 @@
-"""The fighting benches: seven waves of a siege, a swept combat arena, and one escape per enemy kind.
+"""The fighting benches: seven waves of a siege, a swept combat arena, and one escape per enemy kind. All three are the same sweep — build a cell, price it, live in it, write one row of intent, execution and outcome — so a new enemy or a new column is a row in a table here, never another scenario to keep in step."""
 
-All three are the same sweep — build a cell, price it, live in it, write one row of intent, execution and
-outcome — so a new enemy or a new column is a row in a table here, never another scenario to keep in step.
-"""
 import math
 import random
 import time
@@ -76,23 +73,17 @@ ARMED = {"enemy": "walker", "count": "one", "ground": "open", "weapon": "iron", 
          "blood": "whole", "kit": "full", "distance": "near"}
 UNARMED = dict(ARMED, weapon="fist", armour="skin", kit="blocks", distance="across")
 
-
 def _siege_kit():
-    """The armed baseline, plus what a long fight needs more of. Built from the dimension table, so a change to
-    what "iron armour" means reaches the siege too — it was a third copy of the same list of gives."""
+    """The armed baseline, plus what a long fight needs more of."""
+
     return (WEAPON["iron"] + ARMOUR["iron"] + KIT["full"]
             + ["item replace entity @p armor.legs with iron_leggings",
                "item replace entity @p armor.feet with iron_boots",
                "give @p cooked_beef 16", "give @p cobblestone 128"])
 
-
 def _scatter(seed):
-    """A few blocks of relief on the floor: a step to stand on, a dip to drop into, something to put between us
-    and it. A billiard table has no shapes to answer with, so half the columns could never be worth anything.
+    """A few blocks of relief on the floor: a step to stand on, a dip to drop into, something to put between us and it."""
 
-    Laid out from the cell's seed, like everything else a cell randomises: a row that cannot be rebuilt is a
-    measurement of a world nobody can visit again.
-    """
     rng = random.Random(seed)
     out = []
     for _ in range(rng.randint(3, 6)):
@@ -106,21 +97,14 @@ def _scatter(seed):
             out.append(f"fill {_c(at(x, -2, z))} {_c(at(x + rng.randint(1, 2), -1, z + rng.randint(1, 2)))} air")
     return out
 
-
 def _roof():
     """A lid and a floor on the walled platform: a cell is a room, not a clearing."""
     lo, hi = at(-ARENA_REACH, 5, -ARENA_REACH), at(ARENA_REACH + 3, 5, ARENA_REACH)
     return [f"fill {_c(lo)} {_c(hi)} stone"]
 
-
 def _cells(base, dims=None, repeat=1, over=None, table=None):
-    """The cells a pass visits: one dimension off the baseline at a time, or the product of `over`, each repeated.
+    """The cells a pass visits: one dimension off the baseline at a time, or the product of `over`, each repeated."""
 
-    A single window is one sample of a noisy world — a fight that happens to end in one swing says nothing about
-    what a fight costs — so a cell that carries a measurement is visited `repeat` times and the rule reads the
-    middle of them. `over` is for the few dimensions whose combination genuinely differs (what is coming at us and
-    what ground we stand on); everything else still moves one at a time.
-    """
     import itertools
     table = DIMS if table is None else table     # another sheet's dimensions (the brain tier's) walk the same way
     seen = []
@@ -137,21 +121,14 @@ def _cells(base, dims=None, repeat=1, over=None, table=None):
         for run in range(max(1, repeat)):
             yield dict(cell, run=run)
 
-
 def _seed_of(cell):
-    """One seed per cell, per pass: the same number lays out the ground, places the enemies and sets their mood,
-    and it goes into the row so the whole situation can be built again exactly."""
+    """One seed per cell, per pass: the same number lays out the ground, places the enemies and sets their mood, and it goes into the row so the whole situation can be built again exactly."""
+
     return cell.get("seed") if cell.get("seed") is not None else random.randrange(1 << 30)
 
-
 def _build(cell):
-    """A cell, realised: a sealed room, then each dimension's own commands. The only place in this file that
-    knows how a dimension becomes a world.
+    """A cell, realised: a sealed room, then each dimension's own commands."""
 
-    Sealed on purpose. With the world left open the other planner had somewhere to go — a village to seek, a seam
-    to mine — so a cell measured a fight with somebody else's errands mixed into its seconds, and one `seek` even
-    ended a whole pass. What is in the cell is what we put there.
-    """
     seed = cell.setdefault("seed", _seed_of(cell))
     out = (_platform(reach=ARENA_REACH, walled=True) + _roof() + _scatter(seed) + _alive()
            # Full health, food and no leftovers: a cell is one variable off the baseline, and health carried over
@@ -167,10 +144,8 @@ def _build(cell):
         return out
     return out + _summon(((kind, COUNT[cell["count"]]),), spread=DISTANCE[cell["distance"]], seed=seed)
 
-
 def _kinds_of(cell):
     return {ENEMY[cell["enemy"]]}
-
 
 # -- the fighting benches ----------------------------------------------------------------------------------------
 # Waves that each ask for an answer the one before did not (swing, back off, break the line of sight, block the
@@ -191,7 +166,6 @@ WAVES = (
     ("everything", (("walker", 4), ("archer", 2), ("climber", 2), ("bomb", 1)), (9, 6, 38)),
 )
 
-
 def _carry(hp_lost, meals, blocks):
     """The state the waves before left, in BLOOD's own form (magic damage: armour-proof)."""
     return ([f"damage @p {hp_lost} minecraft:magic"] if hp_lost else []) + \
@@ -199,21 +173,15 @@ def _carry(hp_lost, meals, blocks):
 
 SIEGE_ROWS = paths.data("bench/siege.jsonl")
 
-
 SHAPE_COLUMNS = {"reshape", "wall_in"}
 
 # Ground wide enough for every answer the model may pick: `escape_spot` walks up to sixteen blocks, and on the
 # nine-block platform the first online cell walked off the edge of the sky island and fell.
 ARENA_REACH = 24
 
-
 def _alive():
-    """Put the player back on their feet before a cell is built.
+    """Put the player back on their feet before a cell is built."""
 
-    A dead player cannot be teleported, healed or given anything, so one death used to poison every cell after it:
-    the first online pass measured one fall and twelve empty rows. Respawning costs a second and makes each cell
-    independent of the one before, which is what a cell is for.
-    """
     from .. import api as _api
     try:
         if _api.get("/state").get("dead"):
@@ -223,26 +191,17 @@ def _alive():
         pass
     return ["gamemode survival @p", "effect clear @p"]
 
-
 def _columns_possible(cell):
-    """The columns this cell paid for: what the kit gave, minus what the situation cannot use.
+    """The columns this cell paid for: what the kit gave, minus what the situation cannot use."""
 
-    A column that the cell made possible and the planner never offered is a fault worth a row of its own — it is
-    invisible in every other reading, because an option that is never priced also never loses.
-    """
     want = set(NEEDS.get(cell["kit"], ()))
     if cell["blood"] != "hurt":
         want.discard("eat")          # eating at full health is not an option anywhere
     return want
 
-
 def _combat_intent(state):
-    """What the threat model wants, before anything moves: every column, its price, and the state it priced from.
+    """What the threat model wants, before anything moves: every column, its price, and the state it priced from."""
 
-    The state goes into the row so a surprising cell can be read back later: a bench
-    that keeps only the answer cannot say what the answer assumed, and a prediction nobody can re-derive is not
-    evidence about anything.
-    """
     from .. import api as _api, fight_loop, perception, threat
     near = _api.get("/entities?radius=24").get("entities", []) or []
     now = time.time()
@@ -273,17 +232,11 @@ def _combat_intent(state):
             "seen_at": perception.seen_at(),
             "state": st}          # the live state: measured from, then written down by `_plain`
 
-
 TRACE_EVERY_S = 0.2
 
-
 def _sampler(stop, out, began):
-    """The trace, on its own thread.
+    """The trace, on its own thread."""
 
-    Sampling between rounds does not work: one `BRAIN.round()` blocks for as long as its task takes, and the first
-    online pass came back with a single sample for eleven seconds of fighting. What the estimates are checked
-    against has to be read on a clock of its own.
-    """
     from .. import api as _api
     from ..world import entities
     kinds = _threat_kinds()
@@ -298,10 +251,9 @@ def _sampler(stop, out, began):
             pass
         stop.wait(TRACE_EVERY_S)
 
-
 def _restock(cell):
-    """Put the cell's enemies back. A window measures a fight, and a fight that ended in four seconds leaves
-    twenty seconds of quiet that say nothing — so what the cell declares is kept present for its whole window."""
+    """Put the cell's enemies back."""
+
     if not cell:
         return
     kind = ENEMY.get(cell.get("enemy"))
@@ -311,15 +263,9 @@ def _restock(cell):
                            seed=cell.get("seed")):
         _chat(command)
 
-
 def _combat_execute(seconds, until=None, cell=None):
-    """Live in the cell with ONE layer driving, recording every look the threat layer took and a 5 Hz trace.
+    """Live in the cell with ONE layer driving, recording every look the threat layer took and a 5 Hz trace."""
 
-    Only the threat layer acts. Ordinary play stands itself down for the window
-    (`brain.not_taking_part`) rather than being skipped by a branch here: it still builds its candidates and still
-    writes its tape, they are simply all refused, in the open, with a reason. Two decision-makers on one body put
-    somebody else's errands into the seconds this cell is measuring, and one of those errands ended a whole pass.
-    """
     import threading
     from .. import perception
     from ..world import Snapshot
@@ -358,13 +304,9 @@ def _combat_execute(seconds, until=None, cell=None):
     worst = min([worst] + [s["hp"] for s in trace])
     return perception.answered_since(mark), worst, round(time.time() - began, 1), trace
 
-
 def blind_s(looks, seconds):
-    """Seconds of the window in which the threat layer could not see: it had no rows, or only stale ones.
+    """Seconds of the window in which the threat layer could not see: it had no rows, or only stale ones."""
 
-    A residual computed across a blind stretch is arithmetic over a guess. The row carries this so a cell can be
-    thrown away for what it is — not looked at — rather than read as a model that chose to carry on.
-    """
     if not looks:
         return round(float(seconds), 2)
     # "Quiet" is an observation: the tick looked and there was nothing. Blindness is the tick that could not look
@@ -372,11 +314,9 @@ def blind_s(looks, seconds):
     blind = sum(1 for look in looks if look["outcome"] in ("stale", "unwired", "soft"))
     return round(float(seconds) * blind / len(looks), 2)
 
-
 def _threat_kinds():
     from .. import threat
     return set(threat.MOBS)
-
 
 BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured nothing
 # A window has to be long enough to contain a fight: eight seconds caught one or two swings and then went quiet.
@@ -385,20 +325,18 @@ BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured 
 CELL_SECONDS = 15.0
 CELL_REPEAT = 1
 
-
 def _plain(state):
-    """The priced state as JSON: the row has to carry what the prediction assumed, and a row is data. The ground
-    is an object, so it goes in as what it says about the world rather than as itself."""
+    """The priced state as JSON: the row has to carry what the prediction assumed, and a row is data."""
+
     if not state:
         return None
     ground = state.get("field")
     return dict(state, hazards=[list(h) for h in state.get("hazards", ())],
                 field=None if ground is None else {"bucket": ground.bucket, "blocks": ground.blocks})
 
-
 def _fought(kinds, seconds):
-    """The shared record: price the cell, live in it, and say what came of it — and what the clock said about the
-    numbers the pricing was built on."""
+    """The shared record: price the cell, live in it, and say what came of it — and what the clock said about the numbers the pricing was built on."""
+
     def record(cell):
         from ..world import Snapshot
         before = Snapshot()
@@ -422,12 +360,10 @@ def _fought(kinds, seconds):
                             "blocks_spent": before.inv.count("building") - after.inv.count("building")}}
     return record
 
-
 def _where(row):
-    """A row's cell, named by the dimensions it actually carries — a rule that lists the keys is a second copy of
-    the dimension table."""
-    return "/".join(f"{k}={row[k]}" for k in DIMS if k in row) or str(row.get("line_up", "?"))
+    """A row's cell, named by the dimensions it actually carries — a rule that lists the keys is a second copy of the dimension table."""
 
+    return "/".join(f"{k}={row[k]}" for k in DIMS if k in row) or str(row.get("line_up", "?"))
 
 def _answers_are_closed(rows):
     """True of every cell: alive, a held column that went out and did not raise, a no-go zone for the planner."""
@@ -459,7 +395,6 @@ def _answers_are_closed(rows):
             bad.append(f"{where}: the threat layer never looked at the world")
     return bad
 
-
 def _shapes_fit_the_enemy(rows):
     """What a column is FOR, read off the belief table rather than off an enemy's name."""
     from .. import beliefs, field as _field
@@ -478,7 +413,6 @@ def _shapes_fit_the_enemy(rows):
                 and not _field.Field(bucket="open").blocks_worth_placing():
             bad.append(f"{where}: placed blocks where there is nothing to place them against")
     return bad
-
 
 def _more_of_them_costs_more(rows):
     """Two rows differing in exactly one dimension: more of them can never cost less to ignore, or tax less."""
@@ -501,19 +435,14 @@ def _more_of_them_costs_more(rows):
             bad.append(f"{_where(three)}: three taxed the planner less than one")
     return bad
 
-
 def _hostiles(radius=32, kinds=None):
     from ..world import entities
     kinds = kinds or {ENEMY[name] for _line_up, mobs, _carry_ in WAVES for name, _n in mobs}
     return [e for e in entities(radius) if e["type"] in kinds and e.get("health", 1) > 0]
 
-
 def _summon(mobs, spread=4, seed=None):
-    """Where the enemies appear. Jittered from the cell's seed: ten runs of an identical situation are ten copies
-    of one sample, and a residual averaged over copies is no better than the one. The dimension says "near";
-    exactly how near, and from which side, is what makes two passes independent evidence about the same cell —
-    and the seed is what lets a surprising row be visited again.
-    """
+    """Where the enemies appear."""
+
     out = []
     rng = random.Random(seed)
     for kind, n in mobs:
@@ -527,16 +456,13 @@ def _summon(mobs, spread=4, seed=None):
             out.append(f"summon {kind} ~{dx} ~ ~{dz}")
     return out
 
-
 def _siege_cells():
     for index, (name, mobs, _carry_) in enumerate(WAVES, start=1):
         yield {"wave": index, "line_up": name}
 
-
 def _siege_build(cell):
     """No reset between waves: the siege is cumulative, and what a wave costs is the point of the next one."""
     return _summon(tuple((ENEMY[name], n) for name, n in {w[0]: w[1] for w in WAVES}[cell["line_up"]]))
-
 
 def _siege_record(per_wave_s=90.0):
     def record(cell):
@@ -549,28 +475,23 @@ def _siege_record(per_wave_s=90.0):
         return row
     return record
 
-
 def _wave_cleared(rows):
     return [] if rows and all(r["cleared"] for r in rows) else [f"wave {rows[-1]['wave'] if rows else '?'} not cleared"]
-
 
 def _siege_detail_of(name):
     rows = SWEEP.get(name) or []
     return (("cleared" if rows and rows[-1]["cleared"] else "not cleared")
             + (f", {rows[-1]['outcome']['hp']:.0f} hp" if rows else ""))
 
-
 _FIGHT_SETUP = (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
                 + _platform(reach=ARENA_REACH, walled=True) + ["kill @e[type=!player,type=!item,distance=..48]"])
 # Every fight carries a water bucket: a knock off a ledge is part of fighting (`_build` adds it to every cell).
 FIGHT_BUCKET = ["give @p water_bucket"]
 
-
 def _shards(cells, size):
     """Cut a sweep's cells into shards of `size`: one bench row each, so every row fits the 60 s limit."""
     cells = list(cells)
     return [cells[i:i + size] for i in range(0, len(cells), size)]
-
 
 # The siege, one wave per row (the old row was cumulative, 820 s): each starts from its wave's `carry`.
 for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
@@ -606,7 +527,6 @@ for _i, _shard in enumerate(ARENA_SHARDS, start=1):
         "tick_rate": 60, "budget": 30,
     }
 
-
 # -- getting away -----------------------------------------------------------------------------------------------
 # With a sword in hand the model rightly answers most things by swinging, so the other half of it — back off, put
 # something in the way, get below the ground, eat, leave an enderman alone — is never exercised. One scenario, one
@@ -634,8 +554,6 @@ for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
         "tick_rate": 60, "budget": 30,
     }
 
-
-
 # -- the fight's behaviours, one cell each ---------------------------------------------------------------------
 # Built by the same walker and the same `_build` as the arena; each cell is set up so that one answer is worth the
 # most, and the row asks that it was chosen AND that it worked, read from the world (the gap's blocks, how far down
@@ -644,30 +562,24 @@ BEHAVIOUR_ROWS = paths.data("bench/behaviour.jsonl")
 BEHAVIOUR_SECONDS = 20.0
 GAP = [at(4, y, z) for y in (1, 2, 3) for z in (-1, 0, 1)]          # the corridor's one gap (GROUND["corridor"])
 
-
 def _last(name):
     rows = SWEEP.get(name) or []
     return rows[-1] if rows else None
 
-
 def _went_out(row, *kinds):
     return any(a.get("kind") in kinds for a in row["answered"] if a.get("outcome") == "answered")
-
 
 def _first_out(row):
     return next((a.get("kind") for a in row["answered"] if a.get("outcome") == "answered"), None)
 
-
 def _ys(row):
     return [s["pos"][1] for s in row["trace"]] or [row["trace_start_y"]]
-
 
 def _gap_blocked(api):
     from ..world import Region
     lo, hi = at(4, 1, -1), at(4, 3, 1)
     region = Region(lo, hi)
     return sum(1 for c in GAP if region.solid(c))
-
 
 def _walled(row):
     """Cobblestone (or any placed solid) on all four sides of the feet AND the head cell, where the body ended."""
@@ -677,17 +589,14 @@ def _walled(row):
     return all(region.solid((x + dx, y + dy, z + dz))
                for dy in (0, 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
 
-
 def _offhand_shield():
     from ..data import bare
     from ..world import Inventory
     return bare((Inventory().equipment.get("offhand") or {}).get("id", "")) == "shield"
 
-
 def _less_hurt_than(row, control):
     base = _last(f"combat__{control}")
     return base is not None and row["outcome"]["hp_lost"] < base["outcome"]["hp_lost"]
-
 
 START_Y = at(0, 0, 0)[1]
 # name: (cell moved off ARMED, what must be true of the recorded row and the world, why). A control runs before
@@ -725,13 +634,11 @@ BEHAVIOURS = {
                        "three walkers at 8 hp: got away or walled in, never swung; alive"),
 }
 
-
 def _behaviour_check(name, rule):
     def check(api, _inv):
         row = _last(name)
         return row is not None and bool(rule(row, api))
     return check
-
 
 def _record_with_start(record):
     def rec(cell):
@@ -739,7 +646,6 @@ def _record_with_start(record):
         y = Snapshot().state["y"]
         return dict(record(cell), trace_start_y=y)
     return rec
-
 
 for _bname, (_moved, _rule, _why) in BEHAVIOURS.items():
     _bcell = dict(next(iter(_cells(dict(ARMED, **_moved)))), seed=0)

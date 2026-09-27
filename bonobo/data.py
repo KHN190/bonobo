@@ -1,6 +1,5 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
 
-
 # Both of these are called tens of millions of times a session — the action table asks them in its innermost
 # loop, once per ingredient per recipe per column per round — and they are pure functions of a few hundred
 # distinct strings. Memoised, they cost a dict lookup; unmemoised they were nine seconds of a 129-second replay
@@ -14,7 +13,6 @@ UNREACHABLE = ("unreachable", "not reachable", "no reachable face", "cannot reac
                "positions explored", "gave up after", "could not get",
                "cannot hold a stand spot")      # jar ≥ 0.1.48: mining ↔ approaching flipped on one block (MineTask)
 
-
 def mid(name):
     """The full id: "oak_planks" → "minecraft:oak_planks". Already-qualified names pass through."""
     got = _MID.get(name)
@@ -22,11 +20,9 @@ def mid(name):
         got = _MID[name] = name if ":" in name else "minecraft:" + name
     return got
 
-
 # Blocks a pod (wall in) takes on open ground: 4 sides at the feet, 4 at the head, the roof, and the cap beside the
 # head the roof is placed against (skills.pod_commands). Priced as 9, it ran one short and left an opening.
 POD_BLOCKS = 10
-
 
 # Never thrown away, whatever a price says (an unpriced diamond cost "1 s to get again" and went out as junk):
 # deposited in a chest, or kept. One table (bag.let_go reads it).
@@ -36,11 +32,9 @@ VALUABLES = frozenset(mid(v) for v in (
     "lapis_lazuli", "redstone", "diamond_block", "emerald_block", "iron_block", "gold_block", "enchanted_book",
     "golden_apple", "nether_star", "shulker_shell", "totem_of_undying"))
 
-
 def item_ids(tokens):
-    """Pure: the jar's item ids for a task's "only" list — a group token (log, planks, wool…) as its members' full
-    ids, an id as itself. The jar matches exact ids: "log" matched nothing and a whole trunk was left on the ground
-    ("collecting items (0)"). A bare name that is no group is refused: it would silently match nothing too."""
+    """Pure: the jar's item ids for a task's "only" list — a group token (log, planks, wool…) as its members' full ids, an id as itself."""
+
     out = []
     for t in tokens:
         if t in GROUPS:
@@ -52,14 +46,12 @@ def item_ids(tokens):
         out += [i for i in ids if i not in out]
     return out
 
-
 def bare(name):
     """The short id: "minecraft:oak_planks" → "oak_planks"."""
     got = _BARE.get(name)
     if got is None:
         got = _BARE[name] = name.removeprefix("minecraft:")
     return got
-
 
 WOODS = ["oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "cherry", "pale_oak"]
 COLORS = ["white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan",
@@ -113,7 +105,6 @@ MAX_HP = 20.0
 # chop. Without the group, "food" was not a dimension the solver could reach, so the one terminal good the agent
 # needs most often could not be priced at all.
 GROUPS["food"] = list(FOOD)
-
 
 def recipes():
     """item -> (row-major pattern of item ids / group tokens / None, output count). 4 entries = 2×2, 9 = 3×3."""
@@ -185,7 +176,6 @@ def recipes():
         r[f"minecraft:{material}_hoe"] = ([tok, tok, None, None, s, None, None, s, None], 1)
     return r
 
-
 RECIPES = recipes()
 
 # Block classification for planning (names without the minecraft: prefix).
@@ -238,17 +228,15 @@ SEEN_CLASS = dict(
                                "cave_spider", "enderman", "witch", "slime", "phantom", "blaze", "ghast",
                                "wither_skeleton", "magma_cube", "hoglin", "zombified_piglin", "silverfish")])
 
-
 def seen_class(kind):
-    """The volatility class of a kind (a bare block or mob name, or an alias like "tree"). Beds, doors and wool
-    — village furniture worth taking — are static; anything else unknown is never noted."""
+    """The volatility class of a kind (a bare block or mob name, or an alias like "tree")."""
+
     kind = bare(kind)
     if kind in SEEN_CLASS:
         return SEEN_CLASS[kind]
     if kind.endswith(("_bed", "_door", "_wool")):
         return "static"
     return "never"
-
 
 # Step kinds a night under cover can carry on with: no sun, no open ground (brain.plan_proposals, the bed tonight).
 NIGHT_WORK = frozenset({"mine", "craft", "smelt"})
@@ -279,7 +267,6 @@ DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 ROUTE_FACTOR = 1.5            # real route length / straight line
-
 
 # Sky light at or below this means "under rock" — a cave with a distant opening reads 1–3. A world fact, and it
 # lives here because the action table needs it: a constant defined in `brain` drags the whole decision layer into

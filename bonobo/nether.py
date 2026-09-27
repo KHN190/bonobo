@@ -1,6 +1,5 @@
-"""The route past the portal: travel between dimensions, find a Nether fortress, locate the stronghold with eyes of
-ender. Blaze rods and ender pearls come from the ordinary hunt skill (knowledge.HUNT) once the agent is in the
-right place; this module gets it there. Pure helpers (`portal_cell`, `triangulate`) are offline-tested."""
+"""The route past the portal: travel between dimensions, find a Nether fortress, locate the stronghold with eyes of ender. Blaze rods and ender pearls come from the ordinary hunt skill (knowledge.HUNT) once the agent is in the right place; this module gets it there. Pure helpers (`portal_cell`, `triangulate`) are offline-tested."""
+
 import math
 import time
 
@@ -13,16 +12,14 @@ from .world import Inventory, entities, find
 OVERWORLD = "minecraft:overworld"
 NETHER = "minecraft:the_nether"
 
-
 def portal_cell(origin, turns):
     """Pure: an interior cell of a NETHER_PORTAL frame to walk into (bottom inner cell)."""
     d = blueprints.rotate_offset((1, 1, 0), turns)
     return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
 
-
 def triangulate(p1, d1, p2, d2):
-    """Pure: intersection (x, z) of two eye-of-ender throws — rays from p1 along d1 and p2 along d2 (x, z vectors).
-    None when the rays are (nearly) parallel or meet behind a thrower."""
+    """Pure: intersection (x, z) of two eye-of-ender throws — rays from p1 along d1 and p2 along d2 (x, z vectors)."""
+
     (x1, z1), (a1, b1) = p1, d1
     (x2, z2), (a2, b2) = p2, d2
     det = a1 * b2 - b1 * a2
@@ -34,12 +31,11 @@ def triangulate(p1, d1, p2, d2):
         return None
     return round(x1 + a1 * t), round(z1 + b1 * t)
 
-
 @skill(gives=["state:crossed"], remaining=_k.in_dimension(lambda c: c.args[1]), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90, per_unit=60,
        provides={"portal": lambda ctx, s: (s.token,)})
 def use_portal(ctx, to_dimension):
-    """Walk into the nearest known lit portal and stand in it until the dimension changes. In the Overworld the
-    portal is the remembered machine; in the Nether it's the arrival portal (remembered on arrival) or any in sight."""
+    """Walk into the nearest known lit portal and stand in it until the dimension changes."""
+
     s = api.get("/state")
     here = (s["blockX"], s["blockY"], s["blockZ"])
     # Real portal blocks first (an arrival site is where we stood, not necessarily inside the portal).
@@ -88,12 +84,11 @@ def use_portal(ctx, to_dimension):
             return arrived
     raise McError("stood in the portal but the dimension didn't change")
 
-
 @skill(gives=["state:fortress_found"], remaining=_k.blocks_there("nether_bricks"), needs={}, speed={}, verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180, per_unit=600,
        provides={"seek:fortress": lambda ctx, s: ()})
 def find_fortress(ctx, legs=8, leg=48):
-    """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava). Remembers the
-    fortress as a site so blaze hunting starts there."""
+    """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava)."""
+
     if api.get("/state")["dimension"] != NETHER:
         raise NotAvailable("not in the Nether")
     for kind in ("fortress",):
@@ -123,9 +118,7 @@ def find_fortress(ctx, legs=8, leg=48):
         nav.arrived(tuple(home[0]["pos"]), ctx.policy, range_=4, attempts=1)
     raise NotAvailable("no fortress found within the explored legs; back at the portal")
 
-
 EXPLORE_Y = 70
-
 
 def in_portal(state):
     """True when the feet or head stand in a portal block (mod ≥0.1.28 reports it in /state; older: a block read)."""
@@ -136,7 +129,6 @@ def in_portal(state):
     r = Region((x, y, z), (x, y + 1, z))
     return any(n in ("nether_portal", "end_portal") for n in r.blocks.values())
 
-
 def must_leave():
     """Stop exploring when food or health run low (survival then retreats through the portal)."""
     from .world import Inventory
@@ -145,13 +137,10 @@ def must_leave():
     food = food_count(Inventory())
     return food < 6 or s.get("health", 20) <= 10
 
-
 GOLD_ARMOR = ("minecraft:golden_helmet", "minecraft:golden_chestplate", "minecraft:golden_leggings",
               "minecraft:golden_boots")
 
-
 HEAD_SLOT = 5   # armor head slot in the player inventory screen
-
 
 def wear_gold_helmet():
     """Swap the carried gold helmet onto the head (the iron one goes back into its slot)."""
@@ -167,7 +156,6 @@ def wear_gold_helmet():
     log("wearing the gold helmet for piglins")
     return True
 
-
 def barter_ready(inv, worn):
     """Pure: why bartering can't start, or None. Piglins attack a player without a piece of gold armor worn."""
     if not any(w in GOLD_ARMOR for w in worn):
@@ -176,17 +164,15 @@ def barter_ready(inv, worn):
         return "no gold ingots to barter"
     return None
 
-
 def _not_gold():
     """Everything carried except the gold being traded away: what a barter brings back raises this."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
-
 @skill(gives=["state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1}, speed={}, start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15,
        provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)})
 def barter_piglin(ctx, ingots=8):
-    """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect.
-    Pearls, obsidian, string and fire resistance potions all come this way."""
+    """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect."""
+
     if api.get("/state")["dimension"] != NETHER:
         raise NotAvailable("piglins live in the Nether")
     inv = Inventory()
@@ -225,7 +211,6 @@ def barter_piglin(ctx, ingots=8):
     log(f"bartered with piglins: {Inventory().count('minecraft:ender_pearl')} pearls now")
     return True
 
-
 def _eye_direction(timeout=3.0):
     """Follow the thrown eye entity for a moment: its horizontal displacement is the stronghold direction."""
     first, last, t0 = None, None, time.time()
@@ -241,7 +226,6 @@ def _eye_direction(timeout=3.0):
     n = math.dist(first, last)
     return (last[0] - first[0]) / n, (last[1] - first[1]) / n
 
-
 def _thrown_there(c):
     """World evidence for the estimate: the eye flights it was triangulated from (kept with the site) meet at it."""
     if c.result is None:
@@ -254,7 +238,6 @@ def _thrown_there(c):
         return False
     spot = triangulate(*throws[0], *throws[1])
     return spot is not None and math.dist(spot, (site["pos"][0], site["pos"][2])) <= 1
-
 
 @skill(gives=["state:stronghold_known"], remaining=_k.site_known("stronghold"), needs={"minecraft:ender_eye": 2}, speed={}, verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
 def locate_stronghold(ctx):

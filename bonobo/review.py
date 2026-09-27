@@ -1,6 +1,5 @@
-"""The 5-minute review packet for the cerebrum (Claude): what the agent did, what failed and how often, where it went,
-what changed in the bag, which skills are slow or unreliable, and where the directive queue stands. Claude reads it,
-distils lessons into SKILL.md / skills / tests, and queues tasks for the long-term plan."""
+"""The 5-minute review packet for the cerebrum (Claude): what the agent did, what failed and how often, where it went, what changed in the bag, which skills are slow or unreliable, and where the directive queue stands. Claude reads it, distils lessons into SKILL.md / skills / tests, and queues tasks for the long-term plan."""
+
 import collections
 import datetime
 import re
@@ -9,7 +8,6 @@ from . import paths, tasks
 
 LOG = paths.data("autoplay.log")
 LINE = re.compile(r"^(\d\d:\d\d:\d\d) (.*)$")
-
 
 def recent_lines(lines, minutes, now=None):
     """Pure: log lines from the last `minutes` (log lines carry only HH:MM:SS; a day wrap is handled)."""
@@ -26,7 +24,6 @@ def recent_lines(lines, minutes, now=None):
         if t >= start:
             out.append((t, m.group(2)))
     return out
-
 
 def summarize(entries):
     """Pure: counts of decisions, failures by kind, help requests and survival events."""
@@ -51,13 +48,11 @@ def summarize(entries):
     return {"goals": goals, "failures": failures, "unavailable": unavailable, "help": help_requests,
             "survival": survival, "notable": notable}
 
-
 TRACK = paths.data("track.jsonl")
 
-
 def macro(track, minutes, now):
-    """Pure: track = [{"t", "pos", "done"}] once a minute. Distance covered and main goals completed in the window,
-    flagged STALLED when the agent neither moved nor finished anything — the counts alone hid a 30-minute loop."""
+    """Pure: track = [{"t", "pos", "done"}] once a minute."""
+
     import math
     window = [e for e in track if e["t"] >= now - minutes * 60]
     if len(window) < 2:
@@ -71,10 +66,9 @@ def macro(track, minutes, now):
         lines.append(f"- STALLED: no movement and no goal completed in {minutes} min")
     return "\n".join(lines)
 
-
 def plans(rows, minutes, now):
-    """Pure: from round-tape rows (tape.py), each task's latest plan in the window and how often its steps failed
-    or were interrupted — what Claude reads to see whether the queue is moving."""
+    """Pure: from round-tape rows (tape."""
+
     window = [r for r in rows if r.get("t", 0) >= now - minutes * 60 and r.get("task")]
     if not window:
         return "- no rounds on the tape"
@@ -92,10 +86,9 @@ def plans(rows, minutes, now):
                    + (f" ({bad})" if bad else ""))
     return "\n".join(out)
 
-
 def repeated(entries, at_least=5):
-    """Pure: brain decisions/failures that repeat with the same text (numbers normalised) — a loop reads as one line
-    with a count, e.g. 'night in the water: swimming to land first ×40', instead of hiding among task results."""
+    """Pure: brain decisions/failures that repeat with the same text (numbers normalised) — a loop reads as one line with a count, e."""
+
     counts = collections.Counter()
     for _, text in entries:
         if text.startswith("  "):      # task results (goto/place/...) are symptoms; decisions are the pattern
@@ -103,7 +96,6 @@ def repeated(entries, at_least=5):
         counts[re.sub(r"-?\d+(\.\d+)?", "#", text)[:110]] += 1
     top = [(n, t) for t, n in counts.most_common(5) if n >= at_least]
     return "\n".join(f"- ×{n} {t}" for n, t in top) or "- none"
-
 
 def packet(minutes=5, state=None, inventory=None, memory=None, lines=None, readiness=None):
     if lines is None:

@@ -1,6 +1,5 @@
-"""Loot chests the agent didn't place (ruined portals, villages, temples, shipwrecks, dungeons): obsidian, flint and
-steel, gold, iron, diamonds, food, pearls, arrows. Looted chests are remembered so they aren't opened twice.
-Pure `loot_plan` is offline-tested."""
+"""Loot chests the agent didn't place (ruined portals, villages, temples, shipwrecks, dungeons): obsidian, flint and steel, gold, iron, diamonds, food, pearls, arrows. Looted chests are remembered so they aren't opened twice. Pure `loot_plan` is offline-tested."""
+
 import math
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
@@ -12,17 +11,8 @@ from .skillcore import carried_total
 from .world import Inventory, find
 
 def loot_plan(slots, prices, bag_free, stack=64):
-    """Pure: container slot numbers worth taking, dearest first.
+    """Pure: container slot numbers worth taking, dearest first."""
 
-    There used to be a hand-written list of interesting suffixes here. It had no wheat in it, no potatoes and no
-    planks, so the agent walked to a village chest, opened it, took nothing, and wrote the chest down as looted.
-    A list of names is a price nobody can check.
-
-    What a stack is worth is what getting it another way would cost (`prices`, the round's shadow prices), and what
-    taking it costs is the slot it eats (`actions.slot_cost_s`, which grows as the bag fills). Take it while the
-    first is bigger than the second — so wheat is loot in a world where bread is dear, sticks are loot only when
-    the bag is empty, and something nobody has a price for is left where it is.
-    """
     take = []
     free = float(bag_free)
     for s in slots:
@@ -37,7 +27,6 @@ def loot_plan(slots, prices, bag_free, stack=64):
             free -= 1.0
     return [slot for _worth, slot in sorted(take)]
 
-
 def unlooted_chests(ctx, radius=32):
     here = skillcore.feet()
     ours = [tuple(s["pos"]) for s in ctx.mem.sites(ctx.dimension)]
@@ -49,7 +38,6 @@ def unlooted_chests(ctx, radius=32):
             continue
         out.append(pos)
     return sorted(out, key=lambda p: math.dist(p, here))
-
 
 @skill(gives=["state:looted"], remaining=_k.gained_any, needs={}, speed={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,
        budget=240, stall=90, per_unit=60, provides={"loot": lambda ctx, s: ()}, fills_bag=True)

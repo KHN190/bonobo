@@ -1,17 +1,5 @@
-"""What a combat tape means. Pure functions only — they read frames, never the game.
+"""What a combat tape means. Pure functions only — they read frames, never the game. The rule this module exists to serve: don't learn "where is safe", learn "how long until I am hit". Every hazard is reduced to the same triple so the controller compares a breath cloud and an enderman with one number: kind        what it is (the entity id), for the damage model only tti         seconds until it reaches us if nothing changes (inf = it never does) region      (x, y, z, radius) it will occupy — where not to stand dps         health per second while inside it persistent  True if it stays put once formed (breath clouds), False if it must be re-aimed (head, enderman) Everything is measured off the tape rather than tabulated: the numbers that matter (how fast breath spreads, how much a head sweep takes) belong to this version of the game, not to a wiki page."""
 
-The rule this module exists to serve: don't learn "where is safe", learn "how long until I am hit". Every hazard is
-reduced to the same triple so the controller compares a breath cloud and an enderman with one number:
-
-    kind        what it is (the entity id), for the damage model only
-    tti         seconds until it reaches us if nothing changes (inf = it never does)
-    region      (x, y, z, radius) it will occupy — where not to stand
-    dps         health per second while inside it
-    persistent  True if it stays put once formed (breath clouds), False if it must be re-aimed (head, enderman)
-
-Everything is measured off the tape rather than tabulated: the numbers that matter (how fast breath spreads, how much
-a head sweep takes) belong to this version of the game, not to a wiki page.
-"""
 import math
 
 TICK = 0.05                 # seconds per tick
@@ -22,10 +10,8 @@ SITTING_SCANNING = 6
 SITTING_ATTACKING = 7
 WINDOW_PHASES = {SITTING_SCANNING, SITTING_ATTACKING}
 
-
 def _xyz(d):
     return (d["x"], d["y"], d["z"])
-
 
 def phase_spans(frames):
     """[(phase, first_tick, last_tick)] — the phase timeline, runs collapsed. None phase = dragon absent."""
@@ -39,14 +25,9 @@ def phase_spans(frames):
             spans.append([p, f["tick"], f["tick"]])
     return [tuple(s) for s in spans]
 
-
 def tti(pos, vel, centre, radius, horizon=HORIZON):
-    """Pure: seconds until a point moving at `vel` (blocks per second) enters the sphere at `centre`, inf if it does
-    not within `horizon`. Already inside → 0.0.
+    """Pure: seconds until a point moving at `vel` (blocks per second) enters the sphere at `centre`, inf if it does not within `horizon`."""
 
-    This is the one number the controller compares. Solving it geometrically (rather than stepping a simulation)
-    keeps it cheap enough to run every frame for every hazard.
-    """
     dx = [pos[i] - centre[i] for i in range(3)]
     d0 = math.sqrt(sum(c * c for c in dx))
     if d0 <= radius:
@@ -66,14 +47,12 @@ def tti(pos, vel, centre, radius, horizon=HORIZON):
         return float("inf")
     return round(hits[0], 3)
 
-
 def velocity(frame, prev):
     """Player velocity in blocks per second (the frame stores a per-tick delta)."""
     v = frame["player"]["vel"]
     if prev is None:
         return (0.0, 0.0, 0.0)
     return (v["x"] / TICK, v["y"] / TICK, v["z"] / TICK)
-
 
 # Reach of each hazard around its own position, and whether it stays where it formed. Radii are starting values fitted
 # from tapes by `fit_damage`; the dragon's head is the one that killed the bench runs, so it is generous.
@@ -85,13 +64,9 @@ HAZARD = {
 }
 DEFAULT_DPS = {"minecraft:area_effect_cloud": 6.0, "dragon_head": 10.0, "minecraft:enderman": 7.0}
 
-
 def threats(frame, prev=None, dps=None, horizon=HORIZON):
-    """Pure: every hazard in this frame as (kind, tti, region, dps, persistent), soonest first.
+    """Pure: every hazard in this frame as (kind, tti, region, dps, persistent), soonest first."""
 
-    Small mobs get no special case on purpose: an enderman is a moving sphere with a dps, exactly like a breath cloud
-    that happens to walk. The controller does not need to know what it is fighting, only when it will be hit.
-    """
     dps = dps or DEFAULT_DPS
     p = frame["player"]
     pos, vel = _xyz(p["pos"]), velocity(frame, prev)
@@ -117,24 +92,18 @@ def threats(frame, prev=None, dps=None, horizon=HORIZON):
                     dps.get("dragon_head", 10.0), persistent))
     return sorted(out, key=lambda t: t[1])
 
-
 def exposure(frame, prev=None, dps=None):
     """Pure: health per second we are taking right now (sum of the dps of every hazard we are already inside)."""
     return sum(t[3] for t in threats(frame, prev, dps) if t[1] == 0.0)
-
 
 def hits(frames):
     """[(tick, amount, nearest)] — every recorded damage event."""
     return [(f["tick"], d["amount"], d.get("nearest"))
             for f in frames for d in (f.get("damage") or [])]
 
-
 def fit_damage(frames):
-    """{kind: {"n", "mean", "max"}} — what each source actually took off us on this tape.
+    """{kind: {"n", "mean", "max"}} — what each source actually took off us on this tape."""
 
-    Replaces guessed constants in DEFAULT_DPS: a fitted head sweep is the difference between a window that is worth
-    entering and one that kills us.
-    """
     out = {}
     for _, amount, nearest in hits(frames):
         e = out.setdefault(nearest or "unknown", {"n": 0, "total": 0.0, "max": 0.0})
@@ -145,18 +114,13 @@ def fit_damage(frames):
         e["mean"] = round(e.pop("total") / e["n"], 2)
     return out
 
-
 def deaths(frames):
     """Ticks where health reached zero."""
     return [f["tick"] for f in frames if f["player"]["hp"] <= 0]
 
-
 def step_options(frame, reach=4.0, step=1.0):
-    """Pure: the positions a single committed step could reach — 8 compass directions plus standing still.
+    """Pure: the positions a single committed step could reach — 8 compass directions plus standing still."""
 
-    Deliberately coarse. The controller chooses between "stay", "back off" and "into the hole", not between hundreds
-    of micro-positions; a plan it cannot execute in one commitment is not an option.
-    """
     x, y, z = _xyz(frame["player"]["pos"])
     out = [(x, y, z)]
     n = max(1, int(reach / step))
@@ -167,15 +131,9 @@ def step_options(frame, reach=4.0, step=1.0):
             out.append((x + dx * step * k, y, z + dz * step * k))
     return out
 
-
 def hypotheses(hazard, here=None, closing=4.3):
-    """Pure: plausible futures for one hazard, each a (centre, radius, velocity) row.
+    """Pure: plausible futures for one hazard, each a (centre, radius, velocity) row."""
 
-    continue   keeps its differenced velocity
-    stop       stays where it is (a cloud settling, a mob hesitating)
-    pursue     turns toward us at a pursuit speed — the case that matters for anything that hunts
-    A hazard with no observed motion still gets `pursue`, because "it has not moved yet" is not "it cannot".
-    """
     centre, radius = hazard[0], hazard[1]
     vel = hazard[2] if len(hazard) > 2 else (0.0, 0.0, 0.0)
     kind = hazard[3] if len(hazard) > 3 else None
@@ -186,26 +144,16 @@ def hypotheses(hazard, here=None, closing=4.3):
             out.append((centre, radius, tuple((here[i] - centre[i]) / d * closing for i in range(3)), kind))
     return out
 
-
 # Hazards that do not chase: clouds and the perched head sit where they are. Everything else may come for us.
 STATIC_KINDS = {"minecraft:area_effect_cloud", "dragon_head", "minecraft:ender_dragon"}
-
 
 def expand(hazards, here=None):
     """Pure: every hypothesis of every hazard, flattened. Safety is computed over this, never over the raw list."""
     return [h for hz in hazards for h in hypotheses(hz, here)]
 
-
 def min_tti(spot, hazards, horizon=HORIZON, speed=4.3, here=None):
-    """Pure: seconds until the FIRST of these hazards covers `spot`, or inf when none does within `horizon`.
+    """Pure: seconds until the FIRST of these hazards covers `spot`, or inf when none does within `horizon`."""
 
-    The union, not the worst one: reasoning about the most dangerous threat is what hides a pincer, since two
-    threats each leave an escape and the escapes need not overlap.
-
-    Both directions count. A hazard may travel to the spot (closed-form root on its velocity), and we may travel
-    into one on the way there — a static cloud never "arrives" anywhere, yet walking through it is exactly how a
-    retreat died. With `here` given, the walk is included.
-    """
     soonest = float("inf")
     for h in hazards:
         centre, radius = h[0], h[1]
@@ -224,30 +172,18 @@ def min_tti(spot, hazards, horizon=HORIZON, speed=4.3, here=None):
                 soonest = min(soonest, tti(here, direction, centre, radius, min(horizon, d / speed)))
     return soonest
 
-
 def slack_at(spot, hazards, here, speed=4.3, horizon=HORIZON, margin=0.3):
-    """Pure: how much time to spare standing at `spot` — first arrival minus the walk minus a margin.
+    """Pure: how much time to spare standing at `spot` — first arrival minus the walk minus a margin."""
 
-    Unbounded above on purpose. Clamping it at the horizon made "safe for four seconds" and "safe indefinitely"
-    the same number, and a threat two seconds out indistinguishable from no threat.
-    """
     travel = math.dist(here, spot) / speed
     first = min_tti(spot, hazards, horizon=horizon, speed=speed, here=here)
     if first == float("inf"):
         return float("inf")
     return round(first - travel - margin, 3)
 
-
 def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3, hazards=None):
-    """Pure: (position, slack) — where to stand, by the rule "first arrival must be later than getting there".
+    """Pure: (position, slack) — where to stand, by the rule "first arrival must be later than getting there"."""
 
-    Ten candidates against a closed-form root: no search, no grid, no simulation. For each option the slack is
-    `min_tti - travel_time - margin`; the best positive one wins, and with none positive the least bad direction is
-    still an answer, because standing still is what killed the runs.
-
-    This replaces a version that scored every reachable option identically unless it was already inside a hazard —
-    which made it blind to anything arriving, and therefore to every moving threat.
-    """
     p = _xyz(frame["player"]["pos"])
     if hazards is None:           # `hazards` given: a plain list already expanded (best_step), not the frame's
         hazards = [(t[2][:3], t[2][3], (0.0, 0.0, 0.0)) for t in threats(frame, None, dps, horizon)]
@@ -262,14 +198,9 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
             best, best_key = (opt, slack), key
     return best
 
-
 def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None):
-    """Pure: (spot, slack) — where to stand, by the rule "first arrival must be later than getting there": each
-    option's slack is `min_tti - travel_time - margin`, the best one wins, distance from the nearest hazard breaks ties.
+    """Pure: (spot, slack) — where to stand, by the rule "first arrival must be later than getting there": each option's slack is `min_tti - travel_time - margin`, the best one wins, distance from the nearest hazard breaks ties."""
 
-    `cover` is offered as an extra candidate: a bunker mouth is worth considering even when it is further than a
-    sidestep, because arriving there ends the problem rather than postponing it.
-    """
     frame = {"player": {"pos": {"x": here[0], "y": here[1], "z": here[2]},
                         "vel": {"x": 0, "y": 0, "z": 0}, "hp": 20}}
     options = step_options(frame)
@@ -278,19 +209,9 @@ def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None)
     # safe against every future, not the single differenced one
     return safest(frame, options, speed, horizon, None, margin, hazards=expand(hazards, here))
 
-
 def windows(frames, window_phases=WINDOW_PHASES):
-    """Pure: one entry per attack window, with the three numbers the planner's value model runs on.
+    """Pure: one entry per attack window, with the three numbers the planner's value model runs on."""
 
-    Everything the planner weighs is denominated in seconds, so a window has to report what it actually cost and
-    bought, not what it was supposed to: `exposure_s` (how long we stood where the dragon could reach), `hp_lost`
-    (what that cost) and `dragon_hp_lost` (what it bought). Remaining-window estimates, and with them the value of
-    any structure built to shorten exposure, fall out of these.
-
-    Exposure is measured, not assumed: a frame counts as exposed while any hazard is already on us (tti 0). That is
-    the same definition the controller uses, so the plan and the postmortem cannot disagree about what "exposed"
-    means.
-    """
     by_tick = {f["tick"]: f for f in frames}
     out = []
     for phase, a, b in phase_spans(frames):
@@ -312,7 +233,6 @@ def windows(frames, window_phases=WINDOW_PHASES):
         })
     return out
 
-
 # -- enderman geometry. A fact about a mob and a line of sight, not a tactic: `api.run` consults it before every
 # aimed task, and the fight skills consult it too.
 
@@ -321,11 +241,9 @@ EYE_HEIGHT = 1.62
 ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
 HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
 
-
 def aim_hits_enderman(aim_at, here, near, half_angle=12.0, radius=24.0, head_band=HEAD_BAND):
-    """Pure: would looking at `aim_at` put the crosshair on an enderman's HEAD? Only the head provokes them (zh wiki:
-    看向较高的地方以免看到它们的头部), so an aim that passes the same direction but well below or above the head is fine —
-    which is what makes shooting crystals and placing beds possible at all in a crowd of them."""
+    """Pure: would looking at `aim_at` put the crosshair on an enderman's HEAD?"""
+
     ax, az = aim_at[0] - here[0], aim_at[2] - here[2]
     span = math.hypot(ax, az)
     if not span:
@@ -349,26 +267,22 @@ def aim_hits_enderman(aim_at, here, near, half_angle=12.0, radius=24.0, head_ban
             return True
     return False
 
-
 from . import beliefs
 
 # How close movement may plan to stand to each thing that can hurt us. A view of the belief table, not a copy:
 # this table and play.toml's said different things about the same skeleton for months.
 HAZARD_R = beliefs.keep_out()
 
-
 def hazard_points(near, radii=None):
-    """Pure: [(point, radius)] for everything that can hurt us here. Every ender dragon entry counts, body parts
-    included (they carry no health field)."""
+    """Pure: [(point, radius)] for everything that can hurt us here."""
+
     radii = radii or HAZARD_R
     return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near if e["type"] in radii]
-
 
 # ---- the current hazard set: written by perception each round, read by movement (nav.go_to) — kept here, beside
 # the points it is made of, so a walk asks a fact module and not the perception thread.
 HAZARDS = []          # [(point, radius)], newest perception round wins
 HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
-
 
 def note_hazards(near, now=None):
     """Record what can hurt us right now. Pure apart from the clock; called from the perception round."""
@@ -377,7 +291,6 @@ def note_hazards(near, now=None):
     HAZARDS = hazard_points(near or [])
     HAZARDS_AT = now if now is not None else _t.time()
     return HAZARDS
-
 
 def hazards(max_age_s=3.0, now=None):
     """The current hazard set, or empty when perception has not looked recently enough to be trusted."""

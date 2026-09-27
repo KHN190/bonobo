@@ -1,9 +1,5 @@
-"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, food stock before it runs out, a
-tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore
-underground. Each is PROPOSED (`need` → `needs_now`), never queued: brain.need_act turns it into the next step of
-its plan and arbiter.PLAN_ORDER ranks it with the queue. The fixed maintenance reflexes (eat, land, the night's
-shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night
-(`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
+"""Needs: what must be PLANNED to be had — a bed or the night's parts before dark, food stock before it runs out, a tool that broke under a held plan, a water bucket before a fall, blocks where the path is blocked, the night's ore underground. Each is PROPOSED (`need` → `needs_now`), never queued: brain.need_act turns it into the next step of its plan and arbiter.PLAN_ORDER ranks it with the queue. The fixed maintenance reflexes (eat, land, the night's shelter, the bag…) are reflexes.py. Also the tool-repair skill and the one choice of how to get through a night (`overnight`). Pure `repair_pair`, `dusk_s`, `due_now`, `overnight` are offline-tested."""
+
 import json
 import math
 import time
@@ -27,10 +23,9 @@ WORKING = 3                # durability left for a tool to count as working
 NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
 BRIDGE_STOCK = 32          # the most to fetch when the path is blocked and there is less than BRIDGE_MIN
 
-
 def bridge_stock(feet, target):
-    """Pure: building blocks to fetch for a blocked path — one per block of the way across (horizontal distance to
-    where the walk was going), at least BRIDGE_MIN, at most BRIDGE_STOCK. A flat 32 sent a 6-block gap mining 30."""
+    """Pure: building blocks to fetch for a blocked path — one per block of the way across (horizontal distance to where the walk was going), at least BRIDGE_MIN, at most BRIDGE_STOCK."""
+
     across = math.ceil(math.dist((feet[0], feet[2]), (target[0], target[2])))
     return max(BRIDGE_MIN, min(BRIDGE_STOCK, across))
 # Plan steps that put the body where a fall can happen — portals, strongholds, fortresses, deep ore reached by
@@ -40,31 +35,25 @@ FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("s
              ("activate", "end_portal"), ("hunt", "minecraft:blaze_rod")}
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
-
 def bag_signature(inv):
     """What the bag holds, exactly: a change the plan did not make is an event."""
     return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
-
 
 def dusk_s(snap):
     """Seconds until dark: (12000 − timeOfDay) / 20, 0 once it is dark."""
     t = int(snap.time) % 24000
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
-
 def night_facts(soft):
-    """The place facts the night's pricing reads, from the soft-ground reading (skills.soft_ground_here: seconds'
-    walk to ground that digs by hand, None for none; offline readings may say True/False for right here/none)."""
+    """The place facts the night's pricing reads, from the soft-ground reading (skills."""
+
     if soft is None or soft is False:
         return {"soft_ground": False}
     return {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
 
-
 def overnight(inv, cost, facts=None, bed_too=True):
-    """The one choice of how to get through a night, by price (`decompose.cheapest` over "overnight"): ("bed" or
-    a SOURCES["overnight"] name, seconds, steps); (None, inf, []) when there is none. Asked at dusk for the lead
-    (with the bed) and at night by the shelter row (`bed_too=False`: a bed is the sleep row's). `facts`: what
-    was read of the place ({"soft_ground": the ground under the feet digs by hand})."""
+    """The one choice of how to get through a night, by price (`decompose."""
+
     bed = []
 
     def bed_plan():
@@ -82,19 +71,14 @@ def overnight(inv, cost, facts=None, bed_too=True):
         steps, way = bed, "bed"
     return way, cost.plan_s(steps), steps
 
-
 def due_now(left_s, plan_s, known, at_threshold):
-    """Pure: is it time to start getting something? With a plan whose every place is known: when what is left
-    (food, daylight) is shorter than that plan × LEAD. With a plan that guesses (a seek, a source nowhere known,
-    priced by a prior): only at the real threshold — a guess's hundreds of seconds × LEAD made "food" urgent on a
-    full stomach and "a bed" urgent in the morning."""
-    return left_s < plan_s * LEAD if known else bool(at_threshold)
+    """Pure: is it time to start getting something?"""
 
+    return left_s < plan_s * LEAD if known else bool(at_threshold)
 
 def tool_kinds(steps):
     """Pure: the tool kinds these plan steps need (a mine step with a tier needs a pickaxe)."""
     return {"pickaxe"} if any(st.kind == "mine" and st.detail.get("tier") is not None for st in steps) else set()
-
 
 def food_on_its_way(pending):
     """Pure: (meals, hunger points) of the ready food a background job or machine is making ({item id: count})."""
@@ -103,14 +87,12 @@ def food_on_its_way(pending):
     meals = sum(n for item, n in pending.items() if item in ready)
     return meals, sum(n * ready[item] for item, n in pending.items() if item in ready)
 
-
 def food_lasts_s(snap, pending=None):
-    """Seconds of work the stomach, the meals in the bag and those cooking in the background (`pending`, memory's
-    pending_outputs) cover (`risk.food_drain_s` per hunger point)."""
+    """Seconds of work the stomach, the meals in the bag and those cooking in the background (`pending`, memory's pending_outputs) cover (`risk."""
+
     from . import beliefs
     drain = float(beliefs.value("risk.food_drain_s"))
     return (float(snap.get("food", 20)) + food_points(snap.inv) + food_on_its_way(pending or {})[1]) * drain
-
 
 def working_tiers(inv):
     """{tool kind: best tier with a working one} for TOOL_KINDS. Pure over the bag."""
@@ -121,12 +103,10 @@ def working_tiers(inv):
             out[kind] = max(tiers)
     return out
 
-
 def craftable_tier(inv, kind):
-    """The best tier of `kind` this bag crafts outright, or 0 (`Planner.craftable_tier`: one answer for every tool
-    goal). Pure over the bag."""
-    return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
+    """The best tier of `kind` this bag crafts outright, or 0 (`Planner."""
 
+    return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
 
 def falls(step):
     """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)?"""
@@ -136,14 +116,12 @@ def falls(step):
     depth = FIND_AT.get(step.token)
     return step.kind == "mine" and depth is not None and depth < DEEP_Y
 
-
 def needs_water_bucket(snap, plans):
-    """Pure: a held plan has a step with a fall in it and the bag has no water bucket — outside the Nether, where
-    water cannot be poured and the bucket has to be filled before going in."""
+    """Pure: a held plan has a step with a fall in it and the bag has no water bucket — outside the Nether, where water cannot be poured and the bucket has to be filled before going in."""
+
     if snap.dimension == "minecraft:the_nether" or snap.inv.count("minecraft:water_bucket"):
         return False
     return any(falls(s) for steps in plans for s in steps)
-
 
 def wear(inv):
     """{tool kind: least durability left on a carried one} for TOOL_KINDS. Pure over the bag."""
@@ -154,17 +132,13 @@ def wear(inv):
             out[kind] = min(left)
     return out
 
-
 def broke(before, working):
-    """Pure: the tool kinds that broke between two rounds — one was nearly worn out last round (`before`: least
-    durability left ≤ NEAR_BREAK) and none works now (`working`: working_tiers). A tool that vanished whole was
-    stored, dropped or cleared: nothing to replace."""
+    """Pure: the tool kinds that broke between two rounds — one was nearly worn out last round (`before`: least durability left ≤ NEAR_BREAK) and none works now (`working`: working_tiers)."""
+
     return {kind for kind, left in before.items() if left <= NEAR_BREAK and kind not in working}
 
-
 class Needs:
-    """What upkeep wants got, and what it remembers between rounds: which tools worked last round (broken) and the
-    plans' prices (kept briefly — a memo, not a state another step reads)."""
+    """What upkeep wants got, and what it remembers between rounds: which tools worked last round (broken) and the plans' prices (kept briefly — a memo, not a state another step reads)."""
 
     def __init__(self, brain):
         self.brain = brain
@@ -181,9 +155,8 @@ class Needs:
         self.working, self.wear = tiers, now_wear
 
     def propose(self, snap, ctx, reads=None):
-        """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone.
-        `reads` = {"enclosed": bool, "bed_near": bool, "soft_ground": bool} stands in for world reads (offline);
-        whatever is missing is read from the world, once, when first asked."""
+        """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone."""
+
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         enclosed, soft_ground = ground(reads)
         blocked = b.reflexes.blocked_here(b.place)
@@ -232,9 +205,8 @@ class Needs:
         return self.needs_now
 
     def bed_tonight(self, snap):
-        """Night in the Overworld, no bed carried, a bed would work, and the cheapest way through the night is a bed
-        whose plan needs no sun (NIGHT_WORK steps only). Asked by the needs (make it) and the shelter reflex (not
-        needed then), each from the snapshot."""
+        """Night in the Overworld, no bed carried, a bed would work, and the cheapest way through the night is a bed whose plan needs no sun (NIGHT_WORK steps only)."""
+
         if not (snap.dimension == "minecraft:overworld" and snap.night and snap.inv.count("bed") == 0
                 and skills.can_sleep(snap.state) is None):
             return False
@@ -242,8 +214,8 @@ class Needs:
         return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)
 
     def prepare_night(self, way, steps):
-        """Dark comes before the chosen way could be had: its missing parts to the front. The bed is a plan of its
-        own; a shelter is made at night by the shelter row, so only what it needs is fetched now."""
+        """Dark comes before the chosen way could be had: its missing parts to the front."""
+
         if way == "bed":
             self.need("night prep", goals.have(("bed", 1)), "dark before a bed could be made")
             return
@@ -255,8 +227,8 @@ class Needs:
         return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
 
     def need(self, kind, goal, why):
-        """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER). Proposed, never queued: the queue holds
-        the player's and the cerebrum's goals only; what upkeep wants is ranked with its rows by the arbiter."""
+        """Propose getting `goal` (kind: its place in arbiter."""
+
         if all(g != goal for _k, g, _w in self.needs_now):
             self.needs_now.append((kind, goal, why))
 
@@ -276,8 +248,8 @@ class Needs:
         return got
 
     def overnight(self, snap, facts=None, bed_too=True):
-        """`overnight` from this bag, kept briefly like `plan`: priced every round from a fresh cost model it was the
-        round's hotspot (0.7 s of /find in a 1.1 s decide; brain__base's 3 s between rounds)."""
+        """`overnight` from this bag, kept briefly like `plan`: priced every round from a fresh cost model it was the round's hotspot (0."""
+
         key = ("overnight", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
                snap.dimension)
         hit = self.plan_s_cache.get(key)
@@ -294,13 +266,11 @@ class Needs:
         cost = self.cost(snap)
         return all(cost.known_source(st) for st in steps)
 
-
 # ------------------------------------------------------------------------------------------------- upkeep skills
 
-
 def repair_pair(slots, kind):
-    """Pure: two damaged tools of the same item (e.g. two stone pickaxes) whose combined durability beats the best
-    one — crafting them together repairs (vanilla grid repair, +5 %). Returns (item id, slot a, slot b) or None."""
+    """Pure: two damaged tools of the same item (e."""
+
     tools = [s for s in slots if s["id"].endswith("_" + kind) and s.get("maxDamage")]
     by_item = {}
     for s in tools:
@@ -316,14 +286,11 @@ def repair_pair(slots, kind):
             best = (combined, item, a["slot"], b["slot"])
     return None if best is None else best[1:]
 
-
 def _kind_of(c):
     return c.args[1] if len(c.args) > 1 else c.kwargs.get("kind", "pickaxe")
 
-
 def _tools_of(kind):
     return sum(1 for s in Inventory().slots if s["id"].endswith("_" + kind))
-
 
 def repair_commands(state, args):
     """`commands` for repair_tool: the one 2×2 craft of the two most worn tools of the kind (`repair_pair`)."""
@@ -332,7 +299,6 @@ def repair_commands(state, args):
     if pair is None:
         raise NotAvailable(f"no two {kind}s of the same kind worth combining")
     return [{"type": "craft", "pattern": [pair[0], pair[0], None, None], "count": 1}]
-
 
 @skill(gives=["state:tool_combined"], remaining=_k.fewer_tools(_kind_of), needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
        commands=lambda state, args: repair_commands(state, args),

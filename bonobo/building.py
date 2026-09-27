@@ -12,7 +12,6 @@ from .skill import ANCHORS, skill
 from .skillcore import body_state, feet, snapshot, mine_cell, place
 from .world import Inventory, Region, add
 
-
 def _mod_at_least(version):
     def check(c):
         have = str(api.status().get("version", "0"))
@@ -20,12 +19,10 @@ def _mod_at_least(version):
             raise NotAvailable(f"machines need mod >= {version} (running {have}); restart the game to load it")
     return check
 
-
 def _open_container(pos):
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60, awaits="the caller reads the opened container's slots next")
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         raise McError(f"could not open the container at {pos}: {r['message']}")
-
 
 def _empty_container_slot():
     for s in world.container()["slots"]:
@@ -33,12 +30,10 @@ def _empty_container_slot():
             return s["slot"]
     raise NotAvailable("container is full")
 
-
 def _machine_roles(machine):
     bp = blueprints.REGISTRY[machine["blueprint"]]
     return {part.role: pos for pos, part, _, _ in blueprints.placed(bp, tuple(machine["origin"]), machine["turns"])
             if part.role}
-
 
 def _go_to_machine(ctx, machine):
     bp = blueprints.REGISTRY[machine["blueprint"]]
@@ -46,19 +41,9 @@ def _go_to_machine(ctx, machine):
     if not nav.arrived(access, ctx.policy, range_=2, attempts=2):
         raise NotAvailable(f"{machine['name']} not reachable")
 
-
 def spot_options(bp, near, region, policy, radius=8, body=None):
-    """Pure: [(prepare cost, origin, turns, prepare)] for building `bp` around `near`, cheapest first.
+    """Pure: [(prepare cost, origin, turns, prepare)] for building `bp` around `near`, cheapest first."""
 
-    Ground that is already perfect — every cell free, every bottom cell on solid ground — is what this used to
-    demand, and on real terrain that is rare: "no clear spot for shelter within 6 blocks" in a forest, with a bag
-    of blocks and a pickaxe in hand. But a patch of ground is something you MAKE. A sapling in the way is one
-    break; a dip under a wall is one placed block; a hillside is more work than walking somewhere else.
-
-    So levelling is priced rather than demanded, in blocks of work, and a ready spot still wins because it costs
-    nothing. `prepare` is what has to happen first: ("break", cell) and ("fill", cell), in the order to do them.
-    Lava, water and bedrock are not work: those spots are simply not offered.
-    """
     nx, ny, nz = near
     budget = int(_PLAY["build"]["max_prepare_blocks"])
     occupied = set()
@@ -99,15 +84,12 @@ def spot_options(bp, near, region, policy, radius=8, body=None):
     return ([(0, origin, turns, ()) for origin, turns in started_builds(bp, region, near)]
             + [(cost, origin, turns, prepare) for cost, _d, origin, turns, prepare in out])
 
-
 def _free(region, c):
     return not region.solid(c) or region.name(c) == "nether_portal"
 
-
 def started_builds(bp, region, near):
-    """Pure: [(origin, turns)] of builds of `bp` already half standing in `region` or more, the most complete and then
-    the nearest first. Only the blueprint's own items count (explicit ids, not group tokens like "stone"): a wall
-    of cobblestone is not half a shelter. Its clear cells must be free, or it could never work."""
+    """Pure: [(origin, turns)] of builds of `bp` already half standing in `region` or more, the most complete and then the nearest first."""
+
     own = [p for p in bp.parts if ":" in p.item]
     if not own:
         return []
@@ -132,21 +114,17 @@ def started_builds(bp, region, near):
     out.sort()
     return [(origin, turns) for _s, _d, origin, turns in out]
 
-
 def portal_todo(bp, origin, turns, name):
-    """Pure: (frame cells still to cast, whether it still needs lighting) for a portal at `origin`. `name(pos)` →
-    block name. Empty frame: every cell, and light; all cast: light only; lit: nothing."""
+    """Pure: (frame cells still to cast, whether it still needs lighting) for a portal at `origin`."""
+
     cast = [pos for pos, part, *_ in blueprints.placed(bp, origin, turns)
             if part.item == "minecraft:obsidian" and name(pos) != "obsidian"]
     lit = any(name(c) == "nether_portal" for c in blueprints.clear_cells(bp, origin, turns))
     return cast, not lit
 
-
 def _prepare_for(bp, origin, turns, clearable, standable):
-    """The breaks and fills this spot needs, or None when it cannot be made into a spot at all.
+    """The breaks and fills this spot needs, or None when it cannot be made into a spot at all."""
 
-    Breaks first, then fills: the floor goes in under walls that are no longer buried.
-    """
     cells = blueprints.placed(bp, origin, turns)
     clear = blueprints.clear_cells(bp, origin, turns)
     breaks, fills = [], []
@@ -182,16 +160,11 @@ def _prepare_for(bp, origin, turns, clearable, standable):
             ordered.append(item)
     return ordered
 
-
 def find_machine_spot(bp, near, policy, radius=8, body=None):
-    """Nearest origin + rotation around `near` that can be built on, with what must be done to the ground first.
+    """Nearest origin + rotation around `near` that can be built on, with what must be done to the ground first."""
 
-    Returns (origin, turns); `plan_machine_spot` returns the preparation with it. The region is read here, and the
-    choosing is `spot_options` — pure, so what counts as buildable ground can be tested without a world.
-    """
     origin, turns, _prepare = plan_machine_spot(bp, near, policy, radius=radius, body=body)
     return origin, turns
-
 
 def plan_machine_spot(bp, near, policy, radius=8, body=None):
     """(origin, turns, prepare) for the cheapest spot: what to build on and what to do to the ground first."""
@@ -204,12 +177,9 @@ def plan_machine_spot(bp, near, policy, radius=8, body=None):
     _cost, origin, turns, prepare = options[0]
     return origin, turns, prepare
 
-
 def prepare_spot(ctx, prepare):
-    """Do what the ground needs before a build: break what is in the way, fill what nothing stands on.
+    """Do what the ground needs before a build: break what is in the way, fill what nothing stands on."""
 
-    One place, for every blueprint. The blocks come out of the same bag the build uses, so this runs before the
-    materials are spent rather than after."""
     if not prepare:
         return
     log(f"   levelling the spot: {sum(1 for k, _c in prepare if k == 'break')} to break, "
@@ -223,7 +193,6 @@ def prepare_spot(ctx, prepare):
                 raise NotAvailable("nothing left to fill the ground with")
             place_oriented(block, c, None, None)
 
-
 def resolve_item(token):
     """A concrete held item for a blueprint token: group tokens ("stone", "door") pick the largest held stack."""
     if token not in GROUPS:
@@ -234,17 +203,15 @@ def resolve_item(token):
         raise NotAvailable(f"no {token} in the inventory")
     return max(held, key=inv.usable)
 
-
 def block_matches(name, token):
     name = bare(name)
     if mid(token) == "minecraft:torch":
         return name in ("torch", "wall_torch")
     return name in {bare(m) for m in members(token)}
 
-
 def place_oriented(ctx, pos, token, facing=None, against=None, either_way=False):
-    """Place a blueprint part and verify its `facing` state. The jar turns the body so the block's own placement rule
-    gives `facing`; `either_way` accepts the opposite facing (doors)."""
+    """Place a blueprint part and verify its `facing` state."""
+
     item = resolve_item(token)
     task = {"type": "place", "item": item, "x": pos[0], "y": pos[1], "z": pos[2]}
     if against is not None:
@@ -261,11 +228,9 @@ def place_oriented(ctx, pos, token, facing=None, against=None, either_way=False)
         return
     raise McError(f"{bare(item)} at {pos} faces {actual}, wanted {facing}")
 
-
 def materials_missing(bp):
     inv = Inventory()
     return {bare(k): n - inv.usable(k) for k, n in blueprints.materials(bp).items() if inv.usable(k) < n}
-
 
 def blueprint_region(bp, origin, turns):
     """The box a build reads: every part, the access spot, and one block around them (foliage in the way)."""
@@ -275,7 +240,6 @@ def blueprint_region(bp, origin, turns):
     hi = tuple(max(max(c[i] for c in cells), access[i]) + 1 for i in range(3))
     return Region(lo, hi)
 
-
 def blueprint_wrong(bp, origin, turns):
     """[(cell, wanted)] for every part the world does not show where the blueprint puts it. Empty = built."""
     cells = blueprints.placed(bp, origin, turns)
@@ -284,15 +248,9 @@ def blueprint_wrong(bp, origin, turns):
     region = Region(lo, hi)
     return [(pos, bare(part.item)) for pos, part, *_ in cells if not block_matches(region.name(pos), part.item)]
 
-
 def blueprint_commands(state, args):
-    """Pure: the whole build as one batch, from the access spot — clear the foliage in the way, then every part not
-    yet in place, bottom-up, pillaring under the body wherever a part's only face is above the eye.
+    """Pure: the whole build as one batch, from the access spot — clear the foliage in the way, then every part not yet in place, bottom-up, pillaring under the body wherever a part's only face is above the eye."""
 
-    `state` is `body_state` with `region` = `blueprint_region(...)`; the body
-    is assumed to stand on the access spot (the skill walks there first). Items come out of `state["inv"]` as the
-    batch spends them, so a group token picks a member there will still be some of.
-    """
     bp, origin, turns = args
     region, inv, protected = state["region"], state["inv"], state["protected"]
     access = blueprints.access_spot(bp, origin, turns)
@@ -337,17 +295,12 @@ def blueprint_commands(state, args):
         tasks.append(task)
     return tasks
 
-
 def _build_state(ctx, bp, origin, turns):
     return body_state(ctx, blueprint_region(bp, origin, turns))
 
-
 def _build_parts(ctx, bp, origin, turns):
-    """Place every part bottom-up (list order within a layer), then verify the block ids.
+    """Place every part bottom-up (list order within a layer), then verify the block ids."""
 
-    The batch (`blueprint_commands`) goes first, as one chain. What it could not do — a pillar with leaves over it,
-    a body-oriented block that came out mirrored — is finished part by part below, where each placement is looked
-    at before the next."""
     batch = blueprint_commands(_build_state(ctx, bp, origin, turns), (bp, origin, turns))
     # One chain per layer, bottom-up: a layer is the support of the next, so each is read back from the world before
     # the next is sent; a layer short of what it should hold hands over to the part-by-part finish below.
@@ -411,10 +364,9 @@ def _build_parts(ctx, bp, origin, turns):
     if wrong:
         raise McError(f"{bp.name} incomplete: {wrong}")
 
-
 def by_layer(tasks):
-    """Pure: a build's tasks split into chunks, one per height of the blocks it places, in order. What comes between
-    two layers (a walk back, a pillar up) opens the next chunk; tasks after the last place stay in the last one."""
+    """Pure: a build's tasks split into chunks, one per height of the blocks it places, in order."""
+
     chunks, cur, y = [], [], None
     for t in tasks:
         if t["type"] == "place":
@@ -428,7 +380,6 @@ def by_layer(tasks):
         chunks.append(cur)
     return chunks
 
-
 def _build_args(ctx, s):
     """(blueprint, near) for a build step: where it asked, else home (never for a portal), else here."""
     at = s.detail.get("at")
@@ -437,21 +388,18 @@ def _build_args(ctx, s):
     home = ctx.mem.home()
     return s.token, tuple(home["pos"]) if home and s.token != "nether_portal" else feet()
 
-
 def _machine_built(ctx, name):
     """Is the machine this name was given standing in the world, part for part?"""
     m = next((m for m in ctx.mem.data.get("machines", ()) if m["name"] == name), None)
     return m is not None and not blueprint_wrong(blueprints.REGISTRY[m["blueprint"]], tuple(m["origin"]), m["turns"])
 
-
 def _shelter_built(ctx, name):
     s = next((s for s in ctx.mem.data.get("sites", ()) if s["name"] == name), None)
     return s is not None and not blueprint_wrong(blueprints.SHELTER, tuple(s["pos"]), s.get("turns", 0))
 
-
 def _blueprint_spot(state, args):
-    """Pure: (origin, turns, prepare) of a build not yet started — the cheapest spot around `near` in
-    `state["region"]` (`spot_options`) — or None."""
+    """Pure: (origin, turns, prepare) of a build not yet started — the cheapest spot around `near` in `state["region"]` (`spot_options`) — or None."""
+
     bp = blueprints.REGISTRY[args[0]]
     if state.get("region") is None:
         return None
@@ -460,23 +408,19 @@ def _blueprint_spot(state, args):
                            body=state.get("feet"))
     return options[0][1:] if options else None
 
-
 def _blueprint_anchor(state, args):
-    """What build_blueprint fixes at its first start: the site (memory's `builds`, noted before the first block),
-    so a resumed build carries on there — {"started": {origin, turns}}; {} when nothing can be sited."""
+    """What build_blueprint fixes at its first start: the site (memory's `builds`, noted before the first block), so a resumed build carries on there — {"started": {origin, turns}}; {} when nothing can be sited."""
+
     if state.get("started"):
         return {"started": state["started"]}
     spot = _blueprint_spot(state, args)
     return {} if spot is None else {"started": {"origin": list(spot[0]), "turns": spot[1]}}
 
-
 ANCHORS["build_blueprint"] = _blueprint_anchor
 
-
 def _blueprint_commands_for(state, args):
-    """`commands` for build_blueprint(ctx, name, near): the batch where the build stands — a build already started
-    (`state["started"]`, memory's `builds`), else the cheapest spot around `near` in `state["region"]`
-    (`spot_options`), its levelling first: break what is in the way, fill what nothing stands on."""
+    """`commands` for build_blueprint(ctx, name, near): the batch where the build stands — a build already started (`state["started"]`, memory's `builds`), else the cheapest spot around `near` in `state["region"]` (`spot_options`), its levelling first: break what is in the way, fill what nothing stands on."""
+
     bp = blueprints.REGISTRY[args[0]]
     started = state.get("started")
     if started:
@@ -493,21 +437,18 @@ def _blueprint_commands_for(state, args):
     except NotAvailable:
         return []
 
-
 def _shelter_left(state, call=None):
-    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (blueprints.remaining over the
-    state's region) — the whole hut before a spot is chosen."""
+    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (blueprints."""
+
     if state.get("spot") is None or state.get("region") is None:
         return {"shelter:hut": 1}
     origin, turns = state["spot"]
     return blueprints.remaining(blueprints.SHELTER, tuple(origin), turns, lambda p: state["region"].name(p) or "air")
 
-
 def _shelter_commands_for(state, args):
     """`commands` for build_shelter: the batch at the spot `state["spot"]` = (origin, turns)."""
     origin, turns = state["spot"]
     return blueprint_commands(state, (blueprints.SHELTER, origin, turns))
-
 
 @skill(gives=["state:built"], remaining=_k.built(lambda c: c.args[1]), needs={}, speed={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
        commands=_blueprint_commands_for, budget=900, stall=120, provides={"build": lambda ctx, s: _build_args(ctx, s)})
@@ -541,15 +482,14 @@ def build_blueprint(ctx, name, near):
     log(f"built {machine}")
     return machine
 
-
 @skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), speed={}, pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
        verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90, per_unit=60,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
                  "shelter:hut": lambda ctx, s: ()})
 def build_shelter(ctx):
-    """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more
-    safe place to sleep in the area being worked."""
+    """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more safe place to sleep in the area being worked."""
+
     bp = blueprints.SHELTER
     missing = materials_missing(bp)
     if missing:
@@ -566,23 +506,18 @@ def build_shelter(ctx):
     log(f"shelter {site['name']} ready")
     return site["name"]
 
-
 # ---- the portal cast in place (the speedrun way: no obsidian carried, no diamond pickaxe)
 _CAST = {}      # where the last frame was cast: what the verify looks at
-
 
 def _portal_cast(c):
     from . import fluids
     return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])
 
-
 @skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
        verify=_portal_cast, budget=900, stall=240, per_unit=600, provides={"cast:nether_portal": lambda ctx, s: ()})
 def cast_portal(ctx):
-    """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each
-    frame cell bottom-up wall it in with mould (`fluids.cast_frame_plan`), pour lava in, pour water on it, take the
-    water back; break the mould inside the frame, light it. The lava comes from a carried lava bucket or the nearest
-    source (`fluids._lava_bucket`)."""
+    """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each frame cell bottom-up wall it in with mould (`fluids."""
+
     from . import fluids
     inv = Inventory()
     for item in ("minecraft:water_bucket", "minecraft:flint_and_steel"):

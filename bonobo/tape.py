@@ -1,16 +1,5 @@
-"""Round tape: what one brain round saw, held and did — recorded live, read offline.
+"""Round tape: what one brain round saw, held and did — recorded live, read offline. Each line: the snapshot (state + bag), the world GETs the round made, the memory it held, the task and the plan it worked from, the act it chose, the EVENTS of the round (plan made or repaired, step ok / failed / interrupted), and every post-action READING SEQUENCE a skill judged (`settle`: what the counter said, poll by poll, and the verdict). The reading sequences are what gets replayed: the judgment layer (settle, death, outcome classification) run again on the very numbers the game gave, so a timing bug seen once is reproduced forever — and they are real conditions for the scenario tables. Decisions are not replayed: the brain is a fixed order now, and a change to it would only invalidate the recordings. `recorded`/`replayed` keep serving world reads from a line (`REPLAY`) for whoever wants a round's world back."""
 
-Each line: the snapshot (state + bag), the world GETs the round made, the memory it held, the task and the plan it
-worked from, the act it chose, the EVENTS of the round (plan made or repaired, step ok / failed / interrupted), and
-every post-action READING SEQUENCE a skill judged (`settle`: what the counter said, poll by poll, and the verdict).
-
-The reading sequences are what gets replayed: the judgment layer (settle, death, outcome classification) run again
-on the very numbers the game gave, so a timing bug seen once is reproduced forever — and they are real conditions
-for the scenario tables. Decisions are not replayed: the brain is a fixed order now, and a change to it would only
-invalidate the recordings.
-
-`recorded`/`replayed` keep serving world reads from a line (`REPLAY`) for whoever wants a round's world back.
-"""
 import hashlib
 import json
 import os
@@ -26,20 +15,16 @@ _calls = None
 _last = {"t": 0, "pick": None}
 REPLAY = None
 
-
 class ReplayMiss(Exception):
     """The replayed decision asked something the recording doesn't have, or tried to act."""
-
 
 def begin():
     global _calls
     _calls = {}
 
-
 def recorded(method, path, response):
     if _calls is not None and REPLAY is None and method == "GET" and not path.startswith(("/task", "/status")):
         _calls.setdefault(path, response)
-
 
 # A playthrough walks the world forward, so it asks questions the recording never asked (a region three blocks
 # further on, a chest that now matters). Strictness is right for replaying ONE round — the answer must be the one
@@ -51,7 +36,6 @@ LENIENT = False
 _EMPTY = {"blocks": [], "entities": [], "slots": [], "tasks": [], "palette": ["minecraft:air"],
           "data": [], "size": [0, 0, 0], "items": [], "notes": [], "count": 0}
 
-
 def replayed(method, path):
     if method != "GET":
         raise ReplayMiss(f"{method} {path}: a decision must not act")
@@ -60,7 +44,6 @@ def replayed(method, path):
             return dict(_EMPTY)
         raise ReplayMiss(path)
     return REPLAY[path]
-
 
 def store_mem(data):
     blob = json.dumps(data, sort_keys=True, default=str)
@@ -72,7 +55,6 @@ def store_mem(data):
             f.write(blob)
     return h
 
-
 # What else belongs on a decision line, registered by whoever owns it. The recorder used to import the four
 # modules whose state it wanted — a file that exists to WATCH the others reached upward into them, which put loot,
 # and through it nav and perception, into the dependency closure of everything that records anything. Now the top
@@ -80,14 +62,12 @@ def store_mem(data):
 SOURCES = {}
 FILES = {}
 
-
 def register(name, snapshot=None, file_path=None):
     """`snapshot()` → JSON-able extra for each row, or `file_path()` → a path whose text is recorded."""
     if snapshot is not None:
         SOURCES[name] = snapshot
     if file_path is not None:
         FILES[name] = file_path
-
 
 def _extras():
     out = {}
@@ -98,26 +78,21 @@ def _extras():
             out[name] = None
     return out
 
-
 _events = []
 _readings = []
 SKILL = None           # the skill running now (skill.py sets it): whose readings these are
 
-
 def event(name, outcome, detail=""):
     """Something that happened this round: a plan made or repaired, a step's outcome."""
     _events.append({"t": round(time.time(), 2), "name": name, "outcome": outcome, "detail": detail})
-
 
 def reading(seq, verdict, label=None):
     """One post-action reading sequence [(seconds since the action, value)] and what it was judged to mean."""
     _readings.append({"skill": label or SKILL, "seq": [[round(dt, 2), _plain(v)] for dt, v in seq],
                       "verdict": _plain(verdict)})
 
-
 def _plain(v):
     return v if isinstance(v, (int, float, str, bool, type(None))) else str(v)
-
 
 def row_for(brain, act, snap, now=None):
     """The round's line (pure apart from reading the memory it stores)."""
@@ -133,10 +108,9 @@ def row_for(brain, act, snap, now=None):
         "blacklist": [[list(k), v] for k, v in brain.blacklist.items()],
     }
 
-
 def trim(path, keep_bytes):
-    """Keep the newest rounds that fit, drop the rest. One file, no second copy: what a replay is worth is in the
-    recent rounds, and older ones are the same situations again."""
+    """Keep the newest rounds that fit, drop the rest."""
+
     try:
         with open(path) as f:
             lines = f.readlines()
@@ -157,7 +131,6 @@ def trim(path, keep_bytes):
     except OSError:
         return 0
     return len(kept)
-
 
 def end(brain, act, snap, path=None, always=False):
     """Write this round's line (throttled: the same act with nothing new to say is skipped). Returns the row."""

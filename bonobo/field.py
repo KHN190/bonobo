@@ -1,9 +1,5 @@
-"""How long anything takes to reach us, estimated, and what placing blocks does to that.
+"""How long anything takes to reach us, estimated, and what placing blocks does to that. Straight-line time times a terrain factor learned from what walking actually cost, kept per bucket (open ground, underground, enclosed) by exponential smoothing. No search: this runs beside a 5 Hz loop, and a rough number that arrives beats an exact one that does not."""
 
-Straight-line time times a terrain factor learned from what walking actually cost, kept per bucket (open ground,
-underground, enclosed) by exponential smoothing. No search: this runs beside a 5 Hz loop, and a rough number that
-arrives beats an exact one that does not.
-"""
 import math
 
 BUCKETS = ("open", "underground", "enclosed")
@@ -12,7 +8,6 @@ MEMORY = 0.2
 BLOCK_FACTOR = 1.8
 SQUEEZE_FACTOR = 1.05
 MAX_FACTOR = 12.0
-
 
 class Terrain:
 
@@ -32,9 +27,7 @@ class Terrain:
     def of(self, bucket):
         return self.factor.get(bucket, PRIOR)
 
-
 TERRAIN = Terrain()
-
 
 class Field:
 
@@ -45,9 +38,8 @@ class Field:
         self.terrain = terrain or TERRAIN
 
     def slowdown(self, squeezes=False):
-        """How much longer anything takes over this ground than over a straight line: what the ground itself costs
-        (learned per bucket) times what the blocks we placed cost. The one definition of "slower" — `estimate`
-        asks for it rather than multiplying two of its own."""
+        """How much longer anything takes over this ground than over a straight line: what the ground itself costs (learned per bucket) times what the blocks we placed cost."""
+
         return self.terrain.of(self.bucket) * self.delay_ratio(squeezes)
 
     def arrival_s(self, src, dst, squeezes=False, speed=None, now=None):
@@ -55,12 +47,8 @@ class Field:
         return straight * self.slowdown(squeezes)
 
     def delay_ratio(self, squeezes=False):
-        """What the blocks we placed do to how soon something arrives.
+        """What the blocks we placed do to how soon something arrives."""
 
-        A wall is only a wall to what has to walk round it. What climbs, squeezes or teleports goes over the first
-        block and the tenth is worth nothing more, so stacking does not compound for those: a compounding 5% put a
-        four-block wall against a spider at a 21% delay, and the sweep found the model building it.
-        """
         if not self.blocks:
             return 1.0
         return SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR ** self.blocks
@@ -78,7 +66,6 @@ class Field:
         t = min(1.0, max(1.0, within) / span)
         return tuple(int(math.floor(src[k] + (dst[k] - src[k]) * t + 0.5)) for k in range(3))
 
-
 def bucket_of(state):
     if state.get("enclosed"):
         return "enclosed"
@@ -86,18 +73,15 @@ def bucket_of(state):
         return "underground"
     return "open"
 
-
 def bucket_at(region, here, radius):
-    """Pure: the bucket of the ground around `here` (feet), read off the blocks: "enclosed" when every side of the
-    feet and the head is solid and so is the cell above the head (a pod), "underground" when something solid is
-    over the head within `radius` (a roof, a cave), else "open". Water and air are not solid."""
+    """Pure: the bucket of the ground around `here` (feet), read off the blocks: "enclosed" when every side of the feet and the head is solid and so is the cell above the head (a pod), "underground" when something solid is over the head within `radius` (a roof, a cave), else "open"."""
+
     x, y, z = (int(math.floor(v)) for v in here)
     sides = [(x + dx, yy, z + dz) for yy in (y, y + 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))]
     above = [(x, y + 2 + k, z) for k in range(max(0, int(radius) - 1))]
     if region.solid((x, y + 2, z)) and all(region.solid(c) for c in sides):
         return "enclosed"
     return "underground" if any(region.inside(c) and region.solid(c) for c in above) else "open"
-
 
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket from the blocks themselves."""

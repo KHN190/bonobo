@@ -1,9 +1,4 @@
-"""Screens with buttons (mod ≥ 0.1.23: /button, /trade, /rename and container details): enchanting, villager
-trades, anvils. Pure choosers (`choose_enchant`, `choose_trade`, `anvil_ok`) are offline-tested; skills open the
-block/villager, arrange slots with /click and press the buttons.
-
-Container JSON extras: enchanting → "enchant": [{"cost", "id", "level"}×3] and "lapis"; merchant → "offers":
-[{"buy", "buyCount", "buy2", "buy2Count", "sell", "sellCount", "disabled"}]; anvil → "levelCost"."""
+"""Screens with buttons (mod ≥ 0.1.23: /button, /trade, /rename and container details): enchanting, villager trades, anvils. Pure choosers (`choose_enchant`, `choose_trade`, `anvil_ok`) are offline-tested; skills open the block/villager, arrange slots with /click and press the buttons. Container JSON extras: enchanting → "enchant": [{"cost", "id", "level"}×3] and "lapis"; merchant → "offers": [{"buy", "buyCount", "buy2", "buy2Count", "sell", "sellCount", "disabled"}]; anvil → "levelCost"."""
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
@@ -13,10 +8,9 @@ from .data import mid
 from .skill import skill
 from .world import Inventory, container, entities
 
-
 def choose_enchant(options, xp_level, lapis):
-    """Pure: the enchant button to press — the best option whose level cost the player can pay (level requirement
-    ≤ xp, lapis ≥ button + 1). None when nothing is affordable or offered."""
+    """Pure: the enchant button to press — the best option whose level cost the player can pay (level requirement ≤ xp, lapis ≥ button + 1)."""
+
     best = None
     for i, o in enumerate(options):
         cost = o.get("cost", 0)
@@ -26,10 +20,9 @@ def choose_enchant(options, xp_level, lapis):
             best = i
     return best
 
-
 def choose_trade(offers, want, have):
-    """Pure: index of an enabled offer selling `want` that the inventory can pay (`have`: item id → count). Cheapest
-    first payment wins."""
+    """Pure: index of an enabled offer selling `want` that the inventory can pay (`have`: item id → count)."""
+
     best = None
     for i, o in enumerate(offers):
         if o.get("disabled") or o.get("sell") != want:
@@ -42,15 +35,12 @@ def choose_trade(offers, want, have):
             best = i
     return best
 
-
 def anvil_ok(level_cost, xp_level):
     """Pure: an anvil result can be taken (cost known, affordable, below the 'too expensive' cap of 40)."""
     return 0 < level_cost <= xp_level and level_cost < 40
 
-
 def _slot_of(item):
     return next((s for s in container()["slots"] if s["owner"] == "player" and s["id"] == item), None)
-
 
 def _put(item, target_slot, count_button=0):
     src = _slot_of(item)
@@ -62,16 +52,14 @@ def _put(item, target_slot, count_button=0):
     if cursor.get("id") not in (None, "minecraft:air"):
         api.post("/click", {"slot": src["slot"], "button": 0, "action": "PICKUP"})   # put the rest back
 
-
 def _enchanted(item):
     """How many of `item` carried are enchanted (the jar reports `enchanted` on a stack from 0.1.39)."""
     return sum(1 for s in Inventory().slots if s["id"] == item and s.get("enchanted"))
 
-
 @skill(gives=["state:enchanted"], remaining=_k.enchanted(lambda c: c.args[1]), needs={"minecraft:lapis_lazuli": 1}, speed={}, start=lambda c: _enchanted(c.args[1]), verify=lambda c: _enchanted(c.args[1]) > c.base, budget=180, stall=60, per_unit=30, provides={"enchant": lambda ctx, s: (mid(s.token),)})
 def enchant_item(ctx, item):
-    """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option,
-    take the item back."""
+    """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option, take the item back."""
+
     from .skills import Station, _open_container
     xp = api.get("/state").get("xpLevel", 0)
     if xp < 1:
@@ -96,7 +84,6 @@ def enchant_item(ctx, item):
             api.post("/close")
     log(f"enchanted {item.split(':')[1]} (option {pick + 1})")
     return pick
-
 
 @skill(gives=K.GIVES_TRADE, needs=lambda a: {} if str(a[1]).endswith("emerald") else {"minecraft:emerald": 1}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=180, stall=60, per_unit=30, provides={"trade": lambda ctx, s: (mid(s.token),)})
@@ -126,11 +113,9 @@ def trade(ctx, want):
     log(f"traded for {want.split(':')[1]}")
     return index
 
-
 def _worn(item):
     """Damage on the most worn one of `item` carried (0 when none)."""
     return max((s.get("damage", 0) for s in Inventory().slots if s["id"] == item), default=0)
-
 
 def _anvil_args(ctx, step):
     """(most worn tool of the step's kind, the material an anvil repairs it with), when both are carried."""
@@ -145,12 +130,11 @@ def _anvil_args(ctx, step):
     material = next((m for m in members(token) if inv.count(m)), None) if token else None
     return (item, material) if material else None
 
-
 @skill(gives=["state:repaired"], remaining=_k.worn(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: _worn(c.args[1]), verify=lambda c: _worn(c.args[1]) < c.base,
        budget=180, stall=60, per_unit=30, prefer=-1, provides={"repair": _anvil_args})
 def anvil_repair(ctx, item, material):
-    """At an anvil: the damaged item + its repair material (e.g. diamond pickaxe + diamonds), take the result when
-    the level cost is affordable."""
+    """At an anvil: the damaged item + its repair material (e."""
+
     from .skills import Station, _open_container
     xp = api.get("/state").get("xpLevel", 0)
     with Station(ctx, "minecraft:anvil") as station:

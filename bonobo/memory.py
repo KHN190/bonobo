@@ -1,8 +1,5 @@
-"""Persistent world memory shared across sessions: sites, stations, what was seen where, deaths, night record.
+"""Persistent world memory shared across sessions: sites, stations, what was seen where, deaths, night record. A *site* is any protected structure: the home base or a built shelter. Each may carry a snapshot of its solid blocks so damage can be detected and repaired. Digging near sites is allowed; digging *their blocks* is not."""
 
-A *site* is any protected structure: the home base or a built shelter. Each may carry a snapshot of its solid
-blocks so damage can be detected and repaired. Digging near sites is allowed; digging *their blocks* is not.
-"""
 import json
 import math
 import os
@@ -12,21 +9,17 @@ from .data import GROUPS, VOLATILITY, bare, mid, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
-
 def _now():
     return time.strftime("%Y-%m-%d %H:%M")
-
 
 # -- the section grid explore searches over (16×16×16, Minecraft's own sections): which sections were looked over,
 # when, and what they held (Memory.see_sections), and the frontier — the nearest section whose look has run out
 # for the kinds wanted, in each kind's own y band. Pure.
 SECTION = 16
 
-
 def section_of(pos):
     """Pure: the (cx, cy, cz) section a position lies in."""
     return int(math.floor(pos[0])) // SECTION, int(math.floor(pos[1])) // SECTION, int(math.floor(pos[2])) // SECTION
-
 
 def sections_within(pos, radius):
     """Pure: every section whose centre lies within `radius` blocks of `pos` (in 3-D: a look sees above and below)."""
@@ -36,16 +29,14 @@ def sections_within(pos, radius):
             if math.dist(((cx + dx) * SECTION + 8, (cy + dy) * SECTION + 8, (cz + dz) * SECTION + 8),
                          pos) <= radius]
 
-
 def absent_ttl(kind):
     """Game ticks "looked over, none here" holds for `kind` (data.VOLATILITY's `absent`, by the kind's class)."""
     rule = VOLATILITY.get(seen_class(kind)) or VOLATILITY["slow"]
     return rule.get("absent") or VOLATILITY["slow"]["absent"]
 
-
 def covered(row, kinds, tick):
-    """Pure: this section's looks still answer for every one of `kinds` — each looked for here within its `absent`
-    TTL (a kind it held counts as answered: the note says where). A look answers only for what it asked about."""
+    """Pure: this section's looks still answer for every one of `kinds` — each looked for here within its `absent` TTL (a kind it held counts as answered: the note says where)."""
+
     if row is None:
         return False
     looked = row.get("looked", {})
@@ -59,12 +50,9 @@ def covered(row, kinds, tick):
             return False
     return True
 
-
 def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12):
-    """Pure: the sections to look next for `kinds`, nearest first — within `radius` sections sideways of `here`, at
-    each kind's own height (`band(kind)`: the y it is richest at, None for the surface: the feet's section), never
-    looked over or looked over too long ago. [] when everything near has been looked over lately. A section seen
-    at y 64 answers nothing for a band at y −58."""
+    """Pure: the sections to look next for `kinds`, nearest first — within `radius` sections sideways of `here`, at each kind's own height (`band(kind)`: the y it is richest at, None for the surface: the feet's section), never looked over or looked over too long ago."""
+
     hx, hy, hz = section_of(here)
     layers = {(hy if band(k) is None else int(band(k)) // SECTION) for k in kinds}
     out = set()
@@ -77,14 +65,11 @@ def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12):
                     out.add(s)
     return sorted(out, key=lambda s: (math.dist(s, (hx, hy, hz)), s))
 
-
 def section_centre(section):
     """Pure: the block at a section's centre (x, y, z)."""
     return tuple(c * SECTION + 8 for c in section)
 
-
 SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, farthest go first)
-
 
 class Memory:
     def __init__(self, path=NOTES_FILE):
@@ -148,8 +133,8 @@ class Memory:
             self.save()
 
     def _fold_old_notes(self):
-        """Resources, sightings, lava pools and veins were four stores of "seen X at Y" on the wall clock. Static and
-        slow ones come over marked to-verify (their age is unknowable in game ticks); mobile ones are dropped."""
+        """Resources, sightings, lava pools and veins were four stores of "seen X at Y" on the wall clock."""
+
         d = self.data
         old = [(r["kind"], r["pos"], r["dimension"]) for r in d.pop("resources", []) if not r.get("depleted")]
         old += [(k, x["pos"], x["dimension"]) for k, rows in d.pop("sightings", {}).items() for x in rows]
@@ -203,8 +188,8 @@ class Memory:
         return cells | self.machine_cells(dimension) | self.build_cells(dimension)
 
     def build_cells(self, dimension):
-        """Cells of blueprint builds that were started but not finished: never mined (the portal goal once took its
-        own half-built frame apart for obsidian)."""
+        """Cells of blueprint builds that were started but not finished: never mined (the portal goal once took its own half-built frame apart for obsidian)."""
+
         from . import blueprints
         cells = set()
         for name, b in self.data.get("builds", {}).items():
@@ -232,8 +217,8 @@ class Memory:
         self.save()
 
     def settle_pending(self, name, got):
-        """Subtract collected items from a machine's pending outputs; stale or empty entries go away, entries that
-        yielded nothing yet are rescheduled a minute later."""
+        """Subtract collected items from a machine's pending outputs; stale or empty entries go away, entries that yielded nothing yet are rescheduled a minute later."""
+
         got, now = dict(got), time.time()
         for m in self.data["machines"]:
             if m["name"] != name:
@@ -265,8 +250,8 @@ class Memory:
         return [j for j in self.data["jobs"] if dimension is None or j["dimension"] == dimension]
 
     def add_job(self, kind, pos, dimension, item, count, ready_at, carried, **contents):
-        """A background job; `contents` says what went in (a furnace: input, input_count, fuel, fuel_count) — what
-        the furnace holds is known from here, never guessed."""
+        """A background job; `contents` says what went in (a furnace: input, input_count, fuel, fuel_count) — what the furnace holds is known from here, never guessed."""
+
         # One id per job: three furnaces loaded in the same second shared "furnace-<second>", and finishing the
         # first finished all three (bench iron_ingots: 3 ordered, 2 collected).
         self.data["job_seq"] = self.data.get("job_seq", 0) + 1
@@ -331,8 +316,8 @@ class Memory:
         return (s["ok"] + 1) / (s["ok"] + s["fail"] + 1)
 
     def mark_dirty_near(self, positions, dimension, radius=6):
-        """Our own digging: sites near it are dirty (repair checks them), slow notes near it are to-verify, and a
-        static note on a cell we dug is gone (we mined it)."""
+        """Our own digging: sites near it are dirty (repair checks them), slow notes near it are to-verify, and a static note on a cell we dug is gone (we mined it)."""
+
         changed = False
         dug = [tuple(p) for p in positions]
         keep = []
@@ -363,10 +348,8 @@ class Memory:
         self.save()
 
     def stations(self, dimension=None, near=None, within=None):
-        """Placed single-block stations (a crafting table, a furnace), optionally near a point.
+        """Placed single-block stations (a crafting table, a furnace), optionally near a point."""
 
-        One reader for what we have put down, so "is there a furnace here" is asked the same way everywhere
-        rather than each caller digging through `data["stations"]` its own way."""
         out = [s for s in self.data["stations"] if dimension is None or s["dimension"] == dimension]
         if near is not None and within is not None:
             out = [s for s in out if math.dist(s["pos"], near) <= within]
@@ -378,10 +361,8 @@ class Memory:
 
     # ---- which sections were looked over, and what they held: explore's frontier (`frontier`)
     def see_sections(self, dimension, pos, radius, found, looked=()):
-        """The sections within `radius` blocks of `pos` were looked over now (game clock) for `looked` (kinds);
-        `found`: {kind: [pos]} what the look saw — each marks its own section as holding that kind. A kind looked
-        for and not seen is absent until its class's `absent` TTL runs out. Only looked-over sections are kept, at
-        most SECTION_CAP."""
+        """The sections within `radius` blocks of `pos` were looked over now (game clock) for `looked` (kinds); `found`: {kind: [pos]} what the look saw — each marks its own section as holding that kind."""
+
         smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
         asked = {bare(k) for k in looked} | {bare(k) for k in found}
         for c in sections_within(pos, radius):
@@ -399,8 +380,8 @@ class Memory:
                 del smap[k]
 
     def frontier(self, dimension, here, kinds, band=lambda kind: None):
-        """[(section, its centre)] to look next for `kinds` from `here` (module `frontier` over this dimension's
-        section map, on the game clock), nearest first."""
+        """[(section, its centre)] to look next for `kinds` from `here` (module `frontier` over this dimension's section map, on the game clock), nearest first."""
+
         return [(s, section_centre(s)) for s in frontier(self.section_map(dimension), here, kinds, self.clock, band)]
 
     def section_map(self, dimension):
@@ -442,23 +423,23 @@ class Memory:
         return self.clock - row["t"] <= limit
 
     def note_seen(self, kind, pos, dimension):
-        """One of `kind` is at `pos` (a block or mob name, or an alias: "tree", "herd"). Seeing it again refreshes
-        the note; a hostile is never stored. Expired notes are dropped on the way."""
+        """One of `kind` is at `pos` (a block or mob name, or an alias: "tree", "herd")."""
+
         self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
         if self._put(kind, pos, dimension) is not None:
             self.save()
 
     def note_here(self, kind, pos, dimension):
-        """Standing at one of `kind` at `pos`: noted as its class keeps it, or for two minutes ("here") when its
-        class keeps none — `at:<kind>` for the next plan, never a map of common blocks."""
+        """Standing at one of `kind` at `pos`: noted as its class keeps it, or for two minutes ("here") when its class keeps none — `at:<kind>` for the next plan, never a map of common blocks."""
+
         self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
         cls = seen_class(kind)
         if self._put(kind, pos, dimension, cls=cls if VOLATILITY.get(cls) else "here") is not None:
             self.save()
 
     def seen(self, kind, dimension, within=None):
-        """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}. `within` (game ticks)
-        narrows to "just now"."""
+        """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}."""
+
         kind = bare(kind)
         rows = [r for r in self.data["seen"] if r["kind"] == kind and r["dimension"] == dimension
                 and self._fresh(r, within)]
@@ -479,11 +460,8 @@ class Memory:
         return GROUPS["log"] if bare(kind) == "tree" else [bare(kind)]
 
     def confirm(self, kind, pos, dimension, found):
-        """Arriving settles a note: `found` keeps it (and clears to-verify), otherwise it is retired at once.
+        """Arriving settles a note: `found` keeps it (and clears to-verify), otherwise it is retired at once."""
 
-        One rule for every kind of note — seen things and sites — because they fail the same way. Left to a
-        timer, a felled tree stays on the map, is priced, walked to, found missing, and priced again next round.
-        """
         if found:
             if kind != "site":
                 self.note_here(kind, pos, dimension)
@@ -522,15 +500,15 @@ class Memory:
                 if c["dimension"] == dimension for item, n in c["items"].items() if item in ids and n > 0]
 
     def log_death(self, pos, dimension, carried=()):
-        """Record a death and WHAT WAS ON US. The pile on the ground is the only thing that says whether walking
-        back is worth it: a flat cost priced a corpse holding two blocks of dirt the same as one holding iron."""
+        """Record a death and WHAT WAS ON US."""
+
         self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _now(), "t": time.time(),
                                     "carried": [[str(i), int(n)] for i, n in carried]})
         self.save()
 
     def forget_death(self, pos=None):
-        """Mark the last death recovered — or this one, by position. A note the world has contradicted must stop
-        being an errand at once; leaving it to time out means walking the same sixty blocks again in a minute."""
+        """Mark the last death recovered — or this one, by position."""
+
         for d in reversed(self.data["deaths"]):
             if d.get("recovered"):
                 continue
@@ -573,6 +551,4 @@ class Memory:
         self.data["night"]["slept"] = True
         self.data["night"]["missed"] = 0
         self.save()
-
-
 

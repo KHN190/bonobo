@@ -11,14 +11,11 @@ from .skill import skill
 from .skillcore import feet, gained, settle
 from .world import Inventory, find
 
-
 TRUNK_REACH = 4        # logs this far above the base are in reach from beside the trunk (eye 1.62, reach 4.5)
 
-
 def trunk_batch(base, overhead, want):
-    """Pure: one trunk as one batch — ONE mine_many of every log in reach from beside it (the base and the logs
-    over it up to TRUNK_REACH, as many as are still wanted), then one pickup. No walk into the base cell: that walk
-    broke the head log itself and the mine after it hit air ("chain: 3/4 succeeded")."""
+    """Pure: one trunk as one batch — ONE mine_many of every log in reach from beside it (the base and the logs over it up to TRUNK_REACH, as many as are still wanted), then one pickup."""
+
     x, y, z = base
     logs = [tuple(base)] + [tuple(c) for c in overhead if y < c[1] <= y + TRUNK_REACH]
     logs = logs[:max(1, want)]
@@ -26,15 +23,13 @@ def trunk_batch(base, overhead, want):
              "blocks": [{"x": c[0], "y": c[1], "z": c[2]} for c in logs]},
             {"type": "collect", "radius": 4, "only": ["log"]}]
 
-
 def felled(trunk, still):
     """Pure: none of this trunk's logs still stands (`still`: the log cells the world lists after chopping)."""
     return not any((t["x"], t["y"], t["z"]) in still for t in trunk)
 
-
 def pick_trunks(logs):
-    """Pure: the logs grouped into trunks (a log within one block sideways of the first of its group), in the order
-    their first log was listed (nearest first, as /find answers)."""
+    """Pure: the logs grouped into trunks (a log within one block sideways of the first of its group), in the order their first log was listed (nearest first, as /find answers)."""
+
     trunks = []
     for t in logs:
         for tr in trunks:
@@ -44,7 +39,6 @@ def pick_trunks(logs):
         else:
             trunks.append([t])
     return trunks
-
 
 @skill(gives=K.GIVES_GATHER, needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, per_unit=6, units=lambda c: c.args[1], key=lambda c: "chop",

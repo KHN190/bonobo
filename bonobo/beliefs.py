@@ -1,29 +1,5 @@
-"""What this agent believes about the world, in one place, with how much each belief is worth trusting.
+"""What this agent believes about the world, in one place, with how much each belief is worth trusting. Every number the planner uses is a belief about Minecraft: how far a skeleton shoots, what a death costs, how much of the damage a shield removes. They were spread across two TOML files and two Python tables, and the same fact was written down twice — a skeleton's reach was 15 in `play.toml` and 3 in `combat_model.HAZARD_R`, a death cost 240 s in ordinary play and 120 s in a fight. Nobody wrote a bug: two copies of one fact drift, always. So: one table, read through one door. value("time.death_cost_s")   → the number belief("time.death_cost_s")  → (number, observations behind it) mob("minecraft:skeleton")    → the row `observations` is 0 for everything today — every number here is a declared guess, which is what `unmeasured` says. The count is in the interface now, before anything reads it, because the thing that will read it (a planner that explores when it is unsure) must not require changing every call site again to arrive. `fit` raises the count as recorded play accumulates; until it does, nothing should pretend to know more than it does. Measurements are WRITTEN DOWN as they are taken (`note`), to `MC_DATA/beliefs.jsonl`, and read back at import. A count that lives only in one process is not an observation count: the bench measured a route, the run ended, and the next round believed the prior again. One line per measurement, never rewritten, so the history is the record and the count is derived from it — a wrong fit can be re-derived, a wrong average cannot be undone. This module imports one thing, `paths`, which is where a filesystem layout lives. It still depends on no decision: facts do not depend on decisions."""
 
-Every number the planner uses is a belief about Minecraft: how far a skeleton shoots, what a death costs, how much
-of the damage a shield removes. They were spread across two TOML files and two Python tables, and the same fact
-was written down twice — a skeleton's reach was 15 in `play.toml` and 3 in `combat_model.HAZARD_R`, a death cost
-240 s in ordinary play and 120 s in a fight. Nobody wrote a bug: two copies of one fact drift, always.
-
-So: one table, read through one door.
-
-    value("time.death_cost_s")   → the number
-    belief("time.death_cost_s")  → (number, observations behind it)
-    mob("minecraft:skeleton")    → the row
-
-`observations` is 0 for everything today — every number here is a declared guess, which is what `unmeasured` says.
-The count is in the interface now, before anything reads it, because the thing that will read it (a planner that
-explores when it is unsure) must not require changing every call site again to arrive. `fit` raises the count as
-recorded play accumulates; until it does, nothing should pretend to know more than it does.
-
-Measurements are WRITTEN DOWN as they are taken (`note`), to `MC_DATA/beliefs.jsonl`, and read back at import.
-A count that lives only in one process is not an observation count: the bench measured a route, the run ended,
-and the next round believed the prior again. One line per measurement, never rewritten, so the history is the
-record and the count is derived from it — a wrong fit can be re-derived, a wrong average cannot be undone.
-
-This module imports one thing, `paths`, which is where a filesystem layout lives. It still depends on no
-decision: facts do not depend on decisions.
-"""
 import json
 import os
 import tomllib
@@ -38,14 +14,12 @@ with open(CONFIG_PATH, "rb") as _f:
 WIKI_FIELDS = ("hp", "attack", "notice_r")
 WIKI_N = 10 ** 6          # "known", in the same unit as an observation count, so one comparison works everywhere
 
-
 def _with_dps(row):
-    """`dps` is derived, never stored: a published hit divided by how often it lands. As a stored number it hid
-    which half of it was a guess."""
+    """`dps` is derived, never stored: a published hit divided by how often it lands."""
+
     out = dict(row)
     out["dps"] = row["attack"] / row["attack_s"]
     return out
-
 
 MOBS = {kind: _with_dps(row) for kind, row in CONFIG["mobs"].items()}
 PLAYER = CONFIG["player"]
@@ -59,12 +33,10 @@ COUNTS = {}
 OBSERVED = {}
 LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
 
-
 # How much a declared number is discounted while nothing has been measured. One observation is worth this many
 # "prior" observations' worth of doubt: with n = 0 a benefit is read at half, and it climbs toward the declared
 # value as the count grows. It also weighs the prior against the measurements in `value`: the number moves as the count grows.
 PRIOR_STRENGTH = 1.0
-
 
 def declared(path):
     """The number as WRITTEN DOWN in play.toml: a guess, or something Mojang publishes. No measurement in it."""
@@ -74,16 +46,9 @@ def declared(path):
     section, _, key = path.partition(".")
     return CONFIG[section][key]
 
-
 def value(path):
-    """The believed number at "section.key", or "mobs.<kind>.<field>" — the declared one, moved by what has
-    actually been measured. A KeyError for an unknown one: a default would hide a typo behind a plausible answer.
+    """The believed number at "section."""
 
-    Only a number `play.toml` itself calls unmeasured can move, and it moves by pseudo-counts rather than by its
-    last sample: with n measurements of median m against a prior p, the belief is (W·p + n·m)/(W + n). One odd
-    round therefore barely shifts it, twenty consistent ones nearly replace it, and nothing published by the game
-    is touched at all — fitting a constant Mojang publishes is fitting noise.
-    """
     prior = declared(path)
     if not is_unmeasured(path):
         return prior
@@ -92,49 +57,35 @@ def value(path):
         return prior
     return (PRIOR_STRENGTH * float(prior) + len(seen) * _median(seen)) / (PRIOR_STRENGTH + len(seen))
 
-
 def is_unmeasured(path):
     """Is this one of the numbers `play.toml` declares as a guess? Only those are ours to move."""
     return path.rsplit(".", 1)[-1] in UNMEASURED
 
-
 def _median(xs):
-    """The middle measurement, not the mean: one round that walked into a wall should not be able to drag a
-    belief, and there is no theory here to fit — only what happened."""
+    """The middle measurement, not the mean: one round that walked into a wall should not be able to drag a belief, and there is no theory here to fit — only what happened."""
+
     s = sorted(float(x) for x in xs)
     mid = len(s) // 2
     return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2.0
 
-
 def count(path):
-    """How many observations stand behind this belief. Zero means: a guess, honestly declared; WIKI_N means the
-    game publishes it."""
+    """How many observations stand behind this belief."""
+
     if path.startswith("mobs.") and path.rsplit(".", 1)[-1] in WIKI_FIELDS:
         return WIKI_N
     return int(COUNTS.get(path, 0))
 
-
 def belief(path):
     return value(path), count(path)
-
 
 # What play has actually measured, keyed like `value`: [(observed, when)]. The bench writes here from the residual
 # between what an estimator said and what the clock said; `fit` reads it. Nothing is overwritten in `CONFIG` — a
 # belief moves when there are enough observations to move it, and that decision is not this module's.
 OBSERVED = {}
 
-
 def note(path, measured, now=None, where=""):
-    """Record one measurement of a believed number, and return (believed, observations).
+    """Record one measurement of a believed number, and return (believed, observations)."""
 
-    Deliberately not an update: a single bench cell is one sample of something noisy, and a table that follows its
-    last sample is not a belief, it is a rumour. This raises the count, which is what tells a planner how much to
-    trust the number and what `unmeasured` is about.
-
-    The line is appended to `LOG` as it is taken, so a measurement survives the process that took it. `where` is
-    free text naming what took it (a bench cell, a round, a tape) — a number with no provenance cannot be argued
-    with later.
-    """
     import time as _time
     believed = value(path)          # what was believed BEFORE this measurement joined the history
     at = now if now is not None else _time.time()
@@ -144,7 +95,6 @@ def note(path, measured, now=None, where=""):
              "n": COUNTS[path], "at": at, "where": where})
     return belief(path)
 
-
 # Measurements arrive at the speed of the world — one per broken block while mining — so they are written in
 # batches rather than one file open per block. Nothing is dropped: the buffer is part of the history until it is
 # on disk, and it is flushed when it fills, when it gets old, and when the process ends.
@@ -153,10 +103,9 @@ FLUSH_EVERY = 25
 FLUSH_AFTER_S = 30.0
 _last_flush = 0.0
 
-
 def _append(row):
-    """Queue one line. A failure to write is not allowed to lose the measurement from THIS process, so it stays in
-    memory either way — but it is never silent: the message says the history is now incomplete."""
+    """Queue one line."""
+
     import time as _time
     global _last_flush
     # The row remembers WHERE it is to be written. A test points LOG at a temporary file, takes a measurement and
@@ -167,7 +116,6 @@ def _append(row):
     if len(_PENDING) >= FLUSH_EVERY or now - _last_flush >= FLUSH_AFTER_S:
         _last_flush = now
         flush()
-
 
 def flush():
     """Write the queued measurements out. Safe to call at any time; it is what `atexit` calls."""
@@ -187,16 +135,13 @@ def flush():
     _PENDING.clear()
     return written
 
-
 import atexit          # noqa: E402  (registered after `flush` exists, which is the only order that works)
 
 atexit.register(flush)
 
-
 def load(path=None):
-    """Read the measurement log back into OBSERVED/COUNTS. Called once at import; call it again after a bench run
-    in another process. Lines that name a belief this config does not have are kept out and reported — a renamed
-    belief must not silently take another's history."""
+    """Read the measurement log back into OBSERVED/COUNTS."""
+
     path = path or LOG
     if not os.path.exists(path):
         return 0
@@ -216,81 +161,50 @@ def load(path=None):
             read += 1
     return read
 
-
 load()
-
 
 def observed(path):
     """Every measurement of this belief, newest last."""
     return list(OBSERVED.get(path, ()))
 
-
 def mob(kind):
     """One mob's row: `reach` (how far it hurts), `keep_out` (how close movement may plan), dps, speed, hp."""
     return MOBS[kind]
-
 
 def fights_back(types):
     """Does any of these mob types hit back (a row in the table: its dps is known)? Animals do not."""
     return any(t in MOBS for t in types or ())
 
-
 def keep_out():
     """{kind: radius} movement refuses to plan inside. A view of the table, never a second copy of it."""
     return {kind: m["keep_out"] for kind, m in MOBS.items() if m.get("keep_out")}
 
-
 def protection(armor_points, shield=False):
-    """Fraction of incoming damage removed: armour points (0–20, as /state reports them) and a shield in hand.
+    """Fraction of incoming damage removed: armour points (0–20, as /state reports them) and a shield in hand."""
 
-    One function. There were two — one over armour points, one over "tiers" — so the same iron chestplate removed
-    a different share of the damage depending on which planner asked.
-    """
     return min(PLAYER["protection_cap"],
                armor_points * PLAYER["protection_per_point"] + (PLAYER["shield"] if shield else 0.0))
 
-
 def slot_cost_s(bag_free):
-    """Seconds one more occupied inventory slot costs, given how many are still free.
+    """Seconds one more occupied inventory slot costs, given how many are still free."""
 
-    A belief, so it lives at the bottom of the package where anything may ask it — the looter and the planner have
-    to agree about what a slot is worth, and a copy in each would drift.
-
-    Emptying the bag costs a trip (`plan.slot_fill_s` is that trip's seconds); with `free` slots left, taking one
-    more brings that trip forward by about 1/free of it, and the next one again — so the marginal cost goes as
-    1/free². Roomy: 90/36² ≈ 0.07 s, nothing. Six left: 2.5 s, noticeable. Two left: 22 s, and only what is really
-    worth carrying still is. Nobody has to choose a "keep some slots free" rule; the curve is the rule.
-    """
     free = max(1.0, float(bag_free))
     return float(CONFIG["plan"]["slot_fill_s"]) / (free * free)
 
-
 def cautious(path, direction="benefit"):
-    """The pessimistic end of a belief: what to use when being wrong is not symmetric.
+    """The pessimistic end of a belief: what to use when being wrong is not symmetric."""
 
-    Every number here carries how much it is worth trusting (`belief` → (value, observations)). Read at face
-    value, an unmeasured guess competes on equal terms with something the world has confirmed a hundred times —
-    which is how an untested yield prior ("strip mine brings back forty cobblestone") outscored a bed that was
-    standing in a house. A benefit nobody has seen is worth less than claimed; a cost nobody has timed is worth
-    more. Same table, same seconds, one honest direction each.
-    """
     v, n = belief(path)
     trust = float(n) / (float(n) + PRIOR_STRENGTH)
     if direction == "cost":
         return float(v) * (2.0 - trust)
     return float(v) * (0.5 + 0.5 * trust)
 
-
 def slots_cost_s(slots, free):
-    """What `slots` more occupied slots cost, each priced against the bag as it will be by then.
+    """What `slots` more occupied slots cost, each priced against the bag as it will be by then."""
 
-    Averaging one slot over a batch is what let a full bag take a full stack; the bag empties one slot at a time
-    and so does the price.
-    """
     free = float(free)
     return sum(slot_cost_s(max(1.0, free - i)) for i in range(int(slots)))
 
-
 TICKS_PER_S = 20.0      # the game's clock, in one place
-
 

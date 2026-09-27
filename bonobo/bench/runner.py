@@ -1,8 +1,5 @@
-"""Running a scenario and judging it: setting the world up and checking it took, classing a failure, hashing the
-code a verdict belongs to, the readiness table, and the report a red leaves behind.
+"""Running a scenario and judging it: setting the world up and checking it took, classing a failure, hashing the code a verdict belongs to, the readiness table, and the report a red leaves behind. Pure helpers first (they are what the offline suite tests), the live bench after."""
 
-Pure helpers first (they are what the offline suite tests), the live bench after.
-"""
 import ast
 import hashlib
 import io
@@ -22,20 +19,16 @@ ERROR_MARKS = ("not loaded", "Incorrect argument", "Unknown or incomplete", "<--
                "is not within", "Too many blocks", "Could not", "Failed to", "Expected ", "unexpected error",
                "out of the world")
 
-
 # What the game last said back during a setup: read by scenarios that need the reply of a command they sent
 # (a /locate answer, a spawn position). Lives here, with the runner that fills it.
 LAST_FEEDBACK = []
 # The cerebellum's own log for the run just finished: slice scenarios read it back to find loops.
 LAST_LINES = []
 
-
 def feedback_errors(lines):
-    """Pure: the chat feedback lines that mean a command didn't do its job. 'No entity was found' (nothing to
-    kill), 'has no effects to remove', 'No items were found' (nothing to clear) and 'No blocks were filled'
-    (already that block) are fine."""
-    return [l for l in lines if any(m in l for m in ERROR_MARKS)]
+    """Pure: the chat feedback lines that mean a command didn't do its job."""
 
+    return [l for l in lines if any(m in l for m in ERROR_MARKS)]
 
 def setup_mismatches(blocks, expect):
     """Pure: expected signature counts that don't hold. `blocks` maps (x, y, z) → name (non-air only)."""
@@ -46,7 +39,6 @@ def setup_mismatches(blocks, expect):
         if not lo_n <= n <= hi_n:
             bad.append(f"{name} in {lo}..{hi}: {n}, expected {lo_n}..{hi_n}")
     return bad
-
 
 def classify(exc, ok):
     """Pure: which layer failed. Only nav and skill failures say something about the skill's readiness."""
@@ -64,11 +56,9 @@ def classify(exc, ok):
         return "mod"
     return "skill"
 
-
 BUDGET_SLACK = 1.0      # the budget is a hard limit: the row is stopped there (`_watchdog`) and fails
 ROW_LIMIT_S = 25        # no row outside acceptance may ask for more (the user's hard limit per row, prefer less)
 TIMEOUT = "TIMEOUT"     # the note's prefix for a row stopped at its limit: deterministic slowness, never re-run
-
 
 def _watchdog(limit, fired):
     """Arm a timer: at `limit` s stop the body (/stop) and interrupt the row's run in the main thread."""
@@ -92,11 +82,9 @@ def _watchdog(limit, fired):
     t.start()
     return t
 
-
 def judge(reached, seconds, budget, crashed=False, run_s=None, target_s=None):
-    """Pure: (ok, why not) for a finished row. The world must show the effect, within the budget's slack, and our
-    own code must not have crashed on the way — a crash is never a pass, whatever the world looks like after. A
-    row with a speed target (`target_s`) that reached its outcome too slowly says so: slow, not "not reached"."""
+    """Pure: (ok, why not) for a finished row."""
+
     if not reached:
         return False, "outcome not reached"
     if crashed:
@@ -108,9 +96,7 @@ def judge(reached, seconds, budget, crashed=False, run_s=None, target_s=None):
         return False, f"outcome reached but over budget: {seconds:.0f}s > {budget * BUDGET_SLACK:.0f}s"
     return True, None
 
-
 GENERIC = ("finished without reaching its goal", "failed", "error", "none", "")
-
 
 def generic_failure(note):
     """Pure: does a failure note say nothing about why? (empty, a bare class name, or the runner's own verify line)"""
@@ -121,7 +107,6 @@ def generic_failure(note):
     body = text.split(":", 1)[1].strip() if ":" in text else text
     return any(body.endswith(g) for g in GENERIC if g) or body in GENERIC
 
-
 def silent_failure(lines, result):
     """Pure: the exception a silent failure stands for — NavFailed when the last failed task was movement."""
     from ..api import McError, NavFailed
@@ -130,13 +115,11 @@ def silent_failure(lines, result):
         return NavFailed(last)
     return McError(last or f"skill returned {result!r} without the outcome")
 
-
 _IMPORTS = {}
 
-
 def _imports_of(module, pkg_dir):
-    """What one module imports from the package. Cached by path and mtime: this is asked once per module per
-    scenario, and re-parsing the package for each answer was most of the offline suite's time."""
+    """What one module imports from the package."""
+
     path = os.path.join(pkg_dir, module + ".py")
     try:
         stamp = os.path.getmtime(path)
@@ -158,7 +141,6 @@ def _imports_of(module, pkg_dir):
     _IMPORTS[key] = tuple(out)
     return _IMPORTS[key]
 
-
 def module_deps(module, pkg_dir=PKG):
     """Pure-ish (reads source files): the module and every bonobo module it imports, transitively."""
     seen, todo = set(), [module]
@@ -170,14 +152,12 @@ def module_deps(module, pkg_dir=PKG):
         todo.extend(_imports_of(m, pkg_dir))
     return sorted(seen)
 
-
 def dep_hash(module, pkg_dir=PKG):
     h = hashlib.sha1()
     for m in module_deps(module, pkg_dir):
         with open(os.path.join(pkg_dir, m + ".py"), "rb") as f:
             h.update(m.encode() + f.read())
     return h.hexdigest()[:10]
-
 
 # The mod's Java sources, when they happen to be checked out next to this repository. They are a different
 # project, so this is optional: with MC_MOD_SRC unset (the normal case for anyone who installed the mod from a
@@ -201,18 +181,9 @@ MOD_FILES = {
     "nets": ["Agent.java", "util/WaterClutch.java"],
 }
 
-
 def mod_hash(tags=None, java=JAVA):
-    """Identity of the mod behind `tags`: a hash of its Java sources when they are available, else its jar version.
+    """Identity of the mod behind `tags`: a hash of its Java sources when they are available, else its jar version."""
 
-    Hashing the sources is the finer instrument — a pathfinder change re-tests movement scenarios and leaves crafting
-    results standing — but it needs a checkout of a different repository, which most people running this will not
-    have. Without one, fall back to the version the mod reports: coarser (any release resets every scenario) and
-    still correct.
-
-    What must never happen is falling back to a CONSTANT. An empty source directory would hash to the same digest
-    forever, and every stale scenario result would look fresh.
-    """
     if not java or not os.path.isdir(java):
         return "jar-" + _mod_version()
     files = list(MOD_CORE)
@@ -231,7 +202,6 @@ def mod_hash(tags=None, java=JAVA):
         return "jar-" + _mod_version()
     return h.hexdigest()[:6]
 
-
 def _mod_version():
     """The running mod's version, or "unknown" when the game is not up (readiness is then simply not trusted)."""
     from .. import api
@@ -239,7 +209,6 @@ def _mod_version():
         return str(api.get("/status").get("version") or "unknown")
     except Exception:
         return "unknown"
-
 
 def jar_matches_source():
     """The running jar must be the one built from these sources, or results would be credited to the wrong code."""
@@ -249,23 +218,18 @@ def jar_matches_source():
         built = next(l.split("=", 1)[1].strip() for l in f if l.startswith("mod_version="))
     return running == built, running, built
 
-
 _CODE = {}
 
-
 def code_for(name):
-    """Readiness key: the skill's Python modules, the scenario's own layout (a broken setup — fences covering the
-    pen — must not keep counting against the skill after it is fixed) and the Java sources it uses. Frozen per process:
-    editing sources during a bench run changed the key mid-run and a finished scenario was run again 2× on old code."""
+    """Readiness key: the skill's Python modules, the scenario's own layout (a broken setup — fences covering the pen — must not keep counting against the skill after it is fixed) and the Java sources it uses."""
+
     if name not in _CODE:
         _CODE[name] = _code_for(name)
     return _CODE[name]
 
-
 def _code_for(name):
-    """The row's own definition (`row_hash`), the production code it reaches (`reach_hash`) and the mod. Editing
-    another row, or a production function this row never reaches, leaves the key — and the verdict — standing: the
-    old key hashed the row's whole module closure, so any edit anywhere re-ran every row of that module."""
+    """The row's own definition (`row_hash`), the production code it reaches (`reach_hash`) and the mod."""
+
     sc = SCENARIOS[name]
     tags = sc.get("mod")
     if sc.get("mod_extra"):
@@ -273,38 +237,31 @@ def _code_for(name):
                       | set(sc["mod_extra"]))
     return f"{reach_hash(sc)}{row_hash(sc)}-{mod_hash(tags)}"
 
-
 from .rowkey import (COMMON, NOT_PRODUCTION, _callable_sources, _names_in, _strings_in, code_index,  # noqa: F401,E402
                      reach_hash, reached, row_hash)
-
-
 
 # Only fights change run to run (mob AI, knockback, fireballs). Everything else is settled once it passes.
 FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skeleton_1", "fight_creeper_1", "fight_blaze_3", "fight_enderman_1", "ghast_fireball", "bed_bomb_kill", "fight_dragon", "siege", "combat_arena",
           "escape"}
 
-
 def settled(table, name):
-    """Pure: a non-fight scenario whose latest counted run (under any code) passed. One pass settles it (user,
-    2026-09-16): deterministic layouts don't need a second confirmation; a later failure re-opens it."""
+    """Pure: a non-fight scenario whose latest counted run (under any code) passed."""
+
     if name in FIGHTS or name.split("__")[0] in FIGHTS:     # siege__w1, combat_arena__3, escape__…: shards
         return False
     runs = sorted((r for c in table.get(name, {}).values() for r in c if r.get("cls", "skill") not in UNCOUNTED),
                   key=lambda r: r.get("t", 0))
     return bool(runs) and runs[-1]["ok"]
 
-
 MAX_RUNS = 3      # a row runs once; a failure is re-run, three runs at most, and passes on ≥ 2 of 3
-
 
 # Rows whose outcome the world decides by chance: mobs (summoned or fought), random tree shapes, drop counts.
 # Everything else is deterministic: one run decides it, pass or fail.
 STOCHASTIC_MARKS = ("summon ", "place feature", "spreadplayers", "barter", "locate ")
 
-
 def stochastic(row):
-    """Pure: does this row's outcome depend on chance? An explicit `stochastic` wins; else a fight or anything the
-    setup leaves to chance (a summoned mob, a generated tree, a random landing spot, a trade roll)."""
+    """Pure: does this row's outcome depend on chance?"""
+
     if "stochastic" in row:
         return bool(row["stochastic"])
     if row.get("combat") or row.get("sweep"):
@@ -312,17 +269,14 @@ def stochastic(row):
     text = " ".join(str(c) for c in row.get("setup", ())) + " " + row.get("doc", "")
     return any(m in text for m in STOCHASTIC_MARKS)
 
-
 def difficulty_of(row):
     """Pure: the difficulty a row runs on — its own `difficulty`, else normal."""
     return row.get("difficulty", "normal")
-
 
 def difficulty_set(reply, want):
     """Pure: does the game's reply to `/difficulty want` say it is now (or already) `want`?"""
     text = " ".join(reply).lower()
     return f"set to {want}" in text or f"difficulty to {want}" in text
-
 
 def needs_clock(row):
     """Pure: does this row need the day to move (sleep, a night to wait out, a set time)? Else the runner stops it."""
@@ -330,11 +284,9 @@ def needs_clock(row):
     return any(str(c).startswith("time set") for c in row.get("setup", ())) or \
         any(w in names for w in ("sleep", "wait:day", "night", "dusk", "morning"))
 
-
 def verdict_of(oks, chance=True):
-    """Pure: the verdict of a row's counted runs, in order (the last MAX_RUNS). One pass is a pass; two failures are a
-    fail; one of each needs the third run, which decides (≥ 2 of 3). None = run again. A deterministic row
-    (`chance` False) is decided by its one run."""
+    """Pure: the verdict of a row's counted runs, in order (the last MAX_RUNS)."""
+
     oks = list(oks)[-MAX_RUNS:]
     if not chance and oks:
         return "fail" if oks[-1] == TIMEOUT or not oks[-1] else "pass"
@@ -349,16 +301,13 @@ def verdict_of(oks, chance=True):
         return "pass" if all(oks) else ("fail" if not any(oks) else None)
     return "pass" if sum(oks) >= 2 else "fail"
 
-
 def cached_timeout(table, name, code):
-    """Pure: the note of a TIMEOUT that sticks to this key (`code_for`: the row's setup, its skill's Python and the
-    mod's identity), else None. A row stopped at its limit is slow every time: it is reported FAIL again without
-    entering the game, until one of the three changes and the key with it."""
+    """Pure: the note of a TIMEOUT that sticks to this key (`code_for`: the row's setup, its skill's Python and the mod's identity), else None."""
+
     counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
     if counted and counted[-1].get("note", "").startswith(TIMEOUT):
         return f"{TIMEOUT} (cached): {counted[-1]['note']}"
     return None
-
 
 def verdict(table, name, code):
     """Pure: 'pass' / 'fail' for the current code's counted runs (`verdict_of`), else None."""
@@ -366,7 +315,6 @@ def verdict(table, name, code):
     row = SCENARIOS.get(name)
     return verdict_of([TIMEOUT if r.get("note", "").startswith(TIMEOUT) else r["ok"] for r in counted],
                       chance=True if row is None else stochastic(row))
-
 
 # ---------------------------------------------------------------- readiness table (pure helpers are tested offline)
 
@@ -377,7 +325,6 @@ def load_table(path=None):
     except (OSError, ValueError):
         return {}
 
-
 def record(table, scenario, code, ok, seconds, note="", cls="skill"):
     """Pure: append one result (last 10 kept per scenario and code version)."""
     runs = table.setdefault(scenario, {}).setdefault(code, [])
@@ -385,10 +332,9 @@ def record(table, scenario, code, ok, seconds, note="", cls="skill"):
     del runs[:-10]
     return table
 
-
 def status(table, scenario, code):
-    """Pure: 'untested' | 'failing' | 'scenario' (the current code's verdict passes: `verdict_of`) and the median pass
-    time. Setup and harness failures don't count: they say nothing about the skill."""
+    """Pure: 'untested' | 'failing' | 'scenario' (the current code's verdict passes: `verdict_of`) and the median pass time."""
+
     runs = [r for r in table.get(scenario, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
     if not runs:
         return "untested", None
@@ -396,10 +342,9 @@ def status(table, scenario, code):
     median = passes[len(passes) // 2] if passes else None
     return ("scenario" if verdict_of([r["ok"] for r in runs]) == "pass" else "failing"), median
 
-
 def failed_last(table):
-    """Pure: the rows whose latest counted run (any code version) failed — FAIL or TIMEOUT — sorted. Setup and
-    harness failures say nothing about the row and are not counted (`status`)."""
+    """Pure: the rows whose latest counted run (any code version) failed — FAIL or TIMEOUT — sorted."""
+
     out = []
     for name, codes in table.items():
         runs = [r for c in codes.values() for r in c if r.get("cls", "skill") not in UNCOUNTED]
@@ -407,11 +352,9 @@ def failed_last(table):
             out.append(name)
     return sorted(out)
 
-
 def pending(table, codes):
-    """Pure: the rows still to run — no counted result under their current key (never run, or the setup, the
-    skill's code or the mod changed since), or their latest counted run under that key failed (FAIL or TIMEOUT).
-    `codes` maps each row to its current key (`code_for`), sorted by name."""
+    """Pure: the rows still to run — no counted result under their current key (never run, or the setup, the skill's code or the mod changed since), or their latest counted run under that key failed (FAIL or TIMEOUT)."""
+
     out = []
     for name, code in codes.items():
         runs = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
@@ -419,12 +362,9 @@ def pending(table, codes):
             out.append(name)
     return sorted(out)
 
-
 def migrate(table, current, key_then):
-    """Pure: carry old verdicts over to the current key — the rows whose key, recomputed in the current format on
-    the code of the time (`key_then(name, t)` → the key's code part, or None when that code cannot say), equals
-    the current one and whose mod part is the current mod's. A row that already has results under its current key
-    is left as it is. Returns the rows moved; `table` is updated in place."""
+    """Pure: carry old verdicts over to the current key — the rows whose key, recomputed in the current format on the code of the time (`key_then(name, t)` → the key's code part, or None when that code cannot say), equals the current one and whose mod part is the current mod's."""
+
     moved = []
     for name, codes in table.items():
         now = current.get(name)
@@ -443,13 +383,11 @@ def migrate(table, current, key_then):
             moved.append(name)
     return sorted(moved)
 
-
 def save_table(table, path=None):
     path = path or TABLE
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(table, f, indent=1)
-
 
 # ---------------------------------------------------------------- live bench
 
@@ -466,23 +404,20 @@ class _Console(io.TextIOBase):
     def flush(self):
         self.real.flush()
 
-
 # The next row's world, built at site B while this row runs (`prebuild`); `_setup` clones it over when it is the
 # one being set up. NEXT_ROW is set by the caller (mc.py) before each run: the row it will run next.
 NEXT_ROW = [None]
 SETUP_S = {}          # the last setup's seconds: world (built here, or cloned from B) and body, for the report
 PREBUILT = {"name": None, "done": None, "ok": False, "why": ""}
 
-
 def prebuildable(sc):
     """Pure: a row whose world can be built ahead at site B — boxed (not raw), in the Overworld, not a sweep."""
     return not sc.get("raw") and sc.get("dimension", "minecraft:overworld") == "minecraft:overworld" \
         and not sc.get("sweep")
 
-
 def prebuild(name):
-    """Background: row `name`'s world commands at site B (its box cleared, force-loaded), shifted there. Never
-    raises: a failure only means the row is built the old way."""
+    """Background: row `name`'s world commands at site B (its box cleared, force-loaded), shifted there."""
+
     sc = SCENARIOS.get(name)
     done = threading.Event()
     PREBUILT.update(name=name, done=done, ok=False, why="")
@@ -511,19 +446,15 @@ def prebuild(name):
             done.set()
     threading.Thread(target=work, daemon=True, name=f"prebuild {name}").start()
 
-
 def prebuilt_ready(prebuilt, name):
-    """Pure: may row `name` clone its world from site B? Only when its OWN prebuild signalled completion and
-    succeeded. The first row (nothing prebuilt), another row's build, a failed or an unfinished one: built here,
-    synchronously (iron_ingots, the first row, once found 0 of its 3 furnaces)."""
+    """Pure: may row `name` clone its world from site B?"""
+
     done = prebuilt.get("done")
     return prebuilt.get("name") == name and done is not None and done.is_set() and bool(prebuilt.get("ok"))
 
-
 def take_prebuilt(name, wait_s=120):
-    """Was row `name`'s world built ahead at site B? Waits for a running prebuild's completion signal first —
-    whichever row it is for, so site B is never still being written while this row builds or clones. Consumed
-    when it is this row's."""
+    """Was row `name`'s world built ahead at site B?"""
+
     if PREBUILT["done"] is not None:
         PREBUILT["done"].wait(wait_s)
     if PREBUILT["name"] != name:
@@ -531,7 +462,6 @@ def take_prebuilt(name, wait_s=120):
     ok = prebuilt_ready(PREBUILT, name)
     PREBUILT.update(name=None, done=None, ok=False)
     return ok
-
 
 def _setup(name, sc, feedback):
     from .. import api
@@ -672,7 +602,6 @@ def _setup(name, sc, feedback):
     if s.get("dead") or s.get("health", 0) < 18:
         raise SetupInvalid(f"player not healthy after setup (hp {s.get('health')})")
 
-
 def _trace(stop, out):
     from .. import api
     while not stop.is_set():
@@ -684,7 +613,6 @@ def _trace(stop, out):
         except Exception as e:
             out.append({"t": round(time.time(), 1), "error": str(e)})
         stop.wait(0.2)
-
 
 def _report(name, data):
     from ..world import Inventory, Region
@@ -712,11 +640,9 @@ def _report(name, data):
             print(f"incident not captured: {e}")
     return folder
 
-
 def run(name, make_ctx):
-    """Set up and run one scenario (test world only). Returns (ok, seconds, note, cls, code).
-    `make_ctx()` is called after the setup: a context built before it carries the old place's policy and
-    dimension."""
+    """Set up and run one scenario (test world only)."""
+
     from .. import api
     from ..api import McError
     from ..world import Inventory
@@ -831,5 +757,4 @@ def run(name, make_ctx):
                                 "setup_s": dict(SETUP_S)})
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
-
 

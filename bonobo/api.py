@@ -14,13 +14,11 @@ INSTANCE = paths.instance_dir()
 BASE = paths.api_base()
 STUCK_SECONDS = 10
 
-
 # What the code chose not to look at. A world read inside a decision is allowed to fail — the game may be
 # restarting, a recorded round has no such call — but it must not fail INVISIBLY: swallowing it silently is how
 # route pricing stayed switched off for a whole session while every test passed, because "no price" and "no
 # answer" look identical from the outside. Every quiet handler reports here, and `mc.py` can print the tally.
 SWALLOWED = {}
-
 
 def swallowed(where, err):
     """Record that a world read failed and was ignored. Returns None, so a handler can `return api.swallowed(...)`."""
@@ -30,44 +28,30 @@ def swallowed(where, err):
         log(f"?? {where}: {type(err).__name__} ignored ({SWALLOWED[key]}×) — that feature is off in this round")
     return None
 
-
 class McError(Exception):
     """Something went wrong carrying out a goal."""
-
 
 class GameUnreachable(McError):
     """The game isn't running or is restarting. Wait; never counts as a goal failure."""
 
-
 class NotAvailable(McError):
     """The world doesn't offer this here/now (no sheep, no ore in range). Not a bug."""
 
-
 class NavFailed(NotAvailable):
-    """The body couldn't get where a skill needed it. Typed so failure causes never depend on message text.
-    `pos` is where it was going, when known: what upkeep's "path blocked" row bridges toward."""
+    """The body couldn't get where a skill needed it."""
 
     def __init__(self, message="", pos=None):
         super().__init__(message)
         self.pos = tuple(pos) if pos is not None else None
 
-
 class TaskStuck(McError):
     """A task made no visible progress for STUCK_SECONDS, or exceeded its time budget. It has been cancelled."""
 
-
 class CommitmentExpired(McError):
-    """The running task outlived the commitment its plan was made under: the world owes the planner a new decision.
-
-    Not a failure and not an interrupt. The task is left running in the mod — stopping it would throw away work that
-    is still probably right — and the caller re-plans; if the new plan is the same action, the task is already under
-    way. This is the one decision point a long action used to have none of.
-    """
-
+    """The running task outlived the commitment its plan was made under: the world owes the planner a new decision."""
 
 class Interrupted(McError):
     """The perception thread stopped the running task because of a danger; survival mode takes over next round."""
-
 
 # Set by the perception thread (perception.py): a pending interrupt reason. MODE is "survival" while a rescue runs.
 INTERRUPT = None
@@ -76,13 +60,11 @@ MODE = "normal"
 # instead of cutting a mod task short. A fight answers danger by taking cover, not by failing halfway through a dig.
 SOFT = False
 
-
 def consume_interrupt():
     """Return and clear the pending interrupt message, or None. Soft skills read it and take cover themselves."""
     global INTERRUPT
     reason, INTERRUPT = INTERRUPT, None
     return reason
-
 
 def take_interrupt():
     """Raise Interrupted if the perception thread asked for it (clears the request)."""
@@ -90,15 +72,9 @@ def take_interrupt():
     if reason:
         raise Interrupted(reason)
 
-
 def interrupt_due(since, soft=False):
-    """Should work that began at `since` stop for the pending interrupt? The one rule, for mod tasks, skill loops and
-    `settle` alike.
+    """Should work that began at `since` stop for the pending interrupt?"""
 
-    A soft skill reads the message itself. A survival rescue ignores perception's messages — it is the answer to
-    them — but not a SAFETY preemption made after it started: a rescue that walks into lava is stopped like anything
-    else.
-    """
     if not INTERRUPT or soft:
         return False
     if MODE != "survival":
@@ -106,21 +82,17 @@ def interrupt_due(since, soft=False):
     from . import arbiter
     return arbiter.BODY.preempted_at > since
 
-
 def check_interrupt(since, soft=False):
     """Raise Interrupted when `interrupt_due`."""
     if interrupt_due(since, soft):
         take_interrupt()
 
-
 class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
-
 def refused(r, queued):
-    """A post that queued nothing: an interruption while the body is held — a fight owns it (arbiter.BODY: a
-    holder, engaged, or post's own "body owned by the arbiter") — else the world declining the work (NotAvailable).
-    Counted as "unavailable" and cooled 180 s, a chop cut short by a zombie never resumed (resume_after_combat)."""
+    """A post that queued nothing: an interruption while the body is held — a fight owns it (arbiter."""
+
     if queued:
         return
     from . import arbiter
@@ -129,56 +101,38 @@ def refused(r, queued):
         raise FightHolds(f"the body is held ({r.get('message') or 'a fight'}): nothing queued")
     raise NotAvailable("the game queued none of the posted tasks")
 
-
 class FightHolds(McError):
-    """Our own fight (the arbiter's held decision) has the body: an interruption that ends when the fight does —
-    not an outside driver to stand down 10 s for (resume_after_combat slept through its chop)."""
-
+    """Our own fight (the arbiter's held decision) has the body: an interruption that ends when the fight does — not an outside driver to stand down 10 s for (resume_after_combat slept through its chop)."""
 
 class BodyContested(McError):
-    """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second
-    process) is driving the body. Standing down beats cycling through fallbacks against it — one burst of this
-    ran dig-in, burrow and pod in three seconds, every step "replaced by a new task"."""
-
+    """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second process) is driving the body."""
 
 # The three outcomes of any attempt: success, failure (with a cause), or interrupted. These are the interrupted ones:
 # something else took the body or the world asked for a decision. None of them says anything about the skill, so
 # none of them counts as a retry, bans a cell, sends /stop or cools anything down.
 class Died(McError):
-    """The body died mid-task: an interruption, not the task's failure — the items are recovered first (the recover
-    reflex), then the task replans from where the body now stands, its target kept. Nothing cooled or banned."""
-
+    """The body died mid-task: an interruption, not the task's failure — the items are recovered first (the recover reflex), then the task replans from where the body now stands, its target kept."""
 
 class DimensionChanged(McError):
-    """The body is in another dimension than the task began in (a portal, a death in the Nether): the task stays
-    live and resumes only back in its own dimension — the frontier map and every note are per dimension."""
-
+    """The body is in another dimension than the task began in (a portal, a death in the Nether): the task stays live and resumes only back in its own dimension — the frontier map and every note are per dimension."""
 
 INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl, Died,
                  DimensionChanged)
-
 
 def interrupted(err):
     """Was this an interruption rather than a failure?"""
     return isinstance(err, INTERRUPTIONS)
 
-
 def log(*parts):
     """The readable stream: decisions, failures, dangers, milestones. Goes to autoplay.log."""
     print(time.strftime("%H:%M:%S"), *parts, flush=True)
 
-
 DETAIL_FILE = paths.data("detail.log")
 DETAIL_MAX_BYTES = 2 << 20        # roll at 2 MB; the previous roll is kept as detail.log.1
 
-
 def roll(path, max_bytes):
-    """Keep one previous file and start a new one once `path` passes `max_bytes`. The whole log policy, in one
-    place, because there are two logs and they must age the same way.
+    """Keep one previous file and start a new one once `path` passes `max_bytes`."""
 
-    Rolling, not truncating: a log cut in half mid-line loses the end of a session, which is the part anyone is
-    reading it for. Rolling at a size rather than a time, because what fills a log here is trouble, not hours.
-    """
     try:
         if os.path.exists(path) and os.path.getsize(path) > max_bytes:
             os.replace(path, path + ".1")
@@ -187,14 +141,9 @@ def roll(path, max_bytes):
         pass
     return False
 
-
 def detail(*parts):
-    """The working-out: plans, refusals, every task result, look-ahead. Always written, never to the console.
+    """The working-out: plans, refusals, every task result, look-ahead."""
 
-    A separate function rather than a level argument. A level has to be judged at each call site, which is one more
-    human decision to get wrong and no way to see that it was; calling the wrong function shows up when you read
-    the line. And it is always on: a detail you only get by re-running the game is a detail you do not have.
-    """
     line = time.strftime("%H:%M:%S") + " " + " ".join(str(p) for p in parts) + "\n"
     try:
         os.makedirs(os.path.dirname(DETAIL_FILE), exist_ok=True)
@@ -203,7 +152,6 @@ def detail(*parts):
             f.write(line)
     except OSError:
         pass          # losing the working-out must never stop the agent
-
 
 def _token():
     if not INSTANCE:
@@ -220,9 +168,7 @@ def _token():
     raise McError(f"no token in {os.path.join(INSTANCE, 'config')} (looked for {' or '.join(names)}); "
                   "launch the game with the mod once, or point MC_INSTANCE at the right instance")
 
-
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
 
 def api(method, path, body=None, timeout=1200):
     from . import tape
@@ -251,24 +197,20 @@ def api(method, path, body=None, timeout=1200):
     except (ConnectionError, TimeoutError, OSError) as e:
         raise GameUnreachable(f"connection to the game lost ({e.__class__.__name__})")
 
-
 def get(path):
     return api("GET", path)
 
-
 BODY_PATHS = ("/task", "/stop")
 
-
 def with_item_ids(body):
-    """A task post with every "only" list as the jar's item ids (data.item_ids): the one place tokens become ids,
-    whoever built the task."""
+    """A task post with every "only" list as the jar's item ids (data."""
+
     from .data import item_ids
     if isinstance(body, dict) and "tasks" in body:
         return dict(body, tasks=[with_item_ids(t) for t in body["tasks"]])
     if isinstance(body, dict) and body.get("only"):
         return dict(body, only=item_ids(body["only"]))
     return body
-
 
 def post(path, body=None):
     if path.startswith("/task"):
@@ -279,10 +221,8 @@ def post(path, body=None):
             return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
     return api("POST", path, body or {})
 
-
 def status():
     return get("/status")
-
 
 def wait_for_game(poll=10):
     announced = False
@@ -300,7 +240,6 @@ def wait_for_game(poll=10):
             announced = True
         time.sleep(poll)
 
-
 def wait_for_handback(poll=3):
     announced = False
     while True:
@@ -316,9 +255,7 @@ def wait_for_handback(poll=3):
             announced = True
         time.sleep(poll)
 
-
 REPLACED = "replaced by a new task"      # the jar's message when a POST /task cancels what was running
-
 
 def _raise_if_released(results, since=None):
     if any("released by player" in (t.get("message") or "") for t in results):
@@ -329,20 +266,16 @@ def _raise_if_released(results, since=None):
             raise CommitmentExpired(f"a faster layer took the body ({arbiter.BODY.preempted_by}): re-planning")
         raise BodyContested("another commander posted a task while ours ran")
 
-
 OSCILLATION_RETURNS = 4     # a task back in a state it already left this many times is going round in circles
 
-
 def returns(seen):
-    """Pure: how many times the observed task states (in order, each differing from the one before) came back to
-    one already seen. Movement or a report that changes is progress; "going to mine" ↔ "mining" at the same block,
-    the same spot, again and again is not (mine_stone alternated five times until the row's time ran out)."""
+    """Pure: how many times the observed task states (in order, each differing from the one before) came back to one already seen."""
+
     earlier, back = set(), 0
     for sig in seen:
         back += sig in earlier
         earlier.add(sig)
     return back
-
 
 def await_task(task_id, wait, exempt=("wait",)):
     """Waits for a task, cancelling it when it makes no visible progress or exceeds `wait` seconds."""
@@ -377,18 +310,12 @@ def await_task(task_id, wait, exempt=("wait",)):
             post("/stop")
             raise TaskStuck(f"no progress for {STUCK_SECONDS}s in {cur['type']}: {cur['doing']}")
 
-
 # Tasks that turn the player's head. Aiming is what provokes an enderman, so these are the ones worth vetting.
 AIMING_TASKS = ("look", "use_item", "use", "bed_bomb", "place", "mine", "attack")
 
-
 def vet_aim(task):
-    """Warn when a task would sweep the crosshair across an enderman's head. Returns the reason, or None.
+    """Warn when a task would sweep the crosshair across an enderman's head."""
 
-    Here rather than in each skill because every task goes through `run`, while each skill had to remember to ask —
-    and only one ever did. Advisory on purpose: an aim that provokes is worth knowing about and logging, but
-    refusing the task would trade a fight we might win for a fight that stops.
-    """
     if task.get("type") not in AIMING_TASKS or "x" not in task:
         return None
     try:
@@ -404,21 +331,12 @@ def vet_aim(task):
         return None          # perception is best-effort here; never let the check break the task
     return None
 
-
 # How a task is dressed before it is posted (brain: nav.with_avoid over the protected cells), or None.
 DRESS = None
 
-
 def run(task, *, awaits, wait=900):
-    """Runs one task to completion; returns its JSON (status may be failed — callers decide).
+    """Runs one task to completion; returns its JSON (status may be failed — callers decide)."""
 
-    `awaits` (required, a non-empty string) names the world result the caller waits for before its next move ("bed
-    accepted", "dimension changed", "slots read"): a single send has to say why it is not part of a chain
-    (`run_chain`). No reason, no send — a TypeError at the call, a ValueError for an empty one.
-
-    During a fight only the arbiter's chosen intent may issue tasks. A task from anywhere else is refused as a
-    failed result rather than raised, so a stray caller degrades to "it did not work" instead of a crash.
-    """
     if not isinstance(awaits, str) or not awaits.strip():
         raise ValueError("api.run: `awaits` must name the world result waited for (else send a chain)")
     from . import arbiter
@@ -443,9 +361,7 @@ def run(task, *, awaits, wait=900):
     out_of_reach(r)
     return r
 
-
 from .data import UNREACHABLE  # noqa: E402  (the one list of "could not get there" answers)
-
 
 class Unreachable(NotAvailable):
     """Could not get to it. `cells` are the positions the mod named, when it named any."""
@@ -454,15 +370,9 @@ class Unreachable(NotAvailable):
         super().__init__(message)
         self.cells = tuple(tuple(c) for c in cells)
 
-
 def out_of_reach(r):
-    """Raise `Unreachable` when a task failed for reach reasons, so no caller can read that as success.
+    """Raise `Unreachable` when a task failed for reach reasons, so no caller can read that as success."""
 
-    Thirty-nine of the sixty-nine `api.run` calls never looked at what came back. "collect: 1 items unreachable"
-    therefore read exactly like "collect: nothing there" — the cow was killed, the beef lay three blocks up a
-    tree, and the hunt concluded that killing cows yields no beef. One place decides what "could not get to it"
-    means, and it is here, at the door the answer comes through.
-    """
     import re as _re
     if r.get("status") == "succeeded" and "unreachable" not in (r.get("message") or "").lower():
         return r
@@ -476,30 +386,21 @@ def out_of_reach(r):
              for m in _re.finditer(r"(-?\d+),\s*(-?\d+),\s*(-?\d+)", text)]
     raise Unreachable(f"{r.get('type', 'task')}: {text.strip()}", cells)
 
-
 # How long the last chain segment took. A segment is where an atomic action ends and the planner gets the body
 # back, so this is how far ahead anything watching has to look. Measured, not configured.
 LAST_SEGMENT_S = 2.0
-
 
 # What was last posted: (chain signature, id of its last task). Re-deciding must not restart work already under
 # way — see `resume_id`.
 LAST_POSTED = None
 
-
 def chain_signature(tasks):
     """What makes two chains the same work: the task list, verbatim and in order."""
     return json.dumps(tasks, sort_keys=True, default=str)
 
-
 def resume_id(tasks, running, last_posted):
-    """The id of the running task to attach to instead of posting `tasks`, or None to post them.
+    """The id of the running task to attach to instead of posting `tasks`, or None to post them."""
 
-    A commitment expiring means the planner owes the world a fresh decision, not that the body must drop what it
-    is doing. When the fresh decision is the SAME work — which it usually is, because the plan was right — posting
-    it again replaces the running task in the mod and the walk starts from the beginning. The body then left every
-    seven seconds and never arrived.
-    """
     if not last_posted or not running or running.get("status") != "running":
         return None
     signature, task_id = last_posted
@@ -507,10 +408,9 @@ def resume_id(tasks, running, last_posted):
         return None
     return task_id
 
-
 def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segment=None):
-    """Queues tasks in segments so the game never idles, calling `before_segment(segment_tasks)` first
-    (the brain uses it for reflexes: tools, light, site bookkeeping). Returns all task results."""
+    """Queues tasks in segments so the game never idles, calling `before_segment(segment_tasks)` first (the brain uses it for reflexes: tools, light, site bookkeeping)."""
+
     global LAST_SEGMENT_S
     results = []
     chain_began = time.time()
