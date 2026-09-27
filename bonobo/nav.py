@@ -193,7 +193,8 @@ ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts 
 
 def there(state, pos, range_):
     """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — the feet's block to a block target
-    (int coordinates: the walker's own test, TravelTask.arrived) or the feet to a point. The one arrival test: what
+    (int coordinates: the walker's own test, TravelTask.arrived, with the height within range_) or the feet to a
+    point. The one arrival test: what
     the walker answered is not read, only where it left the body (a travel "succeeded" one step below the target;
     a leg that stopped short is not there)."""
     if not at_rest(state):
@@ -201,6 +202,8 @@ def there(state, pos, range_):
     body = (state["x"], state["y"], state["z"])
     if all(isinstance(p, int) for p in pos):
         body = tuple(math.floor(v) for v in body)
+        if abs(body[1] - pos[1]) > range_:
+            return False               # a step below the target: range + slack in 3-D let one block of height pass
     return math.dist(body, pos) <= range_ + ARRIVE_SLACK
 
 

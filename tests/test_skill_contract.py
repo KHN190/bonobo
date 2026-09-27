@@ -198,7 +198,10 @@ AT_REST = [("in the target cell, on the ground", GROUND, 200.0, True),
            ("in the target cell mid-jump (y 200.18, off the ground)", {**GROUND, "onGround": False}, 200.18, False),
            ("in the target cell, swimming", {**GROUND, "onGround": False, "inWater": True}, 200.3, True),
            ("in the target cell, on a ladder", {**GROUND, "onGround": False, "climbing": True}, 200.5, True),
-           ("one cell below, on the ground", GROUND, 199.0, False)]
+           ("one cell below, on the ground", GROUND, 199.0, False),
+           ("cave_escape: travel said arrived, body on the step one below at y 199.25", GROUND, 199.25, False),
+           ("travel succeeded but the body is mid-air in the target cell", {**GROUND, "onGround": False}, 200.4,
+            False)]
 
 
 def xyz(*ps):
@@ -260,6 +263,8 @@ class Arrive(_Clean):
         for name, held, y, want in AT_REST:
             with self.subTest(name):
                 self.assertIs(nav.there({"x": 3.5, "y": y, "z": 3.5, **held}, (3, 200, 3), 0.4), want)
+                self.assertIs(nav.there({"x": 3.5, "y": y, "z": 3.5, **held}, (3, 200, 3), 0.6), want,
+                              "range 0.6 (the scenario's) accepts no step below either")
 
     def test_a_walked_leg_is_not_arrival(self):
         """A leg that gained ground reads False as an answer to "there?" and True to `moved`: no caller can take
