@@ -367,62 +367,25 @@ def build_bed_pit(ctx):
             log(f"   bed placed at {bed} ahead of the fight")
     except (McError, api.NavFailed) as e:
         log(f"   bed not pre-placed ({e}): the window will place it itself")
-    for _ in range(PIT_DEPTH * 4):
-        s = api.get("/state")
-        if s["blockY"] <= pit_feet[1]:
-            break
-        started = s["blockY"] < fy          # already one block down: the hole itself is now the best cover
-        why = _soft_interrupt()
-        if started:
-            if why:
-                log(f"   {why} mid-dig: finishing the hole, it is the cover")
-        elif why or not prep_safe(dragon_entry(entities(128)), (s["x"], s["y"], s["z"]), floor_y=fy) \
-                or s["health"] < 15:
-            # Still on the surface with nowhere to hide: walk straight away from the portal and wait it out. Going
-            # back and forth between "away" and "the rim" is what drained the health bar.
-            log("   not safe to start digging: backing off")
-            dx, dz = side
-            nav.arrived((dx * PREP_MIN_R, fy, dz * PREP_MIN_R), ctx.policy, range_=2, attempts=1)
-            api.run({"type": "wait", "ticks": 20}, wait=5)
-            yield ("backed off", round(api.get("/state")["health"]))
-            continue
-        # Mine the block under our own feet, then step into it: always reachable, one block at a time. "Our own feet"
-        # must mean the pit column, not wherever we happen to stand: arriving within 0.8 of the rim can leave us on
-        # the neighbouring block, where the cell below is already air, so the mine is skipped, the step "arrives" in
-        # 0.0 s without moving, and every round is spent at the same height (bench: 8 × "arrived (0.0s)", then
-        # "hole not dug out").
-        if (s["blockX"], s["blockZ"]) != (pit_feet[0], pit_feet[2]):
-            nav.arrived((pit_feet[0], s["blockY"], pit_feet[2]), ctx.policy, range_=0.3, attempts=1)
-            s = api.get("/state")
-        cell = (pit_feet[0], s["blockY"] - 1, pit_feet[2])
-        if Region(cell, cell).solid(cell):
-            r = api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": True}, wait=30)
-            if r["status"] != "succeeded":
-                raise McError(f"digging the hole at {cell} failed: {r['message']}")
-        nav.arrived(cell, ctx.policy, range_=0.5, attempts=1)
-        after = api.get("/state")["blockY"]
-        if after >= s["blockY"]:
-            # Neither the mine nor the step took us down: report that, with the reason, instead of spinning out the
-            # remaining rounds and reporting the symptom four rounds later.
-            raise api.NavFailed(f"cannot get down into the hole at {cell}: still standing at y {after}")
-        yield ("digging", after)
-    if api.get("/state")["blockY"] > pit_feet[1]:
-        raise api.NavFailed(f"hole at {pit_feet} not dug out")
-    # Now the corridor. The shaft alone is a hole: the head reaches into it, breath falls into it, and every bomb has
-    # to be thrown from its rim. Two more cells outward turn it into cover with a firing cell that still reaches the
-    # bed (4.11 blocks against a 4.5 reach) and a retreat cell that nothing reaches at all.
-    #
-    # Dug from inside, one cell at a time: each is within arm's reach of the last, so building the corridor never
-    # puts us back on the surface.
-    for cell in bunker.dig_plan(side, fy)[2:]:
-        if not Region(cell, cell).solid(cell):
-            continue
-        r = api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": True}, wait=20)
-        if r["status"] != "succeeded":
-            # A corridor one cell short is still cover; the window checks its own geometry before firing.
-            log(f"   corridor stops at {cell}: {r['message']}")
-            break
-        yield ("corridor", cell[1])
+    # Not while it perches over us, not hurt: dig from a safe start or back off and let the planner ask again.
+    s = api.get("/state")
+    if _soft_interrupt() or not prep_safe(dragon_entry(entities(128)), (s["x"], s["y"], s["z"]), floor_y=fy) \
+            or s["health"] < 15:
+        log("   not safe to start digging: backing off")
+        dx, dz = side
+        nav.arrived((dx * PREP_MIN_R, fy, dz * PREP_MIN_R), ctx.policy, range_=2, attempts=1)
+        raise NotAvailable("not safe to dig the pit now")
+    # The whole bunker as ONE submission (bunker.dig_batch): down the shaft from the rim, then the corridor
+    # outward (bunker.dig_plan), every cell within arm's reach of the last — the jar runs it through without a round
+    # trip per block. What the world then shows (in the pit or not) is judged below.
+    cells = [(pit_feet[0], y, pit_feet[2]) for y in range(pit_feet[1], fy)] + bunker.dig_plan(side, fy)
+    lo = tuple(min(c[i] for c in cells) - 1 for i in range(3))
+    hi = tuple(max(c[i] for c in cells) + 1 for i in range(3))
+    results = api.run_chain(bunker.dig_batch(side, fy, Region(lo, hi).solid), stop_on_failure=True, wait=60)
+    failed = next((r for r in results if r.get("status") != "succeeded"), None)
+    if failed is not None:
+        log(f"   the bunker stops at {failed.get('type')}: {failed.get('message')}")
+    yield ("dug", len(results))
     # Obsidian around the mouth when we carry any: a bed blast eats end stone, and a bunker that loses its roof on
     # the second window stops being cover exactly when the fight is longest.
     if Inventory().count("minecraft:obsidian"):

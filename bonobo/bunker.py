@@ -75,6 +75,21 @@ def ceiling(cells):
     return [(x, y + 2, z) for x, y, z in cells]
 
 
+def dig_batch(side, floor_y, solid, centre=(0, 0), length=TUNNEL_LEN):
+    """Pure: the whole bunker as one batch from its rim — down the shaft one block at a time (mine what is solid,
+    step in), then the corridor outward (`dig_plan` after the mouth's own two cells), every cell within arm's reach
+    of the last. `solid(cell)` is the snapshot's; a cell already open is not mined."""
+    mx, my, mz = mouth(side, floor_y, centre)
+    out = []
+    for y in range(floor_y - 1, my - 1, -1):
+        if solid((mx, y, mz)):
+            out.append({"type": "mine", "x": mx, "y": y, "z": mz, "collect": True})
+        out.append({"type": "travel", "x": mx, "y": y, "z": mz, "range": 0.5})
+    out += [{"type": "mine", "x": x, "y": y, "z": z, "collect": True}
+            for x, y, z in dig_plan(side, floor_y, centre, length)[2:] if solid((x, y, z))]
+    return out
+
+
 def dig_plan(side, floor_y, centre=(0, 0), length=TUNNEL_LEN):
     """Pure: every cell to mine, in the order to mine it — down the shaft first, then outward.
 
