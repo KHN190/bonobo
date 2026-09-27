@@ -330,3 +330,108 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Losses(unittest.TestCase):
+    """The day's price terms (threat.*_loss): each one's zero, its full cost and a point between, read against the
+    belief table the module prices with (`_R`, `_T`, `_K`)."""
+    R, T, K = threat._R, threat._T, threat._K
+
+    def st(self, **kw):
+        return threat.price_state(**kw)
+
+    def test_bag_loss(self):
+        full = self.T["day_s"] * self.K["mining_share_of_day"]
+        c = self.R["bag_comfortable"]
+        for name, free, want in [("empty bag: nothing lost", 36, 0.0), ("at the comfortable line: nothing", c, 0.0),
+                                 ("half way down", c / 2, full / 2), ("full: the whole mining share", 0, full)]:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.bag_loss(self.st(bag_free=free)), want)
+
+    def test_larder_and_light(self):
+        day, death = self.T["day_s"], self.T["death_cost_s"]
+        starving = self.R["starving_slowdown"] * day
+        for name, meals, want in [("a day's meals", 8, 0.0), ("some: runs out today", 2, 0.15 * day),
+                                  ("one: starving", 1, starving),
+                                  ("none: starving and may die", 0, starving + self.R["starving_death"] * death)]:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.larder_loss(self.st(food_items=meals)), want)
+        for name, torches, want in [("torches: nothing", True, 0.0),
+                                    ("dark: the chance of a death", False, self.R["dark_work_death"] * death)]:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.light_loss(self.st(torches=torches)), want)
+
+    def test_hunger_loss(self):
+        span = self.T["day_s"] * self.R["meal_share_of_day"]
+        full, low = self.R["food_full"], self.R["food_low"]
+        for name, food, want in [
+                ("full bar: nothing", full, 0.0),
+                ("a little down: scaled slowdown", full - 2, span * 2 / full * self.R["hunger_slowdown"]),
+                ("at the low line: starving floor", low,
+                 span * max((full - low) / full * self.R["hunger_slowdown"], self.R["starving_slowdown"])),
+                ("empty", 0, span * max(self.R["hunger_slowdown"], self.R["starving_slowdown"]))]:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.hunger_loss(self.st(food=food)), want)
+
+    def test_food_loss_is_both_terms(self):
+        for name, kw in [("fed and stocked", {}), ("hungry, stocked", {"food": 4, "food_items": 8}),
+                         ("fed, empty larder", {"food_items": 0}), ("hungry and empty", {"food": 2, "food_items": 0})]:
+            with self.subTest(name):
+                s = self.st(**kw)
+                self.assertAlmostEqual(threat.food_loss(s), threat.hunger_loss(s) + threat.larder_loss(s))
+
+    def test_tool_loss(self):
+        mining = self.K["mining_share_of_day"] * self.T["day_s"]
+        iron = self.K["mine_time_iron"]
+        for name, tier, want in [("iron: the reference", 2, 0.0), ("diamond: no better than the reference", 3, 0.0),
+                                 ("stone", 1, mining * (self.K["mine_time_stone"] - iron)),
+                                 ("no pickaxe", 0, mining * (self.K["mine_time_no_pickaxe"] - iron))]:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.tool_loss(self.st(pickaxe=tier)), want)
+
+    def test_night_loss(self):
+        death, night = self.T["death_cost_s"], self.T["night_s"]
+        for name, kw, want in [
+                ("bed in a shelter: slept through", {"bed": True, "sheltered": True}, 0.0),
+                ("bed in the open", {"bed": True}, self.R["night_bed_open"] * death),
+                ("sheltered, armed", {"sheltered": True, "sword": 1}, self.R["night_sheltered"] * death),
+                ("open, unarmed, 3 sleepless nights",
+                 {"nights_missed": 3},
+                 (self.R["night_open"] + self.R["no_sword_night"] + self.R["phantom_night_death"]) * death + night)]:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.night_loss(self.st(**kw)), want)
+
+    def test_fights_and_hurt(self):
+        # (situation, state, what must hold) — the fight's price falls with gear, the deficit's with health
+        base = threat.fight_loss(self.st())
+        rows = [("a sword makes a day of fights cheaper", threat.fight_loss(self.st(sword=2)) < base, True),
+                ("armour makes the same fight cheaper in health",
+                 threat.encounter_damage(self.st(armor=4))[1] < threat.encounter_damage(self.st())[1], True),
+                ("full health: no deficit to pay", threat.hurt_loss(self.st(hp=20)), 0.0),
+                ("a deficit costs at least its regeneration",
+                 threat.hurt_loss(self.st(hp=10)) >= 10 * self.R["regen_s_per_hp"], True),
+                ("0 hp is priced like 0.1 (clamped, no division by zero)",
+                 threat.hurt_loss(self.st(hp=0)) == threat.hurt_loss(self.st(hp=0.1)), True)]
+        for name, got, want in rows:
+            with self.subTest(name):
+                self.assertEqual(got, want)
+
+    def test_expected_loss_is_the_sum(self):
+        for name, kw in [("fresh start", {}), ("night, hungry, hurt", {"night": True, "food": 3, "hp": 8}),
+                         ("well kept", {"bed": True, "sheltered": True, "torches": True, "pickaxe": 2, "sword": 2,
+                                        "food_items": 8}), ("full bag", {"bag_free": 0})]:
+            with self.subTest(name):
+                s = self.st(**kw)
+                parts = (threat.night_loss(s) + threat.food_loss(s) + threat.tool_loss(s) + threat.light_loss(s)
+                         + threat.fight_loss(s) + threat.hurt_loss(s) + threat.bag_loss(s))
+                self.assertAlmostEqual(threat.expected_loss(s), parts)
+
+    def test_price_state_refuses_unknown_keys(self):
+        for name, kw, err in [("known key", {"hp": 5}, None), ("typo", {"hpp": 5}, "hpp"),
+                              ("two unknown", {"a": 1, "b": 2}, "a"), ("empty", {}, None)]:
+            with self.subTest(name):
+                if err is None:
+                    self.assertEqual(threat.price_state(**kw)["hp"], kw.get("hp", 20))
+                else:
+                    with self.assertRaisesRegex(KeyError, err):
+                        threat.price_state(**kw)

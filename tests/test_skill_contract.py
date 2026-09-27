@@ -1041,3 +1041,96 @@ class PortalCast(unittest.TestCase):
                     else:
                         with self.assertRaisesRegex(NotAvailable, reason):
                             fluids._lava_bucket(None, (0, 64, 0))
+
+
+class PureHelpers(unittest.TestCase):
+    """Small pure rules with no table of their own: the avoid list, the head in water, the kit's needs, when work
+    stops for an interrupt, the incoming-damage ceiling."""
+
+    def test_avoid_cells(self):
+        R = nav.AVOID_RADIUS
+        rows = [("near the walk's end: kept", {(5, 64, 0)}, [(0, 64, 0)], [{"x": 5, "y": 64, "z": 0}]),
+                ("exactly at the radius: kept", {(R, 64, 0)}, [(0, 64, 0)], [{"x": R, "y": 64, "z": 0}]),
+                ("one past the radius: dropped", {(R + 1, 64, 0)}, [(0, 64, 0)], []),
+                ("near either end counts", {(200, 64, 0)}, [(0, 64, 0), (199, 64, 0)], [{"x": 200, "y": 64, "z": 0}]),
+                ("nothing protected", set(), [(0, 64, 0)], [])]
+        for name, protected, near, want in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.avoid_cells(protected, *near), want)
+
+    def test_with_avoid(self):
+        prot = {(1, 64, 0)}
+        cell = [{"x": 1, "y": 64, "z": 0}]
+        rows = [("a mine task gets the avoid list", {"type": "mine", "x": 0, "y": 64, "z": 0},
+                 {"type": "mine", "x": 0, "y": 64, "z": 0, "avoid": cell}),
+                ("mine_many: near any of its blocks", {"type": "mine_many", "blocks": [{"x": 2, "y": 64, "z": 0}]},
+                 {"type": "mine_many", "blocks": [{"x": 2, "y": 64, "z": 0}], "avoid": cell}),
+                ("a task that names its own avoid is left alone", {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []},
+                 {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []}),
+                ("a non-approaching task is left alone", {"type": "look", "x": 0, "y": 64, "z": 0},
+                 {"type": "look", "x": 0, "y": 64, "z": 0})]
+        for name, task, want in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.with_avoid(task, prot), want)
+
+    def test_head_underwater(self):
+        # (situation, body, what is at the eyes' block) → underwater?
+        rows = [("swimming, water at the eyes", {"inWater": True, "y": 64.0}, "water", True),
+                ("in water, head out (air at the eyes)", {"inWater": True, "y": 64.0}, "air", False),
+                ("not in water at all, whatever the eyes' block", {"inWater": False, "y": 64.0}, "water", False),
+                ("eyes one block up from a half-block body", {"inWater": True, "y": 64.5}, "water", True)]
+        for name, body, at_eyes, want in rows:
+            with self.subTest(name):
+                s = {"blockX": 0, "blockZ": 0, **body}
+                eye = (0, int(body["y"] + 1.62), 0)
+                region = FakeRegion((-1, 60, -1), (1, 70, 1), {eye: at_eyes})
+                with mock.patch.object(skillcore, "Region", lambda lo, hi, props=False: region):
+                    self.assertIs(skillcore.head_underwater(s), want)
+
+    def test_kit_needs(self):
+        from bonobo import knowledge
+        food = ("food", knowledge.KIT_FOOD)
+        rows = [("empty bag: all three", {}, [food, ("stone", 32), ("minecraft:golden_helmet", 1)]),
+                ("complete kit: nothing", {"cooked_beef": knowledge.KIT_FOOD, "cobblestone": 32, "golden_helmet": 1}, []),
+                ("one meal short: food only", {"cooked_beef": knowledge.KIT_FOOD - 1, "cobblestone": 32,
+                                                "golden_helmet": 1}, [food]),
+                ("31 blocks: one short", {"cooked_beef": knowledge.KIT_FOOD, "cobblestone": 31, "golden_helmet": 1},
+                 [("stone", 32)])]
+        for name, counts, want in rows:
+            with self.subTest(name):
+                self.assertEqual(knowledge.kit_needs(bag(inventory(**counts))), want)
+
+    def test_kit_needs_counts_a_worn_helmet(self):
+        from bonobo import knowledge
+        for name, head, want in [("worn", "golden_helmet", []), ("iron worn: still missing", "iron_helmet",
+                                                                    [("minecraft:golden_helmet", 1)]),
+                                 ("nothing worn", None, [("minecraft:golden_helmet", 1)]),
+                                 ("worn and carried", "golden_helmet", [])]:
+            with self.subTest(name):
+                counts = {"cooked_beef": knowledge.KIT_FOOD, "cobblestone": 32}
+                if name == "worn and carried":
+                    counts["golden_helmet"] = 1
+                self.assertEqual(knowledge.kit_needs(bag(inventory(head=head, **counts))), want)
+
+    def test_interrupt_due(self):
+        # (situation, pending interrupt, mode, a preemption at, soft?, work began at) → stop?
+        rows = [("nothing pending", None, "survival", 5.0, False, 1.0, False),
+                ("pending, ordinary mode: stop", "hostiles", "normal", 0.0, False, 1.0, True),
+                ("soft skills read it themselves", "hostiles", "normal", 0.0, True, 1.0, False),
+                ("a rescue ignores perception's messages", "hostiles", "survival", 0.0, False, 1.0, False),
+                ("...but not a preemption made after it began", "lava", "survival", 2.0, False, 1.0, True),
+                ("a preemption before it began is old news", "lava", "survival", 0.5, False, 1.0, False)]
+        for name, pending, mode, pre_at, soft, since, want in rows:
+            with self.subTest(name):
+                with mock.patch.object(api, "INTERRUPT", pending), mock.patch.object(api, "MODE", mode), \
+                        mock.patch.object(arbiter.BODY, "preempted_at", pre_at):
+                    self.assertIs(api.interrupt_due(since, soft), want)
+
+    def test_incoming_cap(self):
+        from bonobo import estimate
+        imm = float(estimate.PLAYER["hurt_immunity_s"])
+        for name, hit, want in [("one zombie's hit", 3.0, 3.0 / imm), ("a harder hit", 9.0, 9.0 / imm),
+                                ("nothing lands: no ceiling", 0.0, float("inf")),
+                                ("negative (a heal) is no hit", -1.0, float("inf"))]:
+            with self.subTest(name):
+                self.assertEqual(estimate.incoming_cap(hit), want)
