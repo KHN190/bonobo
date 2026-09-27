@@ -228,18 +228,29 @@ AVOID = [("our wall on the straight line to the ore: it goes with the mine, the 
 
 class Arrive(_Clean):
     def test_what_a_walk_may_do(self):
-        """nav.may_alter: a walk to work digs and bridges (as the round allows); looking around or getting away
-        never breaks or builds (through the arena's glass, off the sky platform)."""
+        """nav.may_alter: every walk may dig into a hill or bridge a ditch (priced by the pathfinder); only a walk
+        with a known far side bridges out over the void; the round's policy caps them all."""
         P = nav.Policy
-        rows = [("to work, the round allows digging", "work", P(allow_dig=True), (True, True)),
-                ("to work, no pickaxe policy (no digging)", "work", P(allow_dig=False), (False, True)),
-                ("exploring", "explore", P(allow_dig=True), (False, False)),
-                ("evading", "evade", P(allow_dig=True), (False, False))]
+        rows = [("to work, the round allows digging: all three", "work", P(allow_dig=True), (True, True, True)),
+                ("to work, no digging this round", "work", P(allow_dig=False), (False, True, True)),
+                ("exploring: dig and bridge, never over the void", "explore", P(allow_dig=True), (True, True, False)),
+                ("evading: dig into the hill, bridge the ditch, never over the void", "evade", P(allow_dig=True),
+                 (True, True, False)),
+                ("evading with building off this round", "evade", P(allow_dig=True, allow_build=False),
+                 (True, False, False))]
         for name, purpose, policy, want in rows:
             with self.subTest(name):
                 self.assertEqual(nav.may_alter(purpose, policy), want)
         with self.assertRaises(KeyError):
             nav.may_alter("wander", P())
+
+    def test_evade_avoids_our_builds(self):
+        from bonobo import fight_loop
+        from bonobo.threat import Option
+        from tests.world import bag, inventory
+        st = {"feet": (0, 64, 0), "inv": bag(inventory()), "protected": {(3, 64, 0)}}
+        got = fight_loop.batch(Option("evade", (10, 64, 0), 0.0, 0.0, ""), st)
+        self.assertEqual(got[0]["avoid"], [{"x": 3, "y": 64, "z": 0}])
 
     def test_avoid_over_the_table(self):
         for name, task, protected, want in AVOID:

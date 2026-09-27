@@ -278,9 +278,10 @@ def _fight_shielded(option, state):
 
 def _evade(option, state):
     x, y, z = option.target
-    brk, plc = nav.MOVES["evade"]                  # getting away never breaks a wall or builds (nav.MOVES)
-    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": brk, "place": plc,
-             "placeBudget": int(state["inv"].count("building")), "avoid": []}]
+    brk, plc, void = nav.MOVES["evade"]            # digs and bridges as priced, never out over the void (nav.MOVES)
+    return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": brk, "place": plc, "voidBridge": void,
+             "placeBudget": int(state["inv"].count("building")),
+             "avoid": nav.avoid_cells(state.get("protected", ()), (x, y, z), state["feet"])}]
 
 
 def _eat(option, state):

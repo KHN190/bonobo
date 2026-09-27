@@ -226,16 +226,19 @@ def walked_closer(start, here, target):
     return math.dist(start, target) - math.dist(here, target) >= PROGRESS_BLOCKS
 
 
-# What a walk may do to the world, by why we walk: (break, place). A trip to work (a vein, a trunk, out of a cave)
-# digs and bridges its way; a walk to look around or to get away never breaks or builds — an explore leg went
-# through the arena's glass and off the sky platform, an evade through the wall. The one table for every walk.
-MOVES = {"work": (True, True), "explore": (False, False), "evade": (False, False)}
+# What a walk may do to the world, by why we walk: (break, place, bridge out over the void). Every walk may dig
+# into a hill or bridge a ditch — the pathfinder prices those against walking round. Only a walk with a known
+# far side (work: a vein, a trunk, a site) may lay a floor where nothing lies within a survivable drop below: an
+# explore leg bridged off the sky platform and a knockback threw the body 125 blocks down. Protected cells (our
+# builds) are avoided by every walk (`avoid_cells`). The one table for every walk.
+MOVES = {"work": (True, True, True), "explore": (True, True, False), "evade": (True, True, False)}
 
 
 def may_alter(purpose, policy):
-    """Pure: (may break, may place) for a walk made for `purpose`, within what the round's policy allows."""
-    brk, plc = MOVES[purpose]
-    return brk and bool(getattr(policy, "allow_dig", True)), plc and bool(getattr(policy, "allow_build", True))
+    """Pure: (may break, may place, may bridge over the void) for a walk made for `purpose`, within the round's
+    policy."""
+    brk, plc, void = MOVES[purpose]
+    return brk and bool(getattr(policy, "allow_dig", True)), plc and bool(getattr(policy, "allow_build", True)), void
 
 
 def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards=True, purpose="work"):
@@ -309,7 +312,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         budget = place_budget(Inventory().count("building"))
         avoid = avoid_cells(policy.protected, here, pos)
         grounded = False
-        brk, plc = may_alter(purpose, policy)
+        brk, plc, void = may_alter(purpose, policy)
         # A journey is made of LEGS. The mod walks until the ground, the pickaxe or its own search budget runs
         # out, then stops at the closest point it could reach and says "target unreachable". Read as a failure,
         # that put a two-minute cooldown on every far or deep target and none of them ever finished — though
@@ -318,7 +321,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         for _ in range(max(attempts, LEGS)):
             was = feet_now()
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                         "break": brk, "place": plc, "placeBudget": budget,
+                         "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
                          "avoid": avoid}, wait=900)
             if there(api.get("/state"), pos, range_):
                 return _arrived(_from, pos, _began, True)
@@ -338,7 +341,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                     log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
                     pos = (pos[0], fy, pos[2])
                     api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                             "break": brk, "place": plc, "placeBudget": budget,
+                             "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
                              "avoid": avoid}, wait=900)
                     if there(api.get("/state"), pos, range_):
                         return _arrived(_from, pos, _began, True)
