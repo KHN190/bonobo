@@ -264,6 +264,21 @@ def over_limit(rows_):
     return sorted(n for n, r in rows_.items() if r["tier"] in LIMIT_S and r["budget"] > LIMIT_S[r["tier"]])
 
 
+class SheetMerge(unittest.TestCase):
+    """Every generated row reaches SCENARIOS: the merge is the one door and SHEET is sealed after it
+    (search_night_resume was added after the merge and was in no run)."""
+
+    def test_every_sheet_row_is_a_scenario(self):
+        self.assertEqual(sorted(set(sc.SHEET) - set(sc.SCENARIOS)), [])
+        self.assertIn("search_night_resume", sc.SCENARIOS)
+
+    def test_a_row_added_after_the_merge_is_refused(self):
+        # must fail: a late SHEET row is an error at import, never a row silently left out
+        with self.assertRaises(TypeError):
+            sc.SHEET["late_row"] = {"budget": 1}
+        self.assertNotIn("late_row", sc.SCENARIOS)
+
+
 class Budgets(unittest.TestCase):
     # (situation, a sheet) → the rows over their limit
     ROWS = [("the real sheet: only the long list", None, None),

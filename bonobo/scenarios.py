@@ -8,6 +8,7 @@ import math
 import os
 import re
 import time
+from types import MappingProxyType
 
 from .bench import core, runner
 from .data import POD_BLOCKS
@@ -3801,10 +3802,47 @@ for _name, _skills in COVERS.items():
     if _name in SCENARIOS:
         SCENARIOS[_name].setdefault("skills", list(_skills))
         SCENARIOS[_name].setdefault("point", "A")
+# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left for the night's way
+# (the other hand-offs — a fight, a meal — are resume_after_combat's and the eat rows') and taken up again for the
+# same target (memory's section map: no spot searched twice,
+# no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
+_goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
+SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
+                f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
+SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
+
+
+def _set_time(t):
+    return lambda: _chat(f"time set {t}")
+
+
+SEARCH_ROWS = {
+    "search_night_resume": (
+        "a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → the "
+        "same diamond, straight (no scan for it)",
+        SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
+        [_goal(("minecraft:diamond", 1))],
+        [_seen("diamond_ore", SEARCH_ORE), _count_finds, _when(walked_at_least(6), _set_time(13000)),
+         _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
+         lambda ctx: SEARCH_FLAGS.clear()],
+        _inv_has("minecraft:diamond", 1),
+        _all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False))),
+}
+SEARCH_FLAGS = {}
+for _name, (_doc, _setup, _queue, _hooks_, _done, _check) in SEARCH_ROWS.items():
+    SHEET[_name] = {"doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
+                    "combat": False, "tags": {"base": "brain", "family": "search_resume"},
+                    "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_), "queue": list(_queue),
+                    "run": _slice(_done, 0.45, queue=list(_queue)), "check": _check, "budget": 30}
+
+
 for _row_ in SHEET.values():              # the runner's setup signature: the box holds what the setup built
     if not _row_.get("raw"):
         _row_.setdefault("expect", [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)])
 SCENARIOS.update(SHEET)
+# The merge is the one door: SHEET is read-only from here, so a row added to it later fails at import instead of
+# never running (search_night_resume was added after the merge and was in no run).
+SHEET = MappingProxyType(SHEET)
 for _name in ("slice_retreat",):
     SCENARIOS[_name].setdefault("point", "C")
 for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one skill: they carry an empty list
@@ -3918,40 +3956,6 @@ def skill_spans(registry, root):
 # -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
 # Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
 # whose weapon is the measured dimension, and brain cells whose input is tool state are not in here. One table, one pass.
-# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left for the night's way
-# (the other hand-offs — a fight, a meal — are resume_after_combat's and the eat rows') and taken up again for the
-# same target (memory's section map: no spot searched twice,
-# no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
-_goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
-SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
-                f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
-SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
-
-
-def _set_time(t):
-    return lambda: _chat(f"time set {t}")
-
-
-SEARCH_ROWS = {
-    "search_night_resume": (
-        "a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → the "
-        "same diamond, straight (no scan for it)",
-        SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
-        [_goal(("minecraft:diamond", 1))],
-        [_seen("diamond_ore", SEARCH_ORE), _count_finds, _when(walked_at_least(6), _set_time(13000)),
-         _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
-         lambda ctx: SEARCH_FLAGS.clear()],
-        _inv_has("minecraft:diamond", 1),
-        _all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False))),
-}
-SEARCH_FLAGS = {}
-for _name, (_doc, _setup, _queue, _hooks_, _done, _check) in SEARCH_ROWS.items():
-    SHEET[_name] = {"doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
-                    "combat": False, "tags": {"base": "brain", "family": "search_resume"},
-                    "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_), "queue": list(_queue),
-                    "run": _slice(_done, 0.45, queue=list(_queue)), "check": _check, "budget": 30}
-
-
 KIT_JOBS = {
     ("axe",): [
         "brain__night", "brain__tight", "chest_or_tree", "chop__base", "chop__lava_edge", "chop__night",
