@@ -325,12 +325,15 @@ class Flicker(unittest.TestCase):
     a shore block's water is not swimming. The trigger's boundary, and hunger's."""
 
     def test_in_the_water_boundary(self):
-        # (inWater, onGround) → swimming (reach land fires)
-        rows = [("treading water", True, False, True), ("standing in shore water", True, True, False),
-                ("on land", False, True, False), ("falling through air", False, False, False)]
-        for name, wet, ground, want in rows:
+        # (inWater, onGround, air) → swimming (reach land fires)
+        rows = [("treading water", True, False, 300, True), ("standing in shore water", True, True, 300, False),
+                ("on the bottom of a flooded shaft, head under", True, True, 120, True),
+                ("edge: one tick of breath gone, standing in water", True, True, 299, True),
+                ("on land, out of breath from before", False, True, 50, False),
+                ("on land", False, True, 300, False), ("falling through air", False, False, 300, False)]
+        for name, wet, ground, air, want in rows:
             with self.subTest(name):
-                swim = skills.swimming({"inWater": wet, "onGround": ground})
+                swim = skills.swimming({"inWater": wet, "onGround": ground, "air": air})
                 self.assertEqual((swim, "reach land" in [n for _s, n in reflexes.due(dict(CALM, swimming=swim))]),
                                  (want, want))
 

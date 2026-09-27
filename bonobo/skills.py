@@ -1081,8 +1081,11 @@ def eat(ctx=None, raw_ok=False):
 
 def swimming(state):
     """The one "in the water" test, shared by the brain's trigger and reach_land's done: in water and not standing
-    on ground (a shore block's water overlapping the body box reads inWater while standing)."""
-    return bool(state.get("inWater")) and not state.get("onGround", False)
+    on ground (a shore block's water overlapping the body box reads inWater while standing) — or standing on the
+    bottom with the head under (breath below full): drowning_in_a_pit stood on the shaft's floor, read as "not
+    swimming", and a PLAN goal went exploring for logs while the air ran out."""
+    return bool(state.get("inWater")) and (not state.get("onGround", False)
+                                            or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
 
 
 # What working needs of the BODY'S SITUATION, as opposed to of the bag. A rule about the world, stated once, the
