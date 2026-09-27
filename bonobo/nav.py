@@ -223,6 +223,16 @@ def there(state, pos, range_):
     return math.dist(body, pos) <= range_ + ARRIVE_SLACK
 
 
+ASHORE_RANGE = 0.3      # a land target is the cell itself: 1.5 counted a body still in the water 1.36 from the bank
+
+
+def ashore(state, land, range_=ASHORE_RANGE):
+    """Pure: the body stands on `land` (its feet cell), dry — on the ground and out of the water. `there` alone lets
+    the water hold the body up (the jar's GotoTask counts touching water as arrived): reach_land_swim "arrived"
+    1.36 blocks off the bank and was still swimming."""
+    return bool(state.get("onGround")) and not state.get("inWater") and there(state, land, range_)
+
+
 def at_rest(state):
     """Pure: the body is held up — on the ground, in water or on a ladder — not in the air. The jar's own arrival
     condition (GotoTask: onGround or touching water; climbing from 0.1.41)."""

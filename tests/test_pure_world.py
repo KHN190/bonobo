@@ -274,6 +274,23 @@ class Nav(unittest.TestCase):
             with self.subTest(why):
                 self.assertEqual(nav.at_rest(st), want)
 
+    def test_ashore(self):
+        land = (10, 200, 10)
+        rows = [  # (why, state, expected)
+            ("in the water 1.4 off the bank (the jar called it arrived)",
+             {"x": 8.6, "y": 199.4, "z": 10.5, "onGround": False, "inWater": True}, False),
+            ("standing on the bank, dry", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True, "inWater": False}, True),
+            ("on the bank cell but the feet still in water", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True,
+                                                              "inWater": True}, False),
+            ("on the ground a block below the bank", {"x": 10.5, "y": 199.0, "z": 10.5, "onGround": True,
+                                                      "inWater": False}, False),
+            ("dry ground one cell off the bank (0.3 is the cell)", {"x": 11.5, "y": 200.0, "z": 10.5,
+                                                                    "onGround": True, "inWater": False}, False),
+        ]
+        for why, st, want in rows:
+            with self.subTest(why):
+                self.assertIs(nav.ashore(st, land), want)
+
     def test_walked_closer(self):
         start, target = (0, 64, 0), (10, 64, 0)
         rows = [  # (why, here, expected)

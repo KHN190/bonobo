@@ -1188,11 +1188,13 @@ def reach_land(ctx):
     if route is None or route[0] != "land":
         raise NotAvailable(route[2] if route else "no water to swim through and no land within 24 blocks")
     land = route[1]
-    r = api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": 1.5, "partial": True,
-                 "useBoat": True}, wait=120)
-    if r["status"] != "succeeded" and not _on_land():
+    api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": nav.ASHORE_RANGE, "partial": True,
+             "useBoat": True}, wait=120)
+    # Judged by where the body is, not by the walker's answer (it calls a body in the water beside the bank arrived).
+    if not nav.ashore(api.get("/state"), land):
         # The walker can't climb out (a 1-wide water shaft, a high bank): dig / pillar out instead.
-        if not nav.arrived(land, ctx.policy, range_=2, attempts=1):
+        nav.arrived(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
+        if not nav.ashore(api.get("/state"), land):
             raise api.NavFailed(f"land at {land} not reachable")
     yield feet()
 
