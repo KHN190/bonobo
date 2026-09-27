@@ -633,23 +633,6 @@ def SQUARE(hp):
     return hp * hp
 
 
-class TotalCost(unittest.TestCase):
-    """seconds + price(health spent + health still owed), with owed = leaves × work_s + blast_after."""
-    TABLE = [
-        ("nothing at all", (option(), LINEAR, 10.0), 0.0),
-        ("time and health", (option(hp=3.0, seconds=2.0), LINEAR, 10.0), 8.0),
-        ("what it leaves, over the work", (option(leaves=1.0), LINEAR, 10.0), 20.0),
-        ("a blast still owed", (option(seconds=1.0, blast_after=5.0), LINEAR, 10.0), 11.0),
-        ("convex price: one price of the sum, not two", (option(hp=2.0, seconds=1.0, leaves=0.5), SQUARE, 2.0),
-         10.0),
-        ("boundary: no work left, what it leaves is free", (option(hp=1.0, seconds=1.0, leaves=5.0), LINEAR, 0.0),
-         3.0),
-    ]
-
-    def test_table(self):
-        run_table(self, threat.total_cost, self.TABLE)
-
-
 # ---------------------------------------------------------------- world
 
 def vein(*cells, name="coal_ore"):

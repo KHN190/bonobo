@@ -23,7 +23,6 @@ from bonobo.knowledge import nether_kit_missing  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import NullCost, Planner, Step  # noqa: E402
 from bonobo.skillcore import Context  # noqa: E402
-from bonobo.threat import is_threat  # noqa: E402
 from bonobo.world import ticks_until_dusk  # noqa: E402
 
 
@@ -577,9 +576,6 @@ class Combat(unittest.TestCase):
                  {"type": "minecraft:enderman", "id": 8, "x": 3, "y": 64, "z": 0},
                  {"type": "minecraft:end_crystal", "id": 9, "x": 0, "y": 80, "z": 20}]
         crystals = [{"x": 40, "y": 100, "z": 0}, {"x": 10, "y": 70, "z": 0}, {"x": 5, "y": 110, "z": 0}]
-
-        def threat(*kinds):
-            return [is_threat({"hostile": True, "type": f"minecraft:{t}"}) for t in kinds]
         table(self, [
             ("bow: aims above the target to cover the drop", lambda: CB.bow_aim((0, 65.6, 0), (30, 64, 0), height=1.0),
              lambda a: a[1] > 65.0 and a[0] == 30),
@@ -591,9 +587,6 @@ class Combat(unittest.TestCase):
             ("blaze: cover puts a solid block between us and the blaze",
              lambda: CB.blaze_cover(FakeRegion(fort, (-5, 60, -5), (5, 70, 5)), (0, 65, 0), (5, 66, 0)),
              lambda c: c is not None and c[0] < 2),
-            ("threats: a ghast and a zombie are", lambda: threat("ghast", "zombie"), [True, True]),
-            ("must fail: zombified piglins and endermen aren't attacked on sight",
-             lambda: threat("zombified_piglin", "enderman"), [False, False]),
             ("hazards carry their own reach — head 8, breath 6 — items are none", lambda: hz,
              [((0, 64, 0), 8.0), ((5, 66, 0), 8.0), ((7, 64, 0), 6.0)]),
             ("must fail: in front of the head is inside its reach", lambda: CB.clearance((9, 64, 0), hz),

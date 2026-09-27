@@ -181,13 +181,4 @@ def slot_cost_s(bag_free):
     free = max(1.0, float(bag_free))
     return float(CONFIG["plan"]["slot_fill_s"]) / (free * free)
 
-def cautious(path, direction="benefit"):
-    """The pessimistic end of a belief: what to use when being wrong is not symmetric."""
-
-    v, n = belief(path)
-    trust = float(n) / (float(n) + PRIOR_STRENGTH)
-    if direction == "cost":
-        return float(v) * (2.0 - trust)
-    return float(v) * (0.5 + 0.5 * trust)
-
 TICKS_PER_S = 20.0      # the game's clock, in one place

@@ -289,15 +289,6 @@ class MeasurementsMoveTheNumber(unittest.TestCase):
                 self._measure(path, before * 4, before * 4, before * 4)
                 self.assertEqual(beliefs.value(path), before, f"{path} is not declared a guess")
 
-    def test_trust_grows_with_the_count(self):
-        """`cautious` reads an unmeasured number pessimistically; measuring it must close that gap, not widen it."""
-        gaps = []
-        for _ in range(4):
-            v, _n = beliefs.belief(self.PATH), None
-            gaps.append(abs(beliefs.cautious(self.PATH, "benefit") - beliefs.value(self.PATH)) / beliefs.value(self.PATH))
-            self._measure(self.PATH, beliefs.declared(self.PATH))
-        self.assertEqual(gaps, sorted(gaps, reverse=True), "each observation narrows the doubt")
-
 
 class TheHistoryIsNeverLost(unittest.TestCase):
     """Measurements arrive at the speed of the world, so they are written in batches — and a batch is a place

@@ -5,7 +5,6 @@
 
 [geometry]
 # Blocks from the exit portal's centre, along the side the player approaches from.
-bed_r = 2              # bed_cell: on the fountain, one block above the bedrock top
 mouth_r = 5            # the shaft beside the fountain; the bed's top is 3.57 blocks from an eye here (reach 4.5)
 tunnel_len = 3         # corridor cells running outward from the mouth
 pit_depth = 2          # blocks below the floor plane: deep enough to put the eye under it

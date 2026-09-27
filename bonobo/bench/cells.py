@@ -75,10 +75,6 @@ def sweep(**fixed):
     for combination in itertools.product(*values):
         yield Cell(**dict(zip(names, combination)))
 
-def key_of(row):
-    """The key of a row a sheet wrote out — the same tuple `Cell.key` gives, so rows and cells meet."""
-    return tuple(row.get(name, BASELINE[name]) for name in DIMENSIONS)
-
 def moved(cells, dim, value):
     """[(baseline cell, moved cell)] for every cell in `cells` that can move along `dim` to `value`."""
 

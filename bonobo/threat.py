@@ -41,11 +41,6 @@ def awareness(e, here=None):
         return 1.0
     return max(0.0, 1.0 - (d - notice) / notice)
 
-def is_threat(e):
-    """Whether this mob is worth noticing at all: hostile, and not a neutral standing about."""
-
-    return bool(e.get("hostile")) and awareness(e) > 0.0
-
 def rows(near, memory, now, kinds, here=None):
     """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach})."""
 
@@ -349,11 +344,6 @@ def owed(option, work_s):
     """Pure: health still owed to us after this answer — the rate it leaves, over the work, plus any blast that still reaches us."""
 
     return option.leaves * work_s + option.blast_after
-
-def total_cost(option, price, work_s):
-    """Pure: everything this answer costs — the time and health it takes (`action_cost`) plus what it leaves owed."""
-
-    return action_cost(option, price, work_s) + price(owed(option, work_s))
 
 def saves(option, opts, price, work_s):
     """Pure: seconds this answer saves against carrying on."""
