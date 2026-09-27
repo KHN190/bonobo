@@ -2414,3 +2414,23 @@ class BridgeStockSizedToTheGap(unittest.TestCase):
         for name, feet, target, want in rows:
             with self.subTest(name):
                 self.assertEqual(needs.bridge_stock(feet, target), want)
+
+
+class LookingAroundAsksOnlyWhatIsUnknown(unittest.TestCase):
+    """explore.unknown: the look around asks /find only for kinds memory holds no note of."""
+
+    def test_over_the_table(self):
+        from bonobo import explore
+        rows = [("nothing noted: every kind asked", [], ["diamond_ore", "obsidian"], ["diamond_ore", "obsidian"]),
+                ("a diamond noted: not asked again", [("diamond_ore", (4, 60, 0))], ["diamond_ore", "obsidian"],
+                 ["obsidian"]),
+                ("every kind noted: nothing asked", [("diamond_ore", (4, 60, 0)), ("obsidian", (5, 60, 0))],
+                 ["diamond_ore", "obsidian"], []),
+                ("a note in another dimension: still asked here", [("diamond_ore", (4, 60, 0), "minecraft:the_nether")],
+                 ["diamond_ore"], ["diamond_ore"])]
+        for name, notes, names, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                for n in notes:
+                    m.note_seen(n[0], n[1], n[2] if len(n) > 2 else OVER)
+                self.assertEqual(explore.unknown(m, OVER, names), want)

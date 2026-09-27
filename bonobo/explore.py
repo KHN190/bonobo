@@ -165,18 +165,27 @@ _ALIAS = {"tree", "water", "lava"}      # scan kinds noted by their own name; th
 SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chicken")
 
 
+def unknown(mem, dimension, names):
+    """Of `names`, those memory holds no live note of here: the only ones a look around asks the world about (a
+    noted diamond scanned again every 20 s was a search the bench counted: seen_store__noted)."""
+    return [n for n in names if not mem.seen(n, dimension)]
+
+
 def note_around(mem, dimension):
     """Map resources while travelling, so "where to find" starts from known places: the nearest tree, water, lava,
     iron and coal in 48 blocks, the takeable blocks (beds, chests…), the rare blocks and the animals in sight."""
     from .knowledge import takeable_blocks
     try:
         for kind, blocks in SCAN_BLOCKS.items():
+            if not unknown(mem, dimension, [kind] if kind in _ALIAS else blocks):
+                continue           # already held in memory: looking again is a search, not a sighting
             hits = find(blocks, radius=48, limit=1)
             if hits:
                 h = hits[0]
                 mem.note_seen(kind if kind in _ALIAS else h["block"], (h["x"], h["y"], h["z"]), dimension)
+        rare = unknown(mem, dimension, list(RARE_SIGHTINGS))
         for h in (find(takeable_blocks(), radius=48, limit=16) or []) + \
-                (find(list(RARE_SIGHTINGS), radius=48, limit=8) or []):
+                ((find(rare, radius=48, limit=8) or []) if rare else []):
             mem.note_seen(h["block"], (h["x"], h["y"], h["z"]), dimension)
         for e in entities(48, list(SCAN_MOBS)):
             mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
