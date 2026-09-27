@@ -104,7 +104,8 @@ class PerceptionBidsThreats(unittest.TestCase):
     ROWS = [("nothing seen: nothing offered", [], None),
             ("a zombie 4 off, an iron sword: fight it", [_row("minecraft:zombie", 4.0)], "fight"),
             ("a zombie 40 off: nothing owed yet", [_row("minecraft:zombie", 40.0)], None),
-            ("a creeper 4 off: never traded with — away", [_row("minecraft:creeper", 4.0)], "evade")]
+            ("a creeper 4 off, an iron sword: fought hit-and-back, never traded with standing",
+             [_row("minecraft:creeper", 4.0)], "fight")]
 
     def test_bids(self):
         sstate = threat.price_state(hp=20, armor=15)

@@ -133,6 +133,7 @@ row = estimate.row
 arrival = estimate.arrival_s
 pressure = estimate.pressure_hp_s
 burst_damage = estimate.burst_hp
+keepoff_cost = estimate.keepoff_cost
 time_to_die = estimate.time_to_die_s
 fight_cost = estimate.fight_cost
 leaving_cost = estimate.leaving_hp
@@ -317,9 +318,13 @@ def _evade_option(here, spot, hazards, prot, press, out):
     # With no fight to have (打不过就走), leaving is still the relief it was.
     postpones = any(o.kind == "fight" for o in out) and all(estimate.follows_to(spot, h) for h in hazards)
     follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
+    # A creeper is not a rate that leaving ends: out and back, it is still there, or it followed. With a fight on
+    # offer its blast stays owed (as if it reached us); with none, leaving is the relief it always was.
+    fight_on = any(o.kind == "fight" for o in out)
+    blast = burst_damage(here, hazards, prot, fuse_s=float("inf")) if fight_on else burst_damage(spot, hazards, prot)
     return Option("evade", spot, evade_cost(here, spot, hazards, prot),
                   round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
-                  blast_after=burst_damage(spot, hazards, prot))
+                  blast_after=blast)
 
 
 def options(state):
@@ -345,8 +350,22 @@ def options(state):
                   f"carrying on takes ~{press:.1f} hp/s"
                   + (f" and a {blast_here:.0f} hp blast" if blast_here else ""),
                   leaves=press, blast_after=blast_here)]
-    # Fighting: kill them, then nothing is coming. Creepers are never traded with — the burst is not a rate.
-    t_fight, lost = fight_cost(here, hazards, state.get("sword", 0), prot)
+    # Fighting: kill them, then nothing is coming. A creeper is never traded with standing — the burst is not a
+    # rate — but with a sword it is fought hit-and-back (`estimate.keepoff_cost`, jar footwork "keepoff"), first:
+    # it is met sooner or later wherever we go, and walking away from it only postpones the same creeper.
+    sword = int(state.get("sword", 0))
+    creepers = [i for i, h in enumerate(hazards) if MOBS[h[3]].get("burst") and h[3] == "minecraft:creeper"]
+    if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
+                                       for i, h in enumerate(hazards)):
+        first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
+        t_c, lost_c = keepoff_cost(here, hazards[first], sword, prot)
+        rest = [h for i, h in enumerate(hazards) if i != first]
+        t_r, lost_r = fight_cost(hazards[first][0], rest, sword, prot) if rest else (0.0, 0.0)
+        if lost_c + lost_r < hp:
+            out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
+                              f"kill the creeper hit-and-back in ~{t_c}s"
+                              + (f", then {len(rest)} more" if rest else "")))
+    t_fight, lost = fight_cost(here, hazards, sword, prot)
     # A fight we expect to lose is not an answer (打不过就走): what it takes has to leave us standing.
     if not any(MOBS[h[3]].get("burst") for h in hazards) and lost + blast_here < hp:
         nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))

@@ -687,19 +687,38 @@ class Footwork(unittest.TestCase):
                 for i, k in enumerate(kinds)]
 
     def test_over_the_table(self):
-        bag = SimpleNamespace(offhand=lambda: "minecraft:shield")
+        bag = SimpleNamespace(offhand=lambda: "minecraft:shield", count=lambda _: 0)
         both = dict(threats=self.rows("minecraft:zombie", "minecraft:skeleton", "minecraft:creeper"),
-                    threat_ids=[11, 12, 13], inv=bag)
+                    threat_ids=[11, 12, 13], inv=bag, feet=(0, 64, 0), protected=set())
         rows = [  # (why, target, fight kind, state) → the attack task's footwork (None: no key)
             ("a zombie: back out of its reach", 11, "fight", both, "back"),
             ("a skeleton: strafe across its line", 12, "fight", both, "strafe"),
-            ("a creeper (melee): back, never standing in its blast", 13, "fight", both, "back"),
+            ("a creeper: keep off — hit, out past its blast, in again", 13, "fight", both, "keepoff"),
             ("behind the shield, a skeleton: strafe too", 12, "fight_shielded", both, "strafe"),
             ("a target not among the rows: no footwork", 99, "fight", both, None),
             ("no rows at all: no footwork", 11, "fight", dict(inv=bag), None),
         ]
         for why, target, kind, state, want in rows:
             with self.subTest(why):
-                task = fight_loop.batch(SimpleNamespace(kind=kind, target=target), state)[0]
+                task = fight_loop.batch(SimpleNamespace(kind=kind, target=target), state)[-1]
                 self.assertEqual(task.get("footwork"), want)
                 self.assertEqual(task["entity"], target)
+
+    def test_a_creeper_by_our_builds_is_led_away_first(self):
+        """fight_loop: a creeper whose blast would reach a protected cell is led LURE_BLOCKS away from it, then fought."""
+        bag = SimpleNamespace(offhand=lambda: None, count=lambda _: 0)
+        creeper = self.rows("minecraft:creeper")          # at (3, 64, 0)
+        rows = [  # (why, protected cells) → the batch's task types, and the lure's x when there is one
+            ("nothing of ours near: fight where we stand", set(), ["attack"], None),
+            ("a wall 2 from it: led west, away from the wall, first", {(5, 64, 0)}, ["travel", "attack"], -8),
+            ("our builds 20 off: out of its blast, fight here", {(23, 64, 0)}, ["attack"], None),
+            ("builds on the other side: led east", {(-1, 64, 0)}, ["travel", "attack"], 8),
+        ]
+        for why, protected, kinds, x in rows:
+            with self.subTest(why):
+                state = dict(threats=creeper, threat_ids=[7], inv=bag, feet=(0, 64, 0), protected=protected)
+                got = fight_loop.batch(SimpleNamespace(kind="fight", target=7), state)
+                self.assertEqual([t["type"] for t in got], kinds)
+                self.assertEqual(got[-1]["footwork"], "keepoff")
+                if x is not None:
+                    self.assertEqual(got[0]["x"], x)

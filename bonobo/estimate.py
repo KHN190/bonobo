@@ -204,6 +204,22 @@ def _row_dps(row):
     return float(row[5]) if len(row) > 5 and row[5] is not None else float(MOBS[row[3]]["dps"])
 
 
+def keepoff_cost(here, hazard, sword, prot, speed=None):
+    """(seconds, hp lost) to kill a creeper hit-and-back: step in, one swing, back out past its blast (`keep_out`)
+    before the fuse runs, again until it is dead (jar AttackTask footwork "keepoff"). What it costs is walking, and
+    now and then a step back too late (`keepoff_risk` of its blast per hit) — not standing in the blast trading
+    hits: a creeper can always be met, and never answered by walking away for good."""
+    speed = float(PLAYER["speed"]) if speed is None else float(speed)
+    mob = MOBS[hazard[3]]
+    swing = float(ENGAGE["swing_s"])
+    per_hit = float(PLAYER["dps"][str(min(3, max(0, int(sword))))]) * swing
+    hits = math.ceil(float(mob["hp"]) / per_hit)
+    walk = max(0.0, math.dist(here, hazard[0]) - float(PLAYER["melee_reach"])) / speed
+    cycle = 2.0 * float(mob.get("keep_out", 3.0)) / speed + swing
+    lost = hits * float(ENGAGE["keepoff_risk"]) * float(mob["attack"]) * (1.0 - prot)
+    return round(walk + hits * cycle, 2), round(lost, 2)
+
+
 def fight_cost(here, hazards, sword, prot, speed=None):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting.
 

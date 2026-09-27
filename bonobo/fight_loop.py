@@ -268,7 +268,10 @@ def batch(option, state):
 
 # Between swings (jar AttackTask "footwork", ≥ 0.1.51): out of a melee mob's reach and in again as the swing
 # refills; across a ranged mob's line of fire. By what the target is (beliefs MOBS "ranged"), one table.
-FOOTWORK = {"melee": "back", "ranged": "strafe"}
+# A creeper: hit, then out past its blast until it stops swelling, and in again ("keepoff"); a blast into the air
+# ends it as surely as a kill.
+FOOTWORK = {"melee": "back", "ranged": "strafe", "burst": "keepoff"}
+LURE_BLOCKS = 8          # how far a creeper by our builds is led away from them before the fight
 
 
 def footwork(target, state):
@@ -278,14 +281,40 @@ def footwork(target, state):
     rows, ids = state.get("threats") or [], list(state.get("threat_ids") or [])
     if target not in ids or ids.index(target) >= len(rows):
         return None
-    kind = rows[ids.index(target)][3]
-    return FOOTWORK["ranged" if MOBS.get(kind, {}).get("ranged") else "melee"]
+    mob = MOBS.get(rows[ids.index(target)][3], {})
+    return FOOTWORK["burst" if mob.get("burst") else "ranged" if mob.get("ranged") else "melee"]
+
+
+def lure_spot(here, creeper, protected, blast):
+    """Pure: where to lead a creeper before fighting it — LURE_BLOCKS from here, away from our builds within
+    `blast` of it (memory's protected cells, nav.avoid_cells' source), or None when none is that near: a blast by
+    the house takes the house with it, so the fight starts away from it."""
+    near = [c for c in protected if math.dist(c, creeper) <= blast]
+    if not near:
+        return None
+    cx, cz = sum(c[0] for c in near) / len(near), sum(c[2] for c in near) / len(near)
+    dx, dz = here[0] - cx, here[2] - cz
+    n = math.hypot(dx, dz) or 1.0
+    return (round(here[0] + LURE_BLOCKS * dx / n), int(here[1]), round(here[2] + LURE_BLOCKS * dz / n))
 
 
 def _attack(option, state, **extra):
+    from .beliefs import MOBS
     task = {"type": "attack", "entity": option.target, **extra}
     step = footwork(option.target, state)
-    return [dict(task, footwork=step) if step else task]
+    if step is None:
+        return [task]
+    out = []
+    if step == "keepoff":
+        rows, ids = state["threats"], list(state["threat_ids"])
+        row = rows[ids.index(option.target)]
+        spot = lure_spot(state["feet"], row[0], state.get("protected", ()), float(MOBS[row[3]].get("keep_out", 5.0)))
+        if spot is not None:
+            brk, plc, void = nav.MOVES["evade"]
+            out.append({"type": "travel", "x": spot[0], "y": spot[1], "z": spot[2], "range": 2, "break": brk,
+                        "place": plc, "voidBridge": void, "placeBudget": int(state["inv"].count("building")),
+                        "avoid": nav.avoid_cells(state.get("protected", ()), spot, state["feet"])})
+    return out + [dict(task, footwork=step)]
 
 
 def _fight(option, state):

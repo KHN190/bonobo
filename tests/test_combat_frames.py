@@ -49,7 +49,7 @@ ROWS = [
     ("one zombie close, full health: kill it", lambda: frame("walker"), "fight"),
     ("one zombie 24 blocks off: not worth stopping for", lambda: frame("walker", away=24), "ignore"),
     ("a skeleton close, full health: close in and kill it", lambda: frame("archer"), "fight"),
-    ("a creeper close: get out of its blast", lambda: frame("bomb"), "evade"),
+    ("a creeper close, a sword: hit it and keep out of its blast", lambda: frame("bomb"), "fight"),
     ("a creeper close at 2 hp: get out, no question", lambda: frame("bomb", hp=2), "evade"),
     ("three zombies, full health and kit: fight", lambda: frame("pack", more=2), "fight"),
     ("three zombies at 4 hp: give it up and leave", lambda: frame("pack", hp=4, more=2), "evade"),

@@ -225,14 +225,17 @@ class WhatAnAnswerIsFor(unittest.TestCase):
                 if not getattr(cell, resource):
                     self.assertNotIn(kind, kinds, f"{cell}: {kind} without {resource}")
 
-    def test_what_the_beliefs_call_a_blast_is_never_offered_as_a_fight(self):
+    def test_what_the_beliefs_call_a_blast_is_never_traded_with_standing(self):
         """The property is over the belief table, not over an enemy this test happens to know the name of: if a
-        mob's damage is a one-off, trading health against it is not a column."""
+        mob's damage is a one-off, trading health against it is not a column — the only fight offered is hit and
+        back out of the blast (estimate.keepoff_cost), priced at its late-step risk, not at the blast."""
         for cell in dangers():
             rows = cell.rows()
             if not rows or not all(cell.mob_of(r).get("burst") for r in rows):
                 continue
-            self.assertNotIn("fight", [o.kind for o in threat.options(cell.threat_state())], cell)
+            for o in threat.options(cell.threat_state()):
+                if o.kind == "fight":
+                    self.assertIn("hit-and-back", o.why, cell)
 
     def test_shaping_the_ground_buys_nothing_against_what_the_beliefs_say_it_cannot_stop(self):
         """Again from the table: a mob that squeezes past walks over every shape, so no shape may come out worth
