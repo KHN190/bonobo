@@ -3217,7 +3217,6 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
 # there and digs in by hand (terrain.nearest_soft + the walk in the price). The control: the same patch across a
 # drop to nothing — it is not on this ground, so the body never goes there.
 DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
-UNREACHABLE_DIRT_S = 18
 DIRT_FLOOR = (at(7, -4, -1), at(8, -4, 1))      # the stone the dirt lies on
 
 
@@ -3232,11 +3231,10 @@ for _name, _doc, _extra, _done, _check in [
         ("night_dig_in_dirt", "dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked "
          "there, dug in by hand: two or more down in the dirt, sealed overhead", [],
          lambda: _in_the_patch_underground(__import__("bonobo.api", fromlist=["get"]), None), _in_the_patch_underground),
-        ("night_dig_in_dirt_unreachable", "the same dirt across a drop to nothing → never walked to (must not): the "
-         "body stays on its side of the gap", [f"fill {_c(at(4, -3, -8))} {_c(at(5, -1, 8))} air"],
-         # Bounded: sheltered some other way (the night's way chosen), or 18 s — `lambda: False` ran the full 25 s
-         # after ~8.6 s to the first decision and overran the row's 30.
-         lambda: _enclosed() or time.time() - BASE.get("t", time.time()) >= UNREACHABLE_DIRT_S,
+        ("night_dig_in_dirt_unreachable", "the same dirt across a drop to nothing, 9 cobblestone carried → never "
+         "walked to (must not): walled in on its own side of the gap",
+         # The fallback's blocks given (console-built): the row tests the choice, not mining 9 blocks for a wall.
+         [f"fill {_c(at(4, -3, -8))} {_c(at(5, -1, 8))} air", "give @p cobblestone 9"], _enclosed,
          lambda api, inv: api.get("/state")["blockX"] < at(4, 0, 0)[0])]:
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": ["shelter:dig in"], "tier_fixed": "brain",
