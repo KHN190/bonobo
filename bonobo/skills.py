@@ -763,6 +763,14 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             unreachable += 1
             _reach_budget(unreachable, blocks, str(out))
             continue
+        except api.TaskStuck as out:
+            # The jar went round in circles over this batch (approach ↔ mine at one block): the batch is refused —
+            # dropped, the budget charged, the next vein tried. Asking again is the same circle.
+            for p in vein:
+                ctx.ban(p)
+            unreachable += 1
+            _reach_budget(unreachable, blocks, str(out))
+            continue
         if gained(lambda: Inventory().count(drop), before) <= before:
             from .knowledge import MINE_YIELD
             if MINE_YIELD.get(mid(drop), 1) < 1 and "failed" not in r["message"]:

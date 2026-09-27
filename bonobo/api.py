@@ -288,11 +288,25 @@ def _raise_if_released(results, since=None):
         raise BodyContested("another commander posted a task while ours ran")
 
 
+OSCILLATION_RETURNS = 4     # a task back in a state it already left this many times is going round in circles
+
+
+def returns(seen):
+    """Pure: how many times the observed task states (in order, each differing from the one before) came back to
+    one already seen. Movement or a report that changes is progress; "going to mine" ↔ "mining" at the same block,
+    the same spot, again and again is not (mine_stone alternated five times until the row's time ran out)."""
+    earlier, back = set(), 0
+    for sig in seen:
+        back += sig in earlier
+        earlier.add(sig)
+    return back
+
+
 def await_task(task_id, wait, exempt=("wait",)):
     """Waits for a task, cancelling it when it makes no visible progress or exceeds `wait` seconds."""
     began = time.time()
     deadline = began + wait
-    last, since = None, began
+    last, since, seen = None, began, []
     while True:
         r = get(f"/task?id={task_id}&wait=2")
         check_interrupt(began, SOFT)
@@ -320,6 +334,10 @@ def await_task(task_id, wait, exempt=("wait",)):
             sig += (round(st["yaw"] / 5), round(st["pitch"] / 5))
         if sig != last:
             last, since = sig, time.time()
+            seen.append(sig)
+            if returns(seen) >= OSCILLATION_RETURNS:
+                post("/stop")
+                raise TaskStuck(f"going round in circles in {cur['type']}: {cur['doing']}")
         elif time.time() - since >= STUCK_SECONDS:
             post("/stop")
             raise TaskStuck(f"no progress for {STUCK_SECONDS}s in {cur['type']}: {cur['doing']}")

@@ -139,6 +139,28 @@ class SeekHits(unittest.TestCase):
                 self.assertEqual(get.call_args[0][0], "/find?blocks=minecraft:iron_ore&radius=48&limit=60" + tail)
 
 
+class Returns(unittest.TestCase):
+    GO, MINE = ("t", "going to mine stone at (9998, 199, 10000)", 9999, 199, 10000), \
+        ("t", "mining stone at (9998, 199, 10000)", 9999, 199, 10000)
+    # (situation, observed states in order) → returns to a state already left
+    TABLE = [
+        ("walking on: every state new", ([("t", "walk", 0, 64, i) for i in range(6)],), 0),
+        ("mine_stone's circle: approach ↔ mine five times", ([GO, MINE] * 5,), 8),
+        ("edge: one step back is one return", ([GO, MINE, GO],), 1),
+        ("a batch that advances: the report changes", ([("t", f"mine_many {i}/5", 0, 64, 0) for i in range(5)],), 0),
+        ("nothing seen", ([],), 0),
+    ]
+
+    def test_table(self):
+        from bonobo import api
+        run_table(self, api.returns, self.TABLE)
+
+    def test_the_circle_is_stopped(self):
+        from bonobo import api
+        stop = lambda seen: api.returns(seen) >= api.OSCILLATION_RETURNS   # noqa: E731
+        self.assertEqual((stop([self.GO, self.MINE] * 3), stop([self.GO, self.MINE, self.GO])), (True, False))
+
+
 class TakesBack(unittest.TestCase):
     # (situation, block, pickaxe held) → break it to carry on
     TABLE = [
