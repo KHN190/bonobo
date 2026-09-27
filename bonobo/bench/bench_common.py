@@ -67,7 +67,7 @@ ROWS = [
          scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 20, -1, 3), 'stone'), ('stand', -2),
                 ('give', 'cooked_beef', 4)],
          run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hungry',)],
-         check=[('call', 'ate_on_the_way', [[]]), ('_at', ('@', 18, 0, 0), 3)], budget=25, skills=['goto'],
+         check=[('call', 'walk_ate', []), ('_at', ('@', 18, 0, 0), 3)], budget=25, skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='mine_while_hungry', module='skills',

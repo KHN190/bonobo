@@ -1006,6 +1006,19 @@ class EatingOnTheWay(unittest.TestCase):
             with self.subTest(name):
                 self.assertIs(sc.ate_on_the_way(frames), want)
 
+    def test_the_row_reads_the_walk_it_ran(self):
+        """The row's check word (`call walk_ate`) reads the walk's frames when the check runs: a word that took
+        them when the row was built judged an empty walk every time."""
+        from bonobo.bench import vocab
+        rows = [("fed on the walk just run", walk_frames(), True),
+                ("stopped to chew", walk_frames(stop=(1.4, 3.0)), False),
+                ("must fail: no walk ran", None, False),
+                ("must fail: never fed", walk_frames(rise_at=None), False)]
+        for name, frames, want in rows:
+            with self.subTest(name), mock.patch.dict(vocab.WALK, {} if frames is None else {"frames": frames},
+                                                     clear=True):
+                self.assertIs(vocab.call(None, None, "walk_ate", [], resolve=vocab.resolve), want)
+
 
 class SliceVerdict(unittest.TestCase):
     """vocab.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""

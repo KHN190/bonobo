@@ -1960,6 +1960,10 @@ def ate_on_the_way(frames):
     xs = [x for k, x in enumerate(xs) if k == 0 or x != xs[k - 1] or k < len(xs) - 1]
     return all(b > a for a, b in zip(xs, xs[1:]))
 
+def walk_ate():
+    """ate_on_the_way over the last walk's trace (`_walk_once`), read when the check runs — not when the row is built."""
+    return ate_on_the_way(WALK.get("frames", []))
+
 def _walk_once(ctx):
     """Walk 20 east hungry, the whole walk traced (the runner's `_trace`: position, food, the jar's task)."""
     import threading
