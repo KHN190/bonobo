@@ -214,15 +214,6 @@ PLACEABLE_AS = {"grass_block": "dirt", "dirt_path": "dirt", "farmland": "dirt", 
 JUNK = {"minecraft:dirt", "minecraft:gravel", "minecraft:granite", "minecraft:diorite", "minecraft:andesite",
         "minecraft:tuff", "minecraft:wheat_seeds", "minecraft:rotten_flesh", "minecraft:wildflowers",
         "minecraft:dandelion", "minecraft:poppy", "minecraft:short_grass"}
-KEEP_BUILDING_BLOCKS = 128
-# Inventory hygiene on the spot (no chest needed): stacks never worth a slot, and caps beyond which extra is thrown.
-# Only things that are never useful are thrown (thrown items get swept up again by the next collect). Solid
-# junk counts as building material instead, and surplus of useful things goes to a chest (deposit / cache).
-DISCARD = {"minecraft:tuff_bricks", "minecraft:pointed_dripstone", "minecraft:rotten_flesh",   # seeds feed the farm
-           "minecraft:poisonous_potato", "minecraft:wildflowers", "minecraft:dandelion", "minecraft:poppy",
-           "minecraft:short_grass", "minecraft:spider_eye"}
-EXCESS_CAP = {"minecraft:gravel": 16, "minecraft:sweet_berries": 32, "minecraft:raw_copper": 0}
-
 ARMOR_SLOTS = {"helmet": "head", "chestplate": "chest", "leggings": "legs", "boots": "feet"}
 ARMOR_RANK = {"leather": 0, "golden": 1, "chainmail": 2, "iron": 3, "diamond": 4, "netherite": 5}
 

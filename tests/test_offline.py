@@ -104,60 +104,7 @@ check("no pickaxe, cobble in the bag → stone pickaxe is crafted directly",
 same("pending output satisfies a need",
      Planner.from_inventory(inv, NullCost(), {"minecraft:hopper": 3}).plan([("minecraft:hopper", 3)]), [])
 
-# ---- inventory hygiene
-slots = [{"id": "minecraft:rotten_flesh", "count": 30, "slot": 10}, {"id": "minecraft:gravel", "count": 64, "slot": 11},
-         {"id": "minecraft:gravel", "count": 10, "slot": 12}, {"id": "minecraft:iron_ingot", "count": 5, "slot": 13},
-         {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 130, "maxDamage": 131, "slot": 14},
-         {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 7, "maxDamage": 250, "slot": 15},
-         {"id": "minecraft:granite", "count": 64, "slot": 16}, {"id": "minecraft:cobblestone", "count": 64, "slot": 17}]
-thrown = sorted(s["slot"] for s in skills.tidy_plan(slots))
-same("tidy throws junk, gravel beyond the cap and the broken pickaxe", thrown, [10, 12, 14])
-check("tidy never throws working tools, building blocks or ingots", not {13, 15, 16, 17} & set(thrown), thrown)
-hoard = [{"id": "minecraft:andesite", "count": 64, "slot": 20 + k} for k in range(4)] + \
-        [{"id": "minecraft:cobblestone", "count": 64, "slot": 30}, {"id": "minecraft:cobblestone", "count": 64, "slot": 31}]
-thrown = sorted(s["slot"] for s in skills.tidy_plan(hoard))
-same("tidy caps building blocks at 128, keeping plain cobblestone", thrown, [20, 21, 22, 23])
-bag = [{"id": "minecraft:cobblestone", "count": 64, "slot": 1}, {"id": "minecraft:cobblestone", "count": 40, "slot": 2},
-       {"id": "minecraft:beef", "count": 5, "slot": 3}, {"id": "minecraft:cooked_beef", "count": 12, "slot": 4},
-       {"id": "minecraft:spruce_log", "count": 30, "slot": 5}, {"id": "minecraft:iron_ingot", "count": 9, "slot": 6},
-       {"id": "minecraft:torch", "count": 40, "slot": 7},
-       {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 125, "maxDamage": 131, "slot": 8},
-       {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 10, "maxDamage": 250, "slot": 9}]
-plan = [s["slot"] for s in skills.free_slots_plan(bag, need=1)]
-same("free 1 slot → the small building stack beyond 64 goes first", plan, [2])
-plan = [s["slot"] for s in skills.free_slots_plan(bag, need=3)]
-same("free 3 slots → building surplus, raw meat, then the cheapest unprotected stack (a single log stack stays)",
-     plan, [2, 3, 1])
-plan = [s["slot"] for s in skills.free_slots_plan(bag, need=9)]
-check("never drops ingots, torches, cooked food or any pickaxe (spares included)", not {4, 6, 7, 8, 9} & set(plan),
-      plan)
-goal_items = [{"id": "minecraft:spruce_door", "count": 3, "slot": 1}, {"id": "minecraft:black_wool", "count": 2, "slot": 2},
-              {"id": "minecraft:crafting_table", "count": 2, "slot": 3}, {"id": "minecraft:dirt", "count": 10, "slot": 4}]
-plan = [s["id"][10:] for s in skills.free_slots_plan(goal_items, need=4)]
-check("caps never throw the only stack of a goal item (doors, wool, table)",
-      not {"spruce_door", "black_wool", "crafting_table"} & set(plan), plan)
-# The real full bag from 2026-09-15 (nothing matched the old tiers, so crafting a pickaxe was impossible).
-real = [("beef", 4), ("black_wool", 2), ("bucket", 1), ("coal", 19), ("cobbled_deepslate", 2), ("cobbled_deepslate", 31),
-        ("cooked_beef", 1), ("cooked_mutton", 3), ("crafting_table", 2), ("diamond", 10), ("dirt", 8), ("flint", 1),
-        ("flint_and_steel", 1), ("furnace", 1), ("iron_helmet", 1), ("iron_ingot", 15), ("iron_sword", 1),
-        ("lapis_lazuli", 20), ("leather", 5), ("mutton", 2), ("porkchop", 3), ("rabbit", 9), ("rabbit_hide", 6),
-        ("raw_gold", 8), ("raw_iron", 11), ("redstone", 44), ("redstone", 64), ("redstone", 64), ("spruce_door", 3),
-        ("spruce_log", 4), ("spruce_sapling", 1), ("stone_axe", 1), ("stone_pickaxe", 1), ("stone_sword", 1),
-        ("torch", 41), ("tuff", 13)]
-real_slots = []
-for k, (item, n) in enumerate(real):
-    s = {"id": "minecraft:" + item, "count": n, "slot": k}
-    if item in ("flint_and_steel", "iron_helmet", "iron_sword", "stone_axe", "stone_pickaxe", "stone_sword"):
-        s.update({"maxDamage": 250, "damage": 249 if item == "stone_pickaxe" else 100})
-    real_slots.append(s)
-plan = skills.free_slots_plan(real_slots, need=4)
-ids = [s["id"][10:] for s in plan]
-check("real full bag: 4 slots can always be freed", len(plan) >= 4, ids)
-check("real full bag: nothing valuable dropped",
-      not {"diamond", "iron_ingot", "raw_iron", "raw_gold", "torch", "bucket", "iron_sword", "iron_helmet",
-           "cooked_beef", "furnace", "flint_and_steel"} & set(ids), ids)
-check("real full bag: the broken pickaxe or low-value junk goes first",
-      set(ids) & {"stone_pickaxe", "rabbit_hide", "leather", "spruce_sapling", "lapis_lazuli", "redstone"}, ids)
+# ---- inventory hygiene: the one scoring (bag.let_go) is tabled in test_skill_contract.BagFull
 
 # ---- survival: finding air
 # A 7×7 pool, 6 deep, with a stone floor and walls up to the water line; open on top unless capped.
@@ -218,10 +165,6 @@ niche_only.pop((1, 0, 0)), niche_only.pop((1, 1, 0))          # a single 1-block
 r = FakeRegion(niche_only, (-3, -1, -3), (3, 2, 3))
 check("throw: only a 1-block niche → don't throw (items land at our feet)", skills.throw_direction(r, (0, 0, 0)) is None,
       skills.throw_direction(r, (0, 0, 0)))
-small_building = [{"id": "minecraft:cobblestone", "count": 30, "slot": 1}, {"id": "minecraft:dirt", "count": 12, "slot": 2},
-                  {"id": "minecraft:redstone", "count": 64, "slot": 3}, {"id": "minecraft:redstone", "count": 64, "slot": 4}]
-plan = [s["id"][10:] for s in skills.free_slots_plan(small_building, need=3)]
-check("last resort keeps building blocks while they are 64 or fewer", not {"cobblestone", "dirt"} & set(plan), plan)
 
 # ---- clock
 from bonobo.world import ticks_until_dusk  # noqa: E402
@@ -408,10 +351,13 @@ check("reservations: a down-weighted goal's seeds are never thrown",
 BG.RESERVED = set()
 _hungry = [{"id": "minecraft:mutton", "count": 6, "slot": 1}, {"id": "minecraft:cooked_mutton", "count": 3, "slot": 2},
            {"id": "minecraft:dirt", "count": 64, "slot": 3}, {"id": "minecraft:wheat_seeds", "count": 5, "slot": 4}]
-_thrown_h = {s["id"] for s in BG.free_slots_plan(_hungry, need=3)} | {s["id"] for s in BG.tidy_plan(_hungry)}
+_thrown_h = {s["id"] for s in BG.free_slots_plan(_hungry, need=3)}
 check("food: raw meat is never thrown while cooked food is short (it was thrown 10× during a food hunt)",
       "minecraft:mutton" not in _thrown_h, _thrown_h)
-check("farm: wheat seeds aren't junk any more", "minecraft:wheat_seeds" not in _thrown_h, _thrown_h)
+_seedbag = _hungry + [{"id": "minecraft:dirt", "count": 64, "slot": 5}]
+_prices = {"minecraft:wheat_seeds": 20.0, "minecraft:dirt": 0.5}.get
+check("farm: seeds (priced) stay while surplus dirt can go",
+      "minecraft:wheat_seeds" not in {s["id"] for s in BG.free_slots_plan(_seedbag, need=1, price=_prices)})
 
 # Real case 02:30: 5 obsidian + 2 cobblestone stood in the frame; the goal still asked for 10 obsidian and mined
 # the frame. Only missing parts may be needed, and a started build's cells are protected.
@@ -426,7 +372,7 @@ check("build: cells of an unfinished build are protected from mining",
 
 broken ={"id": "minecraft:stone_pickaxe", "count": 1, "slot": 3, "damage": 130, "maxDamage": 131}
 worn_ok = {"id": "minecraft:stone_pickaxe", "count": 1, "slot": 4, "damage": 100, "maxDamage": 131}
-same("tidy: broken tools go, worn ones stay", skills.tidy_plan([broken, worn_ok]), [broken])
+same("tidy: broken tools go, worn ones stay", skills.free_slots_plan([broken, worn_ok], need=0), [broken])
 
 _tctx = __import__("bonobo.skillcore", fromlist=["Context"]).Context(None, None, "minecraft:overworld", blacklist={})
 _tctx.ban_counts = {}

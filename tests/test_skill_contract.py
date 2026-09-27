@@ -1347,26 +1347,46 @@ class BagFull(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(bag_full_reason(message, free), want)
 
-    def test_free_slots_plan(self):
-        from bonobo import bag
-        valuables = self.bag_of(("diamond", 64, 20), ("iron_pickaxe", 1, 8), ("white_bed", 1, 8))
-        rows = [("valuables only: nothing is thrown, whatever is needed", valuables, 3, []),
-                # dirt over the building-block keep (128 = two stacks) always goes, whatever is needed
-                ("junk over its keep goes, the smallest stack too", self.bag_of(("diamond", 64, 30), ("dirt", 5, 1),
-                                                                             ("dirt", 64, 5)), 1, ["minecraft:dirt"] * 4),
-                ("junk and valuables: only the junk (one gravel stack kept)",
-                 self.bag_of(("iron_ingot", 64, 30), ("gravel", 64, 6)), 2, ["minecraft:gravel"] * 5),
-                ("nothing needed and nothing over a cap", self.bag_of(("iron_ingot", 64, 10)), 0, [])]
-        for name, slots, need, want in rows:
-            with self.subTest(name):
-                self.assertEqual(sorted(s["id"] for s in bag.free_slots_plan(slots, need=need)), want)
+    # Seconds to get one again, as cost.Prices answers (a fixture: the planner's price for each).
+    PRICE = {"minecraft:dirt": 2.0, "minecraft:diamond": 600.0, "minecraft:iron_ingot": 90.0,
+             "minecraft:cobblestone": 3.0, "minecraft:rotten_flesh": None, "minecraft:oak_log": 8.0}
 
-    def test_tidy_plan(self):
+    def test_let_go_over_the_table(self):
+        """bag.let_go: the cheapest to get again goes first; what plans, the upkeep floor or working tools need never;
+        a stack worth more than the walk to a chest is stored; with lava near nothing is dropped."""
         from bonobo import bag
-        rows = [("valuables: kept", self.bag_of(("diamond", 64, 5), ("white_bed", 1, 2)), 0),
-                ("protected fuel: kept", self.bag_of(("coal", 64, 4)), 0),
-                ("blocks beyond the 128 keep: the third stack thrown", self.bag_of(("dirt", 64, 3), ("diamond", 1, 1)), 1),
-                ("blocks within the keep: kept", self.bag_of(("dirt", 64, 2)), 0)]
-        for name, slots, n in rows:
+        price = self.PRICE.get
+        dead_pick = [dict(self.bag_of(("iron_pickaxe", 1, 1))[0], damage=249, maxDamage=250, slot=9)]
+        rows = [("dirt beyond the 64 kept, before diamonds", self.bag_of(("diamond", 5, 1), ("dirt", 64, 2)), 1, {},
+                 [("dirt", "drop")]),
+                ("junk nothing prices goes first", self.bag_of(("rotten_flesh", 10, 1), ("dirt", 64, 1)), 1, {},
+                 [("rotten_flesh", "drop")]),
+                ("the floor is kept: 64 blocks, 8 meals", self.bag_of(("cobblestone", 64, 1), ("cooked_beef", 8, 1),
+                                                                      ("dirt", 30, 1)), 1, {}, [("dirt", "drop")]),
+                ("beyond the floor: the smaller surplus stack first",
+                 self.bag_of(("cobblestone", 64, 2), ("cobblestone", 10, 1)), 1, {}, [("cobblestone", "drop")]),
+                ("a chest 200 s away: diamonds (3000 s to get again) stored, dirt (128 s) dropped",
+                 self.bag_of(("diamond", 5, 1), ("dirt", 64, 2)), 2, {"chest_s": 200.0},
+                 [("dirt", "drop"), ("diamond", "deposit")]),
+                ("lava near, no chest: nothing dropped", self.bag_of(("dirt", 64, 2)), 1, {"lava_near": True},
+                 "every stack is needed"),
+                ("a dead pickaxe goes whatever", self.bag_of(("diamond", 5, 1)) + dead_pick, 1, {},
+                 [("iron_pickaxe", "drop")]),
+                ("everything needed: said so", self.bag_of(("cooked_beef", 8, 1), ("torch", 16, 1)), 1, {},
+                 "every stack is needed")]
+        for name, slots, need, kw, want in rows:
             with self.subTest(name):
-                self.assertEqual(len(bag.tidy_plan(slots)), n)
+                if isinstance(want, str):
+                    with self.assertRaisesRegex(api.NotAvailable, want):
+                        bag.let_go(slots, need, price, **kw)
+                else:
+                    got = bag.let_go(slots, need, price, **kw)
+                    self.assertEqual([(st["id"].split(":")[1], how) for st, how in got], want)
+
+    def test_plans_keep_what_they_use(self):
+        from bonobo import bag
+        slots = self.bag_of(("oak_planks", 60, 3), ("dirt", 64, 1))
+        with mock.patch.object(bag, "RESERVED", {"minecraft:oak_planks"}):
+            got = bag.let_go(slots, 3, self.PRICE.get)
+        # one plank stack stays for the plan, the 64 dirt are the block floor: two stacks can go, not three
+        self.assertEqual(sorted(st["id"] for st, _ in got), ["minecraft:oak_planks", "minecraft:oak_planks"])

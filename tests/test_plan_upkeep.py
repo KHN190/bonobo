@@ -984,6 +984,8 @@ UPKEEP = [
         time_of_day=NIGHT, skyLight=0, y=30.0, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
     Row("night outside, no bed makings: shelter", "shelter", time_of_day=NIGHT,
         inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
+    Row("afloat at dusk, no bed, no pickaxe: land first, nothing queued", "reach land", time_of_day=DUSK,
+        inWater=True, onGround=False, inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
     Row("starving slowly, cows far away: food to the front (LEAD)", None, queued=[[("food", 8)]], food=3,
         inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 45, "oak_log": 10, "stone": 2}),
     Row("full stomach, no meals, cows near: no hurry", None, food=20, inv=[("white_bed", 1), ("stone_pickaxe", 1)]),

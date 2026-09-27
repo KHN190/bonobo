@@ -8,14 +8,14 @@ import time
 from . import api, beliefs, blueprints, nav, world
 from .api import McError, NotAvailable, log
 from .skill import skill, world_signature
-from .data import (ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, KEEP_BUILDING_BLOCKS, LOG_TO_PLANKS,
+from .data import (ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, RECIPES, bare, mid)
 from .knowledge import GROUP_RECIPES, members
 from .bag import pickup_whitelist, supports
 
 
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
-from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VALUE_CAPS, STACK_VALUE, _stack_value, PROTECTED_IDS, PROTECTED_SUFFIX, _protected_stack, RAW_MEAT, SURPLUS_CAP, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
+from .bag import FLOOR, let_go, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, soft_below, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, StationMissing, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
                         free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
@@ -194,7 +194,7 @@ def craft(ctx, token, times):
         # The result needs a slot: a full bag makes every craft fail ("missing ingredient"). Drop the least
         # valuable stack first.
         close_screen()
-        for s in free_slots_plan(inv.slots, need=1)[:1]:
+        for s in free_slots_plan(inv.slots, need=1, price=ctx.prices().get if ctx else None)[:1]:
             api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
             log(f"   dropped {bare(s['id'])} to make room for crafting")
         inv = Inventory()
@@ -1572,7 +1572,10 @@ def tidy_inventory(ctx):
         # A sealed shaft: dropped items land at our feet and the next step picks them all back up.
         raise NotAvailable("no open side to throw items into (shaft)")
     inv = Inventory()
-    throw = free_slots_plan(inv.slots, need=max(0, inv.used_slots() - (36 - FREE_SLOTS_TARGET)))
+    # Priced by what each stack costs to get again (cost.Prices); nothing is dropped with lava near (it burns).
+    lava = bool(find(["lava"], radius=3, limit=1))
+    need = max(0, inv.used_slots() - (36 - FREE_SLOTS_TARGET))
+    throw = [s for s, how in let_go(inv.slots, need, ctx.prices().get, lava_near=lava) if how == "drop"]
     if not throw:
         raise NotAvailable("nothing to throw away")
     # Face the open side (in a tunnel: back the way we came) so the drops fly where we won't walk next.
@@ -1625,7 +1628,7 @@ def _place_cache_chest(ctx):
         inv = Inventory()
         if inv.used_slots() >= 35:
             close_screen()
-            for s in free_slots_plan(inv.slots, need=2)[:2]:
+            for s in free_slots_plan(inv.slots, need=2, price=ctx.prices().get)[:2]:
                 api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1,
                                     "action": "THROW"})
         if Inventory().usable("planks") < 8:
