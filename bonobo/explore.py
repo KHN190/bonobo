@@ -48,18 +48,23 @@ def _search(ctx, kinds, look, radius, legs):
         if hits:
             return hits
         todo = ctx.mem.frontier(ctx.dimension, here, kinds, band)
-        target = None
+        target, tried = None, 0
         for section, (tx, sy, tz) in todo[:4]:
             ty = _ground(tx, tz, sy)          # a cave floor counts: the column's ground near the band's height
-            if ty is not None:
-                target = (tx, ty, tz)
+            if ty is None:
+                continue
+            tried += 1
+            log(f"   looking for {bare(kinds[0])}: heading to section {section} ({tx}, {ty}, {tz})")
+            if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")):
+                target = (tx, ty, tz)          # looking: walk, never dig
                 break
+            # out of reach from here (walled in: the frontier lies past the walls) — the next candidate, never the
+            # same one again next leg (a sealed bench arena walked into its walls six times, 20 s)
         if target is None:
             raise NotAvailable(f"no {bare(kinds[0])} found: searched "
                                f"{len(ctx.mem.section_map(ctx.dimension))} sections"
+                               + (", the rest out of reach" if tried else "")
                                + ("" if todo else ", every section near looked over lately"))
-        log(f"   looking for {bare(kinds[0])}: heading to section {section} ({target[0]}, {target[1]}, {target[2]})")
-        nav.go_to(target, ctx.policy, range_=6, attempts=1, purpose="explore")    # looking: walk, never dig
         yield (target[0], target[2])
     hits = look()
     ctx.mem.see_sections(ctx.dimension, feet(), radius, _by_kind(hits), kinds)

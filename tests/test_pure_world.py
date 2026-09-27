@@ -831,6 +831,33 @@ class Frontier(unittest.TestCase):
                 list(explore._search(ctx, [self.S], lambda: [], 64, 3))
         self.assertIn("searched", str(e.exception))
 
+    def test_a_frontier_out_of_reach_is_not_walked_again(self):
+        # (situation, which candidates the walk reaches) → (walks tried, the search's answer)
+        from bonobo import explore
+        rows = [("the nearest reachable: one walk", {0}, 1, "walked"),
+                ("the nearest walled off: the next one", {1}, 2, "walked"),
+                ("only the fourth", {3}, 4, "walked"),
+                ("must fail: all walled off (a sealed arena) — each tried once, then out of reach", set(), 4,
+                 "out of reach")]
+        for name, reachable, walks, want in rows:
+            with self.subTest(name):
+                m = self.mem()
+                ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
+                went = []
+
+                def walk(pos, *a, **k):
+                    went.append(pos)
+                    return (len(went) - 1) in reachable
+                with mock.patch.object(explore, "feet", lambda: self.HERE), \
+                        mock.patch.object(explore, "_ground", lambda tx, tz, y: 70), \
+                        mock.patch.object(explore.nav, "go_to", walk), mock.patch.object(explore, "log"):
+                    try:
+                        next(explore._search(ctx, [self.S], lambda: [], 48, 3))
+                        got = "walked"
+                    except NotAvailable as e:
+                        got = "out of reach" if "out of reach" in str(e) else str(e)
+                self.assertEqual((len(went), got), (walks, want))
+
     def test_a_cave_below_is_a_frontier_with_ground(self):
         # The band's section has no known surface; the column's ground near the band's height (a cave floor) is
         # walked to — and a candidate with no ground at all is skipped for the next.
@@ -841,7 +868,7 @@ class Frontier(unittest.TestCase):
         ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
         with mock.patch.object(explore, "feet", lambda: self.HERE), \
                 mock.patch.object(explore, "_ground", lambda tx, tz, y: next(grounds)), \
-                mock.patch.object(explore.nav, "go_to", lambda pos, *a, **k: went.append(pos)), \
+                mock.patch.object(explore.nav, "go_to", lambda pos, *a, **k: went.append(pos) or True), \
                 mock.patch.object(explore, "log"):
             gen = explore._search(ctx, [self.D], lambda: [], 48, 1)
             next(gen)
@@ -870,6 +897,7 @@ class Frontier(unittest.TestCase):
                     went.append(pos)
                     if _e:
                         raise _e.pop()
+                    return True
                 with mock.patch.object(explore, "feet", lambda: self.HERE), \
                         mock.patch.object(explore, "_ground", lambda tx, tz, y: 70), \
                         mock.patch.object(explore.nav, "go_to", walk), mock.patch.object(explore, "log"):
