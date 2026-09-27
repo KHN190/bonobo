@@ -11,6 +11,7 @@ Anything else raises NotExpressible, with the reason.
 """
 import ast
 import inspect
+import os
 import sys
 
 from . import table, vocab
@@ -35,7 +36,11 @@ def enc(v, depth=0):
     """A value of an old row → data."""
     if depth > 40:
         raise NotExpressible("nested too deep")
-    if v is None or isinstance(v, (bool, int, float, str)):
+    if isinstance(v, str):
+        from .. import paths
+        root = paths.data_dir().rstrip(os.sep) + os.sep
+        return ("$data", v[len(root):]) if v.startswith(root) else v   # a data file: where this player keeps them
+    if v is None or isinstance(v, (bool, int, float)):
         return v
     if isinstance(v, tuple) and len(v) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool)
                                                      for x in v) \

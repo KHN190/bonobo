@@ -7,6 +7,7 @@ Data conventions, one each:
 - a callable written inside another's arguments is a tuple whose head is "!" + its kind: ("!gain", "log", 2);
   at the top of a row's `check`, `before` and `run` the head is the bare kind (the slot says what it is);
   ("&name",) is the function `name` itself, not a call of it;
+- ("$data", "bench/siege.jsonl") is a file in this player's data directory (paths.data);
 - "$api", "$inv", "$ctx" stand for the objects a predicate or a run is called with; ("$ctx", "policy") is an
   attribute of the context, ("$call", name, *args) a helper called at run time (its args may hold these markers).
 """

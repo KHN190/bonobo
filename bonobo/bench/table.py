@@ -40,6 +40,9 @@ def dec(v):
     if isinstance(v, tuple) and v and isinstance(v[0], str):
         if v[0] == "@" and len(v) == 4:
             return vocab.pos(v)
+        if v[0] == "$data" and len(v) == 2:
+            from .. import paths
+            return paths.data(v[1])
         if v[0].startswith("!"):
             return make((v[0][1:],) + tuple(v[1:]))
         if v[0].startswith("&") and len(v) == 1:
