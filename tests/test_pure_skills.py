@@ -211,6 +211,36 @@ class CraftPlan(unittest.TestCase):
                     self.assertEqual(skills.craft_plan(recipes, inv), want)
 
 
+class Sittings(unittest.TestCase):
+    """skills.sittings: a chain cut where the grid changes — the 2×2 part in the bag, the 3×3 part at a table.
+    plan_repair_on_event asked for a table before making it, every round (StationMissing)."""
+    # (situation, recipes, bag) → [(needs a table, [items])] | the McError message
+    TABLE = [
+        ("stick, table, stone pickaxe, no table: the bag's part first, then the table it made",
+         [("minecraft:stick", 1), ("minecraft:crafting_table", 1), ("minecraft:stone_pickaxe", 1)],
+         {"oak_planks": 12, "cobblestone": 3},
+         [(False, ["minecraft:stick", "minecraft:crafting_table"]), (True, ["minecraft:stone_pickaxe"])]),
+        ("a table carried, only a 3×3 recipe: straight to the table", [("minecraft:wooden_pickaxe", 1)],
+         {"oak_planks": 3, "stick": 2, "crafting_table": 1}, [(True, ["minecraft:wooden_pickaxe"])]),
+        ("2×2 only: no table at all", [("minecraft:stick", 1)], {"oak_planks": 2}, [(False, ["minecraft:stick"])]),
+        ("must fail: short of cobblestone — named, before anything is placed",
+         [("minecraft:stick", 1), ("minecraft:crafting_table", 1), ("minecraft:stone_pickaxe", 1)],
+         {"oak_planks": 12, "cobblestone": 1}, "missing"),
+    ]
+
+    def test_table(self):
+        for why, recipes, have, want in self.TABLE:
+            with self.subTest(why):
+                inv = bag(inventory(**have))
+                if isinstance(want, str):
+                    with self.assertRaises(McError) as got:
+                        skills.sittings(skills.craft_plan(recipes, inv)[0])
+                    self.assertIn(want, str(got.exception))
+                else:
+                    got = skills.sittings(skills.craft_plan(recipes, inv)[0])
+                    self.assertEqual([(t, [st[1] for st in part]) for t, part in got], want)
+
+
 class MineSegmentCommands(unittest.TestCase):
     TABLE = [
         ("one cell, tool tier: drops required", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal", 0)),

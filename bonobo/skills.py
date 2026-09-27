@@ -217,7 +217,26 @@ def craft_plan(recipes, inv):
                 delta[c] = delta.get(c, 0) - times
         delta[item] = delta.get(item, 0) + out * times
         steps.append((concrete, item, out * times))
-    return steps, any(len(c) == 9 for c, _, _ in steps), {i: n for i, n in delta.items() if n}
+    return steps, any(needs_table(c) for c, _, _ in steps), {i: n for i, n in delta.items() if n}
+
+
+def needs_table(concrete):
+    """Pure: a resolved pattern needs the 3×3 grid (a crafting table); a 2×2 one is made in the bag."""
+    return len(concrete) == 9
+
+
+def sittings(steps):
+    """Pure: `craft_plan`'s steps cut where the grid changes — [(needs a table, [steps])], in plan order. A chain
+    that makes its own table (stick, crafting_table, stone_pickaxe) makes the 2×2 part in the bag first; asking
+    for a table before the table was made failed every round (StationMissing)."""
+    out = []
+    for st in steps:
+        table = needs_table(st[0])
+        if out and out[-1][0] == table:
+            out[-1][1].append(st)
+        else:
+            out.append((table, [st]))
+    return out
 
 
 def _plan_start(recipes):
@@ -246,20 +265,21 @@ def _sitting(ctx, recipes):
             api.post("/click", {"slot": 36 + s["slot"] if s["slot"] < 9 else s["slot"], "button": 1, "action": "THROW"})
             log(f"   dropped {bare(s['id'])} to make room for crafting")
         inv = Inventory()
-    steps, needs_table, _ = craft_plan(recipes, inv)
+    steps, _, _ = craft_plan(recipes, inv)
 
-    def run_all():
-        for concrete, item, n in steps:
+    def run_all(part):
+        for concrete, item, n in part:
             before = Inventory().count(item)
             r = api.run({"type": "craft", "pattern": concrete, "count": n}, wait=120)
             if gained(lambda: Inventory().count(item), before) <= before:
                 raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
-    if needs_table:
-        with Station(ctx, "minecraft:crafting_table"):
-            run_all()
-    else:
-        close_screen()
-        run_all()
+    for table, part in sittings(steps):
+        if table:        # a table near, carried, or made by the part before: opened (or placed and taken back)
+            with Station(ctx, "minecraft:crafting_table"):
+                run_all(part)
+        else:
+            close_screen()
+            run_all(part)
     return [(t, times) for t, times in recipes]
 
 

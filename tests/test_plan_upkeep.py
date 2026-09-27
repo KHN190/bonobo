@@ -2028,6 +2028,30 @@ class StationGone(unittest.TestCase):
             self.assertEqual((m.stations(OVER), retry.cause_of(got.exception)), ([], "replan"))
 
 
+class RepairsThatDoNotHelp(unittest.TestCase):
+    """retry: a replan (a station gone) is not a failure — once. The same task replanned again with nothing done in
+    between is a failure that cools: plan_repair_on_event replanned the same plan every second, forever."""
+
+    # (situation, [events: "replan" | "ok"]) → (the last verdict is a failure, the task cooling after)
+    ROWS = [("one replan: not counted, not cooling", ["replan"], (False, False)),
+            ("a second replan with nothing done between: cools", ["replan", "replan"], (True, True)),
+            ("a replan, a success, a replan: each one the first", ["replan", "ok", "replan"], (False, False)),
+            ("three in a row: still cooling", ["replan", "replan", "replan"], (True, True))]
+
+    def test_over_the_table(self):
+        from bonobo import skillcore
+        for name, events, want in self.ROWS:
+            with self.subTest(name):
+                r, now, verdict = retry.Retry(), 1000.0, None
+                for ev in events:
+                    if ev == "ok":
+                        r.succeeded("task t1")
+                    else:
+                        err = skillcore.StationMissing("minecraft:crafting_table")
+                        verdict = r.failed("task t1", retry.cause_of(err), str(err), now, PLACE)
+                self.assertEqual((verdict is not None, not r.ready("task t1", now + 1, PLACE)), want)
+
+
 class LeadOnlyFromKnownPlans(unittest.TestCase):
     """needs.due_now: a plan that knows where it goes starts LEAD early; one priced by a guess (a seek, a source
     nowhere known) waits for the real threshold — a guess × LEAD made food urgent on a full stomach."""

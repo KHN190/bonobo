@@ -19,6 +19,8 @@ MAX_BACKSTOP_DEFAULT = 900
 SOURCES_TRIED = 3          # failures of one (task, cause) — each after changing source — before reporting upward
 LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
+REPLAN_LIMIT = 2    # a replan in a row this often with nothing done between is a failure ("unavailable"): the
+                    # repaired plan failed the same way (plan_repair_on_event replanned every second, forever)
 
 
 # The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
@@ -83,7 +85,14 @@ class Retry:
 
     def failed(self, task, cause, message, now, place=None):
         """Record a failure of `task` for `cause`. Returns a Verdict, or None for what is not a failure."""
-        if cause in NOT_FAILURES:
+        if cause == "replan":
+            e = self.entries.get((task, "replan"))
+            n = e["n"] + 1 if e else 1
+            self.entries[(task, "replan")] = {"n": n, "since": now, "message": message, "place": place}
+            if n < REPLAN_LIMIT:
+                return None
+            cause = "unavailable"
+        elif cause in NOT_FAILURES:
             return None
         e = self.entries.get((task, cause))
         n = e["n"] + 1 if e else 1
@@ -133,7 +142,7 @@ class Retry:
     def exhausted(self, task):
         """(cause, message) once some cause has beaten SOURCES_TRIED sources for this task, else None. That is the
         report upward: the task has failed, and this is why."""
-        worst = max(((cause, e) for (t, cause), e in self.entries.items() if t == task),
+        worst = max(((cause, e) for (t, cause), e in self.entries.items() if t == task and cause != "replan"),
                     key=lambda ce: ce[1]["n"], default=None)
         if worst is None or worst[1]["n"] < SOURCES_TRIED:
             return None
