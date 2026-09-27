@@ -42,6 +42,22 @@ fight_loop.lend("wall_in", lambda option, state: skills.pod_commands(state) if s
                 region=skills._pod_region)
 
 IDLE_WAIT_TICKS = 100
+# Step kinds a night under cover can carry on with: no sun, no open ground. Everything else (a tree, an animal, a
+# plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
+NIGHT_WORK = frozenset({"mine", "craft", "smelt"})
+
+
+def night_pick(kinds, night, can_dig, stocked):
+    """Pure: what the round takes from the queue, given each live task's next step kind in queue order. By day the
+    head (0), or None when nothing is queued. By night the first whose step works under cover (NIGHT_WORK); none →
+    "descend" (dig down for ore: goals.NIGHT_STOCK) with a pickaxe and no such task queued yet, else "wait" (sit
+    it out: wait_for_day)."""
+    if not night:
+        return 0 if kinds else None
+    first = next((i for i, k in enumerate(kinds) if k in NIGHT_WORK), None)
+    if first is not None:
+        return first
+    return "descend" if can_dig and not stocked else "wait"
 SCAN_EVERY_S = 20          # seconds between travel scans (explore.note_around)
 TRACK_FILE = paths.data("track.jsonl")
 
@@ -257,13 +273,25 @@ class Brain:
         items = tasks.load()
         if tasks.expire(items):
             tasks.save(items)
-        for task in [t for t in items if t["state"] in tasks.LIVE]:
+        live = [t for t in items if t["state"] in tasks.LIVE]
+        under = snap.night and self.table.sheltered(snap)
+        acts = []
+        for task in live:
             if not self.ready(f"task {task['id']}"):
                 continue
             act = self.task_act(task, snap, ctx)
-            if act is not None:
+            if act is None:
+                continue
+            if not under or act.step.kind in NIGHT_WORK:
                 return act
-        return self.prepare(snap)
+            acts.append(act)
+        if not under:
+            return self.prepare(snap)
+        choice = night_pick([a.step.kind for a in acts], True, "pickaxe" in self.table.working,
+                            any(t.get("source") == "night" for t in live))
+        if choice == "descend":
+            return self.night_stock(snap)
+        return Act("idle", "wait for day", lambda: skills.wait_for_day(ctx))
 
     def upkeep(self, snap, ctx):
         """The upkeep table (upkeep.py): the first row that applies, as this round's act."""
@@ -383,6 +411,15 @@ class Brain:
                 tasks.add(goal, source="idle", expires_s=900)
                 return Act("idle", f"prepare {goals.describe(goal)}", lambda: None)
         return None
+
+    def night_stock(self, snap):
+        """Night under cover, nothing in the queue to do there: queue the first ore not held (goals.NIGHT_STOCK);
+        its plan digs down to it, the next round works it."""
+        needs = next((n for n in goals.NIGHT_STOCK if goals.short(snap.inv, [tuple(x) for x in n])),
+                     goals.NIGHT_STOCK[-1])
+        goal = goals.have(*needs)
+        tasks.add(goal, source="night", expires_s=600)
+        return Act("idle", f"night: dig down for {goals.describe(goal)}", lambda: None)
 
     def price_table(self, snap=None):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth (the looter)."""

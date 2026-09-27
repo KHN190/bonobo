@@ -2251,6 +2251,23 @@ SHEET["bucket_before_the_shaft"] = {
                   lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]), "budget": 60,
 }
 
+SHEET["night_mines_under_cover"] = {
+    "doc": "Night, sealed in a 1×2 hole 9 below the platform, a stone pickaxe, iron ore 3 below and 2 aside, nothing "
+           "queued → the night's work is ore dug down to (brain.night_pick → descend), not waiting for day and not "
+           "a climb to the surface",
+    "module": "brain", "point": "C", "skills": ["mine"], "tier_fixed": "exception", "tags": {"base": "night"},
+    "raw": True,                                  # below the bench box, like cave_escape
+    "setup": [f"fill {_c(at(-6, -16, -6))} {_c(at(6, -1, 6))} stone",
+              f"fill {_c(at(0, -9, 0))} {_c(at(0, -8, 0))} air",
+              f"fill {_c(at(1, -13, 1))} {_c(at(2, -12, 2))} iron_ore",
+              f"tp @p {_c(at(0.5, -9, 0.5))}", "clear @p", "give @p stone_pickaxe", "give @p cooked_beef 8",
+              "give @p cobblestone 16", "time set 13000"],
+    "before": _start("night_mines_under_cover"),
+    "run": _brain_rounds(60, lambda: _inv_now().count("minecraft:raw_iron") >= 1),
+    "check": _all(lambda api, inv: inv.count("minecraft:raw_iron") >= 1,
+                  lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1] - 2), "budget": 60,
+}
+
 START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)
     ("nav_from_stairs", "a stair step", [f"setblock {_c(at(0, 0, 0))} oak_stairs[facing=east]"], (0, 0.5, 0)),
     ("nav_from_slab", "a bottom slab", [f"setblock {_c(at(0, 0, 0))} stone_slab"], (0, 0.5, 0)),

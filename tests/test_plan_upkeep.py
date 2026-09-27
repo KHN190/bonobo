@@ -1537,6 +1537,41 @@ class Queue(unittest.TestCase):
 
 
 
+# ------------------------------------------------------------------------------------------ the night's work
+class NightPick(unittest.TestCase):
+    """brain.night_pick: by night under cover, the first queued step that needs no sun; else dig down for ore with
+    a pickaxe; wait for day only when there is neither. By day the queue's head, untouched."""
+
+    # (situation, next step kind of each live task in queue order, night, a pickaxe, night ore already queued) → pick
+    ROWS = [("night: the head fells a tree, the second mines iron → the iron", ["gather", "mine"], True, True, False, 1),
+            ("night: the head waits for day, then a craft → the craft", ["wait", "craft"], True, False, False, 1),
+            ("night: every step needs the surface, a pickaxe → dig down for ore", ["gather", "hunt"], True, True, False,
+             "descend"),
+            ("night: nothing queued, a pickaxe → dig down for ore", [], True, True, False, "descend"),
+            ("night: the ore task queued but its step needs a tree (sticks) → wait, not queue it again",
+             ["gather"], True, True, True, "wait"),
+            ("night: no pickaxe, only surface work → wait for day", ["gather"], True, False, False, "wait"),
+            ("day: the head, whatever it is", ["gather", "mine"], False, True, False, 0),
+            ("day, nothing queued: nothing (idle prepare)", [], False, True, False, None)]
+
+    def test_pick_over_the_table(self):
+        for name, kinds, night, can_dig, stocked, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(brainmod.night_pick(kinds, night, can_dig, stocked), want)
+
+    def test_night_stock_plans_under_cover(self):
+        """The ore the night digs for plans, from a stone pickaxe in a dark hole, as work NIGHT_WORK allows first."""
+        for bag_, want in (([("stone_pickaxe", 1)], ["mine"]),
+                           ([("iron_pickaxe", 1), ("minecraft:raw_iron", 16)], ["mine"])):
+            with self.subTest(bag=bag_), tempfile.TemporaryDirectory() as tmp:
+                snap = snapshot(state(timeOfDay=NIGHT, skyLight=0, y=20.0), inventory(*bag_))
+                needs = next(n for n in goals.NIGHT_STOCK if goals.short(snap.inv, [tuple(x) for x in n]))
+                steps = decompose.decompose(snap.inv, goals.have(*needs),
+                                            cost(snap, mem=Memory(os.path.join(tmp, "n.json"))))
+                self.assertEqual([st.kind for st in steps], want)
+                self.assertIn(steps[0].kind, brainmod.NIGHT_WORK)
+
+
 # ------------------------------------------------------------------------------------------------ a night's way
 class Overnight(unittest.TestCase):
     """The cheapest way through a night from this bag (upkeep.overnight → decompose.cheapest over "overnight")."""

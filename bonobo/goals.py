@@ -56,6 +56,8 @@ MILESTONES = {
 }
 # What the brain prepares when the queue is empty, first unmet first: tools, food, light.
 PREPARE = [[["tool", "pickaxe", 1]], [["tool", "sword", 1]], [["food", 8]], [["minecraft:torch", 8]]]
+# The night's idle work under cover (brain.night_pick → "descend"): ore below, dug down to, first not held.
+NIGHT_STOCK = [[["minecraft:raw_iron", 16]], [["minecraft:diamond", 3]]]
 
 
 def make(template, **args):
