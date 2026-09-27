@@ -47,11 +47,11 @@ def make_room(ctx):
         if region.solid(above) and (region.unbreakable(above) or region.player_made(above)
                                     or any(region.hazard(add(above, d)) for d in nav.NEIGHBOURS6)):
             continue
-        if region.solid(cell):
-            api.run(nav.mine_task(cell), wait=60)
-        # Clear the cell above too: a chest under a solid block can't be opened, and a table there is cramped.
-        if region.solid(above):
-            api.run(nav.mine_task(above), wait=60)
+        # The cell and the one above it (a chest under a solid block can't be opened, a table there is cramped),
+        # both in one chain.
+        dig = [nav.mine_task(c) for c in (cell, above) if region.solid(c)]
+        if dig:
+            api.run_chain(dig, stop_on_failure=True, wait=60)
         check = Region(cell, above)
         if not check.solid(cell) and not check.solid(above):
             log(f"   made room for a station at {cell}")
@@ -1390,51 +1390,65 @@ def _burrow_here(ctx):
     return choose_burrow(Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4)), (x, y, z), ctx.policy.protected)
 
 
-@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: enclosed(), budget=90, stall=40, per_unit=20,
+def burrow_commands(state, args=()):
+    """Pure: the whole burrow as one chain — two cells deep into the hillside (head, then feet, each step), a step to
+    the end, the entrance sealed behind (feet block, then head block). `args` = (direction (dx, dz),), else the
+    direction terrain.choose_burrow finds in `state["region"]`. Raises NotAvailable with no hillside or nothing to
+    seal with."""
+    x, y, z = state["feet"]
+    d = args[0] if args else choose_burrow(state["region"], (x, y, z), state["protected"])
+    if d is None:
+        raise NotAvailable("no solid hillside to burrow into here")
+    dx, dz = d
+    block = next((b for b in GROUPS["building"] if state["inv"].usable(b)), None)
+    if block is None:
+        raise NotAvailable("no blocks to seal the burrow")
+    region = state.get("region")
+    # Only what still stands: resumed after an interrupt, the chain is rebuilt from the world, no cell dug twice.
+    dig = [nav.mine_task(c) for c in ((x + dx * k, y + dy, z + dz * k) for k in (1, 2) for dy in (1, 0))
+           if region is None or region.solid(c)]
+    end = (x + dx * 2, y, z + dz * 2)
+    seal = [{"type": "place", "item": block, "x": x + dx, "y": y + dy, "z": z + dz} for dy in (0, 1)]
+    return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
+
+
+@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: enclosed(), budget=90, stall=40, per_unit=20, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
                  "shelter:burrow": lambda ctx, s: ()})
 def burrow(ctx):
     """Night shelter in a hillside: tunnel 2 blocks into solid ground, step to the end, seal the entrance behind
-    (feet block on the floor, head block on top of it — both faces are visible from inside)."""
-    x, y, z = feet()
+    (feet block on the floor, head block on top of it — both faces are visible from inside) — one chain
+    (burrow_commands); `enclosed()` judges it after."""
     d = _burrow_here(ctx)
     if d is None:
         raise NotAvailable("no solid hillside to burrow into here")
-    dx, dz = d
-    for k in (1, 2):
-        for dy in (1, 0):
-            c = (x + dx * k, y + dy, z + dz * k)
-            r = api.run(nav.mine_task(c), wait=40)
-            if r["status"] != "succeeded":
-                raise McError(f"burrow: could not dig {c}: {r['message']}")
-            yield c
-    end = (x + dx * 2, y, z + dz * 2)
-    api.run({"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}, wait=20)
-    block = next((b for b in GROUPS["building"] if Inventory().usable(b)), None)
-    if block is None:
-        raise NotAvailable("no blocks to seal the burrow")
-    for dy in (0, 1):
-        c = (x + dx, y + dy, z + dz)
-        place(block, c)
-        yield c
-    log(f"burrowed into the hillside at {end}")
-
-
-@skill(gives={}, needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, per_unit=15,
-       provides={"reach:outside": lambda ctx, s: ()})
-def dig_out(ctx):
-    """Morning in a sealed pod: open one side (by hand if no pickaxe — slower, same result) and step out."""
     x, y, z = feet()
-    region = Region((x - 3, y - 2, z - 3), (x + 3, y + 3, z + 3))
-    exit_ = choose_exit(region, (x, y, z), ctx.policy.protected)
+    run_split(burrow_commands(body_state(ctx, Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4))), (d,)), wait=60)
+    yield feet()
+    log(f"burrowed into the hillside at {feet()}")
+
+
+def dig_out_commands(state, args=()):
+    """Pure: out of a sealed pod as one chain — the exit side's cells (terrain.choose_exit), then a step out.
+    `state["region"]` is the box around the feet. Raises NotAvailable when no side is safe."""
+    exit_ = choose_exit(state["region"], tuple(state["feet"]), state["protected"])
     if exit_ is None:
         raise NotAvailable("no safe side to dig out of")
     cells, out = exit_
-    for c in cells:
-        api.run(nav.mine_task(c), wait=40)
-        yield c
-    api.run({"type": "goto", "x": out[0], "y": out[1], "z": out[2], "range": 0.6, "partial": True}, wait=20)
-    log(f"dug out of the shelter toward {out}")
+    return [nav.mine_task(c) for c in cells] + [{"type": "goto", "x": out[0], "y": out[1], "z": out[2],
+                                                 "range": 0.6, "partial": True}]
+
+
+@skill(gives={}, needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, per_unit=15, commands=lambda st, a: dig_out_commands(st, a),
+       provides={"reach:outside": lambda ctx, s: ()})
+def dig_out(ctx):
+    """Morning in a sealed pod: open one side (by hand if no pickaxe — slower, same result) and step out — one
+    chain (dig_out_commands); `enclosed()` judges it after."""
+    x, y, z = feet()
+    tasks = dig_out_commands(body_state(ctx, Region((x - 3, y - 2, z - 3), (x + 3, y + 3, z + 3))))
+    run_split(tasks, wait=60)
+    yield feet()
+    log(f"dug out of the shelter toward {tuple(tasks[-1][k] for k in 'xyz')}")
 
 
 @skill(gives={}, needs={}, speed={}, done=lambda c: not head_buried(), budget=30, stall=15, per_unit=3)

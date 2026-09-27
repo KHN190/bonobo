@@ -944,7 +944,42 @@ def dark(**kw):
 SPOT = {"x": 1, "y": 64, "z": 1}          # fixture: one dark spot /dark answered
 
 # skill → [(situation, state dict, expected)]; expected is an exception type or a check(batch) -> None (asserts).
+def hill():
+    """Solid stone rising beside the body (x 1..4): a hillside to burrow into."""
+    return world(*[((x, y, z), "stone") for x in range(1, 5) for y in (64, 65, 66) for z in range(-3, 4)])
+
+
+def pod_walls():
+    """A 1×1 pod of cobblestone around the body, roofed."""
+    return world(*[((dx, y, dz), "cobblestone") for y in (64, 65) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))],
+                 ((0, 66, 0), "cobblestone"))
+
+
 COMMANDS = {
+    "burrow": [
+        ("a hillside, blocks carried: four cells in, a step, the entrance sealed — one chain",
+         body(hill(), inv=inventory(cobblestone=4)),
+         lambda t, b: (t.assertEqual(types(b), ["mine"] * 4 + ["goto", "place", "place"]),
+                       t.assertEqual(cells(b), [(1, 64, 0), (1, 65, 0)]))),
+        ("a direction given, no region read: every cell of it", body(inv=inventory(cobblestone=4), _args=((0, 1),)),
+         lambda t, b: t.assertEqual(cells(b, "mine"), [(0, 65, 1), (0, 64, 1), (0, 65, 2), (0, 64, 2)])),
+        ("flat ground: no hillside", body(world(), inv=inventory(cobblestone=4)), NotAvailable),
+        ("nothing to seal with", body(hill()), NotAvailable),
+        ("resumed after an interrupt, two cells already dug: only the two left, nothing twice",
+         body(world(*[((x, y, z), "stone") for x in range(1, 5) for y in (64, 65, 66) for z in range(-3, 4)
+                      if (x, y, z) not in ((1, 64, 0), (1, 65, 0))]), inv=inventory(cobblestone=4), _args=((1, 0),)),
+         lambda t, b: t.assertEqual(cells(b, "mine"), [(2, 65, 0), (2, 64, 0)])),
+    ],
+    "dig_out": [
+        ("in a pod: one side opened, a step out — one chain", body(pod_walls()),
+         lambda t, b: (t.assertEqual(types(b), ["mine", "mine", "goto"]))),
+        ("the exit's cells are two, feet and head, on one side", body(pod_walls()),
+         lambda t, b: t.assertEqual(len({(x, z) for x, _y, z in cells(b, "mine")}), 1)),
+        ("every side ours (protected): no way out", body(pod_walls(), protected=[
+            (dx, y, dz) for y in (64, 65) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))]), NotAvailable),
+        ("nothing to dig: the step out only", body(world()),
+         lambda t, b: t.assertEqual(types(b)[-1], "goto")),
+    ],
     "craft": [
         ("sticks from planks: the bag's grid, one craft", body(inv=inventory(oak_planks=2), _args=("minecraft:stick", 1)),
          lambda t, b: t.assertEqual(types(b), ["_close", "craft"])),
