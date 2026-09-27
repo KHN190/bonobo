@@ -131,7 +131,7 @@ def _use(item, aim, on_block):
 
 
 @skill(gives=K.GIVES_FILL, needs={"minecraft:bucket": 1}, speed={}, done=lambda c: Inventory().count("minecraft:water_bucket") > 0,
-       budget=300, stall=120, per_unit=60, provides={"fill": lambda ctx, s: ()})
+       budget=300, stall=120, provides={"fill": lambda ctx, s: ()})
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
     here = skillcore.feet()

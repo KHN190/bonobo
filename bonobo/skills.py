@@ -66,7 +66,7 @@ def openable_container(pos):
     return r.name(pos) == "barrel" or not r.solid(above)
 
 
-@skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45, per_unit=20,
+@skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45,
        verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
        and len(free_spots_here(limit=2)) >= 2,
        provides={"reach:open": lambda ctx, s: ()})
@@ -369,7 +369,7 @@ def _sitting(ctx, recipes):
 
 
 @skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, speed={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
-       per_unit=4, key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])},
+       key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])},
        commands=lambda state, args: craft_commands(state, ([(args[0], args[1])],)))
 def craft(ctx, token, times):
     """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
@@ -408,7 +408,7 @@ def _furnace_slots():
 
 
 @skill(gives=K.GIVES_SMELT, needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=900, stall=30, per_unit=10.5, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
+       budget=900, stall=30, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
        provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1)
 def smelt(ctx, output, input_token, count, fuel):
     """One furnace session: load input + fuel, watch the output slot fill (10 s/item), take everything out."""
@@ -475,7 +475,7 @@ def furnace_takes(slots, input_ids, output):
 
 
 @skill(gives=["state:smelting"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, speed={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
-       budget=180, stall=40, per_unit=12,
+       budget=180, stall=40,
        provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
 def start_smelt_job(ctx, output, input_token, count, fuel):
     """Multitasking: spread the batch over every free furnace within FURNACE_REACH (placing the carried one when
@@ -575,7 +575,7 @@ def after_take(job, got, still_cooking, now, tick=None):
 
 
 @skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1]["item"], lambda c: c.args[1]["count"]), needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]["item"]),
-       verify=lambda c: Inventory().count(c.args[1]["item"]) > c.base, budget=240, stall=60, per_unit=20)
+       verify=lambda c: Inventory().count(c.args[1]["item"]) > c.base, budget=240, stall=60)
 def collect_job(ctx, job):
     """Go back to a background furnace job, take the output (and leftovers), pick the furnace up if it was ours."""
     pos = tuple(job["pos"])
@@ -727,7 +727,7 @@ def mine_segment_commands(state, args):
 @skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
        start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
-       per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
+       units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
                                           s.detail.get("breaks"))}, fills_bag=lambda c: members(c.args[1]))
 def mine(ctx, token, count, blocks, tier, breaks=None):
@@ -1017,7 +1017,7 @@ def _hunt_progress(token, types):
 
 @skill(gives=K.GIVES_HUNT, needs=lambda a: {"tool:sword:1": 1} if beliefs.fights_back(a[3]) else {},
        speed={"sword": HUNT_SWORD_S}, start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
-       budget=480, stall=60, per_unit=30, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
+       budget=480, stall=60, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
        provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))},
        fills_bag=lambda c: members(c.args[1]))
 def hunt(ctx, token, count, types, night):
@@ -1342,7 +1342,7 @@ def bridge_toward(ctx, target):
     return feet()
 
 
-@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, speed={}, done=lambda c: _on_land(), budget=180, stall=45, per_unit=30, provides={"reach:land": lambda ctx, s: ()})
+@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, speed={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
 def reach_land(ctx):
     """Night in the water: nothing can be dug or built there, so swim (or boat) to the nearest dry standing spot
     first; shelters are made from land. One attempt per call; the brain's retry policy decides the next."""
@@ -1406,7 +1406,7 @@ def burrow_commands(state, args=()):
     return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
 
 
-@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, per_unit=20, commands=lambda st, a: burrow_commands(st, a),
+@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
                  "shelter:burrow": lambda ctx, s: ()})
 def burrow(ctx):
@@ -1437,7 +1437,7 @@ def dig_out_commands(state, args=()):
                                                  "range": 0.6, "partial": True}]
 
 
-@skill(gives=["state:outside"], remaining=lambda st, c: outside_left(st, c), needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, per_unit=15, commands=lambda st, a: dig_out_commands(st, a),
+@skill(gives=["state:outside"], remaining=lambda st, c: outside_left(st, c), needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, commands=lambda st, a: dig_out_commands(st, a),
        provides={"reach:outside": lambda ctx, s: ()})
 def dig_out(ctx):
     """Morning in a sealed pod: open one side (by hand if no pickaxe — slower, same result) and step out — one
@@ -1449,7 +1449,7 @@ def dig_out(ctx):
     log(f"dug out of the shelter toward {tuple(tasks[-1][k] for k in 'xyz')}")
 
 
-@skill(gives=["state:head_clear"], remaining=_k.head_clear, needs={}, speed={}, done=lambda c: not head_buried(), budget=30, stall=15, per_unit=3)
+@skill(gives=["state:head_clear"], remaining=_k.head_clear, needs={}, speed={}, done=lambda c: not head_buried(), budget=30, stall=15)
 def unbury(ctx):
     """Suffocating in a block: break the block at eye level, then the one above it if sand/gravel keeps falling."""
     for _ in range(4):
@@ -1717,7 +1717,7 @@ def dig_in(ctx):
 
 
 @skill(gives=K.GIVES_TAKE, needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=45, per_unit=8, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])},
+       budget=180, stall=45, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])},
        fills_bag=lambda c: members(c.args[1]))
 def take(ctx, token, count, blocks):
     """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops.
@@ -1876,7 +1876,7 @@ def pod_commands(state, args=()):
     return tasks
 
 
-@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
+@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at
@@ -2003,7 +2003,7 @@ def collect_machine(ctx, machine):
 
 
 @skill(gives=["state:room"], remaining=_k.slots_free(FREE_SLOTS_TARGET), needs={}, speed={}, start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
-       budget=60, stall=30, per_unit=6, provides={"room:tidy": lambda ctx, s: ()})
+       budget=60, stall=30, provides={"room:tidy": lambda ctx, s: ()})
 def tidy_inventory(ctx):
     """Free slots anywhere, no chest needed: drop the least valuable stacks (free_slots_plan) until
     FREE_SLOTS_TARGET slots are free, then step away so they aren't picked straight back up."""
@@ -2091,7 +2091,7 @@ def _has_something_to_store(c):
 
 
 @skill(gives=["state:stored"], remaining=lambda st, c: stored_left(st, c), needs={}, speed={}, pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
-       budget=600, stall=90, per_unit=60, provides={"room:deposit": lambda ctx, s: ()})
+       budget=600, stall=90, provides={"room:deposit": lambda ctx, s: ()})
 def deposit(ctx, local_only=False):
     """Store everything beyond the keep list: in a chest at the nearest reachable site within 96 blocks (skipped
     with local_only, e.g. at night), else in a cache chest placed right here (crafted if needed, recorded as a
@@ -2147,7 +2147,7 @@ def deposit(ctx, local_only=False):
 
 
 @skill(gives=["state:withdrawn"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]), needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=60, per_unit=10,
+       budget=180, stall=60,
        provides={"withdraw": lambda ctx, s: (s.token, s.count, tuple(s.detail["pos"]))})
 def withdraw(ctx, item, count, pos):
     """Take `count` of `item` out of the container at `pos` (memory said it held them: memory.stored), and write

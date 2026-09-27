@@ -190,7 +190,7 @@ def _rods_on_floor():
 
 @skill(gives=["state:rods_held"], remaining=_k.more_than_at_start(lambda c: "minecraft:blaze_rod", lambda c: c.args[1]), needs={"tool:sword:1": 1}, speed={}, start=lambda c: Inventory().count("minecraft:blaze_rod"),
        done=lambda c: Inventory().count("minecraft:blaze_rod") >= c.base + c.args[1],
-       budget=900, stall=180, per_unit=90, units=lambda c: c.args[1], key=lambda c: "collect_blaze_rods",
+       budget=900, stall=180, units=lambda c: c.args[1], key=lambda c: "collect_blaze_rods",
        provides={"hunt:minecraft:blaze_rod": lambda ctx, s: (s.count,)})
 def collect_blaze_rods(ctx, rods):
     """The rod-collecting step of "have blaze_rod" (L2 puts the fortress first: decompose). Fighting is not here:

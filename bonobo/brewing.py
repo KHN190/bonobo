@@ -46,7 +46,7 @@ def bottle_commands(state, args):
 
 @skill(gives=["state:bottles_filled"], remaining=_k.more_than_at_start(lambda c: "minecraft:potion", lambda c: c.args[1] if len(c.args) > 1 else 3), needs={"minecraft:glass_bottle": 1}, speed={}, start=lambda c: Inventory().count("minecraft:potion"),
        commands=lambda state, args: bottle_commands(state, args),
-       verify=lambda c: Inventory().count("minecraft:potion") > c.base, budget=180, stall=60, per_unit=10,
+       verify=lambda c: Inventory().count("minecraft:potion") > c.base, budget=180, stall=60,
        provides={"fill:minecraft:potion": lambda ctx, s: (s.count,)})
 def fill_bottles(ctx, count=3):
     """Fill glass bottles at water (use the bottle while looking at a water source)."""
@@ -77,7 +77,7 @@ def _fire_resistance_held():
 
 
 @skill(gives=["state:brewed"], remaining=_k.potions(lambda s: s.get("potion") in FIRE_RESISTANCE), needs={"minecraft:nether_wart": 1, "minecraft:blaze_powder": 1, "minecraft:glass_bottle": 1}, speed={}, start=lambda c: _fire_resistance_held(), verify=lambda c: _fire_resistance_held() > c.base,
-       budget=300, stall=120, per_unit=60,
+       budget=300, stall=120,
        provides={"brew:fire_resistance": lambda ctx, s: ()})
 def brew_fire_resistance(ctx):
     """At a brewing stand (found or placed from the bag): 3 water bottles + nether wart → awkward, + magma cream →

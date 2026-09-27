@@ -24,7 +24,6 @@ import math
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
                    seen_class)
 from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced)
-from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate
 from .solve import Action
@@ -619,51 +618,6 @@ def _shelter(cost, state):
         out.append(Action("wait:day", {DAY_DIM: 1}, float(state.get("clock:dawn_s", NIGHT_S)),
                           requires={"sheltered": 1}, limit=1, tag=("wait", "day")))
     return out
-
-
-def marginal_batch(step, shadow, demand, bag_free, stack=64):
-    """How much to actually take, from the margin rather than from the shortfall.
-
-    The plan asks for what THIS goal needs — one cobblestone for a furnace — and the body pays the same approach,
-    task chain and re-decision for one as for forty. But "always take eight" is a constant nobody can defend, and
-    it hoards gold as eagerly as stone.
-
-    The margin can be defended, and every term is already computed:
-
-        take one more   while   shadow[token]  >=  pick_s + slot_cost_s(free)/stack
-
-    `shadow` is the round's dual (`solve.reach_cost` / `Plan.shadow`): what one more unit of this token saves
-    everything that wants it. `demand` is what the open goals still want of it in total, so the extra is never
-    imaginary — gold nothing asks for has demand 0 and is taken exactly as planned, while logs and stone, which
-    half the plan passes through, are taken until the bag says stop. No dimensionless factors, no per-item table.
-    """
-    if step.kind not in ("mine", "gather", "take"):
-        return step
-    per_unit = float(shadow.get(step.token, 0.0) or 0.0)
-    want = int(max(step.count, min(int(demand.get(step.token, 0) or 0), _cap_for(bag_free, stack))))
-    pick_s = beliefs.cautious("batch.pick_s", "cost")
-    while want > step.count:
-        # Cost of the LAST unit of this batch: picking it up, plus the slot it eats, at the fullness it leaves.
-        free_after = float(bag_free) - float(want) / float(stack)
-        slots_needed = math.ceil(want / float(stack))
-        slot_cost = beliefs.slots_cost_s(slots_needed, float(bag_free))
-        if per_unit * want >= pick_s * want + slot_cost and free_after >= 1.0:
-            break
-        want -= 1
-    if want <= step.count:
-        return step
-    per_tick = step.est / step.count if step.count else 0
-    step.est = int(round(per_tick * want))
-    step.detail["batched"] = True        # one task chain: the body is busy for all of it
-    if step.kind == "mine" and step.detail.get("breaks"):
-        step.detail["breaks"] = int(math.ceil(step.detail["breaks"] * want / step.count))
-    step.count = want
-    return step
-
-
-def _cap_for(bag_free, stack):
-    """The most units the bag could hold, leaving a slot to move in."""
-    return int(max(0.0, float(bag_free) - 1.0) * float(stack))
 
 
 def target_of(needs):

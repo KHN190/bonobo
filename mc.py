@@ -68,9 +68,8 @@ def cmd_home(a):
 def cmd_skills(_):
     """Every skill with its contract (budget, stall limit, purpose)."""
     from bonobo.skill import REGISTRY
-    mem = Memory()
     for c in REGISTRY.values():
-        print(c.describe(mem))
+        print(c.describe())
 
 
 def cmd_task(a):

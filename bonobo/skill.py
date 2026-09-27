@@ -85,7 +85,7 @@ def world_signature():
 
 
 class Contract:
-    def __init__(self, name, fn, pre, start, done, verify, budget, stall, per_unit, units, key, soft=False,
+    def __init__(self, name, fn, pre, start, done, verify, budget, stall, units, key, soft=False,
                  commands=None, provides=None, prefer=0):
         self.commands = commands
         self.provides = dict(provides or {})
@@ -97,37 +97,20 @@ class Contract:
         self.name, self.fn, self.pre, self.start, self.done = name, fn, pre, start, done
         self.verify = verify if verify is not None else done
         self.budget, self.stall = budget, stall
-        # Time estimation: `per_unit` prior seconds, `units(c)` how many units a call does (blocks, logs, kills,
-        # items), `key(c)` the statistics key (e.g. "mine:minecraft:raw_iron"). Measured durations replace the prior.
-        self.per_unit = per_unit if per_unit is not None else budget / 3
+        # Measured durations (STATS, which the cost model reads back): `units(c)` how many units a call does
+        # (blocks, logs, kills, items), `key(c)` the statistics key (e.g. "mine:minecraft:raw_iron").
         self.units = units or (lambda c: 1)
         self.key = key or (lambda c: name)
         self.doc = (inspect.getdoc(fn) or "").split("\n")[0]
 
-    def describe(self, stats=None):
-        learned = stats.duration(self.name) if stats is not None else None
-        est = f"~{self.per_unit:g}s/unit" + (f" (measured {learned:.1f}s)" if learned is not None else "")
-        return f"{self.name:<18} {est:<30} budget {self.budget:>4}s  stall {self.stall:>3}s  {self.doc}"
+    def describe(self):
+        return f"{self.name:<18} budget {self.budget:>4}s  stall {self.stall:>3}s  {self.doc}"
 
 
 # Set by the brain to the memory object: record_duration(key, seconds, units) / duration(key).
 STATS = None
 LAST_S = {}     # skill name → seconds its last verified run took, preconditions and planning excluded
 MIN_SAMPLES = 3
-
-
-def expected(fn, *args, **kwargs):
-    """Expected seconds for a skill call: measured seconds per unit once there are MIN_SAMPLES runs of that key,
-    otherwise the contract's prior. Used to decide when a skill is worth doing."""
-    contract = fn.contract
-    c = Call(args, kwargs)
-    try:
-        units = max(1, contract.units(c))
-        key = contract.key(c)
-    except (IndexError, KeyError, TypeError):
-        units, key = 1, contract.name
-    per = STATS.duration(key) if STATS is not None else None
-    return (per if per is not None else contract.per_unit) * units
 
 
 def can_run(fn, *args, **kwargs):
@@ -336,7 +319,7 @@ def gives_of(gives):
 
 
 def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, done=None, verify=None, budget=300, stall=45,
-          per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
+          units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
           fills_bag=False, remaining=None):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
 
@@ -346,7 +329,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
     """
     def wrap(fn):
         declared(name or fn.__name__, needs, speed, gives, remaining)
-        contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
+        contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, units,
                             key, soft, commands, provides, prefer)
         # A need that depends on the call (the pickaxe tier of the block mined) is a function of the call's args;
         # `needs` is then what the call with no tier asks, `needs_of(args)` what this call asks.

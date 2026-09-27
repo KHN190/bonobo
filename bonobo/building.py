@@ -544,7 +544,7 @@ def build_blueprint(ctx, name, near):
 
 @skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), speed={}, pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
        verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
-       commands=_shelter_commands_for, budget=360, stall=90, per_unit=60,
+       commands=_shelter_commands_for, budget=360, stall=90,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
                  "shelter:hut": lambda ctx, s: ()})
 def build_shelter(ctx):
@@ -574,7 +574,7 @@ def _portal_cast(c):
 
 
 @skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
-       verify=_portal_cast, budget=900, stall=240, per_unit=600, provides={"cast:nether_portal": lambda ctx, s: ()})
+       verify=_portal_cast, budget=900, stall=240, provides={"cast:nether_portal": lambda ctx, s: ()})
 def cast_portal(ctx):
     """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each
     frame cell bottom-up wall it in with mould (`fluids.cast_frame_plan`), pour lava in, pour water on it, take the

@@ -11,7 +11,6 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import actions, memory  # noqa: E402
-from bonobo.planner import Step  # noqa: E402
 from bonobo.solve import Action, Unsolvable, reach_cost, solve  # noqa: E402
 from tests.world import inventory, places, slot, snapshot  # noqa: E402
 
@@ -136,35 +135,6 @@ class TheColumns(unittest.TestCase):
         for kind in ("seek", "mine", "take", "craft", "smelt", "shelter", "room", "gather", "hunt"):
             with self.subTest(kind):
                 self.assertIn(kind, kinds)
-
-
-def batch(count=1, shadow=3.0, demand=64, free=20, token="minecraft:cobblestone", kind="mine"):
-    step = Step(kind, token, count, {})
-    step.est = 60
-    return actions.marginal_batch(step, {token: shadow}, {token: demand}, free)
-
-
-class Batches(unittest.TestCase):
-    # (situation, batch keywords) → exact count; where the exact count is the margin's own, only its bound is named
-    EXACT = [("nothing wants it: what was planned", dict(shadow=0.0, demand=0), 1),
-             ("a plan of 7 is never cut down", dict(count=7, shadow=0.0, demand=0), 7),
-             ("a plan of 40 is never cut down", dict(count=40, shadow=0.0, demand=0), 40),
-             ("wanted 2 in all: 2", dict(demand=2), 2)]
-
-    def test_exact(self):
-        for name, kw, want in self.EXACT:
-            with self.subTest(name):
-                self.assertEqual(batch(**kw).count, want)
-
-    def test_bounds(self):
-        rows = [("never more than wanted (4)", batch(demand=4).count, 4),
-                ("never more than wanted (9)", batch(demand=9).count, 9),
-                ("a nearly full bag caps it below an empty one", batch(free=2, demand=6400).count,
-                 batch(free=30, demand=6400).count - 1)]
-        for name, got, most in rows:
-            with self.subTest(name):
-                self.assertEqual(min(got, most), got)
-        self.assertEqual(batch(demand=8).detail.get("batched"), True, "a batch is promised the body whole")
 
 
 # (bag) → the pickaxe uses the state vector carries (usable ones only: 3 or more left)

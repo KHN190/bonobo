@@ -46,7 +46,7 @@ def outside_spot(frame, centre):
 
 
 @skill(gives=["state:end_portal_open"], remaining=_k.blocks_there("end_portal"), needs={"minecraft:ender_eye": 1}, speed={}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
-       budget=600, stall=180, per_unit=60, provides={"activate:end_portal": lambda ctx, s: ()})
+       budget=600, stall=180, provides={"activate:end_portal": lambda ctx, s: ()})
 def activate_end_portal(ctx):
     """At the stronghold's portal room: a block over the middle's lava, stand on it, every missing eye from there in
     one chain (`eye_plan`); the portal opens under the feet."""
@@ -115,7 +115,7 @@ def next_brick(bricks, visited, radius=12):
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
 
 
-@skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
+@skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240,
        provides={"seek:portal_room": lambda ctx, s: ()})
 def find_portal_room(ctx):
     """From the triangulated estimate: dig down to stronghold depth, follow stronghold bricks toward unexplored parts,

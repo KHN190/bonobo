@@ -312,14 +312,6 @@ def server_count(lines):
     return 0
 
 
-def entity_mismatches(ents, expect):
-    """Pure: expected entity counts [(type, min)] that don't hold (with what was seen, to tell a sync delay from a
-    mob that died or wandered off)."""
-    seen = sorted({e["type"].split(":")[-1] for e in ents})
-    return [f"{t}: {sum(1 for e in ents if e['type'] == t)}, expected ≥ {n} (seen: {', '.join(seen) or 'nothing'})"
-            for t, n in expect if sum(1 for e in ents if e["type"] == t) < n]
-
-
 
 
 def reset_brain(brain, mem):

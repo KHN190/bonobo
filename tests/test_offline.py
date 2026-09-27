@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import arbiter, bag as BG, blueprints as B, brewing as BW, combat as CB, combat_model as CM  # noqa: E402
 from bonobo import end as END, farming as FM, fluids as FL, loot as LT, nav, needs as UK, nether as NT  # noqa: E402
 from bonobo import review as RV, roads as ROADS, scenarios as SC, skills, ui as UI  # noqa: E402
-from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NavFailed  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
 from bonobo.data import RECIPES  # noqa: E402
@@ -369,22 +368,19 @@ class Terrain(unittest.TestCase):
 
 # ---------------------------------------------------------------- memory, estimates, jobs, reviews
 class MemoryAndReview(unittest.TestCase):
-    def test_estimates(self):
+    def test_durations(self):
+        # measured seconds per unit (Memory.duration, what the cost model reads back once there are enough runs)
         m = memory()
-        skillkit.STATS = m
-        try:
-            table(self, [
-                ("a prior before any measurement", lambda: skillkit.expected(skills.chop, None, 10), 60),
-                ("measured seconds replace the prior after 3 runs", lambda: [
-                    m.record_duration("chop", 40, 10) for _ in range(3)] and skillkit.expected(skills.chop, None, 10),
-                 lambda s: abs(s - 40) < 1e-6),
-                ("must fail: one sample isn't trusted yet", lambda: m.record_duration(
-                    "mine:minecraft:raw_iron", 100, 5) or skillkit.expected(skills.mine, None, "minecraft:raw_iron", 5,
-                                                                             [], 1), 40),
-                ("the moving average leans on history (4·0.7 + 10·0.3)",
-                 lambda: m.record_duration("chop", 100, 10) or m.duration("chop"), lambda d: abs(d - 5.8) < 1e-9)])
-        finally:
-            skillkit.STATS = None
+        table(self, [
+            ("no runs: nothing measured", lambda: m.duration("chop"), None),
+            ("must fail: two runs are not trusted yet", lambda: [m.record_duration("chop", 40, 10) for _ in range(2)]
+             and m.duration("chop"), None),
+            ("the third run: seconds per unit", lambda: m.record_duration("chop", 40, 10) or m.duration("chop"),
+             lambda d: abs(d - 4.0) < 1e-9),
+            ("the moving average leans on history (4·0.7 + 10·0.3)",
+             lambda: m.record_duration("chop", 100, 10) or m.duration("chop"), lambda d: abs(d - 5.8) < 1e-9),
+            ("boundary: one run trusted when asked for one", lambda: m.record_duration("smelt", 21, 2) or m.duration(
+                "smelt", min_samples=1), lambda d: abs(d - 10.5) < 1e-9)])
 
     def test_memory(self):
         m = memory()
