@@ -1,0 +1,377 @@
+"""Pure-function tables for skills / solve / tape / threat / world: one table per function, every row a subTest.
+
+Each table holds a normal row, a boundary row and a must-fail row (its reason in the row's name). Inputs are readings
+(tests/world.py) or hand-built rows through the modules' own constructors; nothing here talks to the game.
+"""
+import os
+import sys
+import unittest
+from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from bonobo import skills, solve, tape, threat  # noqa: E402
+from bonobo.api import McError  # noqa: E402
+from bonobo.bag import pickup_whitelist  # noqa: E402
+from bonobo.world import connected  # noqa: E402
+from tests.world import FakeRegion, bag, inventory, state  # noqa: E402
+
+def run_table(t, fn, table):
+    """table: [(why, args, expected)]; expected is a value, or an exception class."""
+    for why, args, expected in table:
+        with t.subTest(why):
+            if isinstance(expected, type) and issubclass(expected, BaseException):
+                with t.assertRaises(expected):
+                    fn(*args)
+            else:
+                t.assertEqual(fn(*args), expected)
+
+
+# ---------------------------------------------------------------- skills
+
+BOAT = ["planks", None, "planks", "planks", "planks", "planks", None, None, None]   # 5 planks cells
+
+
+class ResolvePattern(unittest.TestCase):
+    TABLE = [
+        ("one log for planks", (["log", None, None, None], 1, bag(inventory(oak_log=1))),
+         ["minecraft:oak_log", None, None, None]),
+        ("richest member picked when both suffice", (["log", None, None, None], 2,
+                                                     bag(inventory(oak_log=2, birch_log=3))),
+         ["minecraft:birch_log", None, None, None]),
+        ("boundary: exactly five planks for a boat", (BOAT, 1, bag(inventory(spruce_planks=5))),
+         ["minecraft:spruce_planks", None, "minecraft:spruce_planks", "minecraft:spruce_planks",
+          "minecraft:spruce_planks", "minecraft:spruce_planks", None, None, None]),
+        ("plain item token passes through as its id", (["cobblestone", None], 1, bag(inventory(cobblestone=1))),
+         ["minecraft:cobblestone", None]),
+        ("must fail: four planks for five cells", (BOAT, 1, bag(inventory(spruce_planks=4))), McError),
+        ("must fail: members are not mixed (3 oak + 3 birch for 5)",
+         (BOAT, 1, bag(inventory(oak_planks=3, birch_planks=3))), McError),
+        ("must fail: times multiplies the need (1 log, times 2)", (["log", None, None, None], 2,
+                                                                   bag(inventory(oak_log=1))), McError),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.resolve_pattern, self.TABLE)
+
+
+class OutputOf(unittest.TestCase):
+    TABLE = [
+        ("non-group token: its own id", ("stick", ["minecraft:oak_planks"]), "minecraft:stick"),
+        ("planks follow the log", ("planks", ["minecraft:birch_log", None, None, None]), "minecraft:birch_planks"),
+        ("stem planks", ("planks", ["minecraft:crimson_stem", None, None, None]), "minecraft:crimson_planks"),
+        ("bed follows the wool", ("bed", ["minecraft:red_wool", "minecraft:red_wool"]), "minecraft:red_bed"),
+        ("boundary: boat takes the first non-empty cell", ("boat", [None, "minecraft:spruce_planks"]),
+         "minecraft:spruce_boat"),
+        ("door", ("door", ["minecraft:acacia_planks"]), "minecraft:acacia_door"),
+        ("must fail: planks from a non-log", ("planks", ["minecraft:stone", None, None, None]), KeyError),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.output_of, self.TABLE)
+
+
+def slots(n, item="dirt"):
+    return bag(inventory(*[(item, 1)] * n))
+
+
+class MineSegmentCommands(unittest.TestCase):
+    TABLE = [
+        ("one cell, tool tier: drops required", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal", 0)),
+         [{"type": "mine_many", "collect": True, "requireDrops": True, "blocks": [{"x": 1, "y": 2, "z": 3}]}]),
+        ("no tier: drops not required", ({"inv": slots(3)}, ([(0, 60, 0), (-1, 59, 4)], "minecraft:dirt", None)),
+         [{"type": "mine_many", "collect": True, "requireDrops": False,
+           "blocks": [{"x": 0, "y": 60, "z": 0}, {"x": -1, "y": 59, "z": 4}]}]),
+        ("boundary: 27 used slots, still no filter", ({"inv": slots(27)}, ([(1, 2, 3)], "minecraft:coal", 0)),
+         [{"type": "mine_many", "collect": True, "requireDrops": True, "blocks": [{"x": 1, "y": 2, "z": 3}]}]),
+        ("boundary: 28 used slots, filtered to the whitelist",
+         ({"inv": slots(28)}, ([(1, 2, 3)], "minecraft:raw_iron", 1)),
+         [{"type": "mine_many", "collect": True, "requireDrops": True,
+           "only": pickup_whitelist(28, ["minecraft:raw_iron"]), "blocks": [{"x": 1, "y": 2, "z": 3}]}]),
+        ("no cells: an empty batch, not no batch", ({"inv": slots(0)}, ([], "minecraft:coal", 0)),
+         [{"type": "mine_many", "collect": True, "requireDrops": True, "blocks": []}]),
+        ("must fail: args short of (cells, drop, tier)", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal")),
+         ValueError),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.mine_segment_commands, self.TABLE)
+
+    def test_filtered_batch_keeps_the_drop(self):
+        only = skills.mine_segment_commands({"inv": slots(36)}, ([(1, 2, 3)], "minecraft:raw_iron", 1))[0]["only"]
+        self.assertIn("minecraft:raw_iron", only)
+        self.assertNotIn("minecraft:dirt", only)
+
+
+class DarkHere(unittest.TestCase):
+    TABLE = [
+        ("no light at all, midday underground", (state(blockLight=0, skyLight=0, timeOfDay=6000),), True),
+        ("open sky by day", (state(blockLight=0, skyLight=15, timeOfDay=6000),), False),
+        ("open sky by night", (state(blockLight=0, skyLight=15, timeOfDay=13000),), True),
+        ("boundary: skyLight 7 is not open sky", (state(blockLight=0, skyLight=7, timeOfDay=6000),), True),
+        ("boundary: time 12500 is night", (state(blockLight=0, skyLight=15, timeOfDay=12500),), True),
+        ("boundary: time 0 is not inside (0, 12500)", (state(blockLight=0, skyLight=15, timeOfDay=0),), True),
+        ("must fail: block light 1 is lit", (state(blockLight=1, skyLight=0, timeOfDay=6000),), False),
+        ("must fail: no blockLight reading", ({"skyLight": 0, "timeOfDay": 6000},), False),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.dark_here, self.TABLE)
+
+
+class EdibleCarried(unittest.TestCase):
+    TABLE = [
+        ("cooked food", (bag(inventory(cooked_beef=1)),), True),
+        ("raw meat counts as food", (bag(inventory(beef=1)),), True),
+        ("boundary: food only in the offhand", (bag(inventory(offhand="bread")),), True),
+        ("must fail: nothing edible", (bag(inventory(dirt=64)),), False),
+        ("must fail: empty bag", (bag(inventory()),), False),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.edible_carried, self.TABLE)
+
+
+class CanWorkHere(unittest.TestCase):
+    TABLE = [
+        ("on the ground", ({"inWater": False, "onGround": True},), None),
+        ("treading water", ({"inWater": True, "onGround": False},), "treading water: nothing to stand on"),
+        ("boundary: in water but standing (shore block)", ({"inWater": True, "onGround": True},), None),
+        ("boundary: in water, no onGround field", ({"inWater": True},), "treading water: nothing to stand on"),
+        ("must fail: empty state reads as able", ({},), None),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.can_work_here, self.TABLE)
+
+
+class PendingReady(unittest.TestCase):
+    TABLE = [
+        ("one output ready long ago", ({"pending": [{"ready_at": 0}]},), True),
+        ("one output far in the future", ({"pending": [{"ready_at": 1e12}]},), False),
+        ("one of two ready", ({"pending": [{"ready_at": 1e12}, {"ready_at": 0}]},), True),
+        ("boundary: empty pending list", ({"pending": []},), False),
+        ("must fail: no pending key at all", ({},), False),
+    ]
+
+    def test_table(self):
+        run_table(self, skills.pending_ready, self.TABLE)
+
+
+# ---------------------------------------------------------------- solve
+
+def names(via):
+    return {d: a.name for d, a in via.items()}
+
+
+CHOP = solve.Action("pt_chop", {"log": 1}, 5)
+CRAFT = solve.Action("pt_craft", {"log": -1, "planks": 4}, 2)
+BUY = solve.Action("pt_buy", {"log": 2}, 4)
+MINE = solve.Action("pt_mine", {"iron": 1}, 10, requires={"pickaxe": 1})
+
+
+class ReachTree(unittest.TestCase):
+    TABLE = [
+        ("one column", ([CHOP], {}), ({"log": 5.0}, {"log": "pt_chop"})),
+        ("a chain: planks priced through logs", ([CHOP, CRAFT], {}),
+         ({"log": 5.0, "planks": 1.75}, {"log": "pt_chop", "planks": "pt_craft"})),
+        ("held logs cost nothing", ([CHOP, CRAFT], {"log": 3}), ({"log": 0.0, "planks": 0.5}, {"planks": "pt_craft"})),
+        ("the cheaper per unit wins", ([CHOP, BUY], {}), ({"log": 2.0}, {"log": "pt_buy"})),
+        ("boundary: a held zero is not held", ([CHOP], {"log": 0}), ({"log": 5.0}, {"log": "pt_chop"})),
+        ("boundary: unpriced dimensions are dropped", ([CHOP], {"food": 5}), ({"log": 5.0}, {"log": "pt_chop"})),
+        ("requirement held: reachable", ([MINE], {"pickaxe": 1}),
+         ({"pickaxe": 0.0, "iron": 10.0}, {"iron": "pt_mine"})),
+        ("must fail: requirement missing, nothing priced", ([MINE], {}), ({}, {})),
+    ]
+
+    def test_table(self):
+        for why, (cols, st), (cost, via) in self.TABLE:
+            with self.subTest(why), mock.patch.dict(solve._PRICES, clear=True):
+                got_cost, got_via = solve.reach_tree(cols, st)
+                self.assertEqual(got_cost, cost)
+                self.assertEqual(names(got_via), via)
+
+
+# ---------------------------------------------------------------- tape
+
+class Replayed(unittest.TestCase):
+    RECORDED = {"/state": {"x": 1}}
+    TABLE = [
+        ("a recorded GET", False, ("GET", "/state"), {"x": 1}),
+        ("lenient miss: a well-formed nothing", True, ("GET", "/region"), dict(tape._EMPTY)),
+        ("must fail: strict miss", False, ("GET", "/region"), tape.ReplayMiss),
+        ("must fail: a POST never replays", False, ("POST", "/state"), tape.ReplayMiss),
+        ("must fail: lenient does not excuse acting", True, ("POST", "/task"), tape.ReplayMiss),
+    ]
+
+    def test_table(self):
+        for why, lenient, args, expected in self.TABLE:
+            with self.subTest(why), mock.patch.object(tape, "REPLAY", self.RECORDED), \
+                    mock.patch.object(tape, "LENIENT", lenient):
+                if isinstance(expected, type):
+                    with self.assertRaises(expected):
+                        tape.replayed(*args)
+                else:
+                    self.assertEqual(tape.replayed(*args), expected)
+
+
+# ---------------------------------------------------------------- threat
+
+Z = "minecraft:zombie"
+HERE = (0.0, 64.0, 0.0)
+
+
+def zrow(pos, vel=(0.0, 0.0, 0.0)):
+    return (tuple(pos), float(threat.MOBS[Z]["reach"]), tuple(vel), Z, 1.0, float(threat.MOBS[Z]["dps"]))
+
+
+class HostileRows(unittest.TestCase):
+    TABLE = [
+        ("a zombie, no id: at rest", ([{"type": Z, "x": 1, "y": 64, "z": 2}], {}, 10.0), [zrow((1, 64, 2))]),
+        ("velocity differenced against memory", ([{"type": Z, "id": 7, "x": 2, "y": 64, "z": 0}],
+                                                 {7: ((0, 64, 0), 9.0)}, 10.0), [zrow((2, 64, 0), (2.0, 0.0, 0.0))]),
+        ("boundary: memory 2 s old is too stale for velocity", ([{"type": Z, "id": 7, "x": 2, "y": 64, "z": 0}],
+                                                               {7: ((0, 64, 0), 8.0)}, 10.0), [zrow((2, 64, 0))]),
+        ("an angry neutral counts", ([{"type": "minecraft:enderman", "angry": True, "x": 0, "y": 64, "z": 3}], {}, 0.0),
+         [((0, 64, 3), float(threat.MOBS["minecraft:enderman"]["reach"]), (0.0, 0.0, 0.0), "minecraft:enderman", 1.0,
+           float(threat.MOBS["minecraft:enderman"]["dps"]))]),
+        ("nothing near", ([], {}, 0.0), []),
+        ("must fail: a calm neutral is no row", ([{"type": "minecraft:enderman", "x": 0, "y": 64, "z": 3}], {}, 0.0),
+         []),
+        ("must fail: a kind the table does not know", ([{"type": "minecraft:pig", "x": 0, "y": 64, "z": 3}], {}, 0.0),
+         []),
+    ]
+
+    def test_table(self):
+        run_table(self, threat.hostile_rows, self.TABLE)
+
+    MEMORY = [
+        ("seen: remembered at now", {}, [{"type": Z, "id": 7, "x": 2, "y": 64, "z": 0}], 10.0, {7: ((2, 64, 0), 10.0)}),
+        ("boundary: exactly 10 s old is kept", {9: ((0, 0, 0), 0.0)}, [], 10.0, {9: ((0, 0, 0), 0.0)}),
+        ("older than 10 s is dropped", {9: ((0, 0, 0), 0.0)}, [], 10.5, {}),
+        ("must fail: no id, nothing remembered", {}, [{"type": Z, "x": 2, "y": 64, "z": 0}], 10.0, {}),
+    ]
+
+    def test_memory(self):
+        for why, memory, near, now, after in self.MEMORY:
+            with self.subTest(why):
+                memory = dict(memory)
+                threat.hostile_rows(near, memory, now)
+                self.assertEqual(memory, after)
+
+
+class IdsByRow(unittest.TestCase):
+    NEAR = [{"x": 1, "y": 64, "z": 2, "id": 5}, {"x": -3, "y": 64, "z": 0, "id": 6}]
+    TABLE = [
+        ("each row named by position", (NEAR, [zrow((-3, 64, 0)), zrow((1, 64, 2))]), [6, 5]),
+        ("float position matches int reading", (NEAR, [zrow((1.0, 64.0, 2.0))]), [5]),
+        ("boundary: no rows", (NEAR, []), []),
+        ("boundary: nothing near", (None, [zrow((1, 64, 2))]), [None]),
+        ("must fail: a row nowhere near an entity", (NEAR, [zrow((9, 64, 9))]), [None]),
+    ]
+
+    def test_table(self):
+        run_table(self, threat.ids_by_row, self.TABLE)
+
+
+class EvadeCost(unittest.TestCase):
+    TABLE = [
+        ("no threats: free", (HERE, (10.0, 64.0, 0.0), [], 0.0), 0.0),
+        ("boundary: no walk, no cost", (HERE, HERE, [zrow((1.0, 64.0, 0.0))], 0.0), 0.0),
+        ("a creeper's blast is not pressure", (HERE, (10.0, 64.0, 0.0),
+                                               [threat.row((1.0, 64.0, 0.0), 3.0, (0, 0, 0), "minecraft:creeper")],
+                                               0.0), 0.0),
+        ("must fail: an unknown kind presses nothing", (HERE, (10.0, 64.0, 0.0),
+                                                        [threat.row((1.0, 64.0, 0.0), 3.0, (0, 0, 0), "minecraft:pig")],
+                                                        0.0), 0.0),
+    ]
+
+    def test_table(self):
+        run_table(self, threat.evade_cost, self.TABLE)
+
+    def test_linear_in_the_walk(self):
+        """Pressure is read once, here; the walk multiplies it: d blocks cost d × one block (to rounding)."""
+        hazards = [zrow((1.0, 64.0, 0.0))]
+        one = threat.evade_cost(HERE, (-1.0, 64.0, 0.0), hazards, 0.0)
+        self.assertNotEqual(one, 0.0)
+        for d in (2, 4, 8, 16):
+            with self.subTest(d=d):
+                self.assertAlmostEqual(threat.evade_cost(HERE, (-float(d), 64.0, 0.0), hazards, 0.0), d * one,
+                                       delta=0.01 * d)
+
+
+class ReshapeOptions(unittest.TestCase):
+    """Only the no-means gate: with nothing to place and nothing that digs there is no column (grid never read)."""
+    TABLE = [
+        ("nothing said", ({},), []),
+        ("no blocks", ({"blocks": 0},), []),
+        ("boundary: no blocks and ground that does not dig", ({"blocks": 0, "dig_ok": False},), []),
+        ("boundary: dig_ok falsy None", ({"blocks": 0, "dig_ok": None},), []),
+        ("must fail: dig_ok opens the column, which then needs a threat", ({"blocks": 0, "dig_ok": True},),
+         ValueError),
+    ]
+
+    def test_table(self):
+        run_table(self, lambda st: threat.reshape_options(st, None, [], HERE, 1.0, 0.0, 0.0, 10.0), self.TABLE)
+
+
+def option(hp=0.0, seconds=0.0, leaves=0.0, blast_after=0.0):
+    return threat.Option("test", None, hp, seconds, "", leaves=leaves, blast_after=blast_after)
+
+
+def LINEAR(hp):
+    return 2.0 * hp
+
+
+def SQUARE(hp):
+    return hp * hp
+
+
+class TotalCost(unittest.TestCase):
+    """seconds + price(health spent + health still owed), with owed = leaves × work_s + blast_after."""
+    TABLE = [
+        ("nothing at all", (option(), LINEAR, 10.0), 0.0),
+        ("time and health", (option(hp=3.0, seconds=2.0), LINEAR, 10.0), 8.0),
+        ("what it leaves, over the work", (option(leaves=1.0), LINEAR, 10.0), 20.0),
+        ("a blast still owed", (option(seconds=1.0, blast_after=5.0), LINEAR, 10.0), 11.0),
+        ("convex price: one price of the sum, not two", (option(hp=2.0, seconds=1.0, leaves=0.5), SQUARE, 2.0),
+         10.0),
+        ("boundary: no work left, what it leaves is free", (option(hp=1.0, seconds=1.0, leaves=5.0), LINEAR, 0.0),
+         3.0),
+    ]
+
+    def test_table(self):
+        run_table(self, threat.total_cost, self.TABLE)
+
+
+# ---------------------------------------------------------------- world
+
+def vein(*cells, name="coal_ore"):
+    return FakeRegion((-10, 0, -10), (10, 80, 10), {c: name for c in cells})
+
+
+COAL = ["minecraft:coal_ore"]
+
+
+class Connected(unittest.TestCase):
+    LINE = vein((0, 10, 0), (1, 10, 0), (2, 10, 0))
+    TABLE = [
+        ("a line of three", (LINE, (0, 10, 0), COAL), {(0, 10, 0), (1, 10, 0), (2, 10, 0)}),
+        ("from the middle", (LINE, (1, 10, 0), COAL), {(0, 10, 0), (1, 10, 0), (2, 10, 0)}),
+        ("boundary: a lone block", (vein((5, 5, 5)), (5, 5, 5), COAL), {(5, 5, 5)}),
+        ("diagonal is not connected", (vein((0, 10, 0), (1, 11, 0)), (0, 10, 0), COAL), {(0, 10, 0)}),
+        ("two ids, one vein", (FakeRegion((-10, 0, -10), (10, 80, 10),
+                                          {(0, 10, 0): "coal_ore", (0, 9, 0): "deepslate_coal_ore"}),
+                               (0, 10, 0), COAL + ["minecraft:deepslate_coal_ore"]), {(0, 10, 0), (0, 9, 0)}),
+        ("must fail: seed is not the ore", (LINE, (0, 11, 0), COAL), set()),
+        ("must fail: the other id is not asked for", (FakeRegion((-10, 0, -10), (10, 80, 10),
+                                                                 {(0, 10, 0): "coal_ore",
+                                                                  (0, 9, 0): "deepslate_coal_ore"}),
+                                                      (0, 10, 0), COAL), {(0, 10, 0)}),
+    ]
+
+    def test_table(self):
+        run_table(self, connected, self.TABLE)
+
+
+if __name__ == "__main__":
+    unittest.main()
