@@ -540,3 +540,36 @@ class EvadeOnlyPostpones(unittest.TestCase):
         for name, h, want in cases:
             with self.subTest(name):
                 self.assertIs(estimate.follows_to(HERE, h), want)
+
+
+class ShieldAndHole(unittest.TestCase):
+    """Fighting behind a shield is its own answer (the swing's cooldown is spent blocking); a hole down needs ground
+    that digs, not blocks carried."""
+
+    def test_answers_over_the_table(self):
+        from bonobo import field
+        crowd = [row("minecraft:zombie", 4, 0), row("minecraft:zombie", 0, 4), row("minecraft:zombie", -4, 0)]
+        rows = [("a zombie, a sword, a shield: fight behind it", [row("minecraft:zombie", 4, 0)],
+                 dict(sword=2, shield=True), ("fight_shielded", 0)),
+                ("a zombie, a sword, no shield: fight", [row("minecraft:zombie", 4, 0)], dict(sword=2), ("fight", 0)),
+                ("a skeleton 10 off, a shield: fight behind it", [row("minecraft:skeleton", 10, 0)],
+                 dict(sword=2, shield=True), ("fight_shielded", 0)),
+                ("three zombies at night, 10 hp, no sword, ground that digs: a hole down", crowd,
+                 dict(sword=0, hp=10, night=True, dig_ok=True, field=field.Field()), ("reshape", ("down", 2))),
+                ("the same, ground that does not dig: leave", crowd,
+                 dict(sword=0, hp=10, night=True, dig_ok=False, field=field.Field()), ("evade", (0, 64, -16)))]
+        for name, hazards, kw, want in rows:
+            with self.subTest(name):
+                d = decide(hazards, **kw)
+                self.assertEqual((d.kind, d.target), want)
+
+    def test_the_shielded_batch(self):
+        from bonobo import fight_loop
+        from bonobo.threat import Option
+        from tests.world import bag, inventory
+        with_shield = bag(inventory(("iron_sword", 1), offhand="shield"))
+        without = bag(inventory(("iron_sword", 1)))
+        opt = Option("fight_shielded", 7, 1.0, 1.0, "")
+        self.assertEqual(fight_loop.batch(opt, {"inv": with_shield}),
+                         [{"type": "attack", "entity": 7, "shield": True}])
+        self.assertEqual(fight_loop.batch(opt, {"inv": without}), [])

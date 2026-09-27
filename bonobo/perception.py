@@ -483,7 +483,8 @@ def kit(signature):
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": sum(inv.count(f) for f in ("minecraft:cooked_beef", "minecraft:cooked_porkchop",
                                                      "minecraft:bread", "minecraft:cooked_mutton")),
-            "blocks": inv.count("building")}
+            "blocks": inv.count("building"),
+            "dig_ok": any(d >= 1 for _t, d, _ in inv.tools("pickaxe"))}     # a hole down needs no blocks
     _KIT_SIG = signature
     return _KIT
 

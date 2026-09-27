@@ -167,7 +167,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
           "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
-          "field": state.get("field") or _field.Field(), "ids": list(ids)}
+          "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok"))}
     if work_s is not None:
         st["work_s"] = work_s
     return st
@@ -269,6 +269,13 @@ def _fight(option, state):
     return [{"type": "attack", "entity": option.target}]
 
 
+def _fight_shielded(option, state):
+    """The attack with the shield raised between swings (jar AttackTask "shield", ≥ 0.1.45)."""
+    if state["inv"].offhand() != "minecraft:shield":
+        return []
+    return [{"type": "attack", "entity": option.target, "shield": True}]
+
+
 def _evade(option, state):
     x, y, z = option.target
     brk, plc = nav.MOVES["evade"]                  # getting away never breaks a wall or builds (nav.MOVES)
@@ -323,7 +330,7 @@ def _place(option, state):
     return [{"type": "place", "item": item, "x": x, "y": y, "z": z} for x, y, z in cells]
 
 
-BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape,
+BATCH = {"fight": _fight, "fight_shielded": _fight_shielded, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape,
          "bed_bomb": _bed_bomb, "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # What a batch needs read around the body, by kind: {kind: feet -> Region}. Skills that lend their batch register
 # both (skills.py: "wall_in" → pod_commands, _pod_region), so this module never imports the skill library.

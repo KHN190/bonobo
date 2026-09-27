@@ -18,7 +18,7 @@ from tests.world import dangers, fights  # noqa: E402
 
 # fixture: the answers that change the ground (a squeezer walks past both), and the rest
 SHAPES = ("reshape", "wall_in")
-NOT_SHAPES = ("ignore", "fight", "evade", "eat", "shield")
+NOT_SHAPES = ("ignore", "fight", "fight_shielded", "evade", "eat", "shield")
 
 
 # Every way fight_plan.admissible refuses, as the start of its reason: a refusal outside this set is unexplained.

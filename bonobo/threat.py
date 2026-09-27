@@ -221,8 +221,13 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
     The effects are heuristics; what they are worth is not. Seconds come from the one price function, as always.
     """
     carried = int(state.get("blocks", 0))
-    most = min(carried, int(ENGAGE.get("block_max", 4)))
-    if most < 1:
+    cap = int(ENGAGE.get("block_max", 4))
+    # Digging down spends no blocks — only ground that digs (`dig_ok`: by hand or with the pickaxe carried); the
+    # other two shapes spend what is carried. Gating all three on blocks left open ground with a sword and no
+    # cobblestone without its cheapest hole.
+    most_of = {"between": min(carried, cap), "under": min(carried, cap),
+               "down": cap if state.get("dig_ok") else 0}
+    if not any(most_of.values()):
         return []
     nearest = min(hazards, key=lambda h: math.dist(here, h[0]))
     cell = grid.choke(here, nearest[0], within=float(ENGAGE.get("block_reach", 4.0)))
@@ -232,7 +237,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             continue
         each_s = float(ENGAGE["dig_s"] if where == "down" else ENGAGE["block_s"])
         after = grid
-        for n in range(1, most + 1):
+        for n in range(1, most_of[where] + 1):
             if where == "between":
                 after = after.with_block()
             seconds = each_s * n
@@ -297,6 +302,13 @@ def options(state):
         nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(hazards)} in ~{t_fight}s for ~{lost} hp"))
+        if state.get("shield"):
+            # The same fight with the shield up between swings (the attack's cooldown): what lands is cut by what a
+            # raised shield stops, for the time raising it takes once per kill.
+            kept = round(lost * (1.0 - float(ENGAGE["shield_protects"])), 2)
+            t_guard = round(t_fight + float(ENGAGE["shield_s"]) * len(hazards), 2)
+            out.append(Option("fight_shielded", ids[nearest], kept + blast_here, t_guard,
+                              f"kill {len(hazards)} in ~{t_guard}s behind the shield for ~{kept} hp"))
     spot = escape_spot(here, hazards, cover=state.get("cover"))
     walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
     # Leaving costs the walk out AND the walk back: the work is where we were standing. What it does not cost is a
@@ -327,7 +339,7 @@ def options(state):
         shield_s = float(ENGAGE["shield_s"])
         out.append(Option("shield", None, round(press * shield_s, 2), shield_s,
                           f"shield up: -{up:.0%} of what lands", leaves=press * (1.0 - up), protects=up))
-    if grid is not None and int(state.get("blocks", 0)) >= 1:
+    if grid is not None:
         for option in reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
             out.append(option)
     if int(state.get("blocks", 0)) >= int(ENGAGE["wall_in_blocks"]):
