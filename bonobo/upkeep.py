@@ -119,17 +119,9 @@ def working_tiers(inv):
 
 
 def craftable_tier(inv, kind):
-    """The best tier of `kind` this bag can craft outright — a plan of crafting steps only, nothing to gather, mine
-    or smelt — or 0 (wood: the plan gathers the logs). Pure over the bag. A higher tier a plan needs is that plan's
-    own business, not the replacement's."""
-    for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
-        try:
-            steps = Planner.from_inventory(inv, NullCost()).plan([("tool", kind, tier)])
-        except Unplannable:
-            continue
-        if all(s.kind == "craft" for s in steps):
-            return tier
-    return 0
+    """The best tier of `kind` this bag crafts outright, or 0 (`Planner.craftable_tier`: one answer for every tool
+    goal). Pure over the bag."""
+    return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
 
 
 def _once(reads, key, read):

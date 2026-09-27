@@ -79,6 +79,7 @@ class Planner:
     def __init__(self, counts, tools, cost):
         self.inv = VirtualInventory(counts, tools)
         self.cost = cost
+        self.probing = False       # a craftable_tier probe: plans the tier asked, never upgrades it again
         self.steps = []
 
     @classmethod
@@ -113,9 +114,28 @@ class Planner:
     def need_tool(self, kind, tier, depth=0):
         if self.inv.has_tool(kind, tier, TOOL_MIN_DURABILITY):
             return
+        # The tool made is the best the bag makes outright (`craftable_tier`), never below what the step needs: a
+        # worn-out iron pickaxe with three ingots carried was replaced with a wooden one, then a stone one.
+        if not self.probing:
+            tier = max(tier, self.craftable_tier(kind))
         material = TOOL_MATERIAL_FOR_TIER[tier]
         self.need(f"minecraft:{material}_{kind}", 1, depth + 1, fresh=True)
         self.inv.tools.append((kind, tier, 999))
+
+    def craftable_tier(self, kind):
+        """The best tier of `kind` this (planned) bag crafts outright — crafting steps only, nothing to gather, mine
+        or smelt — or 0. The one answer for every tool goal (the planner's own needs and upkeep's replacement)."""
+        for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
+            probe = Planner(self.inv.counts, [], NullCost())
+            probe.inv.produced = Counter(self.inv.produced)
+            probe.probing = True
+            try:
+                steps = probe.plan([("tool", kind, tier)])
+            except Unplannable:
+                continue
+            if all(s.kind == "craft" for s in steps):
+                return tier
+        return 0
 
     def need_station(self, block, depth):
         """Stations are required, never consumed: once planned or held, every later step reuses them."""

@@ -1972,5 +1972,34 @@ class FoodFromTheBag(unittest.TestCase):
                 steps = decompose.decompose(snap.inv, goals.have(("food", n)), cost(snap, mem=m, **seen))
                 self.assertEqual([(st.kind, st.token, st.count) for st in steps], want)
 
+
+class TheToolTheBagMakes(unittest.TestCase):
+    """A plan that needs a pickaxe makes the best one the bag makes outright (Planner.craftable_tier, the one answer
+    for every tool goal): a worn-out iron pickaxe and three ingots make an iron one, not a wooden one."""
+
+    # (situation, what else is carried) → the plan for 2 coal (coal ore in sight; any pickaxe mines it)
+    ROWS = [("worn iron pickaxe, 3 iron, sticks, a table: iron", [("iron_ingot", 3)],
+             [("craft", "minecraft:iron_pickaxe"), ("mine", "coal")]),
+            ("no iron, 3 cobblestone: stone", [("cobblestone", 3)],
+             [("craft", "minecraft:stone_pickaxe"), ("mine", "coal")]),
+            ("no iron, no stone, planks: wood", [("oak_planks", 3)],
+             [("craft", "minecraft:wooden_pickaxe"), ("mine", "coal")]),
+            ("a working stone pickaxe: none made", [slot("stone_pickaxe", 1, 0)], [("mine", "coal")])]
+
+    def test_plan_over_the_table(self):
+        for name, extra, want in self.ROWS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                snap = snapshot(state(), inventory(slot("iron_pickaxe", 1, 249), ("stick", 2), ("crafting_table", 1),
+                                                   *extra))
+                steps = decompose.decompose(snap.inv, goals.have(("coal", 2)),
+                                            cost(snap, mem=Memory(os.path.join(tmp, "n.json")), coal_ore=2))
+                self.assertEqual([(st.kind, st.token) for st in steps], want)
+
+    def test_upkeep_and_the_planner_agree(self):
+        for extra, tier in (([("iron_ingot", 3)], 2), ([("cobblestone", 3)], 1), ([("oak_planks", 3)], 0), ([], 0)):
+            with self.subTest(extra=extra):
+                inv = bag(inventory(("stick", 2), ("crafting_table", 1), *extra))
+                self.assertEqual(upkeep.craftable_tier(inv, "pickaxe"), tier)
+
 if __name__ == "__main__":
     unittest.main()
