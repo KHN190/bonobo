@@ -718,11 +718,11 @@ SCENARIOS["trek_nether_25"] = {
     "detail": _trek_detail, "budget": 30,
 }
 SCENARIOS["cave_escape"] = {
-    "doc": "Sealed in a dark 1×2 pocket 8 blocks under the platform, pickaxe + blocks → back on the surface platform.",
+    "doc": "Sealed in a dark 1×2 pocket 4 blocks under the platform, pickaxe + blocks → back on the surface platform.",
     "module": "nav",
     "setup": [f"fill {_c(at(-6, -12, -6))} {_c(at(6, -1, 6))} stone",
-              f"fill {_c(at(0, -9, 0))} {_c(at(0, -8, 0))} air",
-              f"tp @p {_c(at(0.5, -9, 0.5))}", "clear @p", "give @p stone_pickaxe", "give @p cobblestone 32"],
+              f"fill {_c(at(0, -5, 0))} {_c(at(0, -4, 0))} air",
+              f"tp @p {_c(at(0.5, -5, 0.5))}", "clear @p", "give @p stone_pickaxe", "give @p cobblestone 32"],
     "expect": [(at(-6, -1, -6), at(6, -1, 6), "stone", 169, 169)],
     # The standing cell on the platform; range 0.6: `nav.there` measures the feet's block, so a step below is 1 off.
     "run": lambda ctx: __import__("bonobo.nav", fromlist=["go_to"]).go_to(at(3, 0, 3), ctx.policy, range_=0.6),
