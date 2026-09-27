@@ -600,6 +600,7 @@ class _Console(io.TextIOBase):
 # The next row's world, built at site B while this row runs (`prebuild`); `_setup` clones it over when it is the
 # one being set up. NEXT_ROW is set by the caller (mc.py) before each run: the row it will run next.
 NEXT_ROW = [None]
+SETUP_S = {}          # the last setup's seconds: world (built here, or cloned from B) and body, for the report
 PREBUILT = {"name": None, "done": None, "ok": False, "why": ""}
 
 
@@ -632,7 +633,7 @@ def prebuild(name):
                 if not any("not loaded" in l for l in _command(ow + f"fill {lo} {lo} air", fb)):
                     break
                 time.sleep(0.5)
-            _batch([ow + f"fill {lo} {hi} air"] + [ow + shift(c) for c in world], fb)
+            _batch([ow + f"fill {lo} {hi} air"] + [ow + shift(c) for c in world], fb, settle=1.0)
             PREBUILT["ok"] = True
         except Exception as e:                      # the old way still works: say why this one did not
             PREBUILT["why"] = str(e)
@@ -653,6 +654,7 @@ def take_prebuilt(name, wait_s=30):
 
 def _setup(name, sc, feedback):
     from .. import api
+    SETUP_S.clear()
     from ..world import Region, entities
     if api.get("/state").get("dead"):
         api.post("/respawn")
@@ -744,16 +746,24 @@ def _setup(name, sc, feedback):
              # Fluids anywhere in the volume, the glass layer included (water beside the glass survived both fills
              # and kept flooding cast_obsidian's pool: 47 water, 0 lava).
              ex(f"fill {_c(lo)} {top} air replace water"), ex(f"fill {_c(lo)} {top} air replace lava")]
+    from .core import SITE_B, split_setup
+    t_world = time.time()
     if take_prebuilt(name):
         # Built ahead at site B while the last row ran: one clone brings it over (air included: the box is cleared
         # by it), then only what the row itself runs — the player, the global state, the actors.
-        from .core import SITE_B, split_setup
         b_lo, b_hi = [a + d for a, d in zip(lo, SITE_B)], [a + d for a, d in zip(hi, SITE_B)]
         _world, rest = split_setup(sc["setup"])
-        _batch(above + [ex(f"clone {_c(b_lo)} {_c(b_hi)} {_c(lo)} replace")] + [ex(cmd) for cmd in rest], feedback)
+        _batch(above + [ex(f"clone {_c(b_lo)} {_c(b_hi)} {_c(lo)} replace")], feedback)
+        SETUP_S.update(prebuilt=True, world_s=round(time.time() - t_world, 2))
+        t_body = time.time()
+        _batch([ex(cmd) for cmd in rest], feedback)
     else:
-        _batch([ex(f"fill {_c(lo)} {_c((hi[0], hi[1] + 1, hi[2]))} air")] + above
-               + [ex(cmd) for cmd in sc["setup"]], feedback)
+        world, rest = split_setup(sc["setup"])
+        _batch([ex(f"fill {_c(lo)} {_c((hi[0], hi[1] + 1, hi[2]))} air")] + above + [ex(c) for c in world], feedback)
+        SETUP_S.update(prebuilt=False, world_s=round(time.time() - t_world, 2))
+        t_body = time.time()
+        _batch([ex(cmd) for cmd in rest], feedback)
+    SETUP_S["body_s"] = round(time.time() - t_body, 2)
     # The waiting glass must go once we're down: a 30-block fall landed on it 18 blocks early (water_clutch, hp 5).
     _checked(ex(f"fill {glass} {glass} air"), feedback)
     _command(ex("kill @e[type=item]"), feedback)
@@ -929,7 +939,8 @@ def run(name, make_ctx):
         save_table(record(load_table(), name, code, ok, seconds, note, cls))
     if not ok:
         folder = _report(name, {"scenario": name, "code": code, "cls": cls, "note": note, "seconds": seconds,
-                                "feedback": feedback, "trace": trace, "log": console.lines[-200:]})
+                                "feedback": feedback, "trace": trace, "log": console.lines[-200:],
+                                "setup_s": dict(SETUP_S)})
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
 

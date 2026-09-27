@@ -854,3 +854,40 @@ class RowKey(unittest.TestCase):
                  "loop": ["perception.def loop():\n    pass\n"]}
         got = runner.reached({"api.run"}, index)
         self.assertEqual(got, ["api.def run(task):\n    return 1\n"])
+
+
+class ChatIsOneWindowAtATime(unittest.TestCase):
+    """The background build's replies never land in the row's feedback (bench.core.CHAT_LOCK)."""
+
+    def test_background_replies_stay_out(self):
+        import os
+        import tempfile
+        import threading
+        import time as _t
+        from bonobo.bench import core
+        path = os.path.join(tempfile.mkdtemp(), "latest.log")
+        open(path, "w").close()
+
+        def post(_path, body):
+            cmd = body["message"]
+
+            def reply():                         # the game answers a moment later, in the one log
+                _t.sleep(0.1)
+                with open(path, "a") as f:
+                    f.write(f"[CHAT] reply to {cmd}\n")
+            threading.Thread(target=reply).start()
+            return {}
+        rows, fb_bg, fb_row = [], [], []
+        with mock.patch.object(core, "_chat_log", return_value=path), \
+                mock.patch("bonobo.api.post", side_effect=post), \
+                mock.patch("bonobo.bench.runner.feedback_errors", return_value=[]):
+            bg = threading.Thread(target=lambda: core._batch([f"fill b{i}" for i in range(5)], fb_bg, settle=0.5))
+            bg.start()
+            _t.sleep(0.05)
+            got = core._command("give @p row", fb_row, timeout=1.5)
+            bg.join()
+        rows = [("the row reads only its own reply", got, ["reply to /give @p row"]),
+                ("the build reads only its own", sorted(fb_bg[0]["reply"]), sorted(f"reply to /fill b{i}" for i in range(5)))]
+        for name, have, want in rows:
+            with self.subTest(name):
+                self.assertEqual(have, want)

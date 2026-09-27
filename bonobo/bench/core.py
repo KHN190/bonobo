@@ -181,11 +181,17 @@ def _by(rows, *keys):
     return {tuple(r.get(k) for k in keys): r for r in rows}
 
 
+# Chat is one channel with no ids: a reply belongs to whoever sent and read inside the same window. Every sender
+# (the row, the background build at site B) holds this for its send-and-read, so no reply lands in another's read.
+CHAT_LOCK = __import__("threading").RLock()
+
+
 def _chat(cmd):
     """A command from a `before` hook (after setup, perception running): world changes the skill must react to."""
     from .. import api
-    api.post("/chat", {"message": "/" + cmd})
-    time.sleep(0.3)
+    with CHAT_LOCK:
+        api.post("/chat", {"message": "/" + cmd})
+        time.sleep(0.3)
 
 
 def _drain(result):
@@ -219,18 +225,19 @@ def _chat_log():
 def _command(cmd, feedback, timeout=2.0):
     """Send one command and wait for its chat feedback in the client log; returns the new chat lines."""
     from .. import api
-    path = _chat_log()
-    size = os.path.getsize(path)
-    api.post("/chat", {"message": "/" + cmd})
-    t0, lines = time.time(), []
-    while time.time() - t0 < timeout:
-        time.sleep(0.15)
-        with open(path, "rb") as f:
-            f.seek(size)
-            new = f.read().decode(errors="replace")
-        lines = [l.split("[CHAT] ", 1)[1] for l in new.splitlines() if "[CHAT] " in l]
-        if lines:
-            break
+    with CHAT_LOCK:
+        path = _chat_log()
+        size = os.path.getsize(path)
+        api.post("/chat", {"message": "/" + cmd})
+        t0, lines = time.time(), []
+        while time.time() - t0 < timeout:
+            time.sleep(0.15)
+            with open(path, "rb") as f:
+                f.seek(size)
+                new = f.read().decode(errors="replace")
+            lines = [l.split("[CHAT] ", 1)[1] for l in new.splitlines() if "[CHAT] " in l]
+            if lines:
+                break
     feedback.append({"cmd": cmd, "reply": lines})
     return lines
 
@@ -238,14 +245,16 @@ def _command(cmd, feedback, timeout=2.0):
 def _batch(cmds, feedback, settle=0.6):
     """Send commands back to back, then read all their chat replies at once; any error line fails the setup."""
     from .. import api
-    path = _chat_log()
-    size = os.path.getsize(path)
-    for cmd in cmds:
-        api.post("/chat", {"message": "/" + cmd})
-    time.sleep(settle)
-    with open(path, "rb") as f:
-        f.seek(size)
-        lines = [l.split("[CHAT] ", 1)[1] for l in f.read().decode(errors="replace").splitlines() if "[CHAT] " in l]
+    with CHAT_LOCK:
+        path = _chat_log()
+        size = os.path.getsize(path)
+        for cmd in cmds:
+            api.post("/chat", {"message": "/" + cmd})
+        time.sleep(settle)
+        with open(path, "rb") as f:
+            f.seek(size)
+            lines = [l.split("[CHAT] ", 1)[1] for l in f.read().decode(errors="replace").splitlines()
+                     if "[CHAT] " in l]
     feedback.append({"cmd": f"batch of {len(cmds)}", "cmds": cmds, "reply": lines})
     from .runner import feedback_errors      # runner imports core: ask for it when needed, not at import time
     bad = feedback_errors(lines)
