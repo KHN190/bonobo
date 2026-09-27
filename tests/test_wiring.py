@@ -189,3 +189,52 @@ class RowsAreDifferencedOnce(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheDragonFightRunsOnTheModel(unittest.TestCase):
+    """A dragon fight's frames through the real planner and the one answer loop (fight_loop.carry, api faked only to
+    record what is posted): the bunker dig is asked for while there is no pit, the bomb is posted in a window, and
+    a threat arriving (min_tti) turns the post into a walk to cover. Change the frame → the batch changes."""
+
+    def run_frames(self, frames):
+        fight, posted, left = fight_plan.Fight(), [], list(frames)
+        body = OneLoopCarriesTheFight.BODY
+
+        def want():
+            if not left:
+                return None
+            st, v = left.pop(0)
+            return fight_loop.dragon_answer(fight.plan(fight_state(**st)), dragon_view(**v))
+
+        def answer(a):
+            posted.append(f"prep {a.target}" if a.kind == "prep" else [t["type"] for t in fight_loop.batch(a, body)])
+            return None if a.kind == "prep" else {"id": len(posted)}
+        with mock.patch("bonobo.api.post", side_effect=lambda p, b=None: posted.append(p)), \
+                mock.patch("bonobo.api.get", return_value={"status": "succeeded"}), \
+                mock.patch.object(fight_loop.time, "sleep"):
+            list(fight_loop.carry(want, answer, lambda: True, {"done": None, "task_id": None}, again=True))
+        return posted
+
+    HEAD = [((8.0, 65.0, 0.0), 6.0, (0.0, 0.0, 0.0), "dragon_head")]     # the head on the bombing spot: covered now
+
+    def test_frames_to_posts(self):
+        rows = [("circling, no pit yet: the bunker dug (the prep skill digs bunker.dig_plan)",
+                 [({"phase": 0, "tunnel": False, "bed_placed": False, "in_cover": False, "cover": None}, {})],
+                 lambda p: p[:1] == ["prep dig_tunnel"]),
+                ("sitting, pit and bed ready: the bomb batch", [({}, dict(bomb=BOMB))],
+                 lambda p: p[:1] == [["travel", "bed_bomb", "travel"]]),
+                ("the same window with the head already on us (min_tti 0): no bomb",
+                 [({"threats": self.HEAD}, dict(bomb=BOMB, cover=(5, 62, 0)))],
+                 lambda p: ["travel", "bed_bomb", "travel"] not in p),
+                ("no pit to bomb from (must fail to bomb): never the bomb batch",
+                 [({"tunnel": False, "in_cover": False, "cover": None}, {})],
+                 lambda p: ["travel", "bed_bomb", "travel"] not in p)]
+        for name, frames, check in rows:
+            with self.subTest(name):
+                posted = self.run_frames(frames)
+                self.assertTrue(check(posted), posted)
+
+    def test_a_threat_changes_the_batch(self):
+        calm = self.run_frames([({}, dict(bomb=BOMB))])
+        pressed = self.run_frames([({"threats": self.HEAD}, dict(bomb=BOMB, cover=(5, 62, 0)))])
+        self.assertNotEqual(calm, pressed)
