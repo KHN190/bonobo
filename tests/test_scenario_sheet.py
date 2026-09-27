@@ -1008,6 +1008,19 @@ class EatingOnTheWay(unittest.TestCase):
             with self.subTest(name):
                 self.assertIs(sc.ate_on_the_way(frames), want)
 
+    def test_the_walk_is_done_once_fed(self):
+        """fed_up: the walk stops once the bar rose to the autoeat's level, not at the walk's full length."""
+        from bonobo.bench import vocab
+        f = lambda *bars: [{"t": k * 0.2, "food": b} for k, b in enumerate(bars)]  # noqa: E731
+        rows = [("fed 8 → 16 → 20", f(8, 8, 16, 20), True),
+                ("fed to the level exactly", f(8, 18), True),
+                ("must fail: one bite, still below the level", f(8, 16), False),
+                ("must fail: full from the start, never ate", f(20, 20), False),
+                ("must fail: no frames", [], False)]
+        for name, frames, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.fed_up(frames, 18), want)
+
     def test_the_row_reads_the_walk_it_ran(self):
         """The row's check word (`call walk_ate`) reads the walk's frames when the check runs: a word that took
         them when the row was built judged an empty walk every time."""

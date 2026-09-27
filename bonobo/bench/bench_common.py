@@ -62,12 +62,12 @@ ROWS = [
                  (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28), (('@', -2, 0, -3), ('@', 13, 4, 3), '*', 0, 0)],
          point='B', skills=['travel_to']),
     dict(name='eat_while_walking', module='skills',
-         doc=('Hungry, cooked beef carried, 20 blocks to walk → fed on the way without an eat task, still walking '
+         doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '
               "forward while it chewed (ate_on_the_way over the walk's trace)"),
          scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 20, -1, 3), 'stone'), ('stand', -2),
                 ('give', 'cooked_beef', 4)],
          run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hunger_drained',)],
-         check=[('call', 'walk_ate', []), ('_at', ('@', 18, 0, 0), 3)], budget=25, skills=['goto'],
+         check=[('call', 'walk_ate', [])], budget=25, skills=['goto'],
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='mine_while_hungry', module='skills',
