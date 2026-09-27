@@ -73,3 +73,24 @@ class JobsLoadedTogether(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JobReady(unittest.TestCase):
+    """A furnace job is ready by the game's clock when it has one (the bench sprints it; a slow server lags it)."""
+    T0 = 1000.0
+    # (situation, job, tick now, wall now) → ready
+    TABLE = [
+        ("sprinted: ticks passed, the wall clock has not", {"ready_at": T0 + 15, "ready_tick": 520}, 1220, T0 + 3,
+         True),
+        ("lagging server: the wall says ready, the furnace has not cooked", {"ready_at": T0 + 15, "ready_tick": 520},
+         400, T0 + 20, False),
+        ("edge: exactly the tick", {"ready_at": T0 + 15, "ready_tick": 520}, 520, T0, True),
+        ("an old jar (no gameTime): the wall clock", {"ready_at": T0 + 15, "ready_tick": 520}, None, T0 + 16, True),
+        ("a job from before ticks were kept: the wall clock", {"ready_at": T0 + 15}, 99999, T0 + 1, False),
+        ("must fail: neither clock reached", {"ready_at": T0 + 15, "ready_tick": 520}, 519, T0 + 14, False),
+    ]
+
+    def test_table(self):
+        for why, job, tick, now, want in self.TABLE:
+            with self.subTest(why):
+                self.assertIs(skills.job_ready(job, tick, now), want)

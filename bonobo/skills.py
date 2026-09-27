@@ -413,7 +413,11 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
         finally:
             api.post("/close")    # leave the furnace standing: that's the point
         ready_at = time.time() + 10 * k + 5
-        ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed)
+        tick = api.get("/state").get("gameTime")
+        job = ctx.mem.add_job("furnace", pos, ctx.dimension, output, k, ready_at, pos == placed)
+        if tick is not None:
+            job["ready_tick"] = tick + TICKS_PER_ITEM * k + 20
+            ctx.mem.save()
         ready.append(ready_at)
         yield k
     total = sum(k for _, k, _ in plan)
@@ -447,8 +451,16 @@ def _smelter_for(ctx, s):
     return machine, s.detail["input"], s.count, s.detail["fuel"], mid(s.token)
 
 
-def job_ready(job):
-    return job["ready_at"] <= time.time()
+TICKS_PER_ITEM = 200        # a furnace smelts one item in 200 game ticks (10 s at 20 tps)
+
+
+def job_ready(job, tick=None, now=None):
+    """Pure given `tick`/`now`: is a background job done? By the game's clock when both the job and the reading
+    have one — the furnace cooks in ticks, so a lagging server or a sprinted clock (the iron bench's /tick sprint)
+    moves it; the wall clock (`ready_at`) only as a fallback (a jar without gameTime)."""
+    if job.get("ready_tick") is not None and tick is not None:
+        return tick >= job["ready_tick"]
+    return job["ready_at"] <= (time.time() if now is None else now)
 
 
 @skill(start=lambda c: Inventory().count(c.args[1]["item"]),
@@ -480,6 +492,10 @@ def collect_job(ctx, job):
     got = gained(lambda: Inventory().count(job["item"]), before) - before
     if still_cooking:
         ctx.mem.postpone_job(job["id"], 10 * still_cooking + 5)
+        tick = api.get("/state").get("gameTime")
+        for j in ctx.mem.data["jobs"]:
+            if j["id"] == job["id"] and tick is not None:
+                j["ready_tick"] = tick + TICKS_PER_ITEM * still_cooking + 20
         job_left = job["count"] - got
         for j in ctx.mem.data["jobs"]:
             if j["id"] == job["id"]:

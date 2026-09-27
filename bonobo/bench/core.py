@@ -87,7 +87,8 @@ def _achieve(ctx, needs, done, rounds=12):
             return True
         snap = Snapshot()
         pending = BRAIN.mem.jobs(snap.dimension)
-        ready = [j for j in pending if j["ready_at"] <= time.time()]
+        from .. import skills as _skills
+        ready = [j for j in pending if _skills.job_ready(j, snap.state.get("gameTime"))]
         if ready:
             _jobs.collect(ctx, ready[0])        # a background furnace finished: take its output (the brain's job)
             continue

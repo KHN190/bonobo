@@ -261,7 +261,7 @@ class Maintain:
     # -- jobs and the bag
     def ready_job(self, snap):
         near = [j for j in self.brain.mem.jobs(snap.dimension)
-                if skills.job_ready(j) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
+                if skills.job_ready(j, snap.state.get("gameTime")) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
         return min(near, key=lambda j: math.dist(j["pos"], snap.feet), default=None)
 
     def ready_machine(self, snap):
