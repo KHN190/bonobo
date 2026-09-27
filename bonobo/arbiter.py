@@ -170,6 +170,33 @@ def wants_body(body, running, now=None):
 # night's parts, a tool that broke, a bucket, blocks, food), then what the queue asks, then the night's work under
 # cover and idle stocking. They only PROPOSE; `arbitrate` chooses. (The MAINTAIN layer's reflexes rank by their
 # own table, reflexes.TABLE, through `seq`.)
+# How work left for something faster is taken up again — one declared rule per interrupt source; a source with no
+# rule is refused by the offline sweep (tests/test_pure_world InterruptSources, built from the code's own lists:
+# every reflexes.TABLE row, every hazard kind, every layer, and the sources below).
+RESUME_RULES = {
+    "same": (True, None),             # the same target, the next frontier; nothing cooled, nothing banned
+    "recheck": (True, "recheck"),     # the bag changed under it: re-read the remaining amount first
+    "recover": (True, "recover"),     # died: recover the items first, then replan from where we stand (target kept)
+    "dimension": (True, "back"),      # the map is per dimension: resumed only back in the one it was left in
+    "none": (False, None),            # the user cancelled: nothing resumes
+    "cooled": (False, "cool"),        # a real failure, not an interrupt: cooled under the retry policy
+}
+RESUME_OF = {
+    **{f"layer:{k}": "same" for k in ("reflex", "safety", "tactic", "maintain", "plan")},
+    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "falling")},
+    **{f"row:{k}": "same" for k in ("eat", "reach land", "dig out", "sleep", "shelter", "collect job",
+                                    "collect machine", "path blocked", "unstuck", "recover items")},
+    "row:empty the bag": "recheck", "row:leave the Nether": "dimension",
+    "manual": "same", "jar reflex": "same", "death": "recover", "dimension change": "dimension",
+    "user cancel": "none", "stuck": "cooled",
+}
+
+
+def resume_of(source):
+    """Pure: (resumes, what first) for work interrupted by `source` — KeyError for a source nobody declared."""
+    return RESUME_RULES[RESUME_OF[source]]
+
+
 PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food stock",
               "queue", "night stock", "wait for day", "idle")
 

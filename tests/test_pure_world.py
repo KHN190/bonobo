@@ -751,3 +751,72 @@ class Frontier(unittest.TestCase):
             gen = explore._search(ctx, [self.D], lambda: [], 48, 1)
             next(gen)
         self.assertEqual(went[0][1], -55)
+
+    def test_resume_after_any_interrupt(self):
+        """A search left for a faster layer — a fight (tactic), the eat reflex (maintain), the night's way (plan) —
+        resumes for the same target from the same map: the same next section, nothing cooled, nothing banned."""
+        from bonobo import api, explore, retry
+        from bonobo import brain as brainmod
+        # (the source, what reaches the search)
+        rows = [("tactic: our own fight holds the body", api.FightHolds("nav.go_to: a fight holds the body")),
+                ("another commander took the body", api.BodyContested("replaced by a task we did not post")),
+                ("maintain: the eat reflex took the body", api.Interrupted("a faster layer took the body")),
+                ("plan: the night's way came due", api.CommitmentExpired("the night: a new decision")),
+                ("the player took the controls", api.PlayerTookControl("the player moved"))]
+        for name, exc in rows:
+            with self.subTest(name):
+                m = self.mem()
+                ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
+                went = []
+
+                def walk(pos, *a, _e=[exc], **k):
+                    went.append(pos)
+                    if _e:
+                        raise _e.pop()
+                with mock.patch.object(explore, "feet", lambda: self.HERE), \
+                        mock.patch.object(explore, "_ground", lambda tx, tz, y: 70), \
+                        mock.patch.object(explore.nav, "go_to", walk), mock.patch.object(explore, "log"):
+                    with self.assertRaises(type(exc)):
+                        next(explore._search(ctx, [self.S], lambda: [], 48, 3))
+                    next(explore._search(ctx, [self.S], lambda: [], 48, 3))      # the resume
+                self.assertEqual(went[1], went[0])                                # the same next section
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.retry, b.place, b.mem = retry.Retry(), ("here", False), m
+                b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
+                with mock.patch.object(api, "post"), mock.patch.object(brainmod, "log"), \
+                        mock.patch.object(api, "wait_for_handback", lambda: None), \
+                        mock.patch.object(brainmod.time, "sleep", lambda s: None):
+                    b.attempt("seek sheep", lambda: (_ for _ in ()).throw(exc), also=("step:seek:sheep",))
+                self.assertEqual((b.ready("seek sheep"), b.ready("step:seek:sheep"), b.retry.entries), (True, True, {}))
+
+
+class InterruptSources(unittest.TestCase):
+    """Every source that can take a search's body has a declared resume rule (arbiter.RESUME_OF), the list built
+    from the code's own tables: a new reflex row, hazard kind or layer without a rule fails here."""
+
+    def sources(self):
+        from bonobo import arbiter, hazard, reflexes
+        return ([f"row:{n}" for n in reflexes.NAMES] + [f"hazard:{k}" for k in hazard.KINDS]
+                + [f"layer:{k}" for k in arbiter.SCALES]
+                + ["manual", "jar reflex", "death", "dimension change", "user cancel", "stuck"])
+
+    def test_every_source_is_declared(self):
+        from bonobo import arbiter
+        missing = [s for s in self.sources() if s not in arbiter.RESUME_OF]
+        self.assertEqual(missing, [])
+
+    def test_the_rule_per_class(self):
+        from bonobo import arbiter
+        # (source) → (resumes, what first)
+        rows = [("layer:tactic", (True, None)), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
+                ("manual", (True, None)), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
+                ("dimension change", (True, "back")), ("row:leave the Nether", (True, "back")),
+                ("user cancel", (False, None)), ("stuck", (False, "cool"))]
+        for source, want in rows:
+            with self.subTest(source):
+                self.assertEqual(arbiter.resume_of(source), want)
+
+    def test_an_undeclared_source_is_refused(self):
+        from bonobo import arbiter
+        with self.assertRaises(KeyError):
+            arbiter.resume_of("row:a reflex nobody declared")
