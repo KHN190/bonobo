@@ -382,7 +382,10 @@ class Brain:
     # -- the queue: hold a plan, check it cheaply, repair it on events
     def task_act(self, task, snap, ctx):
         goal = tasks.goal_of(task)
-        finished = goals.done(goal, snap, self.mem)
+        # Reconcile: what the goal still wants, read from the world each round ({} = done). The held plan is a
+        # cache of how to get it, redone when this remainder changes — never a count of what was done.
+        rest = goals.remainder(goal, snap, self.mem)
+        finished = None if rest is None else not rest
         if finished:
             self.finish(task, "done", "")
             return None
@@ -391,10 +394,11 @@ class Brain:
             # Work half done before a restart: the saved plan is a hint, checked against the bag like any event.
             held = {"steps": [decompose.from_dict(d) for d in task["plan"]], "sig": None, "event": True,
                     "dim": snap.dimension}
-        if held is None or held["event"] or held["sig"] != bag_signature(snap.inv) or held["dim"] != snap.dimension:
+        if held is None or held["event"] or held.get("want") != rest or held["dim"] != snap.dimension:
             held = self.repair(task, goal, snap, held)
             if held is None:
                 return None
+            held["want"] = rest
         if not held["steps"]:
             if finished is None:                  # a run-once goal whose plan has run
                 self.finish(task, "done", "")

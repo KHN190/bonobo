@@ -117,25 +117,88 @@ def short(inv, need_rows):
     return ", ".join(out)
 
 
-def done(goal, snap, mem):
-    """True / False from the world; None for a goal that is done when its plan has run (RUN_ONCE)."""
-    template, args = goal["goal"], goal.get("args", {})
-    if template == "milestone" and args.get("name") in RUN_AFTER:
+# Every goal kind states what it wants as a pure function of what the world shows — the remainder still to do,
+# {} when met. A task's progress is never a counter or a step index: each round the remainder is read again, and
+# only that is planned for (the held plan is a cache of how, redone when the remainder changes).
+DESIRED = {}
+
+
+def desired(*templates):
+    """Register the remainder function for goal `templates`: fn(goal, snap, mem) → {what: how much is missing}
+    ({} = met), or None for a goal the world cannot judge (it is done when its plan ran: RUN_ONCE)."""
+    def wrap(fn):
+        for t in templates:
+            DESIRED[t] = fn
+        return fn
+    return wrap
+
+
+def reconcile(want, have):
+    """Pure: what of `want` ({key: amount}) `have` does not cover — {key: missing}, {} when all is there."""
+    return {k: n - have.get(k, 0) for k, n in want.items() if have.get(k, 0) < n}
+
+
+def remainder(goal, snap, mem):
+    """The goal's remainder from the world now ({} = done), or None when only its plan running can say."""
+    return DESIRED[goal["goal"]](goal, snap, mem)
+
+
+@desired(*ITEM_GOALS)
+def _held_remainder(goal, snap, mem):
+    if goal["goal"] == "milestone" and goal.get("args", {}).get("name") in RUN_AFTER:
         return None                       # its plan ends in doing (find the stronghold, light the portal)
-    if template in ITEM_GOALS:
-        return not short(snap.inv, needs(goal, snap.inv))
-    if template == "goto":
-        return math.dist(snap.feet, tuple(args["pos"])) <= float(args.get("range", 2)) + 1
-    if template == "build":
-        bp = args["bp"]
-        if bp == "shelter":
-            at = args.get("at")
-            return any(at is None or math.dist(s["pos"], at) <= 8 for s in mem.sites(snap.dimension, kinds=["shelter"]))
+    rows = needs(goal, snap.inv)
+    items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
+    out = reconcile(items, {t: held(snap.inv, t) for t in items})
+    for r in rows:
+        if r[0] == "tool" and not tool_ok(snap.inv, r[1], int(r[2])):
+            out[f"tool:{r[1]}"] = int(r[2])
+    return out
+
+
+@desired("goto")
+def _goto_remainder(goal, snap, mem):
+    args = goal["args"]
+    away = math.dist(snap.feet, tuple(args["pos"])) - (float(args.get("range", 2)) + 1)
+    return {"blocks away": round(away, 1)} if away > 0 else {}
+
+
+@desired("build")
+def _build_remainder(goal, snap, mem):
+    args = goal["args"]
+    bp = args["bp"]
+    if bp == "shelter":
+        at = args.get("at")
+        built = any(at is None or math.dist(s["pos"], at) <= 8 for s in mem.sites(snap.dimension, kinds=["shelter"]))
+    else:
         dim = "minecraft:overworld" if bp == "nether_portal" else snap.dimension
-        return any(m["blueprint"] == bp for m in mem.machines(dim))
-    if template == "sleep":
-        return not snap.night
-    return None
+        built = any(m["blueprint"] == bp for m in mem.machines(dim))
+    return {} if built else {f"built:{bp}": 1}
+
+
+@desired("sleep")
+def _sleep_remainder(goal, snap, mem):
+    return {"night": 1} if snap.night else {}
+
+
+@desired(*RUN_ONCE)
+def _ran(goal, snap, mem):
+    return None                           # nothing in the world says a skill was run or a road walked
+
+
+def _registered():
+    missing = [t for t in TEMPLATES if t not in DESIRED]
+    if missing:
+        raise TypeError(f"goal kinds without a desired state: {', '.join(missing)}")
+
+
+_registered()
+
+
+def done(goal, snap, mem):
+    """True / False from the world (`remainder` is empty or not); None for a goal done when its plan has run."""
+    rest = remainder(goal, snap, mem)
+    return None if rest is None else not rest
 
 
 def describe(goal):
