@@ -7,7 +7,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .world import Inventory, entities, find
+from .world import Inventory, entities, find, screen_slot
 
 OVERWORLD = "minecraft:overworld"
 NETHER = "minecraft:the_nether"
@@ -198,7 +198,7 @@ def barter_piglin(ctx, ingots=8):
             if slot is None:
                 break
             api.run({"type": "look", "x": p["x"], "y": p["y"] + 0.5, "z": p["z"]}, wait=5, awaits="the throw is a UI click (/click), not a task: look, then click")
-            api.post("/click", {"slot": 36 + slot if slot < 9 else slot, "button": 0, "action": "THROW"})
+            api.post("/click", {"slot": screen_slot(slot), "button": 0, "action": "THROW"})
             thrown += 1
         if not Inventory().count("minecraft:gold_ingot") and thrown < ingots:
             thrown = ingots

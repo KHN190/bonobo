@@ -14,6 +14,15 @@ NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -
 def add(p, d):
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 
+
+BAG_SLOTS = 36          # the main bag: hotbar 0-8 and the 27 above it (offhand and armour are not bag)
+
+
+def screen_slot(slot):
+    """Pure: a bag slot's id in the inventory screen a /click names — the hotbar (0-8) sits at 36-44 there, the
+    rest keep their number."""
+    return 36 + slot if slot < 9 else slot
+
 class Inventory:
     def __init__(self, data=None):
         data = data or api.get("/inventory")
@@ -57,7 +66,7 @@ class Inventory:
 
     def free_slots(self):
         """Main-inventory slots still empty: what "room to carry more" means everywhere."""
-        return max(0, 36 - self.used_slots())
+        return max(0, BAG_SLOTS - self.used_slots())
 
     def used_slots(self):
         return len(self.slots)

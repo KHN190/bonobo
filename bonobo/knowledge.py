@@ -139,8 +139,8 @@ def nether_kit_missing(inv):
     if not (inv.count("minecraft:golden_helmet") or bare(inv.worn("head") or "") == "golden_helmet"):
         missing.append("gold helmet")
     # two free slots: a stricter target flickered with every pickup
-    if 36 - inv.used_slots() < 2:
-        missing.append(f"bag room {36 - inv.used_slots()}/2 free")
+    if inv.free_slots() < 2:
+        missing.append(f"bag room {inv.free_slots()}/2 free")
     return missing
 
 def kit_needs(inv):

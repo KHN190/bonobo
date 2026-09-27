@@ -26,5 +26,26 @@ class CannotReach(unittest.TestCase):
         self.assertEqual(end.unreachable(failed), {(1, 2, 3)})
 
 
+class BagSlots(unittest.TestCase):
+    """world.screen_slot and world.BAG_SLOTS: a bag slot's id in the screen a /click names; the bag's size behind
+    every "free slots" (Inventory.free_slots)."""
+
+    def test_screen_slot(self):
+        from bonobo.world import screen_slot
+        rows = [("hotbar first", 0, 36), ("hotbar last", 8, 44), ("the bag above it", 9, 9), ("the last bag slot", 35, 35),
+                ("must fail: a hotbar slot is never clicked as itself", 3, 39)]
+        for name, slot, want in rows:
+            with self.subTest(name):
+                self.assertEqual(screen_slot(slot), want)
+
+    def test_free_slots(self):
+        from tests.world import bag, inventory
+        rows = [("empty", {}, 36), ("one stack", {"dirt": 1}, 35), ("two kinds", {"dirt": 1, "stone": 64}, 34),
+                ("must fail: a full stack still takes one slot", {"stone": 64}, 35)]
+        for name, counts, want in rows:
+            with self.subTest(name):
+                self.assertEqual(bag(inventory(**counts)).free_slots(), want)
+
+
 if __name__ == "__main__":
     unittest.main()

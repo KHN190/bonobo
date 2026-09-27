@@ -125,7 +125,7 @@ def state_of(snap, mem, extra=None, reachable=None):
         if _standing_at(kinds, snap, mem) and (reachable is None or reachable(kinds)):
             x[at(what)] = 1
     x["sheltered"] = 1 if _sheltered(snap, mem) else 0
-    x["bag_free"] = max(0, 36 - inv.used_slots())
+    x["bag_free"] = inv.free_slots()
     x["bed"] = x.get("bed", 0)
     # the body's abilities as dimensions: a column needing footing is dropped when there is none, instead of every goal failing on it
     x.update(body_dims(getattr(snap, "state", None)))

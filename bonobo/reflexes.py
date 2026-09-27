@@ -108,7 +108,7 @@ def nether_retreat(snap):
         return "food running out"
     if s.get("health", 20) <= 8:
         return "health low"
-    if inv.used_slots() >= 35:
+    if inv.free_slots() <= 1:
         return "bag full"
     return None
 

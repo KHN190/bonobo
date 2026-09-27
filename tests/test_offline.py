@@ -157,6 +157,10 @@ class LInv:
     def used_slots(self):
         return self._used
 
+    def free_slots(self):
+        from bonobo.world import BAG_SLOTS
+        return max(0, BAG_SLOTS - self._used)
+
     def worn(self, slot):
         return self._head if slot == "head" else None
 
