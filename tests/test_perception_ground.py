@@ -41,9 +41,9 @@ class Ground(unittest.TestCase):
             with self.subTest(why):
                 fresh()
                 got = perception.ground(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
-                self.assertIsInstance(got, field.Field)
-                self.assertEqual(got.bucket, bucket)
-                self.assertIsNotNone(perception.REGION, "the region is kept for evade's footing")
+                self.assertEqual((type(got), got.bucket, got.blocks), (field.Field, bucket, 0))
+                self.assertEqual((perception.REGION.lo, perception.REGION.hi, perception.REGION.blocks),
+                                 ((-8, 56, -8), (8, 72, 8), blocks), "the region read is kept for evade's footing")
 
 
 class Perceived(unittest.TestCase):
@@ -52,20 +52,21 @@ class Perceived(unittest.TestCase):
             raise AttributeError("module 'bonobo.field' has no attribute 'from_region'")
         kit = {"sword_tier": 2, "armor": 7}
         flat = floor(R, R)
-        rows = [  # (why, ground read, kit read) → (sword tier, a field present)
+        rows = [  # (why, ground read, kit read) → (sword tier, the field's bucket or None)
             ("both read", lambda st: perception.ground(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)),
-             lambda st: kit, (2, True)),
-            ("the ground raises: the kit is still merged", boom, lambda st: kit, (2, False)),
+             lambda st: kit, (2, "open")),
+            ("the ground raises: the kit is still merged", boom, lambda st: kit, (2, None)),
             ("the kit raises: the ground is still read",
              lambda st: perception.ground(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)), boom,
-             (None, True)),
-            ("both raise: the state as it came", boom, boom, (None, False)),
+             (None, "open")),
+            ("both raise: the state as it came", boom, boom, (None, None)),
         ]
         for why, ground_of, kit_of, want in rows:
             with self.subTest(why):
                 fresh()
                 got = perception.perceived(dict(HERE), 0.0, ground_of=ground_of, kit_of=kit_of)
-                self.assertEqual((got.get("sword_tier"), isinstance(got.get("field"), field.Field)), want)
+                ground = got.get("field")
+                self.assertEqual((got.get("sword_tier"), ground.bucket if ground is not None else None), want)
 
 
 if __name__ == "__main__":
