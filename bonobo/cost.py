@@ -12,6 +12,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .knowledge import step_call, tool_ok
 from .skillcore import banned
 from .world import ROUTES, entities, find, job_ready, nearest
 
@@ -156,8 +157,19 @@ class Cost:
         """Ticks this step takes from here: measured work when there is enough of it, the prior otherwise, plus the
         walk to where it happens."""
         measured = self.measured(step)
-        work = measured if measured is not None else self._prior_work(step)
+        work = measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
         return work + self._walk(step)
+
+    def _sped_up(self, step):
+        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge.step_call —
+        every skill's `speed`, seconds saved per unit) for each tool the bag holds, times the step's units. A measured
+        time already has the tools in it."""
+        inv = getattr(self.snap, "inv", None)
+        if inv is None:
+            return 0
+        _needs, speed = step_call(step)
+        units = step.detail.get("breaks") or step.detail.get("kills") or step.count
+        return int(sum(s for tool, s in speed.items() if tool_ok(inv, tool, 0)) * max(1, units) * TICKS_PER_S)
 
     def _prior_work(self, step):
         k = step.kind

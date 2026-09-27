@@ -139,7 +139,7 @@ def can_run(fn, *args, **kwargs):
     and learned by failing — ninety times in four minutes, because the idle rule kept thawing it.
     """
     contract = getattr(fn, "contract", None)
-    if contract is None or not contract.pre:
+    if contract is None:
         return True, None
     c = Call(args, kwargs)
     for check in contract.pre:
@@ -147,7 +147,19 @@ def can_run(fn, *args, **kwargs):
             check(c)
         except Exception as e:
             return False, str(e) or type(e).__name__
+    missing = unmet(contract, args, skillcore.Inventory)
+    if missing:
+        return False, f"{contract.name} needs {', '.join(f'{k} {v}' for k, v in sorted(missing.items()))}"
     return True, None
+
+
+def unmet(contract, args, bag):
+    """Pure given the bag: what of this call's hard needs (needs_of) the bag (`bag()`, read only when there are
+    needs) does not hold — {} when it can start. The one start check of `needs`: can_run, asked before the work is
+    offered (dispatch.can_start)."""
+    from .knowledge import have_remainder, needs_rows
+    needs = needs_of(contract, args)
+    return have_remainder(bag(), needs_rows(needs)) if needs else {}
 
 
 def commands_of(fn, state, *args):
@@ -185,6 +197,61 @@ def handles(step):
 def needs_of(contract, args):
     """The hard prerequisites of this call: the static `needs`, or the function of the call's args."""
     return dict(contract.needs_fn(args)) if getattr(contract, "needs_fn", None) else dict(contract.needs)
+
+
+def step_call(step):
+    """Pure: (needs, speed) of what carries out a planned `step` — every skill that provides it (step_keys, first
+    effect anyone provides), merged: the needs of the call each would make (needs_of; a need that depends on the call
+    reads the args its `provides` builds from the step, with no context — None: it would not take this step), the
+    most per dimension; its speed tools that help this call, the most saved per unit. The planner's and the cost
+    model's one reading of both (knowledge.step_call)."""
+    if step.kind == "skill" and step.token in REGISTRY:
+        # A skill asked for by name (goals' "skill" template): that skill, called with the goal's args.
+        c = REGISTRY[step.token]
+        try:
+            needs = needs_of(c, (None,) + tuple(step.detail.get("args") or ()))
+        except (IndexError, KeyError, TypeError):
+            needs = dict(c.needs)            # args it cannot read: its no-call default (the runner refuses them)
+        return needs, dict(c.speed)
+    for effect in step_keys(step):
+        found = providers(effect)
+        if not found:
+            continue
+        needs, speed = {}, {}
+        for c in found:
+            args = ()
+            if getattr(c, "needs_fn", None):
+                got = c.provides[effect](None, _lenient(step))
+                if got is None:
+                    continue
+                args = (None,) + tuple(got)
+            call_needs = needs_of(c, args)
+            for k, v in call_needs.items():
+                needs[k] = max(needs.get(k, 0), v)
+            # A shovel speeds up soft ground only: not a call that needs a pickaxe (stone, ore).
+            hard = any(k.startswith("tool:pickaxe:") for k in call_needs)
+            for k, v in c.speed.items():
+                if not (k == "shovel" and hard):
+                    speed[k] = max(speed.get(k, 0), v)
+        return needs, speed
+    return {}, {}
+
+
+class _Blank(dict):
+    def __missing__(self, key):
+        return None
+
+
+def _lenient(step):
+    """The step as a provider reads it for its needs: a detail it lacks reads None (the need is the call's; a missing
+    argument is decompose.missing_detail's refusal, not this one's)."""
+    import types
+    return types.SimpleNamespace(kind=step.kind, token=step.token, count=step.count, detail=_Blank(step.detail))
+
+
+def _wire_planner():
+    from . import knowledge
+    knowledge.STEP_CALL = step_call
 
 
 def declared(name, needs, speed, gives=(), remaining=None):
@@ -300,8 +367,6 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
         for g in contract.gives:
             if not isinstance(g, str) and g not in PRODUCERS:
                 PRODUCERS.append(g)
-        from .knowledge import SKILL_SPEED
-        SKILL_SPEED[contract.name] = contract.speed
         # A gatherer: True (anything it takes needs a free slot) or c -> the item ids it gathers. Checked before it
         # starts and between its batches (bag_check), and its failures on a full bag say so (bag_full_reason).
         contract.fills_bag = fills_bag
@@ -466,3 +531,6 @@ def _drive(contract, c, gen):
                 raise TaskStuck(f"{contract.name}: over its {contract.budget}s budget")
     finally:
         gen.close()
+
+
+_wire_planner()

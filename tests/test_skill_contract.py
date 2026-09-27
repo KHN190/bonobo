@@ -1358,12 +1358,11 @@ class Declarations(unittest.TestCase):
     or it is refused at import."""
 
     def test_every_registered_skill_declares_both(self):
-        from bonobo import data, knowledge
+        from bonobo import data
         tools = set(data.TOOL_KINDS)
         bad = {n: (c.needs, c.speed) for n, c in skillkit.REGISTRY.items()
                if not isinstance(c.needs, dict) or not isinstance(c.speed, dict)
-               or not set(c.speed) <= tools or any(not (v > 0) for v in c.speed.values())
-               or knowledge.SKILL_SPEED.get(n) != c.speed}
+               or not set(c.speed) <= tools or any(not (v > 0) for v in c.speed.values())}
         self.assertEqual(bad, {})
 
     def test_the_decorator_refuses_what_is_undeclared(self):
@@ -1385,8 +1384,6 @@ class Declarations(unittest.TestCase):
                     got = str(e)
                 finally:
                     skillkit.REGISTRY.pop("_dummy_for_the_contract_test", None)
-                    __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop(
-                        "_dummy_for_the_contract_test", None)
                 self.assertEqual(got if want is None else (got is not None and want in got),
                                  None if want is None else True, got)
 
@@ -1570,6 +1567,23 @@ class Remaining(unittest.TestCase):
                     got = skillkit.remaining_of(c, body(inv=inventory(**{it: now})), call)
                     self.assertEqual(got, {token: left} if left else {}, name)
 
+    def test_a_call_starts_only_with_its_needs_held(self):
+        # (situation, the bag, the call to mine) → can_run's answer: mine's pickaxe is its needs (needs_of for the
+        # call), not a second `pre` check
+        rows = [("diamonds, an iron pickaxe", inventory(("iron_pickaxe", 1)), "minecraft:diamond", 2, True),
+                ("must fail: diamonds, a wooden pickaxe", inventory(("wooden_pickaxe", 1)), "minecraft:diamond", 2,
+                 False),
+                ("must fail: coal, bare hands", inventory(), "minecraft:coal", 0, False),
+                ("dirt, bare hands", inventory(), "minecraft:dirt", None, True)]
+        mine = skillkit.REGISTRY["mine"]
+        self.assertEqual(mine.pre, ())
+        for name, inv, token, tier, ok in rows:
+            with self.subTest(name), mock.patch.object(skillcore, "Inventory", lambda inv=inv: bag(inv)):
+                got, why = skillkit.can_run(mine.runner, None, token, 1, ["x"], tier)
+                self.assertEqual(got, ok, why)
+                if not ok:
+                    self.assertIn("tool:pickaxe", why)
+
     def test_a_skill_must_say_what_is_left(self):
         # skill.declared: an item in its gives (the rest derived from the bag) or its own remaining=, else refused
         # at import, named. (situation, gives, remaining) → refused (TypeError naming the skill) or registered
@@ -1588,7 +1602,6 @@ class Remaining(unittest.TestCase):
                     got = str(e)
                 finally:
                     skillkit.REGISTRY.pop("_dummy_left", None)
-                    __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_left", None)
                 self.assertEqual(got is not None, refused, got)
                 if refused:
                     self.assertIn("_dummy_left", got)
@@ -1782,7 +1795,6 @@ class ResumeFromTheWorld(unittest.TestCase):
                             runner(None, token, 3)
                     finally:
                         skillkit.REGISTRY.pop("_dummy_resume", None)
-                        __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_resume", None)
                     self.assertEqual(asked, want, situation)
                     self.assertEqual(world["n"] if remaining is None else world["food"], 3 if remaining is None else 20)
 

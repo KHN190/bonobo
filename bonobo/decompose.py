@@ -11,7 +11,7 @@ Pure apart from what the cost model reads (one cached /find per kind).
 """
 import math
 
-from . import blueprints, goals
+from . import blueprints, goals, knowledge
 from .cost import TICKS_PER_S
 from .data import POD_BLOCKS
 from .planner import Planner, Step, Unplannable
@@ -329,9 +329,10 @@ def _decompose(inv, goal, cost, solver, pending):
         chosen, _name = cheapest(f"build:{bp}", 1, carry_and_build, inv, cost, solver, pending)
         return where_it_lives(chosen if chosen is not None else carry_and_build(), cost)
     if template == "sleep":
-        return [_action("sleep", "bed", cost)]
+        return _prepared(inv, _action("sleep", "bed", cost), cost, solver, pending)
     if template == "skill":
-        return [_action("skill", args["name"], cost, args=list(args.get("args", [])))]
+        return _prepared(inv, _action("skill", args["name"], cost, args=list(args.get("args", []))), cost, solver,
+                         pending)
     if template == "effect":
         # Any effect a skill provides, asked for by name: "breed" → Step("breed", "breed"), "repair:pickaxe" →
         # Step("repair", "pickaxe"). `decompose` refuses it when no registered skill provides it (skill.handles).
@@ -343,8 +344,15 @@ def _decompose(inv, goal, cost, solver, pending):
         if missing:
             raise Unplannable(f"effect {args['effect']} needs {missing} in its detail")
         step.est = cost.estimate(step)
-        return [step]
+        return _prepared(inv, step, cost, solver, pending)
     raise Unplannable(f"no way to decompose a {template!r} goal")
+
+
+def _prepared(inv, step, cost, solver, pending):
+    """The steps that get what `step`'s skill needs held for its call (knowledge.step_call → needs_of: the bed of a
+    sleep, the pickaxe of a mine), then the step — what planner.before does for the planner's own steps."""
+    needs, _speed = knowledge.step_call(step)
+    return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]
 
 
 def to_dict(step):

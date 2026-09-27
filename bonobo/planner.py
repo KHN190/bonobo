@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, TAKEABLE,
-                        TOOL_MIN_DURABILITY, members, source, tool_ok)
+from .beliefs import fights_back
+from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, STATIONS, TAKEABLE, TOOL_MIN_DURABILITY,
+                        have_remainder, members, needs_rows, source, step_call, tool_ok)
 
 MAX_DEPTH = 14
 
@@ -137,15 +138,31 @@ class Planner:
                 return tier
         return 0
 
-    def speed_up(self, kind, units, depth, soft=True):
-        """Before `units` of work of step `kind`: the optional tools its skill runs faster with (`@skill(speed=...)`,
-        seconds saved per unit), made when making one costs less than it saves — and only from what does not
-        need this same work (an axe that needs the logs it would speed up is made after them, too late).
-        A shovel only for soft ground (`soft`)."""
+    def before(self, step, depth):
+        """Every step passes here before it is added: what the skill carrying it out needs held (knowledge.step_call
+        — its `needs` for this call: tools first, then items, planned and kept, never used up by it), then the tools
+        it runs faster with where making one pays (`speed_up`). The one place a step's skill is asked."""
+        needs, speed = step_call(step)
+        for dim, n in sorted(needs.items(), key=lambda kv: not kv[0].startswith("tool:")):
+            if dim.startswith("tool:"):
+                _, kind, tier = dim.split(":")
+                self.need_tool(kind, int(tier), depth)
+            elif self.inv.available(dim) < n:
+                short = n - self.inv.available(dim)
+                self.need(dim, short, depth + 1)
+                self.inv.add(dim, short)
+        units = step.detail.get("breaks") or step.detail.get("kills") or step.count
+        self.speed_up(step.kind, speed, units, depth)
+
+    def speed_up(self, kind, speed, units, depth):
+        """Before `units` of work of step `kind`: the optional tools its skill runs faster with here (`speed`: its
+        `@skill(speed=...)`, seconds saved per unit — a shovel only on soft ground, step_call), made when making one
+        costs less than it saves — and only from what does not need this same work (an axe that needs the logs it
+        would speed up is made after them, too late)."""
         if self.probing:
             return
-        for tool, saved in SKILL_SPEED.get(STEP_SKILL.get(kind), {}).items():
-            if (tool == "shovel" and not soft) or self.inv.has_tool(tool, 0, TOOL_MIN_DURABILITY):
+        for tool, saved in speed.items():
+            if self.inv.has_tool(tool, 0, TOOL_MIN_DURABILITY):
                 continue
             probe = Planner(self.inv.counts, [], self.cost)
             probe.inv.produced = Counter(self.inv.produced)
@@ -198,8 +215,9 @@ class Planner:
             if len(pattern) == 9:
                 self.need_station("minecraft:crafting_table", depth)
             inputs = dict(Counter(p for p in pattern if p))
-            self.add_step(Step("craft", token, times * out, {"times": times,
-                                                             "inputs": {t: c * times for t, c in inputs.items()}}))
+            step = Step("craft", token, times * out, {"times": times, "inputs": {t: c * times for t, c in inputs.items()}})
+            self.before(step, depth)
+            self.add_step(step)
             self.inv.add(token, times * out)
             self.inv.consume(token, missing)
         elif kind == "smelt":
@@ -209,55 +227,57 @@ class Planner:
             self.need(fuel, math.ceil(missing / 8) if fuel == "coal" else math.ceil(missing / 1.5), depth + 1)
             self.need_station("minecraft:furnace", depth)
             fuel_n = math.ceil(missing / 8) if fuel == "coal" else math.ceil(missing / 1.5)
-            self.add_step(Step("smelt", token, missing, {"input": inp, "fuel": fuel,
-                                                         "inputs": {inp: missing, fuel: fuel_n}}))
+            step = Step("smelt", token, missing, {"input": inp, "fuel": fuel, "inputs": {inp: missing, fuel: fuel_n}})
+            self.before(step, depth)
+            self.add_step(step)
         elif kind == "mine":
             _, blocks, tier = src
-            if tier is not None:
-                self.need_tool("pickaxe", tier, depth)
             per = MINE_YIELD.get(mid(token), 1)
-            self.speed_up("mine", math.ceil(missing / per), depth, soft=tier is None)
-            self.add_step(Step("mine", token, missing, {"blocks": blocks, "tier": tier,
-                                                        "breaks": math.ceil(missing / per)}))
+            step = Step("mine", token, missing, {"blocks": blocks, "tier": tier, "breaks": math.ceil(missing / per)})
+            self.before(step, depth)               # the pickaxe of this tier: mine's own needs
+            self.add_step(step)
         elif kind == "gather":
-            self.speed_up("gather", missing, depth)
-            self.add_step(Step("gather", token, missing, {}))
+            step = Step("gather", token, missing, {})
+            self.before(step, depth)
+            self.add_step(step)
         elif kind == "fill":
             _, container = src
-            self.need(container, 1, depth + 1)     # the empty bucket first, then the trip to water
-            self.add_step(Step("fill", token, missing, {"container": container}))
+            step = Step("fill", token, missing, {"container": container})
+            self.before(step, depth)
+            self.need(container, 1, depth + 1)     # the empty bucket first (used up: it becomes the full one)
+            self.add_step(step)
         elif kind == "hunt":
             _, types = src
             per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
-            if hunts_a_fighter(types):
-                # A mob that hits back is a fight, and the threat layer refuses fights it cannot afford: bare-handed
-                # a spider costs more health than we have, so "string" without a sword planned a hunt that could
-                # only ever be abandoned. The weapon is part of the requirement, like the pickaxe tier for ore.
-                self.need_tool("sword", 1, depth)
-            self.speed_up("hunt", math.ceil(missing / per), depth)
-            self.add_step(Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
-                                                        "fighter": hunts_a_fighter(types)}))
+            step = Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
+                                                 "fighter": hunts_a_fighter(types)})
+            self.before(step, depth)               # a mob that hits back: a sword first (hunt's own needs)
+            self.add_step(step)
         elif kind == "farm" and getattr(self.cost, "ripe", lambda t: 0)(token) * TAKEABLE[token]["gives"][token] \
                 >= missing:
             # A crop already grown is harvested before a plot is sown (the ore rule: what is known first).
-            self.add_step(Step("take", token, missing, {"blocks": list(TAKEABLE[token]["blocks"])}))
+            step = Step("take", token, missing, {"blocks": list(TAKEABLE[token]["blocks"])})
+            self.before(step, depth)
+            self.add_step(step)
         elif kind == "farm":
             # A plot (farming.plant_farm): a hoe, the seeds sown (given back at the harvest) and a water bucket that
             # stays in it; one plot is `per` of the crop.
             _, seeds, per = src
             plots = math.ceil(missing / per)
-            self.need_tool("hoe", 0, depth)
+            step = Step("farm", token, plots * per, {"plots": plots, "inputs": {"minecraft:water_bucket": plots}})
+            self.before(step, depth)               # the hoe, and a start of seeds and water: plant_farm's own needs
             self.need(seeds, per, depth + 1)
             self.need("minecraft:water_bucket", plots, depth + 1)
-            self.add_step(Step("farm", token, plots * per, {"plots": plots,
-                                                            "inputs": {"minecraft:water_bucket": plots}}))
+            self.add_step(step)
             self.inv.add(seeds, per)
             self.inv.add(token, plots * per)
             self.inv.consume(token, missing)
         elif kind == "trade":
             # Sold to a villager for what it buys (the offer decides): nothing carried to plan, a villager to find.
             _, types = src
-            self.add_step(Step("trade", token, missing, {"types": types}))
+            step = Step("trade", token, missing, {"types": types})
+            self.before(step, depth)               # what the villager is paid in: trade's own needs
+            self.add_step(step)
         else:
             raise Unplannable(f"{token}: its only source ({kind}) is not one the planner plans")
 
@@ -292,28 +312,17 @@ class Planner:
 
 
 def hunts_a_fighter(types):
-    """Does this hunt target something that fights back (threat.MOBS knows its dps)? Animals do not."""
-    from .threat import MOBS
-    return any(t in MOBS for t in types)
+    """Does this hunt target something that fights back (beliefs.fights_back)? Animals do not."""
+    return fights_back(types)
 
 
 def runnable(step, inv):
-    """Gathering steps can always start; crafting/smelting need their inputs on hand right now."""
-    if step.kind == "mine":
-        tier = step.detail.get("tier")
-        if tier is not None:
-            return tool_ok(inv, "pickaxe", tier)
-        return True
-    if step.kind == "fill":
-        return inv.count("minecraft:bucket") >= 1
-    if step.kind == "hunt":
-        return tool_ok(inv, "sword", 1, min_left=1) if step.detail.get("fighter") else True
-    if step.kind in ("gather", "trade", "take"):
-        return True
-    if step.kind == "farm":
-        return tool_ok(inv, "hoe", 0) and all(inv.count(t) >= n for t, n in step.detail.get("inputs", {}).items())
-    if step.kind == "reach":
-        return True      # getting the body somewhere it can work needs nothing but the body
+    """Can this step start from the bag now? What the skill carrying it out needs held (knowledge.step_call — the
+    same needs the plan was made to satisfy: the pickaxe of a mine, the sword of a fight, the bucket of a fill, the
+    emerald of a trade), and a step with `inputs` (craft, smelt, farm) those on hand."""
+    needs, _speed = step_call(step)
+    if have_remainder(inv, needs_rows(needs)):
+        return False
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
 
 

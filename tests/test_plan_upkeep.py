@@ -404,7 +404,8 @@ class WhereItLives(unittest.TestCase):
 class EffectGoals(unittest.TestCase):
     def test_every_provided_effect_is_a_goal(self):
         """Driven by the registry: whatever a skill provides can be queued as a task and plans to one step that the
-        same skill (or another provider) carries out."""
+        same skill (or another provider) carries out — after the steps that get its needs held (the pickaxe of a
+        mine, the bucket of a fill), each one some skill's."""
         effects = sorted({e for c in skillkit.REGISTRY.values() for e in c.provides})
         self.assertTrue(effects)
         detail = {"goto": {"pos": [5, 64, 0]}, "withdraw": {"pos": [3, 64, 0]},       # effects that name a place
@@ -415,9 +416,10 @@ class EffectGoals(unittest.TestCase):
             goal = goals.make("effect", effect=effect, count=2, **({"detail": detail[effect]} if effect in detail else {}))
             with self.subTest(effect):
                 steps = decompose.decompose(snapshot().inv, goal, cost())
-                self.assertEqual(len(steps), 1)
-                self.assertEqual(steps[0].count, 2)
-                self.assertIn(effect, skillkit.step_keys(steps[0]))
+                self.assertEqual(steps[-1].count, 2)
+                self.assertIn(effect, skillkit.step_keys(steps[-1]))
+                self.assertEqual([s for s in steps[:-1] if effect in skillkit.step_keys(s) and s.count == 2], [])
+                self.assertTrue(all(skillkit.handles(s) for s in steps))
                 self.assertTrue(skillkit.providers(effect))
                 self.assertIsNone(goals.done(goal, snapshot(), None), "done when its plan ran")
                 self.assertEqual(goals.describe(goal), f"effect {effect} ×2")
@@ -1769,12 +1771,14 @@ class Queue(unittest.TestCase):
                 self.assertIn(says, str(e.exception))
 
     def test_the_skill_template_over_every_registered_skill(self):
-        # any registered skill asked for by name is one step that skill carries out, its args kept
+        # any registered skill asked for by name: its needs got first (the bed of a sleep), then one step that skill
+        # carries out, its args kept
         self.assertGreaterEqual(len(skillkit.REGISTRY), 4)
         for name in sorted(skillkit.REGISTRY):
             with self.subTest(name):
                 steps = plan(goals.make("skill", name=name, args=[2]), snapshot(), {})
-                self.assertEqual([(s.kind, s.token, s.detail) for s in steps], [("skill", name, {"args": [2]})])
+                self.assertEqual([(s.kind, s.token, s.detail) for s in steps if s.kind == "skill"],
+                                 [("skill", name, {"args": [2]})])
                 self.assertTrue(self.complete(steps, ("skill", name, {"args": [2]})))
 
 
