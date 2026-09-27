@@ -38,19 +38,6 @@ LAND = ["grass_block", "dirt", "stone", "sand", "gravel", "deepslate", "andesite
         "podzol", "coarse_dirt", "snow_block", "cobblestone", "moss_block", "clay"]
 
 
-def pick_land(region, here):
-    """Pure: the nearest cell to stand on dry land (`stands`). None when there is no land in the region."""
-    best = None
-    for (x, y, z), name in region.blocks.items():
-        feet_c = (x, y + 1, z)
-        if name not in LAND or not stands(region, feet_c):
-            continue
-        d = math.dist(feet_c, here)
-        if best is None or d < best[0]:
-            best = (d, feet_c)
-    return None if best is None else best[1]
-
-
 def underground_target(region, here, depth=(3, 6), radius=3):
     """Pure: a cell to tunnel to for the night — a 2-high space-to-be with at least 2 solid, non-hazard blocks
     straight above its head, so arriving there means no sky. Walking "6 blocks lower" on a hillside only reached

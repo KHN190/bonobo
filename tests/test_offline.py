@@ -192,17 +192,33 @@ flat = {(x, -1, z): "stone" for x in range(-4, 5) for z in range(-4, 5)}
 r = FakeRegion(flat, (-4, -2, -4), (4, 3, 4))
 check("burrow: flat open ground → none", skills.choose_burrow(r, (0, 0, 0)) is None)
 
-# ---- night in the water: nearest land
-lake = {(x, 0, z): "water" for x in range(-8, 9) for z in range(-8, 9)}
-lake.update({(x, -1, z): "sand" for x in range(-8, 9) for z in range(-8, 9)})
-lake.update({(x, 0, z): "grass_block" for x in range(5, 9) for z in range(-8, 9)})   # shore on the east
-lake[(2, 0, 2)] = "stone"
-lake[(2, 1, 2)] = "water"                                                          # a rock under water: not land
-r = FakeRegion(lake, (-8, -2, -8), (8, 4, 8))
-spot = skills.pick_land(r, (0, 0, 0))
-same("land: nearest dry standing spot on the shore", spot, (5, 1, 0))
-r = FakeRegion({(x, 0, z): "water" for x in range(-4, 5) for z in range(-4, 5)}, (-4, -2, -4), (4, 3, 4))
-check("land: open sea → none", skills.pick_land(r, (0, 0, 0)) is None)
+# ---- night in the water: the land a swim reaches (terrain.air_route, which reach_land goes to)
+def _sea(shores=(), walls=()):
+    """Water at y 0 over sand, x/z -8..8; `shores`: x ranges of grass (the bank, top y 0); `walls`: x columns of
+    glass y 0..2 (higher than the water line)."""
+    b = {(x, 0, z): "water" for x in range(-8, 9) for z in range(-8, 9)}
+    b.update({(x, -1, z): "sand" for x in range(-8, 9) for z in range(-8, 9)})
+    for x0, x1 in shores:
+        b.update({(x, 0, z): "grass_block" for x in range(x0, x1 + 1) for z in range(-8, 9)})
+    for wx in walls:
+        b.update({(wx, y, z): "glass" for y in range(0, 3) for z in range(-8, 9)})
+    return FakeRegion(b, (-8, -2, -8), (8, 5, 8))
+
+
+_rock = _sea(shores=[(5, 8)])
+_rock.blocks[(2, 0, 2)], _rock.blocks[(2, 1, 2)] = "stone", "water"          # a rock under water: not land
+# (situation, region) → air_route's (kind, cell)
+for _name, _r, _want in [
+        ("a shore the swim reaches: its nearest standing cell", _sea(shores=[(5, 8)]), ("land", (5, 1, 0))),
+        ("a rock under water is not land", _rock, ("land", (5, 1, 0))),
+        ("a shore behind a wall higher than the water: not chosen, pillar", _sea(shores=[(6, 8)], walls=[5]),
+         ("pillar", (0, 1, 0))),
+        ("open sea: pillar at the surface", _sea(), ("pillar", (0, 1, 0))),
+        ("two shores, the nearer walled off: the reachable one", _sea(shores=[(-8, -3), (6, 8)], walls=[-2]),
+         ("land", (6, 1, 0)))]:
+    _got = skills.air_route(_r, (0, 0, 0))
+    same(f"land: {_name}", _got[:2] if _got else None, _want)
+check("land: pillar says why", "no land" in (skills.air_route(_sea(), (0, 0, 0)) or ("", "", ""))[2])
 
 # ---- night: choose a shelter spot before a method
 peak = {(x, y, z): "stone" for x in range(-8, 9) for y in range(-6, 0) for z in range(-8, 9)}   # ground at y=-1

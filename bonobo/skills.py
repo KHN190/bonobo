@@ -16,7 +16,7 @@ from .bag import mineable, pickup_whitelist, refused
 
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
 from .bag import FLOOR, let_go, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
-from .terrain import LAND, soft_below, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
+from .terrain import LAND, soft_below, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, StationMissing, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
                         free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
                         body_state, head_buried, head_underwater,
@@ -1182,9 +1182,12 @@ def reach_land(ctx):
     """Night in the water: nothing can be dug or built there, so swim (or boat) to the nearest dry standing spot
     first; shelters are made from land. One attempt per call; the brain's retry policy decides the next."""
     x, y, z = feet()
-    land = pick_land(Region((x - 24, y - 6, z - 24), (x + 24, y + 10, z + 24)), (x, y, z))
-    if land is None:
-        raise NotAvailable("no land within 24 blocks")
+    # The land a swim reaches (terrain.air_route: the same breadth-first search as surfacing), not the nearest dry
+    # block: the nearest was once behind a tank wall, and the goto ended "unreachable" in the water.
+    route = air_route(Region((x - 24, y - 6, z - 24), (x + 24, y + 10, z + 24)), (x, y, z))
+    if route is None or route[0] != "land":
+        raise NotAvailable(route[2] if route else "no water to swim through and no land within 24 blocks")
+    land = route[1]
     r = api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": 1.5, "partial": True,
                  "useBoat": True}, wait=120)
     if r["status"] != "succeeded" and not _on_land():

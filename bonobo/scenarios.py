@@ -1572,6 +1572,9 @@ def _tree(x, z, wood="oak", height=5):
             f"fill {_c(at(x, 0, z))} {_c(at(x, height - 1, z))} {wood}_log"]
 
 
+CHOP_TREE = (2, 0)       # the chop base's one oak (x, z): rows that must leave it standing read it here
+
+
 def _grove(*spots, wood="oak"):
     return [f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block"] + [c for x, z in spots for c in _tree(x, z, wood)]
 
@@ -1589,13 +1592,16 @@ def _pen(mob, n, half=7):
     return walls + [f"summon {mob} {_c(at(x, 0, z))}" for x, z in spots]
 
 
-def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass"):
-    """A glass tank inside the box: floor at `floor_y`, four walls up to `top`, open above, water up to `water_top`."""
+def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_side=None):
+    """A glass tank inside the box: floor at `floor_y`, four walls up to `top`, open above, water up to `water_top`.
+    `open_side` ("north", "south", "west", "east"): that wall stops at the water line, so a shore built beyond it
+    can be swum to and climbed onto."""
     lo, hi = (x0 - 1, floor_y, z0 - 1), (x1 + 1, top, z1 + 1)
     out = [f"fill {_c(at(lo[0], floor_y, lo[2]))} {_c(at(hi[0], floor_y, hi[2]))} stone"]
-    for a, b in (((lo[0], lo[2]), (hi[0], lo[2])), ((lo[0], hi[2]), (hi[0], hi[2])),
-                 ((lo[0], lo[2]), (lo[0], hi[2])), ((hi[0], lo[2]), (hi[0], hi[2]))):
-        out.append(f"fill {_c(at(a[0], floor_y + 1, a[1]))} {_c(at(b[0], top, b[1]))} {wall}")
+    for side, a, b in (("north", (lo[0], lo[2]), (hi[0], lo[2])), ("south", (lo[0], hi[2]), (hi[0], hi[2])),
+                       ("west", (lo[0], lo[2]), (lo[0], hi[2])), ("east", (hi[0], lo[2]), (hi[0], hi[2]))):
+        height = water_top if side == open_side and water_top is not None else top
+        out.append(f"fill {_c(at(a[0], floor_y + 1, a[1]))} {_c(at(b[0], height, b[1]))} {wall}")
     if water_top is not None:
         out.append(f"fill {_c(at(x0, floor_y + 1, z0))} {_c(at(x1, water_top, z1))} water")
     return out
@@ -1652,7 +1658,7 @@ BASES = {
                 run=lambda ctx: _skill("travel_to")(ctx, at(8, 0, 0), 2),
                 check=_at(at(8, 0, 0), 3.5), budget=15, arena=16, target=at(8, 0, 0)),
     "chop": dict(skills=["item:log"], bound=("log", 2, 10), doc="one oak beside the body → 2 logs", point="A",
-                 setup=_grove((2, 0)) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 2),
+                 setup=_grove(CHOP_TREE) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 2),
                  check=_gain("log", 2), needs=[("log", 2)], effect=("log", 1), budget=15),
     "mine_stone": dict(skills=["mine"], bound=("minecraft:cobblestone", 3, 5), doc="stone floor, a wooden pickaxe → 3 cobblestone", point="A",
                        setup=_floor() + [_tp(), "give @p wooden_pickaxe"],
@@ -1865,7 +1871,9 @@ SURPRISES = {
                           before=lambda ctx: core.BRAIN.mem.note_container(
                               at(1, 0, 1), "minecraft:overworld", [{"id": "minecraft:oak_log", "count": 4}]),
                           run=lambda ctx: _achieve(ctx, [("log", 4)], lambda: _inv_now().count("log") >= 4),
-                          check=_all(_gain("log", 4), _blocks(at(3, 0, 0), at(3, 6, 0), "oak_log", 3))),
+                          # 4 logs gained, the base's tree left whole (its trunk, where the base built it)
+                          check=_all(_gain("log", 4), _blocks(at(CHOP_TREE[0], 0, CHOP_TREE[1]),
+                                                              at(CHOP_TREE[0], 6, CHOP_TREE[1]), "oak_log", 3))),
 }
 
 
@@ -2033,7 +2041,8 @@ _ONE = {
                           _tank(-5, 5, -5, 5, 8, water_top=7) + [_tp(0, -3, 0)], lambda ctx: _skill("find_air")(ctx),
                           _breathing(), 30),
     "reach_land_swim": (["reach:land"], "night, treading water 10 blocks from shore → on dry land",
-                        _tank(-8, 9, -8, 8, 1, water_top=-1) + [f"fill {_c(at(10, -3, -8))} {_c(at(14, -1, 8))} stone",
+                        _tank(-8, 9, -8, 8, 1, water_top=-1, open_side="east") +
+                        [f"fill {_c(at(10, -3, -8))} {_c(at(14, -1, 8))} stone",
                                                                _tp(), "time set 18000"],
                         lambda ctx: _skill("reach_land")(ctx),
                         lambda api, inv: api.get("/state")["onGround"] and not api.get("/state")["inWater"], 60),
