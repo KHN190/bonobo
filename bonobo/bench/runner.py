@@ -451,6 +451,60 @@ class _Console(io.TextIOBase):
         self.real.flush()
 
 
+# The next row's world, built at site B while this row runs (`prebuild`); `_setup` clones it over when it is the
+# one being set up. NEXT_ROW is set by the caller (mc.py) before each run: the row it will run next.
+NEXT_ROW = [None]
+PREBUILT = {"name": None, "done": None, "ok": False, "why": ""}
+
+
+def prebuildable(sc):
+    """Pure: a row whose world can be built ahead at site B — boxed (not raw), in the Overworld, not a sweep."""
+    return not sc.get("raw") and sc.get("dimension", "minecraft:overworld") == "minecraft:overworld" \
+        and not sc.get("sweep")
+
+
+def prebuild(name):
+    """Background: row `name`'s world commands at site B (its box cleared, force-loaded), shifted there. Never
+    raises: a failure only means the row is built the old way."""
+    sc = SCENARIOS.get(name)
+    done = threading.Event()
+    PREBUILT.update(name=name, done=done, ok=False, why="")
+    if not sc or not prebuildable(sc):
+        PREBUILT["why"] = "not prebuildable"
+        done.set()
+        return
+
+    def work():
+        from .core import shift, split_setup
+        try:
+            ow = "execute in minecraft:overworld run "
+            lo, hi = shift(_c(at(*BOX[0]))), shift(_c(at(*BOX[1])))
+            world, _rest = split_setup(sc["setup"])
+            fb = []
+            _checked(ow + f"forceload add {lo.split()[0]} {lo.split()[2]} {hi.split()[0]} {hi.split()[2]}", fb)
+            for _ in range(60):                     # the chunks load a moment after the forceload
+                if not any("not loaded" in l for l in _command(ow + f"fill {lo} {lo} air", fb)):
+                    break
+                time.sleep(0.5)
+            _batch([ow + f"fill {lo} {hi} air"] + [ow + shift(c) for c in world], fb)
+            PREBUILT["ok"] = True
+        except Exception as e:                      # the old way still works: say why this one did not
+            PREBUILT["why"] = str(e)
+        finally:
+            done.set()
+    threading.Thread(target=work, daemon=True, name=f"prebuild {name}").start()
+
+
+def take_prebuilt(name, wait_s=30):
+    """Was row `name`'s world built ahead at site B (waiting for the build to finish)? Consumed either way."""
+    if PREBUILT["name"] != name or PREBUILT["done"] is None:
+        return False
+    PREBUILT["done"].wait(wait_s)
+    ok = PREBUILT["done"].is_set() and PREBUILT["ok"]
+    PREBUILT.update(name=None, done=None)
+    return ok
+
+
 def _setup(name, sc, feedback):
     from .. import api
     from ..world import Region, entities
@@ -540,12 +594,20 @@ def _setup(name, sc, feedback):
     # Two fills around the glass layer: removing the glass under the player dropped them for a moment.
     # The whole layout in one burst, feedback checked once at the end (waiting for every reply cost ~10 min a round).
     top = _c((hi[0], hi[1] + 6, hi[2]))
-    _batch([ex(f"fill {_c(lo)} {_c((hi[0], hi[1] + 1, hi[2]))} air"),
-            ex(f"fill {_c((lo[0], hi[1] + 3, lo[2]))} {top} air"),
-            # Fluids anywhere in the volume, the glass layer included (water beside the glass survived both fills
-            # above and kept flooding cast_obsidian's pool: 47 water, 0 lava).
-            ex(f"fill {_c(lo)} {top} air replace water"), ex(f"fill {_c(lo)} {top} air replace lava")]
-           + [ex(cmd) for cmd in sc["setup"]], feedback)
+    above = [ex(f"fill {_c((lo[0], hi[1] + 3, lo[2]))} {top} air"),
+             # Fluids anywhere in the volume, the glass layer included (water beside the glass survived both fills
+             # and kept flooding cast_obsidian's pool: 47 water, 0 lava).
+             ex(f"fill {_c(lo)} {top} air replace water"), ex(f"fill {_c(lo)} {top} air replace lava")]
+    if take_prebuilt(name):
+        # Built ahead at site B while the last row ran: one clone brings it over (air included: the box is cleared
+        # by it), then only what the row itself runs — the player, the global state, the actors.
+        from .core import SITE_B, split_setup
+        b_lo, b_hi = [a + d for a, d in zip(lo, SITE_B)], [a + d for a, d in zip(hi, SITE_B)]
+        _world, rest = split_setup(sc["setup"])
+        _batch(above + [ex(f"clone {_c(b_lo)} {_c(b_hi)} {_c(lo)} replace")] + [ex(cmd) for cmd in rest], feedback)
+    else:
+        _batch([ex(f"fill {_c(lo)} {_c((hi[0], hi[1] + 1, hi[2]))} air")] + above
+               + [ex(cmd) for cmd in sc["setup"]], feedback)
     # The waiting glass must go once we're down: a 30-block fall landed on it 18 blocks early (water_clutch, hp 5).
     _checked(ex(f"fill {glass} {glass} air"), feedback)
     _command(ex("kill @e[type=item]"), feedback)
@@ -643,6 +705,8 @@ def run(name, make_ctx):
             exc, note = e, f"SETUP_INVALID: {e}"
         finally:
             perception.PAUSED = False
+        if exc is None and NEXT_ROW[0] and NEXT_ROW[0] != name:
+            prebuild(NEXT_ROW[0])          # the next row's world, at site B, while this one runs
         if exc is None:
             threading.Thread(target=_trace, args=(stop, trace), daemon=True).start()
             t0 = time.time()

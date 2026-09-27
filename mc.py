@@ -182,7 +182,9 @@ def cmd_scenario(a):
     # current code already has a verdict for is not run again (unless --force, once).
     runs = [(name, attempt) for name in names
             for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else scenarios.MAX_RUNS)]
-    for name, attempt in runs:
+    for i, (name, attempt) in enumerate(runs):
+        # The row after this one, so its world is built at site B while this one runs (runner.prebuild).
+        scenarios.NEXT_ROW[0] = next((n for n, _a in runs[i + 1:] if n != name), None)
         table = scenarios.load_table()
         code = scenarios.code_for(name)
         cached = scenarios.cached_timeout(table, name, code)

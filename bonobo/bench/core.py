@@ -21,6 +21,50 @@ BOX = ((-10, -17, -10), (20, 9, 10))   # down to -17: the underground rows (cave
 UNCOUNTED = ("setup", "harness")
 
 
+# Two sites, one box shape: the row runs at ORIGIN (site A) while the next row's world is built at ORIGIN + SITE_B,
+# then cloned over in one command. The player never goes to B; every coordinate a row knows is site A's.
+SITE_B = (100, 0, 0)
+WORLD_CMDS = ("fill", "setblock", "clone", "place", "forceload")     # the build: no player in it, built ahead
+LATE_CMDS = ("summon",)                  # actors: summoned in the row itself — built ahead they wander or burn
+
+
+def classify(cmd):
+    """Pure: "world" (a block build with absolute coordinates: built ahead at site B), "late" (a summon: in the
+    row, after the switch) or "body" (the player and the world's global state — bag, effects, position, time,
+    rules, difficulty — and anything relative to the player, `~`: in the row)."""
+    inner = cmd
+    while inner.startswith("execute ") and " run " in inner:
+        inner = inner.split(" run ", 1)[1]
+    head = (inner.split() or [""])[0]
+    if head in WORLD_CMDS and "~" not in inner and "@" not in inner:
+        return "world"
+    return "late" if head in LATE_CMDS else "body"
+
+
+def split_setup(setup):
+    """Pure: (world commands, the rest in their order) — what can be built ahead, and what the row runs itself."""
+    return [c for c in setup if classify(c) == "world"], [c for c in setup if classify(c) != "world"]
+
+
+_TRIPLE = __import__("re").compile(r"(?<![\w.~^-])(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)(?![\w.])")
+
+
+def shift(cmd, offset=SITE_B, origin=ORIGIN, box=BOX, margin=8):
+    """Pure: the command with every coordinate triple inside site A's box (± margin) moved by `offset` — the same
+    build at site B. Numbers keep their form (10000 stays an integer, 10000.5 a decimal)."""
+    lo = [origin[i] + box[0][i] - margin for i in range(3)]
+    hi = [origin[i] + box[1][i] + margin for i in range(3)]
+
+    def move(m):
+        vals = [m.group(i + 1) for i in range(3)]
+        nums = [float(v) for v in vals]
+        if not all(lo[i] <= nums[i] <= hi[i] for i in range(3)):
+            return m.group(0)
+        out = [str(int(nums[i]) + offset[i]) if "." not in vals[i] else f"{nums[i] + offset[i]:g}" for i in range(3)]
+        return " ".join(out)
+    return _TRIPLE.sub(move, cmd)
+
+
 def at(dx, dy, dz, origin=ORIGIN):
     return origin[0] + dx, origin[1] + dy, origin[2] + dz
 

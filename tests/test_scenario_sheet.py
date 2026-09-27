@@ -714,3 +714,54 @@ class EveryPartHasAMustFail(unittest.TestCase):
         for name, fails in rows:
             with self.subTest(name):
                 self.assertEqual(sc.SHEET[name]["fails"], fails)
+
+
+class TwoSites(unittest.TestCase):
+    """The next row's world is built at site B while a row runs at A (bench.core classify / shift / split_setup)."""
+
+    def test_classify(self):
+        from bonobo.bench import core
+        rows = [("a fill: the build", "fill 9994 199 9994 10006 199 10006 stone", "world"),
+                ("a give: the body", "give @p stone_pickaxe", "body"),
+                ("a summon: late (it would wander, or burn)", "summon zombie 10004 200 10000", "late"),
+                ("a gamerule: the global state, in the row", "gamerule spawn_mobs false", "body"),
+                ("time and difficulty: in the row", "time set 13000", "body"),
+                ("a fill relative to the player: in the row", "fill ~-1 ~ ~-1 ~1 ~2 ~1 air", "body"),
+                ("wrapped in execute: what it runs", "execute in minecraft:overworld run setblock 1 2 3 stone", "world"),
+                ("a tp: the body", "tp @p 10000.5 200 10000.5", "body")]
+        for name, cmd, want in rows:
+            with self.subTest(name):
+                self.assertEqual(core.classify(cmd), want)
+
+    def test_shift(self):
+        from bonobo.bench import core
+        rows = [("a box corner pair moved 100 east", "fill 9994 184 9994 10006 199 10006 stone",
+                 "fill 10094 184 9994 10106 199 10006 stone"),
+                ("a decimal stays a decimal", "setblock 10000.5 200 10000.5 stone", "setblock 10100.5 200 10000.5 stone"),
+                ("far outside the box: untouched", "fill 5 64 5 6 64 6 stone", "fill 5 64 5 6 64 6 stone"),
+                ("block states and item counts untouched", "setblock 10002 200 10000 chest[facing=north]",
+                 "setblock 10102 200 10000 chest[facing=north]")]
+        for name, cmd, want in rows:
+            with self.subTest(name):
+                self.assertEqual(core.shift(cmd), want)
+
+    def test_split_and_what_is_prebuilt(self):
+        from bonobo.bench import core, runner
+        setup = ["fill 9994 199 9994 10006 199 10006 stone", "clear @p", "summon cow 10002 200 10000",
+                 "setblock 10002 200 10002 furnace", "time set day"]
+        self.assertEqual(core.split_setup(setup),
+                         (["fill 9994 199 9994 10006 199 10006 stone", "setblock 10002 200 10002 furnace"],
+                          ["clear @p", "summon cow 10002 200 10000", "time set day"]))
+        for sc_, want in (({}, True), ({"raw": True}, False), ({"dimension": "minecraft:the_nether"}, False),
+                          ({"sweep": True}, False)):
+            with self.subTest(sc=sc_):
+                self.assertIs(runner.prebuildable(sc_), want)
+
+    def test_a_prebuilt_world_is_taken_once_and_only_by_its_row(self):
+        import threading
+        from bonobo.bench import runner
+        done = threading.Event()
+        done.set()
+        runner.PREBUILT.update(name="chop__base", done=done, ok=True)
+        self.assertEqual((runner.take_prebuilt("craft__base"), runner.take_prebuilt("chop__base"),
+                          runner.take_prebuilt("chop__base")), (False, True, False))
