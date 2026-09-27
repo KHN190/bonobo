@@ -2200,8 +2200,11 @@ class TrunkBatch(unittest.TestCase):
         into = {"type": "travel", "x": 3, "y": 64, "z": 0, "range": 0.3}
         up = [(3, 65, 0), (3, 66, 0), (3, 67, 0)]
         rows = [("four wanted, three overhead: all of it", up, 4,
-                 [mine((3, 64, 0)), into] + [mine(c) for c in up] + [pick]),
-                ("two wanted: the base and one overhead", up, 2, [mine((3, 64, 0)), into, mine(up[0]), pick]),
+                 [mine((3, 64, 0)), into] + [mine(c) for c in up[1:]] + [pick]),
+                ("two wanted: the base, and the head log the walk in breaks — no mine of it after (air)", up, 2,
+                 [mine((3, 64, 0)), into, pick]),
+                ("overhead starting two up: every one mined", up[1:], 3, [mine((3, 64, 0)), into] +
+                 [mine(c) for c in up[1:]] + [pick]),
                 ("one wanted: the base only, no walk in", up, 1, [mine((3, 64, 0)), pick]),
                 ("a stump (nothing overhead)", [], 5, [mine((3, 64, 0)), pick])]
         for name, overhead, want, batch in rows:

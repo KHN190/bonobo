@@ -21,7 +21,9 @@ def trunk_batch(base, overhead, want):
     up = [c for c in overhead][:max(0, want - 1)]
     if up:
         out.append({"type": "travel", "x": x, "y": y, "z": z, "range": 0.3})
-        out += [mine(c) for c in up]
+        # Standing in the base cell needs the head cell clear: the travel breaks the log there itself, and a mine
+        # of it after answered "nothing to mine (air)" (brain__base: "chain: 3/4 succeeded").
+        out += [mine(c) for c in up if c != (x, y + 1, z)]
     out.append({"type": "collect", "radius": 4, "only": ["log"]})
     return out
 
