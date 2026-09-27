@@ -9,7 +9,7 @@ import math
 import time
 
 from . import api, decompose, goals, skills
-from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, nether_retreat  # noqa: F401  (shared thresholds)
+from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
 from .data import NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
@@ -169,7 +169,7 @@ class Needs:
         `reads` = {"enclosed": bool, "bed_near": bool, "soft_ground": bool} stands in for world reads (offline);
         whatever is missing is read from the world, once, when first asked."""
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
-        enclosed = _once(reads, "enclosed", skills.enclosed)
+        enclosed, soft_ground = ground(reads)
         blocked = b.reflexes.blocked_here(b.place)
         # A bed skips the night, the fastest way through it: made from what is carried (craft only, no sun needed),
         # it comes before any shelter and before the night's work underground.
@@ -180,7 +180,7 @@ class Needs:
         # The night's way from here (dig in, wall in, a hut): the shelter reflex runs it when its parts are in the
         # bag; otherwise its parts are this round's need.
         night_way = _once(None, "night_way", lambda: overnight(
-            inv, self.cost(snap), {"soft_ground": _once(reads, "soft_ground", skills.soft_ground_here)()},
+            inv, self.cost(snap), {"soft_ground": soft_ground()},
             bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))

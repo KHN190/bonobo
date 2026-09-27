@@ -84,6 +84,13 @@ def nether_retreat(snap):
     return None
 
 
+def ground(reads=None):
+    """The two readings of the ground under the body both needs and reflexes ask (lazy, each read once when first
+    asked; `reads` stands in offline): enclosed (skills.enclosed → terrain.is_enclosed) and soft ground to dig in by
+    hand (skills.soft_ground_here → terrain.soft_below). One place for both askers."""
+    return _once(reads, "enclosed", skills.enclosed), _once(reads, "soft_ground", skills.soft_ground_here)
+
+
 def _once(reads, key, read):
     """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
     box = {}
@@ -139,10 +146,10 @@ class Maintain:
         from . import needs
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         blocked = self.blocked_here(b.place)
-        enclosed = _once(reads, "enclosed", skills.enclosed)
+        enclosed, soft_ground = ground(reads)
 
         def night_way():
-            soft = _once(reads, "soft_ground", skills.soft_ground_here)()
+            soft = soft_ground()
             return needs.overnight(inv, b.needs.cost(snap), {"soft_ground": soft}, bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
