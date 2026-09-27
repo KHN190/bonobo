@@ -647,10 +647,8 @@ SCENARIOS["cave_escape"] = {
               f"fill {_c(at(0, -9, 0))} {_c(at(0, -8, 0))} air",
               f"tp @p {_c(at(0.5, -9, 0.5))}", "clear @p", "give @p stone_pickaxe", "give @p cobblestone 32"],
     "expect": [(at(-6, -1, -6), at(6, -1, 6), "stone", 169, 169)],
-    # range 0.6: travel counts 3-D distance, so 1.5 "arrived" one step below the surface (y 199.2, bench 05:28).
-    # Target one above the platform: the mod counts "arrived" within range + 0.5, so a y 200 target accepted the stair
-    # step at y 199.2 twice; from y 201 only standing on the platform is close enough.
-    "run": lambda ctx: __import__("bonobo.nav", fromlist=["go_to"]).go_to(at(3, 1, 3), ctx.policy, range_=0.6),
+    # The standing cell on the platform; range 0.6: `nav.there` measures the feet's block, so a step below is 1 off.
+    "run": lambda ctx: __import__("bonobo.nav", fromlist=["go_to"]).go_to(at(3, 0, 3), ctx.policy, range_=0.6),
     "check": lambda api, inv: api.get("/state")["y"] >= at(0, 0, 0)[1] - 0.5 and api.get("/state")["onGround"],
     "budget": 30,
 }
