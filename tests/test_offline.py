@@ -557,6 +557,22 @@ class WikiSkills(unittest.TestCase):
         ])
 
 
+class FarmVerify(unittest.TestCase):
+    def test_table(self):
+        """plant_farm's verdict reads recorded world state: bag counts at start vs now, the plot's blocks."""
+        bag = lambda wheat, seeds: (lambda: (wheat, seeds))
+        grows = {(0, 64, 0)}
+        growing = lambda centre: centre in grows
+        table(self, [
+            ("reaped: wheat went up since the start", lambda: FM.farm_done(FM.REAPED, (0, 3), bag(2, 3), growing), True),
+            ("reaped: only seeds went up still counts", lambda: FM.farm_done(FM.REAPED, (4, 1), bag(4, 5), growing), True),
+            ("must fail: REAPED returned but the bag is unchanged", lambda: FM.farm_done(FM.REAPED, (4, 1), bag(4, 1), growing), False),
+            ("must fail: REAPED with no start snapshot", lambda: FM.farm_done(FM.REAPED, None, bag(9, 9), growing), False),
+            ("planted: the plot at the centre has farmland and wheat", lambda: FM.farm_done((0, 64, 0), (0, 0), bag(0, 0), growing), True),
+            ("must fail: a centre whose plot holds no wheat", lambda: FM.farm_done((5, 64, 5), (0, 0), bag(0, 0), growing), False),
+            ("must fail: no centre at all", lambda: FM.farm_done(None, (0, 0), bag(0, 0), growing), False),
+        ])
+
 # ---------------------------------------------------------------- combat
 FLAT = FakeRegion({(x, y, z): "stone" if y == 63 else "air" for x in range(-12, 13) for z in range(-12, 13)
                    for y in (63, 64, 65)}, (-12, 63, -12), (12, 65, 12))    # safe_stand reads the cells it holds

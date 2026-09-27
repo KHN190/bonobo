@@ -172,8 +172,21 @@ def _plot_growing(centre):
     names = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1))).blocks.values()
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
+def _crop_held():
+    """What of the crop the bag holds now: (wheat, seeds) -- a reap must raise one of them."""
+    bag = Inventory()
+    return bag.count("minecraft:wheat"), bag.count("minecraft:wheat_seeds")
+
+def farm_done(result, base, held, growing):
+    """Did plant_farm change the world? A reap: the bag gained wheat or seeds since the call's start
+    (`base`, from `held()` then). A plot: `growing(centre)` sees farmland and wheat. The skill's own
+    return alone proves nothing."""
+    if result == REAPED:
+        return base is not None and any(h > b for h, b in zip(held(), base))
+    return bool(result) and growing(result)
+
 @skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={},
-       commands=lambda state, args: plant_farm_commands(state, args), verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90,
+       commands=lambda state, args: plant_farm_commands(state, args), start=lambda c: _crop_held(), verify=lambda c: farm_done(c.result, c.base, _crop_held, _plot_growing), budget=300, stall=90,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
     """Wheat: reap a grown crop nearby first, else make a 3×3 plot (dig, water, till, sow) and start a crop job."""
