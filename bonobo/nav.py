@@ -41,6 +41,14 @@ def mine_task(c, collect=False):
 
 
 _features = None
+WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
+
+
+def autoeat_policy():
+    """Pure: what the jar eats on the way, and when (POST /autoeat, jar ≥ 0.1.46): below WALK_EAT_BELOW, the
+    best food first (data.FOOD's order). Standing still and very hungry is the MAINTAIN row's (EAT_BELOW)."""
+    from .data import FOOD
+    return {"below": WALK_EAT_BELOW, "foods": [f"minecraft:{f}" for f in FOOD]}
 
 
 def mod_features():
@@ -61,6 +69,12 @@ def mod_features():
             _features.add("approach_dig")   # mine/place/use dig their own way when walking finds none (ApproachTask)
         if v >= (0, 1, 46):
             _features.add("autoeat")        # the jar eats while only walking, on the policy /autoeat sets
+            # Set here, at the session's first contact, once: whoever drives the jar (the brain, a bench row running
+            # a skill directly) walks with it — sent from the brain's round only, a bench row never had it.
+            try:
+                api.post("/autoeat", autoeat_policy())
+            except McError as e:
+                log(f"autoeat policy not set: {e}")
     return _features
 
 

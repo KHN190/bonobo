@@ -26,7 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, decompose, goals, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
+from bonobo import api, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import COVERED_SKY, bare  # noqa: E402
@@ -2103,11 +2103,11 @@ class TheToolTheBagMakes(unittest.TestCase):
 
 
 class EatOnTheWay(unittest.TestCase):
-    """What the jar is told to eat while walking (needs.autoeat_policy): the threshold sits where regen stops, above
+    """What the jar is told to eat while walking (nav.autoeat_policy, sent once at the session's first contact): the threshold sits where regen stops, above
     the standing row's, and the foods go best first."""
 
     def test_policy(self):
-        p = needs.autoeat_policy()
+        p = nav.autoeat_policy()
         self.assertEqual((p["below"], p["foods"][:3]),
                          (18, ["minecraft:cooked_beef", "minecraft:cooked_porkchop", "minecraft:cooked_mutton"]))
         self.assertGreater(p["below"], reflexes.EAT_BELOW)

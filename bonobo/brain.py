@@ -94,7 +94,6 @@ class Brain:
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None             # coarse location: what causes are cooled against
         self.idle_since = None
-        self.autoeat_set = False
         self.committed = None         # the task being worked on
         self.last_failure = None      # the Verdict of the last failed attempt
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
@@ -243,9 +242,6 @@ class Brain:
         self.mem.observe_phase(snap.night)
         self.place = retry.place_signature(snap.feet, snap.night)
         self.policy_cache = self.policy(snap, snap.night)
-        if not getattr(self, "autoeat_set", False) and "autoeat" in nav.mod_features():
-            api.post("/autoeat", needs.autoeat_policy())          # the jar eats on the way; set once per process
-            self.autoeat_set = True
         protected = self.policy_cache.protected
         api.DRESS = lambda task: nav.with_avoid(task, protected)     # no approach digs through our own builds
         ctx = self.context(snap.dimension)

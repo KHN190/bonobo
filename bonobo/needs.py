@@ -20,7 +20,6 @@ from .skillcore import gained, lost
 from .world import Inventory
 
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
-WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
 DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
@@ -66,13 +65,6 @@ def overnight(inv, cost, facts=None, bed_too=True):
     if steps is None:
         steps, way = bed, "bed"
     return way, cost.plan_s(steps), steps
-
-
-def autoeat_policy():
-    """Pure: what the jar eats on the way, and when (POST /autoeat, jar ≥ 0.1.46): below WALK_EAT_BELOW, the
-    best food first (data.FOOD's order). Standing still and very hungry is the upkeep row's (EAT_BELOW)."""
-    from .data import FOOD
-    return {"below": WALK_EAT_BELOW, "foods": [f"minecraft:{f}" for f in FOOD]}
 
 
 def due_now(left_s, plan_s, known, at_threshold):
