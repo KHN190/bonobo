@@ -141,7 +141,7 @@ def reach_hash(sc, index=None, registry=None, pkg_dir=PKG):
     belongs to (another checkout's, when migrating)."""
     if registry is None:
         from .. import skill as skillkit
-        registry = registry
+        registry = skillkit.REGISTRY
     index = code_index(pkg_dir) if index is None else index
     roots = set()
     named = set()

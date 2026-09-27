@@ -916,3 +916,13 @@ class Migrate(unittest.TestCase):
                 self.assertEqual(got, want)
                 if want:
                     self.assertEqual(table["r"]["NEW-jar-0.1.47"], passed)
+
+
+class RealKeys(unittest.TestCase):
+    def test_every_row_has_a_key(self):
+        """code_for over the real sheet (nothing mocked): every row keys, and two rows differ."""
+        from bonobo.bench import runner
+        with mock.patch.object(runner, "mod_hash", lambda tags: "jar-test"):
+            keys = {n: runner._code_for(n) for n in ("chop__base", "craft__base", "eat__base")}
+        self.assertEqual(len(set(keys.values())), 3)
+        self.assertTrue(all(k.endswith("-jar-test") and len(k.split("-")[0]) == 16 for k in keys.values()), keys)
