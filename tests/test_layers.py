@@ -9,7 +9,6 @@ for every change, forever, and looks slow rather than broken.
 So: facts live at the bottom (a mob's reach, whether it is hostile, the geometry of a line of sight), decisions at
 the top, and the top is wired INTO the bottom rather than imported from it (`brain._wire_tape`).
 """
-import ast
 import os
 import pathlib
 import sys
@@ -102,33 +101,45 @@ FACTS = {"data", "kernel", "solve", "combat_model", "recovery", "retry", "roads"
          "paths", "beliefs", "field", "estimate"}
 
 
-def imports_of(module):
-    """Every module of this package `module` imports, at any nesting (deferred imports count — they are still
-    edges in the graph the bench keys on)."""
-    out = set()
-    for node in ast.walk(ast.parse((PKG / f"{module}.py").read_text())):
-        if isinstance(node, ast.ImportFrom) and node.level == 1:
-            out |= {node.module.split(".")[0]} if node.module else {a.name for a in node.names}
-    return {m for m in out if (PKG / f"{m}.py").exists()}
-
-
 def modules():
     return sorted(p.stem for p in PKG.glob("*.py") if p.stem != "__init__")
 
 
 class Direction(unittest.TestCase):
+    """Asked of the bench's own key (`scenarios.module_deps`), which is what an upward edge damages."""
+
+    # fixture: (situation, {module: source} of a package, the module asked) → its key's closure
+    KEYS = [("a fact alone", {"data": "X = 1\n"}, "data", ["data"]),
+            ("transitive: a → b → c", {"a": "from . import b\n", "b": "from .c import X\n", "c": "X = 1\n"}, "a",
+             ["a", "b", "c"]),
+            ("a deferred import is still an edge", {"a": "def f():\n    from . import brain\n", "brain": ""}, "a",
+             ["a", "brain"]),
+            ("a cycle ends", {"a": "from . import b\n", "b": "from . import a\n"}, "a", ["a", "b"]),
+            ("a fact reaching a decider: the key shows it (what the tests below fail on)",
+             {"data": "from .brain import decide\n", "brain": ""}, "data", ["brain", "data"]),
+            ("not edges: the standard library, a module that is not there", {"a": "import os\nfrom .gone import X\n"},
+             "a", ["a"])]
+
+    def test_the_key_follows_every_package_import(self):
+        import tempfile
+        for name, files, asked, want in self.KEYS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                for m, src in files.items():
+                    (pathlib.Path(tmp) / f"{m}.py").write_text(src)
+                self.assertEqual(scenarios.module_deps(asked, tmp), want)
+
     def test_nothing_imports_the_deciders(self):
         for m in modules():
             if m in MAY_IMPORT_TOP:
                 continue
             with self.subTest(m):
-                self.assertEqual(sorted(imports_of(m) & TOP), [],
-                                 f"{m} imports deciders; move the fact down, or wire it from the top")
+                self.assertEqual(sorted(set(scenarios.module_deps(m)) & TOP), [],
+                                 f"{m}'s key reaches deciders; move the fact down, or wire it from the top")
 
     def test_facts_import_only_facts(self):
         for m in sorted(FACTS):
             with self.subTest(m):
-                self.assertEqual(sorted(imports_of(m) - FACTS), [], f"{m} is a fact module")
+                self.assertEqual(sorted(set(scenarios.module_deps(m)) - FACTS), [], f"{m} is a fact module")
 
 
 class ReRunKey(unittest.TestCase):
