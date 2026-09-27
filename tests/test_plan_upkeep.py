@@ -2234,13 +2234,13 @@ class CraftInOneSitting(unittest.TestCase):
 class Reflexes(unittest.TestCase):
     """reflexes.TABLE: each trigger over the round's view — fires, and does not."""
 
-    BASE = {"died_recently": False, "food": 20, "edible": True, "swimming": False, "nether_bad": False,
+    BASE = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False,
             "night": False, "enclosed": False, "overworld": True, "bed_works": False, "bed_carried": False,
             "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
             "blocked": False, "building": 0, "stuck": False}
     # (reflex, the view's changes that fire it, the changes that do not)
     ROWS = [("recover items", {"died_recently": True}, {}),
-            ("eat", {"food": 10}, {"food": 10, "edible": False}),
+            ("eat", {"food": 10}, {"food": 10, "meal": None}),
             ("reach land", {"swimming": True}, {}),
             ("leave the Nether", {"nether_bad": True}, {}),
             ("dig out", {"enclosed": True}, {"enclosed": True, "night": True}),
@@ -2343,3 +2343,24 @@ class TheNightIsPricedOncePerBag(unittest.TestCase):
                 for items in bags:
                     table.overnight(snapshot(state(), inventory(*items)))
                 self.assertEqual(len(asked), want)
+
+
+class RawOnlyWhenStarving(unittest.TestCase):
+    """reflexes.meal / can_cook: raw meat is eaten only when starving or when it cannot be cooked — else the plan
+    cooks it (night_first__low ate both raw beef at 8 and had nothing left to cook)."""
+
+    def test_over_the_table(self):
+        rows = [("food 8, raw beef, a furnace near and coal: not eaten raw (cooked by the plan)", 8,
+                 [("beef", 2), ("coal", 2)], True, None),
+                ("food 8, raw beef, cobblestone for a furnace and planks: not eaten raw", 8,
+                 [("beef", 2), ("cobblestone", 8), ("oak_planks", 4)], False, None),
+                ("food 5, raw beef, a furnace near: starving — eaten raw", 5, [("beef", 2), ("coal", 2)], True, True),
+                ("food 8, raw beef, no fuel: cannot cook — eaten raw", 8, [("beef", 2)], True, True),
+                ("food 8, raw beef, fuel but no furnace nor stone: eaten raw", 8, [("beef", 2), ("coal", 2)], False,
+                 True),
+                ("food 8, cooked beef: a meal", 8, [("cooked_beef", 2), ("beef", 2)], True, False),
+                ("nothing edible: nothing", 8, [("coal", 2)], True, None)]
+        for name, food, items, furnace_near, want in rows:
+            with self.subTest(name):
+                inv = bag(inventory(*items))
+                self.assertIs(reflexes.meal(food, inv, lambda: reflexes.can_cook(inv, furnace_near)), want)

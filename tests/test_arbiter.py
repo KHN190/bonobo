@@ -218,7 +218,7 @@ import itertools                                    # noqa: E402
 from bonobo import reflexes, retry as retry_mod, skills   # noqa: E402
 
 # A calm round: nothing fires. Every key a reflexes.TABLE trigger reads.
-CALM = {"died_recently": False, "food": 20, "edible": True, "swimming": False, "nether_bad": False, "night": False,
+CALM = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False, "night": False,
         "enclosed": False, "overworld": True, "bed_works": True, "bed_carried": False, "bed_near": False,
         "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 5, "blocked": False,
         "building": 64, "stuck": False, "feet": (0, 64, 0), "on_land_s": 5.0}
@@ -364,7 +364,7 @@ class Crowded(unittest.TestCase):
              False, ["queue"], "eat"),
             ("night, no pickaxe, in water: out of the water before any plan", {**IN_WATER, "night": True}, False,
              False, ["broken tool", "night stock"], "reach land"),
-            ("bag full, a task, no food on hand: empty the bag", {**BAG_FULL, **HUNGRY, "edible": False}, False,
+            ("bag full, a task, no food on hand: empty the bag", {**BAG_FULL, **HUNGRY, "meal": None}, False,
              False, ["queue", "food stock"], "empty the bag"),
             ("nothing fires, plans only: the plan's order", {}, False, False, ["idle", "food stock", "queue"],
              "food stock"),
@@ -399,7 +399,8 @@ class Flicker(unittest.TestCase):
                 ("starving, nothing to eat", 0, False, False), ("full", 20, True, False)]
         for name, food, edible, want in rows:
             with self.subTest(name):
-                self.assertEqual("eat" in [n for _s, n in reflexes.due(dict(CALM, food=food, edible=edible))], want)
+                meal = False if edible else None
+                self.assertEqual("eat" in [n for _s, n in reflexes.due(dict(CALM, food=food, meal=meal))], want)
 
 
 class Hysteresis(unittest.TestCase):

@@ -15,7 +15,7 @@ import time
 from . import api, nav, nether, skills, tape
 from .api import McError, NotAvailable, log
 from .data import BASE_MARKERS, COVERED_SKY
-from .knowledge import food_count
+from .knowledge import RAW_MEAT, food_count
 from .skill import skill
 from .skillcore import gained
 from .world import Inventory, find
@@ -23,6 +23,7 @@ from .world import Inventory, find
 BAG_FULL = 34              # slots used before the bag is emptied
 BRIDGE_MIN = 8             # building blocks it takes to bridge a blocked path
 EAT_BELOW = 14             # hunger points: eat below this, while there is something to eat (standing)
+STARVE = 6                 # hunger points: at or below this, raw meat is eaten rather than waited on
 JOB_RANGE = 96
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
@@ -31,10 +32,33 @@ BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is b
 # (name, trigger over the round's view) — in order: the first that fires is the reflex the layer proposes first.
 # (name, trigger over the round's view, action(m: Maintain, v: view)) — one row per reflex, trigger and action
 # together; in order: the first that fires is the one the layer proposes first.
+FUELS = ("coal", "charcoal", "planks", "log")
+STATION_R = 8          # a furnace of ours this near counts as one to cook in
+
+
+def can_cook(inv, furnace_near):
+    """Pure: raw meat carried can be cooked from here — fuel in the bag, and a furnace carried, one near, or the
+    eight cobblestone to make one."""
+    fuel = any(inv.count(f) for f in FUELS)
+    furnace = inv.count("minecraft:furnace") or furnace_near or inv.count("minecraft:cobblestone") >= 8
+    return bool(fuel and furnace)
+
+
+def meal(food, inv, cookable):
+    """Pure: what the eat row eats — None (nothing now), False (a meal: cooked food only), True (raw meat too).
+    Raw only when starving (food ≤ STARVE) or when it cannot be cooked (`cookable()`); otherwise raw carried is
+    cooked by the plan first (night_first__low ate both raw beef at 8 and had nothing left to cook)."""
+    if food_count(inv):
+        return False
+    if not any(inv.count(f) for f in RAW_MEAT):
+        return None
+    return True if food <= STARVE or not cookable() else None
+
+
 TABLE = [
     ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
-    ("eat", lambda v: v["food"] < EAT_BELOW and v["edible"],
-     lambda m, v: skills.eat(raw_ok=not food_count(v["snap"].inv))),
+    ("eat", lambda v: v["food"] < EAT_BELOW and v["meal"] is not None,
+     lambda m, v: skills.eat(raw_ok=v["meal"])),
     ("reach land", lambda v: v["swimming"], lambda m, v: skills.reach_land(v["ctx"])),
     ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
     ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: skills.dig_out(v["ctx"])),
@@ -185,11 +209,11 @@ class Maintain:
         enclosed, soft_ground = ground(reads)
 
         def night_way():
-            soft = soft_ground()
-            return needs.overnight(inv, b.needs.cost(snap), needs.night_facts(soft), bed_too=False)
+            return b.needs.overnight(snap, needs.night_facts(soft_ground()), bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
-            "edible": lambda: skills.edible_carried(inv),
+            "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
+                "furnace" in st["block"] for st in b.mem.stations(snap.dimension, near=snap.feet, within=STATION_R)))),
             "swimming": lambda: skills.swimming(s),
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
