@@ -71,12 +71,11 @@ ROWS = [
          tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='mine_while_hungry', module='skills',
-         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: the beef untouched '
-              '(control for eat_while_walking)'),
+         doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: no eat task, every '
+              "bite inside the running mine, the bar no lower at the end (worked_fed over the run's trace)"),
          scene=[('floor',), ('stand',), ('give', 'wooden_pickaxe'), ('give', 'cooked_beef', 4)],
-         run=('skill', 'mine', 'minecraft:cobblestone', 3, ['stone'], 0),
-         before=[('start', 'mine_while_hungry'), ('&hungry',)],
-         check=[('gain', 'minecraft:cobblestone', 3), ('count', 'minecraft:cooked_beef', '==', 4)], budget=15,
+         run=('&mine_hungry',), before=[('start', 'mine_while_hungry'), ('&hungry',)],
+         check=[('gain', 'minecraft:cobblestone', 3), ('call', 'mine_fed', [])], budget=15,
          skills=['mine'], tier_fixed='common', combat=False, stochastic=False,
          tags={'base': 'mine_stone', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),

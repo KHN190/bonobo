@@ -1976,6 +1976,37 @@ def _walk_once(ctx):
         WALK["frames"] = frames
     return True
 
+def worked_fed(frames):
+    """Pure over trace frames: eaten while working, never paused for it — no "eat" task, every bite (the BITE_S
+    before a rise) inside a running work task, and the bar no lower at the end than at the start."""
+    fed = [f for f in frames if f.get("food") is not None]
+    if not fed or any((f.get("task") or {}).get("type") == "eat" for f in frames):
+        return False
+    if fed[-1]["food"] < fed[0]["food"]:
+        return False
+    for prev, rise in zip(fed, fed[1:]):
+        if rise["food"] <= prev["food"]:
+            continue
+        bite = [f for f in frames if rise["t"] - BITE_S <= f["t"] <= rise["t"]]
+        if any((f.get("task") or {}).get("status") != "running" for f in bite):
+            return False
+    return True
+
+def mine_fed():
+    """worked_fed over the last traced mine (`_mine_hungry`), read when the check runs."""
+    return worked_fed(WALK.get("mine", []))
+
+def _mine_hungry(ctx):
+    """3 cobblestone mined hungry, the whole run traced (position, food, the jar's task)."""
+    import threading
+    frames, stop = [], threading.Event()
+    threading.Thread(target=_trace, args=(stop, frames), daemon=True).start()
+    try:
+        return _skill("mine")(ctx, "minecraft:cobblestone", 3, ["stone"], 0)
+    finally:
+        stop.set()
+        WALK["mine"] = frames
+
 def _hungry(ctx):
     """`before` hook: food drained to about half (hunger at full strength for 5 s), and the level remembered."""
     WALK.clear()
