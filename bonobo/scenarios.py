@@ -2747,12 +2747,6 @@ def _have(*needs):
     return __import__("bonobo.goals", fromlist=["goals"]).have(*needs)
 
 
-def _fresh_picks(ctx):
-    """`before` hook: the brain's pick counts start from this row."""
-    import collections
-    core.BRAIN.__dict__.setdefault("picks", collections.Counter()).clear()
-
-
 def _count(token, n):
     return lambda: _inv_now().count(token) - _base_count(token) >= n
 
@@ -3132,6 +3126,7 @@ def _machine_due(origin, n):
 
 _st = lambda api: api.get("/state")     # noqa: E731
 UPKEEP_FURNACE = at(2, 0, 0)
+BRIDGE_ACROSS = 9       # needs.bridge_stock from the start to at(9, 0, 0)
 UPKEEP_ROWS = [
     ("reach_land", "treading water 6 blocks from a shore → on dry land",
      _tank(-6, 5, -4, 4, 1, water_top=-1) + [f"fill {_c(at(6, -3, -4))} {_c(at(9, -1, 4))} stone", _tp()], [],
@@ -3162,15 +3157,16 @@ UPKEEP_ROWS = [
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
      [_blocked_toward(at(9, 0, 0))], lambda: _at(at(9, 0, 0), 4)(__import__("bonobo.api", fromlist=["get"]), None),
      _at(at(9, 0, 0), 4)),
-    # The row tests the trigger, not the fill: topping up to BRIDGE_STOCK (32) is 25+ blocks, past any 30 s budget.
-    # Stopped at progress — 3 blocks gained under a "bridge stock" pick.
+    # Blocks fetched to what the way across takes (needs.bridge_stock: 9 to x 9), then bridged: judged by the gap
+    # crossed or the stock reached.
     ("bridge_stock", "the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks "
-     "fetched first (the bag gains ≥ 3 building blocks under a bridge stock pick, the gap still open)",
+     "fetched first, to what the way across takes (bridge_stock), then across",
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 2",
-                 "give @p stone_pickaxe"],
-     [_blocked_toward(at(9, 0, 0)), _fresh_picks, _interrupt_when("minecraft:cobblestone", 3)],
-     lambda: _count("minecraft:cobblestone", 3)() and core.BRAIN.picks.get("bridge stock", 0) >= 1,
-     _gain("minecraft:cobblestone", 3)),
+                 "give @p diamond_pickaxe"],
+     [_blocked_toward(at(9, 0, 0))],
+     lambda: _at(at(9, 0, 0), 4)(__import__("bonobo.api", fromlist=["get"]), None)
+     or _inv_now().count("minecraft:cobblestone") >= BRIDGE_ACROSS,
+     lambda api, inv: _at(at(9, 0, 0), 4)(api, inv) or inv.count("minecraft:cobblestone") >= BRIDGE_ACROSS),
     ("unstuck", "a minute in the same block with the same bag (history set), open ground → moved off (≥ 5 blocks)",
      _floor() + [_tp()], [_stuck_for(70)], lambda: not _near(__import__("bonobo.api", fromlist=["get"]),
                                                            at(0, 0, 0), 5),

@@ -24,7 +24,14 @@ DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
 NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
-BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN
+BRIDGE_STOCK = 32          # the most to fetch when the path is blocked and there is less than BRIDGE_MIN
+
+
+def bridge_stock(feet, target):
+    """Pure: building blocks to fetch for a blocked path — one per block of the way across (horizontal distance to
+    where the walk was going), at least BRIDGE_MIN, at most BRIDGE_STOCK. A flat 32 sent a 6-block gap mining 30."""
+    across = math.ceil(math.dist((feet[0], feet[2]), (target[0], target[2])))
+    return max(BRIDGE_MIN, min(BRIDGE_STOCK, across))
 # Plan steps that put the body where a fall can happen — portals, strongholds, fortresses, deep ore reached by
 # digging down. The jar's WaterClutch saves a fall only with a water bucket to hand, so a plan with one of these
 # gets a bucket first. (kind, token) with token None = any token of that kind.
@@ -196,7 +203,8 @@ class Needs:
             self.need("water bucket", goals.have(("minecraft:water_bucket", 1)),
                       "a plan with a fall in it and no water to land in")
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
-            self.need("bridge stock", goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
+            self.need("bridge stock", goals.have(("building", bridge_stock(snap.feet, blocked["pos"]))),
+                      "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))
         if food_count(inv) < 8:
             secs, known = self.plan(food_goal, snap)

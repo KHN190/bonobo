@@ -2401,3 +2401,16 @@ class EstimatesRememberFirst(unittest.TestCase):
                     (noted[k] for k in kinds if k in noted), default=None))
                 with mock.patch("bonobo.cost.find", side_effect=fake_find):
                     self.assertEqual((c.distance(blocks, radius), len(asked)), (want, finds))
+
+
+class BridgeStockSizedToTheGap(unittest.TestCase):
+    """needs.bridge_stock: one block per block across, between BRIDGE_MIN and BRIDGE_STOCK."""
+
+    def test_over_the_table(self):
+        rows = [("a 9-block way across: 9", (0, 64, 0), (9, 64, 0), 9),
+                ("a step across: at least BRIDGE_MIN", (0, 64, 0), (2, 64, 0), reflexes.BRIDGE_MIN),
+                ("100 blocks away: at most BRIDGE_STOCK", (0, 64, 0), (100, 64, 0), needs.BRIDGE_STOCK),
+                ("diagonal 12 across, height ignored", (0, 64, 0), (9, 90, 8), 13)]
+        for name, feet, target, want in rows:
+            with self.subTest(name):
+                self.assertEqual(needs.bridge_stock(feet, target), want)
