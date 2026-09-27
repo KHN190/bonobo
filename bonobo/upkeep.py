@@ -51,6 +51,25 @@ def dusk_s(snap):
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
 
+def overnight(inv, cost):
+    """The cheapest way through a night from this bag (`decompose.cheapest` over "overnight"): ("bed" or a
+    SOURCES["overnight"] name, seconds, steps); (None, inf, []) when there is none."""
+    bed = []
+
+    def bed_plan():
+        bed[:] = decompose.decompose(inv, goals.have(("bed", 1)), cost)
+        return bed
+
+    try:
+        steps, way = decompose.cheapest("overnight", 1, bed_plan, inv, cost)
+    except Unplannable as e:
+        log(f"upkeep: no way through the night ({e})")
+        return None, math.inf, []
+    if steps is None:
+        steps, way = bed, "bed"
+    return way, cost.plan_s(steps), steps
+
+
 def food_lasts_s(snap):
     """Seconds of work the stomach and the meals in the bag cover (`risk.food_drain_s` per hunger point)."""
     from . import beliefs
@@ -218,11 +237,34 @@ class Upkeep:
         food_goal = goals.have(("food", 8))
         if food_count(inv) < 8 and food_lasts_s(snap) < self.plan_s(food_goal, snap) * LEAD:
             self.urgent(food_goal, "food runs out before more could be had")
-        bed_goal = goals.have(("bed", 1))
-        if over and not snap.night and inv.count("bed") == 0 \
-                and dusk_s(snap) < self.plan_s(bed_goal, snap) * LEAD:
-            self.urgent(bed_goal, "dark before a bed could be made")
+        if over and not snap.night and inv.count("bed") == 0:
+            way, seconds, steps = self.overnight(snap)
+            if way is not None and dusk_s(snap) < seconds * LEAD and not self.sheltered(snap, enclosed):
+                self.prepare_night(way, steps)
         return None
+
+    def overnight(self, snap):
+        """(way, seconds, steps) of the cheapest way through the night from this bag, kept briefly."""
+        key = ("overnight", bag_signature(snap.inv))
+        hit = self.plan_s_cache.get(key)
+        if hit and time.time() - hit[0] < PLAN_S_TTL:
+            return hit[1]
+        got = overnight(snap.inv, self.cost(snap))
+        self.plan_s_cache[key] = (time.time(), got)
+        return got
+
+    def prepare_night(self, way, steps):
+        """Dark comes before the chosen way could be had: its missing parts to the front. The bed is a plan of its
+        own; a shelter is made at night by the shelter row, so only what it needs is fetched now."""
+        if way == "bed":
+            self.urgent(goals.have(("bed", 1)), "dark before a bed could be made")
+            return
+        src = next(s for s in decompose.SOURCES["overnight"] if s["name"] == way)
+        if any(st.kind != "shelter" for st in steps):
+            self.urgent(goals.have(*src["needs"]), f"dark before {way} could be had")
+
+    def cost(self, snap):
+        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
 
     def urgent(self, goal, why):
         task = tasks.add(goal, front=True, source="upkeep", expires_s=1800)
@@ -235,7 +277,7 @@ class Upkeep:
         hit = self.plan_s_cache.get(key)
         if hit and time.time() - hit[0] < PLAN_S_TTL:
             return hit[1]
-        cost = Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
+        cost = self.cost(snap)
         try:
             seconds = cost.plan_s(decompose.decompose(snap.inv, goal, cost))
         except Unplannable:

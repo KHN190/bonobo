@@ -163,6 +163,12 @@ SOURCES = {
                                        ("minecraft:flint_and_steel", 1), ("building", 16)],
                              "known": ("lava", "no lava known and no lava bucket", "minecraft:lava_bucket"),
                              "not_in": ("minecraft:the_nether", "water cannot be poured in the Nether")}],
+    # A night without a bed (upkeep.overnight): the default is the bed's plan; these are the other ways through it.
+    "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
+                   "needs": [("tool", "pickaxe", 0)]},
+                  {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", 9)]},
+                  {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
+                   "needs": [("minecraft:stone", 14), ("door", 1), ("minecraft:torch", 1)]}],
 }
 
 

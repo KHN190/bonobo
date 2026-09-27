@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, decompose, goals, planner, retry, skillcore, skills, tasks, upkeep  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
-from bonobo.data import bare  # noqa: E402
+from bonobo.data import COVERED_SKY, bare  # noqa: E402
 from bonobo.knowledge import food_count  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
@@ -956,12 +956,22 @@ UPKEEP = [
     Row("hungry at night with a bed: eat first, then sleep", "eat", food=10, time_of_day=NIGHT),
     Row("the bag full and the path blocked: empty the bag first", "empty the bag", inv=full_bag("cobblestone"),
         blocked=(40, 64, 0)),
-    Row("dusk in 25 s, no bed, sheep 20 away: a bed to the front (LEAD)", None, queued=[[("bed", 1)]],
-        time_of_day=DUSK, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
+    # A night without a bed: the cheapest way through it (bed | dig in | wall in | hut), its parts fetched LEAD early.
+    Row("dusk in 25 s, no bed, a pickaxe: dig in at dark — no sheep hunted for a bed", None, time_of_day=DUSK,
+        inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
+    Row("dusk in 25 s, no bed, no pickaxe, no sheep: dig in (a pickaxe), no bed", None, time_of_day=DUSK,
+        queued=[[("tool", "pickaxe", 0)]], inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
+    Row("dusk in 25 s, wool carried, no planks: the bed (19 s × LEAD) to the front", None,
+        queued=[[("bed", 1)], [("tool", "pickaxe", 0)]],
+        time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)]),
     Row("dusk in 25 s, wool and planks carried: a bed is seconds away", None, time_of_day=DUSK,
         inv=[("cooked_beef", 8), ("stone_pickaxe", 1), ("white_wool", 3), ("oak_planks", 3), ("crafting_table", 1)]),
-    Row("morning, no bed, sheep near: plenty of day left", None, time_of_day=1000,
-        inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
+    Row("dusk in 25 s, cobblestone carried: walled in at dark", None, time_of_day=DUSK, queued=[[("tool", "pickaxe", 0)]],
+        inv=[("cooked_beef", 8), ("cobblestone", 16)], seen={}),
+    Row("dusk in 25 s, no bed, no pickaxe, underground already: covered, nothing", None, time_of_day=DUSK, queued=[[("tool", "pickaxe", 0)]],
+        skyLight=0, y=30.0, inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
+    Row("morning, no bed, nothing carried: plenty of day left", None, time_of_day=1000,
+        queued=[[("tool", "pickaxe", 0)]], inv=[("cooked_beef", 8)]),
     Row("starving slowly, cows far away: food to the front (LEAD)", None, queued=[[("food", 8)]], food=3,
         inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={"cow": 45, "oak_log": 10, "stone": 2}),
     Row("full stomach, no meals, cows near: no hurry", None, food=20, inv=[("white_bed", 1), ("stone_pickaxe", 1)]),
@@ -1005,13 +1015,14 @@ def run_upkeep(row, tmp):
     if row.blocked is not None:
         table.failed("nav", api.NavFailed("no path found", pos=row.blocked), row.place)
     c, plan_s = cost(snap, **row.seen), {}
+    table.cost = lambda _snap: c                    # the row's readings stand in for /find and /entities
     for goal in (goals.have(("food", 8)), goals.have(("bed", 1))):
         try:
             secs = c.plan_s(decompose.decompose(snap.inv, goal, c))
         except Unplannable:
             secs = float("inf")
         plan_s[goal["args"]["needs"][0][0]] = secs
-        table.plan_s_cache[(json.dumps(goal, sort_keys=True), upkeep.bag_signature(snap.inv))] = (now + 60, secs)
+    plan_s["overnight"] = upkeep.overnight(snap.inv, c)
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
         got = table.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen})
@@ -1047,18 +1058,19 @@ class Upkeep(unittest.TestCase):
                 if chosen is not None:
                     continue                                # a row took the round: nothing is queued this round
                 over = snap.dimension == OVER
-                bed = over and not snap.night and snap.inv.count("bed") == 0 \
-                    and upkeep.dusk_s(snap) < plan_s["bed"] * lead
+                way, secs, _ = plan_s["overnight"]
+                bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" \
+                    and upkeep.dusk_s(snap) < secs * lead and snap.get("skyLight", 15) > COVERED_SKY
                 food = food_count(snap.inv) < 8 and upkeep.food_lasts_s(snap) < plan_s["food"] * lead
-                self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {upkeep.dusk_s(snap)} s, bed plan "
-                                                                  f"{plan_s['bed']:.0f} s × {lead}")
+                self.assertEqual(((("bed", 1),) in queued), bed, f"dusk in {upkeep.dusk_s(snap)} s, {way} plan "
+                                                                  f"{secs:.0f} s × {lead}")
                 self.assertEqual(((("food", 8),) in queued), food, f"food lasts {upkeep.food_lasts_s(snap):.0f} s, "
                                                                     f"plan {plan_s['food']:.0f} s × {lead}")
 
     def test_lead_moves_the_verdict(self):
         """The same dusk, the same bag: a longer lead inserts the bed, a shorter one does not."""
         for lead, want in ((0.1, set()), (50.0, {(("bed", 1),)})):
-            row = Row(f"lead {lead}", None, time_of_day=DUSK, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)])
+            row = Row(f"lead {lead}", None, time_of_day=DUSK, inv=[("cooked_beef", 8), ("white_wool", 3)])
             with self.subTest(lead=lead), tempfile.TemporaryDirectory() as tmp, mock.patch.object(upkeep, "LEAD", lead):
                 _, queued, _ = run_upkeep(row, tmp)
                 self.assertEqual(set(queued) & {(("bed", 1),)}, want)
@@ -1523,6 +1535,27 @@ class Queue(unittest.TestCase):
                 steps = plan({"goal": template, "args": a}, snapshot(), {"oak_log": 5, "stone": 2, "cow": 9})
                 self.assertIsInstance(steps, list)
 
+
+
+# ------------------------------------------------------------------------------------------------ a night's way
+class Overnight(unittest.TestCase):
+    """The cheapest way through a night from this bag (upkeep.overnight → decompose.cheapest over "overnight")."""
+
+    # (situation, bag, what is in sight) → the way chosen and its first step's kind
+    ROWS = [("a pickaxe: dig in, nothing to fetch", [("stone_pickaxe", 1)], HERD, "dig in", ["shelter"]),
+            ("no sheep, no pickaxe: a wooden pickaxe then dig in, not a bed", [], {"oak_log": 10, "stone": 2},
+             "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
+            ("wool carried: the bed", [("white_wool", 3)], HERD, "bed", ["gather", "craft", "craft", "craft"]),
+            ("cobblestone carried, nothing seen: walled in", [("cobblestone", 16)], {}, "wall in", ["shelter"]),
+            ("a bed carried: sleep in it, nothing to make", [("white_bed", 1)], {}, "bed", [])]
+
+    def test_way_over_the_table(self):
+        for name, carried, seen, way, kinds in self.ROWS:
+            with self.subTest(name):
+                snap = snapshot(state(timeOfDay=DUSK), inventory(*carried))
+                got, secs, steps = upkeep.overnight(snap.inv, cost(snap, **seen))
+                self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
+                self.assertEqual(secs, sum(st.est for st in steps) / 20)
 
 
 # ------------------------------------------------------------------------------------------------ a tool that broke
