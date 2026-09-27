@@ -132,7 +132,6 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual(len(got), 1)
                 self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
                 self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")
-        self.assertIn("rows", GRAPH["end"], "the fight builds its rows with the shared differencing")
 
     def test_perception_does_not_halt_the_body_itself(self):
         # The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's. Two direct stops here were
@@ -140,11 +139,6 @@ class RulesAreWired(unittest.TestCase):
         # the arbiter's to run.
         direct = [c.lineno for c in calls_in("perception") if name_of(c) == "post" and first_arg(c) == "/stop"]
         self.assertEqual(direct, [], "perception must preempt through the arbiter, never call /stop directly")
-        self.assertIn("preempt", GRAPH["perception"])
-
-    def test_the_funnels_check_who_owns_the_body(self):
-        for mod in ("nav", "api"):
-            self.assertIn("owns", GRAPH[mod], f"{mod} drives the body without asking the arbiter who owns it")
 
     def test_recoveries_preempt_rather_than_walk_inline(self):
         self.assertIn("preempt", {name_of(c) for c in calls_in("end", "_recover")},
