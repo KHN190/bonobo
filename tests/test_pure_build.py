@@ -106,27 +106,6 @@ class BodyDims(unittest.TestCase):
                 self.assertEqual(actions.body_dims(state), want)
 
 
-class FacilityDims(unittest.TestCase):
-    MINE = Action("mine:coal", {"minecraft:coal": 1}, 2.0, requires={"at:coal_ore": 1})
-    TABLE_ACT = Action("craft:table", {"planks": -4, "minecraft:crafting_table": 1}, 1.0, requires={"planks": 4})
-    PICK = Action("craft:pick", {"planks": -3, "stick": -2, "tool:pickaxe:0": 1}, 1.0,
-                  requires={"minecraft:crafting_table": 1, "planks": 3, "stick": 2})
-    BREAK_TABLE = Action("break:table", {"minecraft:crafting_table": -1, "planks": 4}, 1.0)
-    TABLE = [
-        # actions                            expected                          why
-        ([],                                  set(),                            "boundary: nothing required"),
-        ([MINE],                              {"at:coal_ore"},                  "a place is required, never spent"),
-        ([TABLE_ACT],                         set(),                            "negative: planks are required AND spent"),
-        ([TABLE_ACT, PICK],                   {"minecraft:crafting_table"},     "the bench stays; materials do not"),
-        ([TABLE_ACT, PICK, BREAK_TABLE],      set(),                            "negative: some column spends the bench"),
-    ]
-
-    def test_table(self):
-        for acts, want, why in self.TABLE:
-            with self.subTest(why=why):
-                self.assertEqual(actions.facility_dims(acts), want)
-
-
 class TargetOf(unittest.TestCase):
     TABLE = [
         # needs                                          expected                         why

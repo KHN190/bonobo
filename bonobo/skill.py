@@ -149,13 +149,6 @@ def can_run(fn, *args, **kwargs):
     return True, None
 
 
-def commands_of(fn, state, *args):
-    """The command batch this skill would send from `state`, or None when it is closed-loop. Pure: nothing runs."""
-    contract = getattr(fn, "contract", None)
-    make = getattr(contract, "commands", None)
-    return None if make is None else list(make(state, args))
-
-
 def step_keys(step):
     """The effects a plan step asks for, most specific first."""
     return [f"{step.kind}:{step.token}", f"item:{step.token}", step.kind]

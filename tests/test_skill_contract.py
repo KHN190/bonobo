@@ -1315,9 +1315,14 @@ class BlueprintBatch(unittest.TestCase):
                     want(self, building._blueprint_commands_for(st, args))
 
 
+def commands_of(contract, state, *args):
+    """The batch an open-loop skill would post from `state`, or None when it is closed-loop. Pure: nothing runs."""
+    return None if contract.commands is None else list(contract.commands(state, args))
+
+
 class Commands(unittest.TestCase):
     def batch(self, name, st):
-        return skillkit.commands_of(skillkit.REGISTRY[name].runner, st, *st.get("_args", ()))
+        return commands_of(skillkit.REGISTRY[name], st, *st.get("_args", ()))
 
     def test_batches(self):
         for name, rows in COMMANDS.items():
@@ -1346,7 +1351,7 @@ class Commands(unittest.TestCase):
 
     def test_closed_loop_skills_answer_none(self):
         closed = {n: c for n, c in skillkit.REGISTRY.items() if c.commands is None}
-        self.assertEqual({n: skillkit.commands_of(c.runner, {}) for n, c in closed.items()},
+        self.assertEqual({n: commands_of(c, {}) for n, c in closed.items()},
                          {n: None for n in closed}, "a closed-loop skill has no batch to hand over")
 
 

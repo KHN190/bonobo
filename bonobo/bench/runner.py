@@ -279,17 +279,6 @@ from .rowkey import (COMMON, NOT_PRODUCTION, _callable_sources, _names_in, _stri
 
 
 
-# Settled scenarios: obvious mechanics that passed and never failed are not re-run for code or jar changes (placing
-# eyes, throwing gold at piglins). Re-test by name with --force, or drop the name here after a live-run problem.
-STABLE = {"activate_end_portal", "barter_piglin", "enter_end", "craft_eyes", "gold_helmet_swap", "loot_chest",
-          "fill_water_bucket", "enter_nether", "return_from_nether", "relight_portal", "cast_portal",
-          "build_light_portal",
-          # deterministic layouts with no opponent: once they pass, logic fixes don't need a game run to prove them
-          "craft_stone_tools", "iron_ingots", "hunt_food", "gather_logs", "gather_logs_birch", "recover_items",
-          "retreat_from_nether", "return_to_portal", "find_fortress", "water_clutch", "cross_lava_3", "cross_lava_8",
-          "cross_lava_lake"}
-
-
 # Only fights change run to run (mob AI, knockback, fireballs). Everything else is settled once it passes.
 FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skeleton_1", "fight_creeper_1", "fight_blaze_3", "fight_enderman_1", "ghast_fireball", "bed_bomb_kill", "fight_dragon", "siege", "combat_arena",
           "escape"}

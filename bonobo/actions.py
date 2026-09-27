@@ -68,23 +68,6 @@ def with_exposure(action):
     return action
 
 
-def facility_dims(actions):
-    """Dimensions that work REQUIRES but never spends: benches, furnaces, being at the ore, being sheltered.
-
-    Leaving one of these behind is a gift to whatever comes next — nobody uses it up, so its lower price is a real
-    saving to every later goal. Materials are the opposite: a plan that ends holding less wood has not left wood
-    behind, it has spent it, and treating that fall as generosity charges the same work twice (it blew plan prices
-    up to a hundred and seventy thousand seconds).
-
-    Read off the actions rather than listed here, so a facility added tomorrow is covered tomorrow.
-    """
-    required, consumed = set(), set()
-    for a in actions:
-        required.update(a.requires)
-        consumed.update(d for d, delta in a.effect.items() if delta < 0)
-    return required - consumed
-
-
 def uses_dim(kind):
     """How many more blocks this kind of tool can break before it is gone.
 

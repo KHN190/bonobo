@@ -1183,12 +1183,6 @@ from .knowledge import RAW_MEAT  # noqa: E402  (one food table: knowledge.ALL_FO
 from .data import FULL_BAR, NUTRITION  # noqa: E402
 
 
-def edible_carried(inv):
-    """Anything edible at all, cooked or raw. `food_count` counts MEALS (cooked only); this counts food."""
-    from .knowledge import ALL_FOOD
-    return any(inv.count(f) for f in ALL_FOOD + RAW_MEAT)
-
-
 def bites_to_full(food, carried, raw_ok=False):
     """Pure: (item, bites) — what to eat to fill the bar from `food` points, and how many bites of it: the item whose
     restore fits the gap best (the biggest that does not overflow, else the smallest that does), raw meat only when
@@ -1266,17 +1260,6 @@ def swimming(state):
     swimming", and a PLAN goal went exploring for logs while the air ran out."""
     return bool(state.get("inWater")) and (not state.get("onGround", False)
                                             or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
-
-
-# What working needs of the BODY'S SITUATION, as opposed to of the bag. A rule about the world, stated once, the
-# way `can_sleep` states the one about beds: treading water there is nothing to stand on, so nothing can be dug,
-# placed or built — and the planner must know that before it prices walking to a site, not after the skill fails.
-# One minute of the log was eight different goals each discovering it alone and each cooling for two minutes.
-def can_work_here(state):
-    """None when ordinary work is possible where the body is, else why it is not."""
-    if swimming(state):
-        return "treading water: nothing to stand on"
-    return None
 
 
 def _on_land():
