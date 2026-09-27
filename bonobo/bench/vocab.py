@@ -1196,10 +1196,14 @@ def walked_at_least(m):
 def _when(progress, act, limit_s=120):
     """`before` hook: `act()` the first moment `progress()` holds — the world changes by progress, never by the clock."""
     def hook(ctx):
+        row = BASE.get("name")
+
         def watch():
             from .. import api
             t0 = time.time()
-            while time.time() - t0 < limit_s:
+            # this row's only: a watcher left from search_night_resume set the clock to night inside
+            # upkeep__collect_job (20260928-082806: "collect job interrupted (night)")
+            while time.time() - t0 < limit_s and BASE.get("name") == row:
                 try:
                     if progress():
                         act()

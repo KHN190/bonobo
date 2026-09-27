@@ -377,6 +377,7 @@ def run(task, *, awaits, wait=900):
     from . import arbiter
     if not arbiter.BODY.owns(f"api.run({task.get('type')})"):
         return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}
+    at_boundary()          # nightfall: a single send is a boundary too (mine's mine_many went out after the request)
     task = DRESS(task) if DRESS else task
     why = vet_aim(task)
     if why:

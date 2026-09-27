@@ -38,7 +38,7 @@ def _night_way_running():
                for c in CALLS)
 
 
-api.BOUNDARY_EXEMPT = _night_way_running
+api.BOUNDARY_EXEMPT = lambda: not CALLS or _night_way_running()     # only a skill's work stops; never the night's way
 
 
 def current():

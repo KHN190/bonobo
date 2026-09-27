@@ -25,6 +25,7 @@ BRIDGE_MIN = 8             # building blocks it takes to bridge a blocked path
 EAT_BELOW = 14             # hunger points: eat below this, while there is something to eat (standing)
 STARVE = 6                 # hunger points: at or below this, raw meat is eaten rather than waited on
 JOB_RANGE = 96
+UNSTUCK_MOVED = 2           # blocks the feet must move for a way out to count
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 
@@ -316,7 +317,10 @@ class Maintain:
                 continue
             log(f"no progress for {STUCK_LIMIT}s at {snap.feet} → unstuck by heading {label} {target}")
             self.history.clear()
-            if nav.moved(nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1)):
+            nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1)
+            if math.dist(nav.feet(), snap.feet) >= UNSTUCK_MOVED:
+                # judged by the feet: "up" on open ground re-aims at the column's own ground and reports arrived
+                # without a step taken (upkeep__unstuck 20260928-082652: the way counted done, nothing moved)
                 b.retry.succeeded(name)
                 return
             # the next way in this same call: the stuck clock was just cleared, so a refusal here waited another
