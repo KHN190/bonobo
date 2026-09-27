@@ -50,6 +50,7 @@ def soft_ground(patch=None, gap=False):
     b = {(x, 63, z): "stone" for x in range(-10, 11) for z in range(-2, 3)}
     for x0, x1 in [patch] if patch else []:
         b.update({(x, y, z): "dirt" for x in range(x0, x1 + 1) for y in (61, 62, 63) for z in range(-2, 3)})
+        b.update({(x, 60, z): "stone" for x in range(x0, x1 + 1) for z in range(-2, 3)})     # ground under it
     if gap:
         for x in (4, 5):
             for z in range(-2, 3):

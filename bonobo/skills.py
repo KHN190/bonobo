@@ -1479,11 +1479,15 @@ DIG_IN_DEPTH = 3
 
 
 def dig_in_commands(state, args=()):
-    """Pure: dig up to DIG_IN_DEPTH straight down (`nav.dig_down_tasks`) and seal the opening over the head.
-    `state["region"]` is `nav.dig_down_region(feet, DIG_IN_DEPTH)`."""
+    """Pure: dig DIG_IN_DEPTH straight down (`nav.dig_down_tasks`: 199, 198, 197 from feet 200), stand at the
+    bottom, and seal the first dug cell — the ground line, ground on every side to place against. A shallower hole
+    has its lid above ground with nothing to place it on (night_dig_in_dirt: 199+198 dug, the lid at 200 hung in
+    the air): NotAvailable. `state["region"]` is `nav.dig_down_region(feet, DIG_IN_DEPTH)`."""
     x, y, z = state["feet"]
     region, inv = state["region"], state["inv"]
     tasks, safe = nav.dig_down_tasks(region, state["feet"], DIG_IN_DEPTH, state["protected"], False)
+    if safe < DIG_IN_DEPTH:
+        raise NotAvailable(f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line")
     block = next((b for b in GROUPS["building"] if inv.count(b)), None)
     if block is None:
         # Nothing carried to seal with: the roof is what the dig itself brings up (dirt from a dirt pit). Planned
@@ -1497,7 +1501,7 @@ def dig_in_commands(state, args=()):
             t["collect"] = True
         name = bare(region.name((dug[0]["x"], dug[0]["y"], dug[0]["z"])))
         block = mid(PLACEABLE_AS.get(name, name))
-    tasks.append({"type": "place", "item": block, "x": x, "y": y - safe + 2, "z": z})
+    tasks.append({"type": "place", "item": block, "x": x, "y": y - 1, "z": z})      # the first dug cell
     return tasks
 
 

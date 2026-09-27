@@ -1833,7 +1833,10 @@ class Overnight(unittest.TestCase):
     def test_soft_below_over_the_table(self):
         from bonobo.terrain import soft_below
         from tests.world import FakeRegion
-        rows = [("dirt three deep", {(0, 63, 0): "dirt", (0, 62, 0): "dirt", (0, 61, 0): "sand"}, True),
+        rows = [("dirt three deep, stone under", {(0, 63, 0): "dirt", (0, 62, 0): "dirt", (0, 61, 0): "sand",
+                                                 (0, 60, 0): "stone"}, True),
+                ("dirt three deep over a cave: the dig would stop short",
+                 {(0, 63, 0): "dirt", (0, 62, 0): "dirt", (0, 61, 0): "sand"}, False),
                 ("stone at the third", {(0, 63, 0): "grass_block", (0, 62, 0): "dirt", (0, 61, 0): "stone"}, False),
                 ("air under the feet (a ledge)", {(0, 62, 0): "dirt", (0, 61, 0): "dirt"}, False),
                 ("water under the feet", {(0, 63, 0): "water", (0, 62, 0): "dirt", (0, 61, 0): "dirt"}, False)]

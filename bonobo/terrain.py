@@ -170,12 +170,14 @@ def stands(region, feet_c):
 
 
 def soft_below(region, feet, depth):
-    """Pure: the `depth` cells under the feet all dig by hand (dirt, sand, gravel… `HAND_MINEABLE_SUFFIX`) — a hole
-    to hide in needs no pickaxe there. Air, water or stone under us: not."""
+    """Pure: the `depth` cells under the feet all dig by hand (dirt, sand, gravel… `HAND_MINEABLE_SUFFIX`) and
+    something solid under the last one to stand on — a hole to hide in needs no pickaxe there. Air, water or stone
+    under us: not; a cave under the soft layer: not (the dig stops short and the lid ends above ground)."""
     from .data import HAND_MINEABLE_SUFFIX, bare
     x, y, z = feet
     names = [bare(region.name((x, y - k, z))) for k in range(1, depth + 1)]
-    return all(n not in ("air", "cave_air", "water") and n.endswith(HAND_MINEABLE_SUFFIX) for n in names)
+    return all(n not in ("air", "cave_air", "water") and n.endswith(HAND_MINEABLE_SUFFIX) for n in names) \
+        and region.solid((x, y - depth - 1, z))
 
 
 SOFT_RADIUS = 16          # how far along the ground a spot to dig in by hand is looked for
