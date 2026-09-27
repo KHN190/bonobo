@@ -464,9 +464,35 @@ class CanStart(unittest.TestCase):
                 bag_ = inventory(("oak_planks", 2)) if inv is not None else inventory()
                 b = brainmod.Brain.__new__(brainmod.Brain)
                 b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
+                b.retry, b.place = retry.Retry(), ("here", False)
                 ctx = type("Ctx", (), {"policy": None, "mem": None})()
                 self.assertEqual(b.valid(step, snapshot(inv=bag_), ctx), want)
                 self.assertEqual(dispatch.can_start(ctx, step), all(_passes(p) for p in pre))
+
+    def test_a_failed_step_cools_for_every_goal(self):
+        """A plan step that failed cools under its own key (brain.step_key), so the next goal that plans the same
+        step is not offered it; an interruption cools nothing."""
+        step = planner.Step("gather", "log", 3, {})
+        # (situation, what ends the attempt, the goal that tries after) → the step is still valid
+        rows = [("failed under the pickaxe goal: not offered for the sword", NotAvailable("no trees found nearby"),
+                 "idle: have sword tier 1", False),
+                ("the same goal again: not offered", NotAvailable("no trees found nearby"),
+                 "idle: have pickaxe tier 1", False),
+                ("interrupted: offered again (no cooling)", api.Interrupted("a faster layer took the body"),
+                 "idle: have sword tier 1", True),
+                ("it succeeded: offered", None, "idle: have sword tier 1", True)]
+        for name, err, _goal, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.retry, b.place, b.mem = retry.Retry(), ("here", False), Memory(tmp + "/notes.json")
+                b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
+
+                def run(e=err):
+                    if e is not None:
+                        raise e
+                with mock.patch.object(api, "post"), mock.patch.object(brainmod, "log"):
+                    b.attempt("idle: have pickaxe tier 1", run, also=(brainmod.step_key(step),))
+                self.assertEqual(b.ready(brainmod.step_key(step)), want)
 
     def test_who_can_start_a_step(self):
         """dispatch.can_start over the registry as it is, by the step's kind: no provider, an unknown skill name,

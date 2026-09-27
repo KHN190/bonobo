@@ -3343,9 +3343,11 @@ UPKEEP_ROWS = [
     # hurt with the bar short of full: no regen below 18 and slow below 20 — eaten to full though not hungry
     ("eat_to_regen", "hurt (instant damage), food 16 (not hungry: above EAT_BELOW), bread carried → eaten to a full "
      "bar, and health rises",
-     _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 1 0 true",
-                 "effect give @p minecraft:instant_damage 1 0 true"],
-     [_drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
+     # The damage in a `before` hook: in setup the body reset's instant health (after setup) undid it — the
+     # row started at 20 hp and never had a reason to eat.
+     _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 1 0 true"],
+     [lambda ctx: (_chat("effect give @p minecraft:instant_damage 1 0 true"), time.sleep(0.5)),
+      _drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
       lambda ctx: BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"],
                               hp_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["health"])],
      lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None),

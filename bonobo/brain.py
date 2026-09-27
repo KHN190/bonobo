@@ -179,7 +179,7 @@ class Brain:
                 pass
 
     # -- failure policy (retry.py)
-    def failed(self, name, err):
+    def failed(self, name, err, quiet=False):
         """A failure: counted for (name, cause), the cause cooled here. Interruptions are not failures."""
         if api.interrupted(err):
             return None
@@ -187,7 +187,7 @@ class Brain:
         cause = retry.cause_of(err)
         self.reflexes.failed(cause, err, self.place)
         verdict = self.retry.failed(name, cause, str(err), time.time(), self.place)
-        if verdict is not None and verdict.worth_logging:
+        if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s)")
         return verdict
@@ -195,8 +195,9 @@ class Brain:
     def ready(self, name, cause=None):
         return self.retry.ready(name, time.time(), self.place, cause)
 
-    def attempt(self, name, fn):
-        """Run fn under the failure policy (`outcome_of`). Returns "ok", "failed" or "interrupted"."""
+    def attempt(self, name, fn, also=()):
+        """Run fn under the failure policy (`outcome_of`). Returns "ok", "failed" or "interrupted". A failure is
+        also counted under each of `also` (the step's own key, `step_key`: shared by every goal that plans it)."""
         self.last_failure = None
         try:
             fn()
@@ -221,6 +222,8 @@ class Brain:
             log(f"   {name} interrupted: {err}")     # no count, no /stop, no cooldown
         elif then == "stop":
             self.last_failure = self.failed(name, err)
+            for key in also:
+                self.failed(key, err, quiet=True)
             try:
                 api.post("/stop")
             except McError:
@@ -271,7 +274,8 @@ class Brain:
             act.run()
             return
         box = {}
-        ran = arbiter.BODY.drive("plan", lambda: box.update(outcome=self.attempt(act.name, act.run)), act.name)
+        also = (step_key(act.step),) if getattr(act, "step", None) is not None else ()
+        ran = arbiter.BODY.drive("plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name)
         outcome = box.get("outcome", "interrupted") if ran else "interrupted"
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)
@@ -418,7 +422,7 @@ class Brain:
     def valid(self, step, snap, ctx=None):
         """The cheap check made every round: the step's inputs are in this bag, and the skill that would carry it
         out passes its own declared preconditions (`dispatch.can_start` → `skill.can_run`)."""
-        return runnable(step, snap.inv) and (ctx is None or dispatch.can_start(ctx, step))
+        return runnable(step, snap.inv) and self.ready(step_key(step)) and (ctx is None or dispatch.can_start(ctx, step))
 
     def repair(self, task, goal, snap, held):
         """Bring the held plan up to date with the world. Run-once goals keep what is left of theirs (a road half
@@ -542,6 +546,12 @@ def wait_out_fight(sleep=time.sleep, now=time.monotonic):
             and now() - began < FIGHT_WAIT_MAX_S:
         sleep(FIGHT_POLL_S)
     return now() - began
+
+
+def step_key(step):
+    """Pure: the key a plan step's failure cools under — the same for every goal that plans it (a gather of logs that
+    found no tree is not tried again for the sword, the torch and the food in the next second)."""
+    return f"step:{step.kind}:{step.token}"
 
 
 def outcome_of(err):
