@@ -23,6 +23,11 @@ def mid(name):
     return got
 
 
+# Blocks a pod (wall in) takes on open ground: 4 sides at the feet, 4 at the head, the roof, and the cap beside the
+# head the roof is placed against (skills.pod_commands). Priced as 9, it ran one short and left an opening.
+POD_BLOCKS = 10
+
+
 def item_ids(tokens):
     """Pure: the jar's item ids for a task's "only" list — a group token (log, planks, wool…) as its members' full
     ids, an id as itself. The jar matches exact ids: "log" matched nothing and a whole trunk was left on the ground

@@ -13,6 +13,7 @@ import math
 
 from . import blueprints, goals
 from .cost import TICKS_PER_S
+from .data import POD_BLOCKS
 from .planner import Planner, Step, Unplannable
 
 SOLVERS = {}          # name -> fn(inv, needs, cost, pending) -> [Step]
@@ -174,7 +175,7 @@ SOURCES = {
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
                    "extra_s": "soft_walk_s"},        # the walk to that ground (skills.soft_spot) is part of it
-                  {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", 9)]},
+                  {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", POD_BLOCKS)]},
                   # The hut's needs are its blueprint's materials, read from it: a copy said "minecraft:stone" (smooth
                   # stone) where the blueprint wants the "stone" group, so the plan chose a hut the build then found
                   # 14 stone short of.

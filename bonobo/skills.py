@@ -10,7 +10,7 @@ from . import api, beliefs, blueprints, nav, world
 from .api import McError, NotAvailable, log
 from .skill import skill, world_signature
 from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
-                   MARKER_WEIGHT, PLACEABLE_AS, RECIPES, bare, mid)
+                   MARKER_WEIGHT, PLACEABLE_AS, POD_BLOCKS, RECIPES, bare, mid)
 from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused
 
@@ -1660,9 +1660,10 @@ def pod_commands(state, args=()):
     cells = _pod_cells((x, y, z))
     todo = sorted((c for c in cells if not region.solid(c)), key=lambda c: c[1])
     blocks = [b for b in GROUPS["building"] + GROUPS["planks"] if inv.count(b)]
-    if sum(inv.count(b) for b in blocks) < len(todo):
-        raise NotAvailable(f"need {len(todo)} blocks to wall in, not enough carried")
-    stock = [[b, inv.count(b)] for b in blocks]
+    carried = sum(inv.count(b) for b in blocks)
+    # Planned against an unlimited stock first: the supports count too (a roof on open ground needs a cap beside the
+    # head — 10 blocks, not 9 — and with 9 the pod "left 1 openings" and the night went to digging dirt).
+    stock = [[b, inv.count(b)] for b in blocks] + [["?", 1 << 30]]
     tasks = []
 
     def put(cell):
@@ -1703,10 +1704,13 @@ def pod_commands(state, args=()):
             for s_cell in reversed(stack):
                 put(s_cell)
         put(c)
+    placed_n = sum(1 for t in tasks if t["type"] == "place")
+    if placed_n > carried:
+        raise NotAvailable(f"need {placed_n} blocks to wall in (supports included), {carried} carried")
     return tasks
 
 
-@skill(gives=["state:sheltered"], needs={"building": 9}, speed={}, done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
+@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at

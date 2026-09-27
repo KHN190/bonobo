@@ -930,6 +930,10 @@ COMMANDS = {
          lambda t, b: (t.assertEqual(set(types(b)), {"place"}), t.assertEqual(len(b), 10),
                        t.assertEqual(cells(b)[-1], (0, 66, 0)))),
         ("too few blocks", body(world(), inv=inventory(cobblestone=3)), NotAvailable),
+        ("must fail: open ground, 9 carried — the roof's cap makes 10 (it left an opening)",
+         body(world(), inv=inventory(cobblestone=9)), NotAvailable),
+        ("open ground, exactly POD_BLOCKS carried: all ten placed", body(world(), inv=inventory(cobblestone=10)),
+         lambda t, b: t.assertEqual(len([x for x in b if x["type"] == "place"]), 10)),
         ("grass in a wall cell is broken first", body(world(((1, 64, 0), "short_grass")), inv=inventory(cobblestone=16)),
          lambda t, b: t.assertLess(types(b).index("mine"), next(i for i, x in enumerate(b) if x["type"] == "place"
                                                                 and (x["x"], x["y"], x["z"]) == (1, 64, 0)))),

@@ -10,6 +10,7 @@ import re
 import time
 
 from .bench import core, runner
+from .data import POD_BLOCKS
 from .bench.core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from .bench.core import (BOX, FLAG, NOTES, ORIGIN, PKG, SCENARIOS, SetupInvalid, _achieve, _batch, _c, _chat,
                          _checked, _command, _count_blocks, _drain, _inv_has, _near, _platform, _sweep,
@@ -3232,10 +3233,10 @@ for _name, _doc, _extra, _done, _check in [
         ("night_dig_in_dirt", "dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked "
          "there, dug in by hand: two or more down in the dirt, sealed overhead", [],
          lambda: _in_the_patch_underground(__import__("bonobo.api", fromlist=["get"]), None), _in_the_patch_underground),
-        ("night_dig_in_dirt_unreachable", "the same dirt across a drop to nothing, 9 cobblestone carried → never "
+        ("night_dig_in_dirt_unreachable", "the same dirt across a drop to nothing, a pod's blocks carried → never "
          "walked to (must not): walled in on its own side of the gap",
-         # The fallback's blocks given (console-built): the row tests the choice, not mining 9 blocks for a wall.
-         [f"fill {_c(at(4, -3, -8))} {_c(at(5, -1, 8))} air", "give @p cobblestone 9"], _enclosed,
+         # The fallback's blocks given (console-built): the row tests the choice, not mining a wall's blocks.
+         [f"fill {_c(at(4, -3, -8))} {_c(at(5, -1, 8))} air", f"give @p cobblestone {POD_BLOCKS}"], _enclosed,
          lambda api, inv: api.get("/state")["blockX"] < at(4, 0, 0)[0])]:
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": ["shelter:dig in"], "tier_fixed": "brain",
