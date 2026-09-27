@@ -51,6 +51,35 @@ TABLE = [
 ]
 NAMES = tuple(row[0] for row in TABLE)
 
+# Hysteresis (a Schmitt trigger): a row with an exit predicate, once it fired, keeps firing until its exit holds —
+# not merely until its trigger stops. Every other row exits when its trigger does. Out of the water: in on
+# swimming, out only after standing on something that is not water for LAND_EXIT_S (a shore block's water flips
+# `swimming` every tick).
+LAND_EXIT_S = 1.0
+EXIT = {"reach land": lambda v: v["on_land_s"] >= LAND_EXIT_S}
+
+# What a reflex's work moves, per row: run once and still firing with this unchanged is a failure (it cools under
+# retry's policy), so a reflex that cannot help can never hold the body for good. Default: where we stand, the
+# bag's used slots and the hunger bar.
+PROGRESS = {"empty the bag": lambda v: v["used_slots"], "unstuck": lambda v: v["feet"],
+            "reach land": lambda v: v["feet"], "eat": lambda v: v["food"]}
+NO_PROGRESS = "stuck"          # the retry cause a reflex that changed nothing fails with
+
+
+def progress_of(name, view):
+    """Pure: the reading a run of `name` should move."""
+    return PROGRESS.get(name, lambda v: (v["feet"], v["used_slots"], v["food"]))(view)
+
+
+def stalled(fires_again, before, after):
+    """Pure: a reflex that ran and fires again with its progress unchanged made no progress."""
+    return bool(fires_again) and before == after
+
+
+def latched(fired, view):
+    """Pure: the rows still inside their hysteresis after this round — fired, with an exit not yet reached."""
+    return frozenset(n for n in fired if n in EXIT and not EXIT[n](view))
+
 
 class View(dict):
     """The round's readings, each made on first ask (`providers`: {key: zero-argument reader}), then kept."""
@@ -65,9 +94,11 @@ class View(dict):
         return value
 
 
-def due(view, ready=lambda name: True):
-    """[(seq, name)] of the reflexes whose trigger fires, in table order, skipping those cooling (`ready`)."""
-    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE) if ready(name) and trigger(view)]
+def due(view, ready=lambda name: True, active=frozenset()):
+    """[(seq, name)] of the reflexes that fire, in table order, skipping those cooling (`ready`): the trigger holds,
+    or the row is `active` (it fired last round) and has an exit that does not hold yet."""
+    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
+            if ready(name) and (trigger(view) or (name in active and name in EXIT and not EXIT[name](view)))]
 
 
 def nether_retreat(snap):
@@ -119,12 +150,17 @@ class Maintain:
         self.history = []             # (time, feet, bag signature) for "stuck in place"
         self.escalated = {}
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
+        self.active = frozenset()     # rows inside their hysteresis (`latched`)
+        self.land_since = None        # when the body last stood on something that is not water
+        self.last_run = None          # (name, progress when it started): judged next round (`stalled`)
 
     def observe(self, snap):
         from .needs import bag_signature
         now = time.time()
         self.history = [h for h in self.history if now - h[0] <= STUCK_LIMIT + 30]
         self.history.append((now, snap.feet, bag_signature(snap.inv)))
+        on_land = snap.state.get("onGround", False) and not snap.state.get("inWater")
+        self.land_since = (self.land_since or now) if on_land else None
 
     def failed(self, cause, err, place):
         """A path failure is remembered with where it was going: the "path blocked" rows answer it."""
@@ -169,9 +205,22 @@ class Maintain:
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
         }, snap=snap, ctx=ctx, food=s.get("food", 20), night=snap.night, overworld=over,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
-            blocked_at=blocked, building=inv.count("building"))
+            blocked_at=blocked, building=inv.count("building"), feet=snap.feet,
+            on_land_s=time.time() - self.land_since if self.land_since else 0.0)
+        fired = due(view, active=self.active)
+        names = [name for _seq, name in fired]
+        if self.last_run is not None:
+            name, before = self.last_run
+            self.last_run = None
+            if stalled(name in names, before, progress_of(name, view)):
+                b.retry.failed(name, NO_PROGRESS, "ran and changed nothing", time.time(), b.place)
+        self.active = latched(names, view)
         rows = {name: act for name, _trigger, act in TABLE}
-        return [(seq, name, (lambda act=rows[name]: act(self, view))) for seq, name in due(view, b.ready)]
+
+        def run(name):
+            self.last_run = (name, progress_of(name, view))
+            return rows[name](self, view)
+        return [(seq, name, (lambda name=name: run(name))) for seq, name in fired if b.ready(name)]
 
     # -- path blocked
     def blocked_here(self, place):

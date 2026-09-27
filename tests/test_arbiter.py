@@ -221,7 +221,7 @@ from bonobo import reflexes, retry as retry_mod, skills   # noqa: E402
 CALM = {"died_recently": False, "food": 20, "edible": True, "swimming": False, "nether_bad": False, "night": False,
         "enclosed": False, "overworld": True, "bed_works": True, "bed_carried": False, "bed_near": False,
         "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 5, "blocked": False,
-        "building": 64, "stuck": False}
+        "building": 64, "stuck": False, "feet": (0, 64, 0), "on_land_s": 5.0}
 HUNGRY = {"food": reflexes.EAT_BELOW - 1}
 IN_WATER = {"swimming": True}
 BAG_FULL = {"used_slots": reflexes.BAG_FULL}
@@ -343,34 +343,106 @@ class Flicker(unittest.TestCase):
                 self.assertEqual("eat" in [n for _s, n in reflexes.due(dict(CALM, food=food, edible=edible))], want)
 
 
-class NoStarvation(unittest.TestCase):
-    """Rounds simulated with the real retry policy: a reflex that keeps firing and keeps failing cools, and what is
-    below it gets the body within a bounded number of rounds."""
-    # (situation, view, plan kinds, cause the fired reflex fails with) → the first round (≤ N) a lower choice drives
-    ROWS = [("a bag that cannot be emptied (nowhere to put it)", BAG_FULL, ["queue"], "unavailable", "queue"),
-            ("stuck and never freed", {"stuck": True}, ["queue"], "stuck", "queue"),
-            ("a blocked path that cannot be bridged", {"blocked": True}, ["idle"], "nav", "idle"),
-            ("hungry and eating fails, bag full below it", {**HUNGRY, **BAG_FULL}, ["queue"], "game", "empty the bag")]
-    ROUNDS = 5
+class Hysteresis(unittest.TestCase):
+    """reach land: in on swimming, out only after reflexes.LAND_EXIT_S on something that is not water; every other
+    row exits with its trigger. Rounds fed through reflexes.due / latched, as Maintain.proposals does."""
+    OUT = reflexes.LAND_EXIT_S
+    # (situation, rounds of (swimming, on_land_s), row) → whether the row fires in each round
+    ROWS = [("deep water: in", [(True, 0.0)], "reach land", [True]),
+            ("shore flicker: swimming off for a tick, still on the way out", [(True, 0.0), (False, 0.1), (True, 0.0),
+                                                                                (False, 0.2)], "reach land",
+             [True, True, True, True]),
+            ("really ashore: out once the exit holds", [(True, 0.0), (False, 0.5), (False, OUT)], "reach land",
+             [True, True, False]),
+            ("never in the water: never in", [(False, 0.0), (False, 0.0)], "reach land", [False, False]),
+            ("a row without an exit leaves with its trigger", [(True, 0.0), (False, 0.0)], "eat", [True, False])]
 
-    def test_a_failing_reflex_lets_lower_work_through(self):
-        for name, view, plan, cause, want in self.ROWS:
+    def test_rounds(self):
+        for name, rounds, row, want in self.ROWS:
             with self.subTest(name):
-                r = retry_mod.Retry()
-                picks = []
-                for n in range(self.ROUNDS):
-                    now = float(n)
-                    pick = chosen(situation(view, plan=plan, ready=lambda task: r.ready(task, now, "here"), at=now),
-                                  now=now)
-                    picks.append(pick)
-                    if pick == picks[0]:
-                        r.failed(pick, cause, "fails every time", now, "here")
-                self.assertEqual(picks[1], want)
+                active, got = frozenset(), []
+                for n, (swim, land) in enumerate(rounds):
+                    food = reflexes.EAT_BELOW - 1 if (row == "eat" and n == 0) else 20
+                    v = dict(CALM, swimming=swim, on_land_s=land, food=food)
+                    fired = [x for _s, x in reflexes.due(v, active=active)]
+                    active = reflexes.latched(fired, v)
+                    got.append(row in fired)
+                self.assertEqual(got, want)
 
-    def test_control_a_reflex_that_is_not_failing_keeps_the_body(self):
-        r = retry_mod.Retry()
-        picks = [chosen(situation(BAG_FULL, plan=["queue"], ready=lambda t: r.ready(t, float(n), "here"), at=float(n)),
-                        now=float(n)) for n in range(4)]
+
+def simulate(view_of, plan, cause_for, rounds):
+    """Rounds of the MAINTAIN layer over the real retry policy, as Maintain.proposals runs them: what fired, the
+    last run judged (`stalled`), cooling rows skipped, the arbiter's pick. `view_of(n)` is round n's view;
+    `cause_for(name)` is how a run fails (None: it returns fine). Returns the picks."""
+    r, active, last, picks = retry_mod.Retry(), frozenset(), None, []
+    for n in range(rounds):
+        now, v = float(n) * 10, view_of(n)
+        fired = [x for _s, x in reflexes.due(v, active=active)]
+        if last is not None:
+            name, before = last
+            last = None
+            if reflexes.stalled(name in fired, before, reflexes.progress_of(name, v)):
+                r.failed(name, reflexes.NO_PROGRESS, "changed nothing", now, "here")
+        active = reflexes.latched(fired, v)
+        intents = [arbiter.Intent("maintain", lambda: None, x, at=now, kind=x, seq=reflexes.NAMES.index(x))
+                   for x in fired if r.ready(x, now, "here")]
+        intents += [arbiter.Intent("plan", lambda: None, k, at=now, kind=k) for k in plan]
+        pick = chosen(intents, now=now)
+        picks.append(pick)
+        if pick in reflexes.NAMES:
+            if cause_for(pick):
+                r.failed(pick, cause_for(pick), "fails", now, "here")
+            else:
+                r.succeeded(pick)
+                last = (pick, reflexes.progress_of(pick, v))
+    return picks
+
+
+class NoProgress(unittest.TestCase):
+    """A reflex that runs, fires again and moved nothing fails (retry's cooling), so what is below it gets the body;
+    one that moves its reading keeps it; one whose trigger clears is done; a cooled one comes back."""
+    FULL = dict(CALM, **BAG_FULL)
+
+    def test_rounds(self):
+        backstop = retry_mod.BACKSTOP[reflexes.NO_PROGRESS]
+        # (situation, view of round n, plan kinds, rounds, picks wanted — None: skip that round's check)
+        rows = [("a bag that will not empty: cools, the task gets the body", lambda n: self.FULL, ["queue"], 3,
+                 ["empty the bag", "queue", "queue"]),
+                ("a bag that empties a little each run: keeps going", lambda n: dict(self.FULL, used_slots=36 - n),
+                 ["queue"], 3, ["empty the bag"] * 3),
+                ("emptied: the trigger clears, the task next", lambda n: self.FULL if n == 0 else CALM, ["queue"], 2,
+                 ["empty the bag", "queue"]),
+                ("cooled and the cooling over: tried again", lambda n: self.FULL, ["queue"],
+                 int(backstop // 10) + 2, None),
+                ("stuck in place and never moving: the plan below gets through", lambda n: dict(CALM, stuck=True),
+                 ["idle"], 3, ["unstuck", "idle", "idle"])]
+        for name, view_of, plan, rounds, want in rows:
+            with self.subTest(name):
+                picks = simulate(view_of, plan, lambda x: None, rounds)
+                if want is not None:
+                    self.assertEqual(picks, want)
+                else:
+                    self.assertEqual((picks[0], picks[1], picks[-1]), ("empty the bag", "queue", "empty the bag"))
+
+
+class NoStarvation(unittest.TestCase):
+    """Whatever keeps firing above it, a lower row or the plan is eventually chosen within ROUNDS."""
+    ROUNDS = 6
+    # (situation, view, plan kinds, how the fired reflex's run ends: a cause, or None for fine with no progress)
+    ROWS = [("a bag that cannot be emptied: fails", BAG_FULL, ["queue"], "unavailable"),
+            ("a bag that 'empties' and stays full", BAG_FULL, ["queue"], None),
+            ("stuck and never freed", {"stuck": True}, ["queue"], None),
+            ("a blocked path that cannot be bridged", {"blocked": True}, ["idle"], "nav"),
+            ("hungry and eating changes nothing, bag full below it", {**HUNGRY, **BAG_FULL}, ["queue"], None)]
+
+    def test_something_lower_gets_the_body(self):
+        for name, view, plan, cause in self.ROWS:
+            with self.subTest(name):
+                picks = simulate(lambda n: dict(CALM, **view), plan, lambda x: cause, self.ROUNDS)
+                self.assertNotEqual({p for p in picks if p != picks[0]}, set())
+
+    def test_control_a_reflex_making_progress_keeps_the_body(self):
+        picks = simulate(lambda n: dict(CALM, used_slots=40 - n), ["queue"], lambda x: None, 4)
         self.assertEqual(picks, ["empty the bag"] * 4)
 
 if __name__ == "__main__":
