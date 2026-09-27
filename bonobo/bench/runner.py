@@ -67,7 +67,7 @@ def classify(exc, ok):
 
 
 BUDGET_SLACK = 1.0      # the budget is a hard limit: the row is stopped there (`_watchdog`) and fails
-ROW_LIMIT_S = 30        # no row outside acceptance may ask for more (the user's speedrun rule, prefer less)
+ROW_LIMIT_S = 25        # no row outside acceptance may ask for more (the user's hard limit per row, prefer less)
 TIMEOUT = "TIMEOUT"     # the note's prefix for a row stopped at its limit: deterministic slowness, never re-run
 
 

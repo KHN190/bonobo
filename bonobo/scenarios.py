@@ -2063,10 +2063,9 @@ def _row(name, base, cond=None, extra=None):
         run = _timed(run)
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check, **({"target_s": target_s} if target_s else {}),
-           # A lagging server multiplies the base's time; the cap is the bench's hard 60 s (runner.ROW_LIMIT_S).
            # A lagging server doubles the base's time (its bases do one unit of work); nothing else earns more. The cap
            # is the bench's hard limit (runner.ROW_LIMIT_S).
-           "budget": min(30, b["budget"] * (2 if c.get("tick_rate", 20) < 20 else 1)),
+           "budget": min(runner.ROW_LIMIT_S, b["budget"] * (2 if c.get("tick_rate", 20) < 20 else 1)),
            "skills": list(b["skills"]), "point": x.get("point", b.get("point", "A")),
            "tags": {"base": base, **({c["axis"]: next(k for k, v in CONDITIONS.items() if v is c)} if c else {}),
                     **({"surprise": name} if x else {})}}
@@ -3841,8 +3840,8 @@ def tier_of(name, row):
 for _name, _row_ in SCENARIOS.items():
     _row_["tier"] = tier_of(_name, _row_)
     if _row_["tier"] != "acceptance" and _row_["budget"] > runner.ROW_LIMIT_S:
-        # The runner stops every row at 30 s (the user's speedrun rule). A row whose job was not cut down to fit
-        # keeps its work and meets the limit: it is reported TIMEOUT, the honest answer, until its setup is squeezed.
+        # The runner stops every row at runner.ROW_LIMIT_S (the user's hard limit per row). A row whose job was not
+        # cut down to fit keeps its work and meets the limit: it is reported TIMEOUT, the honest answer, until its setup is squeezed.
         _row_["budget"] = runner.ROW_LIMIT_S
 
 
