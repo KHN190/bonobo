@@ -2900,13 +2900,14 @@ BRAIN_DIMS = {
 }
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
 BAG_FILL = {"room": None, "one_slot": (1, "dirt"), "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
+KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask for more than this, or it is met at once
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
                   f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
                   f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(DIAMOND_UP)} diamond_ore",
                   f"setblock {_c(DIAMOND_DOWN)} diamond_ore", f"setblock {_c(at(-2, 0, 0))} furnace",
                   "give @p white_wool 3", "give @p oak_planks 8", "give @p crafting_table", "give @p stick 4",
-                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", "give @p cobblestone 16"])
+                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}"])
 
 
 def _diamond_of(cell):
@@ -2995,7 +2996,8 @@ def _seen_rule(cell):
 BRAIN_FAMILIES = {
     "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
     "tool_tier": (list(_cells(BRAIN_BASE, dims=("tool", "head"), table=BRAIN_DIMS)),
-                  [_have(("minecraft:cobblestone", 3))], _tool_rule),
+                  # 3 more than the kit carries: "have 3" was met by the kit's 16 and nothing was mined
+                  [_have(("minecraft:cobblestone", KIT_COBBLE + 3))], _tool_rule),
     "night_under": (list(_cells(BRAIN_BASE, dims=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
     "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
     "seen_store": (list(_cells(BRAIN_BASE, dims=("seen", "head"), table=BRAIN_DIMS)),
