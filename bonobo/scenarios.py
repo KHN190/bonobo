@@ -2927,13 +2927,16 @@ def _seen_rule(cell):
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
 
 
+# One value off the base at a time (each value once, plus the base), not the product: which combination wins is the
+# arbiter's decision, tested offline (arbiter.arbitrate's table, reflexes.TABLE, needs); a row here confirms that a
+# decision is carried out in the world.
 BRAIN_FAMILIES = {
-    "night_first": (list(_cells(BRAIN_BASE, over=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
-    "tool_tier": (list(_cells(BRAIN_BASE, over=("tool", "head"), table=BRAIN_DIMS)),
+    "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
+    "tool_tier": (list(_cells(BRAIN_BASE, dims=("tool", "head"), table=BRAIN_DIMS)),
                   [_have(("minecraft:cobblestone", 3))], _tool_rule),
-    "night_under": (list(_cells(BRAIN_BASE, over=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
-    "tidy_then_task": (list(_cells(BRAIN_BASE, over=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
-    "seen_store": (list(_cells(BRAIN_BASE, over=("seen", "head"), table=BRAIN_DIMS)),
+    "night_under": (list(_cells(BRAIN_BASE, dims=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
+    "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
+    "seen_store": (list(_cells(BRAIN_BASE, dims=("seen", "head"), table=BRAIN_DIMS)),
                    [_have(("minecraft:diamond", 1))], _seen_rule),
 }
 
