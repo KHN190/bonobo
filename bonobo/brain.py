@@ -262,7 +262,7 @@ class Brain:
         self.track(snap)
         if time.time() - self.last_scan >= SCAN_EVERY_S:
             self.last_scan = time.time()
-            explore.note_around(self.mem, snap.dimension)
+            explore.note_around(self.mem, snap.dimension, snap.feet)
         act = self.decide(snap, ctx)
         if act is None:
             tape.end(self, None, snap)

@@ -190,7 +190,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
         m = mem()
         with mock.patch.object(explore, "find", side_effect=find), mock.patch.object(explore, "entities",
                                                                                       return_value=[]):
-            explore.note_around(m, "minecraft:overworld")
+            explore.note_around(m, "minecraft:overworld", (0, 64, 0))
         seen = {r["kind"] for r in m.data["seen"]}
         # Village furniture worth taking and crops are kept; stations, containers and the rest are not memory's (data.seen_class:
         # memory.stations / containers hold ours, /find answers the rest).

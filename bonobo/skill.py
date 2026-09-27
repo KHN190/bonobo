@@ -42,6 +42,11 @@ class Call:
         self.args, self.kwargs, self.base, self.result = args, kwargs, None, None
 
 
+def body_now():
+    """The body's reading this round (one /state): the runner's own seam for death and a dimension change."""
+    return api.get("/state")
+
+
 def world_signature():
     from .world import Inventory
     s = api.get("/state")
@@ -310,7 +315,7 @@ def _heartbeat(name):
 
 def _drive(contract, c, gen):
     t0 = time.time()
-    dim0 = api.get("/state").get("dimension")
+    dim0 = body_now().get("dimension")
     last, since = world_signature(), t0
     try:
         while True:
@@ -321,7 +326,7 @@ def _drive(contract, c, gen):
             now = time.time()
             _heartbeat(contract.name)
             api.check_interrupt(t0, contract.soft)   # Python-side loops stop too, not only mod tasks
-            s = api.get("/state")
+            s = body_now()
             if skillcore.dead(s):
                 # Dead ends every skill now: a dragon fight kept issuing 20+ "travel: no route" after dying. An
                 # interruption, not the skill's failure (brain.outcome_of: recover first, then replan).

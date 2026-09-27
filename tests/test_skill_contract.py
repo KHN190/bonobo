@@ -865,6 +865,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillkit, "world_signature", lambda: None), \
                     mock.patch.object(skillkit, "_heartbeat", lambda n: None), \
                     mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
+                    mock.patch.object(skillkit, "body_now", lambda: {"dimension": "minecraft:overworld"}), \
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
                 runner = skillkit.skill(needs={}, speed={}, gives={}, budget=budget, stall=stall)(body)
                 if want is None:

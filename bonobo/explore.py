@@ -186,11 +186,11 @@ def variants(block):
     return next((list(blocks) for blocks, _tier in MINE.values() if block in blocks), [block])
 
 
-def note_around(mem, dimension):
+def note_around(mem, dimension, here):
     """Map resources while travelling, so "where to find" starts from known places: the nearest tree, water, lava,
     iron and coal in 48 blocks, the takeable blocks (beds, chests…), the rare blocks and the animals in sight."""
     from .knowledge import takeable_blocks
-    here, looked_blocks, seen_blocks = feet(), [], []
+    looked_blocks, seen_blocks = [], []
     try:
         for kind, blocks in SCAN_BLOCKS.items():
             if not unknown(mem, dimension, [kind] if kind in _ALIAS else blocks):

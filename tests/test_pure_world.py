@@ -731,7 +731,8 @@ class Frontier(unittest.TestCase):
         m = self.mem()
         m.see_sections("minecraft:overworld", self.HERE, 16 * 13, {}, [self.S])
         ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
-        with mock.patch.object(explore, "feet", lambda: self.HERE):
+        with mock.patch.object(explore, "feet", lambda: self.HERE), \
+                mock.patch.object(explore, "_ground", lambda tx, tz, y: None):     # no ground to walk to either
             with self.assertRaises(NotAvailable) as e:
                 list(explore._search(ctx, [self.S], lambda: [], 64, 3))
         self.assertIn("searched", str(e.exception))
