@@ -1106,27 +1106,62 @@ def unbury(ctx):
         yield eye
 
 
+AIR_FULL = 300          # the air meter's top, in ticks
+BREATH_HOLD_S = 2.0     # the head out of the water this long, lungs full: breathing, not a surfacing that sinks back
+BREATH_WAIT_S = 8.0     # how long the verify watches for that (lungs refill in about 4 s)
+
+
+def breathed(samples):
+    """Pure: [(t, head under water, air)] → the head has been out without a break for BREATH_HOLD_S up to the last
+    sample, which reads full lungs. A body that surfaced and sank back reads the break."""
+    if not samples:
+        return False
+    t_end, under, air = samples[-1]
+    if under or air < AIR_FULL:
+        return False
+    out_since = t_end
+    for t, under, _ in reversed(samples):
+        if under:
+            break
+        out_since = t
+    return t_end - out_since >= BREATH_HOLD_S
+
+
 def _breathing():
-    s = api.get("/state")
-    return not head_underwater(s) or s["air"] >= 280
+    """Watch the body up to BREATH_WAIT_S: True once `breathed`, False the moment the head goes back under."""
+    samples, end = [], time.time() + BREATH_WAIT_S
+    while True:
+        s = api.get("/state")
+        samples.append((time.time(), head_underwater(s), s.get("air", AIR_FULL)))
+        if breathed(samples):
+            return True
+        if samples[-1][1] or time.time() >= end:
+            return False
+        time.sleep(0.25)
 
 
 @skill(done=lambda c: _breathing(), budget=45, stall=12, provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
-    """Out of breath underwater: swim to the nearest air (straight up first — the nearest air is the sky above, not
-    the shore); water capped by blocks → dig the cap."""
+    """Out of breath underwater: to the nearest dry cell to stand on reached by swimming (a shaft's rim, the shore)
+    — surfacing in the column sank back under; no land in reach → a block underfoot at the surface; water capped
+    by blocks → dig the cap (terrain.air_route)."""
     for _ in range(4):
         x, y, z = feet()
         region = Region((x - 8, y - 2, z - 8), (x + 8, y + 16, z + 8))
         route = air_route(region, (x, y + 1, z))
         if route is None:
-            raise NotAvailable("no air within reach")
-        kind, c = route
-        if kind == "swim":
-            api.run({"type": "goto", "x": c[0], "y": c[1] - 1, "z": c[2], "range": 1, "partial": True,
-                     "useBoat": False}, wait=20)
-        else:
+            raise NotAvailable("no air within reach: no land, no surface, no cap to dig")
+        kind, c, why = route
+        if why:
+            log(f"   find_air: {why}")
+        if kind == "dig":
             api.run(nav.mine_task(c), wait=15)
+        else:
+            api.run({"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5, "partial": True,
+                     "useBoat": False}, wait=20)
+            if kind == "pillar" and nav.building_item():
+                fx, fy, fz = feet()
+                place(nav.building_item(), (fx, fy - 1, fz))
         yield kind
 
 

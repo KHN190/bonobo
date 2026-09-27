@@ -39,15 +39,11 @@ LAND = ["grass_block", "dirt", "stone", "sand", "gravel", "deepslate", "andesite
 
 
 def pick_land(region, here):
-    """Pure: the nearest cell to stand on dry land — a solid, non-hazard floor with two free (not water) cells
-    above. None when there is no land in the region."""
+    """Pure: the nearest cell to stand on dry land (`stands`). None when there is no land in the region."""
     best = None
     for (x, y, z), name in region.blocks.items():
-        if name not in LAND:
-            continue
-        feet_c, head_c = (x, y + 1, z), (x, y + 2, z)
-        if not region.inside(head_c) or region.name(feet_c) not in ("air", "cave_air") \
-                or region.name(head_c) not in ("air", "cave_air"):
+        feet_c = (x, y + 1, z)
+        if name not in LAND or not stands(region, feet_c):
             continue
         d = math.dist(feet_c, here)
         if best is None or d < best[0]:
@@ -178,28 +174,46 @@ def choose_exit(region, inside, protected=()):
     return None if best is None else (best[1], best[2])
 
 
+def stands(region, feet_c):
+    """Pure: a cell a body can stand in on dry land — a solid, non-hazard LAND floor under it and two free (not
+    water) cells from the feet up."""
+    head_c, floor = (feet_c[0], feet_c[1] + 1, feet_c[2]), (feet_c[0], feet_c[1] - 1, feet_c[2])
+    return region.inside(head_c) and region.inside(floor) and region.name(floor) in LAND \
+        and region.name(feet_c) in ("air", "cave_air") and region.name(head_c) in ("air", "cave_air")
+
+
 def air_route(region, head):
-    """Pure: nearest cell with air reachable by swimming from `head` (breadth-first through water, upward moves
-    first), or the first solid block capping the water column above when there is none."""
+    """Pure: where a drowning body goes to breathe, as (kind, cell, why) or None.
+    "land": the nearest cell to stand on dry land reached by swimming from `head` (breadth-first through water and
+    the air lying on it, upward first) — a shaft's rim, a lake's shore: surfacing in a shaft sank back under;
+    "pillar": no land within reach, only the surface: stand on a block placed there;
+    "dig": no air at all, the water capped: the first solid block over the column."""
     from collections import deque
     order = [(0, 1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, -1, 0)]
-    frontier, seen = deque([head]), {head}
+    frontier, seen, surface = deque([head]), {head}, None
     while frontier:
         c = frontier.popleft()
+        if c != head and stands(region, c):
+            return ("land", c, "")
         name = region.name(c)
         if name in ("air", "cave_air") and c != head:
-            return ("swim", c)
-        if c != head and name != "water":
+            surface = surface or c
+            if region.name(add(c, (0, -1, 0))) != "water":
+                continue                                # only the air lying on the water is swum through
+        elif c != head and name != "water":
             continue
         for d in order:
             n = add(c, d)
             if n not in seen and region.inside(n):
                 seen.add(n)
                 frontier.append(n)
+    if surface is not None:
+        return ("pillar", surface, "no land within reach: a block placed underfoot at the surface")
     c = head
     while region.inside(c) and region.name(c) == "water":
         c = add(c, (0, 1, 0))
-    return ("dig", c) if region.inside(c) and region.solid(c) else None
+    return ("dig", c, "water capped, no air within reach: dig the cap") if region.inside(c) and region.solid(c) \
+        else None
 
 
 def is_enclosed(region, inside):

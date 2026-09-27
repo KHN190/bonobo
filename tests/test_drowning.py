@@ -88,5 +88,75 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
                 self.assertEqual((act.layer, act.name), ("L0", f"rescue {due}"))
 
 
+# ------------------------------------------------------------------------------------------ where to go to breathe
+from bonobo import skills  # noqa: E402
+from bonobo.terrain import air_route  # noqa: E402
+from tests.world import FakeRegion  # noqa: E402
+
+LO, HI = (-8, 56, -8), (8, 72, 8)
+PILLAR_WHY = "no land within reach: a block placed underfoot at the surface"
+
+
+def ground(top=63):
+    """Stone up to `top` over the whole box."""
+    return {(x, y, z): "stone" for x in range(-8, 9) for z in range(-8, 9) for y in range(56, top + 1)}
+
+
+def shaft(top=63, bottom=57):
+    """A 1×1 water shaft at x=z=0 from `bottom` to `top` (the rim at top + 1)."""
+    return ground(top) | {(0, y, 0): "water" for y in range(bottom, top + 1)}
+
+
+def pool(x_hi, top=63, bottom=58, bank=63):
+    """Water from x=-8 to `x_hi` (all z), a stone shore beyond it up to `bank`."""
+    blocks = {(x, y, z): "stone" for x in range(-8, 9) for z in range(-8, 9) for y in range(56, bottom)}
+    blocks.update({(x, y, z): "water" for x in range(-8, x_hi + 1) for z in range(-8, 9) for y in range(bottom, top + 1)})
+    blocks.update({(x, y, z): "stone" for x in range(x_hi + 1, 9) for z in range(-8, 9) for y in range(bottom, bank + 1)})
+    return blocks
+
+
+class AirRoute(unittest.TestCase):
+    """terrain.air_route: the nearest dry cell to stand on, not the water's surface (in a 1-wide shaft the body
+    surfaced, sank back and the walker found no path)."""
+
+    # (situation, blocks, head) → (kind, cell, why) or None
+    ROWS = [("deep in a flooded 1×1 shaft: the rim beside the top", shaft(), (0, 59, 0),
+             ("land", (1, 64, 0), "")),
+            ("the shaft's water one below the rim: still the rim", shaft(top=62) | {(0, 63, 0): "air"}, (0, 59, 0),
+             ("land", (1, 63, 0), "")),
+            ("a lake with a shore to the east: the shore, not the surface above", pool(3), (0, 60, 0),
+             ("land", (4, 64, 0), "")),
+            ("open water, no shore in reach: the surface, to stand on a block there", pool(8), (0, 60, 0),
+             ("pillar", (0, 64, 0), PILLAR_WHY)),
+            ("the bank two above the water: not climbable, the surface", pool(3, bank=65), (0, 60, 0),
+             ("pillar", (0, 64, 0), PILLAR_WHY)),
+            ("water capped by stone: dig the cap", ground(66) | {(0, y, 0): "water" for y in range(58, 64)},
+             (0, 59, 0), ("dig", (0, 64, 0), "water capped, no air within reach: dig the cap")),
+            ("water to the top of what was read: no way", pool(8, top=72), (0, 60, 0), None)]
+
+    def test_route_over_the_table(self):
+        for name, blocks, head, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(air_route(FakeRegion(LO, HI, blocks), head), want)
+
+
+class Breathed(unittest.TestCase):
+    """skills.breathed, the verify of find_air: lungs full and the head out without a break for BREATH_HOLD_S."""
+
+    # (situation, [(t, head under water, air)]) → breathing
+    ROWS = [("out 2 s, lungs full", [(0.0, False, 200), (1.0, False, 280), (2.0, False, 300)], True),
+            ("out 2 s, lungs not yet full", [(0.0, False, 150), (1.0, False, 230), (2.0, False, 290)], False),
+            ("full, out only 1.5 s", [(0.5, False, 290), (1.0, False, 300), (2.0, False, 300)], False),
+            ("surfaced, sank back, out again 1 s", [(0.0, False, 300), (1.0, True, 300), (1.5, False, 300),
+                                                    (2.5, False, 300)], False),
+            ("back under at the last read", [(0.0, False, 300), (2.0, False, 300), (2.5, True, 300)], False),
+            ("nothing read", [], False)]
+
+    def test_breathed_over_the_table(self):
+        for name, samples, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(skills.breathed(samples), want)
+
+
 if __name__ == "__main__":
     unittest.main()
