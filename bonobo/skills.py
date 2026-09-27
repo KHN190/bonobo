@@ -470,18 +470,11 @@ def split_smelt(furnaces, n, fuel, per):
     return [(free[0], total, math.ceil(total / per))]
 
 
-def _furnace_state(pos, input_ids, output):
-    """Open a furnace and say whether this batch can go in: its input slot empty or the same input, its output
-    slot empty or the same output."""
-    from .building import _open_container
-    _open_container(pos)
-    try:
-        slots = {x["slot"]: x["id"] for x in world.container()["slots"] if x["owner"] != "player"}
-    finally:
-        api.post("/close")
+def furnace_takes(slots, input_ids, output):
+    """Pure: an open furnace's slots ({slot: item id}) take this batch — its input empty or the same input, its
+    output empty or the same output."""
     inp, out = slots.get(0, "minecraft:air"), slots.get(2, "minecraft:air")
-    ok = inp in ("minecraft:air", *input_ids) and out in ("minecraft:air", output)
-    return "free" if ok else "busy"
+    return inp in ("minecraft:air", *input_ids) and out in ("minecraft:air", output)
 
 
 @skill(gives={}, needs={}, speed={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
@@ -508,16 +501,21 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
         station.__enter__()
         api.post("/close")
         near, placed = [station.pos], station.pos
-    states = []
-    for pos in near:
-        if nav.arrived(pos, ctx.policy, range_=3, attempts=1):
-            states.append((pos, _furnace_state(pos, inputs, output)))
+    # Which furnaces are busy is memory's (every load and take goes through its jobs): the batch is split without
+    # opening each furnace first. Each is then opened ONCE — the use task walks there itself — its slots read on
+    # the open screen, loaded if they are what memory said, closed. Closed-loop per furnace: the clicks need its
+    # screen open, and the jar has no click task. (Two opens and two walks per furnace were 13 s for three.)
+    busy = {tuple(j["pos"]) for j in ctx.mem.jobs(ctx.dimension) if j.get("kind") == "furnace"}
+    states = [(pos, "busy" if tuple(pos) in busy else "free") for pos in near]
     plan = split_smelt(states, count, sum(inv.count(f) for f in fuels), per)
     ready = []
     for pos, k, f in plan:
-        nav.arrive(pos, ctx.policy, range_=3)
         _open_container(pos)
         try:
+            slots = {x["slot"]: x["id"] for x in world.container()["slots"] if x["owner"] != "player"}
+            if not furnace_takes(slots, inputs, output):
+                log(f"   the furnace at {pos} holds something else: skipped")
+                continue
             move_into(inputs, 0, k)
             move_into(fuels, 1, f)
         finally:

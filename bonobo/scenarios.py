@@ -3519,6 +3519,61 @@ def _hungry(ctx):
     BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"])
 
 
+# Loading three furnaces is a chain per furnace (open, read, load, close): interrupted once the first one took its
+# share, the job resumes by what is still in the bag — every raw iron in some furnace, none loaded twice.
+SMELT_FURNACES = (at(2, 0, -2), at(2, 0, 2), at(-2, 0, 2))
+
+
+def _interrupt_once_loaded(ctx):
+    """`before` hook: the interrupt lands the moment raw iron first leaves the bag (a furnace took its share)."""
+    def watch():
+        t0 = time.time()
+        while time.time() - t0 < 30 and BASE.get("name") == "smelt_job_interrupted":
+            try:
+                if _inv_now().count("minecraft:raw_iron") < _base_count("minecraft:raw_iron"):
+                    _inject_interrupt()
+                    return
+            except Exception:
+                pass
+            time.sleep(0.05)
+    _threading.Thread(target=watch, daemon=True).start()
+
+
+def _iron_in_furnaces():
+    """Raw iron and iron ingots the three furnaces hold, read from the world (data get block … Items)."""
+    total = 0
+    for p in SMELT_FURNACES:
+        slots = furnace_slots(_command(f"data get block {p[0]} {p[1]} {p[2]} Items", []))
+        total += sum(n for s_, (item, n) in slots.items() if s_ in (0, 2)
+                     and item in ("minecraft:raw_iron", "minecraft:iron_ingot"))
+    return total
+
+
+def _load_the_rest(ctx):
+    """Resume: what is still in the bag, loaded — recomputed from the world, not from where the chain stopped."""
+    left = _inv_now().count("minecraft:raw_iron")
+    if left:
+        _skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", left, "coal")
+    return True
+
+
+SHEET["smelt_job_interrupted"] = {
+    "doc": "Three furnaces, 6 raw iron and coal; interrupted once the first furnace took its share → resumed by what "
+           "is left in the bag: all 6 in the furnaces, none twice, the bag empty of raw iron",
+    "module": "skills", "point": "A", "skills": ["start_smelt_job"], "tier_fixed": "common", "combat": False,
+    "stochastic": False, "tags": {"base": "smelt", "timing": "interrupt_mid_work"},
+    "setup": _floor() + [f"setblock {_c(p)} furnace" for p in SMELT_FURNACES]
+    + [_tp(), "give @p raw_iron 6", "give @p coal 3"],
+    "before": _hooks(_start("smelt_job_interrupted"), _interrupt_once_loaded),
+    "run": _resume("smelt_job_interrupted",
+                   lambda ctx: _skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 6, "coal"),
+                   _load_the_rest),
+    "check": _all(lambda api, inv: inv.count("minecraft:raw_iron") == 0, lambda api, inv: _iron_in_furnaces() == 6,
+                  lambda api, inv: INTERRUPTS.get("smelt_job_interrupted", 0) >= 1),
+    "budget": BASES["smelt"]["budget"],        # an interrupted run keeps its base's time
+}
+
+
 SHEET["eat_while_walking"] = {
     "doc": "Hungry, cooked beef carried, 20 blocks to walk → fed on the way without an eat task, still walking "
            "forward while it chewed (ate_on_the_way over the walk's trace)",

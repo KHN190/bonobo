@@ -256,6 +256,20 @@ class OnlyIsItemIds(unittest.TestCase):
         self.assertNotIn("only", api.with_item_ids(batch)["tasks"][0])
 
 
+class FurnaceTakes(unittest.TestCase):
+    """skills.furnace_takes: an open furnace takes this batch — its input empty or the same, its output too."""
+
+    def test_table(self):
+        inp, out = ["minecraft:raw_iron"], "minecraft:iron_ingot"
+        rows = [("empty", {}, True), ("the same input already in", {0: "minecraft:raw_iron"}, True),
+                ("our ingots waiting in the output", {2: "minecraft:iron_ingot"}, True),
+                ("must fail: beef cooking in it", {0: "minecraft:beef"}, False),
+                ("must fail: cooked beef in the output", {2: "minecraft:cooked_beef"}, False)]
+        for name, slots, want in rows:
+            with self.subTest(name):
+                self.assertIs(skills.furnace_takes(slots, inp, out), want)
+
+
 class TakeBackVerdict(unittest.TestCase):
     """skills.take_back_verdict: a station not picked up but still standing is left (a station there), not lost."""
     # (situation, (bag gained it, still standing)) → verdict
