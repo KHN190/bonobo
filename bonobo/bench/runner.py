@@ -321,6 +321,17 @@ def stochastic(row):
     return any(m in text for m in STOCHASTIC_MARKS)
 
 
+def difficulty_of(row):
+    """Pure: the difficulty a row runs on — its own `difficulty`, else normal."""
+    return row.get("difficulty", "normal")
+
+
+def difficulty_set(reply, want):
+    """Pure: does the game's reply to `/difficulty want` say it is now (or already) `want`?"""
+    text = " ".join(reply).lower()
+    return f"set to {want}" in text or f"difficulty to {want}" in text
+
+
 def needs_clock(row):
     """Pure: does this row need the day to move (sleep, a night to wait out, a set time)? Else the runner stops it."""
     names = " ".join(row.get("skills", ())) + " " + row.get("doc", "")
@@ -437,7 +448,6 @@ def _setup(name, sc, feedback):
     api.post("/resume")          # a pause menu freezes the integrated server: commands would do nothing
     time.sleep(0.5)
     lo, hi = at(*BOX[0]), at(*BOX[1])
-    combat = sc.get("combat", False)
     dim = sc.get("dimension", "minecraft:overworld")
     moved = api.get("/state")["dimension"] != dim
 
@@ -460,9 +470,11 @@ def _setup(name, sc, feedback):
             _checked(ex(f"fill {glass} {glass} glass"), feedback)
             _checked(ex(f"tp @a[limit=1] {_c(at(0, BOX[1][1] + 3, 0))}"), feedback)
             time.sleep(4)
-        for cmd in ("gamemode survival @p", "effect clear @p", "time set day", "weather clear",
-                    f"difficulty {'normal' if combat else 'peaceful'}"):
+        for cmd in ("gamemode survival @p", "effect clear @p", "time set day", "weather clear"):
             _checked(ex(cmd), feedback)
+        said = _command(ex(f"difficulty {difficulty_of(sc)}"), feedback)
+        if not difficulty_set(said, difficulty_of(sc)):
+            raise SetupInvalid(f"difficulty not {difficulty_of(sc)}: {said[:1]}")
         for cmd in sc["setup"]:
             _checked(ex(cmd), feedback)
         _command(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
@@ -480,9 +492,14 @@ def _setup(name, sc, feedback):
 
     # Empty bag first: a water bucket left from the previous scenario made any setup drop a water clutch trigger.
     for cmd in ("clear @p", "gamemode survival @p", "effect clear @p", "time set day", "weather clear",
-                "gamerule spawn_mobs false", f"difficulty {'normal' if combat else 'peaceful'}",
-                f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"):
+                "gamerule spawn_mobs false", f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"):
         _checked(ex(cmd), feedback)
+    # Normal unless the row asks: on peaceful every summoned hostile vanished at once ("0 zombie on the server").
+    # The reply is read back: the game said "already set to peaceful" on every row while we believed normal.
+    want = difficulty_of(sc)
+    said = _command(ex(f"difficulty {want}"), feedback)
+    if not difficulty_set(said, want):
+        raise SetupInvalid(f"difficulty not {want}: {said[:1]}")
     # No chance left in the world: no random ticks (leaf decay, crop growth, fire), no weather, no mob spawns, and
     # the clock only where the row needs it (sleep, a night). 1.21.11 names (snake_case, read from the game jar);
     # checked: a rule the game does not know is a setup failure, never skipped.

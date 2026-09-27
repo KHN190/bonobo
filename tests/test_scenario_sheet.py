@@ -164,6 +164,39 @@ class TheCrossProductIsWhole(unittest.TestCase):
                                     or sc.CONDITIONS[row["tags"]["timing"]].get("tick_rate"), name)
 
 
+class Unique(unittest.TestCase):
+    """No two rows are the same scenario: (setup, dimension, tick_rate, budget, skills, tags, queue, variant) differ.
+    `variant` is what a row family varies outside its setup (the facing asked, a shard's cells)."""
+
+    @staticmethod
+    def key(row):
+        return (tuple(map(str, row["setup"])), row.get("dimension"), row.get("tick_rate"), row["budget"],
+                tuple(row.get("skills", ())), repr(sorted(row.get("tags", {}).items())), repr(row.get("queue")),
+                repr(row.get("variant")))
+
+    def dups(self, rows):
+        seen, out = {}, []
+        for name, row in sorted(rows.items()):
+            k = self.key(row)
+            if k in seen:
+                out.append((seen[k], name))
+            seen.setdefault(k, name)
+        return out
+
+    def test_unique(self):
+        some = dict(list(sc.SHEET.items())[:3])
+        first = next(iter(some))
+        rows = [("the real sheet", sc.SCENARIOS, []),
+                ("a copy under another name", {**some, "zz_copy": dict(some[first])}, [(first, "zz_copy")]),
+                ("the same setup, another queue", {"a": {"setup": ["x"], "budget": 5, "queue": [1, 2]},
+                                                   "b": {"setup": ["x"], "budget": 5, "queue": [2, 1]}}, []),
+                ("the same setup, another tag", {"a": {"setup": ["x"], "budget": 5, "tags": {"inventory": "full"}},
+                                                 "b": {"setup": ["x"], "budget": 5, "tags": {}}}, [])]
+        for name, table, want in rows:
+            with self.subTest(name):
+                self.assertEqual(self.dups(table), want)
+
+
 class Tiers(unittest.TestCase):
     def test_every_row_has_a_tier(self):
         for name, row in rows():
@@ -193,7 +226,7 @@ class Tiers(unittest.TestCase):
               ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
               ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance"),
               
-              ("plan_repair_on_event", "brain"), ("night_first__tight", "brain"), ("seen_store__noted", "brain"),
+              ("plan_repair_on_event", "brain"), ("brain__tight", "brain"), ("seen_store__noted", "brain"),
               ("chop_without_interrupt", "brain"), ("ban_then_other_source", "brain"),
               ("resume_after_combat", "brain"), ("l3_two_goals_in_order", "brain"),
               ("ban_needs_a_failure", "brain"), 
@@ -454,7 +487,8 @@ class BrainGrid(unittest.TestCase):
             with self.subTest(fam):
                 grid = list(grid)
                 whys = {rule(c)[1] for c in grid}
-                names = [sc._cell_name(fam, c) for c in grid]
+                cells = sc._grid_cells()
+                names = [sc.grid_name(cells[tuple(c[d] for d in sc.BRAIN_DIMS)]["families"], c) for c in grid]
                 self.assertEqual((len(grid) >= 4, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
                 self.assertEqual([n for n in names if sc.SHEET[n]["budget"] > 60 or sc.tier_of(n, sc.SHEET[n]) != "brain"],
                                  [])
@@ -578,3 +612,20 @@ class FailedLast(unittest.TestCase):
 
     def test_empty_table(self):
         self.assertEqual(runner.failed_last({}), [])
+
+
+class Difficulty(unittest.TestCase):
+    """runner.difficulty_of / difficulty_set: normal unless a row asks, and the game's reply is what decides."""
+
+    def test_rows(self):
+        rows = [("any row: normal", {}, ["The difficulty has been set to Normal"], "normal", True),
+                ("already normal", {}, ["The difficulty did not change; it is already set to normal"], "normal", True),
+                ("the game stayed peaceful: a setup failure", {},
+                 ["The difficulty did not change; it is already set to peaceful"], "normal", False),
+                ("a row that asks for peaceful", {"difficulty": "peaceful"},
+                 ["The difficulty has been set to Peaceful"], "peaceful", True),
+                ("no reply at all", {}, [], "normal", False)]
+        for name, row, reply, want, ok in rows:
+            with self.subTest(name):
+                self.assertEqual((runner.difficulty_of(row), runner.difficulty_set(reply, runner.difficulty_of(row))),
+                                 (want, ok))

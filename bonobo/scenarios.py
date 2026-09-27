@@ -1569,6 +1569,34 @@ BASES = {
                  effect=("minecraft:iron_ingot", 1), budget=25),
 }
 
+# -- the full bag: filled after the base's own kit, to leave exactly `free` slots ------------------------------------
+def _fill_bag(free, item="dirt", stack=64):
+    """`before` hook: fill the bag with `item` until `free` slots are left (the kit the setup gave stays)."""
+    def hook(ctx):
+        from .world import Inventory
+        room = Inventory().free_slots() - free
+        if room > 0:
+            _chat(f"give @p {item} {room * stack}")
+            time.sleep(0.5)
+    return hook
+
+
+def _kept(token):
+    """None of `token` left the bag (what the start held is still there)."""
+    return lambda api, inv: inv.count(token) >= _base_count(token)
+
+
+def _product(base):
+    return (base.get("effect") or ("minecraft:cobblestone", 1))[0]
+
+
+def _stack_room_setup(base):
+    """A stack of the base's product with room for exactly what the base makes (64 − n), then the bag full."""
+    token, n = _product(base), (base.get("needs") or [(None, 4)])[0][1]
+    item = "oak_log" if token == "log" else token.split(":")[-1]
+    return [f"give @p {item} {64 - n}"]
+
+
 # -- the conditions ------------------------------------------------------------------------------------------------
 # name → dict(axis, doc, bases it applies to, and what it changes). `setup` is appended to the base's; `fails` makes
 # the row an expected failure with that reason; `check` (a function of the base) replaces the base's effect check;
@@ -1623,6 +1651,15 @@ CONDITIONS = {
                       bases={"nav", "chop", "mine_stone", "hunt", "loot"},
                       setup=[f"fill {_c(at(-8, -1, 2))} {_c(at(15, -1, 2))} lava"]),
     # inventory
+    "one_slot": dict(axis="inventory", doc="one free slot left: the product still fits, the job is done",
+                     bases={"chop", "mine_stone", "hunt", "loot"}, before=lambda b: _fill_bag(1)),
+    "stack_room": dict(axis="inventory", doc="no free slot, but the product's own stack has room for all of it → "
+                                             "done as usual, no 'bag full'",
+                       bases={"chop", "mine_stone"}, setup_for=_stack_room_setup, before=lambda b: _fill_bag(0)),
+    "valuables_full": dict(axis="inventory", doc="every slot full of diamonds: nothing new fits and nothing in the "
+                                                 "bag may be thrown → failed with the bag named, no diamond lost",
+                           bases={"chop", "mine_stone", "hunt", "loot"}, before=lambda b: _fill_bag(0, "diamond"),
+                           fails=r"bag|full|room|slot", fails_check=lambda base: _kept("minecraft:diamond")),
     "full_bag": dict(axis="inventory", doc="every slot full of dirt: nothing new can be picked up",
                      bases={"chop", "mine_stone", "hunt", "loot"}, setup=["give @p dirt 2304"],
                      fails=r"bag|full|room|slot", fails_check=lambda base: _same_bag()),
@@ -1695,10 +1732,14 @@ def _row(name, base, cond=None, extra=None):
         list(x.get("setup", ()))
     run, check, hooks = x.get("run", b["run"]), x.get("check", b["check"]), [_start(name)]
     fails = x.get("fails", c.get("fails"))
+    if c.get("setup_for"):
+        setup += c["setup_for"](b)
     if b.get("pre"):
         hooks.append(b["pre"])
     if x.get("before"):
         hooks.append(x["before"])
+    if c.get("before"):
+        hooks.append(c["before"](b))
     if x.get("run_n"):
         run = (lambda n: lambda ctx: _skill("chop")(ctx, n))(x["run_n"])
     if c.get("goal_met"):
@@ -1735,6 +1776,8 @@ def _row(name, base, cond=None, extra=None):
         run = _expect_failure(name, run, fails)
         effect = x.get("check") or (c["fails_check"](base) if c.get("fails_check") else _same_bag())
         check = _all(_failed_as_expected(), _alive(), effect)
+    if c.get("also"):
+        check = _all(check, c["also"](b))
     row = {"doc": f"{b['doc']} — {x.get('doc') or c.get('doc', 'as is')}", "module": "skills", "setup": setup,
            "before": _hooks(*hooks), "run": run, "check": check,
            # A lagging server multiplies the base's time; the cap is the bench's hard 60 s (runner.ROW_LIMIT_S).
@@ -2102,15 +2145,41 @@ def _hp_kept(least):
 _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
           f"fill {_c(at(-9, 4, -9))} {_c(at(9, 4, 9))} stone",
           f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air", f"fill {_c(at(-9, -1, -9))} {_c(at(9, -1, 9))} stone", _tp(),
-          "give @p iron_sword", "item replace entity @p armor.chest with iron_chestplate",
+          "give @p iron_sword", "give @p stone_pickaxe",       # a pickaxe: upkeep's "no pickaxe" row stays quiet
+          "item replace entity @p armor.chest with iron_chestplate",
           "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
           "item replace entity @p weapon.offhand with shield"]
 # (name, mob, how many, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob, left alone
+RESOLVE_GAP, RESOLVE_HOLD_S, RESOLVE_HP_LOSS = 6.0, 5.0, 4.0
+
+
+def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESOLVE_HP_LOSS):
+    """The threat is over: every one of `kinds` dead, or all at least `gap` blocks off and not closing in for
+    `hold_s` seconds (watched now) — and health within `hp_loss` of where the row began."""
+    def check(api, inv):
+        from .world import feet
+        start_hp = BASE["state"]["health"]
+        if api.get("/state")["health"] < start_hp - hp_loss:
+            return False
+
+        def gaps():
+            here = feet()
+            return [math.dist(here, (e["x"], e["y"], e["z"])) for e in _hostiles(32, set(kinds))]
+        first = gaps()
+        if not first:
+            return True
+        time.sleep(hold_s)
+        last = gaps()
+        return (not last or (min(first) >= gap and min(last) >= gap and min(last) >= min(first) - 1.0)) and \
+            api.get("/state")["health"] >= start_hp - hp_loss
+    return check
+
+
 FIGHT_CELLS = [
     ("fight_zombie_1", "zombie", 1, "common", 40, 12, True),
     ("fight_zombie_3", "zombie", 3, "exception", 60, 6, True),
     ("fight_skeleton_1", "skeleton", 1, "common", 60, 10, True),
-    ("fight_creeper_1", "creeper", 1, "common", 45, 14, True),
+    ("fight_creeper_1", "creeper", 1, "common", 45, 14, "resolved"),
     ("fight_blaze_3", "blaze", 3, "exception", 60, 6, True),
     ("fight_enderman_1", "enderman", 1, "exception", 30, 20, False),
 ]
@@ -2123,15 +2192,19 @@ for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
     # decisions are the same at 10 hp; the kill count, the health kept and the decision gaps are what is judged).
     _nbt = "{PersistenceRequired:1b,Health:10f}" if _mob == "blaze" and _n > 1 else "{PersistenceRequired:1b}"
     SHEET[_name] = {
-        "doc": f"Walled platform, iron kit: {_n} {_mob} → " + ("all dead" if _clear else "left alone (neutral)") +
+        "doc": f"Walled platform, iron kit: {_n} {_mob} → " + {True: "all dead", False: "left alone (neutral)",
+                                                              "resolved": "dead, or kept off and not following "
+                                                                          f"for {RESOLVE_HOLD_S:.0f} s"}[_clear] +
                f", health ≥ {_hp}, a threat decision every ≤ 1.5 × FIGHT_POLL_S while engaged",
         "module": "fight_loop", "combat": True, "point": "B", "skills": [], "tier_fixed": _tier,
         "tags": {"base": "fight", "enemy": _mob, "count": _n},
         "setup": list(_ARENA) + [f"summon {_mob} {_c(at(x, y, z))} {_nbt}" for x, y, z in _spots],
         "expect_entities": [(f"minecraft:{_mob}", _n)],
         "before": _hooks(_start(_name), _record_bids),
-        "run": _fight_until(_kinds, _secs, _clear),
-        "check": _all(_hp_kept(_hp), _gone(_kinds), _decision_gaps_ok()) if _clear
+        # "resolved": fight for the window, then the check watches RESOLVE_HOLD_S more — both inside the budget
+        "run": _fight_until(_kinds, _secs - RESOLVE_HOLD_S - 10 if _clear == "resolved" else _secs, _clear is not False),
+        "check": _all(_threat_resolved(_kinds), _decision_gaps_ok()) if _clear == "resolved"
+        else _all(_hp_kept(_hp), _gone(_kinds), _decision_gaps_ok()) if _clear
         else _all(_hp_kept(_hp), lambda api, inv, k=_kinds: bool(_hostiles(24, set(k)))),
         "budget": _secs,
     }
@@ -2170,6 +2243,31 @@ SCENARIOS["break_caged_crystal"] = {
 }
 
 
+# A fight on a full bag: the drops cannot be picked up, and that must not change the fight (no pause to collect).
+SHEET["fight_zombie_1_full_bag"] = dict(
+    SHEET["fight_zombie_1"], doc="Walled platform, iron kit, the bag full of dirt: 1 zombie → dead, health ≥ 12, "
+                                 "decisions as often as ever: the drop it cannot pick up changes nothing",
+    before=_hooks(SHEET["fight_zombie_1"]["before"], _fill_bag(0)),
+    tags={**SHEET["fight_zombie_1"]["tags"], "inventory": "full_bag"}, tier_fixed="exception")
+
+# Tidying a full bag in the Nether, lava at feet level on one side: the junk is thrown the other way and lands.
+NETHER_LAVA = [f"fill {_c(at(1, 0, -1))} {_c(at(4, 0, 1))} lava"]
+SHEET["nether_full_bag"] = {
+    "doc": "Nether platform, lava at feet level on the east, the bag full of netherrack and diamonds → tidied: slots "
+           "freed, the netherrack thrown where it lands (on the ground, not in the lava), no diamond lost",
+    "module": "skills", "point": "A", "skills": ["tidy_inventory"], "tier_fixed": "exception",
+    "dimension": "minecraft:the_nether", "stochastic": False, "tags": {"base": "tidy", "inventory": "full_bag"},
+    "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} netherrack", _tp()] + NETHER_LAVA
+    + ["give @p diamond 640"],
+    "before": _hooks(_start("nether_full_bag"), _fill_bag(0, "netherrack")),
+    "run": lambda ctx: _skill("tidy_inventory")(ctx),
+    "check": _all(_free_slots(3), _kept("minecraft:diamond"),
+                  lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
+                      10, ["minecraft:item"]))),
+    "budget": 30,
+}
+
+
 # -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells --------------------------------------------------
 def _placed_facing(pos, facing):
     """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""
@@ -2204,6 +2302,7 @@ for _name, _item, _asked, _want, _tier in PLACE_ROWS:
         "doc": f"Place {_item.split(':')[1]} asking facing={_asked} (the jar turns the body by the block's own rule) "
                f"→ the block reports facing={_want}",
         "module": "building", "point": "A", "skills": [], "tier_fixed": _tier, "tags": {"base": "place"},
+        "variant": (_item, _asked),
         "setup": _floor() + [_tp(), f"give @p {_item.split(':')[1]} 2"],
         "before": _start(_name), "run": _place_facing(_item, _pos, _asked),
         "check": _placed_facing(_pos, _want), "budget": 20,
@@ -2464,14 +2563,14 @@ _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear 
 IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
 BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 min, the world built up to the decision
     "plan_repair_on_event": (
-        "Planks + cobblestone carried, a stone pickaxe asked; the table the plan puts down is taken away → that step "
+        "Planks + cobblestone + a wooden pickaxe carried (upkeep quiet), a stone pickaxe asked; the table the plan puts down is taken away → that step "
         "is redone, the plan is not started over (≤ 2 plans)",
-        _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3"],
+        _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3", "give @p wooden_pickaxe"],
         [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 0.75,
         _all(lambda api, inv: inv.count("minecraft:stone_pickaxe") >= 1, _replans_at_most(2))),
     "plan_without_events": (
         "The same with nothing taken away → one plan (control)",
-        _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3"],
+        _floor() + [_tp(), "give @p oak_planks 12", "give @p cobblestone 3", "give @p wooden_pickaxe"],
         [_have(("tool", "pickaxe", 1))], lambda: _inv_now().count("minecraft:stone_pickaxe") >= 1, 0.5,
         _all(lambda api, inv: inv.count("minecraft:stone_pickaxe") >= 1, _replans_at_most(1))),
     "ban_then_other_source": (
@@ -2524,7 +2623,7 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
         "combat": _name == "resume_after_combat", "tags": {"base": "brain"},
-        "setup": list(_setup), "before": _hooks(_start(_name), *_BEFORE.get(_name, [])),
+        "setup": list(_setup), "before": _hooks(_start(_name), *_BEFORE.get(_name, [])), "queue": list(_queue),
         "run": _slice(_done, _minutes, queue=_queue), "check": _all(_check, _slice_check(None)),
         "budget": min(60, int(_minutes * 60) + 5),
     }
@@ -2541,8 +2640,10 @@ BRAIN_DIMS = {
     "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
+    "bag": {"room": [], "one_slot": [], "junk_full": [], "valuables_full": []},     # filled by the `before` hook
 }
-BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none"}
+BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
+BAG_FILL = {"room": None, "one_slot": (1, "dirt"), "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
                   f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
@@ -2587,6 +2688,15 @@ def _night_rule(cell):
             "daylight: no bed made, no sleep (must not)")
 
 
+def _bag_rule(cell):
+    if cell["bag"] == "valuables_full":
+        return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
+    if cell["bag"] == "junk_full":
+        return (_all(_gain("log", 2), lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
+                "a bag of junk: junk thrown, then the task done")
+    return _gain("log", 2), "room (or one slot) for it: the task done as usual"
+
+
 def _seen_rule(cell):
     if cell["seen"] == "noted":
         return _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore")), "noted: straight there, note retired"
@@ -2599,6 +2709,7 @@ BRAIN_FAMILIES = {
     "tool_tier": (list(_cells(BRAIN_BASE, over=("tool", "head"), table=BRAIN_DIMS)),
                   [_have(("minecraft:cobblestone", 3))], _tool_rule),
     "night_under": (list(_cells(BRAIN_BASE, over=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
+    "tidy_then_task": (list(_cells(BRAIN_BASE, over=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
     "seen_store": (list(_cells(BRAIN_BASE, over=("seen", "head"), table=BRAIN_DIMS)),
                    [_have(("minecraft:diamond", 1))], _seen_rule),
 }
@@ -2615,22 +2726,46 @@ def _cell_before(cell):
         hooks.append(_seen("diamond_ore", _diamond_of(cell)))
     if cell["food"] == "low":
         hooks.append(lambda ctx: time.sleep(4.5))      # the hunger effect set in setup drains the bar first
+    if BAG_FILL[cell["bag"]]:
+        hooks.append(_fill_bag(*BAG_FILL[cell["bag"]]))
     return hooks
 
 
-for _fam, (_grid, _queue, _rule) in BRAIN_FAMILIES.items():
-    for _cell in _grid:
-        _name = _cell_name(_fam, _cell)
-        _check, _why = _rule(_cell)
-        SHEET[_name] = {
-            "doc": f"{_fam}: " + ", ".join(f"{d} {_cell[d]}" for d in BRAIN_DIMS) + f" → {_why}",
-            "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": False,
-            "tags": {"base": "brain", "family": _fam, **{d: _cell[d] for d in BRAIN_DIMS}},
-            "setup": BRAIN_WORLD + [c for d in BRAIN_DIMS for c in BRAIN_DIMS[d][_cell[d]]],
-            "before": _hooks(_start(_name), *_cell_before(_cell)),
-            "run": _slice(None, 0.75, queue=list(_queue)), "check": _all(_check, _slice_check(None)),
-            "budget": 50,
-        }
+def _grid_cells():
+    """Cells of every family, one row per distinct cell: a cell two families share (the base, dusk, underground) is
+    one scenario whose check is every family's expectation and whose queue is every family's goals, in order."""
+    cells = {}
+    for fam, (grid, queue, rule) in BRAIN_FAMILIES.items():
+        for cell in grid:
+            key = tuple(cell[d] for d in BRAIN_DIMS)
+            entry = cells.setdefault(key, {"cell": cell, "families": [], "queue": [], "rules": []})
+            entry["families"].append(fam)
+            entry["queue"] += [g for g in queue if g not in entry["queue"]]
+            entry["rules"].append(rule)
+    return cells
+
+
+def grid_name(families, cell):
+    """The row of a cell: its family's name when only one family has it, else "brain"."""
+    return _cell_name(families[0] if len(families) == 1 else "brain", cell)
+
+
+for _key, _entry in _grid_cells().items():
+    _cell = _entry["cell"]
+    _name = grid_name(_entry["families"], _cell)
+    _judged = [_rule(_cell) for _rule in _entry["rules"]]
+    SHEET[_name] = {
+        "doc": f"{'+'.join(_entry['families'])}: " + ", ".join(f"{d} {_cell[d]}" for d in BRAIN_DIMS) + " → "
+               + "; ".join(why for _c, why in _judged),
+        "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": False,
+        "tags": {"base": "brain", "family": "+".join(_entry["families"]), **{d: _cell[d] for d in BRAIN_DIMS}},
+        "setup": BRAIN_WORLD + [c for d in BRAIN_DIMS for c in BRAIN_DIMS[d][_cell[d]]],
+        "before": _hooks(_start(_name), *_cell_before(_cell)),
+        "queue": list(_entry["queue"]),
+        "run": _slice(None, 0.75, queue=list(_entry["queue"])),
+        "check": _all(*[c for c, _why in _judged], _slice_check(None)),
+        "budget": 50,
+    }
 
 
 # -- every upkeep line, triggered through the whole brain (nothing queued): the moment is built, upkeep must see it
@@ -2750,6 +2885,25 @@ for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
     }
 
 
+# A fight with no pickaxe in the bag: upkeep's "no pickaxe" must wait until the fight is over — the zombie dealt
+# with first, no log gathered while it stands, and the player still inside the arena (it walked off the sky
+# platform to look for trees mid-fight and fell 125 blocks).
+SHEET["fight_before_upkeep"] = {
+    "doc": "Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
+           "before any log is gathered, the player never leaves the arena",
+    "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": True, "stochastic": True,
+    "tags": {"base": "brain", "family": "fight_first"},
+    "setup": [c for c in _ARENA if "stone_pickaxe" not in c] + [
+        f"summon zombie {_c(at(4, 0, 0))} {{PersistenceRequired:1b}}"],
+    "expect_entities": [("minecraft:zombie", 1)],
+    "before": _hooks(_start("fight_before_upkeep"), _first_times, _record_bids),
+    "run": _brain_rounds(40, lambda: not _hostiles(24, {"minecraft:zombie"})),
+    "check": _all(_gone(["minecraft:zombie"]), _hp_kept(10), lambda api, inv: _near(api, at(0, 0, 0), 9),
+                  lambda api, inv: FIRST.get("log") is None),
+    "budget": 45,
+}
+
+
 # -- test point D: acceptance ------------------------------------------------------------------------------------
 SCENARIOS[ACCEPTANCE_D] = {
     "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within "
@@ -2799,7 +2953,9 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
 # chain — run on every change. common: core × the conditions play meets daily — run when a related module changed.
 # exception: everything else — before a merge.
 # acceptance: test point D, its own layer (30 minutes from a fresh world) — never part of another tier's run.
-TIERS = ("core", "common", "brain", "exception", "acceptance")
+TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
+# Fighting is its own tier: every fight row, sweep shard and fight behaviour cell — never common.
+COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
 # The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
 # what every change can afford to run.
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -2813,7 +2969,9 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if row.get("tier_fixed") in ("core", "common", "brain", "exception"):
+    if name.startswith(COMBAT_PREFIXES) or row.get("module") == "fight_loop":
+        return "combat"
+    if row.get("tier_fixed") in ("core", "common", "brain", "combat", "exception"):
         return row["tier_fixed"]
     if name in CORE:
         return "core"

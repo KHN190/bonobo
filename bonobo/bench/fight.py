@@ -600,6 +600,7 @@ for _i, _shard in enumerate(ARENA_SHARDS, start=1):
         "doc": "combat_arena shard " + "; ".join(f"{c['enemy']}/{c['ground']}/{c['kit']}/{c['blood']}" for c in _shard)
                + ": each cell writes the whole decision into bench/combat.jsonl; the rules are relations between rows.",
         "module": "threat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "sweep": True,
+        "variant": [sorted(c.items()) for c in _shard],
         "setup": list(_FIGHT_SETUP),
         "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
         "run": _sweep(f"combat_arena__{_i}", lambda sh=_shard: iter(sh), _build,
