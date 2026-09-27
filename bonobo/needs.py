@@ -147,8 +147,8 @@ def broke(before, working):
 
 
 class Needs:
-    """What upkeep wants got, and what it remembers between rounds: which tools worked last round (broken), the
-    plans' prices (kept briefly), and this round's readings of the night that the shelter reflex shares."""
+    """What upkeep wants got, and what it remembers between rounds: which tools worked last round (broken) and the
+    plans' prices (kept briefly — a memo, not a state another step reads)."""
 
     def __init__(self, brain):
         self.brain = brain
@@ -157,7 +157,6 @@ class Needs:
         self.wear = {}                # tool kind -> least durability left last round
         self.broken = set()           # tool kinds that broke and are not replaced yet
         self.needs_now = []           # [(kind, goal, why)] this round proposes getting (need)
-        self.round = {}               # this round's shared readings (enclosed, the night's way…): reflexes read them
 
     def observe(self, snap):
         tiers, now_wear = working_tiers(snap.inv), wear(snap.inv)
@@ -166,7 +165,7 @@ class Needs:
         self.working, self.wear = tiers, now_wear
 
     def propose(self, snap, ctx, reads=None):
-        """This round's needs into `needs_now` (PLAN proposals), and the readings the reflexes share in `round`.
+        """This round's needs into `needs_now` (PLAN proposals), computed from the snapshot alone.
         `reads` = {"enclosed": bool, "bed_near": bool, "soft_ground": bool} stands in for world reads (offline);
         whatever is missing is read from the world, once, when first asked."""
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
@@ -174,8 +173,7 @@ class Needs:
         blocked = b.reflexes.blocked_here(b.place)
         # A bed skips the night, the fastest way through it: made from what is carried (craft only, no sun needed),
         # it comes before any shelter and before the night's work underground.
-        bed_tonight = _once(reads, "bed_tonight", lambda: over and snap.night and inv.count("bed") == 0
-                            and skills.can_sleep(s) is None and self.bed_tonight(snap))
+        bed_tonight = _once(reads, "bed_tonight", lambda: self.bed_tonight(snap))
         self.needs_now = []
         if bed_tonight():
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
@@ -186,8 +184,6 @@ class Needs:
             bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))
-        self.round = {"enclosed": enclosed, "night_way": night_way, "shelter_due": shelter_due,
-                      "blocked": blocked}
         if shelter_due():
             way, _secs, steps = night_way()
             if way is not None and any(st.kind != "shelter" for st in steps):
@@ -210,25 +206,20 @@ class Needs:
             if due_now(food_lasts_s(snap), secs, known, s.get("food", 20) < EAT_BELOW):
                 self.need("food stock", food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
-            way, seconds, steps = self.overnight(snap)
+            way, seconds, steps = overnight(inv, self.cost(snap))
             if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
                     and not b.reflexes.sheltered(snap, enclosed):
                 self.prepare_night(way, steps)
         return self.needs_now
 
-    def overnight(self, snap):
-        """(way, seconds, steps) of the cheapest way through the night from this bag, kept briefly."""
-        key = ("overnight", bag_signature(snap.inv))
-        hit = self.plan_s_cache.get(key)
-        if hit and time.time() - hit[0] < PLAN_S_TTL:
-            return hit[1]
-        got = overnight(snap.inv, self.cost(snap))
-        self.plan_s_cache[key] = (time.time(), got)
-        return got
-
     def bed_tonight(self, snap):
-        """The cheapest way through the night is a bed whose plan needs no sun (NIGHT_WORK steps only)."""
-        way, _secs, steps = self.overnight(snap)
+        """Night in the Overworld, no bed carried, a bed would work, and the cheapest way through the night is a bed
+        whose plan needs no sun (NIGHT_WORK steps only). Asked by the needs (make it) and the shelter reflex (not
+        needed then), each from the snapshot."""
+        if not (snap.dimension == "minecraft:overworld" and snap.night and snap.inv.count("bed") == 0
+                and skills.can_sleep(snap.state) is None):
+            return False
+        way, _secs, steps = overnight(snap.inv, self.cost(snap))
         return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)
 
     def prepare_night(self, way, steps):

@@ -289,7 +289,6 @@ class Brain:
             intents.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                 ctx, snap.state, self.attempt, self.ready))))
         if not intents:
-            self.needs.round = {}
             self.needs.propose(snap, ctx)
             intents += [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq)
                         for seq, name, run in self.reflexes.proposals(snap, ctx)]

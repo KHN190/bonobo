@@ -29,21 +29,27 @@ BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is b
 
 
 # (name, trigger over the round's view) — in order: the first that fires is the reflex the layer proposes first.
+# (name, trigger over the round's view, action(m: Maintain, v: view)) — one row per reflex, trigger and action
+# together; in order: the first that fires is the one the layer proposes first.
 TABLE = [
-    ("recover items", lambda v: v["died_recently"]),
-    ("eat", lambda v: v["food"] < EAT_BELOW and v["edible"]),
-    ("reach land", lambda v: v["swimming"]),
-    ("leave the Nether", lambda v: v["nether_bad"]),
-    ("dig out", lambda v: not v["night"] and v["enclosed"]),
-    ("sleep", lambda v: v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"])),
-    ("shelter", lambda v: v["shelter_ready"]),
-    ("collect job", lambda v: v["job_ready"]),
-    ("collect machine", lambda v: v["machine_ready"]),
-    ("empty the bag", lambda v: v["used_slots"] >= BAG_FULL),
-    ("path blocked", lambda v: v["blocked"] and v["building"] >= BRIDGE_MIN),
-    ("unstuck", lambda v: v["stuck"]),
+    ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
+    ("eat", lambda v: v["food"] < EAT_BELOW and v["edible"],
+     lambda m, v: skills.eat(raw_ok=not food_count(v["snap"].inv))),
+    ("reach land", lambda v: v["swimming"], lambda m, v: skills.reach_land(v["ctx"])),
+    ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
+    ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: skills.dig_out(v["ctx"])),
+    ("sleep", lambda v: v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"]),
+     lambda m, v: skills.sleep(v["ctx"], m.brain.policy(v["snap"], True))),
+    ("shelter", lambda v: v["shelter_ready"], lambda m, v: m.shelter(v["snap"], v["ctx"], v["night_way"])),
+    ("collect job", lambda v: v["job_ready"], lambda m, v: m.collect_job(v["snap"], v["ctx"])),
+    ("collect machine", lambda v: v["machine_ready"],
+     lambda m, v: skills.collect_machine(v["ctx"], m.ready_machine(v["snap"]))),
+    ("empty the bag", lambda v: v["used_slots"] >= BAG_FULL, lambda m, v: m.empty_bag(v["snap"], v["ctx"])),
+    ("path blocked", lambda v: v["blocked"] and v["building"] >= BRIDGE_MIN,
+     lambda m, v: m.bridge(v["ctx"], v["blocked_at"])),
+    ("unstuck", lambda v: v["stuck"], lambda m, v: m.unstuck(v["snap"], v["ctx"])),
 ]
-NAMES = tuple(name for name, _t in TABLE)
+NAMES = tuple(row[0] for row in TABLE)
 
 
 class View(dict):
@@ -61,7 +67,7 @@ class View(dict):
 
 def due(view, ready=lambda name: True):
     """[(seq, name)] of the reflexes whose trigger fires, in table order, skipping those cooling (`ready`)."""
-    return [(i, name) for i, (name, trigger) in enumerate(TABLE) if ready(name) and trigger(view)]
+    return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE) if ready(name) and trigger(view)]
 
 
 def nether_retreat(snap):
@@ -99,7 +105,7 @@ SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skil
 class Maintain:
     """The reflex table's executor, and what it remembers between rounds: where the body has been (stuck), where
     the last path failure was going (blocked). `brain` supplies the failure policy (`ready`, `failed`, `retry`),
-    the movement policy, memory, and this round's shared readings (`brain.needs.round`)."""
+    the movement policy and memory."""
 
     def __init__(self, brain):
         self.brain = brain
@@ -126,16 +132,18 @@ class Maintain:
         return got.action if got else None
 
     def proposals(self, snap, ctx, reads=None):
-        """[(seq, name, run)] of every reflex that fires (TABLE, `seq` its place there). Reads the round's shared
-        readings from `brain.needs.round` (asking `needs.propose` first when this round has none)."""
+        """[(seq, name, run)] of every reflex that fires (TABLE, `seq` its place there): each trigger reads this
+        round's view of the snapshot, made here — nothing another step of the round left behind, so the order in
+        which needs and reflexes are asked makes no difference. `reads` = {"enclosed", "bed_near", "soft_ground"}
+        stands in for world reads (offline); whatever is missing is read, once, when first asked."""
+        from . import needs
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
-        if not b.needs.round:
-            b.needs.propose(snap, ctx, reads)
-        shared = b.needs.round
-        enclosed, night_way, shelter_due, blocked = (shared["enclosed"], shared["night_way"], shared["shelter_due"],
-                                                     shared["blocked"])
-        bed_near = _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1)))
-        # The maintenance reflexes (reflexes.TABLE): their triggers read this view, their actions are here.
+        blocked = self.blocked_here(b.place)
+        enclosed = _once(reads, "enclosed", skills.enclosed)
+
+        def night_way():
+            soft = _once(reads, "soft_ground", skills.soft_ground_here)()
+            return needs.overnight(inv, b.needs.cost(snap), {"soft_ground": soft}, bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
             "edible": lambda: skills.edible_carried(inv),
@@ -143,29 +151,20 @@ class Maintain:
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
             "bed_works": lambda: skills.can_sleep(s) is None,
-            "bed_near": bed_near,
-            "shelter_ready": lambda: shelter_due() and night_way()[0] is not None
-            and all(st.kind == "shelter" for st in night_way()[2]),
+            "bed_near": _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1))),
+            "night_way": night_way,
+            "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
+                                                                        lambda: b.needs.bed_tonight(snap))()
+            and not self.sheltered(snap, enclosed) and view["night_way"][0] is not None
+            and all(st.kind == "shelter" for st in view["night_way"][2]),
             "job_ready": lambda: self.ready_job(snap) is not None,
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
-        }, food=s.get("food", 20), night=snap.night, overworld=over, bed_carried=inv.count("bed") > 0,
-            used_slots=inv.used_slots(), blocked=blocked is not None, building=inv.count("building"))
-        actions = {
-            "recover items": lambda: recover_items(ctx),
-            "eat": lambda: skills.eat(raw_ok=not food_count(inv)),
-            "reach land": lambda: skills.reach_land(ctx),
-            "leave the Nether": lambda: nether.use_portal(ctx, "minecraft:overworld"),
-            "dig out": lambda: skills.dig_out(ctx),
-            "sleep": lambda: skills.sleep(ctx, b.policy(snap, True)),
-            "shelter": lambda: self.shelter(snap, ctx, night_way()),
-            "collect job": lambda: self.collect_job(snap, ctx),
-            "collect machine": lambda: skills.collect_machine(ctx, self.ready_machine(snap)),
-            "empty the bag": lambda: self.empty_bag(snap, ctx),
-            "path blocked": lambda: self.bridge(ctx, blocked),
-            "unstuck": lambda: self.unstuck(snap, ctx),
-        }
-        return [(seq, name, actions[name]) for seq, name in due(view, b.ready)]
+        }, snap=snap, ctx=ctx, food=s.get("food", 20), night=snap.night, overworld=over,
+            bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
+            blocked_at=blocked, building=inv.count("building"))
+        rows = {name: act for name, _trigger, act in TABLE}
+        return [(seq, name, (lambda act=rows[name]: act(self, view))) for seq, name in due(view, b.ready)]
 
     # -- path blocked
     def blocked_here(self, place):

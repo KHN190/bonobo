@@ -2174,5 +2174,45 @@ class Reflexes(unittest.TestCase):
         v = reflexes.View({"stuck": lambda: calls.append(1) or True})
         self.assertEqual((v["stuck"], v["stuck"], len(calls)), (True, True, 1))
 
+
+class NeedsAndReflexesAreIndependent(unittest.TestCase):
+    """Needs and reflexes each read the same snapshot: asked in either order, the same reflexes fire and the same
+    needs are proposed (no step leaves state another reads)."""
+
+    ROWS = [("night outside, a pickaxe: shelter fires", dict(time_of_day=NIGHT, inv=[("cooked_beef", 8),
+                                                                                   ("stone_pickaxe", 1)])),
+            ("night outside, bed makings: a bed needed, no shelter", dict(
+                time_of_day=NIGHT, inv=[("cooked_beef", 8), ("white_wool", 3), ("oak_planks", 3),
+                                        ("crafting_table", 1)])),
+            ("dusk, wool and no planks: the bed's parts needed", dict(time_of_day=DUSK,
+                                                                     inv=[("cooked_beef", 8), ("white_wool", 3)])),
+            ("hungry with bread by day: eat, nothing needed", dict(food=10, inv=[("bread", 4), ("white_bed", 1)]))]
+
+    def run_order(self, row, needs_first):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = brainmod.Brain.__new__(brainmod.Brain)
+            b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
+            b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), {}, \
+                PLACE, {}
+            b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+            snap = snapshot(row.state, row.inv)
+            c = cost(snap, **row.seen)
+            b.needs.cost = lambda _snap: c
+            reads = {"enclosed": False, "bed_near": False, "soft_ground": False}
+            with mock.patch.object(api, "api", side_effect=AssertionError("read the world beyond the row")):
+                if needs_first:
+                    b.needs.propose(snap, None, reads)
+                    fired = [n for _s, n, _r in b.reflexes.proposals(snap, None, reads)]
+                else:
+                    fired = [n for _s, n, _r in b.reflexes.proposals(snap, None, reads)]
+                    b.needs.propose(snap, None, reads)
+            return fired, [(k, json.dumps(g, sort_keys=True)) for k, g, _w in b.needs.needs_now]
+
+    def test_order_swapped_same_result(self):
+        for name, kw in self.ROWS:
+            row = Row(name, None, **kw)
+            with self.subTest(name):
+                self.assertEqual(self.run_order(row, True), self.run_order(row, False))
+
 if __name__ == "__main__":
     unittest.main()
