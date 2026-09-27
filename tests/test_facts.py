@@ -112,7 +112,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
                     return arrives
                 with mock.patch.object(dispatch.nav, "feet_now", return_value=(0, 64, 0)), \
                         mock.patch.object(dispatch.nav, "arrived", side_effect=arrived), \
-                        mock.patch.object(dispatch, "find", return_value=[{"x": 30}] if there else []), \
+                        mock.patch.object(dispatch, "still_there", return_value=bool(there)), \
                         mock.patch.object(dispatch.skills, "seek_blocks", return_value=[(5, 64, 5)]) as explore:
                     got = dispatch.go_find(ctx, Step("gather", "log", 4))
                 self.assertEqual(got, want_new)

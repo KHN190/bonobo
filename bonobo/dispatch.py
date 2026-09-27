@@ -5,9 +5,9 @@ import math
 from . import api, nav, retry, skills
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log
-from .data import GROUPS, mid, seen_class
+from .data import GROUPS, bare, mid, seen_class
 from .knowledge import FIND_AT
-from .world import find
+
 
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
 
@@ -50,6 +50,17 @@ def can_start(ctx, step):
     return skillkit.can_run(runner, ctx, *args)[0]
 
 
+def still_there(blocks, spot):
+    """Is one of `blocks` at the noted `spot`? The cell itself is read (/blocks), not searched for (/find): going to
+    a noted ore and scanning for it on arrival was the scan the note was meant to spare (seen_store__noted)."""
+    from .world import Region
+    try:
+        name = bare(Region(spot, spot).name(tuple(spot)))
+    except McError:
+        return False
+    return name in {bare(b) for b in blocks}
+
+
 def run_step(ctx, step, night, seek=True):
     """Carry out one step with the skill that provides it. A seeking step that finds nothing in range returns the
     NotAvailable instead of raising it, so `execute` can look elsewhere first."""
@@ -86,8 +97,7 @@ def go_find(ctx, step):
         if not nav.arrived(spot, ctx.policy, range_=4 if seen_class(kind) != "mobile" else 8):
             ctx.ban(spot)
             continue
-        if seen_class(kind) == "mobile" or mem.confirm(kind, spot, dim,
-                                                       bool(find(mem.blocks_of(kind), radius=8, limit=1))):
+        if seen_class(kind) == "mobile" or mem.confirm(kind, spot, dim, still_there(mem.blocks_of(kind), spot)):
             return True
     token = "log" if step.kind == "gather" else ("food" if step.kind == "hunt" else mid(step.token))
     depth = FIND_AT.get(token)

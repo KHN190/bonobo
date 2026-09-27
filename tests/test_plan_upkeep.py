@@ -2433,3 +2433,21 @@ class LookingAroundAsksOnlyWhatIsUnknown(unittest.TestCase):
                 for n in notes:
                     m.note_seen(n[0], n[1], n[2] if len(n) > 2 else OVER)
                 self.assertEqual(explore.unknown(m, OVER, names), want)
+
+
+class ANoteIsCheckedByReadingItsCell(unittest.TestCase):
+    """dispatch.still_there: the noted cell itself is read, never searched for."""
+
+    def test_over_the_table(self):
+        from bonobo import dispatch
+        from tests.world import FakeRegion
+        rows = [("the diamond still there", {(4, 60, 0): "diamond_ore"}, ["diamond_ore", "deepslate_diamond_ore"], True),
+                ("mined: air", {}, ["diamond_ore"], False),
+                ("a variant of the kind: there", {(4, 60, 0): "deepslate_diamond_ore"},
+                 ["diamond_ore", "deepslate_diamond_ore"], True),
+                ("something else in the cell", {(4, 60, 0): "stone"}, ["diamond_ore"], False)]
+        for name, blocks, kinds, want in rows:
+            with self.subTest(name), \
+                    mock.patch("bonobo.world.Region", lambda lo, hi, props=False: FakeRegion(lo, hi, blocks)), \
+                    mock.patch.object(api, "api", side_effect=AssertionError("a /find was asked")):
+                self.assertIs(dispatch.still_there(kinds, (4, 60, 0)), want)
