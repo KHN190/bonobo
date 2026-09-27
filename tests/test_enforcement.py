@@ -86,7 +86,6 @@ class RulesAreWired(unittest.TestCase):
         ("the fight asks the planner", ("plan",), {"end"}),
         ("the bunker geometry is dug", ("mouth", "tunnel", "dig_plan"), {"end"}),
         ("the threat model is used by the fight", ("threats", "tti", "exposure", "window_summary"), {"fight_plan"}),
-        ("every look is vetted for endermen (the funnel and the bow)", ("aim_hits_enderman",), {"api", "combat"}),
         ("the safety choice is made by the model", ("best_step", "slack_at", "min_tti"), {"end", "fight_plan", "nav"}),
         ("threats are bid for from perception", ("bid", "options"), {"fight_loop", "perception", "threat"}),
         ("perception interrupts on pressure, not health alone", ("pressure", "time_to_die"), {"perception", "threat"}),
@@ -261,6 +260,54 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
                                  "nothing drives the body inline")
                 body.action()
                 self.assertEqual(ran, [("ctx", want)])
+
+
+ENDERMEN = [{"type": "minecraft:enderman", "id": 7, "x": 6, "y": 64, "z": 0, "angry": True},
+            {"type": "minecraft:enderman", "id": 8, "x": 3, "y": 64, "z": 0},
+            {"type": "minecraft:end_crystal", "id": 9, "x": 0, "y": 80, "z": 20}]
+
+
+class EveryLookIsVetted(unittest.TestCase):
+    """Looking at an enderman provokes it: the task funnel warns of such an aim, the bow refuses one. Standing at
+    (0, 64, 0), endermen at 3 and 6 blocks east; a rising line to (12, 69, 0) crosses the head band."""
+
+    END = {"dimension": "minecraft:the_end", "x": 0, "y": 64, "z": 0}
+    # (situation, task, the state read) → the funnel's warning
+    VET = [("a look through an enderman's head, in the End", {"type": "look", "x": 12, "y": 69, "z": 0}, END,
+            "aim at 12,69,0 crosses an enderman's head"),
+           ("the same direction below the head", {"type": "look", "x": 12, "y": 64, "z": 0}, END, None),
+           ("the same aim in the Overworld: no endermen to vet for",
+            {"type": "look", "x": 12, "y": 69, "z": 0}, dict(END, dimension="minecraft:overworld"), None),
+           ("a task that does not aim", {"type": "goto", "x": 12, "y": 69, "z": 0}, END, None),
+           ("an aiming task with no place to aim at", {"type": "attack", "entity": 7}, END, None)]
+
+    def test_the_funnel_warns_of_a_provoking_aim(self):
+        from unittest import mock
+        from bonobo import world
+        for name, task, st, want in self.VET:
+            with self.subTest(name), mock.patch.object(api, "get", return_value=st), \
+                    mock.patch.object(world, "entities", return_value=list(ENDERMEN)):
+                self.assertEqual(api.vet_aim(task), want)
+
+    # (situation, the target, the entities handed in as `near`) → shot (else refused)
+    SHOOT = [("through an enderman's head: refused", {"id": 1, "x": 12, "y": 69, "z": 0}, ENDERMEN, False),
+             ("level, below the heads: shot", {"id": 1, "x": 12, "y": 64, "z": 0}, ENDERMEN, True),
+             ("the crystal, well clear of them: shot", ENDERMEN[2], ENDERMEN, True),
+             ("through a head, but nothing handed in to vet against: shot", {"id": 1, "x": 12, "y": 69, "z": 0},
+              None, True)]
+
+    def test_the_bow_refuses_a_provoking_aim(self):
+        from unittest import mock
+        from bonobo import combat
+        for name, target, near, shot in self.SHOOT:
+            with self.subTest(name), mock.patch.object(api, "get", return_value=self.END), \
+                    mock.patch.object(api, "run", return_value={"status": "succeeded"}) as run:
+                if shot:
+                    combat.shoot(target, near=near)
+                else:
+                    with self.assertRaisesRegex(api.NotAvailable, "enderman stands in the line of aim"):
+                        combat.shoot(target, near=near)
+                self.assertEqual([c.args[0]["item"] for c in run.call_args_list], ["minecraft:bow"] if shot else [])
 
 
 class OneDecisionPoint(unittest.TestCase):
