@@ -2612,6 +2612,39 @@ def _job_ready_at(pos, item, n):
     return hook
 
 
+def _is_day_now():
+    return _is_day()(__import__("bonobo.api", fromlist=["get"]), None)
+
+
+def _blocked_toward(pos):
+    """`before` hook: upkeep's memory of a walk that failed here, toward `pos` (what `Upkeep.failed` writes)."""
+    def hook(ctx):
+        from . import retry
+        from .world import Snapshot
+        snap = Snapshot()
+        core.BRAIN.table.blocked = {"t": time.time(), "place": retry.place_signature(snap.feet, snap.night),
+                                    "pos": pos}
+    return hook
+
+
+def _stuck_for(seconds):
+    """`before` hook: upkeep's history says we stood here, bag unchanged, for `seconds`."""
+    def hook(ctx):
+        from .upkeep import bag_signature
+        from .world import Snapshot
+        snap = Snapshot()
+        core.BRAIN.table.history = [(time.time() - seconds, snap.feet, bag_signature(snap.inv))]
+    return hook
+
+
+def _machine_due(origin, n):
+    """`before` hook: memory holds an auto smelter at `origin` with an order of `n` ingots already due."""
+    def hook(ctx):
+        m = _bench_machine(ctx, origin)
+        ctx.mem.add_pending(m["name"], "minecraft:iron_ingot", n, time.time() - 1)
+    return hook
+
+
 _st = lambda api: api.get("/state")     # noqa: E731
 UPKEEP_FURNACE = at(2, 0, 0)
 UPKEEP_ROWS = [
@@ -2624,9 +2657,6 @@ UPKEEP_ROWS = [
      [f"fill {_c(at(-4, -2, -4))} {_c(at(4, 3, 4))} stone", f"fill {_c(at(0, 0, 0))} {_c(at(0, 1, 0))} air",
       _tp(0.5, 0, 0.5), "give @p stone_pickaxe"], [],
      lambda: not _enclosed(), lambda api, inv: not _enclosed()),
-    ("shelter", "night, no bed, no wool, cobblestone carried → walled in for the night",
-     _floor() + [_tp(), "give @p cobblestone 32", "give @p stone_pickaxe", "time set 18000"], [],
-     _enclosed, lambda api, inv: _enclosed()),
     ("collect_job", "a finished background smelt remembered at a furnace 2 blocks off → the ingots in the bag",
      _floor() + [f"setblock {_c(UPKEEP_FURNACE)} furnace",
                  f"item replace block {_c(UPKEEP_FURNACE)} container.2 with iron_ingot 3", _tp()],
@@ -2642,9 +2672,43 @@ UPKEEP_ROWS = [
      _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 5 255 true"],
      [lambda ctx: (time.sleep(5.5), BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get(
          "/state")["food"]))], lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None), _food_up()),
+    # the path blocked: a gap between us and where the last walk failed to go
+    ("path_blocked", "the last walk failed toward the far side of a 6-block gap, 16 blocks carried → bridged across",
+     _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
+     [_blocked_toward(at(9, 0, 0))], lambda: _at(at(9, 0, 0), 4)(__import__("bonobo.api", fromlist=["get"]), None),
+     _at(at(9, 0, 0), 4)),
+    ("bridge_stock", "the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks "
+     "fetched first (the bag gains building blocks, the gap still open)",
+     _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 2",
+                 "give @p stone_pickaxe"],
+     [_blocked_toward(at(9, 0, 0))], _count("minecraft:cobblestone", 8), _gain("minecraft:cobblestone", 8)),
+    ("unstuck", "a minute in the same block with the same bag (history set), open ground → moved off (≥ 5 blocks)",
+     _floor() + [_tp()], [_stuck_for(70)], lambda: not _near(__import__("bonobo.api", fromlist=["get"]),
+                                                           at(0, 0, 0), 5),
+     lambda api, inv: not _near(api, at(0, 0, 0), 5)),
+    ("collect_machine", "a remembered auto smelter whose order is due, 8 ingots in its output chest → taken",
+     _floor() + _chest(at(3, 0, 0), "iron_ingot 8") + [_tp()], [_machine_due(at(3, 0, 0), 8)],
+     _count("minecraft:iron_ingot", 8), _gain("minecraft:iron_ingot", 8)),
     ("eat_when_full", "fed (food 20), bread carried → not eaten: the bread count unchanged (must not)",
      _floor() + [_tp(), "give @p bread 4"], [], lambda: False,
      lambda api, inv: inv.count("minecraft:bread") == 4),
+]
+# The night's shelter, by what the bag allows (upkeep.shelter: a pickaxe digs in, else the hut's materials build a
+# hut, else blocks wall in) — and a bed makes none of them (must not).
+_NIGHT_FLOOR = [f"fill {_c(at(-8, -6, -8))} {_c(at(8, -1, 8))} stone", _tp(), "time set 18000"]
+UPKEEP_ROWS += [
+    ("shelter_dig_in", "night, a pickaxe → dug in: below the floor, enclosed",
+     _NIGHT_FLOOR + ["give @p stone_pickaxe", "give @p cobblestone 8"], [], _enclosed,
+     _all(lambda api, inv: _enclosed(), lambda api, inv: api.get("/state")["y"] < at(0, 0, 0)[1] - 0.5)),
+    ("shelter_hut", "night, no pickaxe, the hut's materials (stone, a door, a torch) → a hut: its door stands",
+     _NIGHT_FLOOR + ["give @p stone 32", "give @p oak_door", "give @p torch 2"], [], _enclosed,
+     _all(lambda api, inv: _enclosed(), _blocks(at(-6, 0, -6), at(6, 3, 6), "oak_door", 1))),
+    ("shelter_wall_in", "night, no pickaxe, cobblestone only → walled in where it stands",
+     _NIGHT_FLOOR + ["give @p cobblestone 16"], [], _enclosed,
+     _all(lambda api, inv: _enclosed(), _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9))),
+    ("shelter_not_with_a_bed", "night, a bed and cobblestone carried → slept, no shelter built (must not)",
+     _NIGHT_FLOOR + ["give @p white_bed", "give @p cobblestone 16"], [], _is_day_now,
+     _all(_is_day(), _blocks(at(-3, 0, -3), at(3, 2, 3), "cobblestone", 0, 0))),
 ]
 for _line, _doc, _setup, _hooks_, _done, _check in UPKEEP_ROWS:
     _name = f"upkeep__{_line}"

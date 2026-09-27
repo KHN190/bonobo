@@ -1149,3 +1149,63 @@ class PureHelpers(unittest.TestCase):
                                 ("negative (a heal) is no hit", -1.0, float("inf"))]:
             with self.subTest(name):
                 self.assertEqual(estimate.incoming_cap(hit), want)
+
+
+class AttemptPolicy(unittest.TestCase):
+    """brain.Brain.attempt on a real Brain: what each kind of exception out of a step does to the ledgers.
+    An interruption counts nothing, bans nothing and cools nothing; a failure is counted with its reason and /stop
+    is posted; a success clears the name's count; a crash of ours holds the name. Only the waits an interruption
+    triggers (handback, the game coming back, standing down) and the mod's /stop are replaced — never `attempt`."""
+
+    def run_attempt(self, br, err):
+        posts = []
+
+        def step():
+            if err is not None:
+                raise err
+        with mock.patch.object(api, "wait_for_handback", lambda: None), \
+                mock.patch.object(api, "wait_for_game", lambda: None), \
+                mock.patch.object(brain.time, "sleep", lambda s: None), \
+                mock.patch.object(api, "post", lambda path, body=None: posts.append(path)):
+            outcome = br.attempt("chop", step)
+        return outcome, posts
+
+    def ledgers(self, br):
+        return (sorted(br.retry.entries), sorted(br.retry.cooling), sorted(br.retry.holds), dict(br.blacklist))
+
+    def test_each_exception_kind(self):
+        clean = ([], [], [], {})
+        # (situation, what the step raises, outcome, /stop posted?, the ledgers after, what the count says)
+        rows = [
+            ("an interruption by danger", api.Interrupted("lava"), "interrupted", [], clean, None),
+            ("the plan grew stale", api.CommitmentExpired("replan"), "interrupted", [], clean, None),
+            ("someone else drives the body", api.BodyContested("replaced"), "interrupted", [], clean, None),
+            ("the player took control", api.PlayerTookControl("paused"), "interrupted", [], clean, None),
+            ("the game went away", api.GameUnreachable("restarting"), "interrupted", [], clean, None),
+            ("a real failure: counted with its reason", api.McError("no logs within 48 blocks"), "failed",
+             ["/stop"], ([("chop", "error")], [f"error@{None}"], [], {}), "no logs within 48 blocks"),
+            ("nothing here now: counted as unavailable", api.NotAvailable("no trees"), "failed", ["/stop"],
+             ([("chop", "unavailable")], [f"unavailable@{None}"], [], {}), "no trees"),
+            ("a crash of ours: the name is held, not counted", ValueError("bad index"), "failed", [],
+             ([], [], ["chop"], {}), None),
+            ("success", None, "ok", [], clean, None),
+        ]
+        for name, err, outcome, stops, after, message in rows:
+            with self.subTest(name):
+                br = brain.Brain()
+                got, posts = self.run_attempt(br, err)
+                ledgers = self.ledgers(br)
+                ledgers = (ledgers[0], [k.split("@")[0] + "@None" for k in ledgers[1]], ledgers[2], ledgers[3])
+                self.assertEqual((got, posts, ledgers), (outcome, stops, after))
+                if message is not None:
+                    self.assertEqual(br.retry.entries[ledgers[0][0]]["message"], message)
+                    self.assertEqual(br.last_failure.n, 1)
+
+    def test_success_clears_the_count(self):
+        br = brain.Brain()
+        rows = [("one failure counts 1", api.McError("x"), 1), ("a second counts 2", api.McError("x"), 2),
+                ("an interruption leaves it at 2", api.Interrupted("lava"), 2), ("a success clears it", None, 0)]
+        for name, err, n in rows:
+            with self.subTest(name):
+                self.run_attempt(br, err)
+                self.assertEqual(br.retry.entries.get(("chop", "error"), {"n": 0})["n"], n)
