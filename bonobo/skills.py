@@ -1240,7 +1240,7 @@ def reach_land(ctx):
     api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": nav.ASHORE_RANGE, "partial": True,
              "useBoat": True}, wait=120)
     # Judged by where the body is, not by the walker's answer (it calls a body in the water beside the bank arrived).
-    if not nav.ashore(api.get("/state"), land):
+    if not nav.ashore(api.get("/state"), land) and not nav.climb_out(land):
         # The walker can't climb out (a 1-wide water shaft, a high bank): dig / pillar out instead.
         nav.arrived(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
         if not nav.ashore(api.get("/state"), land):
@@ -1372,6 +1372,8 @@ def find_air(ctx):
         else:
             api.run({"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5, "partial": True,
                      "useBoat": False}, wait=20)
+            if kind == "land":
+                nav.climb_out(c)                   # beside the rim or the shore: onto it
             if kind == "pillar" and nav.building_item():
                 fx, fy, fz = feet()
                 place(nav.building_item(), (fx, fy - 1, fz))
@@ -1485,10 +1487,21 @@ def dig_in_commands(state, args=()):
     return tasks
 
 
-def soft_ground_here():
-    """Does the ground under the feet dig by hand to DIG_IN_DEPTH (terrain.soft_below)?"""
+def soft_spot():
+    """(cell, steps) of the nearest ground that digs by hand to DIG_IN_DEPTH, on the ground we stand on
+    (terrain.nearest_soft), or None."""
+    from .terrain import SOFT_RADIUS, nearest_soft
     x, y, z = feet()
-    return soft_below(Region((x, y - DIG_IN_DEPTH, z), (x, y, z)), (x, y, z), DIG_IN_DEPTH)
+    region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
+    return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
+
+
+def soft_ground_here():
+    """Seconds' walk to ground that digs by hand (0: right under the feet), or None when there is none near: the
+    night's pricing adds the walk to digging in by hand (needs.night_facts)."""
+    from .data import WALK_BLOCKS_PER_TICK
+    spot = soft_spot()
+    return None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)
 
 
 @skill(start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
@@ -1496,7 +1509,14 @@ def soft_ground_here():
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30)
 def dig_in(ctx):
-    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead."""
+    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead. With
+    no pickaxe, first walk to the nearest ground that digs by hand (soft_spot), the spot the pricing counted."""
+    if not require_pickaxe_ok():
+        spot = soft_spot()
+        if spot is None:
+            raise NotAvailable("no pickaxe and no ground near that digs by hand")
+        if spot[1] and not nav.arrived(spot[0], ctx.policy, range_=0.5, attempts=1):
+            raise api.NavFailed(f"the soft ground at {spot[0]} is not reachable")
     x, y, z = feet()
     tasks = dig_in_commands(body_state(ctx, nav.dig_down_region((x, y, z), DIG_IN_DEPTH)))
     api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)

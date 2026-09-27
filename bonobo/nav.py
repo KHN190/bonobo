@@ -67,6 +67,8 @@ def mod_features():
             _features.add("travel")   # the mod plans and executes walk/dig/bridge/pillar routes itself
         if v >= (0, 1, 40):
             _features.add("approach_dig")   # mine/place/use dig their own way when walking finds none (ApproachTask)
+        if v >= (0, 1, 50):
+            _features.add("input")          # keys held until the body stands (the "input" task): climb_out
         if v >= (0, 1, 46):
             _features.add("autoeat")        # the jar eats while only walking, on the policy /autoeat sets
             # Set here, at the session's first contact, once: whoever drives the jar (the brain, a bench row running
@@ -231,6 +233,35 @@ def ashore(state, land, range_=ASHORE_RANGE):
     the water hold the body up (the jar's GotoTask counts touching water as arrived): reach_land_swim "arrived"
     1.36 blocks off the bank and was still swimming."""
     return bool(state.get("onGround")) and not state.get("inWater") and there(state, land, range_)
+
+
+CLIMB_REACH = 2.0      # horizontal blocks from the bank's cell within which a swimmer presses into it
+CLIMB_TICKS = 40
+
+
+def climb_out_tasks(state, land):
+    """Pure: the batch that lifts a swimmer beside the bank onto `land` (its feet cell): face the bank, then
+    forward+jump held until standing (jar "input", ≥ 0.1.50) — the move the walker never made, bobbing at the
+    bank's edge (reach_land_swim). [] when already ashore or not beside it."""
+    if ashore(state, land) or not state.get("inWater"):
+        return []
+    if math.dist((state["x"], state["z"]), (land[0] + 0.5, land[2] + 0.5)) > CLIMB_REACH:
+        return []
+    return [{"type": "look", "x": land[0] + 0.5, "y": land[1] + 0.5, "z": land[2] + 0.5},
+            {"type": "input", "keys": ["forward", "jump"], "until": "onGround", "ticks": CLIMB_TICKS}]
+
+
+def climb_out(land):
+    """Out of the water onto `land` when the body is beside it (`climb_out_tasks`). True when ashore after."""
+    if "input" not in mod_features():
+        return False
+    tasks = climb_out_tasks(api.get("/state"), land)
+    if tasks:
+        try:
+            api.run_chain(tasks, stop_on_failure=True, wait=10)
+        except McError as err:
+            log(f"   climb out onto {land}: {err}")
+    return ashore(api.get("/state"), land)
 
 
 def at_rest(state):

@@ -43,6 +43,37 @@ def env(**values):
 
 # ---------------------------------------------------------------- fluids
 
+
+def soft_ground(patch=None, gap=False):
+    """A stone walkway (y 63, x -10..10, z -2..2) with the feet at (0, 64, 0); `patch`: an x range of dirt three deep
+    (y 61..63); `gap`: the walkway cut at x 4..5 (a drop to nothing)."""
+    b = {(x, 63, z): "stone" for x in range(-10, 11) for z in range(-2, 3)}
+    for x0, x1 in [patch] if patch else []:
+        b.update({(x, y, z): "dirt" for x in range(x0, x1 + 1) for y in (61, 62, 63) for z in range(-2, 3)})
+    if gap:
+        for x in (4, 5):
+            for z in range(-2, 3):
+                b.pop((x, 63, z), None)
+    return FakeRegion((-12, 58, -4), (12, 68, 4), b)
+
+
+class NearestSoft(unittest.TestCase):
+    """terrain.nearest_soft: ground that digs by hand, found along the ground we stand on."""
+    # (situation, region, feet) → (cell, steps) or None
+    ROWS = [("soft right under the feet: dig here", soft_ground(patch=(-1, 1)), (0, 64, 0), ((0, 64, 0), 0)),
+            ("dirt 8 blocks along the walkway: walk there", soft_ground(patch=(8, 9)), (0, 64, 0), ((8, 64, 0), 8)),
+            ("only stone: none", soft_ground(), (0, 64, 0), None),
+            ("dirt across a drop to nothing: not on this ground", soft_ground(patch=(8, 9), gap=True), (0, 64, 0),
+             None),
+            ("dirt past the radius: none", soft_ground(patch=(8, 9)), (-10, 64, 0), None)]
+
+    def test_nearest_soft(self):
+        from bonobo import terrain
+        for name, region, feet, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(terrain.nearest_soft(region, feet, 3, radius=16), want)
+
+
 class Fluids(unittest.TestCase):
     def test_is_source(self):
         p = (0, 0, 0)
@@ -296,6 +327,25 @@ class Nav(unittest.TestCase):
         for why, cell, at, want in rows:
             with self.subTest(why), mock.patch.object(nav, "route_s", return_value=(None, None)):
                 self.assertIs(nav.reachable(cell, policy, 2.0, feet=at)[0], want)
+
+    def test_climb_out_tasks(self):
+        """nav.climb_out_tasks: a swimmer beside the bank faces it and holds forward+jump until standing."""
+        land = (10, 200, 10)
+        want = [{"type": "look", "x": 10.5, "y": 200.5, "z": 10.5},
+                {"type": "input", "keys": ["forward", "jump"], "until": "onGround", "ticks": nav.CLIMB_TICKS}]
+        rows = [  # (why, state, expected)
+            ("in the water against the bank: face it, climb", {"x": 9.2, "y": 199.3, "z": 10.5, "onGround": False,
+                                                              "inWater": True}, want),
+            ("already standing on it: nothing", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True,
+                                                  "inWater": False}, []),
+            ("in the water 6 off the bank: swim first, nothing", {"x": 4.5, "y": 199.3, "z": 10.5, "onGround": False,
+                                                                 "inWater": True}, []),
+            ("dry but beside it (a step short): not a swimmer's move", {"x": 9.5, "y": 200.0, "z": 10.5,
+                                                                       "onGround": True, "inWater": False}, []),
+        ]
+        for why, st, expected in rows:
+            with self.subTest(why):
+                self.assertEqual(nav.climb_out_tasks(st, land), expected)
 
     def test_at_rest(self):
         rows = [  # (why, state, expected)
