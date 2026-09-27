@@ -74,9 +74,15 @@ TIMEOUT = "TIMEOUT"     # the note's prefix for a row stopped at its limit: dete
 def _watchdog(limit, fired):
     """Arm a timer: at `limit` s stop the body (/stop) and interrupt the row's run in the main thread."""
     import _thread
+    import signal
+    # A bench started in the background (`cmd &` from a script) inherits SIGINT as ignored, and interrupt_main does
+    # nothing for an ignored signal: rows ran 75 s past a 30 s limit. Python's own handler, always.
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, signal.default_int_handler)
 
     def fire():
         fired.set()
+        from .. import api
         try:
             api.post("/stop")
         except Exception:

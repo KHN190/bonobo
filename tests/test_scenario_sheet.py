@@ -503,3 +503,52 @@ class Chance(unittest.TestCase):
         for oks, chance, want in rows:
             with self.subTest(oks=oks, chance=chance):
                 self.assertEqual(sc.verdict_of(oks, chance=chance), want)
+
+
+class InterruptByProgress(unittest.TestCase):
+    """Interrupts, contests, take-overs and sand land on progress (`_progress_of`), never on a clock."""
+
+    def test_progress_of(self):
+        rows = [("a product to count", {"effect": ("log", 1)}, ("bag", "log")),
+                ("an earlier product wins over the effect", {"effect": ("minecraft:wooden_pickaxe", 1),
+                                                             "progress": ("planks", 1)}, ("bag", "planks")),
+                ("no product: the walk to the target", {"target": (14, 200, 0)}, ("walk", (14, 200, 0))),
+                ("neither: nothing to trigger on", {}, None)]
+        for name, base, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sc._progress_of(base), want)
+
+    def test_every_triggered_row_has_progress(self):
+        kinds = {k: c for k, c in sc.CONDITIONS.items() if c.get("interrupt") or c.get("hazard") == "sand"}
+        missing = sorted(f"{b}__{k}" for k, c in kinds.items() for b in c["bases"] if sc._progress_of(sc.BASES[b]) is None)
+        self.assertEqual(missing, [])
+
+
+class Watchdog(unittest.TestCase):
+    """runner._watchdog: the row is interrupted at its limit and /stop is posted, whatever SIGINT was set to."""
+
+    def test_it_fires(self):
+        import signal
+        import threading
+        import time
+        from bonobo import api
+        rows = [("SIGINT ignored (a background job)", signal.SIG_IGN, 0.2, 1.0, True),
+                ("Python's own handler", signal.default_int_handler, 0.2, 1.0, True),
+                ("SIGINT at its default", signal.SIG_DFL, 0.2, 1.0, True),
+                ("the run ends first: nothing fires", signal.default_int_handler, 1.0, 0.2, False)]
+        for name, handler, limit, work, want in rows:
+            with self.subTest(name):
+                old = signal.signal(signal.SIGINT, handler)
+                posts, fired, hit = [], threading.Event(), False
+                try:
+                    with mock.patch.object(api, "post", lambda path, body=None: posts.append(path)):
+                        t = runner._watchdog(limit, fired)
+                        try:
+                            time.sleep(work)
+                        except KeyboardInterrupt:
+                            hit = True
+                        t.cancel()
+                        time.sleep(0.05)
+                finally:
+                    signal.signal(signal.SIGINT, old)
+                self.assertEqual((hit, fired.is_set(), posts), (want, want, ["/stop"] if want else []))

@@ -1280,17 +1280,71 @@ def _resume(name, run, resume, tries=4):
     return go
 
 
-def _interrupt_after(*delays, message="bench: injected interrupt"):
-    """`before` hook: perception's interrupt, raised from a thread `delays` seconds after the run starts."""
+def _progress_of(base):
+    """Pure: how this base's progress is counted — ("bag", token) by its products (`progress`, else `effect`), or
+    ("walk", target) by the distance walked toward its target; None when neither is known."""
+    token = (base.get("progress") or base.get("effect") or (None,))[0]
+    if token:
+        return "bag", token
+    if base.get("target"):
+        return "walk", base["target"]
+    return None
+
+
+def _on_progress(name, base, action, times=1):
+    """`before` hook: `action()` the moment the run has made progress — the k-th product in the bag, or k/(times+1)
+    of the walk to the target — for k = 1..times. Only while this row is the one running: a trigger left over from a
+    row that already ended fires nothing (it used to interrupt the next row at 0 s)."""
+    how = _progress_of(base)
+
     def hook(ctx):
-        def fire():
-            from . import api
-            t0 = time.time()
-            for d in delays:
-                time.sleep(max(0.0, t0 + d - time.time()))
-                api.INTERRUPT = message
-        _threading.Thread(target=fire, daemon=True).start()
+        from . import api
+        start = BASE["state"]
+        here0 = (start["x"], start["y"], start["z"])
+
+        def made(k):
+            if how[0] == "bag":
+                return _inv_now().count(how[1]) - _base_count(how[1]) >= k
+            s_ = api.get("/state")
+            whole = math.dist(here0, how[1])
+            return whole - math.dist((s_["x"], s_["y"], s_["z"]), how[1]) >= whole * k / (times + 1)
+
+        def watch():
+            t0, k = time.time(), 1
+            while k <= times and time.time() - t0 < 120 and BASE.get("name") == name:
+                try:
+                    if made(k):
+                        action()
+                        k += 1
+                        continue
+                except api.McError:
+                    pass
+                time.sleep(0.05)
+        _threading.Thread(target=watch, daemon=True).start()
     return hook
+
+
+def _inject_interrupt():
+    __import__("bonobo.api", fromlist=["INTERRUPT"]).INTERRUPT = "bench: injected interrupt"
+
+
+def _post_foreign_task():
+    """Another commander posts a task straight to the mod (BodyContested for the skill)."""
+    __import__("bonobo.api", fromlist=["api"]).api("POST", "/task?wait=0", {"type": "wait", "ticks": 40})
+
+
+def _take_over(hold=3):
+    """The player presses the toggle key (jar /control, as the key does), then hands back after `hold` s."""
+    from . import api
+    api.api("POST", "/control", {"paused": True})
+    _threading.Timer(hold, lambda: api.api("POST", "/control", {"paused": False})).start()
+
+
+def _sand_on_head():
+    from . import api
+    s_ = api.get("/state")
+    x, y, z = s_["blockX"], s_["blockY"], s_["blockZ"]
+    _chat(f"fill {x} {y + 1} {z} {x} {y + 3} {z} sand")
 
 
 def _interrupt_when(token, n, message="bench: interrupt at the moment of success"):
@@ -1311,49 +1365,12 @@ def _interrupt_when(token, n, message="bench: interrupt at the moment of success
     return hook
 
 
-def _contest_after(delay):
-    """`before` hook: another commander posts a task straight to the mod mid-run (BodyContested for the skill)."""
-    def hook(ctx):
-        def fire():
-            from . import api
-            time.sleep(delay)
-            api.api("POST", "/task?wait=0", {"type": "wait", "ticks": 40})
-        _threading.Thread(target=fire, daemon=True).start()
-    return hook
-
-
-def _player_takes_over(delay, hold=3):
-    """`before` hook: the player presses the toggle key mid-run (jar /control, as the key does), then hands back."""
-    def hook(ctx):
-        def fire():
-            from . import api
-            time.sleep(delay)
-            api.api("POST", "/control", {"paused": True})
-            time.sleep(hold)
-            api.api("POST", "/control", {"paused": False})
-        _threading.Thread(target=fire, daemon=True).start()
-    return hook
-
-
 def _unless_done(check, run):
     """Resume only what is not done: an interruption that landed at the moment of success leaves nothing to redo."""
     def go(ctx):
         from . import api
         return True if check(api, _inv_now()) else run(ctx)
     return go
-
-
-def _sand_on_head_after(delay):
-    """`before` hook: `delay` s into the run, three blocks of sand land where the head is."""
-    def hook(ctx):
-        def fire():
-            from . import api
-            time.sleep(delay)
-            s = api.get("/state")
-            x, y, z = s["blockX"], s["blockY"], s["blockZ"]
-            _chat(f"fill {x} {y + 1} {z} {x} {y + 3} {z} sand")
-        _threading.Thread(target=fire, daemon=True).start()
-    return hook
 
 
 def _after_l0(name, run, resume, tries=4):
@@ -1499,57 +1516,57 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass"):
 # `skills` names what a row proves: an effect a skill provides (`@skill(provides=...)`, e.g. "item:log", "sleep") —
 # which survives skills being merged or renamed — or, for a skill that provides nothing, its registered name.
 # name → dict(skills, doc, setup, run, check, budget, needs (the goal as planner needs, for resume / goal-met),
-#             effect (token, n) for the at-success interrupt, work_s: when an interrupt lands mid-work)
+#             effect (token, n) for the at-success interrupt, progress: what counts as progress when it is not the effect)
 BASES = {
     "nav": dict(skills=["goto"], doc="walk 14 blocks east over the arena", point="A",
                 # The floor reaches the target: the arena is a sky platform, and a target over the void is unreachable.
                 setup=_floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(16, -1, 3))} stone", _tp()],
                 run=lambda ctx: _skill("travel_to")(ctx, at(14, 0, 0), 2),
-                check=_at(at(14, 0, 0), 3.5), budget=30, work_s=3, arena=16),
+                check=_at(at(14, 0, 0), 3.5), budget=30, arena=16, target=at(14, 0, 0)),
     "chop": dict(skills=["item:log"], bound=("log", 4, 14), doc="a grove of two oaks → 4 logs", point="A",
                  setup=_grove((3, 0), (-3, 2)) + [_tp()], run=lambda ctx: _skill("chop")(ctx, 4),
-                 check=_gain("log", 4), needs=[("log", 4)], effect=("log", 1), budget=30, work_s=4),
+                 check=_gain("log", 4), needs=[("log", 4)], effect=("log", 1), budget=30),
     "mine_stone": dict(skills=["mine"], bound=("minecraft:cobblestone", 6, 8), doc="stone floor, a wooden pickaxe → 6 cobblestone", point="A",
                        setup=_floor() + [_tp(), "give @p wooden_pickaxe"],
                        run=lambda ctx: _skill("mine")(ctx, "minecraft:cobblestone", 6, ["stone"], 0),
                        check=_gain("minecraft:cobblestone", 6), needs=[("minecraft:cobblestone", 6)],
-                       effect=("minecraft:cobblestone", 1), budget=30, work_s=3),
+                       effect=("minecraft:cobblestone", 1), budget=30),
     "mine_iron": dict(skills=["mine"], doc="two iron ore in a stone wall, a stone pickaxe → 2 raw iron", point="A",
                       setup=_floor() + [f"fill {_c(at(4, 0, -1))} {_c(at(5, 2, 1))} stone",
                                         f"fill {_c(at(4, 0, 0))} {_c(at(4, 1, 0))} iron_ore", _tp(),
                                         "give @p stone_pickaxe"],
                       run=lambda ctx: _skill("mine")(ctx, "minecraft:raw_iron", 2, ["iron_ore"], 1),
                       check=_gain("minecraft:raw_iron", 2), needs=[("minecraft:raw_iron", 2)],
-                      effect=("minecraft:raw_iron", 1), budget=30, work_s=3),
+                      effect=("minecraft:raw_iron", 1), budget=30),
     "craft": dict(skills=["craft"], bound=("minecraft:wooden_pickaxe", 1, 1), doc="planks, sticks, a table carried → a wooden pickaxe", point="A",
                   setup=_floor() + [_tp(), "give @p oak_planks 8", "give @p stick 4", "give @p crafting_table"],
                   run=lambda ctx: _skill("craft")(ctx, "minecraft:wooden_pickaxe", 1),
                   check=_gain("minecraft:wooden_pickaxe", 1, at_most=1), needs=[("minecraft:wooden_pickaxe", 1)],
-                  effect=("minecraft:wooden_pickaxe", 1), budget=20, work_s=1),
+                  effect=("minecraft:wooden_pickaxe", 1), progress=("planks", 1), budget=20),
     "smelt": dict(skills=["smelt"], bound=("minecraft:iron_ingot", 3, 3), doc="a furnace, 3 raw iron, coal → 3 iron ingots", point="A",
                   setup=_floor() + [_tp(), "give @p furnace", "give @p raw_iron 3", "give @p coal 2"],
                   run=lambda ctx: _skill("smelt")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 3, "coal"),
                   check=_gain("minecraft:iron_ingot", 3, at_most=3), needs=[("minecraft:iron_ingot", 3)],
-                  effect=("minecraft:iron_ingot", 1), budget=30, work_s=5,
+                  effect=("minecraft:iron_ingot", 1), budget=30,
                   pre=_sprint_after(4, 800)),
     "hunt": dict(skills=["hunt"], doc="a pen of three cows, a sword → 2 beef", point="A",
                  setup=_floor("grass_block") + _pen("cow", 3) + [_tp(), "give @p iron_sword"],
                  run=lambda ctx: _skill("hunt")(ctx, "minecraft:beef", 2, ["minecraft:cow"], False),
                  check=_gain("minecraft:beef", 2), needs=[("minecraft:beef", 2)], effect=("minecraft:beef", 1),
-                 budget=30, work_s=4, entities=[("minecraft:cow", 3)]),
+                 budget=30, entities=[("minecraft:cow", 3)]),
     "eat": dict(skills=["eat"], doc="hungry, bread carried → the food bar rises", point="A",
                 setup=_floor() + [_tp(), "give @p bread 4"],
                 pre=lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5),
                                  BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"])),
-                run=lambda ctx: _skill("eat")(), check=_food_up(), budget=20, work_s=1,
+                run=lambda ctx: _skill("eat")(), check=_food_up(), budget=20,
                 combat=True),        # hunger only drains off peaceful: the runner sets normal difficulty for combat rows
     "sleep": dict(skills=["sleep"], doc="night, a bed carried → morning", point="A",
                   setup=_floor() + [_tp(), "give @p white_bed", "time set 18000"],
-                  run=lambda ctx: _skill("sleep")(ctx, ctx.policy), check=_is_day(), budget=30, work_s=3),
+                  run=lambda ctx: _skill("sleep")(ctx, ctx.policy), check=_is_day(), budget=30),
     "loot": dict(skills=["loot_chest"], bound=("minecraft:iron_ingot", 5, 5), doc="a chest of iron and bread 5 blocks away → the iron", point="A",
                  setup=_floor() + _chest(at(5, 0, 1), "iron_ingot 5", "bread 4") + [_tp(-1, 0, 0)],
                  run=lambda ctx: _skill("loot_chest")(ctx), check=_gain("minecraft:iron_ingot", 5),
-                 effect=("minecraft:iron_ingot", 1), budget=25, work_s=2),
+                 effect=("minecraft:iron_ingot", 1), budget=25),
 }
 
 # -- the conditions ------------------------------------------------------------------------------------------------
@@ -1691,16 +1708,18 @@ def _row(name, base, cond=None, extra=None):
     kind = c.get("interrupt")
     if kind:
         resume = _unless_done(b["check"], _achieve_needs(b["needs"]) if b.get("needs") else b["run"])
+        # By progress, never by the clock: with the arenas squeezed a hunt ended in 3.9 s and a 4 s interrupt
+        # landed after it (and in the next row).
         if kind == "mid":
-            hooks.append(_interrupt_after(b.get("work_s", 3)))
+            hooks.append(_on_progress(name, b, _inject_interrupt))
         elif kind == "twice":
-            hooks.append(_interrupt_after(b.get("work_s", 3), b.get("work_s", 3) + 4))
+            hooks.append(_on_progress(name, b, _inject_interrupt, times=2))
         elif kind == "success":
             hooks.append(_interrupt_when(*b["effect"]))
         elif kind == "contested":
-            hooks.append(_contest_after(b.get("work_s", 3)))
+            hooks.append(_on_progress(name, b, _post_foreign_task))
         elif kind == "player":
-            hooks.append(_player_takes_over(b.get("work_s", 3)))
+            hooks.append(_on_progress(name, b, _take_over))
         run = _resume(name, run, resume)
         if kind == "success" and b.get("bound"):
             check = _gain(*b["bound"])       # the effect once: an interruption at success is not a reason to redo it
@@ -1708,7 +1727,7 @@ def _row(name, base, cond=None, extra=None):
     if c.get("hazard"):
         resume = _unless_done(b["check"], _achieve_needs(b["needs"]) if b.get("needs") else b["run"])
         if c["hazard"] == "sand":
-            hooks.append(_sand_on_head_after(b.get("work_s", 3)))
+            hooks.append(_on_progress(name, b, _sand_on_head))
         run = _after_l0(name, run, resume)
         check = _all(check, _alive(8), lambda api, inv: _head_clear(),
                      lambda api, inv: not api.get("/state")["inLava"])
