@@ -302,7 +302,7 @@ class Brain:
         # failed under. Met and unplannable needs never become intents (need_act answers None for them).
         facts = {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
         chosen = arbiter.arbitrate(intents, facts=facts)
-        arbiter.note_pick(self.picks, chosen)
+        arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)
         return chosen.action if chosen else None
 
     def plan_proposals(self, snap, ctx):
