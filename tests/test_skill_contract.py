@@ -1178,10 +1178,20 @@ class BagRules(unittest.TestCase):
                 ("the same cell over deep water below the gap: still a drop past SAFE_DROP", {**plat, **pool},
                  [edge], []),
                 ("a top cell of the platform, open above: allowed", plat, [(9997, 199, 10000)], [(9997, 199, 10000)]),
-                ("no blocks read (region None): the floor rule only", None, [edge], [edge])]
+                ("no blocks read (region None): the floor rule only", None, [edge], [edge]),
+                ("a sealed diamond, stone all round: allowed (the approach digs to it)",
+                 {**plat, **{(9997, 198, 10000): "diamond_ore"}}, [(9997, 198, 10000)], [(9997, 198, 10000)]),
+                ("must fail: the edge cell read with a pad-3 region (ends 3 below): unread is not a floor",
+                 ("pad3", plat), [edge], []),
+                ("the edge cell, a real floor read in the same pad-3 region: allowed",
+                 ("pad3", {**plat, **{(x, 196, z): "stone" for x in range(10002, 10006) for z in range(9995, 10006)}}),
+                 [edge], [edge])]
         for name, blocks, cells, want in rows:
             with self.subTest(name):
-                region = None if blocks is None else FakeRegion(lo, hi, blocks)
+                if isinstance(blocks, tuple):
+                    region = FakeRegion((9997, 195, 9997), (10004, 203, 10003), blocks[1])   # region_around pad 3
+                else:
+                    region = None if blocks is None else FakeRegion(lo, hi, blocks)
                 self.assertEqual(bag.mineable(cells, feet, region, nav.SAFE_DROP), want)
 
     def test_mineable_is_the_floor_rule(self):

@@ -716,7 +716,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Which blocks have an open face is the world's own answer (`/find?exposed=true`, asked at the top of this
         # loop); working it out here from a block snapshot was a second model of the same fact.
         seed = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
-        region = region_around([start, seed], pad=3)
+        region = region_around([start, seed], pad=nav.SAFE_DROP + 2)   # deep enough to see a drop (bag.floored)
         if region is None:
             # Too far to read the ground between us: walk closer, or make a way — the same two answers as
             # everywhere else. Only when neither works is the place itself the problem.

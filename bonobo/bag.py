@@ -198,13 +198,13 @@ FACES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))
 
 
 def floored(region, cell, drop):
-    """Pure: a body standing in `cell` has ground within `drop` blocks under it — or the region cannot say (the
-    column leaves it first): only a drop the blocks show is refused."""
+    """Pure: a body standing in `cell` has ground within `drop` blocks under it. Unread is not ground: a region
+    that ended three below the platform called the void floored (read it at least `drop` + 2 down)."""
     x, y, z = cell
     for k in range(1, drop + 2):
         c = (x, y - k, z)
         if not region.inside(c):
-            return True
+            return False
         if region.solid(c) or region.name(c).endswith("water"):
             return True
     return False
@@ -213,9 +213,12 @@ def floored(region, cell, drop):
 def stand_spot(region, cell, drop):
     """Pure: some open face of `cell` has a standing place beside it — feet in the face's cell or one below it
     (head in the face), room for the body, ground within `drop`. None of them: the only way at it is over a gap
-    (upkeep__bridge_stock: the platform's edge cell, its one face over the void; the walker stepped out, 97 down)."""
-    for d in FACES:
-        face = add(cell, d)
+    (upkeep__bridge_stock: the platform's edge cell, its one face over the void; the walker stepped out, 97 down).
+    A cell with no open face at all is buried: the approach digs a way to it, and the check is for faces only."""
+    faces = [add(cell, d) for d in FACES]
+    if all(region.inside(f) and region.solid(f) for f in faces):
+        return True
+    for face in faces:
         if region.inside(face) and region.solid(face):
             continue
         for s in (face, add(face, (0, -1, 0))):
