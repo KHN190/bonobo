@@ -163,7 +163,7 @@ SCENARIOS.update({
                   f"fill {_c(at(-2, 0, -1))} {_c(at(-2, 0, 1))} end_portal_frame[facing=east,eye=true]",
                   f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} end_portal_frame[facing=west,eye=true]",
                   f"fill {_c(at(-1, -1, -1))} {_c(at(1, -1, 1))} lava",
-                  f"tp @p {_c(at(0, 0, -5))}", "clear @p", "give @p ender_eye 3"],
+                  f"tp @p {_c(at(0, 0, -3))}", "clear @p", "give @p ender_eye 3"],   # at the stop: end.eye_stops
         "expect": [(at(-2, 0, -2), at(2, 0, 2), "end_portal_frame", 12, 12)],
         "run": lambda ctx: _drain(__import__("bonobo.end", fromlist=["activate_end_portal"]).activate_end_portal(ctx)),
         "check": lambda api, inv: _count_blocks(api, at(-1, 0, -1), at(1, 0, 1), "end_portal") == 9,
@@ -1620,9 +1620,20 @@ def _timed(run):
     return go
 
 
+def _within(seconds):
+    """Done inside `seconds` of its own run (`_timed`)."""
+    return lambda api, inv: BASE.get("run_s") is not None and BASE["run_s"] <= seconds
+
+
 def _quick(target):
     """Done inside TARGET_SLACK × `target` seconds of its own run."""
-    return lambda api, inv: BASE.get("run_s") is not None and BASE["run_s"] <= target * TARGET_SLACK
+    return _within(target * TARGET_SLACK)
+
+
+# The speedrun standard, from the moment the body stands where the job is done (the setup puts it there):
+# 12 eyes' worth of ring filled from one spot ≤ 3 s; the last two frame cells cast and the portal lit ≤ 5 s.
+SCENARIOS["activate_end_portal"].update(run=_timed(SCENARIOS["activate_end_portal"]["run"]),
+                                        check=_all(SCENARIOS["activate_end_portal"]["check"], _within(3.0)))
 
 
 BASES = {
@@ -2467,18 +2478,25 @@ def _queue(goal):
 
 
 # -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
+# A frame at at(-3, 0, 2), along x (blueprints.NETHER_PORTAL, turns 0): obsidian but for the bottom two cells,
+# stone corners. The cast resumes it (building.started_builds): two cells, then the light.
+PORTAL_8_OF_10 = [f"fill {_c(at(-3, 0, 2))} {_c(at(0, 4, 2))} obsidian",
+                  f"fill {_c(at(-2, 0, 2))} {_c(at(-1, 3, 2))} air"] + \
+                 [f"setblock {_c(at(x, y, 2))} cobblestone" for x in (-3, 0) for y in (0, 4)]
 SHEET["portal_from_cast"] = {
-    "doc": "The queue asks for a portal: no obsidian, no diamond pickaxe, buckets, blocks and flint, a lava pool "
-           "memory knows 3 blocks off → the plan casts it in place, and it is lit",
+    "doc": "The queue asks for a portal: no obsidian carried, no diamond pickaxe, buckets, blocks and flint, a frame "
+           "standing 8 of 10 (its bottom two missing), a lava pool memory knows 3 blocks off → the plan casts the two "
+           "in place and lights it, ≤ 5 s",
     "module": "decompose", "point": "C", "skills": ["cast:nether_portal"], "tier_fixed": "exception",
     "tags": {"base": "sources"},
-    "setup": list(SCENARIOS["cast_portal"]["setup"]),
-    "expect": list(SCENARIOS["cast_portal"]["expect"]),
+    "setup": list(SCENARIOS["cast_portal"]["setup"]) + PORTAL_8_OF_10,
+    "expect": [SCENARIOS["cast_portal"]["expect"][0], (at(-3, 0, 2), at(0, 4, 2), "obsidian", 8, 8)],
     "before": _hooks(_start("portal_from_cast"),
                      lambda ctx: ctx.mem.note_seen("lava", at(3, -1, 0), "minecraft:overworld"),
                      _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
-    "run": _brain_rounds(28, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1),
-    "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
+    "run": _timed(_brain_rounds(28, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1)),
+    "check": _all(lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
+                  _within(5.0)),
     "budget": 30,
 }
 SHEET["pearls_from_barter"] = {
