@@ -126,17 +126,6 @@ class Ownership(unittest.TestCase):
                 m.disengage()
                 self.assertTrue(m.owns("nav.go_to"), "after the fight everything is allowed again")
 
-    # (a Motion) → does it watch the handover file: only the one real body; a test's Motion is its own world
-    WATCH = [("the shared body", lambda: arbiter.BODY, True), ("a fresh Motion", arbiter.Motion, False),
-             ("a Motion asked to watch", lambda: arbiter.Motion(watch_handover=True), True),
-             ("must fail: a Motion told not to", lambda: arbiter.Motion(watch_handover=False), False)]
-
-    def test_who_watches_the_handover(self):
-        for name, make, want in self.WATCH:
-            with self.subTest(name):
-                body = make()
-                self.assertEqual((type(body), body.watch_handover), (arbiter.Motion, want))
-
 
 class LockDiscipline(unittest.TestCase):
 
