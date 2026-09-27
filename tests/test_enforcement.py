@@ -55,6 +55,14 @@ class Recorder:
         self.action = action
 
 
+def _raised(call):
+    """The exception class name `call` raised, or its value."""
+    try:
+        return call()
+    except Exception as e:
+        return type(e).__name__
+
+
 class RulesAreWired(unittest.TestCase):
     # The wiring rules (planner, bunker, threat model, safe step, bids, interrupts, the answer loop, rows) are
     # shown by behaviour in tests/test_wiring.py.
@@ -113,7 +121,8 @@ class RulesAreWired(unittest.TestCase):
         ("run a mine task, not the owner: a failed result, not a crash", lambda: api.run({"type": "mine"}), False,
          ["api.run(mine)"], False, {"status": "failed", "type": "mine", "message": "body owned by the arbiter",
                                     "seconds": 0}),
-        ("walk, not the owner: no walk", lambda: nav.go_to((5, 64, 5), None), False, ["nav.go_to"], False, False)]
+        ("walk, not the owner: no walk, the interruption raised (never False: a False banned the target)",
+         lambda: _raised(lambda: nav.go_to((5, 64, 5), None)), False, ["nav.go_to"], False, "BodyContested")]
 
     def test_every_funnel_asks_who_owns_the_body(self):
         from unittest import mock
