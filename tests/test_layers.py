@@ -72,7 +72,7 @@ CLOSURE = {
     "retry": 1,
     "review": 16,
     "roads": 1,
-    "scenarios": 55,
+    "scenarios": 56,                # upkeep→needs+reflexes split (4b61683)
     "skill": 13,
     "skillcore": 12,
     "skills": 25,
