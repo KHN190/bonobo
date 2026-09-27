@@ -93,6 +93,52 @@ def slots(n, item="dirt"):
     return bag(inventory(*[(item, 1)] * n))
 
 
+def _hit(x, y, z):
+    return {"x": x, "y": y, "z": z, "id": "minecraft:iron_ore"}
+
+
+class SeekHits(unittest.TestCase):
+    """Mining seeks sealed ore as readily as exposed: seeing through blocks is allowed, the approach digs to it."""
+    SEALED, OPEN, OURS = _hit(10002, 200, 10000), _hit(10003, 201, 10000), _hit(10004, 200, 10000)
+    # (situation, (found, radius, banned, protected), hits | None (widen) | the NotAvailable message)
+    TABLE = [
+        ("sealed ore in stone beside us: found", ([SEALED], 24, set(), set()), [SEALED]),
+        ("exposed and sealed alike, in /find's order", ([OPEN, SEALED], 24, set(), set()), [OPEN, SEALED]),
+        ("edge: nothing near yet: widen", ([], 24, set(), set()), None),
+        ("must fail: nothing at the widest radius", ([], 48, set(), set()), "no iron_ore within 48 blocks"),
+        ("must fail: excluded by bans and our builds, and said so",
+         ([SEALED, OURS], 48, {(10002, 200, 10000)}, {(10004, 200, 10000)}),
+         "no iron_ore within 48 blocks: 2 in range but 1 banned, 1 protected"),
+        ("a ban leaves the rest", ([SEALED, OPEN], 48, {(10002, 200, 10000)}, set()), [OPEN]),
+    ]
+
+    def test_table(self):
+        for why, (found, radius, banned, protected), want in self.TABLE:
+            with self.subTest(why):
+                args = (["iron_ore"], found, radius, banned.__contains__, protected)
+                if isinstance(want, str):
+                    with self.assertRaises(skills.NotAvailable) as got:
+                        skills.seek_hits(*args)
+                    self.assertEqual(str(got.exception), want)
+                else:
+                    self.assertEqual(skills.seek_hits(*args), want)
+
+    # (situation, find kwargs) → the query's tail after the limit: exposure is never sent as false
+    QUERY = [
+        ("default: sealed blocks seen", {}, ""),
+        ("explicitly not exposed: the same query", {"exposed": False}, ""),
+        ("exposed asked for", {"exposed": True}, "&exposed=true"),
+        ("must fail if false is sent: a jar reading the key's presence goes strict", {"exposed": 0}, ""),
+    ]
+
+    def test_find_query(self):
+        from bonobo import world
+        for why, kw, tail in self.QUERY:
+            with self.subTest(why), mock.patch.object(world.api, "get", return_value={"blocks": []}) as get:
+                world.find(["iron_ore"], radius=48, limit=60, **kw)
+                self.assertEqual(get.call_args[0][0], "/find?blocks=minecraft:iron_ore&radius=48&limit=60" + tail)
+
+
 class MineSegmentCommands(unittest.TestCase):
     TABLE = [
         ("one cell, tool tier: drops required", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal", 0)),

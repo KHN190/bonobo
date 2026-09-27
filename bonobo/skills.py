@@ -548,6 +548,24 @@ def _reach_budget(spent, blocks, why=None):
         raise api.NavFailed(why or f"{blocks[0]}: {spent} unreachable in a row — not from this spot")
 
 
+SEEK_RADII = (24, 48)     # a mining pass looks near first, then once wider
+
+
+def seek_hits(blocks, found, radius, blocked, protected):
+    """Pure: what a mining pass may go for, from what `/find` saw — sealed or exposed alike, minus bans and our own
+    builds. Nothing short of the widest radius is None (widen); nothing at it is a named NotAvailable, which says
+    when the ore was there but filtered out (bench iron_ingots failed in 0 s with 6 ore in plain sight)."""
+    at = [(h, (h["x"], h["y"], h["z"])) for h in found]
+    hits = [h for h, p in at if not blocked(p) and p not in protected]
+    if hits:
+        return hits
+    if radius < SEEK_RADII[-1]:
+        return None
+    banned = sum(1 for _, p in at if blocked(p))
+    why = f": {len(found)} in range but {banned} banned, {len(found) - banned} protected" if found else ""
+    raise NotAvailable(f"no {blocks[0]} within {SEEK_RADII[-1]} blocks{why}")
+
+
 def mine_segment_commands(state, args):
     """Pure: one open-loop segment of mining — a single `mine_many` over `cells`, collecting `drop`, with the pickup
     filter a nearly full bag needs. `mine` is closed-loop (it looks for the next vein as it goes); this is the part
@@ -567,7 +585,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     """Tunnel to the nearest reachable vein of `blocks` and mine it until `count` more `token` are held."""
     drop = token
     target = Inventory().count(drop) + count
-    radius = 24
+    radius = SEEK_RADII[0]
     # Unreachable is a property of where we STAND, not of the block: on a hillside the mod answered "cannot reach"
     # for block after block of the same seam, each answer costing a 6000-node search (5.8 s), and banning them one
     # at a time meant the next round picked the neighbour and paid again. One budget for every way of not getting
@@ -582,21 +600,15 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             return
         yield None
         require_pickaxe(tier)
-        # Exposed ore first (an open face a stand spot can see): buried coal and stone ended "skipped after repeated
-        # unreachable blocks" again and again; hidden veins only when no exposed one is in range.
-        shown = find(blocks, radius=radius, limit=60, exposed=True)
-        exposed_cells = {(h["x"], h["y"], h["z"]) for h in shown}
-        raw = shown or find(blocks, radius=radius, limit=60)
-        hits = [h for h in raw
-                if not ctx.blocked((h["x"], h["y"], h["z"])) and (h["x"], h["y"], h["z"]) not in ctx.policy.protected]
-        if not hits and raw:
-            # Found but filtered out: say by what (bench iron_ingots failed in 0 s with 6 ore in plain sight).
-            banned = sum(1 for h in raw if ctx.blocked((h["x"], h["y"], h["z"])))
-            api.detail(f"   {len(raw)} {blocks[0]} in range but {banned} banned, {len(raw) - banned} protected")
-        if not hits:
-            if radius >= 48:
-                raise NotAvailable(f"no {blocks[0]} within 48 blocks")
-            radius = 48
+        # Sealed or exposed alike: seeing through blocks is allowed, and the jar's approach (approach_dig) digs to
+        # a buried block. Only a jar without it needs the open faces, asked separately below.
+        raw = find(blocks, radius=radius, limit=60)
+        digs = "approach_dig" in nav.mod_features()
+        exposed_cells = None if digs else {(h["x"], h["y"], h["z"])
+                                           for h in find(blocks, radius=radius, limit=60, exposed=True)}
+        hits = seek_hits(blocks, raw, radius, ctx.blocked, ctx.policy.protected)
+        if hits is None:
+            radius = SEEK_RADII[-1]
             continue
         start = feet()
         if swimming(api.get("/state")):
@@ -669,7 +681,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
         # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
         # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
-        open_faced = [p for p in mineable(in_reach, here_now) if p in exposed_cells]
+        open_faced = [p for p in mineable(in_reach, here_now) if exposed_cells is None or p in exposed_cells]
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):

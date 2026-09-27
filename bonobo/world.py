@@ -136,8 +136,10 @@ class Snapshot:
 
 
 def find(blocks, radius=32, limit=50, exposed=False):
+    """What `/find` sees. Seeing through blocks is allowed: sealed blocks are found unless `exposed` is asked for,
+    and then the flag is sent only as true (a jar that reads the key's presence took `exposed=false` as strict)."""
     ids = ",".join(mid(b) for b in blocks)
-    return api.get(f"/find?blocks={ids}&radius={radius}&limit={limit}&exposed={str(exposed).lower()}")["blocks"]
+    return api.get(f"/find?blocks={ids}&radius={radius}&limit={limit}" + ("&exposed=true" if exposed else ""))["blocks"]
 
 
 def entities(radius=16, types=None):
