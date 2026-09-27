@@ -1779,5 +1779,23 @@ class ModFeatures(unittest.TestCase):
                     mock.patch.object(api, "status", return_value={"version": version}):
                 self.assertEqual(nav.mod_features(), want)
 
+
+class Felled(unittest.TestCase):
+    """wood.felled: a sapling goes back only once the whole trunk is down (bench chop__base: a sapling under two
+    logs still standing made them unreachable)."""
+
+    TRUNK = [{"x": 3, "y": y, "z": 0} for y in (200, 201, 202)]
+    BIG = [{"x": x, "y": 200, "z": z} for x in (3, 4) for z in (0, 1)]
+    ROWS = [("every log of it gone", TRUNK, set(), True),
+            ("the base gone, two logs overhead still standing", TRUNK, {(3, 201, 0), (3, 202, 0)}, False),
+            ("a 2×2 trunk, one column left", BIG, {(4, 200, 1)}, False),
+            ("only another tree's logs stand", TRUNK, {(9, 200, 9), (9, 201, 9)}, True)]
+
+    def test_felled_over_the_table(self):
+        from bonobo import wood
+        for name, trunk, still, want in self.ROWS:
+            with self.subTest(name):
+                self.assertIs(wood.felled(trunk, still), want)
+
 if __name__ == "__main__":
     unittest.main()

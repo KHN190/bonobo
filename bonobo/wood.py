@@ -10,6 +10,11 @@ from .skillcore import _collect_only, feet, gained, settle
 from .world import Inventory, find
 
 
+def felled(trunk, still):
+    """Pure: none of this trunk's logs still stands (`still`: the log cells the world lists after chopping)."""
+    return not any((t["x"], t["y"], t["z"]) in still for t in trunk)
+
+
 @skill(start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, per_unit=6, units=lambda c: c.args[1], key=lambda c: "chop",
        provides={"item:log": lambda ctx, s: (s.count,)})
@@ -90,9 +95,12 @@ def chop(ctx, n):
                 ctx.ban((t["x"], t["y"], t["z"]))
             log(f"   trunk at {(base['x'], base['y'], base['z'])} yielded no logs ({r['message']}); next tree")
             continue
-        # Renewable wood: remember the grove, put a sapling back where the trunk stood.
+        # Renewable wood: remember the grove, put a sapling back where the trunk stood — once it is all down. A
+        # sapling in the base cell under logs still standing blocked the way up to them ("target unreachable").
         from . import farming
         ctx.mem.note_seen("tree", base_pos, ctx.dimension)
+        if not felled(trunk, still):
+            continue
         try:
             farming.replant(ctx, base_pos)
         except api.INTERRUPTIONS:
