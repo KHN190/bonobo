@@ -49,15 +49,9 @@ def breeding_pair(animals, kind, max_gap=8):
 
 # ---------------------------------------------------------------- skills
 
-def use_on_top(item, cell):
-    """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour)."""
-    return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
-            "onBlock": True}
-
-
 def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
-    return [use_on_top(seeds, c) for c in cells]
+    return [nav.use_on_top(seeds, c) for c in cells]
 
 
 def plot_commands(centre, hoe, region=None):
@@ -71,13 +65,13 @@ def plot_commands(centre, hoe, region=None):
     if name(centre) not in ("water", "air"):
         out.append(nav.mine_task(centre))
     if name(centre) != "water":
-        out.append(use_on_top("minecraft:water_bucket", below))
+        out.append(nav.use_on_top("minecraft:water_bucket", below))
     for dx, dz in RING:
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
         if name(cell) != "farmland":
-            out.append(use_on_top(hoe, cell))
+            out.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
-            out.append(use_on_top("minecraft:wheat_seeds", cell))
+            out.append(nav.use_on_top("minecraft:wheat_seeds", cell))
     return out
 
 

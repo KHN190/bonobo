@@ -68,8 +68,7 @@ def use_portal(ctx, to_dimension):
         # A ghast fireball (or anything) put the portal out: relight it on the frame block under the opening.
         below = (cell[0], cell[1] - 1, cell[2])
         log(f"   portal at {cell} is out → relighting")
-        api.run({"type": "use_item", "item": "minecraft:flint_and_steel", "x": below[0] + 0.5, "y": below[1] + 1.0,
-                 "z": below[2] + 0.5, "onBlock": True}, wait=20, awaits="the relit portal, then the dimension change")
+        api.run(nav.use_on_top("minecraft:flint_and_steel", below), wait=20, awaits="the relit portal, then the dimension change")
     deadline = time.time() + 15
     while time.time() < deadline:
         api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the dimension change (vanilla's portal delay)")

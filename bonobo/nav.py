@@ -45,6 +45,12 @@ def waypoints(here, target, leg=40):
             for k in range(1, n)] + [tuple(target)]
 
 
+def use_on_top(item, cell):
+    """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour, light a portal)."""
+    return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
+            "onBlock": True}
+
+
 def mine_task(c, collect=False):
     return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False}
 
