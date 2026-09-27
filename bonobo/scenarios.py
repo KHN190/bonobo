@@ -1625,6 +1625,16 @@ def _within(seconds):
     return lambda api, inv: BASE.get("run_s") is not None and BASE["run_s"] <= seconds
 
 
+def _skill_within(name, seconds):
+    """The skill `name` itself (skill.LAST_S: from its own start, no planning, setup or walk to it) finished inside
+    `seconds` — for rows whose run is the brain, where the run's own clock counts the plan too."""
+    return lambda api, inv: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.get(name, 1e9) <= seconds
+
+
+def _forget_skill_time(name):
+    return lambda ctx: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.pop(name, None)
+
+
 def _quick(target):
     """Done inside TARGET_SLACK × `target` seconds of its own run."""
     return _within(target * TARGET_SLACK)
@@ -2486,17 +2496,18 @@ PORTAL_8_OF_10 = [f"fill {_c(at(-3, 0, 2))} {_c(at(0, 4, 2))} obsidian",
 SHEET["portal_from_cast"] = {
     "doc": "The queue asks for a portal: no obsidian carried, no diamond pickaxe, buckets, blocks and flint, a frame "
            "standing 8 of 10 (its bottom two missing), a lava pool memory knows 3 blocks off → the plan casts the two "
-           "in place and lights it, ≤ 5 s",
+           "in place and lights it, the cast itself ≤ 5 s",
     "module": "decompose", "point": "C", "skills": ["cast:nether_portal"], "tier_fixed": "exception",
     "tags": {"base": "sources"},
-    "setup": list(SCENARIOS["cast_portal"]["setup"]) + PORTAL_8_OF_10,
+    # Both lava buckets carried: the two trips to the pool are not the cast.
+    "setup": list(SCENARIOS["cast_portal"]["setup"]) + PORTAL_8_OF_10 + ["give @p lava_bucket", "give @p lava_bucket"],
     "expect": [SCENARIOS["cast_portal"]["expect"][0], (at(-3, 0, 2), at(0, 4, 2), "obsidian", 8, 8)],
-    "before": _hooks(_start("portal_from_cast"),
+    "before": _hooks(_start("portal_from_cast"), _forget_skill_time("cast_portal"),
                      lambda ctx: ctx.mem.note_seen("lava", at(3, -1, 0), "minecraft:overworld"),
                      _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
-    "run": _timed(_brain_rounds(28, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1)),
+    "run": _brain_rounds(28, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1),
     "check": _all(lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
-                  _within(5.0)),
+                  _skill_within("cast_portal", 5.0)),
     "budget": 30,
 }
 SHEET["pearls_from_barter"] = {

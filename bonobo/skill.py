@@ -78,6 +78,7 @@ class Contract:
 
 # Set by the brain to the memory object: record_duration(key, seconds, units) / duration(key).
 STATS = None
+LAST_S = {}     # skill name → seconds its last verified run took, preconditions and planning excluded
 MIN_SAMPLES = 3
 
 
@@ -203,6 +204,7 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
             if not verified:
                 msg = f"{contract.name}: finished without reaching its goal"
                 raise McError((bag_full_reason(msg, _free_slots()) if contract.fills_bag else None) or msg)
+            LAST_S[contract.name] = time.time() - t0
             if STATS is not None:
                 try:
                     STATS.record_duration(contract.key(c), time.time() - t0, max(1, contract.units(c)))
