@@ -911,6 +911,33 @@ SPOT = {"x": 1, "y": 64, "z": 1}          # fixture: one dark spot /dark answere
 
 # skill → [(situation, state dict, expected)]; expected is an exception type or a check(batch) -> None (asserts).
 COMMANDS = {
+    "craft": [
+        ("sticks from planks: the bag's grid, one craft", body(inv=inventory(oak_planks=2), _args=("minecraft:stick", 1)),
+         lambda t, b: t.assertEqual(types(b), ["_close", "craft"])),
+        ("a pickaxe at a table near: opened once, closed", body(inv=inventory(cobblestone=3, stick=2), table=(1, 64, 0),
+                                                               _args=("minecraft:stone_pickaxe", 1)),
+         lambda t, b: t.assertEqual(types(b), ["use", "craft", "_close"])),
+        ("a pickaxe, a table carried, a spot: placed, used, taken back",
+         body(inv=inventory(cobblestone=3, stick=2, crafting_table=1), spot=(1, 64, 0),
+              _args=("minecraft:stone_pickaxe", 1)),
+         lambda t, b: t.assertEqual(types(b), ["place", "use", "craft", "_close", "mine"])),
+        ("no table anywhere", body(inv=inventory(cobblestone=3, stick=2), _args=("minecraft:stone_pickaxe", 1)),
+         skillcore.StationMissing),
+        ("missing an input", body(inv=inventory(cobblestone=1), _args=("minecraft:stone_pickaxe", 1)), api.McError),
+    ],
+    "craft_chain": [
+        ("stick, table, pickaxe from planks and stone: one chain", body(
+            inv=inventory(oak_planks=12, cobblestone=3), spot=(1, 64, 0),
+            _args=([("minecraft:stick", 1), ("minecraft:crafting_table", 1), ("minecraft:stone_pickaxe", 1)],)),
+         lambda t, b: t.assertEqual(types(b), ["_close", "craft", "craft", "place", "use", "craft", "_close", "mine"])),
+        ("the bag's grid only", body(inv=inventory(oak_planks=4), _args=([("minecraft:stick", 2)],)),
+         lambda t, b: t.assertEqual(types(b), ["_close", "craft"])),
+        ("the table made in the chain but nowhere to put it",
+         body(inv=inventory(oak_planks=12, cobblestone=3),
+              _args=([("minecraft:stick", 1), ("minecraft:crafting_table", 1), ("minecraft:stone_pickaxe", 1)],)),
+         skillcore.StationMissing),
+        ("nothing to make it from", body(_args=([("minecraft:stick", 1)],)), api.McError),
+    ],
     # eat: (situation, the body) → the bites, back to back (bite_plan)
     "eat": [
         ("food 0, bread ×4: four bites (the gap 20 over bread's 5)", body(state=state(food=0), inv=inventory(bread=4)),

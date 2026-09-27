@@ -282,6 +282,56 @@ def _plan_made(c):
     return all(Inventory().count(i) >= have + n for i, (have, n) in c.base.items())
 
 
+CLOSE = {"type": "_close"}     # a split point in a chain: the screen is closed between two sends (no close task)
+
+
+def run_split(tasks, **kw):
+    """Run a `*_commands` chain: every stretch between CLOSE markers in ONE `run_chain`, the screen closed between
+    them — closed-loop only where the game needs its screen shut (breaking a block with a table's screen open).
+    Raises McError naming the first task that did not succeed."""
+    results, part = [], []
+    for t in list(tasks) + [None]:
+        if t is None or t == CLOSE:
+            if part:
+                results += api.run_chain(part, stop_on_failure=True, **kw)
+                part = []
+            if t is not None and results:
+                api.post("/close")
+            continue
+        part.append(t)
+    bad = next((r for r in results if r.get("status") != "succeeded"), None)
+    if bad is not None:
+        raise McError(f"{bad.get('type', 'task')} failed: {bad.get('message')}")
+    return results
+
+
+def craft_commands(state, args):
+    """Pure: the whole crafting session as one chain — per sitting (`sittings`): the 2×2 crafts in the bag; the
+    3×3 ones at the table near (`state["table"]`) or at the one placed on `state["spot"]` (carried, or made by an
+    earlier sitting), opened once, then taken back (broken by the best tool the bag holds — the jar picks it) when
+    it was placed here. `args` = (recipes,). Raises StationMissing when a table is needed and none can be had."""
+    (recipes,) = args
+    inv = state["inv"]
+    steps, _, _ = craft_plan(recipes, inv)
+    out, made_table = [], False
+    for table, part in sittings(steps):
+        crafts = [{"type": "craft", "pattern": concrete, "count": n} for concrete, _item, n in part]
+        if not table:
+            out += [CLOSE] + crafts
+            made_table = made_table or any(item == "minecraft:crafting_table" for _c, item, _n in part)
+            continue
+        pos, placed = state.get("table"), False
+        if pos is None:
+            if not (inv.count("minecraft:crafting_table") or made_table) or state.get("spot") is None:
+                raise StationMissing("minecraft:crafting_table")
+            pos, placed = tuple(state["spot"]), True
+            out.append({"type": "place", "item": "minecraft:crafting_table", "x": pos[0], "y": pos[1], "z": pos[2]})
+        out += [{"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}] + crafts + [CLOSE]
+        if placed and takes_back("minecraft:crafting_table", bool(inv.tools("pickaxe"))):
+            out.append(nav.mine_task(pos, collect=True))
+    return out
+
+
 def _sitting(ctx, recipes):
     """Craft `recipes` [(token, times)] in ONE sitting: the table opened (or placed) once, each recipe made in turn,
     the table closed (or taken back) once. One craft per round opened the table, crafted, closed and — for a
@@ -296,31 +346,41 @@ def _sitting(ctx, recipes):
             log(f"   dropped {bare(s['id'])} to make room for crafting")
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
-
-    def run_all(part):
-        for concrete, item, n in part:
-            before = Inventory().count(item)
-            r = api.run({"type": "craft", "pattern": concrete, "count": n}, wait=120)
-            if gained(lambda: Inventory().count(item), before) <= before:
-                raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
-    for table, part in sittings(steps):
-        if table:        # a table near, carried, or made by the part before: opened (or placed and taken back)
-            with Station(ctx, "minecraft:crafting_table"):
-                run_all(part)
+    # World reads for the emitter, only when a table sitting is in the plan: a table near, else a spot to place one.
+    state = {"inv": inv, "table": None, "spot": None}
+    if any(table for table, _part in sittings(steps)):
+        near = find(["crafting_table"], radius=6, limit=1)
+        if near:
+            state["table"] = (near[0]["x"], near[0]["y"], near[0]["z"])
         else:
-            close_screen()
-            run_all(part)
+            spots = free_spots_here(limit=1) or make_room(ctx)
+            state["spot"] = spots[0] if spots else None
+    tasks = craft_commands(state, (recipes,))
+    placed = next(((t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "place"), None)
+    before = Inventory().count("minecraft:crafting_table")
+    close_screen()
+    try:
+        run_split(tasks, wait=120)
+    finally:
+        if placed is not None:
+            # Memory knows where our table stands: kept when it was left there, dropped once it is back in the bag.
+            if Inventory().count("minecraft:crafting_table") > before or not _standing("crafting_table", placed, 1):
+                ctx.mem.remove_station(placed)
+            else:
+                ctx.mem.add_station("minecraft:crafting_table", placed, ctx.dimension)
     return [(t, times) for t, times in recipes]
 
 
 @skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, speed={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
-       per_unit=4, key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])})
+       per_unit=4, key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])},
+       commands=lambda state, args: craft_commands(state, ([(args[0], args[1])],)))
 def craft(ctx, token, times):
     """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
     return _sitting(ctx, [(token, times)])
 
 
-@skill(gives={}, needs={}, speed={}, start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft")
+@skill(gives={}, needs={}, speed={}, start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft",
+       commands=lambda state, args: craft_commands(state, (args[0],)))
 def craft_chain(ctx, recipes):
     """Consecutive crafts of one plan in one sitting (`_sitting`). `recipes`: [(token, times)] in plan order."""
     return _sitting(ctx, recipes)

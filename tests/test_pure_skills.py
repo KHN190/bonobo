@@ -320,6 +320,49 @@ class CraftPlan(unittest.TestCase):
                     self.assertEqual(skills.craft_plan(recipes, inv), want)
 
 
+class CraftCommands(unittest.TestCase):
+    """skills.craft_commands: a crafting session as one chain — 2×2 in the bag, the table opened once, a placed
+    table taken back; recomputed from the bag after an interrupt, nothing made twice or skipped."""
+    PICK = [("minecraft:stick", 1), ("minecraft:crafting_table", 1), ("minecraft:stone_pickaxe", 1)]
+
+    @staticmethod
+    def shape(tasks):
+        return [t["type"] if t["type"] != "craft" else ("craft", len(t["pattern"])) for t in tasks]
+
+    def test_table(self):
+        from tests.world import bag, inventory
+        from bonobo.skillcore import StationMissing
+        spot, near = (1, 64, 0), (2, 64, 0)
+        pick, stick, stone = self.PICK, [("minecraft:stick", 1)], [("minecraft:stone_pickaxe", 1)]
+        rows = [
+            ("no table anywhere: the bag's crafts, the table placed, opened, the pickaxe, closed, taken back", pick,
+             {"oak_planks": 12, "cobblestone": 3}, None, spot,
+             ["_close", ("craft", 4), ("craft", 4), "place", "use", ("craft", 9), "_close", "mine"]),
+            ("a table near: opened, not placed nor taken", pick, {"oak_planks": 12, "cobblestone": 3}, near, None,
+             ["_close", ("craft", 4), ("craft", 4), "use", ("craft", 9), "_close"]),
+            ("2×2 only: no table at all", stick, {"oak_planks": 2}, None, None, ["_close", ("craft", 4)]),
+            ("must fail: a 3×3 recipe, no table carried, none near, none made", stone,
+             {"cobblestone": 3, "stick": 2}, None, spot, StationMissing),
+        ]
+        for name, recipes, have, table, sp, want in rows:
+            with self.subTest(name):
+                st = {"inv": bag(inventory(**have)), "table": table, "spot": sp}
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        skills.craft_commands(st, (recipes,))
+                    continue
+                self.assertEqual(self.shape(skills.craft_commands(st, (recipes,))), want)
+
+    def test_resumed_from_the_bag(self):
+        """Interrupted after the bag's crafts: the chain rebuilt from the bag then holds only the pickaxe."""
+        from tests.world import bag, inventory
+        st = {"inv": bag(inventory(oak_planks=6, stick=4, crafting_table=1, cobblestone=3)), "table": None,
+              "spot": (1, 64, 0)}
+        got = self.shape(skills.craft_commands(st, ([("minecraft:stone_pickaxe", 1)],)))
+        self.assertEqual(got, ["place", "use", ("craft", 9), "_close", "mine"])
+        self.assertEqual(got.count(("craft", 4)), 0, "nothing of the first sitting made twice")
+
+
 class Sittings(unittest.TestCase):
     """skills.sittings: a chain cut where the grid changes — the 2×2 part in the bag, the 3×3 part at a table.
     plan_repair_on_event asked for a table before making it, every round (StationMissing)."""
