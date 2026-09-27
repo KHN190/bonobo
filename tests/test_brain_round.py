@@ -12,7 +12,8 @@ from tests.world import inventory, state
 
 
 class FakeGame:
-    """Answers GETs from recorded readings (`tape`'s well-formed nothing for the rest) and notes every POST."""
+    """Answers GETs from fixed recorded readings (`tape`'s well-formed nothing for the rest) and only records every
+    POST: no state, nothing a POST changes."""
 
     def __init__(self, st, inv):
         self.reads = {"/state": st, "/inventory": inv}
@@ -26,8 +27,6 @@ class FakeGame:
                         "result": {}}
             return {"status": "succeeded", "tasks": [], "results": []}
         key = path.split("?")[0]
-        if key == "/state" and self.reads["/state"].get("dead") and "/respawn" in self.posts:
-            return dict(self.reads["/state"], dead=False)
         if key == "/status":
             return {"inWorld": True, "features": []}
         return self.reads.get(key, dict(tape._EMPTY))
@@ -37,8 +36,8 @@ class Round(unittest.TestCase):
     # (situation, /state changes, bag, posted (must appear), not posted (must not appear))
     TABLE = [
         ("a quiet day, empty bag: the round runs to a decision", {}, {}, set(), {"/respawn", "/resume"}),
-        ("dead: the invariants respawn before anything is decided", {"dead": True, "health": 0.0}, {},
-         {"/respawn"}, {"/resume"}),
+        ("in the water, off the ground: the round still decides", {"inWater": True, "onGround": False, "air": 200},
+         {"dirt": 8}, set(), {"/respawn", "/resume"}),
         ("the pause screen open: the invariants resume", {"screen": "class_433"}, {"dirt": 3}, {"/resume"},
          {"/respawn"}),
         ("edge: night with a pickaxe and food", {"timeOfDay": 18000}, {"stone_pickaxe": 1, "bread": 4}, set(),
