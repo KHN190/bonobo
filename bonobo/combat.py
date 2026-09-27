@@ -160,6 +160,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
         elif spot is not None and math.dist(here, spot) > 1.5:
             nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
         else:
+            # closed loop: the fight's next reading (reflex latency: a poll, never a batch)
             api.run({"type": "wait", "ticks": 5}, wait=5)
         margin = clearance(here, hz)
         # No hazards at all means an infinite margin, and round(inf) raises OverflowError — it killed the skill
@@ -199,6 +200,7 @@ def shoot(entity, hold_ticks=22, near=None):
     if near is not None and combat_model.aim_hits_enderman((entity["x"], entity["y"], entity["z"]),
                                               (s["x"], s["y"], s["z"]), near):
         raise NotAvailable("an enderman stands in the line of aim")
+    # closed loop: a moving target: one shot, then aim again from the new reading
     r = api.run(shoot_batch(entity, (s["x"], s["y"] + 1.62, s["z"]), hold_ticks)[0], wait=10)
     if r["status"] != "succeeded":
         raise McError(f"shooting failed: {r['message']}")
@@ -231,12 +233,14 @@ def collect_blaze_rods(ctx, rods):
             quiet_since = None
         if floor:
             try:
+                # closed loop: rods drop only when a blaze dies; collected per death
                 api.run({"type": "collect", "radius": 6, "only": ["minecraft:blaze_rod"]}, wait=20)
             except api.Unreachable:
                 e = floor[0]
                 nav.arrived((round(e["x"]), round(e["y"]), round(e["z"])), ctx.policy, range_=1.0, attempts=1)
                 api.run({"type": "collect", "radius": 3, "only": ["minecraft:blaze_rod"]}, wait=10)
         else:
+            # closed loop: the next blaze death (rods on the floor)
             api.run({"type": "wait", "ticks": 20}, wait=5)
         yield Inventory().count("minecraft:blaze_rod"), len(blazes)
     raise McError("no rods collected")

@@ -90,6 +90,7 @@ def loot_chest(ctx):
     if not nav.arrived(pos, ctx.policy, range_=3, attempts=1):
         ctx.ban(pos, 1800)
         raise api.NavFailed(f"chest at {pos} not reachable")
+    # closed loop: the chest's slots (loot_plan) are only readable once its screen is open
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30)
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         ctx.ban(pos, 1800)

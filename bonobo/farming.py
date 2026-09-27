@@ -7,7 +7,7 @@ from . import knowledge as K
 from . import api, jobs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .skillcore import gained
+from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD
 from .world import Inventory, Region, add, entities, find, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
 
@@ -48,11 +48,99 @@ def breeding_pair(animals, kind, max_gap=8):
 
 # ---------------------------------------------------------------- skills
 
-def _use_on_top(item, cell):
-    r = api.run({"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
-                 "onBlock": True}, wait=30)
-    if r["status"] != "succeeded":
-        raise McError(f"using {item} on {cell} failed: {r['message']}")
+def use_on_top(item, cell):
+    """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour)."""
+    return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
+            "onBlock": True}
+
+
+def sow_commands(cells, seeds="minecraft:wheat_seeds"):
+    """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
+    return [use_on_top(seeds, c) for c in cells]
+
+
+def plot_commands(centre, hoe, region=None):
+    """Pure: the 3×3 plot as one chain — dig the centre, pour the water in, then till and sow each of the 8
+    neighbours (ring order). With `region` (the world as it is), only what is still to do: the water already in,
+    a cell already farmland, a cell already sown are skipped — an interrupted plot resumes by what is left, never
+    by where the last chain stopped."""
+    name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
+    below = add(centre, (0, -1, 0))
+    out = []
+    if name(centre) not in ("water",):
+        out += [{"type": "mine", "x": centre[0], "y": centre[1], "z": centre[2], "collect": False,
+                 "requireDrops": False}, use_on_top("minecraft:water_bucket", below)]
+    for dx, dz in RING:
+        cell = (centre[0] + dx, centre[1], centre[2] + dz)
+        if name(cell) != "farmland":
+            out.append(use_on_top(hoe, cell))
+        if name(add(cell, (0, 1, 0))) != "wheat":
+            out.append(use_on_top("minecraft:wheat_seeds", cell))
+    return out
+
+
+def started_plot(region, here, radius=8):
+    """Pure: the centre of a plot begun and not finished here — water in the centre, its ring soil or farmland, some
+    cell not yet sown — nearest first; None when there is none (a fresh plot is chosen by `farm_plot`)."""
+    best = None
+    for c, n in region.blocks.items():
+        if n != "water" or math.dist(c, here) > radius:
+            continue
+        ring = [(c[0] + dx, c[1], c[2] + dz) for dx, dz in RING]
+        if all(region.name(r) in SOIL + ("farmland",) for r in ring) and \
+                any(region.name(add(r, (0, 1, 0))) != "wheat" for r in ring):
+            d = math.dist(c, here)
+            if best is None or d < best[0]:
+                best = (d, c)
+    return None if best is None else best[1]
+
+
+def unreachable_cells(tasks, results):
+    """Pure: the cells of the tasks the jar refused as out of reach — the only ones a partial chain bans; the rest
+    stand (done) or are asked again (`plot_commands` recomputes them from the world)."""
+    return sorted({(t["x"] - 0.5, t["y"] - 1.0, t["z"] - 0.5) if isinstance(t["x"], float) else (t["x"], t["y"], t["z"])
+                   for t, r in zip(tasks, results)
+                   if r.get("status") != "succeeded" and "reach" in str(r.get("message", "")).lower()})
+
+
+def plant_farm_commands(state, args):
+    """`commands` for plant_farm: the plot chain at the nearest flat 3×3 soil (`farm_plot`), with the best hoe
+    carried; NotAvailable naming what is missing."""
+    inv = state["inv"]
+    hoe = next((h for h in HOES if inv.count(h)), None)
+    if hoe is None:
+        raise NotAvailable("no hoe")
+    if inv.count("minecraft:wheat_seeds") < 8:
+        raise NotAvailable("need 8 wheat seeds")
+    if not inv.count("minecraft:water_bucket"):
+        raise NotAvailable("need a water bucket for the plot")
+    region = state["region"]
+    centre = started_plot(region, state["feet"]) or farm_plot(region, state["feet"], state.get("protected", ()))
+    if centre is None:
+        raise NotAvailable("no flat 3×3 soil nearby for a farm")
+    return plot_commands(centre, hoe, region)
+
+
+def feed_commands(pair, food):
+    """Pure: feed both animals of a breeding pair, back to back (the second needs nothing from the first)."""
+    return [{"type": "interact", "entity": eid, "item": food} for eid in pair]
+
+
+def breed_commands(state, args):
+    """`commands` for breed: the first kind with its food carried (2) and an adult pair (`breeding_pair`) away from
+    a breeding still cooling (`state["cooling"]`: positions); [] when there is none."""
+    for kind, food in BREED_FOOD.items():
+        if state["inv"].count(food) < 2:
+            continue
+        pair = breeding_pair(state["entities"], kind)
+        if pair is None:
+            continue
+        where = next(e for e in state["entities"] if e["id"] == pair[0])
+        pos = (round(where["x"]), round(where["y"]), round(where["z"]))
+        if any(math.dist(c, pos) <= 12 for c in state.get("cooling", ())):
+            continue
+        return feed_commands(pair, food)
+    return []
 
 
 def sapling_in_bag():
@@ -70,6 +158,7 @@ def replant(ctx, base):
     region = Region(add(soil, (0, 0, 0)), add(soil, (0, 2, 0)))
     if region.name(soil) not in SOIL or region.name(base) != "air":
         return False
+    # one task, nothing to chain; its result decides the sapling job
     r = api.run({"type": "place", "item": sapling, "x": base[0], "y": base[1], "z": base[2]}, wait=30)
     if r["status"] != "succeeded":
         return False
@@ -100,7 +189,8 @@ def _plot_growing(centre):
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
 
-@skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={}, verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90, per_unit=120,
+@skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={},
+       commands=lambda state, args: plant_farm_commands(state, args), verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90, per_unit=120,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
     """Wheat for the plan: a crop already grown nearby is reaped first (the world read here, at execution — the
@@ -109,42 +199,24 @@ def plant_farm(ctx):
     ripe = ripe_near(nav.feet_now(), RIPE_LOOK)
     if ripe and _reap(ripe) > 0:
         return REAPED
-    inv = Inventory()
-    hoe = next((h for h in HOES if inv.count(h)), None)
-    if hoe is None:
-        raise NotAvailable("no hoe")
-    if inv.count("minecraft:wheat_seeds") < 8:
-        raise NotAvailable("need 8 wheat seeds")
-    if not inv.count("minecraft:water_bucket"):
-        raise NotAvailable("need a water bucket for the plot")
     here = nav.feet_now()
-    region = Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9)))
-    centre = farm_plot(region, here, ctx.policy.protected)
-    if centre is None:
-        raise NotAvailable("no flat 3×3 soil nearby for a farm")
+    state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
+    region = state["region"]
+    centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
+    tasks = plant_farm_commands(state, ())
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
     if not nav.arrived(stand, ctx.policy, range_=1.0, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
-    api.run({"type": "mine", "x": centre[0], "y": centre[1], "z": centre[2], "collect": False,
-             "requireDrops": False}, wait=30)
-    below = add(centre, (0, -1, 0))
-    r = api.run({"type": "use_item", "item": "minecraft:water_bucket", "x": below[0] + 0.5, "y": below[1] + 1.0,
-                 "z": below[2] + 0.5, "onBlock": True}, wait=30)
-    if r["status"] != "succeeded":
-        raise McError(f"could not pour the plot's water: {r['message']}")
-    yield 1
-    sown = 0
-    for dx, dz in RING:
-        cell = (centre[0] + dx, centre[1], centre[2] + dz)
-        try:
-            _use_on_top(hoe, cell)
-            _use_on_top("minecraft:wheat_seeds", cell)
-            sown += 1
-        except api.INTERRUPTIONS:
-            raise              # an interruption is not a failure to shrug off here
-        except McError as e:
-            log(f"   farm cell {cell}: {e}")
-        yield sown
+    # The plot in one send (an interrupt stops it between segments; the next call recomputes what is left from the
+    # world). Judged by the world, never by the chain's "succeeded": the water in, the cells sown.
+    done = api.run_chain(tasks, stop_on_failure=False)
+    for cell in unreachable_cells(tasks, done):
+        ctx.ban(tuple(int(round(v)) for v in cell), 600)
+    after = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1)))
+    if after.name(centre) != "water":
+        raise McError(f"could not pour the plot's water at {centre}")
+    sown = sum(1 for dx, dz in RING if after.name((centre[0] + dx, centre[1] + 1, centre[2] + dz)) == "wheat")
+    yield sown
     if not sown:
         raise McError("no farm cell could be sown")
     ctx.mem.add_site("farm", centre, ctx.dimension, name=f"farm-{centre[0]}_{centre[2]}")
@@ -161,6 +233,7 @@ REAPED = "reaped"       # plant_farm's answer when it took a grown crop instead 
 def _reap(cells):
     """Break these ripe wheat cells and collect wheat and seeds; the wheat gained."""
     before = Inventory().count("minecraft:wheat")
+    # one mine_many task: already a batch (every ripe cell, one pickup)
     api.run({"type": "mine_many", "collect": True, "requireDrops": False,
              "only": ["minecraft:wheat", "minecraft:wheat_seeds"],
              "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}, wait=120)
@@ -180,14 +253,10 @@ def harvest(ctx, job):
     if not nav.arrived((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
         raise api.NavFailed(f"farm at {centre} not reachable")
     got = _reap(ripe)
-    for p in ripe:
-        if Inventory().count("minecraft:wheat_seeds"):
-            try:
-                _use_on_top("minecraft:wheat_seeds", add(p, (0, -1, 0)))
-            except api.INTERRUPTIONS:
-                raise              # an interruption is not a failure to shrug off here
-            except McError:
-                pass
+    seeds = Inventory().count("minecraft:wheat_seeds")
+    if seeds:
+        # the resow in one send; a cell the jar cannot sow stays bare (the next harvest counts only what grew)
+        api.run_chain(sow_commands([add(p, (0, -1, 0)) for p in ripe][:seeds]), stop_on_failure=False)
     ctx.mem.finish_job(job["id"])
     jobs.start(ctx.mem, "crop", centre, ctx.dimension, item="minecraft:wheat", count=len(ripe))
     log(f"harvested {got} wheat at {centre}")
@@ -202,28 +271,26 @@ def _babies():
 
 
 @skill(gives={}, needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
+       commands=lambda state, args: breed_commands(state, args),
        provides={"breed": lambda ctx, s: ()})
 def breed(ctx):
     """Feed two adults of one kind the food they breed on; a breed job marks the 5-minute cooldown there."""
-    inv = Inventory()
     animals = entities(24)
-    for kind, food in BREED_FOOD.items():
-        if inv.count(food) < 2:
-            continue
-        pair = breeding_pair(animals, kind)
-        if pair is None:
-            continue
-        where = next(e for e in animals if e["id"] == pair[0])
-        pos = (round(where["x"]), round(where["y"]), round(where["z"]))
-        if any(math.dist(j["pos"], pos) <= 12 for j in ctx.mem.jobs(ctx.dimension) if j["kind"] == "breed"):
-            continue   # cooling down
-        for entity_id in pair:
-            r = api.run({"type": "interact", "entity": entity_id, "item": food}, wait=45)
-            if r["status"] != "succeeded":
-                raise McError(f"feeding {kind.split(':')[1]} failed: {r['message']}")
-            yield entity_id
-        jobs.start(ctx.mem, "breed", pos, ctx.dimension, item=kind)
-        ctx.mem.note_seen(kind, pos, ctx.dimension)
-        log(f"bred two {kind.split(':')[1]} at {pos}")
-        return kind
-    raise NotAvailable("no pair of animals with the food to breed them")
+    state = body_state(ctx, entities=animals,
+                       cooling=[j["pos"] for j in ctx.mem.jobs(ctx.dimension) if j["kind"] == "breed"])
+    tasks = breed_commands(state, ())
+    if not tasks:
+        raise NotAvailable("no pair of animals with the food to breed them")
+    food = tasks[0]["item"]
+    kind = next(k for k, f in BREED_FOOD.items() if f == food and any(
+        e["id"] == tasks[0]["entity"] and e["type"] == k for e in animals))
+    where = next(e for e in animals if e["id"] == tasks[0]["entity"])
+    pos = (round(where["x"]), round(where["y"]), round(where["z"]))
+    for t in api.run_chain(tasks, stop_on_failure=True):
+        if t["status"] != "succeeded":
+            raise McError(f"feeding {kind.split(':')[1]} failed: {t['message']}")
+    yield kind
+    jobs.start(ctx.mem, "breed", pos, ctx.dimension, item=kind)
+    ctx.mem.note_seen(kind, pos, ctx.dimension)
+    log(f"bred two {kind.split(':')[1]} at {pos}")
+    return kind

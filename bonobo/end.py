@@ -436,6 +436,7 @@ def _recover_body(ctx, act):
     if act == "shake_enderman":
         shake_enderman(ctx)
     elif act == "water_clutch":
+        # closed loop: the fall's landing (onGround) before the next recovery act
         api.run({"type": "wait", "ticks": 5}, wait=5)     # mid-air: the mod pours water under us
     elif act == "retreat_and_eat":
         _retreat(ctx)
@@ -501,6 +502,7 @@ def await_perch(ctx):
         if not s.get("onGround") and s["y"] > floor_y + 3:
             # Flung by a take-off: pathing in mid-air does nothing. Hold still and let the mod's WaterClutch pour
             # under us (one run rode the knockback to y 144 and died on landing).
+            # closed loop: on the ground again after the fling (the mod's water clutch)
             api.run({"type": "wait", "ticks": 5}, wait=5)
             yield ("airborne", round(s["y"]))
             continue
@@ -622,6 +624,7 @@ def bed_bomb_window(ctx):
         if "unknown task" in (r.get("message") or "").lower():
             raise NotAvailable("the mod has no bed_bomb task (needs ≥0.1.31)")
         log(f"   bed bomb failed: {r['message']}")
+    # closed loop: the dragon's health and phase after the bomb decide a follow-up
     api.run({"type": "wait", "ticks": 10}, wait=5)
     # "Place, pop, place, pop": every blast shoves the dragon up, and the next bed catches it on the way. One bomb
     # per visit throws away the rest of a perch, which is why runners land 4–5 blasts in a single landing.
@@ -629,8 +632,10 @@ def bed_bomb_window(ctx):
         d_now = dragon_entry(entities(128))
         if not bombable(d_now) or api.get("/state")["health"] < 19 or not _bed_item():
             break
+        # closed loop: each follow-up bomb waits on the dragon still perched and bombable
         again = api.run({"type": "bed_bomb", "x": bed[0], "y": bed[1], "z": bed[2], "item": _bed_item()}, wait=8)
         log(f"   follow-up bomb: {again['status']} ({(d_now or {}).get('health')} hp before)")
+        # closed loop: the dragon's phase after this bomb
         api.run({"type": "wait", "ticks": 10}, wait=5)
     after = dragon_entry(entities(128))
     lost = round((before or {}).get("health", 0) - (after or {}).get("health", 0))
@@ -664,6 +669,32 @@ def cage_plan(crystal, here, floor_y):
     return base, stand, bars
 
 
+def crystal_commands(state, args):
+    """`commands` for break_caged_crystal, standing at the tower base: pillar up to the crystal's height, then break
+    every bar still standing (`cage_plan`) — one chain. The hits stay closed loop (the crystal gone after each)."""
+    from .data import GROUPS
+    crystal = args[0]
+    pos = (crystal["x"], crystal["y"], crystal["z"])
+    feet = tuple(state["feet"])
+    _base, stand, bars = cage_plan(pos, feet, feet[1])
+    block = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
+    rise = max(0, stand[1] - feet[1])
+    if rise and block is None:
+        raise NotAvailable("no blocks to tower up with")
+    region = state.get("region")
+    banned = state.get("banned", ())
+    standing = [c for c in bars if (region is None or region.solid(c)) and c not in banned]
+    return [{"type": "pillar", "item": block} for _ in range(rise)] + \
+        [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False} for c in standing]
+
+
+def unreachable(results):
+    """Pure: the cells a chain's results name as "cannot reach x, y, z" — the only ones a partial failure bans."""
+    import re
+    return {tuple(int(g) for g in m.groups()) for t in results if t["status"] != "succeeded"
+            for m in re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", t.get("message") or "")}
+
+
 def caged(crystal, here):
     """Pure: the crystal sits on a tall caged pillar (the open ones are at island level and can be hit from there)."""
     return crystal[1] - here[1] > 8
@@ -690,6 +721,7 @@ def shake_enderman(ctx):
         feet = nav.feet_now()
         try:
             place("minecraft:water_bucket", feet)
+            # closed loop: whether the enderman lets go while we stand in water
             api.run({"type": "wait", "ticks": 20}, wait=5)
             yield "water"
             return True
@@ -703,6 +735,7 @@ def shake_enderman(ctx):
         dug = not any(_R((pit_feet[0], y, pit_feet[2]), (pit_feet[0], y, pit_feet[2])).solid((pit_feet[0], y, pit_feet[2]))
                       for y in range(pit_feet[1], floor_y))
         if dug and nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=1):
+            # closed loop: whether the enderman lets go while we sit in the pit
             api.run({"type": "wait", "ticks": 20}, wait=5)
             yield "pit"
             return True
@@ -717,12 +750,14 @@ def shake_enderman(ctx):
     away = (round(here[0] + ux / m * 12), round(here[1]), round(here[2] + uz / m * 12))
     # A plain goto with a short budget, not travel: being chased, 10 s of "no progress" before anything changes is
     # far too slow. Three seconds and we look at the world again.
+    # closed loop: one short leg, then the chase is read again (a lone task, nothing to chain)
     api.run({"type": "goto", "x": away[0], "y": away[1], "z": away[2], "range": 2, "partial": True}, wait=3)
     yield "away"
     return True
 
 
-@skill(gives={}, needs={"building": 1}, speed={}, budget=300, stall=120, soft=True)
+@skill(gives={}, needs={"building": 1}, speed={}, budget=300, stall=120, soft=True,
+       commands=lambda state, args: crystal_commands(state, args))
 def break_caged_crystal(ctx, crystal):
     """Tower up to a caged crystal, break the bars, stand in water and hit it. `crystal` is an /entities row."""
     from .skillcore import place
@@ -746,15 +781,22 @@ def break_caged_crystal(ctx, crystal):
     if not api.get("/state").get("onGround"):
         # Pillaring needs something under the feet ("towering up failed: nothing solid to stand on").
         api.run({"type": "wait", "ticks": 10}, wait=5)
-    while nav.feet_now()[1] < stand[1]:
-        r = api.run({"type": "pillar", "item": block}, wait=30)
-        if r["status"] != "succeeded":
-            raise McError(f"towering up failed: {r['message']}")
-        yield nav.feet_now()[1]
-    for cell in bars:
-        if Region(cell, cell).solid(cell):
-            api.run({"type": "mine", "x": cell[0], "y": cell[1], "z": cell[2], "collect": False}, wait=30)
-            yield cell
+    # Up and through the cage in one chain (crystal_commands): the tower's height and the bars are known here.
+    from .skillcore import body_state
+    lo = tuple(min(c[i] for c in bars) for i in range(3))
+    hi = tuple(max(c[i] for c in bars) for i in range(3))
+    banned = {c for c, until in ctx.blacklist.items() if until > time.time()}
+    tasks = crystal_commands(body_state(ctx, Region(lo, hi), banned=banned), (crystal,))
+    done = api.run_chain(tasks, stop_on_failure=True)
+    # "N of M failed": what broke stays broken (the next call recomputes from the world); only the bars the mod
+    # could not reach are banned. An interrupt raises out of run_chain before this and bans nothing.
+    for cell in unreachable(done):
+        ctx.ban(cell)
+    # Judged by the world, not the chain's word: at the crystal's height (an interrupt resumes by what is left —
+    # crystal_commands recomputes the rise and the standing bars from where we are).
+    if nav.feet_now()[1] < stand[1]:
+        raise McError(f"towering up failed: at y {nav.feet_now()[1]}, the crystal's height is {stand[1]}")
+    yield nav.feet_now()[1]
     if inv.count("minecraft:water_bucket"):
         # Standing in water when it goes off: an end crystal's blast is power 6 and we wear no armor.
         try:
@@ -763,6 +805,7 @@ def break_caged_crystal(ctx, crystal):
             log(f"   no water under our feet ({e}): hitting the crystal anyway")
     for _ in range(3):
         try:
+            # closed loop: the crystal gone (entity list) after each hit
             api.run({"type": "attack", "entity": crystal["id"]}, wait=6)
         except api.TaskStuck:
             pass                     # out of reach for a moment: step closer and try again
@@ -890,6 +933,7 @@ def _retreat(ctx, near=None):
                 f"{tuple(round(c, 1) for c in away)} (slack {slack}s)")
             nav.go_to(away, ctx.policy, range_=2, attempts=1, min_hp=0)
             return "away"
+    # closed loop: the next threat reading decides the next move
     api.run({"type": "wait", "ticks": 10}, wait=5)         # nothing nearby: waiting really is the answer
     return "clear"
 
@@ -1018,6 +1062,7 @@ def enter_end(ctx):
         raise NotAvailable("the end portal isn't active yet")
     nav.arrived(centre, ctx.policy, range_=0.6, attempts=1)
     for _ in range(10):
+        # closed loop: the dimension change after stepping in
         api.run({"type": "wait", "ticks": 20}, wait=5)
         yield None
         if api.get("/state")["dimension"] == "minecraft:the_end":

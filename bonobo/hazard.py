@@ -105,6 +105,7 @@ class Watch:
 
 def _leave_lava(ctx, s):
     api.post("/stop")
+    # one task: nothing to chain (the climb out is the whole answer)
     api.run({"type": "goto", "x": s["blockX"], "y": s["blockY"] + 3, "z": s["blockZ"], "range": 3,
              "partial": True}, wait=20)
 
@@ -126,16 +127,23 @@ def _extinguish(ctx, s):
     within 8 blocks. Without either the fire burns out on its own; the rescue says so instead of standing still."""
     from .world import Inventory, find
     api.post("/stop")
+    has_bucket = bool(Inventory().count("minecraft:water_bucket"))
+    water = None if has_bucket else next(iter(find(["water"], radius=8, limit=1) or ()), None)
+    # The pour and the scoop back as one chain: no reply between them is read, so none is waited for.
+    api.run_chain(extinguish_commands(s, has_bucket, water), stop_on_failure=True, wait=10)
+
+
+def extinguish_commands(s, has_bucket, water):
+    """Pure: the tasks that put a fire on the body out — the water bucket poured at the feet and taken back, else a
+    walk into water within reach (`water`: a /find hit or None). Raises NotAvailable when neither exists."""
     x, y, z = s["blockX"], s["blockY"], s["blockZ"]
-    if Inventory().count("minecraft:water_bucket"):
-        api.run({"type": "use_item", "item": "minecraft:water_bucket", "x": x + 0.5, "y": y, "z": z + 0.5}, wait=5)
-        api.run({"type": "use_item", "item": "minecraft:bucket", "x": x + 0.5, "y": y, "z": z + 0.5}, wait=5)
-        return
-    water = find(["water"], radius=8, limit=1)
-    if not water:
+    if has_bucket:
+        at = {"x": x + 0.5, "y": y, "z": z + 0.5}
+        return [dict({"type": "use_item", "item": "minecraft:water_bucket"}, **at),
+                dict({"type": "use_item", "item": "minecraft:bucket"}, **at)]
+    if water is None:
         raise api.NotAvailable("on fire with no water to put it out")
-    w = water[0]
-    api.run({"type": "goto", "x": w["x"], "y": w["y"], "z": w["z"], "range": 0.5, "partial": True}, wait=10)
+    return [{"type": "goto", "x": water["x"], "y": water["y"], "z": water["z"], "range": 0.5, "partial": True}]
 
 
 RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury, "burning": _extinguish}

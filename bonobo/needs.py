@@ -324,17 +324,25 @@ def _tools_of(kind):
     return sum(1 for s in Inventory().slots if s["id"].endswith("_" + kind))
 
 
+def repair_commands(state, args):
+    """`commands` for repair_tool: the one 2×2 craft of the two most worn tools of the kind (`repair_pair`)."""
+    kind = args[0] if args else "pickaxe"
+    pair = repair_pair(state["inv"].slots, kind)
+    if pair is None:
+        raise NotAvailable(f"no two {kind}s of the same kind worth combining")
+    return [{"type": "craft", "pattern": [pair[0], pair[0], None, None], "count": 1}]
+
+
 @skill(gives={}, needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
+       commands=lambda state, args: repair_commands(state, args),
        budget=60, stall=30, per_unit=5, prefer=1,
        provides={"repair": lambda ctx, s: (s.token,) if repair_pair(Inventory().slots, s.token) else None})
 def repair_tool(ctx, kind="pickaxe"):
     """Combine the two most worn tools of one kind in the 2×2 grid into one repaired tool."""
-    pair = repair_pair(Inventory().slots, kind)
-    if pair is None:
-        raise NotAvailable(f"no two {kind}s of the same kind worth combining")
-    item = pair[0]
+    tasks = repair_commands({"inv": Inventory()}, (kind,))
+    item = tasks[0]["pattern"][0]
     before = sum(1 for s in Inventory().slots if s["id"] == item)
-    r = api.run({"type": "craft", "pattern": [item, item, None, None], "count": 1}, wait=30)
+    r = api.run_chain(tasks, stop_on_failure=True)[0]
     yield None
     if lost(lambda: sum(1 for s in Inventory().slots if s["id"] == item), before) >= before:
         raise McError(f"repairing {item.split(':')[1]} failed: {r['message']}")
