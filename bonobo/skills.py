@@ -410,6 +410,7 @@ def smelt(ctx, output, input_token, count, fuel):
                 if made >= loaded:
                     break
                 yield made
+                api.waiting_for_clock(10 * (loaded - made))     # 10 s an item: only the clock is waited on
                 time.sleep(3)
         finally:
             api.post("/click", {"slot": 2, "button": 0, "action": "QUICK_MOVE"})

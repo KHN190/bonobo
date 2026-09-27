@@ -272,6 +272,9 @@ class Brain:
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting")
             intent.set("goal", "holding: nothing to do")
+            jobs = self.mem.jobs(snap.dimension)
+            if jobs:                           # only a furnace's clock is waited on: the bench may run it ahead
+                api.waiting_for_clock(max(0.0, min(j["ready_at"] for j in jobs) - time.time()))
             api.run({"type": "wait", "ticks": IDLE_WAIT_TICKS}, wait=15, awaits="one task: the idle round's wait")
             return
         self.idle_since = None

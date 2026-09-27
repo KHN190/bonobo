@@ -623,6 +623,10 @@ def run(name, make_ctx):
     sys.stdout = console
     from .. import perception
     rate = sc.get("tick_rate")
+    from .. import api as _api
+    # a wait on the game's clock alone (a furnace cooking, api.waiting_for_clock) runs the clock ahead: the row's
+    # work and checks stay the same, only the real-time wait for the furnace goes (smelting is 10 s an item)
+    _api.CLOCK_HOOK = lambda s: _command(f"tick sprint {max(20, int(s * 20))}", feedback)
     try:
         if rate:
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
@@ -710,6 +714,7 @@ def run(name, make_ctx):
         sys.stdout = console.real
         if rate:
             _command("tick rate 20", feedback)
+        _api.CLOCK_HOOK = None
     cls = classify(exc, ok)
     if not ok and cls not in UNCOUNTED and generic_failure(note):
         # a failure without a reason is recorded as such

@@ -73,6 +73,19 @@ def at_boundary():
         raise NightFell(reason)
 
 
+CLOCK_HOOK = None      # bench: (seconds) → the game's clock run ahead (tick sprint); production: nothing
+
+
+def waiting_for_clock(seconds):
+    """The body waits only on the game's clock (a furnace cooking): the bench may run the clock ahead (CLOCK_HOOK);
+    production waits as it always did. The one place such a wait is said."""
+    if CLOCK_HOOK is not None and seconds > 0:
+        try:
+            CLOCK_HOOK(seconds)
+        except McError:
+            pass
+
+
 def consume_interrupt():
     """Return and clear the pending interrupt, or None: soft skills read it and take cover themselves."""
     global INTERRUPT
