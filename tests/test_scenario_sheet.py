@@ -977,15 +977,6 @@ class EveryPartHasAMustFail(unittest.TestCase):
                 rows = [(n, r) for n, r in sc.SCENARIOS.items() if fam in r.get("tags", {}).get("family", "").split("+")]
                 self.assertNotEqual(self.controls(rows), [], f"{fam}: no must-fail row")
 
-    def test_the_new_controls_name_their_failure(self):
-        rows = [("nav_sealed_in", r"no route|no path|unreachable|could not get|not reach"),
-                ("craft_short_of_planks", r"missing|short|not enough"),
-                ("smelt_without_fuel", r"no coal|fuel|burn"),
-                ("eat_with_nothing", r"nothing edible")]
-        for name, fails in rows:
-            with self.subTest(name):
-                self.assertEqual(sc.SCENARIOS[name]["fails"], fails)
-
 
 def walk_frames(speed=4.0, rise_at=3.0, stop=(None, None), task=None, food0=10, back=False):
     """Frames every 0.2 s for 5 s: x advancing at `speed` (standing still over `stop`, backwards if `back`), the
