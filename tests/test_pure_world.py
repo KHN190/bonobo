@@ -132,7 +132,7 @@ class AwayFrom(unittest.TestCase):
         rows = [((5, 64, 5), [cloud(0, 0), cloud(4, 4)], 7, (10, 64, 10)),
                 ((-7, 60, 3), [cloud(2.5, -1.5)], 12, (-18, 60, 8)),
                 ((0, 64, 0), [cloud(0, 0)], 10, (0, 64, 0)),
-                ((1, 64, -2), [{"type": "minecraft:zombie", "x": 0, "y": 0, "z": 0}], 10, None)]
+                ((1, 64, -2), [{"type": "minecraft:zombie", "x": 0, "y": 0, "z": 0}], 10, None)]  # must fail: no cloud, no escape
         for here, near, run, want in rows:
             with self.subTest(here=here):
                 self.assertEqual(end.breath_escape(here, near, run=run), want)
@@ -175,7 +175,7 @@ class Fluids(unittest.TestCase):
         eye, cell, point = (0.5, 1.5, 0.5), (3, 1, 0), (3.5, 1.5, 0.5)
         rows = [  # (why, blocks, margin, expected)
             ("nothing in between", {}, 0.2, True),
-            ("stone in the path", {(1, 1, 0): "stone"}, 0.2, False),
+            ("must fail: stone in the path", {(1, 1, 0): "stone"}, 0.2, False),
             ("stone only in the target cell itself", {(3, 1, 0): "stone"}, 0.2, True),
             ("stone behind the target", {(4, 1, 0): "stone"}, 0.2, True),
             ("stone beside the path, outside the margin", {(1, 1, 1): "stone"}, 0.2, True),
@@ -204,7 +204,7 @@ class Fluids(unittest.TestCase):
                 self.assertEqual(fluids.lava_within(region(blocks), p, r), want)
 
     def test_use_task(self):
-        rows = [  # (item, aim, on_block, expected)
+        rows = [  # (item, aim, on_block, expected) (must fail: the two-coordinate aim below raises)
             ("minecraft:water_bucket", (1.5, 64.02, 2.5), True,
              {"type": "use_item", "item": "minecraft:water_bucket", "x": 1.5, "y": 64.02, "z": 2.5, "onBlock": True}),
             ("minecraft:bucket", (0, 0, 0), False,
@@ -223,7 +223,7 @@ class Fluids(unittest.TestCase):
                 fluids.use_task("minecraft:bucket", (1, 2), True)
 
     def test_floor_aim(self):
-        rows = [  # (cell, expected)
+        rows = [  # (cell, expected) (must fail: the top face, below, is never the aim)
             ((0, 64, 0), (0.5, 64.02, 0.5)),
             ((-1, 0, -1), (-0.5, 0.02, -0.5)),
             ((10, -60, 3), (10.5, -59.98, 3.5)),
@@ -260,7 +260,7 @@ class Paths(unittest.TestCase):
             ("MC_DATA overrides", "/d", "/x", "/h", "/d"),
             ("MC_DATA with ~", "~/d", None, "/h", "/h/d"),
             ("XDG when no MC_DATA", None, "/x", "/h", "/x/bonobo"),
-            ("empty MC_DATA is no override", "", "/x", "/h", "/x/bonobo"),
+            ("must fail: an empty value read as set — empty MC_DATA is no override", "", "/x", "/h", "/x/bonobo"),
             ("nothing set: ~/.local/share", None, None, "/h", "/h/.local/share/bonobo"),
         ]
         for why, mc, xdg, home, want in rows:
@@ -348,7 +348,7 @@ class Knowledge(unittest.TestCase):
             ("blast_furnace", True),
             ("wall_torch", True),
             ("white_bed", True),
-            ("stone", False),          # mined, not taken back
+            ("stone", False),          # mined, not taken back (must fail: stone is not taken back)
             ("minecraft:crafting_table", False),   # bare block names only
         ]
         for block, want in rows:
@@ -470,7 +470,7 @@ class Nav(unittest.TestCase):
                 ("old jar: each group asked once", False, [["iron_ore"], ["oak_log"], ["iron_ore"]], [6.0, 3.0, 6.0], 2),
                 ("new jar, moved between asks: asked again", True, [["iron_ore"], "move", ["iron_ore"]],
                  [6.0, None, 6.0], 2),
-                ("past the radius: None", True, [["iron_ore", 5]], [None], 1)]
+                ("must fail: past the radius: None", True, [["iron_ore", 5]], [None], 1)]
         for name, new, asks, want, requests in rows:
             with self.subTest(name):
                 calls = []
@@ -514,7 +514,7 @@ class Nav(unittest.TestCase):
             ("in the water 1.4 off the bank (the jar called it arrived)",
              {"x": 8.6, "y": 199.4, "z": 10.5, "onGround": False, "inWater": True}, False),
             ("standing on the bank, dry", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True, "inWater": False}, True),
-            ("on the bank cell but the feet still in water", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True,
+            ("must fail: on the bank cell but the feet still in water", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True,
                                                               "inWater": True}, False),
             ("on the ground a block below the bank", {"x": 10.5, "y": 199.0, "z": 10.5, "onGround": True,
                                                       "inWater": False}, False),
@@ -551,7 +551,7 @@ class Nav(unittest.TestCase):
             ("two blocks of stone", {}, 2, (), False, ([mine(63), wait, mine(62), wait], 2)),
             ("stops above the region's floor (air below)", {}, 5, (), False,
              ([mine(63), wait, mine(62), wait, mine(61), wait], 3)),
-            ("stops beside water", {(1, 62, 0): "water"}, 3, (), False, ([mine(63), wait], 1)),
+            ("must fail: stops beside water", {(1, 62, 0): "water"}, 3, (), False, ([mine(63), wait], 1)),
             ("air cell is walked through, not mined", {(0, 63, 0): "air"}, 1, (), False, ([wait], 1)),
             ("ladder hung on the wall above the head", {(1, 65, 0): "stone"}, 1, (), True,
              ([mine(63), wait, ladder], 1)),
@@ -563,7 +563,7 @@ class Nav(unittest.TestCase):
                 r.blocks.update(extra)
                 self.assertEqual(nav.dig_down_tasks(r, feet, depth, protected, ladders), want)
         fails = [  # (why, extra blocks, protected)
-            ("lava right under the feet", {(0, 63, 0): "lava"}, ()),
+            ("must fail: lava right under the feet", {(0, 63, 0): "lava"}, ()),
             ("bedrock under the feet", {(0, 63, 0): "bedrock"}, ()),
             ("the first cell is protected", {}, ((0, 63, 0),)),
             ("water beside the first cell", {(0, 63, 1): "water"}, ()),
@@ -719,7 +719,7 @@ class RetryAndSkill(unittest.TestCase):
             ("stuck", ((1, 4, -2), False), "stuck@((1, 4, -2), False)"),
             ("error", "here", "error@here"),
             ("", None, "@None"),
-            ("a@b", 3, "a@b@3"),
+            ("a@b", 3, "a@b@3"),  # must fail: a separator inside the cause is kept, not split
         ]
         for cause, place, want in rows:
             with self.subTest(cause):
@@ -907,7 +907,7 @@ class InterruptSources(unittest.TestCase):
         rows = [("layer:tactic", (True, "fight")), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
                 ("manual", (True, "stand_down")), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
                 ("dimension change", (True, "back")), ("row:leave the Nether", (True, "back")),
-                ("player", (True, "handback")), ("user cancel", (False, None)), ("stuck", (False, "cool")),
+                ("player", (True, "handback")), ("user cancel", (False, None)), ("stuck", (False, "cool")),  # must fail: a user cancel resumes nothing
                 ("crash", (False, "hold"))]
         for source, want in rows:
             with self.subTest(source):
