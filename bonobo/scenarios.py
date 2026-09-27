@@ -842,16 +842,6 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         t0, positions, idle = time.time(), [], 0.0
         start_line = len(sys.stdout.lines) if hasattr(sys.stdout, "lines") else 0
         stopped = None
-        # The queue's goals all done ends the slice — also inside the round that finished the last one: that round
-        # went on to idle stocking ("task done: t2", then "→ mine 1× diamond") and spent the budget. Bench-side: the
-        # brain's own stocking proposals answer nothing while this slice's queue is finished.
-        held = {}
-        if queue:
-            for name in ("prepare", "night_stock"):
-                real = getattr(core.BRAIN, name)
-                held[name] = real
-                setattr(core.BRAIN, name, (lambda real: lambda *a, **k:
-                                           None if queue_finished(tasks.load()) else real(*a, **k))(real))
         try:
             while time.time() - t0 < minutes * 60:
                 # The queue's goals all finished is the end of the slice: idle stocking after it is not the row's work.
@@ -871,8 +861,6 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
                     stopped = f"loop: {rep['loops'][0]}" if rep["loops"] else f"idle {rep['idle_s']}s"
                     break
         finally:
-            for name in held:
-                delattr(core.BRAIN, name)      # the class's own methods again
             tasks.FILE = saved             # the slice's private queue must not leak into the next scenario
             SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target, queued=bool(queue),
                          picks=dict(core.BRAIN.picks))

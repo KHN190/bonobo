@@ -904,6 +904,21 @@ class HeldPlans(unittest.TestCase):
                 self.assertEqual(None if act is None else act.name,
                                  None if want is None else f"idle: {goals.describe(goals.have(want))}")
 
+    def test_the_round_that_finishes_the_queue_proposes_nothing_more(self):
+        """plan_proposals: the task met this round is finished and nothing else is offered — the next round (queue
+        empty) decides on stocking. Stocking in the same round ate the bench slices' budget."""
+        rows = [("the last task met now: nothing this round", [goals.have(("log", 4))], [("oak_log", 4)], []),
+                ("a task met, another still live: that one", [goals.have(("log", 4)), goals.have(("stick", 4))],
+                 [("oak_log", 4), ("oak_planks", 4)], ["queue"]),
+                ("nothing queued at all: stocking", [], [], ["idle"]),
+                ("a live task, not met: the task", [goals.have(("log", 4))], [], ["queue"])]
+        for name, queued, items, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+                for g in queued:
+                    q.task(g)
+                got = q.b.plan_proposals(snapshot(state(), inventory(*items)), None)
+                self.assertEqual([i.kind for i in got], want)
+
     def test_idle_beside_the_queue(self):
         """plan_proposals: stocking only when the queue has nothing that can run now, and never into the queue
         (tool_tier__one_use: a queued sword took over whenever the row's own task cooled)."""

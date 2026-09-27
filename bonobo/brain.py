@@ -325,12 +325,18 @@ class Brain:
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
         closed = surface_closed(snap.night, snap.dimension)
+        self.just_finished = False
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
             act = self.task_act(task, snap, ctx)
             if act is not None and (not closed or act.step.kind in NIGHT_WORK):
                 return [arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}")]
+        if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
+            # The round that finished the queue's last task proposes nothing more: stocking started in the same
+            # breath ("task done: t2" then "→ mine 1× diamond") was the round's own momentum, not a decision.
+            # The next round asks again with the queue empty.
+            return []
         if not closed:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name)] if act else []
@@ -465,6 +471,7 @@ class Brain:
         self.finish(task, "failed", reason)
 
     def finish(self, task, state, reason):
+        self.just_finished = True
         tasks.mark(task["id"], state, reason)
         self.held.pop(task["id"], None)
         self.retry.succeeded(f"task {task['id']}")
