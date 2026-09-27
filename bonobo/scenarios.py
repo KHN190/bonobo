@@ -544,7 +544,7 @@ SCENARIOS["gold_helmet_swap"] = {
               f"tp @p {_c(at(0, 0, 0))}", "clear @p", "item replace entity @p armor.head with iron_helmet",
               "give @p golden_helmet"],
     "expect": [(at(-6, -1, -6), at(6, -1, 6), "netherrack", 169, 169)],
-    "run": lambda ctx: core.BRAIN.reflexes(),
+    "run": lambda ctx: core.BRAIN.invariants(),
     "check": lambda api, inv: _worn_head() == "minecraft:golden_helmet" and inv.count("minecraft:iron_helmet") >= 1,
     "budget": 10,
 }
@@ -580,7 +580,7 @@ def _reflex_for(seconds):
     def run(ctx):
         t0 = time.time()
         while time.time() - t0 < seconds:
-            core.BRAIN.reflexes()
+            core.BRAIN.invariants()
             time.sleep(0.2)
         return True
     return run

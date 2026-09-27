@@ -44,6 +44,8 @@ fight_loop.lend("shoot", lambda option, state: combat.shoot_batch(
     option.target, (state["state"]["x"], state["state"]["y"] + 1.62, state["state"]["z"])))
 
 IDLE_WAIT_TICKS = 100
+SCAN_EVERY_S = 20          # seconds between travel scans (explore.note_around)
+TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's
 # wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK  # noqa: E402
@@ -112,7 +114,7 @@ class Brain:
         dug = [(t["x"], t["y"], t["z"]) for t in tasks_ if t.get("type") == "mine" and "x" in t]
         if dug:
             self.mem.mark_dirty_near(dug, api.get("/state")["dimension"])
-        self.reflexes()
+        self.invariants()
 
     def segment_reflexes(self, tasks_):
         dug = [(t["x"], t["y"], t["z"]) for t in tasks_ if t.get("type") == "mine" and "x" in t]
@@ -125,14 +127,14 @@ class Brain:
             if needs_pick and not any(d >= 3 for _, d, _ in Inventory().tools("pickaxe")):
                 raise skills.ToolMissing("pickaxe", 0)
             skills.contain_lava(self.context(s["dimension"]))     # the last segment may have broken into lava
-        self.reflexes()
+        self.invariants()
 
     def context(self, dimension, policy=None):
         return skills.Context(self.mem, policy or self.policy_cache, dimension, self.blacklist,
                               prices=self.price_table)
 
     # -- reflexes: invariants, not decisions
-    def reflexes(self):
+    def invariants(self):
         s = api.get("/state")
         if s["control"].get("paused"):
             api.wait_for_handback()
@@ -233,7 +235,7 @@ class Brain:
             intent.publish()
 
     def _round(self):
-        self.reflexes()
+        self.invariants()
         tape.begin()
         nav.forget_routes()
         snap = Snapshot()
