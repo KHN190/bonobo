@@ -180,8 +180,9 @@ class Brain:
 
     # -- failure policy (retry.py)
     def failed(self, name, err, quiet=False):
-        """A failure: counted for (name, cause), the cause cooled here. Interruptions are not failures."""
-        if api.interrupted(err):
+        """A failure: counted for (name, cause), the cause cooled here. Interruptions (a source whose rule resumes the
+        work: outcome_of) are not failures."""
+        if outcome_of(err)[0] != "failed":
             return None
         self.mem.record_outcome(name, False)
         cause = retry.cause_of(err)
@@ -204,27 +205,26 @@ class Brain:
             err = None
         except Exception as e:
             err, trace = e, traceback.format_exc()
-        outcome, then = outcome_of(err)
+        outcome, source = outcome_of(err)
+        first = arbiter.resume_of(source)[1] if source is not None else None      # the source's rule, one place
         if outcome == "ok":
             self.retry.succeeded(name)
             self.mem.record_outcome(name, True)
-        elif then == "handback":
+        elif first == "handback":
             api.wait_for_handback()
-        elif then == "wait_game":
+        elif first == "wait_game":
             api.wait_for_game()
-        elif then == "stand_down":
+        elif first == "stand_down":
             log(f"?? {err}; standing down 10 s")
             time.sleep(10)
-        elif then == "fight":
+        elif first == "fight":
             log(f"   {name} interrupted by our fight: resuming when it ends")
             wait_out_fight()
-        elif then in ("recover", "elsewhere"):
-            # Died: the recover reflex runs next round, then this replans from where the body stands. Elsewhere:
-            # the task stays live for its own dimension. Neither is counted, cooled or banned.
-            log(f"   {name} interrupted ({then}): {err}")
-        elif then is None:
-            log(f"   {name} interrupted: {err}")     # no count, no /stop, no cooldown
-        elif then == "stop":
+        elif outcome == "interrupted":
+            # Died (recover first): the recover reflex runs next round, then this replans from where the body stands.
+            # Another dimension (back): the task stays live for its own. None is counted, cooled or banned.
+            log(f"   {name} interrupted ({source}{f', {first} first' if first else ''}): {err}")
+        elif first == "cool":
             self.last_failure = self.failed(name, err)
             for key in also:
                 self.failed(key, err, quiet=True)
@@ -562,28 +562,22 @@ def step_key(step):
     return f"step:{step.kind}:{step.token}"
 
 
+# Which interrupt source (arbiter.RESUME_OF) an exception out of an attempt stands for, first match; anything else is
+# a crash. What is done about it — resumed or not, and what first — is that source's rule, read there and only there.
+SOURCE_OF = ((PlayerTookControl, "player"), (GameUnreachable, "game lost"), (api.FightHolds, "layer:tactic"),
+             (api.BodyContested, "manual"), (api.Died, "death"), (api.DimensionChanged, "dimension change"),
+             (api.CommitmentExpired, "layer:plan"), (api.Interrupted, "layer:safety"),
+             ((McError, skills.ToolMissing), "stuck"))
+
+
 def outcome_of(err):
-    """Pure: what an exception out of an attempt means — (outcome, what to do about it). Interruptions are not
-    failures: no count, no /stop, no cooldown."""
+    """Pure: what an exception out of an attempt means — (outcome, its interrupt source): "interrupted" when the
+    source's rule resumes the work (arbiter.resume_of), else "failed". Interruptions are not failures: no count, no
+    /stop, no cooldown."""
     if err is None:
         return "ok", None
-    if isinstance(err, PlayerTookControl):
-        return "interrupted", "handback"
-    if isinstance(err, GameUnreachable):
-        return "interrupted", "wait_game"
-    if isinstance(err, api.FightHolds):
-        return "interrupted", "fight"           # our own fight: back when it ends, not 10 s later
-    if isinstance(err, api.BodyContested):
-        return "interrupted", "stand_down"      # an outside driver (manual, another process)
-    if isinstance(err, api.Died):
-        return "interrupted", "recover"         # the recover reflex first, then a replan from here, target kept
-    if isinstance(err, api.DimensionChanged):
-        return "interrupted", "elsewhere"       # resumed only back in the task's own dimension
-    if isinstance(err, api.INTERRUPTIONS):
-        return "interrupted", None
-    if isinstance(err, (McError, skills.ToolMissing)):
-        return "failed", "stop"
-    return "failed", "crash"
+    source = next((s for cls, s in SOURCE_OF if isinstance(err, cls)), "crash")
+    return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
 
 
 def replan(task, goal, snap, cost, pending=None):

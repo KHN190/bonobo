@@ -883,7 +883,8 @@ class InterruptSources(unittest.TestCase):
         from bonobo import arbiter, hazard, reflexes
         return ([f"row:{n}" for n in reflexes.NAMES] + [f"hazard:{k}" for k in hazard.KINDS]
                 + [f"layer:{k}" for k in arbiter.SCALES]
-                + ["manual", "jar reflex", "death", "dimension change", "user cancel", "stuck"])
+                + ["manual", "player", "game lost", "jar reflex", "death", "dimension change", "user cancel", "stuck",
+                   "crash"])
 
     def test_every_source_is_declared(self):
         from bonobo import arbiter
@@ -893,8 +894,8 @@ class InterruptSources(unittest.TestCase):
     def test_the_rule_per_class(self):
         from bonobo import arbiter
         # (source) → (resumes, what first)
-        rows = [("layer:tactic", (True, None)), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
-                ("manual", (True, None)), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
+        rows = [("layer:tactic", (True, "fight")), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
+                ("manual", (True, "stand_down")), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
                 ("dimension change", (True, "back")), ("row:leave the Nether", (True, "back")),
                 ("user cancel", (False, None)), ("stuck", (False, "cool"))]
         for source, want in rows:
@@ -907,25 +908,57 @@ class InterruptSources(unittest.TestCase):
             arbiter.resume_of("row:a reflex nobody declared")
 
     def test_every_interruption_has_its_resume(self):
-        """Generated over api.INTERRUPTIONS: each class, the source that raises it and what the attempt does about it
-        (brain.outcome_of) — its resume rule and what comes first read from arbiter.RESUME_OF itself: a death recovers
-        first, a dimension change resumes back there. A class with no row fails; a real failure is the contrast:
-        counted and cooled."""
+        """Generated over api.INTERRUPTIONS: each class stands for one interrupt source (brain.outcome_of) and what the
+        attempt does about it is that source's rule, read from arbiter.RESUME_OF itself: a death recovers first, a
+        dimension change resumes back there, our fight waits it out. A class with no row fails; a real failure and a
+        bug of ours are the contrast."""
         from bonobo import api, arbiter
         from bonobo import brain as brainmod
-        # (class, the source it stands for, outcome_of's (outcome, then), the rule's (resumes, what first))
-        rows = [(api.Interrupted, "layer:safety", ("interrupted", None), (True, None)),
-                (api.CommitmentExpired, "layer:plan", ("interrupted", None), (True, None)),
-                (api.BodyContested, "manual", ("interrupted", "stand_down"), (True, None)),
-                (api.FightHolds, "layer:tactic", ("interrupted", "fight"), (True, None)),
-                (api.PlayerTookControl, "manual", ("interrupted", "handback"), (True, None)),
-                (api.Died, "death", ("interrupted", "recover"), (True, "recover")),
-                (api.DimensionChanged, "dimension change", ("interrupted", "elsewhere"), (True, "back")),
-                (api.TaskStuck, "stuck", ("failed", "stop"), (False, "cool"))]
+        # (class, the source it stands for, outcome, the rule's (resumes, what first))
+        rows = [(api.Interrupted, "layer:safety", "interrupted", (True, None)),
+                (api.CommitmentExpired, "layer:plan", "interrupted", (True, None)),
+                (api.BodyContested, "manual", "interrupted", (True, "stand_down")),
+                (api.FightHolds, "layer:tactic", "interrupted", (True, "fight")),
+                (api.PlayerTookControl, "player", "interrupted", (True, "handback")),
+                (api.Died, "death", "interrupted", (True, "recover")),
+                (api.DimensionChanged, "dimension change", "interrupted", (True, "back")),
+                (api.TaskStuck, "stuck", "failed", (False, "cool")),
+                (ValueError, "crash", "failed", (False, "hold"))]
         self.assertEqual(set(api.INTERRUPTIONS) - {r[0] for r in rows}, set(), "an interruption without a row")
         for cls, source, outcome, rule in rows:
             with self.subTest(cls.__name__):
                 err = cls() if cls is api.PlayerTookControl else cls("x")
-                self.assertEqual(brainmod.outcome_of(err), outcome)
+                self.assertEqual(brainmod.outcome_of(err), (outcome, source))
                 self.assertEqual(arbiter.resume_of(source), rule)
-                self.assertEqual(outcome[0] == "interrupted", api.interrupted(err))
+
+    def test_the_attempt_does_what_the_rule_says(self):
+        """brain.attempt applies the source's rule (arbiter.RESUME_OF), nowhere else: change the rule and what the
+        attempt does changes with it — a rule ignored is caught."""
+        import tempfile
+        from bonobo import api, arbiter, retry
+        from bonobo import brain as brainmod
+        from bonobo.memory import Memory
+        # (situation, the error, a rule changed {source: rule}, outcome, recorded as a failure, waited out a fight)
+        rows = [("died: interrupted, not counted", api.Died("x"), {}, "interrupted", False, False),
+                ("must fail: the death rule made a failure — counted", api.Died("x"), {"death": "cooled"}, "failed",
+                 True, False),
+                ("a real failure: counted", api.TaskStuck("no progress"), {}, "failed", True, False),
+                ("must fail: a stuck rule that resumes — not counted", api.TaskStuck("no progress"),
+                 {"stuck": "same"}, "interrupted", False, False),
+                ("our fight: waited out", api.FightHolds("x"), {}, "interrupted", False, True),
+                ("must fail: the fight rule made plain — not waited", api.FightHolds("x"), {"layer:tactic": "same"},
+                 "interrupted", False, False)]
+        for name, err, changed, outcome, counted, waited in rows:
+            with self.subTest(name):
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.retry, b.place = retry.Retry(), ("here", False)
+                b.mem = Memory(os.path.join(tempfile.mkdtemp(prefix="attempt"), "notes.json"))
+                b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
+                fights, outcomes = [], []
+                b.mem.record_outcome = lambda name, ok: outcomes.append(ok)
+                with mock.patch.dict(arbiter.RESUME_OF, changed), mock.patch.object(api, "post"), \
+                        mock.patch.object(brainmod, "log"), mock.patch.object(brainmod.time, "sleep", lambda s: None), \
+                        mock.patch.object(brainmod, "wait_out_fight", lambda: fights.append(1)):
+                    got = b.attempt("task t1", lambda: (_ for _ in ()).throw(err))
+                self.assertEqual((got, False in outcomes, bool(fights)), (outcome, counted, waited))
+

@@ -542,12 +542,13 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(set(api.INTERRUPTIONS), {type(e) for e, _, c in OUTCOMES if c == "interrupted"})
 
     def test_outcome_of(self):
-        """What the attempt does about each: interruptions never fail (and some need a hand back or a wait)."""
-        special = {api.PlayerTookControl: ("interrupted", "handback"), api.GameUnreachable: ("interrupted", "wait_game"),
-                   api.BodyContested: ("interrupted", "stand_down"), api.FightHolds: ("interrupted", "fight"),
-                   api.Died: ("interrupted", "recover"), api.DimensionChanged: ("interrupted", "elsewhere")}
-        rows = [(err, special.get(type(err), ("interrupted", None) if cls == "interrupted" else ("failed", "stop")))
-                for err, _cause, cls in OUTCOMES]
+        """What each means: interruptions never fail — each stands for its interrupt source (arbiter.RESUME_OF, whose
+        rule says what first: a hand back, a wait); a real failure is "stuck", a bug of ours a "crash"."""
+        special = {api.PlayerTookControl: ("interrupted", "player"), api.GameUnreachable: ("interrupted", "game lost"),
+                   api.BodyContested: ("interrupted", "manual"), api.FightHolds: ("interrupted", "layer:tactic"),
+                   api.Died: ("interrupted", "death"), api.DimensionChanged: ("interrupted", "dimension change"),
+                   api.CommitmentExpired: ("interrupted", "layer:plan"), api.Interrupted: ("interrupted", "layer:safety")}
+        rows = [(err, special.get(type(err), ("failed", "stuck"))) for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]
         for err, want in rows:
             with self.subTest(repr(err)):
