@@ -98,6 +98,8 @@ class FromTheWiki(unittest.TestCase):
             with self.subTest(kind):
                 self.assertEqual((m["hp"], m["attack"], m["notice_r"]), (hp, attack, notice))
                 self.assertAlmostEqual(m["dps"], attack / m["attack_s"])
+        with self.subTest("must fail: an animal has no row (it does not fight back)"), self.assertRaises(KeyError):
+            beliefs.mob("minecraft:cow")
 
 
 class AMeasurementSurvivesTheProcessThatTookIt(unittest.TestCase):

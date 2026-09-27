@@ -471,6 +471,8 @@ class ThePoints(unittest.TestCase):
         for what, holds in self.ACCEPT:
             with self.subTest(what):
                 self.assertEqual(holds(row), True)
+        with self.subTest("must fail: a core row is not an acceptance run"):
+            self.assertFalse(all(holds(sc.SCENARIOS["iron_ingots"]) for _what, holds in self.ACCEPT))
 
 
 
@@ -556,10 +558,16 @@ class EndgameBuilt(unittest.TestCase):
             ("seek_blocks_real", lambda r: any("oak_log" in c for c in r["setup"])),
             ("explore_for_animals_real", lambda r: any("summon cow" in c for c in r["setup"]) and r["stochastic"])]
 
+    # a row each predicate must reject (chop__base, unless it happens to hold there)
+    CONTRAST = {"locate_stronghold": "trek_overworld_30", "seek_blocks_real": "mine_stone__base"}
+
     def test_built(self):
         for name, ok in self.ROWS:
             with self.subTest(name):
                 self.assertTrue(ok(sc.SCENARIOS[name]))
+            other = self.CONTRAST.get(name, "chop__base")
+            with self.subTest(f"must fail: {other} is not {name}'s build"):
+                self.assertFalse(ok(sc.SCENARIOS[other]))
 
     # (start, stronghold, the leg's padded box): the plane lies under the skill's perpendicular (-dz, dx) leg
     LEGS = [((0, 0), (1000, 0), (-12, -12, 12, 212)),

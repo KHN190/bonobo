@@ -79,6 +79,15 @@ class RealPlans(unittest.TestCase):
                     for dim, delta in action.effect.items():
                         held[dim] = held.get(dim, 0) + delta * times
                 self.assertEqual(early, [], "a step ran before what it requires existed")
+        with self.subTest("must fail: the same plan run backwards has steps before their inputs"):
+            start, target = REAL[1][1], REAL[1][2]
+            plan = solve(table(start), dict(start), target)
+            held, early = dict(start), []
+            for action, times in reversed(list(plan.steps())):
+                early += [action.name for dim, need in action.requires.items() if held.get(dim, 0) < need]
+                for dim, delta in action.effect.items():
+                    held[dim] = held.get(dim, 0) + delta * times
+            self.assertNotEqual(early, [])
 
     def test_knowing_nowhere_every_place_needed_is_sought(self):
         """With nothing known, every `at:X` a chosen column requires is made by a chosen seek column."""

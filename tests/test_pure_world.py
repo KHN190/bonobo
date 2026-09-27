@@ -857,7 +857,9 @@ class Frontier(unittest.TestCase):
                 ("another commander took the body", api.BodyContested("replaced by a task we did not post")),
                 ("maintain: the eat reflex took the body", api.Interrupted("a faster layer took the body")),
                 ("plan: the night's way came due", api.CommitmentExpired("the night: a new decision")),
-                ("the player took the controls", api.PlayerTookControl("the player moved"))]
+                ("the player took the controls", api.PlayerTookControl("the player moved")),
+                ("nightfall on the surface", api.NightFell("night")),
+                ("must fail: a real failure (no progress) is cooled, not resumed", api.TaskStuck("no progress"))]
         for name, exc in rows:
             with self.subTest(name):
                 m = self.mem()
@@ -882,7 +884,9 @@ class Frontier(unittest.TestCase):
                         mock.patch.object(api, "wait_for_handback", lambda: None), \
                         mock.patch.object(brainmod.time, "sleep", lambda s: None):
                     b.attempt("seek sheep", lambda: (_ for _ in ()).throw(exc), also=("step:seek:sheep",))
-                self.assertEqual((b.ready("seek sheep"), b.ready("step:seek:sheep"), b.retry.entries), (True, True, {}))
+                resumed = not name.startswith("must fail")
+                self.assertEqual((b.ready("seek sheep"), b.ready("step:seek:sheep"), not b.retry.entries),
+                                 (resumed, resumed, resumed))
 
 
 class Nightfall(unittest.TestCase):

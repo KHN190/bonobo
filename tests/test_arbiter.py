@@ -214,6 +214,10 @@ class Invariants(unittest.TestCase):
                 intents = [arbiter.Intent(layer, lambda: None, f"{layer}:{k}", at=0.0, kind=k) for layer, k in spec]
                 picks = {chosen(list(p)) for p in itertools.permutations(intents)}
                 self.assertEqual(len(picks), 1)
+        with self.subTest("must fail: a chooser that takes the first submitted is caught by the same check"):
+            intents = [arbiter.Intent(layer, lambda: None, f"{layer}:{k}", at=0.0, kind=k)
+                       for layer, k in rows[1][1]]
+            self.assertGreater(len({list(p)[0].reason for p in itertools.permutations(intents)}), 1)
 
     def test_every_pair_of_layers_the_faster_wins(self):
         for a, b in itertools.permutations(self.LAYERS, 2):
