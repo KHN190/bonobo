@@ -638,3 +638,97 @@ for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
         "tick_rate": 60, "budget": 60,
     }
 
+
+
+# -- the fight's behaviours, one cell each ---------------------------------------------------------------------
+# Built by the same walker and the same `_build` as the arena; each cell is set up so that one answer is worth the
+# most, and the row asks that it was chosen AND that it worked, read from the world (the gap's blocks, how far down
+# or up the body went) and from the recorded row (what went out, what it cost in health).
+BEHAVIOUR_ROWS = paths.data("bench/behaviour.jsonl")
+BEHAVIOUR_SECONDS = 25.0
+GAP = [at(4, y, z) for y in (1, 2, 3) for z in (-1, 0, 1)]          # the corridor's one gap (GROUND["corridor"])
+
+
+def _last(name):
+    rows = SWEEP.get(name) or []
+    return rows[-1] if rows else None
+
+
+def _went_out(row, *kinds):
+    return any(a.get("kind") in kinds for a in row["answered"] if a.get("outcome") == "answered")
+
+
+def _first_out(row):
+    return next((a.get("kind") for a in row["answered"] if a.get("outcome") == "answered"), None)
+
+
+def _ys(row):
+    return [s["pos"][1] for s in row["trace"]] or [row["trace_start_y"]]
+
+
+def _gap_blocked(api):
+    from ..world import Region
+    lo, hi = at(4, 1, -1), at(4, 3, 1)
+    region = Region(lo, hi)
+    return sum(1 for c in GAP if region.solid(c))
+
+
+START_Y = at(0, 0, 0)[1]
+BEHAVIOURS = {
+    # name: (cell moved off ARMED, what must be true of the recorded row and the world, why)
+    "block_gap": (dict(ground="corridor", kit="blocks", distance="across"),
+                  lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["hp_lost"] <= 4,
+                  "a corridor with one gap, blocks carried: the gap closed, the walker kept out"),
+    "dig_in": (dict(ground="roofed", kit="blocks"),
+               lambda r, api: _went_out(r, "reshape", "wall_in") and min(_ys(r)) <= START_Y - 1.5,
+               "a roof overhead, blocks and a pickaxe: dug into the floor out of reach"),
+    "pillar": (dict(ground="open", kit="blocks"),
+               lambda r, api: _went_out(r, "reshape") and max(_ys(r)) >= START_Y + 1.5,
+               "open ground, blocks: stood up out of a walker's reach"),
+    "shield_arrows": (dict(enemy="archer", kit="shield", distance="across"),
+                      lambda r, api: _went_out(r, "shield") and r["outcome"]["hp_lost"] <= 6,
+                      "an archer across open ground, a shield: raised against the arrows"),
+    "fight_and_block": (dict(kit="shield"),
+                        lambda r, api: _went_out(r, "fight") and _went_out(r, "shield") and r["outcome"]["left"] == 0,
+                        "a walker, sword and shield: struck and blocked in turn (new behaviour), the walker dead"),
+    "fight_without_shield": (dict(kit="nothing"),
+                             lambda r, api: _went_out(r, "fight") and not _went_out(r, "shield")
+                             and r["outcome"]["hp_lost"] > 0,
+                             "the same walker, no shield (control): fought, never blocked, and hurt for it"),
+    "wall_in": (dict(count="three", kit="blocks", blood="hurt"),
+                lambda r, api: _went_out(r, "wall_in") and r["outcome"]["hp"] > 0,
+                "three walkers, hurt, blocks: walled in"),
+    "surrounded_low": (dict(count="three", blood="hurt", kit="full"),
+                       lambda r, api: _first_out(r) in ("evade", "wall_in", "reshape") and r["outcome"]["hp"] > 0,
+                       "three walkers at 8 hp: the first answer is to get away or wall in, not to swing"),
+}
+
+
+def _behaviour_check(name, rule):
+    def check(api, _inv):
+        row = _last(name)
+        return row is not None and bool(rule(row, api))
+    return check
+
+
+def _record_with_start(record):
+    def rec(cell):
+        from ..world import Snapshot
+        y = Snapshot().state["y"]
+        return dict(record(cell), trace_start_y=y)
+    return rec
+
+
+for _bname, (_moved, _rule, _why) in BEHAVIOURS.items():
+    _bcell = dict(next(iter(_cells(dict(ARMED, **_moved)))), seed=0)
+    SCENARIOS[f"combat__{_bname}"] = {
+        "doc": f"Fight behaviour: {_why}",
+        "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "stochastic": True,
+        "variant": sorted(_bcell.items()),
+        "setup": list(_FIGHT_SETUP),
+        "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
+        "run": _sweep(f"combat__{_bname}", lambda c=_bcell: iter([c]), _build,
+                      _record_with_start(_fought(_kinds_of, seconds=BEHAVIOUR_SECONDS)), BEHAVIOUR_ROWS, settle=0.6),
+        "check": _behaviour_check(f"combat__{_bname}", _rule),
+        "tick_rate": 60, "budget": 45,
+    }
