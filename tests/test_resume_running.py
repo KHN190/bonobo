@@ -37,7 +37,7 @@ RESUME = [
     ("the same tasks in another order: different work", WALK_THEN_DIG,
      RUNNING, (api.chain_signature(DIG_THEN_WALK), 273), None),
     ("the same two-task chain: attach", DIG_THEN_WALK, RUNNING, (api.chain_signature(DIG_THEN_WALK), 273), 273),
-    ("nothing running", WALK, None, POSTED_WALK, None),
+    ("must fail: nothing running", WALK, None, POSTED_WALK, None),
     ("our walk already finished", WALK, dict(RUNNING, status="succeeded"), POSTED_WALK, None),
     ("our walk failed", WALK, dict(RUNNING, status="failed"), POSTED_WALK, None),
     ("somebody else's goto (another id) is not ours", WALK, dict(RUNNING, id=999), POSTED_WALK, None),

@@ -118,7 +118,7 @@ class ABlastExactly(unittest.TestCase):
     ROWS = [("a creeper beside us", [("creeper", 1)], 0.0, 28.666666666666668),
             ("a creeper beside us, half armoured off", [("creeper", 1)], 0.5, 14.333333333333334),
             ("two creepers beside us", [("creeper", 1), ("creeper", 2)], 0.0, 57.333333333333336),
-            ("a creeper 40 blocks out: cannot arrive before the fuse", [("creeper", 40)], 0.0, 0.0),
+            ("must fail: a creeper 40 blocks out: cannot arrive before the fuse", [("creeper", 40)], 0.0, 0.0),
             ("a zombie beside us: a rate, not a blast", [("zombie", 1)], 0.0, 0.0),
             ("nothing", [], 0.0, 0.0)]
 

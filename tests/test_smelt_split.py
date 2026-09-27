@@ -55,7 +55,7 @@ class JobsLoadedTogether(unittest.TestCase):
             ("the first collected: two left", [0], 2),
             ("two collected: one left", [0, 2], 1),
             ("an unknown id: nothing removed", [None], 3),
-            ("all collected: none left", [0, 1, 2], 0)]
+            ("must fail: all collected: none left", [0, 1, 2], 0)]
 
     def test_finish_over_the_table(self):
         import os

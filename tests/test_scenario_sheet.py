@@ -108,7 +108,7 @@ class EverySkillIsProven(unittest.TestCase):
         orphans = (VERIFY_GAPS | SCENARIO_GAPS) - set(skillkit.REGISTRY)
         table = [("skills without a real verify", no_verify, VERIFY_GAPS),
                  ("skills no bench row proves", unproven, SCENARIO_GAPS),
-                 ("row entries that are neither a skill nor a provided effect", unknown, set()),
+                 ("must fail: row entries that are neither a skill nor a provided effect", unknown, set()),
                  ("allowlisted names that no longer exist", orphans, set())]
         for name, actual, allowed in table:
             with self.subTest(name):
@@ -375,7 +375,7 @@ class Changed(unittest.TestCase):
 
     # (situation, git diff -U0 text) → changed lines per file → skills whose spans they touch
     DIFFS = [("one hunk in chop, one elsewhere in the file", DIFF, {"bonobo/wood.py": [40, 41, 42, 201]}, {"chop"}),
-             ("nothing changed", "", {}, set()),
+             ("must fail: nothing changed", "", {}, set()),
              ("a deleted file only", "+++ /dev/null\n@@ -1,3 +0,0 @@\n", {}, set()),
              ("two skills in two files", "+++ b/bonobo/wood.py\n@@ -300 +300 @@\n+++ b/bonobo/skills.py\n"
               "@@ -450,2 +450,2 @@\n", {"bonobo/wood.py": [300], "bonobo/skills.py": [450, 451]}, {"far", "mine"}),
@@ -401,7 +401,7 @@ class Changed(unittest.TestCase):
     # a failure note → does it say nothing about why? (the runner marks such rows "NO REASON")
     NOTES = [("", True), ("McError", True), ("McError: failed", True),
              ("McError: chop: finished without reaching its goal", True),
-             ("McError: chop: finished without reaching its goal (outcome not reached in 40s, budget 45s)", False),
+             ("must fail: McError: chop: finished without reaching its goal (outcome not reached in 40s, budget 45s)", False),
              ("NotAvailable: no trees found nearby, even after exploring", False),
              ("TaskStuck: chop: no progress toward its goal for 45s", False),
              ("died (McError: failed)", False), ("NavFailed: could not get to (1, 2, 3)", False)]
@@ -502,7 +502,7 @@ class SliceAndSelection(unittest.TestCase):
               ("one still running", ["done", "running"], False),
               ("done, failed, cancelled: over (the row's check judges which)", ["done", "failed", "cancelled"], True),
               ("still pending", ["pending"], False),
-              ("no queue: never over by this rule", [], False)]
+              ("must fail: no queue: never over by this rule", [], False)]
 
     def test_queue_finished(self):
         for name, states, want in self.QUEUES:
@@ -515,7 +515,7 @@ class SliceAndSelection(unittest.TestCase):
              ("combat named", "combat", True, ["c"]),
              ("all named: every tier but acceptance", "all", True, ["b", "c", "m"]),
              ("no tier named: every tier but acceptance", "core", False, ["b", "c", "m"]),
-             ("a tier with no rows: none", "exception", True, [])]
+             ("must fail: a tier with no rows: none", "exception", True, [])]
 
     def test_tier_rows(self):
         for name, tier, named, want in self.TIERS:
@@ -720,7 +720,7 @@ class FurnaceSlots(unittest.TestCase):
 
     def test_table(self):
         head = "Furnace at 10000, 200, 10000 has the following block data: "
-        rows = [("empty", [head + "[]"], {}),
+        rows = [("must fail: empty", [head + "[]"], {}),
                 ("raw beef in the input", [head + '[{Slot: 0b, id: "minecraft:beef", count: 2}]'],
                  {0: ("minecraft:beef", 2)}),
                 ("cooked beef in the output", [head + '[{count: 2, Slot: 2b, id: "minecraft:cooked_beef"}]'],
@@ -760,7 +760,7 @@ class EatTarget(unittest.TestCase):
         rows = [("food 4, bread: 16 points of gap, 4 bites", 4, {"minecraft:bread": 8}, 4 * per),
                 ("food 10, bread: 2 bites", 10, {"minecraft:bread": 8}, 2 * per),
                 ("food 16, cooked beef: one bite", 16, {"minecraft:cooked_beef": 4}, 1 * per),
-                ("full: nothing to eat, no target", 20, {"minecraft:bread": 8}, None),
+                ("must fail: full: nothing to eat, no target", 20, {"minecraft:bread": 8}, None),
                 ("nothing carried: no target", 6, {}, None)]
         for name, food, carried, want in rows:
             with self.subTest(name):
@@ -784,7 +784,7 @@ class Chance(unittest.TestCase):
                 self.assertEqual(runner.stochastic(row), want)
 
     def test_needs_clock(self):
-        rows = [("nothing about time", {"setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
+        rows = [("must fail: nothing about time", {"setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
                 ("a set time", {"setup": ["time set 18000"], "doc": ""}, True),
                 ("a sleep skill", {"setup": [], "doc": "", "skills": ["sleep"]}, True),
                 ("a night in the doc", {"setup": [], "doc": "survive the night"}, True)]
@@ -808,7 +808,7 @@ class InterruptByProgress(unittest.TestCase):
                 ("an earlier product wins over the effect", {"effect": ("minecraft:wooden_pickaxe", 1),
                                                              "progress": ("planks", 1)}, ("bag", "planks")),
                 ("no product: the walk to the target", {"target": (14, 200, 0)}, ("walk", (14, 200, 0))),
-                ("neither: nothing to trigger on", {}, None)]
+                ("must fail: neither: nothing to trigger on", {}, None)]
         for name, base, want in rows:
             with self.subTest(name):
                 self.assertEqual(sc._progress_of(base), want)
@@ -830,7 +830,7 @@ class Watchdog(unittest.TestCase):
         rows = [("SIGINT ignored (a background job)", signal.SIG_IGN, 0.2, 1.0, True),
                 ("Python's own handler", signal.default_int_handler, 0.2, 1.0, True),
                 ("SIGINT at its default", signal.SIG_DFL, 0.2, 1.0, True),
-                ("the run ends first: nothing fires", signal.default_int_handler, 1.0, 0.2, False)]
+                ("must fail: the run ends first: nothing fires", signal.default_int_handler, 1.0, 0.2, False)]
         for name, handler, limit, work, want in rows:
             with self.subTest(name):
                 old = signal.signal(signal.SIGINT, handler)
@@ -876,7 +876,7 @@ class Difficulty(unittest.TestCase):
     def test_rows(self):
         rows = [("any row: normal", {}, ["The difficulty has been set to Normal"], "normal", True),
                 ("already normal", {}, ["The difficulty did not change; it is already set to normal"], "normal", True),
-                ("the game stayed peaceful: a setup failure", {},
+                ("must fail: the game stayed peaceful: a setup failure", {},
                  ["The difficulty did not change; it is already set to peaceful"], "normal", False),
                 ("a row that asks for peaceful", {"difficulty": "peaceful"},
                  ["The difficulty has been set to Peaceful"], "peaceful", True),
@@ -901,7 +901,7 @@ class Pending(unittest.TestCase):
                  "only_a_setup_failure": {"k1": [self.run_(False, 1, "setup")]},
                  "passed_after_failing": {"k1": [self.run_(False, 1), self.run_(True, 2, "pass")]}}
         codes = {name: "k1" for name in table} | {"never_run": "k1"}
-        rows = [("passed under its key: not pending", "passed", False),
+        rows = [("must fail: passed under its key: not pending", "passed", False),
                 ("last run failed: pending", "failed", True),
                 ("timed out: pending", "timed_out", True),
                 ("its key changed (setup, code or mod): pending", "setup_changed", True),
@@ -993,7 +993,7 @@ class EatingOnTheWay(unittest.TestCase):
     ROWS = [("fed while walking on", walk_frames(), True),
             ("stopped to chew: x flat through the bite", walk_frames(stop=(1.4, 3.0)), False),
             ("a separate eat task ran", walk_frames(task={"type": "eat"}), False),
-            ("never fed", walk_frames(rise_at=None), False),
+            ("must fail: never fed", walk_frames(rise_at=None), False),
             ("fed while walking the wrong way", walk_frames(back=True), False),
             ("fed at the very first frame: no bite window", walk_frames(rise_at=0.0), False),
             ("no frames", [], False)]
@@ -1059,7 +1059,7 @@ class SetupReplies(unittest.TestCase):
         rows = [("one chat line", "[12:00:01] [Render thread/INFO]: [CHAT] Set the time to 1000\n", ["Set the time to 1000"]),
                 ("chat among other log lines", "[x] loading chunk\n[y]: [CHAT] Cleared the inventory\n[z] tick\n",
                  ["Cleared the inventory"]),
-                ("none", "[x] nothing said\n", []),
+                ("must fail: none", "[x] nothing said\n", []),
                 ("several, in order", "a [CHAT] one\nb [CHAT] two\n", ["one", "two"])]
         for name, text, want in rows:
             with self.subTest(name):
@@ -1072,7 +1072,7 @@ class SetupReplies(unittest.TestCase):
         rows = [("normal asked, normal said", batch, "normal", True),
                 ("peaceful asked, normal said", batch, "peaceful", False),
                 ("already that difficulty", ["The difficulty did not change; it is already set to normal"], "normal", True),
-                ("no difficulty line at all", batch[:2], "normal", False)]
+                ("must fail: no difficulty line at all", batch[:2], "normal", False)]
         for name, lines, want, ok in rows:
             with self.subTest(name):
                 self.assertIs(runner.difficulty_set(lines, want), ok)
@@ -1099,7 +1099,7 @@ class TwoSites(unittest.TestCase):
         from bonobo.bench import core
         fed = "effect give @p minecraft:saturation 1 10 true"
         rows = [("a plain row: fed after its setup", {"setup": ["give @p stone"]}, True),
-                ("hunger in its setup: not refilled", {"setup": ["effect give @p minecraft:hunger 4 255 true"]}, False),
+                ("must fail: hunger in its setup: not refilled", {"setup": ["effect give @p minecraft:hunger 4 255 true"]}, False),
                 ("tagged hungry (its before hook drains): not refilled",
                  {"setup": [], "tags": {"state": "hungry"}}, False),
                 ("another state tag: fed", {"setup": [], "tags": {"state": "night"}}, True),
@@ -1274,7 +1274,7 @@ class Migrate(unittest.TestCase):
                  {"r": "OTHER"}, []),
                 ("another jar then: stays", {"r": {"OLD-jar-0.1.46": passed}}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"},
                  []),
-                ("no old record: nothing to move", {}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"}, []),
+                ("must fail: no old record: nothing to move", {}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"}, []),
                 ("already has a result under today's key: untouched",
                  {"r": {"OLD-jar-0.1.47": passed, "NEW-jar-0.1.47": passed}}, {"r": "NEW-jar-0.1.47"}, {"r": "NEW"},
                  [])]

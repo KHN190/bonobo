@@ -209,7 +209,7 @@ DRAGON_ANSWERS = [
      A("evade", (10.0, 64.0, 0.0))),
     ("the pit wanted: the dig skill, whole", {"intent": "dig_tunnel", "deadline_s": 20.0}, view(),
      A("prep", "dig_tunnel")),
-    ("the dragon dead: the fight stops", {"intent": "fire_window"}, view(dead=True), None)]
+    ("must fail: the dragon dead: the fight stops", {"intent": "fire_window"}, view(dead=True), None)]
 
 
 class DragonAnswer(unittest.TestCase):
@@ -248,7 +248,7 @@ class Carry(unittest.TestCase):
              ["post shoot", "watch", "post shoot"]),
             ("an attack ended, the skeleton alive, again: attacked again",
              [A("fight", 7), A("fight", 7), A("fight", 7)], ["failed"], True, ["post fight", "watch", "post fight"]),
-            ("nothing left to do: the loop ends at once", [None], [], False, [])]
+            ("must fail: nothing left to do: the loop ends at once", [None], [], False, [])]
 
     def test_passes(self):
         from unittest import mock

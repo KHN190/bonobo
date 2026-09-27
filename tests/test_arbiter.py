@@ -24,7 +24,7 @@ ARBITRATE = [
     ("the order of submission does not matter", [("reflex", "r", 0.0, None), ("plan", "p", 5.0, None)], 5.0, "r"),
     ("within a layer the newest reading", [("tactic", "old", 100.0, None), ("tactic", "new", 101.0, None)], 101.0,
      "new"),
-    ("an expired intent is dropped, not run late", [("plan", "stale", 100.0, 1.0)], 102.0, None),
+    ("must fail: an expired intent is dropped, not run late", [("plan", "stale", 100.0, 1.0)], 102.0, None),
     ("an expired faster intent loses to a live slower one",
      [("reflex", "stale", 100.0, 1.0), ("plan", "live", 101.5, None)], 102.0, "live"),
     ("nothing to arbitrate", [], 0.0, None),
@@ -129,7 +129,7 @@ class Ownership(unittest.TestCase):
     # (a Motion) → does it watch the handover file: only the one real body; a test's Motion is its own world
     WATCH = [("the shared body", lambda: arbiter.BODY, True), ("a fresh Motion", arbiter.Motion, False),
              ("a Motion asked to watch", lambda: arbiter.Motion(watch_handover=True), True),
-             ("a Motion told not to", lambda: arbiter.Motion(watch_handover=False), False)]
+             ("must fail: a Motion told not to", lambda: arbiter.Motion(watch_handover=False), False)]
 
     def test_who_watches_the_handover(self):
         for name, make, want in self.WATCH:
@@ -160,7 +160,7 @@ class APreemptionIsNotAnIntruder(unittest.TestCase):
     # (when our last preemption happened, the mod's message) → what the waiting thread raises
     ROWS = [("replaced by an outsider", 0.0, api.REPLACED, api.BodyContested),
             ("replaced by our own preemption since the task began", 105.0, api.REPLACED, api.CommitmentExpired),
-            ("an older preemption is not this one", 90.0, api.REPLACED, api.BodyContested),
+            ("must fail: an older preemption is not this one", 90.0, api.REPLACED, api.BodyContested),
             ("the player always wins", 105.0, "released by player", api.PlayerTookControl)]
 
     def test_the_release_over_the_table(self):
@@ -275,7 +275,7 @@ class OnlyUsefulProposals(unittest.TestCase):
             ("idle stocking is not offered next to a task", [P("idle"), P("queue")], {}, "queue"),
             ("only waiting left: kept", [P("wait for day"), P("food stock")], {"cooling": {"food stock"}},
              "wait for day"),
-            ("everything dropped: nothing", [P("queue")], {"met": {"queue"}}, None),
+            ("must fail: everything dropped: nothing", [P("queue")], {"met": {"queue"}}, None),
             ("the gate does not reorder layers: the faster still wins", [P("queue"), P("eat", layer="maintain")], {},
              "eat")]
 
@@ -329,7 +329,7 @@ class Crowded(unittest.TestCase):
              False, ["queue", "food stock"], "empty the bag"),
             ("nothing fires, plans only: the plan's order", {}, False, False, ["idle", "food stock", "queue"],
              "food stock"),
-            ("calm and nothing proposed: nothing drives", {}, False, False, [], None)]
+            ("must fail: calm and nothing proposed: nothing drives", {}, False, False, [], None)]
 
     def test_crowded_rounds(self):
         for name, view, fight, hazard, plan, want in self.ROWS:
@@ -346,7 +346,7 @@ class Flicker(unittest.TestCase):
         rows = [("treading water", True, False, 300, True), ("standing in shore water", True, True, 300, False),
                 ("on the bottom of a flooded shaft, head under", True, True, 120, True),
                 ("edge: one tick of breath gone, standing in water", True, True, 299, True),
-                ("on land, out of breath from before", False, True, 50, False),
+                ("must fail: on land, out of breath from before", False, True, 50, False),
                 ("on land", False, True, 300, False), ("falling through air", False, False, 300, False)]
         for name, wet, ground, air, want in rows:
             with self.subTest(name):
@@ -357,7 +357,7 @@ class Flicker(unittest.TestCase):
     def test_hurt_eats_to_regenerate(self):
         # (hp, food) → the eat row fires (something edible, cooked)
         rows = [("hurt, food 15: eat (no regen below 18)", 10, 15, True),
-                ("whole, food 15: not hungry enough", 20, 15, False),
+                ("must fail: whole, food 15: not hungry enough", 20, 15, False),
                 ("hurt, food 19: eat to the full bar (fast regen)", 10, 19, True),
                 ("hurt, food full: nothing to eat for", 10, 20, False),
                 ("hungry and whole: the hunger row", 20, reflexes.EAT_BELOW - 1, True)]
@@ -368,7 +368,7 @@ class Flicker(unittest.TestCase):
     def test_hunger_boundary(self):
         # (food, something edible) → eat fires
         rows = [("one below the line", reflexes.EAT_BELOW - 1, True, True), ("at the line", reflexes.EAT_BELOW, True, False),
-                ("starving, nothing to eat", 0, False, False), ("full", 20, True, False)]
+                ("must fail: starving, nothing to eat", 0, False, False), ("full", 20, True, False)]
         for name, food, edible, want in rows:
             with self.subTest(name):
                 meal = False if edible else None
@@ -463,7 +463,7 @@ class NoStarvation(unittest.TestCase):
     # (situation, view, plan kinds, how the fired reflex's run ends: a cause, or None for fine with no progress)
     ROWS = [("a bag that cannot be emptied: fails", BAG_FULL, ["queue"], "unavailable"),
             ("a bag that 'empties' and stays full", BAG_FULL, ["queue"], None),
-            ("stuck and never freed", {"stuck": True}, ["queue"], None),
+            ("must fail: stuck and never freed", {"stuck": True}, ["queue"], None),
             ("a blocked path that cannot be bridged", {"blocked": True}, ["idle"], "nav"),
             ("hungry and eating changes nothing, bag full below it", {**HUNGRY, **BAG_FULL}, ["queue"], None)]
 
@@ -486,7 +486,7 @@ class WaitsCounted(unittest.TestCase):
 
     def test_over_the_table(self):
         import collections
-        rows = [("an idle stocking pick: not a wait", ["idle"], 0),
+        rows = [("must fail: an idle stocking pick: not a wait", ["idle"], 0),
                 ("a wait-for-day pick: a wait", ["wait for day"], 1),
                 ("a plain wait: a wait", ["wait"], 1),
                 ("the queue five times and idle once: none", ["queue"] * 5 + ["idle"], 0),

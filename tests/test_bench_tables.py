@@ -219,7 +219,7 @@ LOG2 = bag(("oak_log", 2))
 # (why, word, state, bag, sheet globals {name: dict}, want). Each word has a yes row and a no row.
 PRED_ROWS = [
     ("count yes", ("count", "log", ">=", 2), None, LOG2, {}, True),
-    ("count no", ("count", "log", ">=", 3), None, LOG2, {}, False),
+    ("must fail: count no", ("count", "log", ">=", 3), None, LOG2, {}, False),
     ("state compared yes", ("state", "dimension", "==", "minecraft:overworld"), None, None, {}, True),
     ("state compared no", ("state", "health", ">=", 19), None, None, {}, False),
     ("state truth yes", ("state", "onGround"), None, None, {}, True),
@@ -288,7 +288,7 @@ PRED_ROWS = [
 WORLD_ROWS = [
     ("blocks yes", ("blocks", A0, ("@", 2, 0, 0), "torch", 2), {(10000, 200, 10000): "torch", (10001, 200, 10000): "torch"},
      [], True),
-    ("blocks no: too few", ("blocks", A0, ("@", 2, 0, 0), "torch", 3), {(10000, 200, 10000): "torch"}, [], False),
+    ("must fail: blocks no: too few", ("blocks", A0, ("@", 2, 0, 0), "torch", 3), {(10000, 200, 10000): "torch"}, [], False),
     ("no block suffix yes", ("no_block_suffix", A0, ("@", 2, 0, 0), "_bed"), {(10000, 200, 10000): "stone"}, [], True),
     ("no block suffix no", ("no_block_suffix", A0, ("@", 2, 0, 0), "_bed"), {(10000, 200, 10000): "red_bed"}, [],
      False),
@@ -366,7 +366,7 @@ class Predicates(unittest.TestCase):
     def test_now_reads_the_live_bag(self):
         from bonobo import api
         rows = [("yes", ("now", ("!count", "log", ">=", 2)), True),
-                ("no", ("now", ("!count", "log", ">=", 3)), False),
+                ("must fail: no", ("now", ("!count", "log", ">=", 3)), False),
                 ("api only yes", ("now_api", ("!_at", A0, 2)), True),
                 ("api only no", ("now_api", ("!_at", ("@", 8, 0, 0), 2)), False)]
         fake = Api(inv=LOG2)

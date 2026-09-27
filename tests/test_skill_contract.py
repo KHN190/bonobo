@@ -88,7 +88,7 @@ SETTLE = [
     ("nothing ever arrives: the last reading at timeout", [3], GAINED, {}, 3),
     ("the bag was full: a gain that never shows", [3, 3, 3, 3], GAINED, {}, 3),
     ("lost: stored or loaded, and it held", [5, 5, 2], lambda v: v < 5, {}, 2),
-    ("dead for a frame while the chunk loads", [True, False], bool, {}, False),
+    ("must fail: dead for a frame while the chunk loads", [True, False], bool, {}, False),
     ("respawn reports dead for two frames, then alive", [True, True, False], bool, {}, False),
     ("dead for as long as the hold: confirmed", [True, True, True, False], bool, {}, True),
     ("dead and staying dead", [True], bool, {}, True),
@@ -151,7 +151,7 @@ class Settle(_Clean):
 # (situation, [(seconds, reading)], confirmed?) — a death (or any flag) is judged by readings that agree for a moment.
 T = lambda dead: dict(state(), dead=dead)         # noqa: E731
 CONFIRMED = [
-    ("no readings", [], False),
+    ("must fail: no readings", [], False),
     ("one reading is never enough", [(0.0, True)], False),
     ("three frames over half a second", [(0.0, True), (0.25, True), (0.5, True)], True),
     ("a gap in the middle", [(0.0, True), (0.25, False), (0.5, True)], False),
@@ -176,7 +176,7 @@ W = nav.Walked
 ARRIVE = [
     ("there on the first leg", [True], {}, True),
     ("three legs, each nearer, then there", [W(30), W(12), True], {}, True),
-    ("no nearer at all", [False], {}, api.NavFailed),
+    ("must fail: no nearer at all", [False], {}, api.NavFailed),
     ("nearer, then stuck", [W(8), False], {}, api.NavFailed),
     ("start cell not standable ('1 positions explored' answers False)", [False], {}, api.NavFailed),
     ("gains every leg but never arrives", [W(1)] * nav.ARRIVE_CALLS, {}, api.NavFailed),
@@ -194,7 +194,7 @@ THERE = [("on the platform, the target's cell", (3.5, 201.0, 3.5), (3, 201, 3), 
          ("one cell off at range 1.5", (4.5, 64.0, 3.5), (3, 64, 3), 1.5, True),
          ("face to face with a block, at the far edge of the cell (skills.BESIDE)", (4.95, 64.0, 3.05), (3, 64, 3),
           skills.BESIDE, True),
-         ("two cells off at BESIDE: not beside", (5.5, 64.0, 3.5), (3, 64, 3), skills.BESIDE, False),
+         ("must fail: two cells off at BESIDE: not beside", (5.5, 64.0, 3.5), (3, 64, 3), skills.BESIDE, False),
          ("a point target (an entity's position), exactly there", (10.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, True),
          ("a point target 2 blocks away at range 1", (12.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, False)]
 GROUND = {"onGround": True, "inWater": False, "climbing": False}
@@ -218,7 +218,7 @@ BOXED = {(3 + dx, 64 + dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz 
 # (situation, task, protected cells) → the "avoid" the jar gets (None: the task goes as it was)
 AVOID = [("our wall on the straight line to the ore: it goes with the mine, the dig goes round it",
           {"type": "mine", "x": 3, "y": 64, "z": 0}, WALL, xyz((1, 64, 0), (1, 65, 0))),
-         ("nothing protected: an empty list, the dig goes straight", {"type": "mine", "x": 3, "y": 64, "z": 0},
+         ("must fail: nothing protected: an empty list, the dig goes straight", {"type": "mine", "x": 3, "y": 64, "z": 0},
           set(), []),
          ("the ore boxed in by our build: every cell listed, the jar's travel has no route and says so",
           {"type": "mine", "x": 3, "y": 64, "z": 0}, BOXED, xyz(*sorted(BOXED))),
@@ -382,7 +382,7 @@ class NothingQueued(unittest.TestCase):
                 ("nothing queued, a fight engaged", {"tasks": []}, False, True, "interrupt"),
                 ("nothing queued, nobody holds the body: the world declined", {"tasks": []}, False, False,
                  "unavailable"),
-                ("something queued: no answer needed", {"tasks": [{"id": 1}]}, True, True, None)]
+                ("must fail: something queued: no answer needed", {"tasks": [{"id": 1}]}, True, True, None)]
         for name, r, queued, engaged, want in rows:
             with self.subTest(name):
                 body = arbiter.Motion()
@@ -401,7 +401,7 @@ class AWalkCutShortIsNotAFailure(unittest.TestCase):
     "no way there" branch (skills.mine bans the vein) is for failures only."""
 
     def test_over_the_table(self):
-        rows = [("a fight engaged, the walk not its intent", True, api.FightHolds)]
+        rows = [("must fail: a fight engaged, the walk not its intent", True, api.FightHolds)]
         for name, engaged, want in rows:
             with self.subTest(name):
                 body = arbiter.Motion()
@@ -456,7 +456,7 @@ class WaitOutFight(unittest.TestCase):
 
     def test_over_the_table(self):
         from bonobo import fight_loop
-        rows = [("no fight: no wait", [None], 0.0),
+        rows = [("must fail: no fight: no wait", [None], 0.0),
                 ("a fight for two polls: two polls", ["zombie", "zombie", None], 2 * brain.FIGHT_POLL_S),
                 ("a fight that never ends: capped", ["zombie"] * 1000, brain.FIGHT_WAIT_MAX_S),
                 ("one poll", ["zombie", None], brain.FIGHT_POLL_S)]
@@ -476,7 +476,7 @@ class ChainStopsAtASegment(unittest.TestCase):
 
     def test_over_the_table(self):
         tasks = [{"type": "wait", "ticks": 1, "n": i} for i in range(13)]       # 3 segments of 6, 6, 1
-        rows = [("no interrupt: every segment", None, 3, None),
+        rows = [("must fail: no interrupt: every segment", None, 3, None),
                 ("an interrupt after the first segment: one posted, then Interrupted", 1, 1, api.Interrupted),
                 ("after the second: two posted", 2, 2, api.Interrupted),
                 ("raised in the last segment: all posted, the next round decides", 3, 3, None)]
@@ -509,7 +509,7 @@ class ASingleSendSaysWhy(unittest.TestCase):
 
     def test_over_the_table(self):
         ok = {"status": "succeeded", "type": "wait", "message": "", "seconds": 0}
-        rows = [("no reason: refused at the call", {}, TypeError),
+        rows = [("must fail: no reason: refused at the call", {}, TypeError),
                 ("an empty reason: refused", {"awaits": ""}, ValueError),
                 ("only spaces: refused", {"awaits": "   "}, ValueError),
                 ("a reason: sent", {"awaits": "the bed accepted"}, None),
@@ -616,7 +616,7 @@ MACHINE = lambda n: {"name": "m", "pending": [{"item": "minecraft:iron_ingot", "
 HIT = {"block": "minecraft:nether_bricks", "x": 10, "y": 64, "z": 0, "distance": 10.0}
 # (situation, skill, args, world before, world after, the body's result, a change between) → verified?
 PRODUCTS = [
-    ("strip mine: nothing dug, nowhere gone", "strip_mine_step", (None, 8), R(), R(), None, None, False),
+    ("must fail: strip mine: nothing dug, nowhere gone", "strip_mine_step", (None, 8), R(), R(), None, None, False),
     ("strip mine: went down a level", "strip_mine_step", (None, 8), R(), R(feet=(0, 29, 0)), None, None, True),
     ("strip mine: stone in the bag", "strip_mine_step", (None, 8), R(), R(inv=inventory(cobblestone=5)), None, None,
      True),
@@ -816,7 +816,7 @@ def _missing_pick(c):
 
 # (situation, contract keywords, what the body does, expected: result or exception type, body ran?, stats recorded?)
 RUNS = [
-    ("a precondition fails: nothing runs", dict(pre=[_missing_pick]), lambda: 5, skillcore.ToolMissing, False, False),
+    ("must fail: a precondition fails: nothing runs", dict(pre=[_missing_pick]), lambda: 5, skillcore.ToolMissing, False, False),
     ("already done: skipped, nothing runs", dict(done=lambda c: True), lambda: 5, None, False, False),
     ("done and verified: the result, timed", dict(verify=lambda c: c.result == 5, units=lambda c: 3, key=lambda c: "k"),
      lambda: 5, 5, True, [("k", 3)]),
@@ -908,7 +908,7 @@ class Runner(unittest.TestCase):
         ("the preferred one that can serve", [("p_a", "zz", 1, None), ("p_b", "zz", 0, (7,))], ("p_b", (7,))),
         ("preference first", [("p_a", "zz", 1, (1,)), ("p_b", "zz", 0, (2,))], ("p_a", (1,))),
         ("the specific effect before the generic", [("p_a", "zz", 5, (1,)), ("p_b", "zz:tok", 0, (2,))], ("p_b", (2,))),
-        ("nobody can serve here", [("p_a", "zz", 0, None)], None),
+        ("must fail: nobody can serve here", [("p_a", "zz", 0, None)], None),
     ]
 
     def test_provider(self):
@@ -1305,7 +1305,7 @@ class BlueprintBatch(unittest.TestCase):
                  lambda t, b: t.assertEqual(len(cells(b)), n)),
                 ("nothing started, no region read", dict(region=None), lambda t, b: t.assertEqual(b, [])),
                 ("nothing started, nowhere to build", dict(region=walled), lambda t, b: t.assertEqual(b, [])),
-                ("a blueprint nobody drew", dict(_bp="castle"), KeyError)]
+                ("must fail: a blueprint nobody drew", dict(_bp="castle"), KeyError)]
         for name, extra, want in rows:
             st = dict(body(world(), inv=carried), **{k: v for k, v in extra.items() if k != "_bp"})
             args = (extra.get("_bp", "nether_portal"), (0, 64, 4))
@@ -2091,7 +2091,7 @@ class PortalCast(unittest.TestCase):
             ("on a frame cell still to be cast", [(0, 64, 2)], [(0, 64, 2)]),
             ("outside the frame stays", [(1, 64, 1), (0, 63, 1)], []),
             ("mixed: only the in-frame ones", [(1, 64, 1), (0, 66, 2), (0, 68, 1)], [(0, 66, 2), (0, 68, 1)]),
-            ("none placed", [], []),
+            ("must fail: none placed", [], []),
         ]
         for name, placed, want in rows:
             with self.subTest(name):
@@ -2101,7 +2101,7 @@ class PortalCast(unittest.TestCase):
         from bonobo import fluids
         from bonobo.api import NotAvailable
         rows = [
-            ("already carried: nothing to do", {"minecraft:lava_bucket": 1}, None),
+            ("must fail: already carried: nothing to do", {"minecraft:lava_bucket": 1}, None),
             ("no bucket: fails with the reason", {}, "no bucket for lava"),
             ("bucket, no lava in reach: fails with the reason", {"minecraft:bucket": 1}, "no lava source within reach"),
             ("bucket, lava only elsewhere: same", {"minecraft:bucket": 1, "minecraft:water_bucket": 1},
@@ -2127,7 +2127,7 @@ class PureHelpers(unittest.TestCase):
         R = nav.AVOID_RADIUS
         rows = [("near the walk's end: kept", {(5, 64, 0)}, [(0, 64, 0)], [{"x": 5, "y": 64, "z": 0}]),
                 ("exactly at the radius: kept", {(R, 64, 0)}, [(0, 64, 0)], [{"x": R, "y": 64, "z": 0}]),
-                ("one past the radius: dropped", {(R + 1, 64, 0)}, [(0, 64, 0)], []),
+                ("must fail: one past the radius: dropped", {(R + 1, 64, 0)}, [(0, 64, 0)], []),
                 ("near either end counts", {(200, 64, 0)}, [(0, 64, 0), (199, 64, 0)], [{"x": 200, "y": 64, "z": 0}]),
                 ("nothing protected", set(), [(0, 64, 0)], [])]
         for name, protected, near, want in rows:
@@ -2153,7 +2153,7 @@ class PureHelpers(unittest.TestCase):
         # (situation, body, what is at the eyes' block) → underwater?
         rows = [("swimming, water at the eyes", {"inWater": True, "y": 64.0}, "water", True),
                 ("in water, head out (air at the eyes)", {"inWater": True, "y": 64.0}, "air", False),
-                ("not in water at all, whatever the eyes' block", {"inWater": False, "y": 64.0}, "water", False),
+                ("must fail: not in water at all, whatever the eyes' block", {"inWater": False, "y": 64.0}, "water", False),
                 ("eyes one block up from a half-block body", {"inWater": True, "y": 64.5}, "water", True)]
         for name, body, at_eyes, want in rows:
             with self.subTest(name):
@@ -2167,7 +2167,7 @@ class PureHelpers(unittest.TestCase):
         from bonobo import knowledge
         food = ("food", knowledge.KIT_FOOD)
         rows = [("empty bag: all three", {}, [food, ("stone", 32), ("minecraft:golden_helmet", 1)]),
-                ("complete kit: nothing", {"cooked_beef": knowledge.KIT_FOOD, "cobblestone": 32, "golden_helmet": 1}, []),
+                ("must fail: complete kit: nothing", {"cooked_beef": knowledge.KIT_FOOD, "cobblestone": 32, "golden_helmet": 1}, []),
                 ("one meal short: food only", {"cooked_beef": knowledge.KIT_FOOD - 1, "cobblestone": 32,
                                                 "golden_helmet": 1}, [food]),
                 ("31 blocks: one short", {"cooked_beef": knowledge.KIT_FOOD, "cobblestone": 31, "golden_helmet": 1},
@@ -2190,7 +2190,7 @@ class PureHelpers(unittest.TestCase):
 
     def test_interrupt_due(self):
         # (situation, pending interrupt, mode, a preemption at, soft?, work began at) → stop?
-        rows = [("nothing pending", None, "survival", 5.0, False, 1.0, False),
+        rows = [("must fail: nothing pending", None, "survival", 5.0, False, 1.0, False),
                 ("pending, ordinary mode: stop", "hostiles", "normal", 0.0, False, 1.0, True),
                 ("soft skills read it themselves", "hostiles", "normal", 0.0, True, 1.0, False),
                 ("a rescue ignores perception's messages", "hostiles", "survival", 0.0, False, 1.0, False),
@@ -2247,7 +2247,7 @@ class AttemptPolicy(unittest.TestCase):
              ["/stop"], ([("chop", "error")], [f"error@{None}"], [], {}), "no logs within 48 blocks"),
             ("nothing here now: counted as unavailable", api.NotAvailable("no trees"), "failed", ["/stop"],
              ([("chop", "unavailable")], [f"unavailable@{None}"], [], {}), "no trees"),
-            ("a crash of ours: the name is held, not counted", ValueError("bad index"), "failed", [],
+            ("must fail: a crash of ours: the name is held, not counted", ValueError("bad index"), "failed", [],
              ([], [], ["chop"], {}), None),
             ("success", None, "ok", [], clean, None),
         ]

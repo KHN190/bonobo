@@ -25,7 +25,7 @@ TRIMS = [
     ("over the cap: the newest that fit", 300, 10_000, list(range(300 - 10_000 // LINE, 300))),
     ("under the cap: all of it", 5, 10_000, list(range(5))),
     ("exactly one round fits", 300, LINE, [299]),
-    ("not even one round fits", 300, LINE - 1, []),
+    ("must fail: not even one round fits", 300, LINE - 1, []),
     ("an empty tape stays empty", 0, 10_000, []),
 ]
 

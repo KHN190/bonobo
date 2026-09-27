@@ -143,7 +143,7 @@ class NearestSoft(unittest.TestCase):
     # (situation, region, feet) → (cell, steps) or None
     ROWS = [("soft right under the feet: dig here", soft_ground(patch=(-1, 1)), (0, 64, 0), ((0, 64, 0), 0)),
             ("dirt 8 blocks along the walkway: walk there", soft_ground(patch=(8, 9)), (0, 64, 0), ((8, 64, 0), 8)),
-            ("only stone: none", soft_ground(), (0, 64, 0), None),
+            ("must fail: only stone: none", soft_ground(), (0, 64, 0), None),
             ("dirt across a drop to nothing: not on this ground", soft_ground(patch=(8, 9), gap=True), (0, 64, 0),
              None),
             ("dirt past the radius: none", soft_ground(patch=(8, 9)), (-10, 64, 0), None)]
@@ -161,7 +161,7 @@ class Fluids(unittest.TestCase):
         rows = [  # (why, region, fluid, expected)
             ("still water, level '0'", region({p: "water"}, {p: {"level": "0"}}), "water", True),
             ("still water, level int 0", region({p: "water"}, {p: {"level": 0}}), "water", True),
-            ("flowing water, level 3: not a source", region({p: "water"}, {p: {"level": "3"}}), "water", False),
+            ("must fail: flowing water, level 3: not a source", region({p: "water"}, {p: {"level": "3"}}), "water", False),
             ("no props read: every fluid cell counts", region({p: "water"}), "water", True),
             ("region without prop(): fluid cell counts", FakeRegion((-1,) * 3, (1,) * 3, {p: "water"}), "water", True),
             ("lava asked as water: wrong fluid", region({p: "lava"}, {p: {"level": "0"}}), "water", False),
@@ -189,7 +189,7 @@ class Fluids(unittest.TestCase):
     def test_lava_within(self):
         p = (0, 0, 0)
         rows = [  # (why, lava cell, r, expected)
-            ("no lava anywhere", None, 1, False),
+            ("must fail: no lava anywhere", None, 1, False),
             ("lava beside the feet", (1, 0, 0), 1, True),
             ("lava in the floor layer", (0, -1, 0), 1, True),
             ("lava at head+1 (dy 2)", (0, 2, 0), 1, True),
@@ -248,7 +248,7 @@ class Paths(unittest.TestCase):
             ("explicit instance with ~", "~/a", None, "/h", "/h/a/saves"),
             ("None falls back to MC_INSTANCE", None, "/e", "/h", "/e/saves"),
             ("explicit instance wins over MC_INSTANCE", "/a", "/e", "/h", "/a/saves"),
-            ("nothing set: no saves dir", None, None, "/h", None),
+            ("must fail: nothing set: no saves dir", None, None, "/h", None),
             ("empty string and nothing set: no saves dir", "", None, "/h", None),
         ]
         for why, inst, mc, home, want in rows:
@@ -271,7 +271,7 @@ class Paths(unittest.TestCase):
         rows = [  # (why, MC_INSTANCE, HOME, expected)
             ("set", "/i", "/h", "/i"),
             ("set with ~", "~/i", "/h", "/h/i"),
-            ("empty", "", "/h", ""),
+            ("must fail: empty", "", "/h", ""),
             ("unset: no default guessed", None, "/h", ""),
         ]
         for why, mc, home, want in rows:
@@ -283,7 +283,7 @@ class Paths(unittest.TestCase):
             ("unset: the default port", None, "http://127.0.0.1:27599"),
             ("set", "http://10.0.0.2:1234", "http://10.0.0.2:1234"),
             ("set to the default", "http://127.0.0.1:27599", "http://127.0.0.1:27599"),
-            ("empty is taken as given, not defaulted", "", ""),
+            ("must fail: empty is taken as given, not defaulted", "", ""),
         ]
         for why, api, want in rows:
             with self.subTest(why), env(MC_API=api):
@@ -314,7 +314,7 @@ class Kernel(unittest.TestCase):
             ("the default is exempt from the veto", _Model([a, c], refuse={"a", "c"}, default=c), {},
              ["c"], [("a", "no a")]),
             ("everything refused", _Model([a, b], refuse={"a", "b"}), {}, [], [("a", "no a"), ("b", "no b")]),
-            ("no actions", _Model([]), {}, [], []),
+            ("must fail: no actions", _Model([]), {}, [], []),
             ("actions from a callable of the state", _Model(lambda s: [a, b][:s["n"]]), {"n": 1}, ["a"], []),
         ]
         for why, model, st, allowed, rejected in rows:
@@ -383,7 +383,7 @@ class Nav(unittest.TestCase):
             ("no hazards (empty)", [], pos),
             ("far static hazard, two-element form", [((20.0, 64.0, 0.0), 1.0)], pos),
             ("far static hazard, three-element form", [((0.0, 64.0, 20.0), 2.0, (0.0, 0.0, 0.0))], pos),
-            ("engulfed by a huge hazard: nowhere clear", [(pos, 1000.0)], None),
+            ("must fail: engulfed by a huge hazard: nowhere clear", [(pos, 1000.0)], None),
         ]
         for why, hz, want in rows:
             with self.subTest(why):
@@ -399,7 +399,7 @@ class Nav(unittest.TestCase):
             ("a sky platform x -3..3: to its edge, not off it", floor(range(-3, 4), 199), (3, 200, 0)),
             ("the platform, a pool below its edge: over the edge into the water",
              {**floor(range(-3, 4), 199), **floor(range(4, 18), 190, "water")}, (16, 191, 0)),
-            ("a one-block pillar: nowhere to go (None: fight or wall in)", floor(range(0, 2), 199), None),
+            ("must fail: a one-block pillar: nowhere to go (None: fight or wall in)", floor(range(0, 2), 199), None),
             ("flat ground: the whole way", floor(range(-18, 19), 199), (16, 200, 0)),
             ("a terrace two down: stepped down onto it", {**floor(range(-3, 4), 199), **floor(range(4, 19), 197)},
              (16, 198, 0)),
@@ -413,7 +413,7 @@ class Nav(unittest.TestCase):
         from unittest import mock
         feet = (0, 200, 0)
         rows = [  # (why, cell, feet given, expected)
-            ("a tree 100 below the platform, 20 across: no", (20, 100, 0), feet, False),
+            ("must fail: a tree 100 below the platform, 20 across: no", (20, 100, 0), feet, False),
             ("a tree on the same ground 30 off: maybe", (30, 200, 0), feet, True),
             ("a tree 3 below (a safe drop): maybe", (2, 197, 0), feet, True),
             ("a valley 20 down, 60 across (a slope): maybe", (60, 180, 0), feet, True),
@@ -432,7 +432,7 @@ class Nav(unittest.TestCase):
         rows = [  # (why, state, expected)
             ("in the water against the bank: face it, climb", {"x": 9.2, "y": 199.3, "z": 10.5, "onGround": False,
                                                               "inWater": True}, want),
-            ("already standing on it: nothing", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True,
+            ("must fail: already standing on it: nothing", {"x": 10.5, "y": 200.0, "z": 10.5, "onGround": True,
                                                   "inWater": False}, []),
             ("in the water 6 off the bank: swim first, nothing", {"x": 4.5, "y": 199.3, "z": 10.5, "onGround": False,
                                                                  "inWater": True}, []),
@@ -449,7 +449,7 @@ class Nav(unittest.TestCase):
         spot = (10007, 200, 10000)
         rows = [  # (why, body x, range) → there
             ("the probe: one column short, range 0.5 — there (the bug)", 10006.2355, 0.5, True),
-            ("the probe, the cell itself asked: not there", 10006.2355, 0, False),
+            ("must fail: the probe, the cell itself asked: not there", 10006.2355, 0, False),
             ("on the cell, off its centre: there", 10007.9, 0, True),
             ("on the cell's centre: there", 10007.5, 0, True),
             ("one column past it: not there", 10008.1, 0, False),
@@ -502,7 +502,7 @@ class Nav(unittest.TestCase):
             ("in water", {"onGround": False, "inWater": True}, True),
             ("on a ladder", {"climbing": True}, True),
             ("in the air", {"onGround": False, "inWater": False, "climbing": False}, False),
-            ("no reading at all", {}, False),
+            ("must fail: no reading at all", {}, False),
         ]
         for why, st, want in rows:
             with self.subTest(why):
@@ -530,7 +530,7 @@ class Nav(unittest.TestCase):
         rows = [  # (why, here, expected)
             ("exactly two blocks gained (boundary)", (2, 64, 0), True),
             ("five blocks gained", (5, 64, 0), True),
-            ("one block gained: not enough", (1, 64, 0), False),
+            ("must fail: one block gained: not enough", (1, 64, 0), False),
             ("did not move", (0, 64, 0), False),
             ("walked away", (-3, 64, 0), False),
             ("sideways, same distance", (0, 64, 10), False),
@@ -588,7 +588,7 @@ class Perception(unittest.TestCase):
 
     def test_note_hurt_then_hurt_rate(self):
         rows = [  # (why, [(health, t)], expected rate)
-            ("first reading: nothing to difference", [(20, 0.0)], 0.0),
+            ("must fail: first reading: nothing to difference", [(20, 0.0)], 0.0),
             ("two hp in one second", [(20, 0.0), (18, 1.0)], 2.0),
             ("four hp in two seconds", [(20, 0.0), (16, 2.0)], 2.0),
             ("readings too close together: ignored", [(20, 0.0), (18, 0.005)], 0.0),
@@ -610,7 +610,7 @@ class Perception(unittest.TestCase):
         rows = [  # (why, mark, expected outcomes)
             ("from the start", 0, ["a", "b", "c"]),
             ("after two", 2, ["c"]),
-            ("mark at the end: nothing new", 3, []),
+            ("must fail: mark at the end: nothing new", 3, []),
             ("mark past the end: nothing", 10, []),
         ]
         for why, mark, want in rows:
@@ -624,7 +624,7 @@ class Perception(unittest.TestCase):
 
     def test_sword_level(self):
         rows = [  # (why, tiers, expected)
-            ("no sword: fist", [], 0),
+            ("must fail: no sword: fist", [], 0),
             ("wooden/golden (tier 0) is level 1", [0], 1),
             ("stone", [1], 1),
             ("iron", [2], 2),
@@ -651,7 +651,7 @@ class Planner(unittest.TestCase):
     def test_hunts_a_fighter(self):
         rows = [  # (why, types, expected)
             ("a zombie fights back", ["minecraft:zombie"], True),
-            ("a cow does not", ["minecraft:cow"], False),
+            ("must fail: a cow does not", ["minecraft:cow"], False),
             ("mixed hunt: one fighter is enough", ["minecraft:cow", "minecraft:skeleton"], True),
             ("nothing hunted", [], False),
             ("bare id is not the table's key", ["zombie"], False),
@@ -662,7 +662,7 @@ class Planner(unittest.TestCase):
 
     def test_tool_ok(self):
         rows = [  # (why, inv, kind, tier, min_left, expected)
-            ("no tools() at all", object(), "pickaxe", 1, 10, False),
+            ("must fail: no tools() at all", object(), "pickaxe", 1, 10, False),
             ("right tier, plenty left", _Bag({"pickaxe": [(1, 100, None)]}), "pickaxe", 1, 10, True),
             ("better tier counts", _Bag({"pickaxe": [(3, 100, None)]}), "pickaxe", 2, 10, True),
             ("tier too low", _Bag({"pickaxe": [(1, 100, None)]}), "pickaxe", 2, 10, False),
@@ -687,7 +687,7 @@ class Planner(unittest.TestCase):
             ("added group token counts as produced", {}, [("add", "planks", 4)], "planks", 4),
             ("produced is consumed first", {"minecraft:oak_planks": 2},
              [("add", "planks", 4), ("consume", "planks", 3)], "planks", 3),
-            ("nothing carried", {}, [], "minecraft:diamond", 0),
+            ("must fail: nothing carried", {}, [], "minecraft:diamond", 0),
         ]
         for why, counts, ops, token, want in rows:
             with self.subTest(why):
@@ -701,7 +701,7 @@ class Planner(unittest.TestCase):
         rows = [  # (why, kind, tier, min_left, expected)
             ("iron pickaxe for stone", "pickaxe", 1, 10, True),
             ("exact tier and durability (boundary)", "pickaxe", 2, 50, True),
-            ("tier too high", "pickaxe", 3, 10, False),
+            ("must fail: tier too high", "pickaxe", 3, 10, False),
             ("worn sword under min_left", "sword", 1, 10, False),
             ("no axe", "axe", 0, 1, False),
         ]
@@ -797,7 +797,7 @@ class Frontier(unittest.TestCase):
                 ("an ore looked for three days ago: look again", self.D, 3 * 24000, False),
                 ("sheep looked for a minute ago: none", self.S, 1200, True),
                 ("sheep looked for five minutes ago: they may have walked in", self.S, 6000, False),
-                ("never looked for: not covered", "iron_ore", 10, False)]
+                ("must fail: never looked for: not covered", "iron_ore", 10, False)]
         for name, kind, age, want in rows:
             with self.subTest(name):
                 self.assertEqual(memory.covered(row, [kind], age), want)

@@ -78,7 +78,7 @@ class NothingTurnsItselfOffInSilence(unittest.TestCase):
                "        return None\n", ["f"]),
               ("marked with api.swallowed: fine", "def f():\n    try:\n        find(x)\n    except E as e:\n"
                "        return api.swallowed('f', e)\n", []),
-              ("not a world read: fine", "def f():\n    try:\n        int(x)\n    except E:\n        pass\n", []),
+              ("must fail: not a world read: fine", "def f():\n    try:\n        int(x)\n    except E:\n        pass\n", []),
               ("re-raised: not silent", "def f():\n    try:\n        find(x)\n    except E:\n        raise\n", []),
               ("a real fallback value is not silence", "def f():\n    try:\n        find(x)\n    except E:\n"
                "        return 5\n", [])]

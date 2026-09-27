@@ -97,7 +97,7 @@ class Reconcile(unittest.TestCase):
                  snapshot(day, inventory(("wooden_pickaxe", 1))), {"tool:pickaxe": 1}),
                 ("sleep at night → the night", goals.make("sleep"), snapshot(night, inventory()), {"night": 1}),
                 ("sleep by day → met", goals.make("sleep"), snapshot(day, inventory()), {}),
-                ("a run-once goal: the world cannot say", goals.make("road", a=[0, 64, 0], b=[9, 64, 0]),
+                ("must fail: a run-once goal: the world cannot say", goals.make("road", a=[0, 64, 0], b=[9, 64, 0]),
                  snapshot(day, inventory()), None)]
         for name, goal, snap, want in rows:
             with self.subTest(name):

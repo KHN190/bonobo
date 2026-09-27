@@ -162,7 +162,7 @@ class Closed(unittest.TestCase):
         rows = [("the real table: every dim made", real, set()),
                 ("a broken chain: an input nothing makes", [Action("craft:a", {"a": 1, "b": -1}, 1.0)], {"b"}),
                 ("a requirement nothing makes", [Action("work", {"a": 1}, 1.0, requires={"key": 1})], {"key"}),
-                ("a variant of a made group is held stock, not a gap",
+                ("must fail: a variant of a made group is held stock, not a gap",
                  [Action("gather:log", {"log": 1}, 1.0), Action("craft:p", {"p": 1, "minecraft:oak_log": -1}, 1.0)],
                  set())]
         for name, columns, want in rows:
@@ -217,7 +217,7 @@ class Replayed(unittest.TestCase):
         """The replay itself: a plan whose steps are swapped fails it (else a green replay proves nothing)."""
         steps = Planner({}, [], NullCost()).plan([("tool", "pickaxe", 0)])
         rows = [("as planned", steps, True), ("the pickaxe before its sticks", [steps[-1]] + steps[:-1], False),
-                ("the table missing", [s for s in steps if s.token != "minecraft:crafting_table"], False),
+                ("must fail: the table missing", [s for s in steps if s.token != "minecraft:crafting_table"], False),
                 ("the last step dropped", steps[:-1], False)]
         for name, st, ok in rows:
             with self.subTest(name):
@@ -596,7 +596,7 @@ class SourceRemoved(unittest.TestCase):
 
     def test_the_planner(self):
         rows = [("nothing removed: planned", {}, {}, ("bed", 1), True),
-                ("no wool from sheep: no bed", {"HUNT": ["wool"]}, {}, ("bed", 1), False),
+                ("must fail: no wool from sheep: no bed", {"HUNT": ["wool"]}, {}, ("bed", 1), False),
                 ("no stick recipe: no pickaxe", {}, {"minecraft:stick": None}, ("tool", "pickaxe", 0), False),
                 ("no iron ore: no iron ingot", {"MINE": ["minecraft:raw_iron"]}, {}, ("minecraft:iron_ingot", 1),
                  False),
@@ -631,7 +631,7 @@ class SourceRemoved(unittest.TestCase):
         def without(pred):
             return [a for a in table if not pred(a)]
         rows = [("nothing removed: solved", table, {"bed": 1}, True),
-                ("no column makes wool, no bed to take: no bed",
+                ("must fail: no column makes wool, no bed to take: no bed",
                  without(lambda a: a.effect.get("wool", 0) > 0 or a.name == "take:bed"), {"bed": 1}, False),
                 ("no stick column: no stone pickaxe", without(lambda a: a.name == "craft:minecraft:stick"),
                  {"minecraft:stone_pickaxe": 1}, False),

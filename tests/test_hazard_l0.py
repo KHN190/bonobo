@@ -41,7 +41,7 @@ HAZARDS = [
     ("buried by sand", {}, True, 0.0, "suffocating", "suffocating"),
     ("buried and standing in water", {"inWater": True, "air": 300}, True, 0.0, "suffocating", "suffocating"),
     ("falling off a cliff edge", {"onGround": False}, False, hazard.FALL_BLOCKS + 6, "falling", None),
-    ("a hop is not a fall", {"onGround": False}, False, hazard.FALL_BLOCKS - 1, None, None),
+    ("must fail: a hop is not a fall", {"onGround": False}, False, hazard.FALL_BLOCKS - 1, None, None),
     ("falling into water is a landing", {"onGround": False, "inWater": True}, False, 30.0, None, None),
     ("lava beats everything else on the body", {"inLava": True, "onFire": True, "health": 3.0}, True, 20.0,
      "lava", "lava"),
@@ -60,7 +60,7 @@ HOSTILE = [
      {"health": 9.0, "control": {"active": True, "paused": False, "allowed": True, "task": {"type": "attack"},
                                  "queued": 0}}, {"hostiles_within": lambda r: 3.0}, None),
     ("healthy, a zombie at 3", {"health": 20.0}, {"hostiles_within": lambda r: 3.0}, None),
-    ("hurt, nothing hostile about", {"health": 9.0}, {"hostiles_within": lambda r: None}, None),
+    ("must fail: hurt, nothing hostile about", {"health": 9.0}, {"hostiles_within": lambda r: None}, None),
     ("dead: nothing to interrupt for", {"dead": True, "health": 0.0}, {}, None),
     ("the player holds control", {"health": 3.0, "control": {"paused": True}}, {}, None),
 ]
@@ -195,7 +195,7 @@ class Rescue(unittest.TestCase):
 # The burning rescue, over what the world reads (the bag, water within 8): what it posts, or why it cannot.
 BURNING = [
     ("a water bucket: pour it and take it back", True, [], [("run", "use_item"), ("run", "use_item")], None),
-    ("no bucket, water 5 away: step into it", False, [{"block": "minecraft:water", "x": 5, "y": 64, "z": 0,
+    ("must fail: no bucket, water 5 away: step into it", False, [{"block": "minecraft:water", "x": 5, "y": 64, "z": 0,
                                                       "distance": 5.0}], [("run", "goto")], None),
     ("neither: says so, does not stand still", False, [], [], api.NotAvailable),
     ("both: the bucket first", True, [{"block": "minecraft:water", "x": 5, "y": 64, "z": 0, "distance": 5.0}],
@@ -270,7 +270,7 @@ BATCHES = [
      [{"type": "eat", "item": "minecraft:cooked_beef"}]),
     ("eat: raw when that is all", Decision("eat", None), fight_body(_inv(beef=2)),
      [{"type": "eat", "item": "minecraft:beef"}]),
-    ("eat: nothing to eat — no answer", Decision("eat", None), fight_body(), []),
+    ("must fail: eat: nothing to eat — no answer", Decision("eat", None), fight_body(), []),
     ("shield up", Decision("shield", None), fight_body(offhand="shield"),
      [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]),
     ("shield, but none in the offhand — no answer", Decision("shield", None), fight_body(), []),
@@ -304,7 +304,7 @@ class FightBatches(unittest.TestCase):
     # (the answer, its batch non-empty?, what the game queues) → the task id watched, or the reason it is no answer
     ENGAGE = [("fight, queued", Decision("fight", 42), [{"id": 7}], 7),
               ("a two-task batch: the last is watched", Decision("reshape", ("under", 2)), [{"id": 7}, {"id": 8}], 8),
-              ("no batch from here", Decision("eat", None), [{"id": 7}], api.NotAvailable),
+              ("must fail: no batch from here", Decision("eat", None), [{"id": 7}], api.NotAvailable),
               ("the game queues none of it", Decision("fight", 42), [], api.NotAvailable)]
 
     def test_engage_posts_the_batch(self):
@@ -416,7 +416,7 @@ class Engagement(unittest.TestCase):
     def test_the_decision_rhythm(self):
         """Perception decides every FIGHT_POLL_S while a fight is on, every POLL_S otherwise (fight_loop.active)."""
         from bonobo import arbiter, fight_loop
-        rows = [("nothing engaged", None, False, False), ("our engagement running", "intent", False, True),
+        rows = [("must fail: nothing engaged", None, False, False), ("our engagement running", "intent", False, True),
                 ("a boss fight holds the body", None, True, True), ("both", "intent", True, True)]
         for name, eng, boss, want in rows:
             body = arbiter.Motion()

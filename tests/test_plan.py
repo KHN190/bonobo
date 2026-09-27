@@ -38,7 +38,7 @@ SOLVES = [
       A("door", {"door": 1, "planks": -4}, 1.0)], {}, {"table": 1, "door": 1}, {"planks": 2, "table": 1, "door": 1}),
     ("a chain: ore mined, then smelted, per ingot",
      [A("mine", {"ore": 1}, 2.0), A("smelt", {"ingot": 1, "ore": -1}, 1.0)], {}, {"ingot": 3}, {"mine": 3, "smelt": 3}),
-    ("already held: nothing to do", [A("make", {"x": 1}, 1.0)], {"x": 2}, {"x": 2}, {}),
+    ("must fail: already held: nothing to do", [A("make", {"x": 1}, 1.0)], {"x": 2}, {"x": 2}, {}),
     ("held in part: only the rest", [A("make", {"x": 1}, 1.0)], {"x": 1}, {"x": 3}, {"make": 2}),
     ("a limit forces the dearer way for the rest",
      [A("cheap", {"x": 1}, 1.0, limit=1), A("dear", {"x": 1}, 10.0)], {}, {"x": 3}, {"cheap": 1, "dear": 2}),
@@ -138,7 +138,7 @@ class TheColumns(unittest.TestCase):
 
 
 # (bag) → the pickaxe uses the state vector carries (usable ones only: 3 or more left)
-USES = [("none", inventory(), 0), ("a fresh iron pickaxe", inventory(("iron_pickaxe", 1)), 250),
+USES = [("must fail: none", inventory(), 0), ("a fresh iron pickaxe", inventory(("iron_pickaxe", 1)), 250),
         ("a worn one, 10 left", inventory(slot("iron_pickaxe", 1, 240)), 10),
         ("two, added up", inventory(("stone_pickaxe", 1), slot("iron_pickaxe", 1, 200)), 131 + 50),
         ("one about to break (2 left) does not count", inventory(slot("iron_pickaxe", 1, 248)), 0)]

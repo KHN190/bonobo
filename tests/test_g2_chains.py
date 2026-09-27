@@ -19,7 +19,7 @@ class LightCommands(unittest.TestCase):
          (0.5, 65.0, 1.5)),
         ("second try: one block further in", (FLINT, ((10, 70, -3), 0, 1)),
          (12.5, 71.0, -2.5)),
-        ("no flint and steel", (inventory(), ((0, 64, 0), 0, 0)), NotAvailable),
+        ("must fail: no flint and steel", (inventory(), ((0, 64, 0), 0, 0)), NotAvailable),
     ]
 
     def test_rows(self):

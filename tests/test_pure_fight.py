@@ -47,7 +47,7 @@ def frame(tick, *, phase=None, present=True, hp=20, pos=(0, 0, 0), dragon_hp=Non
 class PhaseSpans(unittest.TestCase):
     def test_table(self):
         rows = [
-            ("empty tape", [], []),
+            ("must fail: empty tape", [], []),
             ("run collapses", [frame(0, phase=6), frame(1, phase=6), frame(2, phase=7)], [(6, 0, 1), (7, 2, 2)]),
             ("no dragon is phase None", [frame(0)], [(None, 0, 0)]),
             # must-fail: a phase reported while the dragon is absent is not that phase
@@ -64,7 +64,7 @@ class FitDamage(unittest.TestCase):
     def test_table(self):
         z = "minecraft:zombie"
         rows = [
-            ("no frames", [], {}),
+            ("must fail: no frames", [], {}),
             ("one hit", [frame(0, damage=[{"amount": 4, "nearest": z}])], {z: {"n": 1, "max": 4, "mean": 4.0}}),
             ("two hits averaged", [frame(0, damage=[{"amount": 2, "nearest": z}]),
                                    frame(1, damage=[{"amount": 5, "nearest": z}])],
@@ -118,7 +118,7 @@ class Expand(unittest.TestCase):
         c, z0 = (0, 0, 0), (0.0, 0.0, 0.0)
         z = "minecraft:zombie"
         rows = [
-            ("nothing", [], None, []),
+            ("must fail: nothing", [], None, []),
             ("one bare hazard", [(c, 1)], None, [(c, 1, z0, None), (c, 1, z0, None)]),
             ("mob and cloud with here", [(c, 1, z0, z), (c, 3, z0, CLOUD)], (0, 0, 5),
              [(c, 1, z0, z), (c, 1, z0, z), (c, 1, (0.0, 0.0, 4.3), z), (c, 3, z0, CLOUD), (c, 3, z0, CLOUD)]),
@@ -170,7 +170,7 @@ class BestStep(unittest.TestCase):
 class Windows(unittest.TestCase):
     def test_table(self):
         rows = [
-            ("empty", [], None, []),
+            ("must fail: empty", [], None, []),
             ("one window", [frame(0, phase=6, dragon_hp=100), frame(1, phase=6, hp=18, dragon_hp=90)], None,
              [{"phase": 6, "start": 0, "duration_s": 0.1, "exposure_s": 0.0, "hp_lost": 2, "dragon_hp_lost": 10}]),
             ("one exposed frame", [frame(0, phase=7, dragon_hp=50, breath=[(0, 0, 0, 3)]),
@@ -200,7 +200,7 @@ class NoteHazards(unittest.TestCase):
         kind = next(iter(cm.HAZARD_R))
         r = cm.HAZARD_R[kind]
         rows = [
-            ("nothing near", [], 5.0, []),
+            ("must fail: nothing near", [], 5.0, []),
             ("None near", None, 6.0, []),
             ("one hazard", [{"type": kind, "x": 1, "y": 2, "z": 3}], 7.0, [((1, 2, 3), r)]),
             # must-fail: something with no keep-out radius is not a hazard
@@ -229,7 +229,7 @@ class Available(unittest.TestCase):
             ("route answers", ok, True),
             ("route answers empty dict", lambda since=-1: {}, True),
             # must-fail: an old jar without the route is not available
-            ("route missing", gone, False),
+            ("must fail: route missing", gone, False),
             ("connection refused", broken, False),
         ]
         for name, fake, want in rows:
@@ -328,7 +328,7 @@ class FromContainers(unittest.TestCase):
             ("already held", Inv(**{D: 5}), [(D, 5)], self.cost(two), None, [], {}),
             ("tool needs skipped", Inv(), [("tool", "pickaxe", 1)], self.cost(two), None, [], {}),
             # must-fail: a withdrawal that costs no less than making it is not taken
-            ("fetching never cheaper", Inv(), [(D, 5)], self.cost(two, est=math.inf), None, [], {}),
+            ("must fail: fetching never cheaper", Inv(), [(D, 5)], self.cost(two, est=math.inf), None, [], {}),
         ]
         for name, inv, needs, cost, pending, want_steps, want_extra in rows:
             with self.subTest(name):
@@ -346,7 +346,7 @@ class EffectDetail(unittest.TestCase):
             ("craft runs count times", ("craft", "minecraft:stick", 3), {"times": 3, "inputs": {}}),
             # must-fail: a hunt of something no mob drops has no detail to offer
             ("hunt of an ore", ("hunt", "minecraft:diamond", 1), {}),
-            ("unknown kind", ("smelt", "minecraft:iron_ingot", 1), {}),
+            ("must fail: unknown kind", ("smelt", "minecraft:iron_ingot", 1), {}),
         ]
         for name, args, want in rows:
             with self.subTest(name):
@@ -364,7 +364,7 @@ class FromSources(unittest.TestCase):
              [dirt], {"minecraft:dirt": 5}, [("building", 5)]),
             ("item counted as itself", [(P, 2)], Inv(), None, ([pearl], "barter"), [pearl], {P: 2}, [(P, 2)]),
             ("pending shortens the need", [(P, 3)], Inv(), {P: 1}, ([pearl], "barter"), [pearl], {P: 3}, [(P, 2)]),
-            ("held: not asked", [(P, 2)], Inv(**{P: 2}), None, ([pearl], "barter"), [], {}, []),
+            ("must fail: held: not asked", [(P, 2)], Inv(**{P: 2}), None, ([pearl], "barter"), [], {}, []),
             ("no other source", [("minecraft:stick", 4), ("tool", "pickaxe", 1)], Inv(), None,
              ([pearl], "barter"), [], {}, []),
             # must-fail: when no source is cheapest nothing is planned or counted
@@ -398,7 +398,7 @@ class RunnerFor(unittest.TestCase):
             ("unregistered skill", Step("skill", "t_missing", 1, {}), {}, None, None),
             ("other kinds go to the provider", Step("mine", "minecraft:coal", 1, {}), {}, (runner, ("x",)),
              (runner, ("x",))),
-            ("no provider", Step("mine", "minecraft:coal", 1, {}), {}, None, None),
+            ("must fail: no provider", Step("mine", "minecraft:coal", 1, {}), {}, None, None),
         ]
         for name, step, registry, provided, want in rows:
             with self.subTest(name), mock.patch.dict(dispatch.skillkit.REGISTRY, registry), \
@@ -421,7 +421,7 @@ class RunStep(unittest.TestCase):
         rows = [
             ("runner result, night set", "craft", returns, True, ("done", True), None),
             ("seeking step hands back NotAvailable", "mine", raiser(na), True, na, None),
-            ("no seek: raised", "mine", raiser(na), False, None, NotAvailable),
+            ("must fail: no seek: raised", "mine", raiser(na), False, None, NotAvailable),
             ("non-seeking kind: raised", "craft", raiser(na), True, None, NotAvailable),
             # must-fail: a navigation failure is never answered by looking elsewhere
             ("nav failure raised", "hunt", raiser(nav_fail), True, None, NavFailed),
@@ -450,7 +450,7 @@ class Bombable(unittest.TestCase):
             ("attacking", {"phase": 7}, True),
             ("flaming: breath on the perch", {"phase": 5}, False),
             # must-fail: no dragon means no window
-            ("no dragon", None, False),
+            ("must fail: no dragon", None, False),
             ("no phase", {}, False),
         ]
         for name, dragon, want in rows:
@@ -602,7 +602,7 @@ class StillWorth(unittest.TestCase):
             ("fight still pays", "fight", model(ignore, opt("fight", seconds=2, hp=1)), True),
             # saved = 10 - 0 - (9 + 1) = 0: breaking even is not paying
             ("breaks even", "fight", model(ignore, opt("fight", seconds=9, hp=1)), False),
-            ("too slow now", "fight", model(ignore, opt("fight", seconds=20, hp=1)), False),
+            ("must fail: too slow now", "fight", model(ignore, opt("fight", seconds=20, hp=1)), False),
             # must-fail: the held answer is no longer on offer
             ("answer gone", "fight", model(ignore, opt("evade", seconds=1)), False),
             ("no do-nothing column", "fight", model(opt("fight", seconds=1)), False),
@@ -648,7 +648,7 @@ class CycleSeconds(unittest.TestCase):
             ("one sample each", {4: [1], 0: [2], 2: [3], 3: [4]}, 10),
             ("median by nearest rank, odd", {4: [3, 1, 2]}, 2),
             ("median by nearest rank, even: lower", {4: [1, 3]}, 1),
-            ("nothing observed", {}, 0),
+            ("must fail: nothing observed", {}, 0),
             # must-fail: the sitting phases are not part of the lap
             ("window phases ignored", {6: [100], 7: [100]}, 0),
         ]
@@ -679,7 +679,7 @@ class Footwork(unittest.TestCase):
             ("a skeleton: strafe across its line", 12, "fight", both, "strafe"),
             ("a creeper: keep off — hit, out past its blast, in again", 13, "fight", both, "keepoff"),
             ("behind the shield, a skeleton: strafe too", 12, "fight_shielded", both, "strafe"),
-            ("a target not among the rows: no footwork", 99, "fight", both, None),
+            ("must fail: a target not among the rows: no footwork", 99, "fight", both, None),
             ("no rows at all: no footwork", 11, "fight", dict(inv=bag), None),
         ]
         for why, target, kind, state, want in rows:
@@ -693,7 +693,7 @@ class Footwork(unittest.TestCase):
         bag = SimpleNamespace(offhand=lambda: None, count=lambda _: 0)
         creeper = self.rows("minecraft:creeper")          # at (3, 64, 0)
         rows = [  # (why, protected cells) → the batch's task types, and the lure's x when there is one
-            ("nothing of ours near: fight where we stand", set(), ["attack"], None),
+            ("must fail: nothing of ours near: fight where we stand", set(), ["attack"], None),
             ("a wall 2 from it: led west, away from the wall, first", {(5, 64, 0)}, ["travel", "attack"], -8),
             ("our builds 20 off: out of its blast, fight here", {(23, 64, 0)}, ["attack"], None),
             ("builds on the other side: led east", {(-1, 64, 0)}, ["travel", "attack"], 8),

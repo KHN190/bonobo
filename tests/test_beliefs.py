@@ -148,7 +148,7 @@ class AMeasurementSurvivesTheProcessThatTookIt(unittest.TestCase):
              1, {PATH: 1}),
             ("two of one belief", [{"path": PATH, "measured": 4.0, "at": 0}, {"path": PATH, "measured": 5.0, "at": 1}],
              2, {PATH: 2}),
-            ("an empty log", [], 0, {})]
+            ("must fail: an empty log", [], 0, {})]
 
     def test_loading_a_log(self):
         for name, lines, loaded, counts in self.LOGS:
@@ -212,7 +212,7 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
     # (counter, how it is run, span in seconds) → the belief it files, or None when the span is not a sample
     ROWS = [("break with a pickaxe", "_break", (2.0, True), "tools.mine_time_stone"),
             ("break by hand", "_break", (6.0, False), "tools.mine_time_no_pickaxe"),
-            ("break: a queued task, too quick to be one", "_break", (0.01, True), None),
+            ("must fail: break: a queued task, too quick to be one", "_break", (0.01, True), None),
             ("break: a stall", "_break", (45.0, True), None),
             ("death walked back", "_death", (120.0,), "time.death_cost_s"),
             ("death: recovered in under a second (a replay)", "_death", (0.5,), None),

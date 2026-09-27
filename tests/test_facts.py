@@ -238,7 +238,7 @@ class GroundIsSomethingYouMake(unittest.TestCase):
                (3, (0, 64, 0), 0, (("break", (1, 66, 0)), ("break", (1, 64, 0)), ("break", (1, 65, 0))))),
               ("a two-block hole: filled, not avoided", "hole", 0,
                (2, (0, 64, 0), 0, (("fill", (0, 63, 0)), ("fill", (1, 63, 0))))),
-              ("bedrock everywhere: nothing offered", "bedrock", 6, None)]
+              ("must fail: bedrock everywhere: nothing offered", "bedrock", 6, None)]
 
     def test_ground_over_the_table(self):
         for name, change, radius, want in self.GROUND:
@@ -326,7 +326,7 @@ class WhatIsWorthTakingIsDecidedByPrice(unittest.TestCase):
              20, [1, 0]),
             ("worth less than the slot it eats, when slots are tight", [("minecraft:stick", 1, "chest")], 2, []),
             ("the same stick with room to spare", [("minecraft:stick", 1, "chest")], 30, [0]),
-            ("our own slots are never loot", [("minecraft:diamond", 1, "player")], 30, []),
+            ("must fail: our own slots are never loot", [("minecraft:diamond", 1, "player")], 30, []),
             ("what has no price is left", [("minecraft:mystery", 4, "chest")], 30, []),
             ("an empty chest", [], 30, [])]
 

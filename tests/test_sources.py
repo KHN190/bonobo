@@ -110,7 +110,7 @@ class Sources(unittest.TestCase):
     # (goal, bag) → done? — None: done when its plan has run (RUN_AFTER), never read off the bag
     DONE = [("end portal with 12 eyes: its plan decides", goals.make("milestone", name="end portal"),
              [("ender_eye", 12)], None),
-            ("end portal with nothing: still the plan's", goals.make("milestone", name="end portal"), [], None),
+            ("must fail: end portal with nothing: still the plan's", goals.make("milestone", name="end portal"), [], None),
             ("stone tools held: done from the bag", goals.make("milestone", name="stone tools"),
              [("stone_pickaxe", 1), ("stone_sword", 1), ("stone_axe", 1)], True),
             ("stone tools, the axe missing: not done", goals.make("milestone", name="stone tools"),

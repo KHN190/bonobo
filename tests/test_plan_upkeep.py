@@ -103,7 +103,7 @@ UNPLANNABLE = [
 # (situation, goal, solver asked, skills taken out of the registry) → Unplannable from decompose
 UNPLANNABLE_BY = [
     ("a step no registered skill provides", goals.have(("log", 4)), None, ("chop",)),
-    ("a solver nobody registered", goals.have(("log", 4)), "zzz", ()),
+    ("must fail: a solver nobody registered", goals.have(("log", 4)), "zzz", ()),
     ("the column solver without a memory", goals.have(("minecraft:stick", 4)), "solve", ()),
     ("smelting with no smelting skill", goals.have(("minecraft:iron_ingot", 3)), None,
      ("smelt", "load_smelter", "start_smelt_job")),
@@ -196,7 +196,7 @@ def _refuses(inv, needs, cost, pending=None):
 MARK = planner.Step("craft", "minecraft:stick", 4)
 # (situation, registered solvers in order, solver asked for, needs) → the steps, or the exception
 SOLVERS = [
-    ("no needs: nothing to solve", [("a", _refuses)], None, [], []),
+    ("must fail: no needs: nothing to solve", [("a", _refuses)], None, [], []),
     ("the first that plans wins", [("a", _fixed([MARK])), ("b", _refuses)], None, [("minecraft:stick", 4)], [MARK]),
     ("one that cannot hands on to the next", [("a", _refuses), ("b", _fixed([MARK]))], None,
      [("minecraft:stick", 4)], [MARK]),
@@ -266,7 +266,7 @@ CHEAPER = [
      ("hunt", "minecraft:beef")),
     ("a table in reach is used, not crafted", PICK1, inventory(("oak_log", 4)), {"crafting_table": 3.0, "oak_log": 5},
      ("craft", "minecraft:wooden_pickaxe"), ("craft", "minecraft:crafting_table")),
-    ("a table across the valley is not in reach", PICK1, inventory(("oak_log", 4)),
+    ("must fail: a table across the valley is not in reach", PICK1, inventory(("oak_log", 4)),
      {"crafting_table": 30.0, "oak_log": 5}, ("craft", "minecraft:crafting_table"), None),
 ]
 
@@ -374,7 +374,7 @@ class WhereItLives(unittest.TestCase):
     # (situation, rods held, skills removed) → the plan for "have 7 blaze rods" from the Overworld, or why not
     GOALS = [("none held: portal, fortress, collect", 0, (), [("portal", NETHER_T), ("seek", "fortress"),
                                                               ("hunt", "minecraft:blaze_rod")]),
-             ("seven held: nothing to do", 7, (), []),
+             ("must fail: seven held: nothing to do", 7, (), []),
              ("five held: still the way there, for two", 5, (), [("portal", NETHER_T), ("seek", "fortress"),
                                                                 ("hunt", "minecraft:blaze_rod")]),
              ("nobody can use a portal: no plan, and says so", 0, ("use_portal",), Unplannable),
@@ -443,7 +443,7 @@ def _needs_torches(c):
 
 # (situation, the provider's preconditions, bag) → offered (valid) this round?
 STARTS = [("no preconditions", (), inventory(), True),
-          ("a precondition that refuses", (_needs_torches,), inventory(), False),
+          ("must fail: a precondition that refuses", (_needs_torches,), inventory(), False),
           ("the inputs are missing, whatever the skill says", (), None, False),
           ("the inputs are missing and the skill refuses too", (_needs_torches,), None, False),
           ("a precondition that passes", (lambda c: None,), inventory(), True)]
@@ -478,7 +478,7 @@ class CanStart(unittest.TestCase):
         step is not offered it; an interruption cools nothing."""
         step = planner.Step("gather", "log", 3, {})
         # (situation, what ends the attempt, the goal that tries after) → the step is still valid
-        rows = [("failed under the pickaxe goal: not offered for the sword", NotAvailable("no trees found nearby"),
+        rows = [("must fail: failed under the pickaxe goal: not offered for the sword", NotAvailable("no trees found nearby"),
                  "idle: have sword tier 1", False),
                 ("the same goal again: not offered", NotAvailable("no trees found nearby"),
                  "idle: have pickaxe tier 1", False),
@@ -502,7 +502,7 @@ class CanStart(unittest.TestCase):
         """dispatch.can_start over the registry as it is, by the step's kind: no provider, an unknown skill name,
         a provider whose adapter declines here, a provider that can."""
         from bonobo import dispatch
-        rows = [("nobody provides this kind", {}, planner.Step("zz", "nothing", 1), False),
+        rows = [("must fail: nobody provides this kind", {}, planner.Step("zz", "nothing", 1), False),
                 ("a skill name nobody registered", {}, planner.Step("skill", "no_such_skill", 1), False),
                 ("the one provider's adapter declines here", {"zz_a": ("zz", None, ())}, planner.Step("zz", "t", 1),
                  False),
@@ -568,7 +568,7 @@ class CostModel(unittest.TestCase):
                 ("a table in sight 9 away", None, {"crafting_table": 9}, False),
                 ("a table memory keeps 3 away", ((3, 64, 0),), {}, True),
                 ("a table memory keeps 30 away", ((30, 64, 0),), {}, False),
-                ("nothing", None, {}, False)]
+                ("must fail: nothing", None, {}, False)]
 
     def test_station_near(self):
         for name, stations, seen, want in self.STATIONS:
@@ -579,7 +579,7 @@ class CostModel(unittest.TestCase):
                 self.assertEqual(cost(snapshot(), mem=m, **seen).station_near("minecraft:crafting_table"), want)
 
     # (situation, known distance or None) → seconds the column solver prices a seek at
-    SEEKS = [("never seen: the declared prior", None, None), ("40 blocks away", 40.0, WT(40) / 20 + 2.0),
+    SEEKS = [("must fail: never seen: the declared prior", None, None), ("40 blocks away", 40.0, WT(40) / 20 + 2.0),
              ("10 blocks away", 10.0, WT(10) / 20 + 2.0), ("200 blocks away", 200.0, WT(200) / 20 + 2.0),
              ("right here", 0.0, 2.0)]
 
@@ -634,7 +634,7 @@ class CostModel(unittest.TestCase):
         pol = nav.Policy()
         key = ((10, 64, 0), bool(pol.allow_dig), bool(pol.allow_build), 2.0, 6000)
         rows = [("asked, found: its seconds", True, {key: (True, 7.3)}, {}, pol, 7.3),
-                ("asked, no route found", True, {key: (False, None)}, {}, pol, None),
+                ("must fail: asked, no route found", True, {key: (False, None)}, {}, pol, None),
                 ("not asked this round", True, {}, {}, pol, None),
                 ("nothing remembered to route to", False, {key: (True, 7.3)}, {}, pol, None),
                 ("the spot is banned", True, {key: (True, 7.3)}, {(10, 64, 0): time.time() + 600}, pol, None),
@@ -948,7 +948,7 @@ class HeldPlans(unittest.TestCase):
         bag ("plan for t1" every 3 s, nothing run). Solved again only when the bag changed."""
         before, changed = inventory(), inventory(("oak_log", 2))
         rows = [("a step runs, the same bag: held as it is", True, before, 0),
-                ("no step runs, the same bag: not solved again (it cools)", False, before, 0),
+                ("must fail: no step runs, the same bag: not solved again (it cools)", False, before, 0),
                 ("no step runs, the bag changed: solved again", False, changed, 1),
                 ("a step runs, the bag changed: solved again", True, changed, 1)]
         for name, runs, bag_now, want in rows:
@@ -982,7 +982,7 @@ class HeldPlans(unittest.TestCase):
     def test_the_round_that_finishes_the_queue_proposes_nothing_more(self):
         """plan_proposals: the task met this round is finished and nothing else is offered — the next round (queue
         empty) decides on stocking. Stocking in the same round ate the bench slices' budget."""
-        rows = [("the last task met now: nothing this round", [goals.have(("log", 4))], [("oak_log", 4)], []),
+        rows = [("must fail: the last task met now: nothing this round", [goals.have(("log", 4))], [("oak_log", 4)], []),
                 ("a task met, another still live: that one", [goals.have(("log", 4)), goals.have(("stick", 4))],
                  [("oak_log", 4), ("oak_planks", 4)], ["queue"]),
                 ("nothing queued at all: stocking", [], [], ["idle"]),
@@ -1000,7 +1000,7 @@ class HeldPlans(unittest.TestCase):
         rows = [("a task that can run: the task, no stocking", True, False, ["queue"]),
                 ("nothing queued: stocking proposed", False, False, ["idle"]),
                 ("the task cooling: stocking may be picked", True, True, ["idle"]),
-                ("nothing queued, the bag full of what stocking wants: nothing", False, False, [])]
+                ("must fail: nothing queued, the bag full of what stocking wants: nothing", False, False, [])]
         for name, queued, cooling, want in rows:
             full = inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8))
             inv = full if name.endswith("nothing") else inventory()
@@ -1318,7 +1318,7 @@ NOTES = [
      "iron_ore", [((3, 12, 3), False)]),
     ("a tree is slow: kept three days", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T)], "tree",
      [((10, 64, 10), False)]),
-    ("a tree is slow: gone after three days", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T + 1)],
+    ("must fail: a tree is slow: gone after three days", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T + 1)],
      "tree", []),
     ("seen again: refreshed, one note", [("at", 0), ("see", "tree", (10, 64, 10)), ("at", 70000),
                                          ("see", "tree", (10, 64, 10)), ("at", 3 * DAY_T + 5000)], "tree",
@@ -1461,7 +1461,7 @@ RETRY = [
      {"task t1": False}),
     ("interruptions of every kind count nothing", [("task t1", e, HERE) for e in (I, C, B, P, I)], {}, set(),
      {"task t1": True}),
-    ("interleaved: interruptions do not reset or add", [("task t1", NAV, HERE), ("task t1", I, HERE),
+    ("must fail: interleaved: interruptions do not reset or add", [("task t1", NAV, HERE), ("task t1", I, HERE),
                                                         ("task t1", NAV, HERE), ("task t1", C, HERE),
                                                         ("task t1", NAV, HERE)],
      {("task t1", "nav"): 3}, {"task t1"}, {}),
@@ -1667,7 +1667,7 @@ QUEUE = [
      [("t2", "pending"), ("t1", "pending")], "t2"),
     ("done is not live: the next one is the head", [op_add(G1), op_add(G2), op(tasks.mark, "t1", "done")],
      [("t1", "done"), ("t2", "pending")], "t2"),
-    ("failed with a reason", [op_add(G1), op(tasks.mark, "t1", "failed", "nav: no path")], [("t1", "failed")], None),
+    ("must fail: failed with a reason", [op_add(G1), op(tasks.mark, "t1", "failed", "nav: no path")], [("t1", "failed")], None),
     ("expired tasks are cancelled", [op_add(G1, expires_s=60), op_add(G2), op_expire(61)],
      [("t1", "cancelled"), ("t2", "pending")], "t2"),
     ("not yet expired", [op_add(G1, expires_s=60), op_expire(30)], [("t1", "pending")], "t1"),
@@ -1687,7 +1687,7 @@ PARSE = [(("tool:pickaxe:2",), ["tool", "pickaxe", 2]), (("minecraft:torch", "24
          (("log",), ["log", 1]), (("tool:sword:0",), ["tool", "sword", 0]),
          (("minecraft:oak_log", "64"), ["minecraft:oak_log", 64])]
 SHORT = [
-    ("nothing asked", inventory(), [], ""),
+    ("must fail: nothing asked", inventory(), [], ""),
     ("held", inventory(("oak_log", 4)), [("log", 4)], ""),
     ("short of logs", inventory(("oak_log", 1)), [("log", 4)], "log 1/4"),
     ("a worn tool is not a tool", inventory(slot("stone_pickaxe", 1, 125)), [("tool", "pickaxe", 1)], "pickaxe tier 1"),
@@ -1878,7 +1878,7 @@ class OneArbiter(unittest.TestCase):
                  "recover items"),
                 ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
                                                                 P("queue")], "queue"),
-                ("nothing proposed: nothing", [], None)]
+                ("must fail: nothing proposed: nothing", [], None)]
         for name, intents, want in rows:
             with self.subTest(name):
                 got = arbiter.arbitrate(intents, now=100.0)
@@ -1956,7 +1956,7 @@ class Overnight(unittest.TestCase):
              "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
             ("wool carried: the bed", [("white_wool", 3)], HERD, "bed", ["gather", "craft", "craft", "craft"]),
             ("cobblestone carried, nothing seen: walled in", [("cobblestone", 16)], {}, "wall in", ["shelter"]),
-            ("a bed carried: sleep in it, nothing to make", [("white_bed", 1)], {}, "bed", [])]
+            ("must fail: a bed carried: sleep in it, nothing to make", [("white_bed", 1)], {}, "bed", [])]
 
     # At night, from the shelter row (no bed: the sleep row's): (situation, bag, ground digs by hand) → way, steps
     NIGHT = [("in the open on dirt, an empty bag: dig in by hand", [], True, "dig in by hand", ["shelter"]),
@@ -1996,7 +1996,7 @@ class Overnight(unittest.TestCase):
         from tests.world import FakeRegion
         rows = [("dirt three deep, stone under", {(0, 63, 0): "dirt", (0, 62, 0): "dirt", (0, 61, 0): "sand",
                                                  (0, 60, 0): "stone"}, True),
-                ("dirt three deep over a cave: the dig would stop short",
+                ("must fail: dirt three deep over a cave: the dig would stop short",
                  {(0, 63, 0): "dirt", (0, 62, 0): "dirt", (0, 61, 0): "sand"}, False),
                 ("stone at the third", {(0, 63, 0): "grass_block", (0, 62, 0): "dirt", (0, 61, 0): "stone"}, False),
                 ("air under the feet (a ledge)", {(0, 62, 0): "dirt", (0, 61, 0): "dirt"}, False),
@@ -2021,7 +2021,7 @@ class WhatBroke(unittest.TestCase):
 
     # (situation, last round's bag, this round's bag) → the kinds that broke
     ROWS = [("nearly worn out, then gone: broke", [slot("stone_axe", 1, 125)], [], {"axe"}),
-            ("whole, then gone (stored in a chest, /clear): not broken", [("stone_axe", 1)], [], set()),
+            ("must fail: whole, then gone (stored in a chest, /clear): not broken", [("stone_axe", 1)], [], set()),
             ("nearly worn out, still in hand: not yet", [slot("stone_axe", 1, 125)], [slot("stone_axe", 1, 127)],
              set()),
             ("worn out, and a better one carried now: replaced, not broken", [slot("stone_pickaxe", 1, 128)],
@@ -2055,7 +2055,7 @@ class WaterBucketBeforeAFall(unittest.TestCase):
             ("flat work only: logs, planks, a table", "minecraft:overworld", (),
              [_plan(("gather", "log"), ("craft", "planks"), ("craft", "minecraft:crafting_table"))], False),
             ("iron is dug down to (y 16)", "minecraft:overworld", (), [_plan(("mine", "minecraft:raw_iron"))], True),
-            ("coal near the surface (y 48) is not", "minecraft:overworld", (), [_plan(("mine", "minecraft:coal"))],
+            ("must fail: coal near the surface (y 48) is not", "minecraft:overworld", (), [_plan(("mine", "minecraft:coal"))],
              False),
             ("already in the Nether: water cannot be poured there", "minecraft:the_nether", (),
              [_plan(("seek", "fortress"), ("hunt", "minecraft:blaze_rod"))], False),
@@ -2090,7 +2090,7 @@ class ModFeatures(unittest.TestCase):
     """nav.mod_features: what the running jar can do, by its version; "approach_dig" (0.1.40) means a mine the
     walker cannot reach is dug to by the jar itself, so skills.mine does not tunnel for it a second time."""
 
-    ROWS = [("0.1.14: nothing", "0.1.14+mc1.21.11", set()), ("0.1.15: pillar", "0.1.15", {"pillar"}),
+    ROWS = [("must fail: 0.1.14: nothing", "0.1.14+mc1.21.11", set()), ("0.1.15: pillar", "0.1.15", {"pillar"}),
             ("0.1.39: travel", "0.1.39+mc1.21.11", {"pillar", "travel"}),
             ("0.1.40: the approach digs", "0.1.40+mc1.21.11", {"pillar", "travel", "approach_dig"}),
             ("0.1.46: eats on the way", "0.1.46+mc1.21.11", {"pillar", "travel", "approach_dig", "autoeat"}),
@@ -2129,7 +2129,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
     # (situation, the body's holder, api.MODE, a hazard due, upkeep has work) → the layer that takes the round
     ROWS = [("a fight holds the body, upkeep has work", "fight", "normal", None, True, "L0", []),
             ("a rescue runs (survival mode)", None, "survival", None, True, "L0", []),
-            ("nobody holds it, a hazard is due", None, "normal", "drowning", True, "L0", []),
+            ("must fail: nobody holds it, a hazard is due", None, "normal", "drowning", True, "L0", []),
             ("nobody holds it, upkeep has work", None, "normal", None, True, "upkeep", ["upkeep"]),
             ("nobody holds it, nothing to do", None, "normal", None, False, None, ["upkeep"])]
 
@@ -2229,7 +2229,7 @@ class LeadOnlyFromKnownPlans(unittest.TestCase):
     nowhere known) waits for the real threshold — a guess × LEAD made food urgent on a full stomach."""
 
     # (situation, seconds left, plan seconds, the plan's places known, the real threshold reached) → due now
-    ROWS = [("full stomach, no known food: not yet", 900.0, 400.0, False, False, False),
+    ROWS = [("must fail: full stomach, no known food: not yet", 900.0, 400.0, False, False, False),
             ("hungry below EAT_BELOW, no known food: now", 300.0, 400.0, False, True, True),
             ("cows in sight, the plan outruns the stomach × LEAD: now", 500.0, 400.0, True, False, True),
             ("cows in sight, plenty left: not yet", 900.0, 400.0, True, False, False),
@@ -2257,7 +2257,7 @@ class ToolsAreThePlansNeed(unittest.TestCase):
     def test_tool_kinds(self):
         rows = [("mining iron needs a pickaxe", [planner.Step("mine", "minecraft:raw_iron", 3, {"tier": 1})],
                  {"pickaxe"}),
-                ("a log chop needs none", [planner.Step("gather", "log", 3, {})], set()),
+                ("must fail: a log chop needs none", [planner.Step("gather", "log", 3, {})], set()),
                 ("digging dirt by hand needs none", [planner.Step("mine", "minecraft:dirt", 9, {"tier": None})],
                  set()),
                 ("nothing held", [], set())]
@@ -2284,7 +2284,7 @@ class FoodFromTheBag(unittest.TestCase):
                 ("nine raw beef, want 8: 8 of it", {"minecraft:beef": 9}, 8, [("minecraft:cooked_beef", 8)]),
                 ("beef and mutton: the larger pile first", {"minecraft:beef": 2, "minecraft:mutton": 5}, 6,
                  [("minecraft:cooked_mutton", 5), ("minecraft:cooked_beef", 1)]),
-                ("nothing raw: nothing from the bag", {}, 8, [])]
+                ("must fail: nothing raw: nothing from the bag", {}, 8, [])]
         for name, have, n, want in rows:
             with self.subTest(name):
                 self.assertEqual(planner.cooked_from_carried(cooked, lambda t, h=have: h.get(t, 0), n), want)
@@ -2298,7 +2298,7 @@ class FoodFromTheBag(unittest.TestCase):
                   ("smelt", "minecraft:cooked_porkchop", 6)]),
                 ("nothing raw, pigs 30 away: hunt", [("coal", 4)], 2, {"pig": 30},
                  [("hunt", "minecraft:porkchop", 2), ("smelt", "minecraft:cooked_porkchop", 2)]),
-                ("8 cooked carried: nothing", [("cooked_beef", 8)], 8, {}, [])]
+                ("must fail: 8 cooked carried: nothing", [("cooked_beef", 8)], 8, {}, [])]
         for name, carried, n, seen, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 m = Memory(os.path.join(tmp, "notes.json"))
@@ -2425,7 +2425,7 @@ class Reflexes(unittest.TestCase):
     COOLING = [("none cooling: both, in table order", set(), [(1, "eat"), (2, "reach land")]),
                ("eat cooling: skipped, reach land still due", {"eat"}, [(2, "reach land")]),
                ("reach land cooling: eat alone", {"reach land"}, [(1, "eat")]),
-               ("both cooling: nothing due though both fire", {"eat", "reach land"}, [])]
+               ("must fail: both cooling: nothing due though both fire", {"eat", "reach land"}, [])]
 
     def test_cooling_reflexes_are_skipped(self):
         from bonobo import reflexes
@@ -2447,7 +2447,7 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
 
     ROWS = [("night outside, a pickaxe: shelter fires", dict(time_of_day=NIGHT, inv=[("cooked_beef", 8),
                                                                                    ("stone_pickaxe", 1)])),
-            ("night outside, bed makings: a bed needed, no shelter", dict(
+            ("must fail: night outside, bed makings: a bed needed, no shelter", dict(
                 time_of_day=NIGHT, inv=[("cooked_beef", 8), ("white_wool", 3), ("oak_planks", 3),
                                         ("crafting_table", 1)])),
             ("dusk, wool and no planks: the bed's parts needed", dict(time_of_day=DUSK,
@@ -2510,7 +2510,7 @@ class RawOnlyWhenStarving(unittest.TestCase):
     cooks it (night_first__low ate both raw beef at 8 and had nothing left to cook)."""
 
     def test_over_the_table(self):
-        rows = [("food 8, raw beef, a furnace near and coal: not eaten raw (cooked by the plan)", 8,
+        rows = [("must fail: food 8, raw beef, a furnace near and coal: not eaten raw (cooked by the plan)", 8,
                  [("beef", 2), ("coal", 2)], True, None),
                 ("food 8, raw beef, cobblestone for a furnace and planks: not eaten raw", 8,
                  [("beef", 2), ("cobblestone", 8), ("oak_planks", 4)], False, None),
@@ -2539,7 +2539,7 @@ class EstimatesRememberFirst(unittest.TestCase):
                  {"diamond_ore": 40.0}, ["diamond_ore"], 32, 40.0),
                 ("a log of any wood in sight: the nearest", {}, {"oak_log": 9.0, "birch_log": 5.0},
                  ["oak_log", "birch_log"], 48, 5.0),
-                ("nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
+                ("must fail: nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
         for name, noted, sight, blocks, radius, want in rows:
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
                 c = Cost(snapshot(state(), inventory()), finds=sight,
@@ -2567,7 +2567,7 @@ class LookingAroundAsksOnlyWhatIsUnknown(unittest.TestCase):
         rows = [("nothing noted: every kind asked", [], ["diamond_ore", "obsidian"], ["diamond_ore", "obsidian"]),
                 ("a diamond noted: not asked again", [("diamond_ore", (4, 60, 0))], ["diamond_ore", "obsidian"],
                  ["obsidian"]),
-                ("every kind noted: nothing asked", [("diamond_ore", (4, 60, 0)), ("obsidian", (5, 60, 0))],
+                ("must fail: every kind noted: nothing asked", [("diamond_ore", (4, 60, 0)), ("obsidian", (5, 60, 0))],
                  ["diamond_ore", "obsidian"], []),
                 ("a note in another dimension: still asked here", [("diamond_ore", (4, 60, 0), "minecraft:the_nether")],
                  ["diamond_ore"], ["diamond_ore"])]
@@ -2605,7 +2605,7 @@ class AnOreNotedIsEveryFormOfIt(unittest.TestCase):
         from bonobo import explore
         rows = [("diamond_ore noted: neither form asked", [("diamond_ore", (4, 60, 0))],
                  ["diamond_ore", "deepslate_diamond_ore", "obsidian"], ["obsidian"]),
-                ("the deepslate form noted: neither asked", [("deepslate_diamond_ore", (4, 0, 0))],
+                ("must fail: the deepslate form noted: neither asked", [("deepslate_diamond_ore", (4, 0, 0))],
                  ["diamond_ore", "deepslate_diamond_ore"], []),
                 ("nothing noted: both asked", [], ["diamond_ore", "deepslate_diamond_ore"],
                  ["diamond_ore", "deepslate_diamond_ore"]),
@@ -2627,7 +2627,7 @@ class ToolsThatPayForThemselves(unittest.TestCase):
         from bonobo.planner import NullCost, Planner
         kit = {"minecraft:oak_planks": 8, "minecraft:stick": 4, "minecraft:crafting_table": 1}
         rows = [("12 logs, planks and sticks carried: an axe first", kit, [], [("log", 12)], "minecraft:wooden_axe"),
-                ("2 logs: saves less than the axe costs, none", kit, [], [("log", 2)], None),
+                ("must fail: 2 logs: saves less than the axe costs, none", kit, [], [("log", 2)], None),
                 ("12 logs, an empty bag: the axe would need the logs, none", {}, [], [("log", 12)], None),
                 ("12 logs, an axe held: none made", kit, [("axe", 0, 50)], [("log", 12)], None),
                 ("8 beef (4 kills), planks and sticks: a sword first", kit, [], [("minecraft:beef", 8)],
@@ -2679,7 +2679,7 @@ class WhatTheFurnaceHolds(unittest.TestCase):
     def test_over_the_table(self):
         job = {"id": "furnace-1", "item": "minecraft:cooked_beef", "count": 4, "input": "minecraft:beef",
                "input_count": 4}
-        rows = [("all taken, nothing left cooking: over", 4, 0, None, None),
+        rows = [("must fail: all taken, nothing left cooking: over", 4, 0, None, None),
                 ("2 taken, 2 still in the input: holds 2, ready in 25 s", 2, 2, 1000, {"count": 2, "input_count": 2,
                                                                                     "ready_at": 25.0,
                                                                                     "ready_tick": 1000 + 420}),

@@ -89,7 +89,7 @@ class RulesAreWired(unittest.TestCase):
 
     # fixture: (module source) → how many assignments write a message (not None) into api.INTERRUPT
     WRITES = [("a message written", "api.INTERRUPT = 'stop'\n", 1),
-              ("cleared with None: not a writer", "api.INTERRUPT = None\n", 0),
+              ("must fail: cleared with None: not a writer", "api.INTERRUPT = None\n", 0),
               ("two writes in one function", "def f():\n    api.INTERRUPT = x\n    api.INTERRUPT = 'y'\n", 2),
               ("another module's INTERRUPT is not api's", "other.INTERRUPT = 'x'\n", 0),
               ("reading it is not writing it", "x = api.INTERRUPT\n", 0)]
@@ -177,7 +177,7 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
               [("safety", "claude: look at this")], None),
              ("lava under a soft skill: the message only, the skill takes cover itself",
               dict(inLava=True, control=RUNNING), True, None, [], "lava"),
-             ("lava, nothing running: nothing to stop", dict(inLava=True), False, None, [], None),
+             ("must fail: lava, nothing running: nothing to stop", dict(inLava=True), False, None, [], None),
              ("all well under a running task: nothing", dict(control=RUNNING), False, None, [], None)]
 
     def test_perception_stops_only_through_the_arbiter(self):
@@ -253,7 +253,7 @@ class EveryLookIsVetted(unittest.TestCase):
     VET = [("a look through an enderman's head, in the End", {"type": "look", "x": 12, "y": 69, "z": 0}, END,
             "aim at 12,69,0 crosses an enderman's head"),
            ("the same direction below the head", {"type": "look", "x": 12, "y": 64, "z": 0}, END, None),
-           ("the same aim in the Overworld: no endermen to vet for",
+           ("must fail: the same aim in the Overworld: no endermen to vet for",
             {"type": "look", "x": 12, "y": 69, "z": 0}, dict(END, dimension="minecraft:overworld"), None),
            ("a task that does not aim", {"type": "goto", "x": 12, "y": 69, "z": 0}, END, None),
            ("an aiming task with no place to aim at", {"type": "attack", "entity": 7}, END, None)]
@@ -267,7 +267,7 @@ class EveryLookIsVetted(unittest.TestCase):
                 self.assertEqual(api.vet_aim(task), want)
 
     # (situation, the target, the entities handed in as `near`) → shot (else refused)
-    SHOOT = [("through an enderman's head: refused", {"id": 1, "x": 12, "y": 69, "z": 0}, ENDERMEN, False),
+    SHOOT = [("must fail: through an enderman's head: refused", {"id": 1, "x": 12, "y": 69, "z": 0}, ENDERMEN, False),
              ("level, below the heads: shot", {"id": 1, "x": 12, "y": 64, "z": 0}, ENDERMEN, True),
              ("the crystal, well clear of them: shot", ENDERMEN[2], ENDERMEN, True),
              ("through a head, but nothing handed in to vet against: shot", {"id": 1, "x": 12, "y": 69, "z": 0},

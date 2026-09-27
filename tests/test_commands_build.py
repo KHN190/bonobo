@@ -46,7 +46,7 @@ class PlotResume(unittest.TestCase):
     def test_the_started_plot_is_found_again(self):
         # (situation, tasks already done) → the centre the resume picks (None: a fresh plot is chosen elsewhere)
         full = farming.plot_commands(CENTRE, HOE)
-        rows = [("nothing begun", 0, None), ("the water in, nothing sown", 2, CENTRE),
+        rows = [("must fail: nothing begun", 0, None), ("the water in, nothing sown", 2, CENTRE),
                 ("half the ring sown", 10, CENTRE), ("every cell sown: finished, not begun", 18, None)]
         for name, k, want in rows:
             with self.subTest(name):
@@ -62,7 +62,7 @@ class PartialChain(unittest.TestCase):
         ok, far, other = {"status": "succeeded"}, {"status": "failed", "message": "cannot reach (-1, 63, -1)"}, \
             {"status": "failed", "message": "no seeds"}
         # (situation, results) → the cells banned
-        rows = [("all done: none", [ok] * 4, []),
+        rows = [("must fail: all done: none", [ok] * 4, []),
                 ("the till out of reach: its cell", [ok, ok, far, ok], [(-1.0, 63.0, -1.0)]),
                 ("a failure that is not reach: asked again, not banned", [ok, ok, ok, other], []),
                 ("the dig out of reach: the centre", [far, ok, ok, ok], [(0, 63, 0)])]
@@ -75,7 +75,7 @@ class Sow(unittest.TestCase):
     def test_sow_commands(self):
         rows = [("three cells", [(0, 63, 0), (1, 63, 0), (2, 63, 0)], 3),
                 ("one cell", [(0, 63, 0)], 1),
-                ("none", [], 0),
+                ("must fail: none", [], 0),
                 ("the same cell twice is sown twice (the caller dedups)", [(0, 63, 0)] * 2, 2)]
         for name, cells, n in rows:
             with self.subTest(name):

@@ -39,7 +39,7 @@ class PickTrunks(unittest.TestCase):
              [[(5, 64, 0), (5, 65, 0)], [(0, 64, 0)]]),
             ("a branch one block off joins its trunk", [(0, 64, 0), (1, 66, 1)], [[(0, 64, 0), (1, 66, 1)]]),
             ("two blocks off is another trunk", [(0, 64, 0), (2, 64, 0)], [[(0, 64, 0)], [(2, 64, 0)]]),
-            ("nothing seen: no trunks", [], [])]
+            ("must fail: nothing seen: no trunks", [], [])]
 
     def test_trunks(self):
         from bonobo import wood
@@ -166,7 +166,7 @@ class Returns(unittest.TestCase):
         ("mine_stone's circle: approach ↔ mine five times", ([GO, MINE] * 5,), 8),
         ("edge: one step back is one return", ([GO, MINE, GO],), 1),
         ("a batch that advances: the report changes", ([("t", f"mine_many {i}/5", 0, 64, 0) for i in range(5)],), 0),
-        ("nothing seen", ([],), 0),
+        ("must fail: nothing seen", ([],), 0),
     ]
 
     def test_table(self):
@@ -184,7 +184,7 @@ class NotedHits(unittest.TestCase):
     TABLE = [
         ("a noted diamond: that cell", ([{"kind": "diamond_ore", "pos": [4, 60, 0]}], ["diamond_ore"], set(), set()),
          [(4, 60, 0)]),
-        ("a note of another block: nothing (then /find)", ([{"kind": "iron_ore", "pos": [4, 60, 0]}], ["diamond_ore"],
+        ("must fail: a note of another block: nothing (then /find)", ([{"kind": "iron_ore", "pos": [4, 60, 0]}], ["diamond_ore"],
                                                            set(), set()), []),
         ("the noted cell banned: nothing", ([{"kind": "diamond_ore", "pos": [4, 60, 0]}], ["diamond_ore"],
                                             {(4, 60, 0)}, set()), []),

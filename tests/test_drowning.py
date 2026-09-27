@@ -132,7 +132,7 @@ class AirRoute(unittest.TestCase):
              ("pillar", (0, 64, 0), PILLAR_WHY)),
             ("water capped by stone: dig the cap", ground(66) | {(0, y, 0): "water" for y in range(58, 64)},
              (0, 59, 0), ("dig", (0, 64, 0), "water capped, no air within reach: dig the cap")),
-            ("water to the top of what was read: no way", pool(8, top=72), (0, 60, 0), None)]
+            ("must fail: water to the top of what was read: no way", pool(8, top=72), (0, 60, 0), None)]
 
     def test_route_over_the_table(self):
         for name, blocks, head, want in self.ROWS:
@@ -145,7 +145,7 @@ class Breathed(unittest.TestCase):
 
     # (situation, [(t, head under water, air)]) → breathing
     ROWS = [("out 2 s, lungs full", [(0.0, False, 200), (1.0, False, 280), (2.0, False, 300)], True),
-            ("out 2 s, lungs not yet full", [(0.0, False, 150), (1.0, False, 230), (2.0, False, 290)], False),
+            ("must fail: out 2 s, lungs not yet full", [(0.0, False, 150), (1.0, False, 230), (2.0, False, 290)], False),
             ("full, out only 1.5 s", [(0.5, False, 290), (1.0, False, 300), (2.0, False, 300)], False),
             ("surfaced, sank back, out again 1 s", [(0.0, False, 300), (1.0, True, 300), (1.5, False, 300),
                                                     (2.5, False, 300)], False),
@@ -168,7 +168,7 @@ class Surface(unittest.TestCase):
             ("on the bottom digging, air at the floor", wet(110, on_ground=True), "drowning",
              [("post", "/stop"), "find_air"]),
             ("air for 7 s between tasks (slack ≤ 2)", wet(140), "drowning", [("post", "/stop"), "find_air"]),
-            ("full lungs, swimming: nothing due", wet(300), None, []),
+            ("must fail: full lungs, swimming: nothing due", wet(300), None, []),
             ("dry land: nothing due", DRY, None, [])]
 
     def test_rescue_over_the_table(self):

@@ -24,7 +24,7 @@ class ThePlannerDrivesTheDragon(unittest.TestCase):
             ("everything refused by the planner: back into cover",
              {"phase": 4, "elapsed": 0.8, "beds": 0, "tunnel": False, "crystals": 0, "obsidian": 0},
              dict(cover=(5, 62, 0)), "evade"),
-            ("the dragon dead: nothing posted", {}, dict(dead=True), None)]
+            ("must fail: the dragon dead: nothing posted", {}, dict(dead=True), None)]
 
     def test_plan_to_post(self):
         fight = fight_plan.Fight()
@@ -101,7 +101,7 @@ class PerceptionBidsThreats(unittest.TestCase):
 
     STATE = {"x": 0.0, "y": 64.0, "z": 0.0, "health": 20, "armor": 15, "sword_tier": 2, "blocks": 0,
              "food_items": 0}
-    ROWS = [("nothing seen: nothing offered", [], None),
+    ROWS = [("must fail: nothing seen: nothing offered", [], None),
             ("a zombie 4 off, an iron sword: fight it", [_row("minecraft:zombie", 4.0)], "fight"),
             ("a zombie 40 off: nothing owed yet", [_row("minecraft:zombie", 40.0)], None),
             ("a creeper 4 off, an iron sword: fought hit-and-back, never traded with standing",
@@ -123,7 +123,7 @@ class PerceptionInterruptsOnPressure(unittest.TestCase):
     BASE = {"health": 20, "dimension": "minecraft:overworld", "control": {}, "inWater": False, "air": 300,
             "onGround": True}
     ROWS = [("full health, dead in 0.1 s at this pressure: interrupt", {}, 0.1, "hostiles"),
-            ("8 hp, nothing pressing (dead in 10 min): no interrupt (must not)", {"health": 8}, 600.0, None),
+            ("must fail: 8 hp, nothing pressing (dead in 10 min): no interrupt (must not)", {"health": 8}, 600.0, None),
             ("3 hp: the floor, whatever presses", {"health": 3}, 600.0, "critical_health"),
             ("dead in 0.1 s but swinging already: the fight answers, no interrupt",
              {"control": {"task": {"type": "attack"}}}, 0.1, None)]
@@ -147,7 +147,7 @@ class OneLoopCarriesTheFight(unittest.TestCase):
              [["attack"], "/stop", ["travel"]]),
             ("a walk re-aimed a block off: the same walk", [A("evade", (10, 64, 0)), A("evade", (11, 64, 0))],
              [["travel"]]),
-            ("nothing wanted: nothing posted", [], [])]
+            ("must fail: nothing wanted: nothing posted", [], [])]
 
     def test_passes(self):
         for name, wants, want in self.ROWS:
@@ -175,7 +175,7 @@ class RowsAreDifferencedOnce(unittest.TestCase):
         rows = [("first sight: at rest", [(1000.0, 10.0)], (0.0, 0.0, 0.0)),
                 ("2 blocks nearer in 1 s", [(1000.0, 12.0), (1001.0, 10.0)], (-2.0, 0.0, 0.0)),
                 ("the last reading 3 s old: at rest", [(1000.0, 20.0), (1003.0, 10.0)], (0.0, 0.0, 0.0)),
-                ("a neutral enderman: not a row at all", None, None)]
+                ("must fail: a neutral enderman: not a row at all", None, None)]
         for name, readings, want in rows:
             with self.subTest(name), mock.patch.dict(end._LAST_SEEN, {}, clear=True):
                 if readings is None:

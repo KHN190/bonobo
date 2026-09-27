@@ -46,7 +46,7 @@ class Rows(unittest.TestCase):
              ZOMBIE, [((8.0, 64.0, 0.0), (-2.0, 0.0, 0.0))]),
             ("the last reading is 3 s old: at rest, not a teleport", ((20.0, 64.0, 0.0), 98.0),
              {"type": "minecraft:zombie", "x": 8.0}, ZOMBIE, [((8.0, 64.0, 0.0), (0.0, 0.0, 0.0))]),
-            ("a kind nobody asked about is not a row", None, {"type": "minecraft:cow", "x": 1.0}, ZOMBIE, []),
+            ("must fail: a kind nobody asked about is not a row", None, {"type": "minecraft:cow", "x": 1.0}, ZOMBIE, []),
             ("nothing asked for, nothing built", None, {"type": "minecraft:zombie", "x": 1.0}, {}, [])]
 
     def test_rows_over_the_table(self):
@@ -132,7 +132,7 @@ class PricesForTheOtherPlanner(unittest.TestCase):
              ("a skeleton, reach 15", threat.row((10, 0, 0), 15.0, (0, 0, 0), "minecraft:skeleton"),
               [((10, 0, 0), 17.0)]),
              ("a creeper, reach 3", threat.row((10, 0, 0), 3.0, (0, 0, 0), "minecraft:creeper"), [((10, 0, 0), 5.0)]),
-             ("nothing: no circle", None, [])]
+             ("must fail: nothing: no circle", None, [])]
 
     def test_no_go_over_the_table(self):
         for name, hazard, want in self.NO_GO:
@@ -155,7 +155,7 @@ class TheFastLane(unittest.TestCase):
         return self.fight_loop.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
     # (rows in sight) → (answer, seconds it is worth), or None: no bid
-    BIDS = [("nothing near", [], None),
+    BIDS = [("must fail: nothing near", [], None),
             ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], ("fight", 197.2)),
             ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),
             ("a skeleton 10 away", [row("minecraft:skeleton", 10, 0)], ("fight", 173.1))]
@@ -273,7 +273,7 @@ class EachAnswerIsABatch(unittest.TestCase):
                "voidBridge": False, "placeBudget": 12, "avoid": []}]),
             ("eat the first food carried", ("eat",), {"counts": {"minecraft:cooked_beef": 3}},
              [{"type": "eat", "item": "minecraft:cooked_beef"}]),
-            ("eat with nothing to eat: not an answer", ("eat",), {}, []),
+            ("must fail: eat with nothing to eat: not an answer", ("eat",), {}, []),
             ("shield up with a shield in hand", ("shield",), {"offhand": "minecraft:shield"},
              [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]),
             ("shield up without one: not an answer", ("shield",), {}, []),
@@ -323,7 +323,7 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
 
     # (what perception sees, frame by frame) → is the answer done (hand the body back)?
     LOST = 3.5            # a little past fight_loop.LOST_S
-    LEASE = [("a blind moment: nothing visible for a second", [(0, []), (1.0, [])], False),
+    LEASE = [("must fail: a blind moment: nothing visible for a second", [(0, []), (1.0, [])], False),
              ("a zombie still at 4", [(0, [row("minecraft:zombie", 4, 0)]), (LOST, [row("minecraft:zombie", 4, 0)])],
               False),
              ("a zombie at 20, inside its notice radius: it follows, not over",
@@ -423,7 +423,7 @@ class Losses(unittest.TestCase):
         rows = [("a sword makes a day of fights cheaper", threat.fight_loss(self.st(sword=2)) < base, True),
                 ("armour makes the same fight cheaper in health",
                  threat.encounter_damage(self.st(armor=4))[1] < threat.encounter_damage(self.st())[1], True),
-                ("full health: no deficit to pay", threat.hurt_loss(self.st(hp=20)), 0.0),
+                ("must fail: full health: no deficit to pay", threat.hurt_loss(self.st(hp=20)), 0.0),
                 ("a deficit costs at least its regeneration",
                  threat.hurt_loss(self.st(hp=10)) >= 10 * self.R["regen_s_per_hp"], True),
                 ("0 hp is priced like 0.1 (clamped, no division by zero)",
@@ -459,7 +459,7 @@ class Kit(unittest.TestCase):
     # (situation, sword items carried (id, damage)) → the dps table's sword level
     SWORDS = [("an iron sword in the bag", [("minecraft:iron_sword", 0)], 2),
               ("a diamond sword in hand (a hotbar slot)", [("minecraft:diamond_sword", 10)], 3),
-              ("no sword: the fist", [], 0),
+              ("must fail: no sword: the fist", [], 0),
               ("a stone sword", [("minecraft:stone_sword", 0)], 1),
               ("a wooden sword: level 1 (wood/stone), not the fist", [("minecraft:wooden_sword", 0)], 1),
               ("a broken-down iron sword and a stone one: the stone", [("minecraft:iron_sword", 250),
@@ -549,7 +549,7 @@ class EvadeOnlyPostpones(unittest.TestCase):
         cases = [("a zombie 20 from the spot: notices (35)", row("minecraft:zombie", 20, 0), True),
                  ("a zombie 50 from the spot: left behind", row("minecraft:zombie", 50, 0), False),
                  ("a skeleton 15 off: in reach", row("minecraft:skeleton", 15, 0), True),
-                 ("a skeleton 30 off: neither", row("minecraft:skeleton", 30, 0), False)]
+                 ("must fail: a skeleton 30 off: neither", row("minecraft:skeleton", 30, 0), False)]
         for name, h, want in cases:
             with self.subTest(name):
                 self.assertIs(estimate.follows_to(HERE, h), want)
@@ -593,7 +593,7 @@ class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
     def test_eat_options_over_the_table(self):
-        rows = [("mid-melee, 6 hp, bread: not an answer (regen needs quiet)", dict(hp=6, food_items=4, hunger=10), 2.0,
+        rows = [("must fail: mid-melee, 6 hp, bread: not an answer (regen needs quiet)", dict(hp=6, food_items=4, hunger=10), 2.0,
                  []),
                 ("walled in, 6 hp, bread, hungry: eat", dict(hp=6, food_items=4, hunger=10), 0.1, [("eat", None, 6.0)]),
                 ("mid-melee, 6 hp, a golden apple: eat it now", dict(hp=6, golden_apples=1), 2.0,
