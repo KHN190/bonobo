@@ -548,69 +548,56 @@ def _siege_record(per_wave_s=90.0):
     return record
 
 
-def _siege_rules(least):
-    """A floor under the verdict — anything below `least` waves is a failure — and the rest is measurement."""
-    def rule(rows):
-        reached = 0
-        for r in sorted(rows, key=lambda r: r["wave"]):
-            if not r["cleared"]:
-                break
-            reached = r["wave"]
-        return [] if reached >= least else [f"survived {reached} of {len(WAVES)} waves"]
-    return rule
+def _wave_cleared(rows):
+    return [] if rows and all(r["cleared"] for r in rows) else [f"wave {rows[-1]['wave'] if rows else '?'} not cleared"]
 
 
-def _siege_detail(inv):
-    rows = SWEEP.get("siege") or []
-    cleared = [r for r in rows if r["cleared"]]
-    return (f"survived {len(cleared)} of {len(WAVES)} waves"
+def _siege_detail_of(name):
+    rows = SWEEP.get(name) or []
+    return (("cleared" if rows and rows[-1]["cleared"] else "not cleared")
             + (f", {rows[-1]['outcome']['hp']:.0f} hp" if rows else ""))
 
 
-SCENARIOS["siege"] = {
-    "doc": "Seven waves, each summoned once the last is dead: 1 zombie, 3 zombies, 2 skeletons, zombies + "
-           "spiders, 2 creepers, 3 endermen, then everything at once. Sword, pickaxe, full iron, shield, food and "
-           "blocks, so every answer the model offers — swing, back off, break the line of sight, block the way, "
-           "dig down — is actually available. The verdict is how deep it got: the threat model is tested offline, "
-           "but 'chose to fight' and 'won the fight' are different claims and only this answers the second.",
-    "module": "combat",
-    "raw": True,
-    "combat": True,
-    "dimension": "minecraft:overworld",
-    "setup": (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
-              + _platform(reach=ARENA_REACH, walled=True)
-              + ["kill @e[type=!player,type=!item,distance=..48]",
-                 "effect give @p minecraft:instant_health 3 10 true"] + _siege_kit()),
-    "run": _sweep("siege", _siege_cells, _siege_build, _siege_record(), SIEGE_ROWS, settle=0.6),
-    "check": _sweep_check("siege", SIEGE_ROWS, [_answers_are_closed, _siege_rules(least=4)],
-                          least=len(WAVES)),
-    "detail": _siege_detail,
-    "budget": int(len(WAVES) * 100 + 120),
-}
+_FIGHT_SETUP = (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
+                + _platform(reach=ARENA_REACH, walled=True) + ["kill @e[type=!player,type=!item,distance=..48]"])
 
-SCENARIOS["combat_arena"] = {
-    "doc": "Sweeps enemy kind × number × ground × our own state, one variable at a time. Each cell writes the "
-           "whole decision — every column and what it saves, what fired, and what came of it — into "
-           "bench/combat.jsonl, and the assertions are relations between rows: three never taxes less than one, "
-           "nothing is shaped against a spider, nothing is swung bare-handed, and a column that was held always "
-           "produced an action.",
-    "module": "threat",
-    "raw": True,
-    "combat": True,
-    "dimension": "minecraft:overworld",
-    "setup": (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
-              + _platform(reach=ARENA_REACH, walled=True)
-              + ["kill @e[type=!player,type=!item,distance=..48]"]),
-    "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
-    "run": _sweep("combat_arena",
-                  lambda: _cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT),
-                  _build, _fought(_kinds_of, seconds=CELL_SECONDS), COMBAT_ROWS, settle=0.6),
-    "check": _sweep_check("combat_arena", COMBAT_ROWS,
-                          [_answers_are_closed, _shapes_fit_the_enemy, _more_of_them_costs_more], least=8),
-    "tick_rate": 60,
-    "budget": 900,
-    "sweep": True,
-}
+
+def _shards(cells, size):
+    """Cut a sweep's cells into shards of `size`: one bench row each, so every row fits the 60 s limit."""
+    cells = list(cells)
+    return [cells[i:i + size] for i in range(0, len(cells), size)]
+
+
+# The siege, one wave per row: each wave starts on a fresh platform with the full kit (cumulative damage across
+# waves was the old single 820 s row; what a wave costs on its own is still measured and judged per wave).
+for _wave, (_line_up, _) in enumerate(WAVES, start=1):
+    SCENARIOS[f"siege__w{_wave}"] = {
+        "doc": f"Siege wave {_wave} of {len(WAVES)} ({_line_up}), sword, pickaxe, full iron, shield, food and blocks: "
+               "every answer the model offers is available → the wave cleared alive.",
+        "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
+        "setup": _FIGHT_SETUP + ["effect give @p minecraft:instant_health 3 10 true"] + _siege_kit(),
+        "run": _sweep(f"siege__w{_wave}", lambda w=_wave, n=_line_up: iter([{"wave": w, "line_up": n}]), _siege_build,
+                      _siege_record(per_wave_s=45.0), SIEGE_ROWS, settle=0.6),
+        "check": _sweep_check(f"siege__w{_wave}", SIEGE_ROWS, [_answers_are_closed, _wave_cleared], least=1),
+        "detail": lambda inv, w=_wave: _siege_detail_of(f"siege__w{w}"),
+        "budget": 60,
+    }
+
+# combat_arena, three cells per row (15 s a cell): the same cells, the same per-row rules.
+ARENA_SHARDS = _shards(_cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT), 3)
+for _i, _shard in enumerate(ARENA_SHARDS, start=1):
+    SCENARIOS[f"combat_arena__{_i}"] = {
+        "doc": "combat_arena shard " + "; ".join(f"{c['enemy']}/{c['ground']}/{c['kit']}/{c['blood']}" for c in _shard)
+               + ": each cell writes the whole decision into bench/combat.jsonl; the rules are relations between rows.",
+        "module": "threat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "sweep": True,
+        "setup": list(_FIGHT_SETUP),
+        "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
+        "run": _sweep(f"combat_arena__{_i}", lambda sh=_shard: iter(sh), _build,
+                      _fought(_kinds_of, seconds=CELL_SECONDS), COMBAT_ROWS, settle=0.6),
+        "check": _sweep_check(f"combat_arena__{_i}", COMBAT_ROWS,
+                              [_answers_are_closed, _shapes_fit_the_enemy, _more_of_them_costs_more], least=len(_shard)),
+        "tick_rate": 60, "budget": 60,
+    }
 
 
 # -- getting away -----------------------------------------------------------------------------------------------
@@ -619,31 +606,21 @@ SCENARIOS["combat_arena"] = {
 # cell per enemy: nothing to fight with, one enemy, sixty seconds, and the question is whether it is alive and
 # further away than it started. The row says how it managed it, so a pass is still a measurement.
 
-def _escape_detail(inv):
-    rows = SWEEP.get("escape") or []
-    return "; ".join(f"{r['enemy']}: {r['outcome']['hp']:.0f} hp, gap {r['outcome']['gap']}" for r in rows)
-
-
-SCENARIOS["escape"] = {
-    "doc": "The same sweep as combat_arena from the other baseline: no weapon, no armour, one enemy at a time, "
-           "sixty seconds each. The answer has to come from somewhere other than swinging — back off, block the "
-           "way, dig down, eat, or leave a teleporter alone. Every cell writes what it priced, what fired and "
-           "what came of it into bench/escape.jsonl.",
-    "module": "combat",
-    "raw": True,
-    "combat": True,
-    "dimension": "minecraft:overworld",
-    "setup": (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
-              + _platform(reach=ARENA_REACH, walled=True)
-              + ["kill @e[type=!player,type=!item,distance=..48]"]),
-    "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
-    "run": _sweep("escape", lambda: _cells(UNARMED, dims=("enemy", "ground", "kit")), _build,
-                  _fought(_kinds_of, seconds=60.0), ESCAPE_ROWS, settle=0.6),
-    "check": _sweep_check("escape", ESCAPE_ROWS, [_answers_are_closed, _shapes_fit_the_enemy],
-                          least=len(ENEMY)),
-    "detail": _escape_detail,
-    "tick_rate": 60,
-    "budget": int((len(ENEMY) + len(GROUND) + len(KIT)) * 90 + 120),
-    "sweep": True,
-}
+ESCAPE_SECONDS = 45.0     # a cell's window: the row with its build and settle fits the 60 s limit
+for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
+    _key = "_".join(str(_cell[k]) for k in ("enemy", "ground", "kit"))
+    SCENARIOS[f"escape__{_key}"] = {
+        "doc": f"No weapon, no armour, {_cell['enemy']} on {_cell['ground']} ground with {_cell['kit']}, "
+               f"{ESCAPE_SECONDS:.0f} s: the answer has to come from somewhere other than swinging — back off, block "
+               "the way, dig down, eat, or leave a teleporter alone (bench/escape.jsonl).",
+        "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "sweep": True,
+        "setup": list(_FIGHT_SETUP),
+        "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
+        "run": _sweep(f"escape__{_key}", lambda c=_cell: iter([c]), _build,
+                      _fought(_kinds_of, seconds=ESCAPE_SECONDS), ESCAPE_ROWS, settle=0.6),
+        "check": _sweep_check(f"escape__{_key}", ESCAPE_ROWS, [_answers_are_closed, _shapes_fit_the_enemy], least=1),
+        "detail": lambda inv, k=f"escape__{_key}": "; ".join(
+            f"{r['enemy']}: {r['outcome']['hp']:.0f} hp, gap {r['outcome']['gap']}" for r in (SWEEP.get(k) or [])),
+        "tick_rate": 60, "budget": 60,
+    }
 

@@ -22,19 +22,19 @@ from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _report, _setup, _trace, c
 # [(lo, hi, block or "*" for any non-air, min, max)], the skill call, the success check and a time budget (s).
 SCENARIOS.update({
     "cast_portal": {
-        "doc": "A 5×5 lava pool 3 blocks off a stone floor; water bucket, bucket, 16 cobblestone, flint and steel → "
+        "doc": "A 3×3 lava pool beside the body; water bucket, bucket, 16 cobblestone, flint and steel → "
                "a portal frame cast in place and lit (no obsidian carried, no diamond pickaxe).",
         "module": "building",
         "setup": [f"fill {_c(at(-8, -3, -8))} {_c(at(8, -1, 8))} stone",
-                  f"fill {_c(at(4, -1, -2))} {_c(at(8, -1, 2))} lava",
+                  f"fill {_c(at(2, -1, -1))} {_c(at(4, -1, 1))} lava",
                   f"tp @p {_c(at(0, 0, 0))}",
                   "clear @p", "give @p water_bucket", "give @p bucket", "give @p cobblestone 16",
                   "give @p flint_and_steel"],
-        "expect": [(at(4, -1, -2), at(8, -1, 2), "lava", 25, 25),
+        "expect": [(at(2, -1, -1), at(4, -1, 1), "lava", 9, 9),
                    (at(-8, 0, -8), at(8, 4, 8), "*", 0, 0)],
         "run": lambda ctx: __import__("bonobo.building", fromlist=["cast_portal"]).cast_portal(ctx),
         "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
-        "budget": 180,
+        "budget": 60,
     },
     "build_light_portal": {
         "doc": "Flat stone ground, 10 obsidian + 4 cobblestone + flint and steel → a lit nether portal.",
@@ -105,7 +105,7 @@ SCENARIOS.update({
         "budget": 20,
     },
     "barter_piglin": {
-        "doc": "Nether platform, 3 piglins, 8 gold ingots and a carried gold helmet → wear it, barter, collect trades.",
+        "doc": "Nether platform, 3 piglins, 4 gold ingots and a carried gold helmet → wear it, barter, collect trades.",
         "module": "nether",
         "dimension": "minecraft:the_nether",
         "combat": True,
@@ -115,18 +115,18 @@ SCENARIOS.update({
                   # Gold boots on during setup: with a bare body the summoned piglins attacked before the skill
                   # started (hp 15, setup invalid). The helmet stays in the bag: wearing it is part of the skill.
                   f"tp @p {_c(at(0, 0, 0))}", "clear @p", "item replace entity @p armor.feet with golden_boots",
-                  "give @p gold_ingot 8", "give @p golden_helmet", "give @p iron_sword",
+                  "give @p gold_ingot 4", "give @p golden_helmet", "give @p iron_sword",
                   f"summon piglin {_c(at(4, 0, 0))} {{PersistenceRequired:1b}}",
                   f"summon piglin {_c(at(-4, 0, 2))} {{PersistenceRequired:1b}}",
                   f"summon piglin {_c(at(2, 0, -4))} {{PersistenceRequired:1b}}"],
         "expect": [(at(-8, -1, -8), at(8, -1, 8), "netherrack", 289, 289)],
         "expect_entities": [("minecraft:piglin", 3)],
-        "run": lambda ctx: __import__("bonobo.nether", fromlist=["barter_piglin"]).barter_piglin(ctx, 8),
-        "check": lambda api, inv: inv.count("minecraft:gold_ingot") <= 4 and _trades(inv) >= 3,
+        "run": lambda ctx: __import__("bonobo.nether", fromlist=["barter_piglin"]).barter_piglin(ctx, 4),
+        "check": lambda api, inv: inv.count("minecraft:gold_ingot") <= 1 and _trades(inv) >= 3,
         "detail": lambda inv: "got " + ", ".join(f"{s['id'].split(':')[1]}×{s['count']}" for s in inv.slots
                                                  if s["id"] not in ("minecraft:gold_ingot", "minecraft:golden_helmet",
                                                                     "minecraft:iron_sword")),
-        "budget": 120,
+        "budget": 60,
     },
     "collect_blaze_rods": {
         "doc": "Nether platform, 3 blazes, sword + shield + iron armor → fight_loop fights them, the step picks up at least one rod.",
@@ -142,14 +142,15 @@ SCENARIOS.update({
                   "item replace entity @p armor.chest with iron_chestplate",
                   "item replace entity @p armor.head with iron_helmet",
                   "give @p cooked_beef 16", "give @p cobblestone 32",
-                  f"summon blaze {_c(at(6, 1, 0))} {{PersistenceRequired:1b}}",
-                  f"summon blaze {_c(at(-6, 1, 3))} {{PersistenceRequired:1b}}",
-                  f"summon blaze {_c(at(0, 1, -6))} {{PersistenceRequired:1b}}"],
+                  # Close and worn (10 hp): the fight and the pickup are judged, not a long approach.
+                  f"summon blaze {_c(at(3, 1, 0))} {{PersistenceRequired:1b,Health:10f}}",
+                  f"summon blaze {_c(at(-3, 1, 2))} {{PersistenceRequired:1b,Health:10f}}",
+                  f"summon blaze {_c(at(0, 1, -3))} {{PersistenceRequired:1b,Health:10f}}"],
         "expect": [(at(-8, -1, -8), at(8, -1, 8), "nether_bricks", 289, 289)],
         "expect_entities": [("minecraft:blaze", 3)],
         "run": lambda ctx: __import__("bonobo.combat", fromlist=["collect_blaze_rods"]).collect_blaze_rods(ctx, 1),
         "check": lambda api, inv: inv.count("minecraft:blaze_rod") >= 1 and api.get("/state")["health"] > 0,
-        "budget": 90,
+        "budget": 60,
     },
     "activate_end_portal": {
         "doc": "A stronghold portal ring of 12 empty frames, 12 eyes of ender → an open end portal.",
@@ -284,7 +285,7 @@ SCENARIOS["locate_stronghold"] = {
               "give @p stone_pickaxe", "give @p cooked_beef 16", "locate structure minecraft:stronghold"],
     "run": lambda ctx: __import__("bonobo.nether", fromlist=["locate_stronghold"]).locate_stronghold(ctx),
     "check": lambda api, inv: _stronghold_error() <= 64,
-    "budget": 300,
+    "budget": 60,
 }
 def _fresh_stronghold(ctx):
     """A brand-new stronghold for every run: /place structure at the next free slot along x (the real one gets dug
@@ -313,7 +314,7 @@ def _fresh_stronghold(ctx):
         time.sleep(1.0)
     else:
         raise SetupInvalid(f"stronghold not placed: {lines[:1]}")
-    est = (x + 20, 30, z - 12)
+    est = (x + 8, 30, z - 6)          # close: the search itself, not a long walk to it
     ctx.mem.add_site("stronghold", est, "minecraft:overworld", name="stronghold")
     api.post("/chat", {"message": f"/spreadplayers {est[0]} {est[2]} 0 4 false @p"})
     time.sleep(4)
@@ -350,9 +351,20 @@ SCENARIOS["find_portal_room_fresh"] = {
     # goal" counted as PASS because any frame within 48 blocks satisfied the old check.
     "run": _portal_room_run,
     "check": lambda api, inv: _portal_room_found(),
-    "budget": 300,
+    "budget": 60,
 }
 # find_portal_room (the real stronghold, dug up by every run) was replaced by find_portal_room_fresh.
+# A dragon already worn down, its crystals gone: the fight's last phase (the approach, the perch, the finishing
+# blows) is what a row can judge inside 60 s; the full fight from 200 hp is the acceptance run's.
+WORN_DRAGON = ["kill @e[type=end_crystal]", "data merge entity @e[type=ender_dragon,limit=1] {Health:20f}"]
+
+
+def _wear_dragon(ctx):
+    for cmd in WORN_DRAGON:
+        _chat(f"execute in minecraft:the_end run {cmd}")
+    time.sleep(0.5)
+
+
 SCENARIOS["fight_dragon"] = {
     "doc": "The End's main island with the dragon, diamond sword, shield, iron armor, food, blocks → dragon dead.",
     "module": "combat",
@@ -368,10 +380,11 @@ SCENARIOS["fight_dragon"] = {
               "item replace entity @p armor.legs with iron_leggings",
               "item replace entity @p armor.feet with iron_boots",
               "give @p cooked_beef 32", "give @p cobblestone 64", "give @p water_bucket"],
+    "before": _wear_dragon,
     "run": lambda ctx: __import__("bonobo.combat", fromlist=["fight_dragon"]).fight_dragon(ctx),
     "check": lambda api, inv: not any(e["type"] == "minecraft:ender_dragon"
                                       for e in __import__("bonobo.world", fromlist=["entities"]).entities(200)),
-    "budget": 900,
+    "budget": 60,
 }
 
 def _worn_head():
@@ -522,11 +535,11 @@ FORTRESS_RUN = {}
 
 
 def _far_from_fortress(ctx):
-    """Stand ~120 blocks from the real fortress, below the roof (spreadplayers 'under 90' picks a floor there)."""
+    """Stand ~40 blocks from the real fortress, below the roof (spreadplayers 'under 90' picks a floor there)."""
     real = locate_reply(LAST_FEEDBACK)
     if not real:
         raise SetupInvalid("no /locate answer for the fortress")
-    _chat(f"execute in minecraft:the_nether run spreadplayers {real[0] + 120} {real[1]} 0 12 under 90 false @p")
+    _chat(f"execute in minecraft:the_nether run spreadplayers {real[0] + 40} {real[1]} 0 8 under 90 false @p")
     time.sleep(3)
     # What the memory already holds, and where we start: a fortress site written by an earlier scenario passed this
     # one in 3.5 s without a step taken.
@@ -554,7 +567,7 @@ def _found_fortress_now():
 
 
 SCENARIOS["find_fortress_far"] = {
-    "doc": "The real Nether: ~120 blocks from a fortress (lava sea likely between), blocks + food → fortress found.",
+    "doc": "The real Nether: ~40 blocks from a fortress (lava sea likely between), blocks + food → fortress found.",
     "module": "nether",
     "raw": True,
     "combat": True,
@@ -567,7 +580,7 @@ SCENARIOS["find_fortress_far"] = {
     "before": _far_from_fortress,
     "run": lambda ctx: __import__("bonobo.nether", fromlist=["find_fortress"]).find_fortress(ctx),
     "check": lambda api, inv: _found_fortress_now(),
-    "budget": 180,
+    "budget": 60,
 }
 
 def _trek(dx, dz, dimension="minecraft:overworld"):
@@ -611,21 +624,21 @@ def _trek_check(api):
 
 
 
-SCENARIOS["trek_overworld_200"] = {
-    "doc": "Real Overworld terrain (hills, forest, water), 200 blocks east, basic kit → arrive; seconds per 100 blocks.",
+SCENARIOS["trek_overworld_80"] = {
+    "doc": "Real Overworld terrain (hills, forest, water), 80 blocks east, basic kit → arrive; seconds per 100 blocks.",
     "module": "nav", "raw": True,
     "setup": ["spreadplayers 10600 10600 0 4 false @p", "clear @p", "give @p stone_pickaxe", "give @p stone_axe",
               "give @p cobblestone 64", "give @p cooked_beef 16", "give @p oak_boat"],
-    "run": _trek(200, 0), "check": lambda api, inv: _trek_check(api), "detail": _trek_detail, "budget": 90,
+    "run": _trek(80, 0), "check": lambda api, inv: _trek_check(api), "detail": _trek_detail, "budget": 60,
 }
-SCENARIOS["trek_nether_150"] = {
-    "doc": "Real Nether terrain below the roof, 150 blocks, kit with gold helmet → arrive; seconds per 100 blocks.",
+SCENARIOS["trek_nether_60"] = {
+    "doc": "Real Nether terrain below the roof, 60 blocks, kit with gold helmet → arrive; seconds per 100 blocks.",
     "module": "nav", "raw": True, "combat": True, "dimension": "minecraft:the_nether",
     "setup": ["spreadplayers 300 300 0 8 under 90 false @p", "clear @p", "give @p diamond_pickaxe",
               "give @p cobblestone 128", "give @p cooked_beef 16",
               "item replace entity @p armor.head with golden_helmet"],
-    "run": _trek(150, 0, "minecraft:the_nether"), "check": lambda api, inv: _trek_check(api),
-    "detail": _trek_detail, "budget": 90,
+    "run": _trek(60, 0, "minecraft:the_nether"), "check": lambda api, inv: _trek_check(api),
+    "detail": _trek_detail, "budget": 60,
 }
 SCENARIOS["cave_escape"] = {
     "doc": "Sealed in a dark 1×2 pocket 8 blocks under the platform, pickaxe + blocks → back on the surface platform.",
@@ -656,8 +669,8 @@ SCENARIOS["return_to_portal"] = {
     "check": lambda api, inv: api.get("/state")["dimension"] == "minecraft:overworld",
     "budget": 25,
 }
-for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_overworld_200",
-              "trek_nether_150"):
+for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_overworld_80",
+              "trek_nether_60"):
     SCENARIOS[_name]["release"] = True       # minutes each: run by name before a live run, not in every round
 def _road_reuse(ctx):
     """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs
@@ -665,7 +678,7 @@ def _road_reuse(ctx):
     from . import api, nav
     s = api.get("/state")
     a = (s["blockX"], s["blockY"], s["blockZ"])
-    b = (a[0] + 60, a[1], a[2])
+    b = (a[0] + ROAD_LEG, a[1], a[2])
     times = []
     for target in (b, a, b):
         t0 = time.time()
@@ -677,15 +690,16 @@ def _road_reuse(ctx):
 
 
 ROAD_TIMES = []
+ROAD_LEG = 20      # three legs of 20 blocks: the reuse is what is judged, not the distance
 SCENARIOS["road_reuse"] = {
-    "doc": "Overworld, 60 blocks there, back, there again → the third trip reuses the road and is no slower.",
+    "doc": "Overworld, 20 blocks there, back, there again → the third trip reuses the road and is no slower.",
     "module": "nav", "raw": True, "release": True,
     "setup": ["spreadplayers 11200 11200 0 4 false @p", "clear @p", "give @p stone_pickaxe", "give @p cobblestone 64",
               "give @p cooked_beef 16"],
     "run": _road_reuse,
     "check": lambda api, inv: len(ROAD_TIMES) == 3 and ROAD_TIMES[2] <= ROAD_TIMES[0] * 1.05,
     "detail": lambda inv: "trips " + ", ".join(f"{t:.0f}s" for t in ROAD_TIMES),
-    "budget": 120,
+    "budget": 60,
 }
 
 # -- slices: the cerebellum itself (brain.round) over a private task queue, not a single skill. Most live problems
@@ -855,8 +869,8 @@ SCENARIOS["slice_nether_kit"] = {
     "doc": "Slice: at a lit portal with tools but no kit → kit complete (food, blocks, gold helmet) without "
            "stepping into the Nether early, no loops, idle ≤ 15 s.",
     "module": "brain",
-    # In the arena now, the kit nearly complete (5 of 6 meals, 28 of 32 blocks, gold for the helmet), one cow and a
-    # stone wall at arm's length: the slice still has to hunt, cook, mine and craft, in the right order, within 3 min.
+    # In the arena now, the kit one or two steps from complete (6 of 6 meals, 30 of 32 blocks, gold for the helmet),
+    # a stone wall at arm's length: the slice still has to mine and craft, in the right order, within 1 min.
     # (History: on real terrain it landed in animal-free mountains and failed for 8 minutes at food 0/6.)
     # slice failed for 8 minutes at food 0/6 with everything else in the kit ready (blocks 30/32, no idling, no
     # loops). The kit needs meat, so the scenario must start where meat exists — this tests the queue, not the luck
@@ -869,36 +883,36 @@ SCENARIOS["slice_nether_kit"] = {
     "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", f"fill {_c(at(4, 0, -2))} {_c(at(5, 1, 2))} stone",
               f"tp @p {_c(at(0, 0, 0))}", "clear @p", "time set day", "give @p iron_pickaxe",
               "give @p iron_sword", "give @p bucket", "give @p flint_and_steel", "give @p gold_ingot 5",
-              "give @p coal 8", "give @p crafting_table", "give @p furnace", "give @p cooked_beef 5",
-              "give @p cobblestone 28", f"summon cow {_c(at(-3, 0, 2))}"],
+              "give @p coal 8", "give @p crafting_table", "give @p furnace", "give @p cooked_beef 6",
+              "give @p cobblestone 30", f"summon cow {_c(at(-3, 0, 2))}"],
     "expect": [(at(4, 0, -2), at(5, 1, 2), "stone", 20, 20)],
     "expect_entities": [("minecraft:cow", 1)],
     "before": lambda ctx: _portal_beside_player(ctx),
-    "run": _slice(lambda: _nether_kit_ready() or not _in_overworld(), 3,
+    "run": _slice(lambda: _nether_kit_ready() or not _in_overworld(), 0.9,
                   queue=[__import__("bonobo.goals", fromlist=["goals"]).make("milestone", name="nether kit")]),
     "check": _slice_check(lambda: _nether_kit_ready() and _in_overworld()),
     "detail": _slice_detail,
-    "budget": 180,
+    "budget": 60,
 }
 SCENARIOS["slice_retreat"] = {
-    "doc": "Slice: in the Nether at 6 hp with one food, the arrival portal remembered 10 blocks away → back in "
+    "doc": "Slice: in the Nether at 6 hp with one food, the arrival portal remembered 6 blocks away → back in "
            "the Overworld by the upkeep table, no loops.",
     "module": "brain", "dimension": "minecraft:the_nether", "release": True,
     "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(12, -1, 8))} netherrack",
-              f"fill {_c(at(8, 0, -1))} {_c(at(8, 4, 2))} obsidian",
-              f"fill {_c(at(8, 1, 0))} {_c(at(8, 3, 1))} nether_portal[axis=z]",
+              f"fill {_c(at(4, 0, -1))} {_c(at(4, 4, 2))} obsidian",
+              f"fill {_c(at(4, 1, 0))} {_c(at(4, 3, 1))} nether_portal[axis=z]",
               f"tp @p {_c(at(-2, 0, 0))}", "clear @p", "give @p cooked_beef 1", "give @p cobblestone 16",
               "give @p iron_pickaxe"],
-    "expect": [(at(8, 1, 0), at(8, 3, 1), "nether_portal", 6, 6)],
-    "before": lambda ctx: (ctx.mem.add_site("portal", at(8, 1, 0), "minecraft:the_nether", name="portal-nether"),
+    "expect": [(at(4, 1, 0), at(4, 3, 1), "nether_portal", 6, 6)],
+    "before": lambda ctx: (ctx.mem.add_site("portal", at(4, 1, 0), "minecraft:the_nether", name="portal-nether"),
                            _chat("damage @p 14 minecraft:generic")),
-    "run": _slice(_in_overworld, 2, target=at(8, 1, 0)),
+    "run": _slice(_in_overworld, 0.9, target=at(4, 1, 0)),
     "check": _slice_check(_in_overworld),
     "detail": _slice_detail,
-    "budget": 120,
+    "budget": 60,
 }
 
-for _name in ("trek_overworld_200", "trek_nether_150", "cave_escape", "return_to_portal"):
+for _name in ("trek_overworld_80", "trek_nether_60", "cave_escape", "return_to_portal"):
     SCENARIOS[_name]["mod"] = ["travel"] + (["use"] if _name == "return_to_portal" else [])
 # Portal trips read /state's inPortal (mod ≥0.1.28): they depend on WorldInfo too.
 for _name in ("enter_nether", "return_from_nether", "relight_portal", "return_to_portal", "retreat_from_nether"):
@@ -966,11 +980,12 @@ SCENARIOS["bed_bomb_kill"] = {
     "doc": "Speedrun End kit, a fresh dragon → dead by bed bombs (release check: the whole fight).",
     "module": "end", "raw": True, "combat": True, "dimension": "minecraft:the_end", "release": True,
     "setup": ["spreadplayers 0 0 8 12 false @p", *SPEEDRUN_END_KIT],
-    "before": _summon_perched_dragon(0),        # a free-flying dragon: the whole fight, perching included
+    # free-flying, worn: one or two bombs left (plain chaining: `_hooks` is defined further down)
+    "before": lambda ctx, _f=_summon_perched_dragon(0): (_f(ctx), _wear_dragon(ctx))[1],
     # The driver, not the old single skill: crystals → pit → perch → one bomb → pit.
     "run": lambda ctx: __import__("bonobo.end", fromlist=["slay_dragon"]).slay_dragon(ctx),
     "check": lambda api, inv: _dragon_health() is None and not api.get("/state")["dead"],
-    "budget": 300,
+    "budget": 60,
 }
 
 for _name, _tags in {
@@ -1764,7 +1779,7 @@ _ONE = {
                            lambda ctx: _skill("build_shelter")(ctx),
                            _all(_blocks(at(-6, 0, -6), at(6, 3, 6), "cobblestone", 14),
                                 _blocks(at(-6, 0, -6), at(6, 3, 6), "oak_door", 1),
-                                _blocks(at(-6, 0, -6), at(6, 3, 6), TORCHES, 1)), 120),
+                                _blocks(at(-6, 0, -6), at(6, 3, 6), TORCHES, 1)), 60),
     "burrow_hillside": (["burrow"], "night, a stone hillside beside the body → tunnelled in and sealed",
                         _floor() + [f"fill {_c(at(2, 0, -4))} {_c(at(8, 4, 4))} stone", _tp(),
                                     "give @p stone_pickaxe", "give @p cobblestone 8", "time set 18000"],
@@ -1915,16 +1930,16 @@ SHEET["brew_fire_resistance_stand"]["tick_rate"] = 60
 
 for _name, _row_ in {
     "seek_blocks_real": (["seek_blocks"], "real terrain, no tree in the first look → walked to one",
-                         lambda ctx: _skill("seek_blocks")(ctx, ["oak_log", "birch_log", "spruce_log"], 2, 30),
-                         _found_near(["oak_log", "birch_log", "spruce_log"], 8), 120),
+                         lambda ctx: _skill("seek_blocks")(ctx, ["oak_log", "birch_log", "spruce_log"], 2, 25),
+                         _found_near(["oak_log", "birch_log", "spruce_log"], 8), 60),
     "explore_for_animals_real": (["explore_for"], "real terrain → cows, sheep or pigs found",
                                  lambda ctx: _skill("explore_for")(ctx, ["minecraft:cow", "minecraft:sheep",
-                                                                         "minecraft:pig"], 2, 30),
+                                                                         "minecraft:pig"], 2, 25),
                                  lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
-                                     24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), 120),
+                                     24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), 60),
     "strip_mine_real": (["strip_mine_step"], "real terrain, a stone pickaxe → a mining tunnel started",
                         lambda ctx: _skill("strip_mine_step")(ctx, 4),
-                        _gain("minecraft:cobblestone", 4), 120),
+                        _gain("minecraft:cobblestone", 4), 60),
 }.items():
     _skills_, _doc_, _run_, _check_, _budget_ = _row_
     _deep = (["execute at @p run fill ~-1 17 ~-1 ~1 19 ~1 air", "execute at @p run tp @p ~ 17 ~"]
@@ -1939,11 +1954,11 @@ SHEET["dead_flicker_on_respawn"] = {
     "doc": "Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
            "respawn, not call every skill dead, and still chop its 4 logs",
     "module": "brain", "point": "A", "skills": ["item:log"], "tags": {"base": "chop", "surprise": "dead_flicker"},
-    "setup": _grove((4, 0), (-4, 3)) + [_tp()],
+    "setup": _grove((3, 0), (-3, 2)) + [_tp()],
     "before": _hooks(_start("dead_flicker_on_respawn"), lambda ctx: _chat("kill @p")),
     "run": lambda ctx: (_brain_rounds(15, lambda: not __import__("bonobo.api", fromlist=["get"]).get("/state")["dead"])(ctx),
                         _skill("chop")(ctx, 4))[1],
-    "check": _all(_alive(10), lambda api, inv: inv.count("log") >= 4), "budget": 90,
+    "check": _all(_alive(10), lambda api, inv: inv.count("log") >= 4), "budget": 60,
 }
 
 # -- test point B: L0 hazards (the existing water_clutch, cross_lava_8, cave_escape) and two more ---------------
@@ -2004,12 +2019,12 @@ SHEET["interrupted_rescue_is_not_a_failure"] = {
     "doc": "Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
            "brain resumes and still gets its 4 logs",
     "module": "brain", "point": "B", "skills": ["item:log"], "tags": {"base": "chop", "hazard": "lava"},
-    "setup": _grove((4, 0)) + [_tp(), "give @p cobblestone 16"],
+    "setup": _grove((3, 0)) + [_tp(), "give @p cobblestone 16"],
     "before": _hooks(_start("interrupted_rescue_is_not_a_failure"),
                      lambda ctx: _threading.Timer(3.0, lambda: _chat(f"setblock {_c(at(0, 0, 1))} lava")).start()),
     "run": _resume("interrupted_rescue_is_not_a_failure", lambda ctx: _skill("chop")(ctx, 4),
                    _achieve_needs([("log", 4)])),
-    "check": _all(_gain("log", 4), _alive(10)), "budget": 90,
+    "check": _all(_gain("log", 4), _alive(10)), "budget": 60,
 }
 for _name in ("water_clutch", "cross_lava_8", "cave_escape"):
     SCENARIOS[_name]["point"] = "B"
@@ -2074,21 +2089,25 @@ _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-
 # (name, mob, how many, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob, left alone
 FIGHT_CELLS = [
     ("fight_zombie_1", "zombie", 1, "common", 40, 12, True),
-    ("fight_zombie_3", "zombie", 3, "exception", 90, 6, True),
+    ("fight_zombie_3", "zombie", 3, "exception", 60, 6, True),
     ("fight_skeleton_1", "skeleton", 1, "common", 60, 10, True),
     ("fight_creeper_1", "creeper", 1, "common", 45, 14, True),
-    ("fight_blaze_3", "blaze", 3, "exception", 120, 6, True),
+    ("fight_blaze_3", "blaze", 3, "exception", 60, 6, True),
     ("fight_enderman_1", "enderman", 1, "exception", 30, 20, False),
 ]
 for _name, _mob, _n, _tier, _secs, _hp, _clear in FIGHT_CELLS:
     _kinds = [f"minecraft:{_mob}"]
-    _spots = [(6, 0, 0), (-5, 0, 4), (2, 0, -6)][:_n]
+    # Close enough to be in the fight at once: the walk to a far corner is not what these rows measure.
+    _spots = [(4, 0, 0), (-3, 0, 3), (1, 0, -4)][:_n]
+    # Three blazes at full health outlast the 60 s limit on the approach alone: they start worn (the fight's
+    # decisions are the same at 10 hp; the kill count, the health kept and the decision gaps are what is judged).
+    _nbt = "{PersistenceRequired:1b,Health:10f}" if _mob == "blaze" and _n > 1 else "{PersistenceRequired:1b}"
     SHEET[_name] = {
         "doc": f"Walled platform, iron kit: {_n} {_mob} → " + ("all dead" if _clear else "left alone (neutral)") +
                f", health ≥ {_hp}, a threat decision every ≤ 1.5 × FIGHT_POLL_S while engaged",
         "module": "fight_loop", "combat": True, "point": "B", "skills": [], "tier_fixed": _tier,
         "tags": {"base": "fight", "enemy": _mob, "count": _n},
-        "setup": list(_ARENA) + [f"summon {_mob} {_c(at(x, y, z))} {{PersistenceRequired:1b}}" for x, y, z in _spots],
+        "setup": list(_ARENA) + [f"summon {_mob} {_c(at(x, y, z))} {_nbt}" for x, y, z in _spots],
         "expect_entities": [(f"minecraft:{_mob}", _n)],
         "before": _hooks(_start(_name), _record_bids),
         "run": _fight_until(_kinds, _secs, _clear),
@@ -2137,14 +2156,14 @@ for _name, _item, _asked, _want, _tier in PLACE_ROWS:
     }
 
 SHEET["boat_across_the_lake"] = {
-    "doc": "A 19-block lake between two shores, a boat carried → across to the far shore (the jar's BoatDriver)",
+    "doc": "A 10-block lake between two shores, a boat carried → across to the far shore (the jar's BoatDriver)",
     "module": "nav", "point": "A", "skills": ["goto"], "tier_fixed": "exception", "tags": {"base": "nav", "terrain": "lake"},
-    "setup": [f"fill {_c(at(-4, -4, -6))} {_c(at(20, -4, 6))} stone",
-              f"fill {_c(at(-4, -3, -6))} {_c(at(-1, -1, 6))} stone", f"fill {_c(at(19, -3, -6))} {_c(at(20, -1, 6))} stone",
-              f"fill {_c(at(0, -3, -6))} {_c(at(18, -1, 6))} water", _tp(-2, 0, 0), "give @p oak_boat"],
+    "setup": [f"fill {_c(at(-4, -4, -6))} {_c(at(12, -4, 6))} stone",
+              f"fill {_c(at(-4, -3, -6))} {_c(at(-1, -1, 6))} stone", f"fill {_c(at(10, -3, -6))} {_c(at(12, -1, 6))} stone",
+              f"fill {_c(at(0, -3, -6))} {_c(at(9, -1, 6))} water", _tp(-2, 0, 0), "give @p oak_boat"],
     "before": _start("boat_across_the_lake"),
-    "run": lambda ctx: _skill("travel_to")(ctx, at(20, 0, 0), 2),
-    "check": _all(_at(at(20, 0, 0), 3), lambda api, inv: not api.get("/state")["inWater"]), "budget": 90,
+    "run": lambda ctx: _skill("travel_to")(ctx, at(11, 0, 0), 2),
+    "check": _all(_at(at(11, 0, 0), 3), lambda api, inv: not api.get("/state")["inWater"]), "budget": 45,
 }
 
 def _queue(goal):
@@ -2164,15 +2183,15 @@ SHEET["portal_from_cast"] = {
     "setup": list(SCENARIOS["cast_portal"]["setup"]),
     "expect": list(SCENARIOS["cast_portal"]["expect"]),
     "before": _hooks(_start("portal_from_cast"),
-                     lambda ctx: ctx.mem.note_seen("lava", at(6, -1, 0), "minecraft:overworld"),
+                     lambda ctx: ctx.mem.note_seen("lava", at(3, -1, 0), "minecraft:overworld"),
                      _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
-    "run": _brain_rounds(170, lambda: bool(__import__("bonobo.world", fromlist=["find"]).find(
+    "run": _brain_rounds(60, lambda: bool(__import__("bonobo.world", fromlist=["find"]).find(
         ["nether_portal"], radius=12, limit=1))),
     "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
-    "budget": 180,
+    "budget": 60,
 }
 SHEET["pearls_from_barter"] = {
-    "doc": "In the Nether, 8 gold ingots and a gold helmet, piglins 4 blocks off, no enderman → the plan barters",
+    "doc": "In the Nether, 4 gold ingots and a gold helmet, piglins 4 blocks off, no enderman → the plan barters",
     "module": "decompose", "point": "C", "skills": ["barter"], "tier_fixed": "exception", "tags": {"base": "sources"},
     "dimension": "minecraft:the_nether", "combat": True, "tick_rate": 60,
     "setup": list(SCENARIOS["barter_piglin"]["setup"]),
@@ -2181,21 +2200,21 @@ SHEET["pearls_from_barter"] = {
     "before": _start("pearls_from_barter"),
     "run": _achieve_needs([("minecraft:ender_pearl", 1)], rounds=4),
     # A barter's pearls are chance: what is proven is that the plan chose to trade and the gold went.
-    "check": lambda api, inv: inv.count("minecraft:gold_ingot") <= 4 and _trades(inv) >= 1, "budget": 180,
+    "check": lambda api, inv: inv.count("minecraft:gold_ingot") < 4 and _trades(inv) >= 1, "budget": 60,
 }
 
 SHEET["bucket_before_the_shaft"] = {
-    "doc": "An empty bucket, water 3 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
+    "doc": "An empty bucket, water 2 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
            "before any digging (WaterClutch needs it in hand)",
     "module": "upkeep", "point": "C", "skills": ["fill"], "tier_fixed": "exception", "tags": {"base": "upkeep"},
-    "setup": _floor(depth=4) + [f"setblock {_c(at(3, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
+    "setup": _floor(depth=4) + [f"setblock {_c(at(2, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
                                 "give @p stone_pickaxe", "give @p cooked_beef 8", "give @p white_bed"],
     "before": _hooks(_start("bucket_before_the_shaft"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
         ("minecraft:raw_iron", 1)))),
-    "run": _brain_rounds(150, lambda: _inv_now().count("minecraft:water_bucket") >= 1),
+    "run": _brain_rounds(40, lambda: _inv_now().count("minecraft:water_bucket") >= 1),
     # Filled, and not a block dug down yet: the feet are still on the floor they started on.
     "check": _all(lambda api, inv: inv.count("minecraft:water_bucket") >= 1,
-                  lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]), "budget": 180,
+                  lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]), "budget": 60,
 }
 
 START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)

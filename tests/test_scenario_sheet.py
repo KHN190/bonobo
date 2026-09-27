@@ -209,14 +209,7 @@ class Tiers(unittest.TestCase):
 
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
-LONG = {  # over the 60 s limit, still to be cut down by setup (may only shrink)
-    "barter_piglin", "bed_bomb_kill", "boat_across_the_lake", "bucket_before_the_shaft", "build_shelter_flat",
-    "cast_portal", "collect_blaze_rods", "combat_arena", "dead_flicker_on_respawn", "escape",
-    "explore_for_animals_real", "fight_blaze_3", "fight_dragon", "fight_zombie_3", "find_fortress_far",
-    "find_portal_room_fresh", "interrupted_rescue_is_not_a_failure", "locate_stronghold", "pearls_from_barter",
-    "portal_from_cast", "road_reuse", "seek_blocks_real", "siege", "slice_nether_kit", "slice_retreat",
-    "strip_mine_real", "trek_nether_150", "trek_overworld_200",
-}
+LONG = set()  # rows over the 60 s limit still to be cut down by setup: none left (may only stay empty)
 LIMIT_S = {"core": 30, "common": 60, "brain": 60, "exception": 60}
 
 

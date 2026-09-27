@@ -289,7 +289,7 @@ FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skele
 def settled(table, name):
     """Pure: a non-fight scenario whose latest counted run (under any code) passed. One pass settles it (user,
     2026-09-16): deterministic layouts don't need a second confirmation; a later failure re-opens it."""
-    if name in FIGHTS:
+    if name in FIGHTS or name.split("__")[0] in FIGHTS:     # siege__w1, combat_arena__3, escape__…: shards
         return False
     runs = sorted((r for c in table.get(name, {}).values() for r in c if r.get("cls", "skill") not in UNCOUNTED),
                   key=lambda r: r.get("t", 0))
