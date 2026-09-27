@@ -233,6 +233,29 @@ class SealPlan(unittest.TestCase):
                 self.assertTrue(all(t["type"] == "place" for t in got))
 
 
+class OnlyIsItemIds(unittest.TestCase):
+    """data.item_ids / api.with_item_ids: every "only" the jar gets is exact item ids (it matched "log" to nothing)."""
+
+    def test_table(self):
+        from bonobo import api, data
+        logs = [data.mid(m) for m in data.GROUPS["log"]]
+        rows = [("a group: its members' ids", ["log"], logs),
+                ("an id: itself", ["minecraft:blaze_rod"], ["minecraft:blaze_rod"]),
+                ("both, no repeats", ["minecraft:oak_log", "log"], ["minecraft:oak_log"] + [i for i in logs
+                                                                                           if i != "minecraft:oak_log"]),
+                ("must fail: a bare name that is no group", ["zzz"], ValueError)]
+        for name, tokens, want in rows:
+            with self.subTest(name):
+                if want is ValueError:
+                    with self.assertRaises(ValueError):
+                        data.item_ids(tokens)
+                else:
+                    self.assertEqual(data.item_ids(tokens), want)
+        batch = {"tasks": [{"type": "mine_many", "blocks": []}, {"type": "collect", "radius": 4, "only": ["log"]}]}
+        self.assertEqual(api.with_item_ids(batch)["tasks"][1]["only"], logs)
+        self.assertNotIn("only", api.with_item_ids(batch)["tasks"][0])
+
+
 class TakeBackVerdict(unittest.TestCase):
     """skills.take_back_verdict: a station not picked up but still standing is left (a station there), not lost."""
     # (situation, (bag gained it, still standing)) → verdict

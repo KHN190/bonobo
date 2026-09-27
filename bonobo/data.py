@@ -23,6 +23,22 @@ def mid(name):
     return got
 
 
+def item_ids(tokens):
+    """Pure: the jar's item ids for a task's "only" list — a group token (log, planks, wool…) as its members' full
+    ids, an id as itself. The jar matches exact ids: "log" matched nothing and a whole trunk was left on the ground
+    ("collecting items (0)"). A bare name that is no group is refused: it would silently match nothing too."""
+    out = []
+    for t in tokens:
+        if t in GROUPS:
+            ids = [mid(m) for m in GROUPS[t]]
+        elif ":" in t:
+            ids = [t]
+        else:
+            raise ValueError(f"'only' token {t!r} is neither a group nor a namespaced item id")
+        out += [i for i in ids if i not in out]
+    return out
+
+
 def bare(name):
     """The short id: "minecraft:oak_planks" → "oak_planks"."""
     got = _BARE.get(name)

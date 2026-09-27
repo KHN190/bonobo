@@ -248,7 +248,20 @@ def get(path):
 BODY_PATHS = ("/task", "/stop")
 
 
+def with_item_ids(body):
+    """A task post with every "only" list as the jar's item ids (data.item_ids): the one place tokens become ids,
+    whoever built the task."""
+    from .data import item_ids
+    if isinstance(body, dict) and "tasks" in body:
+        return dict(body, tasks=[with_item_ids(t) for t in body["tasks"]])
+    if isinstance(body, dict) and body.get("only"):
+        return dict(body, only=item_ids(body["only"]))
+    return body
+
+
 def post(path, body=None):
+    if path.startswith("/task"):
+        body = with_item_ids(body)
     if path.startswith(BODY_PATHS):
         from . import arbiter
         if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
