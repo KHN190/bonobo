@@ -142,7 +142,7 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
 
     # (walk as a multiple of the straight line, samples) → the factor learned, from a prior of 1 at memory 0.5:
     # it moves halfway to each sample, never below the straight line (1.0), never past the bound (12.0).
-    LEARNED = [(0.5, 1, 1.0), (0.5, 20, 1.0),                     # quicker than straight is not believed
+    LEARNED = [(0.5, 1, 1.0), (0.5, 20, 1.0),                     # quicker than straight is not believed (must fail: a walk quicker than straight is not learned)
                (1.0, 1, 1.0), (1.0, 20, 1.0),
                (2.0, 1, 1.5), (2.0, 20, 1.9999990463256836),
                (4.0, 1, 2.5), (4.0, 20, 3.999997138977051),

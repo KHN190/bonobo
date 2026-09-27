@@ -175,7 +175,7 @@ class SharedHelpers(unittest.TestCase):
         from tests.world import bag
         rows = [("logs short", [["log", 4]], inventory(("oak_log", 1)), {"log": 3}),
                 ("a tool short", [["tool", "pickaxe", 1]], inventory(), {"tool:pickaxe": 1}),
-                ("all held", [["log", 2], ["tool", "pickaxe", 0]], inventory(("oak_log", 2), ("wooden_pickaxe", 1)), {}),
+                ("must fail: all held", [["log", 2], ["tool", "pickaxe", 0]], inventory(("oak_log", 2), ("wooden_pickaxe", 1)), {}),
                 ("food counts cooked meals only", [["food", 2]], inventory(("beef", 5), ("cooked_beef", 1)),
                  {"food": 1})]
         for name, need, inv, want in rows:

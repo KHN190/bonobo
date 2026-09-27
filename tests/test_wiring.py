@@ -57,7 +57,7 @@ class TheThreatModelDecides(unittest.TestCase):
     ROWS = [("already inside the reach", (1, 0, 0), (0, 0, 0), 0.0),
             ("at rest outside: never", (10, 0, 0), (0, 0, 0), INF),
             ("coming at 7 b/s from 10 with a reach of 3: in 1 s", (10, 0, 0), (-7, 0, 0), 1.0),
-            ("going away: never", (10, 0, 0), (7, 0, 0), INF),
+            ("must fail: going away: never", (10, 0, 0), (7, 0, 0), INF),
             ("coming, but past the horizon (27 s): not now", (30, 0, 0), (-1, 0, 0), INF)]
 
     def test_tti(self):

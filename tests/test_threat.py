@@ -74,7 +74,7 @@ class Answers(unittest.TestCase):
 
 
     # (threats) → where to run: 16 blocks away from them, never between two of them
-    ESCAPE = [("two archers flanking east", [("minecraft:skeleton", 10, 2), ("minecraft:skeleton", 10, -2)],
+    ESCAPE = [("must fail: running between them — two archers flanking east", [("minecraft:skeleton", 10, 2), ("minecraft:skeleton", 10, -2)],
                (-16, 64, 0)),
               ("one zombie east", [("minecraft:zombie", 5, 0)], (-16, 64, 0)),
               ("one zombie west", [("minecraft:zombie", -5, 0)], (16, 64, 0)),
@@ -90,7 +90,7 @@ class Answers(unittest.TestCase):
 class Interrupt(unittest.TestCase):
     # (seconds until dead at this pressure, the task under way) → the interrupt. Closer than one planning round
     # (4 s) stops the task; an attack is its own answer and is never interrupted for being hit.
-    ROWS = [(2.0, "mine", "hostiles"), (4.0, "mine", "hostiles"), (4.01, "mine", None), (30.0, "mine", None),
+    ROWS = [(2.0, "mine", "hostiles"), (4.0, "mine", "hostiles"), (4.01, "mine", None), (30.0, "mine", None),  # must fail: just past one round, no interrupt
             (None, "mine", None), (2.0, "attack", None)]
 
     def test_perception_stops_a_task_when_arrows_would_kill_soon(self):
@@ -203,7 +203,7 @@ class TheSkillsBatches(unittest.TestCase):
         # (situation, entity, hold) → where the arrow is aimed (x, y, z) and how long the draw
         rows = [("10 blocks, default height: body at 0.6, raised by the drop", {"x": 10.0, "y": 64.0, "z": 0.0},
                  22, (10.0, 64.6 + drop(10.0), 0.0)),
-                ("point blank: no drop", {"x": 0.0, "y": 64.0, "z": 0.0}, 22, (0.0, 64.6, 0.0)),
+                ("must fail: a drop at no distance — point blank: no drop", {"x": 0.0, "y": 64.0, "z": 0.0}, 22, (0.0, 64.6, 0.0)),
                 ("a tall target aims higher", {"x": 0.0, "y": 64.0, "z": 20.0, "height": 2.0}, 22,
                  (0.0, 65.2 + drop(20.0), 20.0)),
                 ("a short draw", {"x": 10.0, "y": 64.0, "z": 0.0}, 10, (10.0, 64.6 + drop(10.0), 0.0))]
@@ -482,7 +482,7 @@ class Kit(unittest.TestCase):
         base = {"selectedSlot": 0, "screen": "none", "armor": 0}
         sig = perception.kit_signature
         rows = [("the same state a moment later", base, 10.0, base, 10.5, True),
-                ("the held slot moved", base, 10.0, {**base, "selectedSlot": 3}, 10.1, False),
+                ("must fail: the held slot moved", base, 10.0, {**base, "selectedSlot": 3}, 10.1, False),
                 ("armour put on", base, 10.0, {**base, "armor": 15}, 10.1, False),
                 ("a chest screen closed", {**base, "screen": "GenericContainerScreen"}, 10.0, base, 10.1, False),
                 ("KIT_TTL_S passed (a sword given by command)", base, 10.0, base, 10.0 + perception.KIT_TTL_S, False)]
@@ -514,7 +514,7 @@ class EvadeOnlyPostpones(unittest.TestCase):
             ("three zombies, 5 hp, a stone sword: cannot win, leave",
              [row("minecraft:zombie", 3, 0), row("minecraft:zombie", 0, 3), row("minecraft:zombie", -3, 0)],
              dict(hp=5, sword=1), "evade"),
-            ("one zombie 40 away", [row("minecraft:zombie", 40, 0)], dict(sword=2), "ignore"),
+            ("must fail: one zombie 40 away", [row("minecraft:zombie", 40, 0)], dict(sword=2), "ignore"),
             # A zombie 3 off, by what is in hand (ban_needs_a_failure / resume_after_combat evaded: their report's bag
             # was empty — no sword read, no fight on offer).
             ("a zombie 3 off, an iron sword: fight", [row("minecraft:zombie", 3, 0)], dict(sword=2), "fight"),
@@ -529,7 +529,7 @@ class EvadeOnlyPostpones(unittest.TestCase):
         """Nowhere to walk to on connected ground (footing answers None everywhere): evade is not offered."""
         nowhere, anywhere = (lambda spot: None), (lambda spot: tuple(spot))
         rows = [("bare hands, open ground: leave", dict(sword=0, footing=anywhere), "evade"),
-                ("bare hands, a pillar in the sky, nothing to wall in with: carry on (no evade)",
+                ("must fail: bare hands, a pillar in the sky, nothing to wall in with: carry on (no evade)",
                  dict(sword=0, footing=nowhere), "ignore"),
                 ("bare hands, a pillar in the sky, 16 blocks: wall in", dict(sword=0, blocks=16, footing=nowhere),
                  "wall_in"),
@@ -569,7 +569,7 @@ class ShieldAndHole(unittest.TestCase):
                  dict(sword=2, shield=True), ("fight_shielded", 0)),
                 ("three zombies at night, 10 hp, no sword, ground that digs: a hole down", crowd,
                  dict(sword=0, hp=10, night=True, dig_ok=True, field=field.Field()), ("reshape", ("down", 2))),
-                ("the same, ground that does not dig: leave", crowd,
+                ("must fail: the same, ground that does not dig: leave", crowd,
                  dict(sword=0, hp=10, night=True, dig_ok=False, field=field.Field()), ("evade", (0, 64, -16)))]
         for name, hazards, kw, want in rows:
             with self.subTest(name):

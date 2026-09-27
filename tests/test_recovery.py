@@ -20,7 +20,7 @@ LOOKUP = [
     ("critical_health", "retreat_and_eat", "below the floor"),
     ("hostiles", "retreat_to_cover", "anything hostile"),
     ("stale", "retreat_to_cover", "perception older"),
-    ("enderman in the breath", "retreat_to_cover", "unrecognised"),        # not a kind: the default, never a guess
+    ("enderman in the breath", "retreat_to_cover", "unrecognised"),        # not a kind: the default, never a guess (must fail: not a kind, the default)
     ("something nobody enumerated", "retreat_to_cover", "unrecognised"),
     ("", "retreat_to_cover", "unrecognised"),
     (None, "retreat_to_cover", "unrecognised"),
@@ -45,7 +45,7 @@ class Lookup(unittest.TestCase):
     # A 2.9-block enderman does not fit in a 1×2 corridor, but it teleports and reaches into the mouth: the
     # answer is to break the aggro, never to climb into a hole beside it — a bench run died doing exactly that.
     # (kind) → is it answered by the corridor (the default)?
-    COVER = [("enderman", False), ("airborne", False), ("critical_health", False), ("breath", True),
+    COVER = [("enderman", False), ("airborne", False), ("critical_health", False), ("breath", True),  # must fail: an enderman is not answered by the corridor
              ("hostiles", True), ("stale", True), ("unheard of", True)]
 
     def test_which_kinds_are_answered_with_cover(self):

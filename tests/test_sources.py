@@ -46,7 +46,7 @@ ROWS = [
     ("a portal, no lava seen but a lava bucket carried: cast in place",
      dict(items=CAST_KIT + [("lava_bucket", 1)]), goals.make("build", bp="nether_portal"),
      [("cast", "nether_portal")], [("build", "nether_portal")]),
-    ("a portal, 10 obsidian and flint carried: built from what is carried",
+    ("must fail: casting what is already carried — a portal, 10 obsidian and flint carried: built from what is carried",
      dict(items=[("obsidian", 10), ("flint_and_steel", 1), ("cobblestone", 16)], seen=[("lava", (6, 60, 0))]),
      goals.make("build", bp="nether_portal"), [("build", "nether_portal")], [("cast", "nether_portal")]),
     ("pearls, gold carried, no enderman anywhere: bartered, the portal first",

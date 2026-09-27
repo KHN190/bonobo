@@ -20,12 +20,12 @@ ROWS = [
     ("one coal lights one furnace: all three items in it", FREE3, 3, 1, 8, [(A, 3, 1)]),
     ("planks burn 1.5 items each: two planks cannot split three items, one furnace takes them", [(A, "free"),
      (B, "free")], 3, 2, 1.5, [(A, 3, 2)]),
-    ("not enough fuel for all: as many as it burns", [(A, "free")], 5, 2, 1.5, [(A, 3, 2)]),
+    ("must fail: loading more than it burns — not enough fuel for all: as many as it burns", [(A, "free")], 5, 2, 1.5, [(A, 3, 2)]),
     ("more furnaces than items: only as many as items", FREE3, 2, 4, 8, [(A, 1, 1), (B, 1, 1)]),
     ("ten items over three: 4, 3, 3", FREE3, 10, 3, 8, [(A, 4, 1), (B, 3, 1), (C, 3, 1)]),
 ]
 # (situation, furnaces, items, fuel, per) → the reason nothing is loaded
-FAILS = [("no furnace at all", [], 3, 3, 8, "no free furnace within reach"),
+FAILS = [("must fail: no furnace at all", [], 3, 3, 8, "no free furnace within reach"),
          ("every furnace busy", [(A, "busy"), (B, "busy")], 3, 3, 8, "no free furnace within reach"),
          ("no fuel", FREE3, 3, 0, 8, "no fuel to burn"),
          ("boundary: fuel that burns less than one item", [(A, "free")], 3, 1, 0.5, "no fuel to burn")]
