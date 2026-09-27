@@ -265,3 +265,10 @@ def saved_s(price, before, after, cost_s=0.0):
     more, and that shows up in `price`.
     """
     return price(before) - price(after) - float(cost_s)
+
+
+def eat_due(food, hp, hungry_below, max_hp, full_bar):
+    """Pure: eat now — hungry (food below `hungry_below`), or hurt with the bar short of full: vanilla heals only at
+    food ≥ 18, and fast only at a full bar (food 15, hp 10 stayed at 10). One rule for the maintenance reflex and
+    the fight's eat answer; each passes its own constants."""
+    return food < hungry_below or (hp < max_hp and food < full_bar)

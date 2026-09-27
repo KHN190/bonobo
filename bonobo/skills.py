@@ -1142,26 +1142,59 @@ def bites_to_full(food, carried, raw_ok=False):
     return item, math.ceil(gap / points(item))
 
 
-@skill(gives={}, needs={"food": 1}, speed={}, start=lambda c: api.get("/state")["food"],
-       verify=lambda c: api.get("/state")["food"] > c.base, budget=30, stall=30,
+def bite_plan(food, carried, raw_ok=False):
+    """Pure: the bites to eat, in order, to fill the bar from `food` — each the item that fits the remaining gap
+    best (`bites_to_full`), no more of an item than is carried. [] when full or nothing allowed is carried."""
+    left, out = dict(carried), []
+    while True:
+        item, _n = bites_to_full(food, left, raw_ok)
+        if item is None:
+            return out
+        out.append(item)
+        left[item] -= 1
+        food = min(FULL_BAR, food + NUTRITION[item.split(":")[-1]])
+
+
+def eat_commands(state, args):
+    """`commands` for eat: one eat task per bite of `bite_plan`, back to back (open loop) — one bite a round left the
+    bar hungry with bread in the bag."""
+    from .knowledge import ALL_FOOD
+    raw_ok = bool(args[0]) if args else False
+    inv = state["inv"]
+    carried = {f: inv.count(f) for f in ALL_FOOD + RAW_MEAT}
+    return [{"type": "eat", "item": item}
+            for item in bite_plan(state["state"].get("food", 0), carried, raw_ok)]
+
+
+def _fed_as_planned(c):
+    """The bar rose by the points of the bites eaten (capped at a full bar)."""
+    target = c.result
+    return isinstance(target, int) and not isinstance(target, bool) and api.get("/state")["food"] >= target
+
+
+@skill(gives={}, needs={"food": 1}, speed={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
+       commands=lambda state, args: eat_commands(state, args), budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
-    """Eat one bite of the food that best fits the gap to a full bar (`bites_to_full`; raw meat too when starving).
-    Returns False when the bar is already full."""
+    """Eat until the bar is full: every bite `bite_plan` names, as one chain (the jar eats them back to back); an
+    interruption stops it where it is. Returns the food level the bites should reach (verified), or False when
+    the bar is already full."""
     from .knowledge import ALL_FOOD
-    inv = Inventory()
-    carried = {f: inv.count(f) for f in ALL_FOOD + RAW_MEAT}
-    food, _bites = bites_to_full(api.get("/state").get("food", 0), carried, raw_ok)
-    if food is None and any(carried.get(f) for f in ALL_FOOD + (RAW_MEAT if raw_ok else [])):
-        return False                    # full: nothing to eat for
-    if food:
-        started = time.time()
-        api.run({"type": "eat", "item": food}, wait=30)
-        took = time.time() - started
-        if 0.05 <= took <= 30.0:        # a queued or interrupted bite times the queue, not the bite
-            beliefs.note("engage.eat_s", round(took, 3), where="eat")
-        return True
-    raise NotAvailable("nothing edible carried" + ("" if raw_ok else " (raw meat not allowed: not starving)"))
+    st = body_state(ctx) if ctx is not None else {"state": api.get("/state"), "inv": Inventory()}
+    tasks = eat_commands(st, (raw_ok,))
+    carried = {f: st["inv"].count(f) for f in ALL_FOOD + (RAW_MEAT if raw_ok else [])}
+    if not tasks:
+        if any(carried.values()):
+            return False                    # full: nothing to eat for
+        raise NotAvailable("nothing edible carried" + ("" if raw_ok else " (raw meat not allowed: not starving)"))
+    food = st["state"].get("food", 0)
+    target = min(FULL_BAR, food + sum(NUTRITION[t["item"].split(":")[-1]] for t in tasks))
+    started = time.time()
+    api.run_chain(tasks, stop_on_failure=True)
+    took = (time.time() - started) / len(tasks)
+    if 0.05 <= took <= 30.0:            # a queued or interrupted bite times the queue, not the bite
+        beliefs.note("engage.eat_s", round(took, 3), where="eat")
+    return target
 
 
 def swimming(state):

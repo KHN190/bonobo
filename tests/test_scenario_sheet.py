@@ -474,6 +474,23 @@ class SliceAndSelection(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(sorted(sc.tier_rows(self.ROWS, tier, named)), want)
 
+
+class FedAsNeeded(unittest.TestCase):
+    B = "minecraft:bread"
+    # (situation, food before, bread before, food after, bread after) → the eating filled the bar
+    ROWS = [("food 0, bread ×4, all four eaten, bar 20", 0, 4, 20, 0, True),
+            ("must fail: one bite of four, bar 5", 0, 4, 5, 3, False),
+            ("food 12, two bites to 20", 12, 4, 20, 2, True),
+            ("the last bite's boundary: 16 of 20 counts (bread 5 − 1)", 12, 4, 16, 2, True),
+            ("one under the boundary", 12, 4, 15, 2, False),
+            ("full already, nothing eaten", 20, 4, 20, 4, True),
+            ("full already, a bite eaten anyway", 20, 4, 20, 3, False)]
+
+    def test_rows(self):
+        for name, fb, cb, fa, ca, want in self.ROWS:
+            with self.subTest(name):
+                self.assertIs(sc.fed_as_needed(fb, {self.B: cb}, fa, {self.B: ca}), want)
+
 class EndgameBuilt(unittest.TestCase):
     # (row, what its setup must build so the job fits 30 s)
     ROWS = [("activate_end_portal", lambda r: "give @p ender_eye 3" in r["setup"]

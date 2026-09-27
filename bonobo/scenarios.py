@@ -1346,9 +1346,29 @@ def _no_block_suffix(lo, hi, suffix):
     return check
 
 
+def fed_as_needed(food_before, carried_before, food_after, carried_after):
+    """Pure: the eating filled the bar — every bite the gap called for was eaten (the food carried fell by exactly
+    `bite_plan`'s bites) and the bar reached FULL_BAR − (the last bite's points − 1) or better. One bite of four
+    left the body hungry with bread in the bag; "the bar rose" passed it."""
+    from .data import FULL_BAR, NUTRITION
+    from .skills import bite_plan
+    plan = bite_plan(food_before, carried_before)
+    eaten = sum(carried_before.get(k, 0) - carried_after.get(k, 0) for k in carried_before)
+    if not plan:
+        return eaten == 0
+    return eaten == len(plan) and food_after >= FULL_BAR - (NUTRITION[plan[-1].split(":")[-1]] - 1)
+
+
 def _food_up():
-    """The food bar above where it stood when the eating began (after the row made the body hungry)."""
-    return lambda api, inv: api.get("/state")["food"] > BASE.get("food_before", BASE["state"]["food"])
+    """The row's eating filled the bar as needed (`fed_as_needed`), from where it stood when the eating began."""
+    def check(api, inv):
+        from .knowledge import ALL_FOOD
+        from .world import Inventory
+        inv = inv if inv is not None else Inventory()
+        before = Inventory(BASE["inv"])
+        return fed_as_needed(BASE.get("food_before", BASE["state"]["food"]), {f: before.count(f) for f in ALL_FOOD},
+                             api.get("/state")["food"], {f: inv.count(f) for f in ALL_FOOD})
+    return check
 
 
 def _is_day():
@@ -2990,8 +3010,9 @@ LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # drained until food ≤ 10, then the hung
 LOW_FOOD_AMP = 60
 
 
-def _drain_to(level, max_s=LOW_FOOD_MAX_S):
-    """`before` hook: wait while setup's hunger drains the bar, and clear it the moment food ≤ `level`."""
+def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
+    """`before` hook: wait while setup's hunger drains the bar, and clear it the moment food ≤ `level`; the bar
+    must end inside `window` (default: hungry, not starving — STARVE < food < EAT_BELOW)."""
     def hook(ctx):
         from . import api
         t0 = time.time()
@@ -3002,8 +3023,9 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S):
         food = api.get("/state").get("food", 20)
         BASE["food_drained"] = food
         from .reflexes import EAT_BELOW, STARVE
-        if not STARVE < food < EAT_BELOW:
-            raise SetupInvalid(f"food {food} after the drain: wanted between {STARVE} and {EAT_BELOW}")
+        lo, hi = window or (STARVE, EAT_BELOW)
+        if not lo < food < hi:
+            raise SetupInvalid(f"food {food} after the drain: wanted between {lo} and {hi}")
     return hook
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
@@ -3260,6 +3282,16 @@ UPKEEP_ROWS = [
      _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 5 255 true"],
      [lambda ctx: (time.sleep(5.5), BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get(
          "/state")["food"]))], lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None), _food_up()),
+    # hurt with the bar short of full: no regen below 18 and slow below 20 — eaten to full though not hungry
+    ("eat_to_regen", "hurt (instant damage), food 16 (not hungry: above EAT_BELOW), bread carried → eaten to a full "
+     "bar, and health rises",
+     _floor() + [_tp(), "give @p bread 4", f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} {LOW_FOOD_AMP} true",
+                 "effect give @p minecraft:instant_damage 1 0 true"],
+     [_drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
+      lambda ctx: BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"],
+                              hp_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["health"])],
+     lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None),
+     _all(_food_up(), lambda api, inv: api.get("/state")["health"] > BASE["hp_before"])),
     # the path blocked: a gap between us and where the last walk failed to go
     ("path_blocked", "the last walk failed toward the far side of a 6-block gap, 16 blocks carried → bridged across",
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],

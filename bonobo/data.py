@@ -98,6 +98,7 @@ NUTRITION = {"cooked_beef": 8, "cooked_porkchop": 8, "cooked_mutton": 6, "cooked
 RAW = ("beef", "porkchop", "mutton", "chicken", "rabbit")
 FOOD = [f for f in NUTRITION if f not in RAW]
 FULL_BAR = 20
+MAX_HP = 20.0
 
 # Food is a group like planks or wool: recipes and plans want "something to eat", the world hands out a cooked
 # chop. Without the group, "food" was not a dimension the solver could reach, so the one terminal good the agent

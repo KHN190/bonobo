@@ -393,6 +393,17 @@ class Flicker(unittest.TestCase):
                 self.assertEqual((swim, "reach land" in [n for _s, n in reflexes.due(dict(CALM, swimming=swim))]),
                                  (want, want))
 
+    def test_hurt_eats_to_regenerate(self):
+        # (hp, food) → the eat row fires (something edible, cooked)
+        rows = [("hurt, food 15: eat (no regen below 18)", 10, 15, True),
+                ("whole, food 15: not hungry enough", 20, 15, False),
+                ("hurt, food 19: eat to the full bar (fast regen)", 10, 19, True),
+                ("hurt, food full: nothing to eat for", 10, 20, False),
+                ("hungry and whole: the hunger row", 20, reflexes.EAT_BELOW - 1, True)]
+        for name, hp, food, want in rows:
+            with self.subTest(name):
+                self.assertEqual("eat" in [n for _s, n in reflexes.due(dict(CALM, food=food, hp=hp, meal=False))], want)
+
     def test_hunger_boundary(self):
         # (food, something edible) → eat fires
         rows = [("one below the line", reflexes.EAT_BELOW - 1, True, True), ("at the line", reflexes.EAT_BELOW, True, False),

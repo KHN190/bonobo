@@ -556,8 +556,10 @@ PRODUCTS = [
     ("strip mine: went down a level", "strip_mine_step", (None, 8), R(), R(feet=(0, 29, 0)), None, None, True),
     ("strip mine: stone in the bag", "strip_mine_step", (None, 8), R(), R(inv=inventory(cobblestone=5)), None, None,
      True),
-    ("eat: the food bar did not move", "eat", (), R(st=state(food=10)), R(st=state(food=10)), True, None, False),
-    ("eat: it did", "eat", (), R(st=state(food=10)), R(st=state(food=16)), True, None, True),
+    ("eat: the food bar did not move", "eat", (), R(st=state(food=10)), R(st=state(food=10)), 16, None, False),
+    ("eat: it did, to the planned level", "eat", (), R(st=state(food=10)), R(st=state(food=16)), 16, None, True),
+    ("eat: short of the planned level (one bite of three)", "eat", (), R(st=state(food=10)), R(st=state(food=15)),
+     20, None, False),
     ("eat: nothing eaten, and it said so — still no product", "eat", (), R(st=state(food=10)), R(st=state(food=10)),
      False, None, False),
     ("loot: the bag is as it was", "loot_chest", (None,), R(inv=inventory(dirt=5)), R(inv=inventory(dirt=5)), 0,
@@ -909,6 +911,21 @@ SPOT = {"x": 1, "y": 64, "z": 1}          # fixture: one dark spot /dark answere
 
 # skill → [(situation, state dict, expected)]; expected is an exception type or a check(batch) -> None (asserts).
 COMMANDS = {
+    # eat: (situation, the body) → the bites, back to back (bite_plan)
+    "eat": [
+        ("food 0, bread ×4: four bites (the gap 20 over bread's 5)", body(state=state(food=0), inv=inventory(bread=4)),
+         lambda t, b: t.assertEqual([x["item"] for x in b], ["minecraft:bread"] * 4)),
+        ("food 12, bread ×4: two bites", body(state=state(food=12), inv=inventory(bread=4)),
+         lambda t, b: t.assertEqual([x["item"] for x in b], ["minecraft:bread"] * 2)),
+        ("food 19, bread: one bite, the smallest that overflows", body(state=state(food=19), inv=inventory(bread=4)),
+         lambda t, b: t.assertEqual([x["item"] for x in b], ["minecraft:bread"])),
+        ("full: none", body(state=state(food=20), inv=inventory(bread=4)), lambda t, b: t.assertEqual(b, [])),
+        ("nothing carried: none", body(state=state(food=0)), lambda t, b: t.assertEqual(b, [])),
+        ("steak then bread: the best fit first, each bite from what is left",
+         body(state=state(food=4), inv=inventory(cooked_beef=1, bread=3)),
+         lambda t, b: t.assertEqual([x["item"] for x in b], ["minecraft:cooked_beef", "minecraft:bread",
+                                                              "minecraft:bread"])),
+    ],
     "dig_in": [
         ("flat stone, blocks carried: three down and a lid", body(world(), inv=inventory(cobblestone=16)),
          lambda t, b: (t.assertEqual(types(b), ["mine", "wait"] * 3 + ["place"]),

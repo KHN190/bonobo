@@ -14,7 +14,8 @@ import time
 
 from . import api, nav, nether, skills, tape
 from .api import McError, NotAvailable, log
-from .data import BASE_MARKERS, COVERED_SKY
+from .data import BASE_MARKERS, COVERED_SKY, FULL_BAR, MAX_HP
+from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
 from .skillcore import gained
@@ -57,7 +58,7 @@ def meal(food, inv, cookable):
 
 TABLE = [
     ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
-    ("eat", lambda v: v["food"] < EAT_BELOW and v["meal"] is not None,
+    ("eat", lambda v: eat_due(v["food"], v.get("hp", MAX_HP), EAT_BELOW, MAX_HP, FULL_BAR) and v["meal"] is not None,
      lambda m, v: skills.eat(raw_ok=v["meal"])),
     ("reach land", lambda v: v["swimming"], lambda m, v: skills.reach_land(v["ctx"])),
     ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
@@ -227,7 +228,7 @@ class Maintain:
             "job_ready": lambda: self.ready_job(snap) is not None,
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
-        }, snap=snap, ctx=ctx, food=s.get("food", 20), night=snap.night, overworld=over,
+        }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night, overworld=over,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet,
             on_land_s=time.time() - self.land_since if self.land_since else 0.0)

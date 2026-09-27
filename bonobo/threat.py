@@ -279,7 +279,7 @@ def eat_options(state, hp, press, blast_here):
         heal = min(float(ENGAGE["golden_heals"]), max_hp - hp)
         return [Option("eat", "minecraft:golden_apple", round(press * eat_s + blast_here, 2), eat_s,
                        f"a golden apple: +{heal:.0f} hp now", leaves=press, heals=heal)]
-    if int(state.get("food_items", 0)) > 0 and float(state.get("hunger", 0)) < 20 \
+    if int(state.get("food_items", 0)) > 0 and estimate.eat_due(float(state.get("hunger", 0)), hp, 0, max_hp, float(_R["food_full"])) \
             and press <= float(ENGAGE["eat_safe_press"]):
         heal = min(float(ENGAGE["eat_heals"]), max_hp - hp)
         return [Option("eat", None, round(press * eat_s + blast_here, 2), eat_s,
