@@ -315,6 +315,7 @@ def reset_brain(brain, mem):
     skillkit.STATS = nav.ROAD_MEM = mem
     brain.blacklist.clear()           # in place: fight_loop and every Context share this dict
     brain.retry = retry.Retry()
+    brain.picks = __import__("collections").Counter()
     brain.held = {}
     brain.needs, brain.reflexes = needs.Needs(brain), reflexes.Maintain(brain)
     brain.place = brain.idle_since = brain.committed = brain.last_failure = None

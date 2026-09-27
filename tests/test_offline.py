@@ -877,14 +877,19 @@ _slog = [f"06:39:{s:02d} bucket/mine:minecraft:raw_iron: vein yielded nothing" f
         ["06:39:20   travel    succeeded arrived (1.0s)", "06:39:21 route: now 'portal'"]
 _spos = [(0, (0, 64, 0)), (1, (10, 64, 0)), (2, (4, 64, 0)), (3, (20, 64, 0))]
 _srep = SC.slice_report(_slog, _spos, (100, 64, 0), 22.4)
-# (log lines) → the rounds spent waiting (slice_report's waits)
-for _name, _lines, _want in [("none: work only", _slog, 0),
-                             ("waiting for day twice", ["21:00:01 → wait for day", "21:00:05 → wait for day"], 2),
-                             ("the idle hold", ["21:00:01 nothing to do; waiting"], 1),
-                             ("a line without a timestamp is not a round", ["wait for day"], 0),
-                             ("a task that mentions waiting on a furnace is not a wait",
-                              ["21:00:01 task 3: waiting on a furnace for iron"], 0)]:
-    same(f"bench: slice waits — {_name}", SC.slice_report(_lines, [], None, 0)["waits"], _want)
+# (the arbiter's picks, counted by kind) → the rounds spent waiting (slice_report's waits)
+import collections as _co  # noqa: E402
+from bonobo import arbiter as _arb  # noqa: E402
+_mk = lambda k: _arb.Intent("plan", lambda: None, k, at=0.0, kind=k)       # noqa: E731
+for _name, _chosen, _want in [("a wait for day chosen: counted", ["wait for day"], 1),
+                              ("a task chosen: not a wait", ["queue"], 0),
+                              ("idle stocking twice and a task", ["idle", "queue", "idle"], 2),
+                              ("nothing chosen (None): nothing counted", [None], 0),
+                              ("no picks at all", [], 0)]:
+    _p = _co.Counter()
+    for _k in _chosen:
+        _arb.note_pick(_p, _mk(_k) if _k else None)
+    same(f"bench: slice waits — {_name}", SC.slice_report([], [], None, 0, _p)["waits"], _want)
 check("bench: server-side entity count parsed",
       SC.server_count(["Test passed. Count: 3"]) == 3 and SC.server_count(["Test failed"]) == 0)
 same("bench: /locate reply parsed",

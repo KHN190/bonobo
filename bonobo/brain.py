@@ -14,6 +14,7 @@
 Failures go through retry.py: counted per (task, cause), cooled per cause at a place, reported upward (the task is
 marked failed with its reason) after three sources. Interruptions are not failures.
 """
+import collections
 import json
 import os
 import time
@@ -87,6 +88,7 @@ class Brain:
         skillkit.STATS = self.mem     # skills record measured durations; the cost model reads them back
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
+        self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
         self.blacklist = {}           # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
         self.needs = needs.Needs(self)          # what must be planned to be had (PLAN proposals)
@@ -300,6 +302,7 @@ class Brain:
         # failed under. Met and unplannable needs never become intents (need_act answers None for them).
         facts = {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
         chosen = arbiter.arbitrate(intents, facts=facts)
+        arbiter.note_pick(self.picks, chosen)
         return chosen.action if chosen else None
 
     def plan_proposals(self, snap, ctx):

@@ -195,6 +195,19 @@ def gate(intents, facts=None):
     return work or live
 
 
+def note_pick(picks, intent):
+    """Count the chosen intent by its kind (a Counter the brain keeps): how many rounds went to waiting is read here,
+    not from log text."""
+    if intent is not None:
+        picks[intent.kind or intent.layer] += 1
+    return picks
+
+
+def waits(picks):
+    """Rounds spent on a waiting kind."""
+    return sum(picks.get(k, 0) for k in WAIT_KINDS)
+
+
 def plan_rank(kind):
     """Pure: a PLAN proposal's place in PLAN_ORDER (an unknown kind after all of them)."""
     return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)

@@ -781,13 +781,12 @@ SCENARIOS["road_reuse"] = {
 SLICE = {}
 
 
-# A round the brain spent waiting, as its log says it (brain.plan_proposals' "wait for day" act, the idle hold's
-# "nothing to do; waiting"). With work queued, any is a waste (arbiter.gate should have offered the work).
-WAIT_MARKERS = ("wait for day", "nothing to do; waiting")
+# Rounds the arbiter gave to a waiting kind (brain.picks, arbiter.waits). With work queued, any is a waste
+# (arbiter.gate should have offered the work).
 MAX_WAITS_WITH_QUEUE = 0
 
 
-def slice_report(lines, positions, target, idle_s):
+def slice_report(lines, positions, target, idle_s, picks=None):
     """Pure: loops (review.repeated over the brain's own log), longest idle, and how far the player moved away from
     `target` in total (walking the wrong way) — from the slice's log lines and (t, pos) samples."""
     from . import review
@@ -804,8 +803,8 @@ def slice_report(lines, positions, target, idle_s):
     if target is not None:
         d = [math.dist((p[0], p[2]), (target[0], target[2])) for _, p in positions]
         away = sum(max(0.0, b - a) for a, b in zip(d, d[1:]))
-    waits = sum(1 for _t, text in entries if any(m in text for m in WAIT_MARKERS))
-    return {"loops": loops, "idle_s": round(idle_s), "away_m": round(away), "waits": waits}
+    from .arbiter import waits
+    return {"loops": loops, "idle_s": round(idle_s), "away_m": round(away), "waits": waits(picks or {})}
 
 
 def _slice(done, minutes, target=None, queue=(), max_idle=15):
@@ -825,6 +824,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         for goal in queue:
             tasks.add(goal, source="bench")
         core.BRAIN.idle_since, core.BRAIN.committed = None, None
+        core.BRAIN.picks.clear()              # this slice's rounds only
         t0, positions, idle = time.time(), [], 0.0
         start_line = len(sys.stdout.lines) if hasattr(sys.stdout, "lines") else 0
         stopped = None
@@ -841,13 +841,14 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
                 if core.BRAIN.idle_since:
                     idle = max(idle, time.time() - core.BRAIN.idle_since)
                 lines = sys.stdout.lines[start_line:] if hasattr(sys.stdout, "lines") else []
-                rep = slice_report(lines, positions, target, idle)
+                rep = slice_report(lines, positions, target, idle, core.BRAIN.picks)
                 if rep["loops"] or rep["idle_s"] > max_idle:
                     stopped = f"loop: {rep['loops'][0]}" if rep["loops"] else f"idle {rep['idle_s']}s"
                     break
         finally:
             tasks.FILE = saved             # the slice's private queue must not leak into the next scenario
-            SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target, queued=bool(queue))
+            SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target, queued=bool(queue),
+                         picks=dict(core.BRAIN.picks))
         if stopped:
             raise api.McError(f"slice stopped early — {stopped}")
         SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target)
@@ -862,7 +863,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
 def _slice_detail(inv):
     if not SLICE:
         return ""
-    rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"])
+    rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"], SLICE.get("picks"))
     return (f"loops: {'; '.join(rep['loops'][:3]) or '0'}, {SLICE['seconds']:.0f}s, longest idle {rep['idle_s']}s, "
             f"walked away {rep['away_m']} m, waits {rep['waits']}")
 
@@ -873,7 +874,7 @@ def _slice_check(done, max_idle=15, max_loops=0):
     def check(api, inv):
         if not SLICE or (done is not None and not done()):
             return False
-        rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"])
+        rep = slice_report(LAST_LINES, SLICE["positions"], SLICE["target"], SLICE["idle"], SLICE.get("picks"))
         return rep["idle_s"] <= max_idle and len(rep["loops"]) <= max_loops \
             and not (SLICE.get("queued") and rep["waits"] > MAX_WAITS_WITH_QUEUE)
     return check
