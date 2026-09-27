@@ -28,6 +28,15 @@ def mid(name):
 POD_BLOCKS = 10
 
 
+# Never thrown away, whatever a price says (an unpriced diamond cost "1 s to get again" and went out as junk):
+# deposited in a chest, or kept. One table (bag.let_go reads it).
+VALUABLES = frozenset(mid(v) for v in (
+    "diamond", "emerald", "iron_ingot", "gold_ingot", "copper_ingot", "netherite_ingot", "netherite_scrap",
+    "ancient_debris", "raw_iron", "raw_gold", "ender_pearl", "ender_eye", "blaze_rod", "blaze_powder", "obsidian",
+    "lapis_lazuli", "redstone", "diamond_block", "emerald_block", "iron_block", "gold_block", "enchanted_book",
+    "golden_apple", "nether_star", "shulker_shell", "totem_of_undying"))
+
+
 def item_ids(tokens):
     """Pure: the jar's item ids for a task's "only" list — a group token (log, planks, wool…) as its members' full
     ids, an id as itself. The jar matches exact ids: "log" matched nothing and a whole trunk was left on the ground

@@ -111,14 +111,16 @@ def let_go(slots, need, price=None, chest_s=None, lava_near=False):
     keep = kept(slots)
     order = [s for s in slots if dead(s)] + sorted(
         (s for s in slots if s not in keep and not dead(s)), key=lambda s: (reget_seconds(s, price), s.get("count", 1)))
+    from .data import VALUABLES
     out = []
     for s in order:
         if len(out) >= need:
             break
         worth = reget_seconds(s, price)
-        if chest_s is not None and (worth > chest_s or lava_near):
+        valuable = s["id"] in VALUABLES
+        if chest_s is not None and (valuable or worth > chest_s or lava_near):
             out.append((s, "deposit"))
-        elif not lava_near:
+        elif not lava_near and not valuable:        # a valuable is never dropped: deposited, or kept
             out.append((s, "drop"))
     if need > 0 and not out:
         raise NotAvailable("bag: every stack is needed (plans, working tools, the upkeep floor)"

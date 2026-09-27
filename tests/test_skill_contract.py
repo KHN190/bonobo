@@ -1825,7 +1825,7 @@ class BagFull(unittest.TestCase):
                 self.assertEqual(bag_full_reason(message, free), want)
 
     # Seconds to get one again, as cost.Prices answers (a fixture: the planner's price for each).
-    PRICE = {"minecraft:dirt": 2.0, "minecraft:diamond": 600.0, "minecraft:iron_ingot": 90.0,
+    PRICE = {"minecraft:dirt": 2.0, "minecraft:diamond": 600.0, "minecraft:iron_ingot": 90.0, "minecraft:stick": 3.0,
              "minecraft:cobblestone": 3.0, "minecraft:rotten_flesh": None, "minecraft:oak_log": 8.0}
 
     def test_let_go_over_the_table(self):
@@ -1850,7 +1850,13 @@ class BagFull(unittest.TestCase):
                 ("a dead pickaxe goes whatever", self.bag_of(("diamond", 5, 1)) + dead_pick, 1, {},
                  [("iron_pickaxe", "drop")]),
                 ("everything needed: said so", self.bag_of(("cooked_beef", 8, 1), ("torch", 16, 1)), 1, {},
-                 "every stack is needed")]
+                 "every stack is needed"),
+                ("must fail: an unpriced diamond is never thrown (it went out as junk: 1 s to get again)",
+                 self.bag_of(("diamond", 5, 1), ("stick", 3, 1)), 2, {}, [("stick", "drop")]),
+                ("only valuables beyond the floor, no chest: kept, nothing to throw",
+                 self.bag_of(("diamond", 5, 1), ("emerald", 3, 1)), 1, {}, "every stack is needed"),
+                ("only valuables, a chest near: deposited", self.bag_of(("emerald", 3, 1)), 1, {"chest_s": 900.0},
+                 [("emerald", "deposit")])]
         for name, slots, need, kw, want in rows:
             with self.subTest(name):
                 if isinstance(want, str):
