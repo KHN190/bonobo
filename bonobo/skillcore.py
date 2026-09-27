@@ -7,7 +7,7 @@ from . import api, beliefs
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import bare
-from .world import Inventory, Region, add
+from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
 
 
 def _collect_only(wanted):
@@ -69,6 +69,13 @@ _BAN_COUNTS = {}
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 
 
+def banned(blacklist, pos, now=None):
+    """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry}) — the one
+    reading of a ban, for the skills (Context.blocked) and the cost model alike."""
+    exp = blacklist.get(tuple(pos))
+    return exp is not None and exp > (time.time() if now is None else now)
+
+
 class Context:
     """What skills need from the brain: memory, movement policy, target blacklist."""
 
@@ -89,8 +96,7 @@ class Context:
         return got or {}
 
     def blocked(self, pos):
-        exp = self.blacklist.get(tuple(pos))
-        return exp is not None and exp > time.time()
+        return banned(self.blacklist, pos)
 
     def ban(self, pos, seconds=600):
         """Blacklist a cell after a FAILURE there (never after an interruption: nothing was learned about the place).
@@ -180,7 +186,8 @@ def body_state(ctx, region=None, **extra):
     touch, and the blocks around it. Read once, here; `commands` itself reads nothing."""
     s = api.get("/state")
     return dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
-                 "protected": set(getattr(ctx.policy, "protected", ()) or ()), "region": region}, **extra)
+                 "protected": set(getattr(getattr(ctx, "policy", None), "protected", ()) or ()), "region": region},
+                **extra)
 
 
 def carried_total():
@@ -203,11 +210,6 @@ def head_buried(s=None):
     eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
     r = Region(eye, eye)
     return r.solid(eye) and not r.name(eye).endswith(("_slab", "_stairs", "snow", "_carpet"))
-
-
-def feet():
-    s = api.get("/state")
-    return s["blockX"], s["blockY"], s["blockZ"]
 
 
 def close_screen():

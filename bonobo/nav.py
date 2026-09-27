@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from . import api, tape
 from .api import McError, NotAvailable, log
 from .data import GROUPS, HAND_MINEABLE_SUFFIX, bare
-from .world import NEIGHBOURS6, Inventory, Region, add, region_around
+from .world import NEIGHBOURS6, Inventory, Region, add, feet, region_around
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
@@ -84,11 +84,6 @@ def building_item():
     inv = Inventory()
     options = [b for b in GROUPS["building"] if inv.usable(b)]
     return max(options, key=inv.usable) if options else None
-
-
-def feet_now():
-    s = api.get("/state")
-    return s["blockX"], s["blockY"], s["blockZ"]
 
 
 def ground_in_column(solid, x, z, y_hint, span=32):
@@ -157,7 +152,7 @@ def _arrived(start, target, began, ok, closer=False):
         pass
     if ok:
         return True
-    return Walked(math.dist(start, target) - math.dist(feet_now(), target)) if closer else False
+    return Walked(math.dist(start, target) - math.dist(feet(), target)) if closer else False
 
 
 class Walked(float):
@@ -355,7 +350,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         # A fight holds the body: an interruption, not "no way there" — read as False it banned the vein the walk
         # was heading for (ban_needs_a_failure).
         raise api.FightHolds(f"nav.go_to {pos}: a fight holds the body")
-    _began, _from = time.time(), feet_now()
+    _began, _from = time.time(), feet()
     if avoid_hazards:
         from . import combat_model
         hz = combat_model.hazards()
@@ -372,7 +367,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
     if "travel" in mod_features():
         # One world model: the mod plans and executes the whole route (walk, swim, climb, dig, bridge, pillar), so
         # Python never plans moves the walker can't make.
-        here = feet_now()
+        here = feet()
         if ROAD_MEM is not None and math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
             # Known roads first: legs really travelled before (roads.py) are chained where they beat the direct way.
             from . import roads
@@ -381,8 +376,8 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 t0 = time.time()
                 if not moved(go_to(wp, policy, range_=6, attempts=1, purpose=purpose)):
                     break
-                roads.add_leg(known, here, feet_now(), time.time() - t0, time.time())
-                here = feet_now()
+                roads.add_leg(known, here, feet(), time.time() - t0, time.time())
+                here = feet()
         if math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
             # Long trips in legs: one plan over 100+ blocks exhausts the search and ends "target unreachable"
             # (≈1 150 s of failed travel in 2.5 h). Each leg is a short, reliable plan.
@@ -399,8 +394,8 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                     # This hop got nowhere. The trip is not over unless we are no nearer than when it started:
                     # the caller asked for the far end, and the next round carries on from wherever we stand.
                     return _arrived(_from, pos, _began, False,
-                                    closer=walked_closer(_from, feet_now(), pos))
-            here = feet_now()
+                                    closer=walked_closer(_from, feet(), pos))
+            here = feet()
             # Per-leg accounting: a Nether trek took 3× the Overworld one with no failures and no blocks spent, so
             # the cost is inside the walking itself. Without this line there is no way to tell replanning from
             # slow movement.
@@ -422,16 +417,16 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         # every attempt had dug another ten blocks toward it. So: keep going while each leg brings us nearer,
         # and only give up when one does not.
         for _ in range(max(attempts, LEGS)):
-            was = feet_now()
+            was = feet()
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
                          "avoid": avoid}, wait=900, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
             if there(api.get("/state"), pos, range_):
                 return _arrived(_from, pos, _began, True)
-            if walked_closer(was, feet_now(), pos):
+            if walked_closer(was, feet(), pos):
                 budget = place_budget(Inventory().count("building"))
                 continue                     # that leg gained ground: the next one starts from here
-            here = feet_now()
+            here = feet()
             budget = place_budget(Inventory().count("building"))     # the last leg spent some
             if not grounded and "no route" in (r.get("message") or "") and \
                     math.hypot(pos[0] - here[0], pos[2] - here[2]) <= 64:
@@ -450,7 +445,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                         return _arrived(_from, pos, _began, True)
         # The walker says it could not get all the way. Whether that is a failure depends on where it left us:
         # a leg that ended thirty blocks nearer is progress, and the next round continues from there.
-        return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet_now(), pos))
+        return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet(), pos))
     for _ in range(attempts):
         # A jar without `travel`: one step at a time, and the same rule — the mod says whether it got there.
         api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True}, awaits="whether the step arrived (`there`) decides the next attempt")
@@ -478,7 +473,7 @@ def arrive(pos, policy, range_=1.5, **kw):
         if not moved(got):
             raise api.NavFailed(f"could not get to {tuple(pos)} (no nearer after walking)", pos=pos)
         api.check_interrupt(began, api.SOFT)
-    raise api.NavFailed(f"still {math.dist(feet_now(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks",
+    raise api.NavFailed(f"still {math.dist(feet(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks",
                         pos=pos)
 
 
@@ -532,7 +527,7 @@ def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=
 
 def dig_down(depth, policy, use_ladders):
     """Straight down under the feet (`dig_down_tasks`), run as one chain. Returns how deep it went."""
-    here = feet_now()
+    here = feet()
     tasks, safe = dig_down_tasks(dig_down_region(here, depth), here, depth, policy.protected, use_ladders)
     # Stop at the first failure: a mine that couldn't happen leaves stone where the next ladder would go, and the
     # rest of the chain then fails block by block ("position is occupied").
@@ -552,7 +547,7 @@ def sweep(ctx, radius=6, only=(), wait=30, tries=2):
         try:
             return api.run({"type": "collect", "radius": radius, **({'only': list(only)} if only else {})}, wait=wait, awaits="an Unreachable answer names the cells a way is made to before the next sweep")
         except api.Unreachable as out:
-            if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet_now()], range_=1.5):
+            if attempt + 1 >= tries or not way_to(ctx, out.cells or [feet()], range_=1.5):
                 raise
     return None
 
@@ -645,7 +640,7 @@ def way_to(ctx, cells, range_=2.0):
     cells = {tuple(int(round(v)) for v in c) for c in cells}
     if not cells:
         return False
-    near = min(cells, key=lambda p: math.dist(p, feet_now()))
+    near = min(cells, key=lambda p: math.dist(p, feet()))
     if arrived(near, ctx.policy, range_=range_, attempts=1) and reachable(near, ctx.policy, range_)[0]:
         return True                                    # the walk was enough
     if not (ctx.policy.allow_dig or ctx.policy.allow_build):

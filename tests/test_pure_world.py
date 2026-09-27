@@ -58,6 +58,90 @@ def soft_ground(patch=None, gap=False):
     return FakeRegion((-12, 58, -4), (12, 68, 4), b)
 
 
+class _Props:
+    """A region read with block states: {pos: name}, {pos: {key: value}} (None: read without states)."""
+
+    def __init__(self, blocks, props):
+        self.blocks = blocks
+        if props is not None:
+            self.prop = lambda p, key: props.get(p, {}).get(key)
+
+
+class CellsWith(unittest.TestCase):
+    """world.cells_with: the one filter over block states (ripe wheat, frames without an eye)."""
+
+    def test_over_the_table(self):
+        from bonobo import end, world
+        blocks = {(0, 64, 0): "wheat", (1, 64, 0): "wheat", (2, 64, 0): "end_portal_frame",
+                  (3, 64, 0): "end_portal_frame", (4, 64, 0): "end_portal_frame"}
+        props = {(0, 64, 0): {"age": "7"}, (1, 64, 0): {"age": "3"}, (2, 64, 0): {"eye": "true"},
+                 (3, 64, 0): {"eye": "false"}}
+        # (situation, region, name, key, value, want) → cells
+        rows = [("ripe wheat", _Props(blocks, props), "wheat", "age", "7", True, [(0, 64, 0)]),
+                ("frames without an eye (a state not read counts as not true)", _Props(blocks, props),
+                 "end_portal_frame", "eye", "true", False, [(3, 64, 0), (4, 64, 0)]),
+                ("must fail: another block's state is not this one's", _Props(blocks, props), "wheat", "eye", "true",
+                 True, []),
+                ("must fail: a region read without states says nothing", _Props(blocks, None), "wheat", "age", "7",
+                 False, []),
+                ("nothing of that name", _Props(blocks, props), "stone", "age", "7", True, [])]
+        for name, region, block, key, value, want, cells in rows:
+            with self.subTest(name):
+                self.assertEqual(sorted(world.cells_with(region, block, key, value, want)), cells)
+        region = _Props(blocks, props)
+        self.assertEqual((world.ripe_cells(region), sorted(end.frames_missing_eye(region))),
+                         ([(0, 64, 0)], [(3, 64, 0), (4, 64, 0)]))
+
+
+class StandingCells(unittest.TestCase):
+    """terrain.standing_cells: the one reading of "one could stand here" (find_open_spot, find_shelter_spot)."""
+
+    def test_over_the_table(self):
+        from bonobo import terrain
+        floor = {(x, 63, 0): "stone" for x in range(5)}
+        # (situation, blocks, here, radius) → cells
+        rows = [("a floor, open above: every cell over it", floor, (0, 64, 0), 10, [(x, 64, 0) for x in range(5)]),
+                ("out of the radius: left out", floor, (0, 64, 0), 2, [(0, 64, 0), (1, 64, 0), (2, 64, 0)]),
+                ("must fail: a roof at head height", dict(floor) | {(1, 65, 0): "stone"},
+                 (0, 64, 0), 1, [(0, 64, 0)]),
+                ("must fail: lava is no floor", dict(floor) | {(0, 63, 0): "lava"}, (0, 64, 0), 1, [(1, 64, 0)]),
+                ("must fail: a block where the feet go (standing on it instead)", dict(floor) | {(0, 64, 0): "dirt"},
+                 (0, 64, 0), 1, [(0, 65, 0), (1, 64, 0)]),
+                ("cave air is air", dict(floor) | {(0, 64, 0): "cave_air", (0, 65, 0): "cave_air"}, (0, 64, 0), 1,
+                 [(0, 64, 0), (1, 64, 0)])]
+        for name, blocks, here, radius, want in rows:
+            with self.subTest(name):
+                region = FakeRegion((-1, 60, -1), (6, 70, 1), blocks)
+                self.assertEqual(sorted(terrain.standing_cells(region, here, radius)), want)
+
+
+class AwayFrom(unittest.TestCase):
+    """world.away_from: the one "straight away from a point" (end.breath_escape reads it; its old answers pinned)."""
+
+    def test_over_the_table(self):
+        from bonobo import world
+        rows = [("east of it: further east", (10, 64, 0), (0, 64, 0), 10, (20.0, 64, 0.0)),
+                ("on a diagonal: along it", (3, 70, 4), (0, 0, 0), 10, (9.0, 70, 12.0)),
+                ("y is kept, never climbed", (0, 5, 3), (0, 99, 0), 2, (0.0, 5, 5.0)),
+                ("must fail: on the point itself, nowhere to go", (0, 64, 0), (0, 64, 0), 10, (0.0, 64, 0.0))]
+        for name, here, point, blocks, want in rows:
+            with self.subTest(name):
+                self.assertEqual(world.away_from(here, point, blocks), want)
+
+    def test_breath_escape_answers_as_before(self):
+        from bonobo import end
+        cloud = lambda x, z: {"type": "minecraft:area_effect_cloud", "x": x, "y": 64, "z": z}   # noqa: E731
+        # (here, what is near, run) → the spot the old inline math gave
+        rows = [((10, 64, 0), [cloud(0, 0)], 10, (20, 64, 0)), ((3, 70, 4), [cloud(0, 0)], 10, (9, 70, 12)),
+                ((5, 64, 5), [cloud(0, 0), cloud(4, 4)], 7, (10, 64, 10)),
+                ((-7, 60, 3), [cloud(2.5, -1.5)], 12, (-18, 60, 8)),
+                ((0, 64, 0), [cloud(0, 0)], 10, (0, 64, 0)),
+                ((1, 64, -2), [{"type": "minecraft:zombie", "x": 0, "y": 0, "z": 0}], 10, None)]
+        for here, near, run, want in rows:
+            with self.subTest(here=here):
+                self.assertEqual(end.breath_escape(here, near, run=run), want)
+
+
 class NearestSoft(unittest.TestCase):
     """terrain.nearest_soft: ground that digs by hand, found along the ground we stand on."""
     # (situation, region, feet) → (cell, steps) or None
@@ -799,7 +883,8 @@ class InterruptSources(unittest.TestCase):
         from bonobo import arbiter, hazard, reflexes
         return ([f"row:{n}" for n in reflexes.NAMES] + [f"hazard:{k}" for k in hazard.KINDS]
                 + [f"layer:{k}" for k in arbiter.SCALES]
-                + ["manual", "jar reflex", "death", "dimension change", "user cancel", "stuck"])
+                + ["manual", "player", "game lost", "jar reflex", "death", "dimension change", "user cancel", "stuck",
+                   "crash"])
 
     def test_every_source_is_declared(self):
         from bonobo import arbiter
@@ -809,8 +894,8 @@ class InterruptSources(unittest.TestCase):
     def test_the_rule_per_class(self):
         from bonobo import arbiter
         # (source) → (resumes, what first)
-        rows = [("layer:tactic", (True, None)), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
-                ("manual", (True, None)), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
+        rows = [("layer:tactic", (True, "fight")), ("row:eat", (True, None)), ("hazard:drowning", (True, None)),
+                ("manual", (True, "stand_down")), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
                 ("dimension change", (True, "back")), ("row:leave the Nether", (True, "back")),
                 ("user cancel", (False, None)), ("stuck", (False, "cool"))]
         for source, want in rows:
@@ -823,18 +908,57 @@ class InterruptSources(unittest.TestCase):
             arbiter.resume_of("row:a reflex nobody declared")
 
     def test_every_interruption_has_its_resume(self):
-        """Generated from api.INTERRUPTIONS: what the attempt does (brain.outcome_of) meets the declared resume rule
-        of its source — a death recovers first, a dimension change resumes back there — and a real failure is the
-        contrast: counted and cooled."""
+        """Generated over api.INTERRUPTIONS: each class stands for one interrupt source (brain.outcome_of) and what the
+        attempt does about it is that source's rule, read from arbiter.RESUME_OF itself: a death recovers first, a
+        dimension change resumes back there, our fight waits it out. A class with no row fails; a real failure and a
+        bug of ours are the contrast."""
         from bonobo import api, arbiter
         from bonobo import brain as brainmod
-        source_of = {"recover": "death", "elsewhere": "dimension change", "fight": "layer:tactic",
-                     "stand_down": "manual", "handback": "manual", None: "layer:maintain"}
-        for cls in api.INTERRUPTIONS:
+        # (class, the source it stands for, outcome, the rule's (resumes, what first))
+        rows = [(api.Interrupted, "layer:safety", "interrupted", (True, None)),
+                (api.CommitmentExpired, "layer:plan", "interrupted", (True, None)),
+                (api.BodyContested, "manual", "interrupted", (True, "stand_down")),
+                (api.FightHolds, "layer:tactic", "interrupted", (True, "fight")),
+                (api.PlayerTookControl, "player", "interrupted", (True, "handback")),
+                (api.Died, "death", "interrupted", (True, "recover")),
+                (api.DimensionChanged, "dimension change", "interrupted", (True, "back")),
+                (api.TaskStuck, "stuck", "failed", (False, "cool")),
+                (ValueError, "crash", "failed", (False, "hold"))]
+        self.assertEqual(set(api.INTERRUPTIONS) - {r[0] for r in rows}, set(), "an interruption without a row")
+        for cls, source, outcome, rule in rows:
             with self.subTest(cls.__name__):
-                outcome, then = brainmod.outcome_of(cls() if cls is api.PlayerTookControl else cls("x"))
-                self.assertEqual(outcome, "interrupted")
-                resumes, _first = arbiter.resume_of(source_of[then])
-                self.assertIs(resumes, True)
-        self.assertEqual((brainmod.outcome_of(api.TaskStuck("no progress")), arbiter.resume_of("stuck")),
-                         (("failed", "stop"), (False, "cool")))
+                err = cls() if cls is api.PlayerTookControl else cls("x")
+                self.assertEqual(brainmod.outcome_of(err), (outcome, source))
+                self.assertEqual(arbiter.resume_of(source), rule)
+
+    def test_the_attempt_does_what_the_rule_says(self):
+        """brain.attempt applies the source's rule (arbiter.RESUME_OF), nowhere else: change the rule and what the
+        attempt does changes with it — a rule ignored is caught."""
+        import tempfile
+        from bonobo import api, arbiter, retry
+        from bonobo import brain as brainmod
+        from bonobo.memory import Memory
+        # (situation, the error, a rule changed {source: rule}, outcome, recorded as a failure, waited out a fight)
+        rows = [("died: interrupted, not counted", api.Died("x"), {}, "interrupted", False, False),
+                ("must fail: the death rule made a failure — counted", api.Died("x"), {"death": "cooled"}, "failed",
+                 True, False),
+                ("a real failure: counted", api.TaskStuck("no progress"), {}, "failed", True, False),
+                ("must fail: a stuck rule that resumes — not counted", api.TaskStuck("no progress"),
+                 {"stuck": "same"}, "interrupted", False, False),
+                ("our fight: waited out", api.FightHolds("x"), {}, "interrupted", False, True),
+                ("must fail: the fight rule made plain — not waited", api.FightHolds("x"), {"layer:tactic": "same"},
+                 "interrupted", False, False)]
+        for name, err, changed, outcome, counted, waited in rows:
+            with self.subTest(name):
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.retry, b.place = retry.Retry(), ("here", False)
+                b.mem = Memory(os.path.join(tempfile.mkdtemp(prefix="attempt"), "notes.json"))
+                b.reflexes = type("R", (), {"failed": lambda self, *a: None})()
+                fights, outcomes = [], []
+                b.mem.record_outcome = lambda name, ok: outcomes.append(ok)
+                with mock.patch.dict(arbiter.RESUME_OF, changed), mock.patch.object(api, "post"), \
+                        mock.patch.object(brainmod, "log"), mock.patch.object(brainmod.time, "sleep", lambda s: None), \
+                        mock.patch.object(brainmod, "wait_out_fight", lambda: fights.append(1)):
+                    got = b.attempt("task t1", lambda: (_ for _ in ()).throw(err))
+                self.assertEqual((got, False in outcomes, bool(fights)), (outcome, counted, waited))
+

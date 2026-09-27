@@ -230,6 +230,11 @@ def mob(kind):
     return MOBS[kind]
 
 
+def fights_back(types):
+    """Does any of these mob types hit back (a row in the table: its dps is known)? Animals do not."""
+    return any(t in MOBS for t in types or ())
+
+
 def keep_out():
     """{kind: radius} movement refuses to plan inside. A view of the table, never a second copy of it."""
     return {kind: m["keep_out"] for kind, m in MOBS.items() if m.get("keep_out")}

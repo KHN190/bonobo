@@ -5,7 +5,7 @@ import math
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
-from . import api, jobs, nav
+from . import api, jobs, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .skillcore import body_state, gained
@@ -204,10 +204,10 @@ def plant_farm(ctx):
     """Wheat for the plan: a crop already grown nearby is reaped first (the world read here, at execution — the
     estimate only knows memory); else make a 3×3 plot here: dig the centre, pour the water bucket in (and take
     nothing back — it stays as the plot's source), till the 8 neighbours with a hoe, sow seeds, start a crop job."""
-    ripe = ripe_near(nav.feet_now(), RIPE_LOOK)
+    ripe = ripe_near(skillcore.feet(), RIPE_LOOK)
     if ripe and _reap(ripe) > 0:
         return REAPED
-    here = nav.feet_now()
+    here = skillcore.feet()
     state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)

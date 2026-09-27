@@ -313,7 +313,7 @@ class Arrive(_Clean):
         answers = reader(legs, interrupt_at)
         api.SOFT = soft
         with mock.patch.object(nav, "go_to", side_effect=lambda *a, **k: answers()), \
-                mock.patch.object(nav, "feet_now", return_value=(0, 64, 0)):
+                mock.patch.object(nav, "feet", return_value=(0, 64, 0)):
             return fn((40, 64, 0), None, range_=2)
 
     def test_leg_sequences(self):
@@ -542,12 +542,13 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(set(api.INTERRUPTIONS), {type(e) for e, _, c in OUTCOMES if c == "interrupted"})
 
     def test_outcome_of(self):
-        """What the attempt does about each: interruptions never fail (and some need a hand back or a wait)."""
-        special = {api.PlayerTookControl: ("interrupted", "handback"), api.GameUnreachable: ("interrupted", "wait_game"),
-                   api.BodyContested: ("interrupted", "stand_down"), api.FightHolds: ("interrupted", "fight"),
-                   api.Died: ("interrupted", "recover"), api.DimensionChanged: ("interrupted", "elsewhere")}
-        rows = [(err, special.get(type(err), ("interrupted", None) if cls == "interrupted" else ("failed", "stop")))
-                for err, _cause, cls in OUTCOMES]
+        """What each means: interruptions never fail — each stands for its interrupt source (arbiter.RESUME_OF, whose
+        rule says what first: a hand back, a wait); a real failure is "stuck", a bug of ours a "crash"."""
+        special = {api.PlayerTookControl: ("interrupted", "player"), api.GameUnreachable: ("interrupted", "game lost"),
+                   api.BodyContested: ("interrupted", "manual"), api.FightHolds: ("interrupted", "layer:tactic"),
+                   api.Died: ("interrupted", "death"), api.DimensionChanged: ("interrupted", "dimension change"),
+                   api.CommitmentExpired: ("interrupted", "layer:plan"), api.Interrupted: ("interrupted", "layer:safety")}
+        rows = [(err, special.get(type(err), ("failed", "stuck"))) for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]
         for err, want in rows:
             with self.subTest(repr(err)):
@@ -1358,12 +1359,11 @@ class Declarations(unittest.TestCase):
     or it is refused at import."""
 
     def test_every_registered_skill_declares_both(self):
-        from bonobo import data, knowledge
+        from bonobo import data
         tools = set(data.TOOL_KINDS)
         bad = {n: (c.needs, c.speed) for n, c in skillkit.REGISTRY.items()
                if not isinstance(c.needs, dict) or not isinstance(c.speed, dict)
-               or not set(c.speed) <= tools or any(not (v > 0) for v in c.speed.values())
-               or knowledge.SKILL_SPEED.get(n) != c.speed}
+               or not set(c.speed) <= tools or any(not (v > 0) for v in c.speed.values())}
         self.assertEqual(bad, {})
 
     def test_the_decorator_refuses_what_is_undeclared(self):
@@ -1385,8 +1385,6 @@ class Declarations(unittest.TestCase):
                     got = str(e)
                 finally:
                     skillkit.REGISTRY.pop("_dummy_for_the_contract_test", None)
-                    __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop(
-                        "_dummy_for_the_contract_test", None)
                 self.assertEqual(got if want is None else (got is not None and want in got),
                                  None if want is None else True, got)
 
@@ -1570,6 +1568,23 @@ class Remaining(unittest.TestCase):
                     got = skillkit.remaining_of(c, body(inv=inventory(**{it: now})), call)
                     self.assertEqual(got, {token: left} if left else {}, name)
 
+    def test_a_call_starts_only_with_its_needs_held(self):
+        # (situation, the bag, the call to mine) → can_run's answer: mine's pickaxe is its needs (needs_of for the
+        # call), not a second `pre` check
+        rows = [("diamonds, an iron pickaxe", inventory(("iron_pickaxe", 1)), "minecraft:diamond", 2, True),
+                ("must fail: diamonds, a wooden pickaxe", inventory(("wooden_pickaxe", 1)), "minecraft:diamond", 2,
+                 False),
+                ("must fail: coal, bare hands", inventory(), "minecraft:coal", 0, False),
+                ("dirt, bare hands", inventory(), "minecraft:dirt", None, True)]
+        mine = skillkit.REGISTRY["mine"]
+        self.assertEqual(mine.pre, ())
+        for name, inv, token, tier, ok in rows:
+            with self.subTest(name), mock.patch.object(skillcore, "Inventory", lambda inv=inv: bag(inv)):
+                got, why = skillkit.can_run(mine.runner, None, token, 1, ["x"], tier)
+                self.assertEqual(got, ok, why)
+                if not ok:
+                    self.assertIn("tool:pickaxe", why)
+
     def test_a_skill_must_say_what_is_left(self):
         # skill.declared: an item in its gives (the rest derived from the bag) or its own remaining=, else refused
         # at import, named. (situation, gives, remaining) → refused (TypeError naming the skill) or registered
@@ -1588,7 +1603,6 @@ class Remaining(unittest.TestCase):
                     got = str(e)
                 finally:
                     skillkit.REGISTRY.pop("_dummy_left", None)
-                    __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_left", None)
                 self.assertEqual(got is not None, refused, got)
                 if refused:
                     self.assertIn("_dummy_left", got)
@@ -1743,35 +1757,47 @@ class ResumeFromTheWorld(unittest.TestCase):
                 self.assertEqual(bool(resume_faults("pod", fn, st0)), bad)
 
     def test_every_interruption_keeps_the_call_for_its_resume(self):
-        # (interruption) → the same call again asks only for the rest of its item, or finishes having it all
-        gives = skillkit.REGISTRY["chop"].gives[:1]
-        token = next(iter(gives[0].keys()))
-        item = "minecraft:" + _item_of(token)
+        # (situation, gives, remaining, the world when cut off) → the counts the body was asked for: the same call
+        # again asks only for the rest of its item, or returns at once when the world shows it done while away — an
+        # item skill's rest from the bag it wanted, a world-effect skill's from its own `remaining`
+        from bonobo import knowledge
+        chop = skillkit.REGISTRY["chop"].gives[:1]
+        token = next(iter(chop[0].keys()))
+        fed = ["state:fed"]
+        rows = [("item: 1 of 3 before it, asks for 2", chop, None, {"n": 1, "food": 5}, [3, 2]),
+                ("item: 3 of 3 before it, finished", chop, None, {"n": 3, "food": 5}, [3]),
+                ("state: fed while away, finished", fed, knowledge.fed, {"n": 0, "food": 20}, [3]),
+                ("state: half fed, runs again for the rest", fed, knowledge.fed, {"n": 0, "food": 14}, [3, 3]),
+                ("state: nothing done yet, runs again", fed, knowledge.fed, {"n": 0, "food": 5}, [3, 3]),
+                ("state: a reading the runner does not take (no region) is not a done", fed, knowledge.walled_sides,
+                 {"n": 0, "food": 20}, [3, 3])]
         for source in api.INTERRUPTIONS:
-            for got_before, left in [(1, 2), (3, 0)]:
-                with self.subTest(f"{source.__name__}, {got_before} of 3 before it"):
-                    held, asked = {"n": 0}, []
+            for situation, gives, remaining, cut_off, want in rows:
+                with self.subTest(f"{source.__name__}: {situation}"):
+                    world, asked = {"n": 0, "food": 5}, []
 
                     def fn(ctx, tok, count):
                         asked.append(count)
                         if len(asked) == 1:
-                            held["n"] += got_before
+                            world.update(cut_off)
                             raise source("cut off")
-                        held["n"] += count
+                        world["n"] += count if remaining is None else 0
+                        world["food"] = 20
                         return count
                     fn.__name__ = "_dummy_resume"
-                    inv = lambda: bag(inventory(**({_item_of(token): held["n"]} if held["n"] else {})))  # noqa: E731
+                    inv = lambda: bag(inventory(**({_item_of(token): world["n"]} if world["n"] else {})))  # noqa: E731
                     try:
-                        with mock.patch.object(skillcore, "Inventory", inv), mock.patch.dict(skillkit.RESUME, clear=True):
-                            runner = skillkit.skill(needs={}, speed={}, gives=gives)(fn)
+                        with mock.patch.object(skillcore, "Inventory", inv), \
+                                mock.patch.object(api, "get", lambda path, *a, **k: state(food=world["food"])), \
+                                mock.patch.dict(skillkit.RESUME, clear=True):
+                            runner = skillkit.skill(needs={}, speed={}, gives=gives, remaining=remaining)(fn)
                             with self.assertRaises(source):
                                 runner(None, token, 3)
                             runner(None, token, 3)
                     finally:
                         skillkit.REGISTRY.pop("_dummy_resume", None)
-                        __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_resume", None)
-                    self.assertEqual(asked, [3, left] if left else [3])
-                    self.assertEqual(held["n"], 3, item)
+                    self.assertEqual(asked, want, situation)
+                    self.assertEqual(world["n"] if remaining is None else world["food"], 3 if remaining is None else 20)
 
 
 class BagRules(unittest.TestCase):

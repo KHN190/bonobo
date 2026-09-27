@@ -12,6 +12,8 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .knowledge import step_call, tool_ok
+from .skillcore import banned
 from .world import ROUTES, entities, find, job_ready, nearest
 
 TICKS_PER_S = 20
@@ -51,11 +53,6 @@ class Cost:
         self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
     # -- where things are
-    def _banned(self, key):
-        import time
-        exp = self.blacklist.get(tuple(key))
-        return exp is not None and exp > time.time()
-
     def _nearest(self, kinds):
         """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None.
         Memory only, never a fresh query, so a recorded round replays the same."""
@@ -63,7 +60,7 @@ class Cost:
             return None
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
-        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not self._banned(r["pos"])]
+        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not banned(self.blacklist, r["pos"])]
         best = min(spots, key=lambda p: math.dist(p, here), default=None)
         return (best, math.dist(best, here)) if best is not None else None
 
@@ -119,7 +116,7 @@ class Cost:
             self.cache[key] = min(got) if got else self._known(types)
         if key not in self.cache:
             try:
-                es = [e for e in entities(64, list(types)) if not self._banned((e["id"], 0, 0))]
+                es = [e for e in entities(64, list(types)) if not banned(self.blacklist, (e["id"], 0, 0))]
             except McError:
                 es = []
             self.cache[key] = es[0]["distance"] if es else self._known(types)
@@ -160,8 +157,19 @@ class Cost:
         """Ticks this step takes from here: measured work when there is enough of it, the prior otherwise, plus the
         walk to where it happens."""
         measured = self.measured(step)
-        work = measured if measured is not None else self._prior_work(step)
+        work = measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
         return work + self._walk(step)
+
+    def _sped_up(self, step):
+        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge.step_call —
+        every skill's `speed`, seconds saved per unit) for each tool the bag holds, times the step's units. A measured
+        time already has the tools in it."""
+        inv = getattr(self.snap, "inv", None)
+        if inv is None:
+            return 0
+        _needs, speed = step_call(step)
+        units = step.detail.get("breaks") or step.detail.get("kills") or step.count
+        return int(sum(s for tool, s in speed.items() if tool_ok(inv, tool, 0)) * max(1, units) * TICKS_PER_S)
 
     def _prior_work(self, step):
         k = step.kind

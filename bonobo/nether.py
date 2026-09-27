@@ -5,7 +5,7 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, blueprints, nav
+from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, entities, find
@@ -110,7 +110,7 @@ def find_fortress(ctx, legs=8, leg=48):
         known = ctx.mem.sites(NETHER, kinds=[kind])
         if known:
             return tuple(known[0]["pos"])
-    x, y, z = nav.feet_now()
+    x, y, z = skillcore.feet()
     for i in range(legs):
         hits = find(["nether_bricks", "nether_brick_fence"], radius=64, limit=3)
         if hits:
@@ -125,7 +125,7 @@ def find_fortress(ctx, legs=8, leg=48):
         # Legs at y≈70: above the lava sea (y 31) and below most ceilings; travel bridges and tunnels as needed.
         nav.go_to((x + dx * length, EXPLORE_Y, z + dz * length), ctx.policy, range_=8, attempts=1,
                   purpose="explore")
-        x, y, z = nav.feet_now()
+        x, y, z = skillcore.feet()
         yield (x, z)
     # Out of legs (or supplies): go back to the arrival portal instead of wandering further from home.
     home = ctx.mem.sites(NETHER, kinds=["portal"])
@@ -273,7 +273,7 @@ def locate_stronghold(ctx):
     if known:
         # The nearest estimate, not the first one ever remembered: an old stronghold still in memory sent the
         # portal-room search thousands of blocks away from the one under our feet.
-        here = nav.feet_now()
+        here = skillcore.feet()
         return tuple(min(known, key=lambda s: math.dist(s["pos"], here))["pos"])
     if api.get("/state")["dimension"] != OVERWORLD:
         raise NotAvailable("strongholds are located from the Overworld")
@@ -281,7 +281,7 @@ def locate_stronghold(ctx):
     for leg in range(2):
         if Inventory().count("minecraft:ender_eye") < 1:
             raise NotAvailable("no eyes of ender left to throw")
-        here = nav.feet_now()
+        here = skillcore.feet()
         api.run({"type": "use_item", "item": "minecraft:ender_eye", "yaw": 0, "pitch": -20}, wait=10, awaits="the eye's flight is read right after the throw")
         direction = _eye_direction()
         if direction is None:

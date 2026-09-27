@@ -17,8 +17,18 @@ GROUP_RECIPES = {
 CHOP_AXE_S = 1.5         # a log: ~3 s by hand, ~1.5 s with a wooden axe
 HUNT_SWORD_S = 3.0       # a kill: a cow takes ten fist hits, four with a wooden sword
 DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 s with a wooden shovel
-SKILL_SPEED = {}         # skill name → its declared speed, filled by the `skill` decorator (the planner's view)
-STEP_SKILL = {"gather": "chop", "hunt": "hunt", "mine": "mine"}     # which skill carries out a planned step kind
+# What carries out a planned step, as the planner sees it: fn(step) → (needs, speed) — the hard needs of the call
+# the skill would make ({dim: n}) and the tools it runs faster with ({tool: s saved per unit}). Wired in by skill.py
+# (`skill.step_call`, read off the providers' own `needs`/`speed`): knowledge stays below the skills.
+STEP_CALL = None
+
+
+def step_call(step):
+    """(needs, speed) of what carries out `step` (skill.step_call), the skill modules loaded first; ({}, {}) when no
+    skill is wired in."""
+    producers()
+    return STEP_CALL(step) if STEP_CALL is not None else ({}, {})
+
 
 # item -> (block names to break, minimum pickaxe tier or None if no tool needed)
 MINE = {
@@ -302,11 +312,18 @@ def reconcile(want, have):
     return {k: n - have.get(k, 0) for k, n in want.items() if have.get(k, 0) < n}
 
 
-def have_remainder(inv, rows):
+def needs_rows(needs):
+    """Pure: a skill's `needs` ({dim: n}, "tool:<kind>:<tier>" for a tool) as have_remainder's rows."""
+    return [["tool", k.split(":")[1], int(k.split(":")[2])] if k.startswith("tool:") else [k, n]
+            for k, n in needs.items()]
+
+
+def have_remainder(inv, rows, pending=None):
     """Pure: what of `rows` ([token, n] / ["tool", kind, tier]) the bag does not hold — {token: missing n,
-    "tool:<kind>": tier}, {} when all is held."""
+    "tool:<kind>": tier}, {} when all is held. `pending` ({token: n}): already on its way, counted as held."""
+    pending = pending or {}
     items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
-    out = reconcile(items, {t: held(inv, t) for t in items})
+    out = reconcile(items, {t: held(inv, t) + pending.get(t, 0) for t in items})
     for r in rows:
         if r[0] == "tool" and not tool_ok(inv, r[1], int(r[2])):
             out[f"tool:{r[1]}"] = int(r[2])

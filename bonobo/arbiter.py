@@ -178,17 +178,22 @@ RESUME_RULES = {
     "recheck": (True, "recheck"),     # the bag changed under it: re-read the remaining amount first
     "recover": (True, "recover"),     # died: recover the items first, then replan from where we stand (target kept)
     "dimension": (True, "back"),      # the map is per dimension: resumed only back in the one it was left in
+    "handback": (True, "handback"),   # the player holds control: wait until it is handed back, then the same
+    "stand down": (True, "stand_down"),   # someone else drives the body: stand down a while, then the same
+    "fight": (True, "fight"),         # our own fight holds the body: back when it ends, not 10 s later
+    "game": (True, "wait_game"),      # the game cannot be reached: wait for it, then the same
     "none": (False, None),            # the user cancelled: nothing resumes
-    "cooled": (False, "cool"),        # a real failure, not an interrupt: cooled under the retry policy
+    "cooled": (False, "cool"),        # a real failure, not an interrupt: counted, /stop, cooled under the retry policy
+    "crashed": (False, "hold"),       # a bug of ours: held a while, the trace logged
 }
 RESUME_OF = {
-    **{f"layer:{k}": "same" for k in ("reflex", "safety", "tactic", "maintain", "plan")},
+    **{f"layer:{k}": "same" for k in ("reflex", "safety", "maintain", "plan")}, "layer:tactic": "fight",
     **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "falling")},
     **{f"row:{k}": "same" for k in ("eat", "reach land", "dig out", "sleep", "shelter", "collect job",
                                     "collect machine", "path blocked", "unstuck", "recover items")},
     "row:empty the bag": "recheck", "row:leave the Nether": "dimension",
-    "manual": "same", "jar reflex": "same", "death": "recover", "dimension change": "dimension",
-    "user cancel": "none", "stuck": "cooled",
+    "manual": "stand down", "player": "handback", "game lost": "game", "jar reflex": "same", "death": "recover",
+    "dimension change": "dimension", "user cancel": "none", "stuck": "cooled", "crash": "crashed",
 }
 
 

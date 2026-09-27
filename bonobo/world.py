@@ -1,4 +1,5 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
+import math
 import time
 
 from . import api
@@ -290,10 +291,31 @@ def job_ready(job, tick=None, now=None):
     return job["ready_at"] <= (time.time() if now is None else now)
 
 
+def feet():
+    """The block the feet are in, (x, y, z): one /state read. The one home of this reading (nav reads it here, below
+    the skills; skillcore passes it on to them)."""
+    s = api.get("/state")
+    return s["blockX"], s["blockY"], s["blockZ"]
+
+
+def away_from(here, point, blocks):
+    """Pure: the spot `blocks` from `here` straight away from `point`, on the horizontal (y kept; unrounded). On the
+    point itself, nowhere to go: `here`."""
+    dx, dz = here[0] - point[0], here[2] - point[2]
+    n = math.hypot(dx, dz) or 1.0
+    return here[0] + dx / n * blocks, here[1], here[2] + dz / n * blocks
+
+
+def cells_with(region, name, key, value, want=True):
+    """Pure: the `name` blocks of `region` whose block state `key` reads `value` (`want=False`: reads anything
+    else). [] from a region read without block states."""
+    prop = getattr(region, "prop", None)
+    return [p for p, n in region.blocks.items() if n == name and prop and (str(prop(p, key)) == value) == want]
+
+
 def ripe_cells(region):
     """Pure: wheat blocks at full growth (age 7)."""
-    prop = getattr(region, "prop", None)
-    return [p for p, n in region.blocks.items() if n == "wheat" and prop and str(prop(p, "age")) == "7"]
+    return cells_with(region, "wheat", "age", "7")
 
 
 def ripe_near(feet, radius=32):

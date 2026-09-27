@@ -11,7 +11,7 @@ Pure apart from what the cost model reads (one cached /find per kind).
 """
 import math
 
-from . import blueprints, goals
+from . import blueprints, goals, knowledge
 from .cost import TICKS_PER_S
 from .data import POD_BLOCKS
 from .planner import Planner, Step, Unplannable
@@ -88,7 +88,8 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
             continue
         token, n = need[0], int(need[1])
         ids = set(members(token))
-        short = n - goals.held(inv, token) - sum(v for k, v in extra.items() if k in ids)
+        on_way = {token: sum(v for k, v in extra.items() if k in ids)}
+        short = goals.have_remainder(inv, [[token, n]], on_way).get(token, 0)
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
             if short <= 0:
                 break
@@ -251,7 +252,7 @@ def from_sources(inv, needs, cost, solver=None, pending=None):
         if need[0] == "tool" or need[0] not in SOURCES:
             continue
         token, n = need[0], int(need[1])
-        short = n - goals.held(inv, token) - extra.get(token, 0)
+        short = goals.have_remainder(inv, [[token, n]], extra).get(token, 0)
         if short <= 0:
             continue
         chosen, name = cheapest(token, short, lambda: solve_needs(inv, [(token, short)], cost, solver, extra),
@@ -317,6 +318,8 @@ def _decompose(inv, goal, cost, solver, pending):
                 _action("goto", "pos", cost, pos=list(args["b"]), range=4.0)]
     if template == "build":
         bp = args["bp"]
+        if bp != "shelter" and bp not in blueprints.REGISTRY:
+            raise Unplannable(f"no blueprint {bp!r} to build")
         materials = blueprints.materials(blueprints.SHELTER if bp == "shelter" else blueprints.REGISTRY[bp])
         if bp == "nether_portal":
             materials = dict(materials, **{"minecraft:flint_and_steel": 1})
@@ -326,9 +329,10 @@ def _decompose(inv, goal, cost, solver, pending):
         chosen, _name = cheapest(f"build:{bp}", 1, carry_and_build, inv, cost, solver, pending)
         return where_it_lives(chosen if chosen is not None else carry_and_build(), cost)
     if template == "sleep":
-        return [_action("sleep", "bed", cost)]
+        return _prepared(inv, _action("sleep", "bed", cost), cost, solver, pending)
     if template == "skill":
-        return [_action("skill", args["name"], cost, args=list(args.get("args", [])))]
+        return _prepared(inv, _action("skill", args["name"], cost, args=list(args.get("args", []))), cost, solver,
+                         pending)
     if template == "effect":
         # Any effect a skill provides, asked for by name: "breed" → Step("breed", "breed"), "repair:pickaxe" →
         # Step("repair", "pickaxe"). `decompose` refuses it when no registered skill provides it (skill.handles).
@@ -340,8 +344,15 @@ def _decompose(inv, goal, cost, solver, pending):
         if missing:
             raise Unplannable(f"effect {args['effect']} needs {missing} in its detail")
         step.est = cost.estimate(step)
-        return [step]
+        return _prepared(inv, step, cost, solver, pending)
     raise Unplannable(f"no way to decompose a {template!r} goal")
+
+
+def _prepared(inv, step, cost, solver, pending):
+    """The steps that get what `step`'s skill needs held for its call (knowledge.step_call → needs_of: the bed of a
+    sleep, the pickaxe of a mine), then the step — what planner.before does for the planner's own steps."""
+    needs, _speed = knowledge.step_call(step)
+    return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]
 
 
 def to_dict(step):

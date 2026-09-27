@@ -301,6 +301,245 @@ class SkillNeeds(unittest.TestCase):
             solve(real_table(), dict(START), {"minecraft:unobtainium": 1})
 
 
+def given_tokens():
+    """{token: the skills whose producing tables give it} over every registered skill's `gives`."""
+    from bonobo import brain  # noqa: F401  (every skill module registers)
+    from bonobo.skill import REGISTRY
+    out = {}
+    for name, c in REGISTRY.items():
+        for table in (g for g in c.gives if not isinstance(g, str)):
+            for token in table.keys():
+                out.setdefault(token, set()).add(name)
+    return out
+
+
+def chain_faults(steps, token, handles):
+    """Pure: what is wrong with the planner's chain for one `token` from an empty bag — nothing planned, a step no
+    skill carries out (`handles`), a step run before what it uses was held, the token not held at the end, or a last
+    step that is not the token's own. [] for a whole chain."""
+    if not steps:
+        return ["no steps"]
+    faults = [f"no skill for {s}" for s in steps if not handles(s)]
+    early, held = replay_steps(steps, (token, 1))
+    faults += [f"{s} before {tok} was held" for s, tok in early] + ([] if held else ["not held at the end"])
+    return faults + ([] if steps[-1].token == token else [f"ends at {steps[-1].token}"])
+
+
+# Given tokens the solver cannot reach from an empty bag with the fixture's places, noted: a new one must be noted.
+UNREACHED = {"minecraft:bookshelf": "taken only, and no container in the fixture holds one",
+             "minecraft:hay_block": "taken only, and no container in the fixture holds one"}
+
+
+class EveryProduct(unittest.TestCase):
+    """Every item a producing skill gives is reachable from an empty bag: the planner's chain is whole (every step a
+    skill's, in an order the bag allows, ending at the token) and the solver's replays. A taken-only item is the
+    solver's alone (the planner plans no take); a variant of a group recipe (oak planks, a red bed) may be held stock
+    only — but any chain planned for it is whole too."""
+
+    def test_every_given_token_from_an_empty_bag(self):
+        from bonobo.skill import handles
+        variants = {mid(m) for g in knowledge.GROUP_RECIPES for m in GROUPS.get(g, ())}
+        table, faults, unreached, kinds = real_table(), [], set(), Counter()
+        for token, by in sorted(given_tokens().items()):
+            kind = ("held stock" if token in variants else
+                    "taken" if (knowledge.source(token) or ("",))[0] == "take" else "planned")
+            kinds[kind] += 1
+            try:
+                steps = Planner({}, [], NullCost()).plan([(token, 1)])
+                faults += [(token, sorted(by), f) for f in chain_faults(steps, token, handles)]
+            except Unplannable as e:
+                if kind == "planned":
+                    faults.append((token, sorted(by), str(e)))
+            try:
+                plan = solve(table, dict(START), {token: 1})
+                early, held = replay_plan(plan, START, {token: 1})
+                faults += [(token, "solve", e) for e in early] + ([] if held else [(token, "solve", "not held")])
+            except Unsolvable:
+                if kind != "held stock":
+                    unreached.add(token)
+        self.assertEqual(faults, [])
+        self.assertEqual(unreached, set(UNREACHED))
+        self.assertTrue(all(kinds[k] >= 1 for k in ("held stock", "taken", "planned")), kinds)
+
+    def test_a_broken_chain_is_caught(self):
+        from bonobo.skill import handles
+        from bonobo.planner import Step
+        steps = Planner({}, [], NullCost()).plan([("minecraft:stone_pickaxe", 1)])
+        rows = [("as planned", steps, []),
+                ("must fail: nothing planned", [], ["no steps"]),
+                ("must fail: the last step dropped", steps[:-1], ["not held at the end", f"ends at {steps[-2].token}"]),
+                ("must fail: a step no skill carries out", steps + [Step("teleport", "minecraft:stone_pickaxe", 1)],
+                 [f"no skill for {Step('teleport', 'minecraft:stone_pickaxe', 1)}"]),
+                ("must fail: the pickaxe before its sticks", [steps[-1]] + steps[:-1],
+                 lambda got: bool(got) and all("before" in f or f.startswith("ends at") for f in got))]
+        for name, chain, want in rows:
+            with self.subTest(name):
+                got = chain_faults(chain, "minecraft:stone_pickaxe", handles)
+                if callable(want):
+                    self.assertTrue(want(got), got)
+                else:
+                    self.assertEqual(got, want)
+
+
+def skill_calls():
+    """[(skill, what, the call's args)]: every registered skill once, and a skill whose needs depend on the call at
+    every call the planner makes of it — a step for each token it gives (decompose.effect_detail, the args its
+    `provides` builds), plus what else it is asked for (ASKED_TOO)."""
+    from bonobo import brain  # noqa: F401  (every skill module registers)
+    from bonobo.decompose import effect_detail
+    from bonobo.planner import Step
+    from bonobo.skill import REGISTRY
+    out = []
+    for name, c in sorted(REGISTRY.items()):
+        if not c.needs_fn:
+            out.append((name, "any call", ()))
+            continue
+        tokens = [t for g in c.gives if not isinstance(g, str) for t in g.keys()] + ASKED_TOO.get(name, [])
+        for effect, make in c.provides.items():
+            for token in tokens:
+                got = make(None, Step(effect, token, 1, effect_detail(effect, token, 1)))
+                if got is not None:
+                    out.append((name, token, (None,) + tuple(got)))
+    return out
+
+
+ASKED_TOO = {"trade": ["minecraft:bread"]}      # a villager sells it: paid in emeralds
+
+
+def _holds(bag, tools, dim, n):
+    if dim.startswith("tool:"):
+        _, kind, tier = dim.split(":")
+        return any(k == kind and t >= int(tier) for k, t in tools)
+    return sum(bag[m] for m in {dim, *knowledge.members(dim)}) >= n
+
+
+def needs_faults(steps, needs=None):
+    """Pure given the skills: [(step, dim)] where a step's own skill needs (knowledge.step_call → needs_of for its
+    call) were not held when it came up, replayed by bag arithmetic — and, with `needs`, each of those not held at
+    the end."""
+    bag, tools, out = Counter(), [], []
+    for st in steps:
+        own, _speed = knowledge.step_call(st)
+        out += [(str(st), d) for d, n in own.items() if not _holds(bag, tools, d, n)]
+        for tok, n in st.detail.get("inputs", {}).items():
+            bag[tok] -= n
+        bag[st.token] += st.count
+        mat_kind = st.token.split(":")[-1].split("_", 1)
+        if len(mat_kind) == 2 and mat_kind[0] in TIER:
+            tools.append((mat_kind[1], TIER[mat_kind[0]]))
+    return out + [("the end", d) for d, n in (needs or {}).items() if not _holds(bag, tools, d, n)]
+
+
+def as_rows(needs):
+    return [("tool", k.split(":")[1], int(k.split(":")[2])) if k.startswith("tool:") else (k, n)
+            for k, n in needs.items()]
+
+
+class CallNeeds(unittest.TestCase):
+    """A skill's `needs` are what the planner plans (planner.before → knowledge.step_call → needs_of for the call the
+    step makes): every registered skill's call has its needs planned from an empty bag, each step's own needs held
+    when it comes up; a changed need changes the plan, and a need ignored or unmet is caught."""
+
+    def test_every_skill_call_plans_its_needs(self):
+        from bonobo.skill import REGISTRY, needs_of
+        calls, faults = skill_calls(), []
+        self.assertGreaterEqual(len({n for n, _w, _a in calls}), len(REGISTRY))
+        for name, what, args in calls:
+            needs = needs_of(REGISTRY[name], args)
+            try:
+                steps = Planner({}, [], NullCost()).plan(as_rows(needs))
+            except Unplannable as e:
+                faults.append((name, what, str(e)))
+                continue
+            faults += [(name, what, f) for f in needs_faults(steps, needs)]
+        self.assertEqual(faults, [])
+
+    def test_a_need_ignored_or_unmet_is_caught(self):
+        from bonobo import brain  # noqa: F401  (every skill module registers)
+        from bonobo.planner import Step
+        from bonobo.skill import REGISTRY
+        diamond = [("minecraft:diamond", 1)]
+        with mock.patch.object(REGISTRY["mine"], "needs_fn", None):      # planned from the no-tier default only
+            blind = Planner({}, [], NullCost()).plan(diamond)
+        iron = Planner({}, [], NullCost()).plan([("minecraft:raw_iron", 1)])
+        rows = [("the diamonds as planned", Planner({}, [], NullCost()).plan(diamond), False),
+                ("must fail: mine's needs_fn ignored (no-tier needs only)", blind, True),
+                ("must fail: a tier-1 chain, then a diamond", iron + [Step("mine", "minecraft:diamond", 1, {
+                    "blocks": ["diamond_ore"], "tier": 2})], True),
+                ("must fail: a spider hunted bare-handed", [Step("hunt", "minecraft:string", 1, {
+                    "types": ["minecraft:spider"], "kills": 1})], True),
+                ("a cow hunted bare-handed", [Step("hunt", "minecraft:beef", 1, {"types": ["minecraft:cow"]})], False)]
+        for name, steps, bad in rows:
+            with self.subTest(name):
+                self.assertEqual(bool(needs_faults(steps)), bad, needs_faults(steps))
+
+    def test_a_changed_need_changes_the_plan(self):
+        from bonobo import brain  # noqa: F401  (every skill module registers)
+        from bonobo.skill import REGISTRY
+        mine_needs = REGISTRY["mine"].needs_fn
+        # (situation, skill, the field patched, its new value, the goal, a craft the plan has, has it after)
+        rows = [("nothing changed: the wheat plot's hoe", "plant_farm", "needs", None, "minecraft:wheat",
+                 "minecraft:wooden_hoe", True),
+                ("must fail: plant_farm needing no hoe plans none", "plant_farm", "needs", {}, "minecraft:wheat",
+                 "minecraft:wooden_hoe", False),
+                ("mine asking an iron pickaxe for coal plans one", "mine", "needs_fn",
+                 lambda a: {"tool:pickaxe:2": 1} if "coal" in str(a[1]) else mine_needs(a), "minecraft:coal",
+                 "minecraft:iron_pickaxe", True),
+                ("must fail: hunt needing no sword hunts spiders bare-handed", "hunt", "needs_fn", lambda a: {},
+                 "minecraft:string", "minecraft:stone_sword", False),
+                ("nothing changed: the spider's sword", "hunt", "needs_fn", None, "minecraft:string",
+                 "minecraft:stone_sword", True)]
+        for name, skill, field, value, goal, craft, has in rows:
+            with self.subTest(name):
+                c = REGISTRY[skill]
+                patch = mock.patch.object(c, field, value) if value is not None else mock.patch.object(c, "prefer",
+                                                                                                        c.prefer)
+                with patch:
+                    steps = Planner({}, [], NullCost()).plan([(goal, 1)])
+                self.assertEqual(any(s.token == craft for s in steps), has, [str(s) for s in steps])
+
+
+class CallSpeed(unittest.TestCase):
+    """A skill's `speed` is what the cost model saves when the tool is carried (cost._sped_up → knowledge.step_call),
+    for every skill that declares one; a speed ignored is caught."""
+
+    # skill → a step it carries out, and the tool its speed names (a skill with a speed and no row fails by name)
+    STEPS = {"chop": (("gather", "log", 8, {}), "wooden_axe"),
+             "hunt": (("hunt", "minecraft:beef", 4, {"types": ["minecraft:cow"], "kills": 2}), "wooden_sword"),
+             "mine": (("mine", "minecraft:dirt", 8, {"blocks": ["dirt"], "tier": None, "breaks": 8}), "wooden_shovel"),
+             "dig_in": (("shelter", "dig in", 1, {}), "wooden_shovel")}
+
+    def estimate(self, step, tool):
+        from tests.world import cost, inventory, snapshot, state
+        return cost(snapshot(state(), inventory(*([(tool, 1)] if tool else [])))).estimate(step)
+
+    def test_every_speed_saves_in_the_cost(self):
+        from bonobo.planner import Step
+        from bonobo.skill import REGISTRY
+        fast = {n for n, c in REGISTRY.items() if c.speed}
+        self.assertEqual(fast - set(self.STEPS), set(), "a skill with a speed and no row")
+        for name in sorted(fast):
+            (kind, token, n, detail), tool = self.STEPS[name]
+            step = Step(kind, token, n, dict(detail))
+            with self.subTest(name):
+                self.assertLess(self.estimate(step, tool), self.estimate(step, None))
+                with mock.patch.object(REGISTRY[name], "speed", {}):     # must fail: its speed ignored
+                    self.assertEqual(self.estimate(step, tool), self.estimate(step, None))
+
+    def test_a_shovel_is_no_help_in_stone(self):
+        from bonobo.planner import Step
+        rows = [("dirt: the shovel saves", ("mine", "minecraft:dirt", {"blocks": ["dirt"], "tier": None}), True),
+                ("must fail: stone asks a pickaxe, the shovel saves nothing",
+                 ("mine", "minecraft:cobblestone", {"blocks": ["stone"], "tier": 0}), False),
+                ("gravel: the shovel saves", ("mine", "minecraft:gravel", {"blocks": ["gravel"], "tier": None}), True),
+                ("must fail: iron ore, nothing saved", ("mine", "minecraft:raw_iron", {"blocks": ["iron_ore"], "tier": 1}),
+                 False)]
+        for name, (kind, token, detail), saves in rows:
+            with self.subTest(name):
+                step = Step(kind, token, 4, dict(detail, breaks=4))
+                self.assertEqual(self.estimate(step, "wooden_shovel") < self.estimate(step, None), saves)
+
+
 class RipeFirst(unittest.TestCase):
     """A crop already grown is harvested (a take step) before a plot is sown (the farm step): the known-first rule."""
 

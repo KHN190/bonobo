@@ -3,7 +3,7 @@ A brewing stand's slots: 0–2 bottles, 3 ingredient, 4 fuel (blaze powder). Pur
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav
+from . import api, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .skillcore import settle
@@ -54,7 +54,7 @@ def fill_bottles(ctx, count=3):
     from . import fluids
     if Inventory().count("minecraft:glass_bottle") < 1:
         raise NotAvailable("no glass bottles")
-    here = nav.feet_now()
+    here = skillcore.feet()
     hits = sorted(find(["water"], radius=32, limit=30), key=lambda h: h["distance"])
     for h in hits[:4]:
         c = (h["x"], h["y"], h["z"])

@@ -7,16 +7,24 @@ from .bag import throw_direction
 from .world import add
 
 
-def find_open_spot(region, here, radius=12):
-    """Pure: the nearest standable cell where inventory work can happen — a direction with 3+ blocks of room to
-    throw into and air above a neighbouring floor cell for a chest. Shafts and 1-wide tunnels have neither."""
-    best = None
-    for (x, y, z), name in region.blocks.items():
+def standing_cells(region, here, radius):
+    """Pure: every cell within `radius` of `here` one could stand in — a solid, harmless floor under it and two free
+    cells (air, cave air) from it up — in the region's own order."""
+    for (x, y, z), _name in region.blocks.items():
         cell = (x, y + 1, z)
         if math.dist(cell, here) > radius or not region.solid((x, y, z)) or region.hazard((x, y, z)):
             continue
         if region.name(cell) not in ("air", "cave_air") or region.name((x, y + 2, z)) not in ("air", "cave_air"):
             continue
+        yield cell
+
+
+def find_open_spot(region, here, radius=12):
+    """Pure: the nearest standable cell where inventory work can happen — a direction with 3+ blocks of room to
+    throw into and air above a neighbouring floor cell for a chest. Shafts and 1-wide tunnels have neither."""
+    best = None
+    for cell in standing_cells(region, here, radius):
+        x, y, z = cell[0], cell[1] - 1, cell[2]
         if throw_direction(region, cell) is None:
             continue
         chest_ok = any(region.solid((x + dx, y, z + dz)) and chest_spot_ok(region, (x + dx, y + 1, z + dz))
@@ -98,12 +106,7 @@ def find_shelter_spot(region, here, radius=10, protected=()):
     """Pure: the nearest standable cell (solid floor, two free cells above, no water) where some shelter method
     works, as (cell, method). Standing on a thin pillar or a peak, nothing works in place: walk to a better spot."""
     best = None
-    for (x, y, z), name in region.blocks.items():
-        cell = (x, y + 1, z)
-        if math.dist(cell, here) > radius or not region.solid((x, y, z)) or region.hazard((x, y, z)):
-            continue
-        if region.name(cell) not in ("air", "cave_air") or region.name((x, y + 2, z)) not in ("air", "cave_air"):
-            continue
+    for cell in standing_cells(region, here, radius):
         method = shelter_method_at(region, cell, protected)
         if method is None:
             continue

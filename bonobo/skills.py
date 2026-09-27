@@ -729,7 +729,7 @@ def mine_segment_commands(state, args):
 
 
 @skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
-       pre=[lambda c: require_pickaxe(c.args[4])], start=lambda c: Inventory().count(c.args[1]),
+       start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
        per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
@@ -1019,7 +1019,8 @@ def _hunt_progress(token, types):
     return Inventory().count(token), (int(near[0]["distance"] // 4) if near else None)
 
 
-@skill(gives=K.GIVES_HUNT, needs={}, speed={"sword": HUNT_SWORD_S}, start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
+@skill(gives=K.GIVES_HUNT, needs=lambda a: {"tool:sword:1": 1} if beliefs.fights_back(a[3]) else {},
+       speed={"sword": HUNT_SWORD_S}, start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
        budget=480, stall=60, per_unit=30, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
        provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))},
        fills_bag=lambda c: members(c.args[1]))
