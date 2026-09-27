@@ -8,7 +8,7 @@ from . import paths
 
 FILE = paths.data("world.json", env="MC_WORLD")
 
-# what belongs to one save; beliefs and logs survive on purpose; handover.json is a live control, not a place
+# what belongs to one save; beliefs and logs survive on purpose
 WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "rounds.jsonl", "tape-mem", "track.jsonl")
 
 def saves_dir(instance=None):

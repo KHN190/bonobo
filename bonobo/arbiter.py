@@ -1,10 +1,7 @@
 """One body, one exit, priority by time scale. The survey found 124 places that issue movement and no one adjudicating between them. Most of them do not need rewriting, because HOW to move already funnels through nav.go_to and api.run; what had no funnel was WHO may move the body right now. In a multi-threat fight that is where it breaks: the perception thread stops a task, the dispatcher starts an action, a recovery walks somewhere else, all inside one second. Subsumption, not scoring. Layers run at their own time scale and a faster layer overrides a slower one unconditionally — a reflex is not weighed against a plan, it vetoes it: REFLEX   (tick, in the jar)   lava, drowning, a fireball already in the air SAFETY   (~0.2 s, here)       stop what is running, leave a hazard, get into cover TACTIC   (~1 s)               take position, retreat, shake pursuit PLAN     (~10 s)              dig, place, reinforce, fire a window Two channels, kept distinct on purpose: * BODY (this module) is the ONLY thing that drives the body. Slow layers `submit` and wait for `step`; fast layers `preempt`, which runs at once and marks the slow layers stale until they re-plan. * api.INTERRUPT is a message, not a command: "a faster layer has spoken". A slow action that is already running reads it and abandons itself. It never moves the body. The body is a singleton — one process, one player — so BODY is module state. Actions are per fight; the body is not."""
 
-import json
 import threading
 import time
-
-from . import paths
 
 REFLEX, SAFETY, TACTIC, MAINTAIN, PLAN = 0.05, 0.2, 1.0, 3.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
@@ -13,26 +10,6 @@ SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAIN
 
 # why an answer did not get the body, a closed set so a bench can tell "outbid" from "locked out"
 REFUSED = ("layer", "held", "expired", "stood_down")
-
-# a file, not a flag in memory: mc.py is another process; the loop re-reads it every HANDOVER_POLL_S
-HANDOVER = paths.data("handover.json", env="MC_HANDOVER")
-HANDOVER_POLL_S = 0.5
-_HANDOVER = (0.0, None)
-
-def handed_over(now=None):
-    """The layer kept by the agent while Claude drives, or None; cached (asked every tick)."""
-    global _HANDOVER
-    now = time.time() if now is None else now
-    when, value = _HANDOVER
-    if now - when <= HANDOVER_POLL_S:
-        return value
-    try:
-        with open(HANDOVER) as fh:
-            value = json.load(fh).get("keep")
-    except (OSError, ValueError):
-        value = None
-    _HANDOVER = (now, value if value in SCALES else None)
-    return _HANDOVER[1]
 
 def fresh_enough(seen_at, now=None, within=1.0):
     """Was this reading taken recently enough to compare with?"""
@@ -163,9 +140,7 @@ def arbitrate(intents, now=None, facts=None):
 class Motion:
     """The body's single entry point."""
 
-    def __init__(self, log=None, watch_handover=False):
-        # only the real body watches the handover file: a test Motion is its own world
-        self.watch_handover = bool(watch_handover)
+    def __init__(self, log=None):
         self._lock = threading.RLock()
         self._local = threading.local()
         self.last = None
@@ -193,13 +168,8 @@ class Motion:
             self.engaged = False
 
     def ceiling_now(self):
-        """The ceiling in force: this process's own, or the one another process wrote."""
-        if self.ceiling is not None:
-            return self.ceiling
-        if not self.watch_handover:
-            return None
-        kept = handed_over()
-        return None if kept is None else SCALES[kept]
+        """The ceiling in force: this process's own."""
+        return self.ceiling
 
     def allows(self, layer):
         """May this layer still decide for itself?"""
@@ -335,4 +305,4 @@ class Motion:
         self._run(Intent(layer, action, reason, commit_s=commit_s, resumable=resumable, redo_s=redo_s))
         return True
 
-BODY = Motion(watch_handover=True)      # the one player this process drives
+BODY = Motion()      # the one player this process drives

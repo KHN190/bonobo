@@ -19,7 +19,6 @@ world.json
 tasks.json
 slice-*.json
 intent.json
-handover.json
 beliefs.jsonl
 readiness*.json
 skill-heartbeat
