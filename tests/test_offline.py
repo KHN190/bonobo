@@ -576,6 +576,18 @@ _offers = [{"sell": "minecraft:ender_pearl", "buy": "minecraft:emerald", "buyCou
 same("trade: cheapest enabled affordable offer",
      UI.choose_trade(_offers, "minecraft:ender_pearl", {"minecraft:emerald": 6}), 1)
 check("trade: can't pay → none", UI.choose_trade(_offers, "minecraft:ender_pearl", {"minecraft:emerald": 2}) is None)
+# Selling for emeralds (the trade producer of emerald): (offers, bag) → the offer chosen, or None
+_sell = [{"sell": "minecraft:emerald", "buy": "minecraft:wheat", "buyCount": 20},
+         {"sell": "minecraft:emerald", "buy": "minecraft:stick", "buyCount": 32},
+         {"sell": "minecraft:emerald", "buy": "minecraft:paper", "buyCount": 24, "disabled": True},
+         {"sell": "minecraft:bread", "buy": "minecraft:emerald", "buyCount": 1}]
+for _name, _bag, _want in [("20 wheat carried: the wheat offer", {"minecraft:wheat": 20}, 0),
+                           ("19 wheat: one short of the price, none", {"minecraft:wheat": 19}, None),
+                           ("sticks only: the stick offer", {"minecraft:stick": 40}, 1),
+                           ("paper for a disabled offer: none", {"minecraft:paper": 64}, None),
+                           ("wheat and sticks: the cheaper payment (20 < 32)",
+                            {"minecraft:wheat": 20, "minecraft:stick": 40}, 0)]:
+    same(f"trade for emerald: {_name}", UI.choose_trade(_sell, "minecraft:emerald", _bag), _want)
 check("anvil: affordable and not too expensive", UI.anvil_ok(8, 10) and not UI.anvil_ok(12, 10) and not UI.anvil_ok(40, 50))
 _R2 = __import__("bonobo.data", fromlist=["RECIPES"]).RECIPES
 check("recipes: paper, book, enchanting table, anvil",
