@@ -414,6 +414,47 @@ class ThePoints(unittest.TestCase):
                 self.assertEqual(holds(row), True)
 
 
+
+class EndgameBuilt(unittest.TestCase):
+    # (row, what its setup must build so the job fits 30 s)
+    ROWS = [("activate_end_portal", lambda r: "give @p ender_eye 3" in r["setup"]
+             and sum("eye=true" in c for c in r["setup"]) == 3),
+            ("fight_dragon", lambda r: r["before"] is sc._worn_perched_dragon
+             and not any(c.startswith(("kill ", "summon ")) for c in r["setup"])),
+            ("bed_bomb_kill", lambda r: r["before"] is sc._worn_perched_dragon),
+            ("find_portal_room_fresh", lambda r: r["before"] is sc._built_stronghold),
+            ("locate_stronghold", lambda r: not any(c.startswith("spreadplayers") for c in r["setup"])),
+            ("seek_blocks_real", lambda r: any("oak_log" in c for c in r["setup"])),
+            ("explore_for_animals_real", lambda r: any("summon cow" in c for c in r["setup"]) and r["stochastic"])]
+
+    def test_built(self):
+        for name, ok in self.ROWS:
+            with self.subTest(name):
+                self.assertTrue(ok(sc.SCENARIOS[name]))
+
+    # (start, stronghold, the leg's padded box): the plane lies under the skill's perpendicular (-dz, dx) leg
+    LEGS = [((0, 0), (1000, 0), (-12, -12, 12, 212)),
+            ((0, 0), (0, 1000), (-212, -12, 12, 12)),
+            ((0, 0), (-1000, 0), (-12, -212, 12, 12))]
+
+    def test_leg_box(self):
+        for start, sh, want in self.LEGS:
+            with self.subTest(sh):
+                self.assertEqual(sc._leg_box(start, sh), want)
+
+    # (rectangle) → every fill under 32768 blocks, together covering it
+    FLATS = [(0, 0, 200, 200), (-12, -12, 212, 12), (0, 0, 0, 0)]
+
+    def test_flat_fills(self):
+        for x0, z0, x1, z1 in self.FLATS:
+            with self.subTest((x0, z0, x1, z1)):
+                xs = []
+                for cmd in sc._flat(x0, z0, x1, z1, 5, "stone"):
+                    a, _, _, b = (int(v) for v in cmd.split()[1:5])
+                    self.assertLessEqual((b - a + 1) * (z1 - z0 + 1), 32768)
+                    xs += range(a, b + 1)
+                self.assertEqual(xs, list(range(x0, x1 + 1)))
+
 if __name__ == "__main__":
     unittest.main()
 

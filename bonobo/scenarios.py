@@ -278,17 +278,71 @@ SCENARIOS["return_from_nether"] = {
     "budget": 20,
 }
 # Real structures in the test world (seed 1234): no box. /locate gives the truth to check against.
+LEG_START = (10400, 200, 10400)
 SCENARIOS["locate_stronghold"] = {
-    "doc": "Surface near the origin, 12 eyes → two throws, triangulated estimate within 64 blocks of /locate.",
+    "doc": "A flat sky plane under the skill's 200-block sideways leg, speed, 12 eyes → two throws, triangulated "
+           "estimate within 64 blocks of /locate.",
     "module": "nether",
     "raw": True,
-    # Away from the bench's sky platform (spreadplayers picks the highest block: it put us on the platform at y 200).
-    "setup": ["spreadplayers 10400 10400 0 4 false @p", "clear @p", "give @p ender_eye 12", "give @p cobblestone 64",
-              "give @p stone_pickaxe", "give @p cooked_beef 16", "locate structure minecraft:stronghold"],
+    # Away from the bench's sky platform; /locate answers from where we stand, so the tp comes first.
+    "setup": [f"tp @p {LEG_START[0]} {LEG_START[1] + 1} {LEG_START[2]}", "clear @p", "give @p ender_eye 12",
+              "give @p cobblestone 64", "give @p stone_pickaxe", "give @p cooked_beef 16",
+              "locate structure minecraft:stronghold"],
+    "before": lambda ctx: _stronghold_leg(ctx),
     "run": lambda ctx: __import__("bonobo.nether", fromlist=["locate_stronghold"]).locate_stronghold(ctx),
     "check": lambda api, inv: _stronghold_error() <= 64,
-    "budget": 60,
+    "budget": 30,
 }
+LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
+LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
+
+
+def _leg_box(start, stronghold):
+    """Pure: (x0, z0, x1, z1) around the leg the skill walks — perpendicular to the line to the stronghold,
+    (-dz, dx) as the skill turns it — padded on every side."""
+    x, z = start
+    d = math.dist(stronghold, start) or 1.0
+    ex, ez = round(x - (stronghold[1] - z) / d * LEG), round(z + (stronghold[0] - x) / d * LEG)
+    return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
+
+
+def _stronghold_leg(ctx):
+    """The walk between the throws on a flat stone plane at sky height, with speed: 200 blocks of real hills were
+    most of a 60 s row. The throws, the eye's flight and the triangulation are the skill's own."""
+    real = locate_reply(LAST_FEEDBACK)
+    if not real:
+        raise SetupInvalid("no /locate answer for the stronghold")
+    x, y, z = LEG_START
+    box = _leg_box((x, z), real)
+    _load_area(*box)
+    _overworld(_flat(*box, y, "stone") + [f"tp @p {x} {y + 1} {z}", "effect give @p speed 60 3 true"])
+    time.sleep(1)
+def _load_area(x0, z0, x1, z1):
+    """Force-load a footprint and wait until its corners answer ("That position is not loaded" otherwise)."""
+    _command(f"execute in minecraft:overworld run forceload add {x0} {z0} {x1} {z1}", [])
+    probes = [(px, pz) for px in (x0, x1) for pz in (z0, z1)]
+    for _ in range(60):
+        if not any("not loaded" in l for px, pz in probes for l in
+                   _command(f"execute in minecraft:overworld run fill {px} 300 {pz} {px} 300 {pz} air", [])):
+            return
+        time.sleep(0.5)
+    raise SetupInvalid(f"area {x0},{z0}..{x1},{z1} never loaded")
+
+
+def _overworld(cmds):
+    """Commands run in the Overworld from a hook; a refused one is a setup that did not happen."""
+    for cmd in cmds:
+        lines = _command(f"execute in minecraft:overworld run {cmd}", [])
+        if any("not loaded" in l or "Unknown" in l or "Too many" in l for l in lines):
+            raise SetupInvalid(f"{cmd}: {lines[:1]}")
+
+
+def _flat(x0, z0, x1, z1, y, block):
+    """Pure: fills covering a flat rectangle, each under the game's 32768-block limit."""
+    step = max(1, 32768 // (z1 - z0 + 1))
+    return [f"fill {a} {y} {z0} {min(a + step - 1, x1)} {y} {z1} {block}" for a in range(x0, x1 + 1, step)]
+
+
 STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
 ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
 
@@ -315,20 +369,8 @@ def _stronghold_piece(x, y, z):
 def _built_stronghold(ctx):
     """The piece built fresh every run (a run digs it up), the estimate at the corridor's start where we stand."""
     x, y, z = STRONGHOLD_AT
-    # The spot must be loaded first ("That position is not loaded"): force-load the footprint, probe its corners.
-    _command(f"execute in minecraft:overworld run forceload add {x - 8} {z - 8} {x + ROOM_OFF + 8} {z + 8}", [])
-    probes = [(px, pz) for px in (x - 3, x + ROOM_OFF + 6) for pz in (z - 6, z + 6)]
-    for _ in range(60):
-        if not any("not loaded" in l for px, pz in probes for l in
-                   _command(f"execute in minecraft:overworld run fill {px} 300 {pz} {px} 300 {pz} air", [])):
-            break
-        time.sleep(0.5)
-    else:
-        raise SetupInvalid("stronghold area never loaded")
-    for cmd in _stronghold_piece(x, y, z):
-        lines = _command(f"execute in minecraft:overworld run {cmd}", [])
-        if any("not loaded" in l or "Unknown" in l for l in lines):
-            raise SetupInvalid(f"stronghold piece: {cmd}: {lines[:1]}")
+    _load_area(x - 8, z - 8, x + ROOM_OFF + 8, z + 8)
+    _overworld(_stronghold_piece(x, y, z))
     ctx.mem.add_site("stronghold", (x + 1, y, z), "minecraft:overworld", name="stronghold")
     time.sleep(1)
 
@@ -654,21 +696,21 @@ def _trek_check(api):
 
 
 
-SCENARIOS["trek_overworld_40"] = {
-    "doc": "Real Overworld terrain (hills, forest, water), 40 blocks east, basic kit → arrive; seconds per 100 blocks.",
+SCENARIOS["trek_overworld_30"] = {
+    "doc": "Real Overworld terrain (hills, forest, water), 30 blocks east (18 walked: arrival is 12 off), basic kit → arrive; seconds per 100 blocks.",
     "module": "nav", "raw": True,
     "setup": ["spreadplayers 10600 10600 0 4 false @p", "clear @p", "give @p stone_pickaxe", "give @p stone_axe",
               "give @p cobblestone 64", "give @p cooked_beef 16", "give @p oak_boat"],
-    "run": _trek(40, 0), "check": lambda api, inv: _trek_check(api), "detail": _trek_detail, "budget": 60,
+    "run": _trek(30, 0), "check": lambda api, inv: _trek_check(api), "detail": _trek_detail, "budget": 30,
 }
-SCENARIOS["trek_nether_30"] = {
-    "doc": "Real Nether terrain below the roof, 30 blocks, kit with gold helmet → arrive; seconds per 100 blocks.",
+SCENARIOS["trek_nether_25"] = {
+    "doc": "Real Nether terrain below the roof, 25 blocks (13 walked), kit with gold helmet → arrive; seconds per 100 blocks.",
     "module": "nav", "raw": True, "combat": True, "dimension": "minecraft:the_nether",
     "setup": ["spreadplayers 300 300 0 8 under 90 false @p", "clear @p", "give @p diamond_pickaxe",
               "give @p cobblestone 128", "give @p cooked_beef 16",
               "item replace entity @p armor.head with golden_helmet"],
-    "run": _trek(30, 0, "minecraft:the_nether"), "check": lambda api, inv: _trek_check(api),
-    "detail": _trek_detail, "budget": 60,
+    "run": _trek(25, 0, "minecraft:the_nether"), "check": lambda api, inv: _trek_check(api),
+    "detail": _trek_detail, "budget": 30,
 }
 SCENARIOS["cave_escape"] = {
     "doc": "Sealed in a dark 1×2 pocket 8 blocks under the platform, pickaxe + blocks → back on the surface platform.",
@@ -697,8 +739,8 @@ SCENARIOS["return_to_portal"] = {
     "check": lambda api, inv: api.get("/state")["dimension"] == "minecraft:overworld",
     "budget": 25,
 }
-for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_overworld_40",
-              "trek_nether_30"):
+for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_overworld_30",
+              "trek_nether_25"):
     SCENARIOS[_name]["release"] = True       # minutes each: run by name before a live run, not in every round
 def _road_reuse(ctx):
     """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs
@@ -932,7 +974,7 @@ SCENARIOS["slice_retreat"] = {
     "budget": 60,
 }
 
-for _name in ("trek_overworld_40", "trek_nether_30", "cave_escape", "return_to_portal"):
+for _name in ("trek_overworld_30", "trek_nether_25", "cave_escape", "return_to_portal"):
     SCENARIOS[_name]["mod"] = ["travel"] + (["use"] if _name == "return_to_portal" else [])
 # Portal trips read /state's inPortal (mod ≥0.1.28): they depend on WorldInfo too.
 for _name in ("enter_nether", "return_from_nether", "relight_portal", "return_to_portal", "retreat_from_nether"):
