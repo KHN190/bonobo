@@ -174,8 +174,11 @@ SOURCES = {
                   {"name": "dig in by hand", "steps": [("shelter", "dig_in", {})], "yields": 1, "needs": [],
                    "when": ("soft_ground", "the ground under the feet needs a pickaxe")},
                   {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", 9)]},
+                  # The hut's needs are its blueprint's materials, read from it: a copy said "minecraft:stone" (smooth
+                  # stone) where the blueprint wants the "stone" group, so the plan chose a hut the build then found
+                  # 14 stone short of.
                   {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
-                   "needs": [("minecraft:stone", 14), ("door", 1), ("minecraft:torch", 1)]}],
+                   "needs": sorted(blueprints.materials(blueprints.SHELTER).items())}],
 }
 
 

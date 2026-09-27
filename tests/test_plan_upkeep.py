@@ -1804,7 +1804,13 @@ class Overnight(unittest.TestCase):
              ("on stone, an empty bag: a pickaxe first — its tree waits for day (brain.surface_closed)", [], False,
               "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
              ("the ground unread (the dusk lead): no dig by hand assumed", [], None, "dig in",
-              ["gather", "craft", "craft", "craft", "craft", "shelter"])]
+              ["gather", "craft", "craft", "craft", "craft", "shelter"]),
+             # The hut is priced with what it really needs (its blueprint's "stone" group): smooth stone is not it.
+             ("smooth stone, a door, a torch, no pickaxe: no hut (the blueprint's stone is cobblestone)",
+              [("stone", 32), ("oak_door", 1), ("torch", 2)], False, "dig in",
+              ["gather", "craft", "craft", "craft", "craft", "shelter"]),
+             ("cobblestone, a door, a torch: the hut is possible, walling in is cheaper",
+              [("cobblestone", 14), ("oak_door", 1), ("torch", 2)], False, "wall in", ["shelter"])]
 
     def test_the_night_way_over_the_table(self):
         """The shelter row asks the same pricing as the dusk lead (one choice, `needs.overnight`)."""
