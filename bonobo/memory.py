@@ -299,8 +299,9 @@ class Memory:
     # ---- what was seen where: one store, by volatility (data.VOLATILITY / seen_class), on the game clock
     CONFIRM_R = 12.0      # a note and a sighting within this are the same thing
 
-    def _put(self, kind, pos, dimension, verify=False):
-        kind, cls = bare(kind), seen_class(kind)
+    def _put(self, kind, pos, dimension, verify=False, cls=None):
+        kind = bare(kind)
+        cls = cls or seen_class(kind)
         rule = VOLATILITY.get(cls)
         if rule is None:
             return None                                   # hostile: perception only
@@ -314,12 +315,14 @@ class Memory:
                 row.update(t=self.clock, verify=verify)
                 return row
         row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.clock, "verify": verify}
+        if cls != seen_class(kind):
+            row["cls"] = cls
         self.data["seen"].append(row)
         return row
 
     def _fresh(self, row, within=None):
         """Within its class's TTL (and `within` ticks, when asked). A note or a clock we cannot date is kept."""
-        rule = VOLATILITY.get(seen_class(row["kind"]))
+        rule = VOLATILITY.get(row.get("cls") or seen_class(row["kind"]))
         if rule is None:
             return False
         limit = min(x for x in (rule["ttl"], within, float("inf")) if x is not None)
@@ -332,6 +335,14 @@ class Memory:
         the note; a hostile is never stored. Expired notes are dropped on the way."""
         self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
         if self._put(kind, pos, dimension) is not None:
+            self.save()
+
+    def note_here(self, kind, pos, dimension):
+        """Standing at one of `kind` at `pos`: noted as its class keeps it, or for two minutes ("here") when its
+        class keeps none — `at:<kind>` for the next plan, never a map of common blocks."""
+        self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
+        cls = seen_class(kind)
+        if self._put(kind, pos, dimension, cls=cls if VOLATILITY.get(cls) else "here") is not None:
             self.save()
 
     def seen(self, kind, dimension, within=None):
@@ -364,7 +375,7 @@ class Memory:
         """
         if found:
             if kind != "site":
-                self.note_seen(kind, pos, dimension)
+                self.note_here(kind, pos, dimension)
             return True
         if kind == "site":
             before = len(self.data.get("sites", []))

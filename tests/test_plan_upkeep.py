@@ -559,16 +559,16 @@ class CostModel(unittest.TestCase):
         pol = nav.Policy()
         key = lambda p: (p, bool(pol.allow_dig), bool(pol.allow_build), 2.0, 6000)  # noqa: E731
         prior = float(costmod._PLAY["plan"]["seek_prior_s"])
-        rows = [("a route the game priced this round", ("stone", (10, 64, 0)), ["stone"], {key((10, 64, 0)): (True, 7.3)},
+        rows = [("a route the game priced this round", ("iron_ore", (10, 64, 0)), ["iron_ore"], {key((10, 64, 0)): (True, 7.3)},
                  {}, 7.3),
-                ("no route asked: the walk", ("stone", (10, 64, 0)), ["stone"], {}, {}, round(WT(10) / 20 + 2.0, 1)),
-                ("a route the game found none for: the walk", ("stone", (10, 64, 0)), ["stone"],
+                ("no route asked: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {}, round(WT(10) / 20 + 2.0, 1)),
+                ("a route the game found none for: the walk", ("iron_ore", (10, 64, 0)), ["iron_ore"],
                  {key((10, 64, 0)): (False, None)}, {}, round(WT(10) / 20 + 2.0, 1)),
-                ("the only spot is banned", ("stone", (10, 64, 0)), ["stone"], {}, {(10, 64, 0): time.time() + 600},
+                ("the only spot is banned", ("iron_ore", (10, 64, 0)), ["iron_ore"], {}, {(10, 64, 0): time.time() + 600},
                  prior),
                 ("logs are found where a tree was noted", ("tree", (20, 64, 0)), ["oak_log"], {}, {},
                  round(WT(20) / 20 + 2.0, 1)),
-                ("nothing known", None, ["stone"], {}, {}, prior)]
+                ("nothing known", None, ["iron_ore"], {}, {}, prior)]
         for name, note, kinds, routes, banned, want in rows:
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(nav._ROUTES, routes):
                 m = Memory(os.path.join(tmp, "notes.json"))
@@ -592,8 +592,8 @@ class CostModel(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, \
                     mock.patch.dict(nav._ROUTES, {key(asked): (True, 7.3)}):
                 m = Memory(os.path.join(tmp, "notes.json"))
-                m.note_seen("stone", (10, 64, 0), OVER)
-                self.assertAlmostEqual(costmod.Cost(snapshot(), mem=m, policy=planning).seek_s(["stone"]), want,
+                m.note_seen("iron_ore", (10, 64, 0), OVER)
+                self.assertAlmostEqual(costmod.Cost(snapshot(), mem=m, policy=planning).seek_s(["iron_ore"]), want,
                                        places=1)
 
     def test_route_s_directly(self):
@@ -613,8 +613,8 @@ class CostModel(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(nav._ROUTES, routes):
                 m = Memory(os.path.join(tmp, "notes.json"))
                 if noted:
-                    m.note_seen("stone", (10, 64, 0), OVER)
-                self.assertEqual(costmod.Cost(snapshot(), mem=m, blacklist=banned, policy=policy).route_s(["stone"]),
+                    m.note_seen("iron_ore", (10, 64, 0), OVER)
+                self.assertEqual(costmod.Cost(snapshot(), mem=m, blacklist=banned, policy=policy).route_s(["iron_ore"]),
                                  want)
 
     def test_seek_seconds(self):
@@ -622,8 +622,8 @@ class CostModel(unittest.TestCase):
         for name, known, want in self.SEEKS:
             with self.subTest(name):
                 c = costmod.Cost(None, known=lambda kinds, d=known: d)
-                self.assertAlmostEqual(c.seek_s(["stone"]), round(want if want is not None else prior, 1), places=1)
-                self.assertEqual(c.find_p(["stone"]), float(costmod._PLAY["plan"]["exists_prior"]))
+                self.assertAlmostEqual(c.seek_s(["iron_ore"]), round(want if want is not None else prior, 1), places=1)
+                self.assertEqual(c.find_p(["iron_ore"]), float(costmod._PLAY["plan"]["exists_prior"]))
 
 
 def stone_tools(worn=0):
@@ -1170,14 +1170,26 @@ NOTES = [
                                                          ("see", "diamond_ore", (90, 12, 3)),
                                                          ("forget", "diamond_ore", (90, 12, 3))],
      "diamond_ore", [((3, 12, 3), False)]),
-    ("we mined the ore ourselves: gone", [("at", 0), ("see", "coal_ore", (3, 50, 3)), ("dug", [(3, 50, 3)])],
-     "coal_ore", []),
+    ("we mined the ore ourselves: gone", [("at", 0), ("see", "iron_ore", (3, 50, 3)), ("dug", [(3, 50, 3)])],
+     "iron_ore", []),
+    ("diamond: kept for good", [("at", 0), ("see", "diamond_ore", (3, 12, 3)), ("at", 10 ** 7)], "diamond_ore",
+     [((3, 12, 3), False)]),
+    ("a village: kept for good", [("at", 0), ("see", "village", (300, 64, 3)), ("at", 10 ** 7)], "village",
+     [((300, 64, 3), False)]),
+    ("coal: common, never noted", [("at", 0), ("see", "coal_ore", (3, 50, 3))], "coal_ore", []),
+    ("a crafting table: a station, memory.stations' alone", [("at", 0), ("see", "crafting_table", (2, 64, 2))],
+     "crafting_table", []),
+    ("standing at stone: noted for the next plan", [("at", 0), ("here", "stone", (1, 64, 1)), ("at", 2000)],
+     "stone", [((1, 64, 1), False)]),
+    ("standing at stone, three minutes on: gone", [("at", 0), ("here", "stone", (1, 64, 1)), ("at", 3600)],
+     "stone", []),
+    ("standing at iron: kept as iron is", [("at", 0), ("here", "iron_ore", (1, 12, 1)), ("at", 10 ** 7)],
+     "iron_ore", [((1, 12, 1), False)]),
     ("we dug near a tree: to verify, not gone", [("at", 0), ("see", "tree", (10, 64, 10)), ("dug", [(12, 64, 10)])],
      "tree", [((10, 64, 10), True)]),
     ("dug far from the tree: untouched", [("at", 0), ("see", "tree", (10, 64, 10)), ("dug", [(40, 64, 10)])],
      "tree", [((10, 64, 10), False)]),
-    ("an unknown kind is slow, never forever", [("at", 0), ("see", "sugar_cane", (4, 64, 4)), ("at", 10 ** 7)],
-     "sugar_cane", []),
+    ("an unknown kind is never noted", [("at", 0), ("see", "sugar_cane", (4, 64, 4))], "sugar_cane", []),
     ("village furniture is static", [("at", 0), ("see", "red_bed", (4, 64, 4)), ("at", 10 ** 7)], "red_bed",
      [((4, 64, 4), False)]),
 ]
@@ -1193,6 +1205,8 @@ class WhereToLook(unittest.TestCase):
                         m.clock = a[0]
                     elif op_ == "see":
                         m.note_seen(a[0], a[1], OVER)
+                    elif op_ == "here":
+                        m.note_here(a[0], a[1], OVER)
                     elif op_ == "forget":
                         m.forget_seen(a[0], a[1], OVER)
                     elif op_ == "confirm":
@@ -1201,9 +1215,18 @@ class WhereToLook(unittest.TestCase):
                         m.mark_dirty_near(a[0], OVER)
                 self.assertEqual([(tuple(r["pos"]), bool(r.get("verify"))) for r in m.seen(kind, OVER)], want)
 
+    def test_a_station_is_the_stations_record_alone(self):
+        """A crafting table we placed: memory.stations has it, the seen notes never do (one source)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.add_station("minecraft:crafting_table", (2, 64, 2), OVER)
+            m.note_seen("crafting_table", (2, 64, 2), OVER)
+            self.assertEqual(([s["pos"] for s in m.stations(OVER)], m.seen("crafting_table", OVER)), ([[2, 64, 2]], []))
+
     def test_every_volatility_class_has_rows(self):
         from bonobo.data import VOLATILITY, seen_class
-        covered = {seen_class(k) for _n, _ops, k, _w in NOTES}
+        covered = {seen_class(k) for _n, _ops, k, _w in NOTES} \
+            | {"here" for _n, ops, _k, _w in NOTES if any(op[0] == "here" for op in ops)}
         self.assertEqual(covered, set(VOLATILITY))
 
 

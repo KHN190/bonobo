@@ -50,7 +50,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
 
     def vector(self, reachable=None, kind="stone", pos=(1, 64, 1)):
         m = mem()
-        m.note_seen(kind, pos, "minecraft:overworld")
+        m.note_here(kind, pos, "minecraft:overworld")
         return actions.state_of(Snap(), m, reachable=reachable)
 
     # (can the body get to it?, where the note is) → at:stone in the state vector
@@ -76,7 +76,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
             with self.subTest(name):
                 m = mem()
                 if pos:
-                    m.note_seen("stone", pos, "minecraft:overworld")
+                    m.note_here("stone", pos, "minecraft:overworld")
                 state = actions.state_of(Snap(), m) | {"tool:pickaxe:0": 1, "uses:pickaxe": 59}
                 plan = solve(actions.table(cost, state), state, {"minecraft:cobblestone": 1})
                 self.assertEqual(bool(plan.counts.get("seek:stone")), walks)
@@ -126,7 +126,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
         stone points."""
         m = mem()
         for pos in ((10, 64, 10), (40, 64, 10), (200, 64, 200)):
-            m.note_seen("stone", pos, "minecraft:overworld")
+            m.note_here("stone", pos, "minecraft:overworld")
         before = {tuple(r["pos"]) for r in m.seen("stone", "minecraft:overworld")}
         m.confirm("stone", (10, 64, 10), "minecraft:overworld", found=False)
         left = {tuple(r["pos"]) for r in m.seen("stone", "minecraft:overworld")}
@@ -180,7 +180,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
                                                                   or g.startswith("minecraft:"))], [])
 
     def test_memory_can_see_them(self):
-        """The travel scan asks for every takeable block and notes every hit (the fake answers them all, so this is
+        """The travel scan asks for every takeable block and notes the hits worth keeping (the fake answers them all, so this is
         about what is asked and kept, not about how many one real /find returns)."""
         from unittest import mock
         from bonobo import explore
@@ -192,7 +192,11 @@ class WhatExistsCanBeTaken(unittest.TestCase):
                                                                                       return_value=[]):
             explore.note_around(m, "minecraft:overworld")
         seen = {r["kind"] for r in m.data["seen"]}
-        self.assertEqual(sorted(t for t, row in knowledge.TAKEABLE.items() if not set(row["blocks"]) & seen), [])
+        # Village furniture worth taking and crops are kept; stations, containers and the rest are not memory's (data.seen_class:
+        # memory.stations / containers hold ours, /find answers the rest).
+        self.assertEqual(sorted(t for t, row in knowledge.TAKEABLE.items() if set(row["blocks"]) & seen),
+                         ["bed", "door", "minecraft:beetroot", "minecraft:carrot", "minecraft:melon_slice",
+                          "minecraft:potato", "minecraft:pumpkin", "minecraft:wheat", "wool"])
 
     def test_near_is_taken_and_far_is_made(self):
         village = set(knowledge.TAKEABLE["bed"]["blocks"])

@@ -162,41 +162,45 @@ PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace"
 #   slow    exact position, expires after `ttl` ticks; our own digging near it marks it to-verify
 #   mobile  a coarse area (`area`-block cells), expires after `ttl` ticks
 #   hostile never stored: perception answers where hostiles are, now
+#   here    "standing at one": the arrival note of a kind no other class keeps (memory.note_here), for `at:<kind>`
+#           in the next plan, gone in two minutes
+#   never   not worth a note: common ore, furniture, anything unknown. Stations and containers have their own
+#           records (memory.stations / containers), the only source for them.
 # `merge`: notes of one kind closer than this are one note.
 VOLATILITY = {
     "static": {"ttl": None, "merge": 1, "area": None},
     "slow": {"ttl": 3 * 24000, "merge": 12, "area": None},
     "mobile": {"ttl": 6000, "merge": 0, "area": 16},
+    "here": {"ttl": 2400, "merge": 1, "area": None},
     "hostile": None,
+    "never": None,
 }
+# Rare blocks the travel scan looks for on purpose (the common ones it meets anyway).
+RARE_SIGHTINGS = ("diamond_ore", "deepslate_diamond_ore", "obsidian", "ancient_debris")
 SEEN_CLASS = dict(
-    [(k, "static") for k in (
-        "coal_ore", "deepslate_coal_ore", "iron_ore", "deepslate_iron_ore", "copper_ore", "deepslate_copper_ore",
-        "gold_ore", "deepslate_gold_ore", "nether_gold_ore", "diamond_ore", "deepslate_diamond_ore", "redstone_ore",
-        "deepslate_redstone_ore", "lapis_ore", "deepslate_lapis_ore", "obsidian", "ancient_debris",
-        "village", "fortress", "portal", "nether_portal", "chest", "barrel", "crafting_table", "furnace",
-        "blast_furnace", "smoker", "cauldron", "bookshelf", "smithing_table", "stonecutter", "ladder", "torch",
-        "wall_torch", "hay_block")]
-    + [(k, "slow") for k in ("tree", "grass", "water", "lava", "wheat", "carrots", "potatoes", "beetroots",
+    # Worth remembering for good: rare resources (iron: the mine step's walk is priced from its notes, cost.py)
+    # and structures.
+    [(k, "static") for k in RARE_SIGHTINGS + (
+        "iron_ore", "deepslate_iron_ore", "gold_ore", "deepslate_gold_ore", "nether_gold_ore",
+        "village", "fortress", "portal", "nether_portal", "stronghold", "bastion")]
+    + [(k, "slow") for k in ("tree", "water", "lava", "wheat", "carrots", "potatoes", "beetroots",
                             "pumpkin", "carved_pumpkin", "melon")]
     + [(k, "mobile") for k in ("herd", "cow", "sheep", "pig", "chicken", "rabbit", "horse", "llama", "goat",
                               "mooshroom", "villager", "piglin")]
     + [(k, "hostile") for k in ("zombie", "husk", "drowned", "skeleton", "stray", "creeper", "spider",
                                "cave_spider", "enderman", "witch", "slime", "phantom", "blaze", "ghast",
                                "wither_skeleton", "magma_cube", "hoglin", "zombified_piglin", "silverfish")])
-# Rare blocks the travel scan looks for on purpose (the common ones it meets anyway).
-RARE_SIGHTINGS = ("diamond_ore", "deepslate_diamond_ore", "obsidian", "ancient_debris")
 
 
 def seen_class(kind):
     """The volatility class of a kind (a bare block or mob name, or an alias like "tree"). Beds, doors and wool
-    — village furniture — are static; anything else unknown is slow: it expires rather than lying forever."""
+    — village furniture worth taking — are static; anything else unknown is never noted."""
     kind = bare(kind)
     if kind in SEEN_CLASS:
         return SEEN_CLASS[kind]
     if kind.endswith(("_bed", "_door", "_wool")):
         return "static"
-    return "slow"
+    return "never"
 
 
 HAND_MINEABLE_SUFFIX = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_block", "leaves", "log", "wood",

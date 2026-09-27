@@ -131,7 +131,7 @@ def seek(ctx, kinds, pos=None):
     else:
         return seek_blocks(ctx, list(kinds))
     nav.arrive(target, ctx.policy, range_=3)
-    ctx.mem.note_seen(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
+    ctx.mem.note_here(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
     return [target]
 
 
@@ -151,8 +151,7 @@ def approach_policy(policy):
 # What the travel scan notes (memory.note_seen, kept by data.VOLATILITY): the nearest of each kind in 48 blocks,
 # the takeable blocks, the rare blocks and the animals in sight.
 SCAN_BLOCKS = {"tree": ["oak_log", "birch_log", "spruce_log", "jungle_log", "acacia_log", "dark_oak_log"],
-               "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"],
-               "coal": ["coal_ore", "deepslate_coal_ore"]}
+               "water": ["water"], "lava": ["lava"], "iron": ["iron_ore", "deepslate_iron_ore"]}
 _ALIAS = {"tree", "water", "lava"}      # scan kinds noted by their own name; the rest by the block that was hit
 SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chicken")
 
