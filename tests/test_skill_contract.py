@@ -1036,6 +1036,35 @@ class BagFull(unittest.TestCase):
             with self.subTest(feet=feet):
                 self.assertEqual(bag.supports(feet), want)
 
+    def test_a_gatherer_checks_the_bag_before_it_starts(self):
+        """chop/mine/hunt/loot on a bag with no room for what they gather fail before the body does anything; with
+        a stack of it not yet full they run."""
+        from tests.world import bag, inventory
+        full_dirt = [("dirt", 64)] * 36
+        rows = [("chop, full of dirt", lambda c: ["minecraft:oak_log"], full_dirt, "no room for oak_log"),
+                ("mine, full of dirt", lambda c: ["minecraft:cobblestone"], full_dirt, "no room for cobblestone"),
+                ("hunt, full of dirt", lambda c: ["minecraft:beef"], full_dirt, "no room for beef"),
+                ("loot, full of dirt: room for anything needed", True, full_dirt, "no room for anything"),
+                ("chop, full but an oak_log stack at 10", lambda c: ["minecraft:oak_log"],
+                 [("dirt", 64)] * 35 + [("oak_log", 10)], None)]
+        for name, fills, carried, want in rows:
+            ran = []
+
+            @skillkit.skill(name="bag_gate_probe", fills_bag=fills)
+            def probe(ctx):
+                ran.append(True)
+            inv = bag(inventory(*carried))
+            with self.subTest(name), mock.patch.object(skillcore, "Inventory", return_value=inv):
+                if want is None:
+                    probe(None)
+                    self.assertEqual(ran, [True])
+                else:
+                    with self.assertRaises(api.McError) as got:
+                        probe(None)
+                    self.assertEqual((str(got.exception), ran),
+                                     (f"bag full (no free slot): bag_gate_probe: {want}", []))
+            skillkit.REGISTRY.pop("bag_gate_probe", None)
+
     def test_only_gatherers_say_it(self):
         """The same failure on a full bag: a gatherer's names the bag, another skill's stays its own."""
         for fills, want in ((True, "bag full (no free slot): nothing left to take"), (False, "nothing left to take")):

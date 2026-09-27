@@ -159,7 +159,9 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft, commands, provides, prefer)
         contract.needs = dict(needs or {})
-        contract.fills_bag = fills_bag      # a gatherer: its failure on a full bag says so (bag_full_reason)
+        # A gatherer: True (anything it takes needs a free slot) or c -> the item ids it gathers. Checked before it
+        # starts and between its batches (bag_check), and its failures on a full bag say so (bag_full_reason).
+        contract.fills_bag = fills_bag
         REGISTRY[contract.name] = contract
 
         @functools.wraps(fn)
@@ -171,6 +173,7 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
                 c.base = contract.start(c)
             if contract.done and contract.done(c):
                 return None
+            bag_check(contract, c)
             t0 = time.time()
             prev_soft, prev_skill = api.SOFT, tape.SKILL
             api.SOFT = contract.soft or prev_soft     # nested skills (eat inside a fight) inherit the protection
@@ -224,6 +227,23 @@ def bag_full_reason(message, free):
     return f"bag full (no free slot): {message}"
 
 
+def bag_check(contract, c):
+    """A gatherer with nowhere to put what it gathers stops now, saying so: a full-bag chop broke logs it could not
+    pick up, found the trunk empty and moved on to the next tree until its time ran out. One check for every
+    gatherer (`fills_bag`), before it starts and between its batches — none of them re-checks it."""
+    if not contract.fills_bag:
+        return
+    from .bag import has_room
+    ids = contract.fills_bag(c) if callable(contract.fills_bag) else ()
+    try:
+        inv = skillcore.Inventory()
+    except McError:
+        return
+    if not has_room(inv.slots, inv.free_slots(), set(ids)):
+        what = ", ".join(sorted(i.split(":")[-1] for i in ids)[:3]) or "anything"
+        raise McError(bag_full_reason(f"{contract.name}: no room for {what}", 0))
+
+
 def _free_slots():
     try:
         return skillcore.Inventory().free_slots()
@@ -270,6 +290,7 @@ def _drive(contract, c, gen):
                 raise McError(f"{contract.name}: died")
             if contract.done and contract.done(c):
                 return None
+            bag_check(contract, c)
             metric = marker if marker is not None else world_signature()
             if metric != last:
                 last, since = metric, now
