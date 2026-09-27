@@ -317,6 +317,8 @@ def _decompose(inv, goal, cost, solver, pending):
                 _action("goto", "pos", cost, pos=list(args["b"]), range=4.0)]
     if template == "build":
         bp = args["bp"]
+        if bp != "shelter" and bp not in blueprints.REGISTRY:
+            raise Unplannable(f"no blueprint {bp!r} to build")
         materials = blueprints.materials(blueprints.SHELTER if bp == "shelter" else blueprints.REGISTRY[bp])
         if bp == "nether_portal":
             materials = dict(materials, **{"minecraft:flint_and_steel": 1})

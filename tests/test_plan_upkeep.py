@@ -1742,12 +1742,13 @@ class Queue(unittest.TestCase):
                 self.assertEqual(self.complete(chain, last), ok)
 
     def test_what_cannot_be_decomposed_says_why(self):
-        # must fail: a skill or an effect no registered skill provides, an effect missing its detail — Unplannable,
-        # naming what is missing
+        # must fail: a skill or an effect no registered skill provides, an effect missing its detail, a blueprint
+        # nobody drew — Unplannable (never a KeyError), naming what is missing
         rows = [("an unknown skill", {"goal": "skill", "args": {"name": "fly"}}, "fly"),
                 ("an effect nobody provides", {"goal": "effect", "args": {"effect": "teleport"}}, "teleport"),
                 ("an effect without its detail", {"goal": "effect", "args": {"effect": "goto"}}, "pos"),
-                ("an unknown template", {"goal": "teleport", "args": {}}, "teleport")]
+                ("an unknown template", {"goal": "teleport", "args": {}}, "teleport"),
+                ("an unknown blueprint", {"goal": "build", "args": {"bp": "castle"}}, "castle")]
         for name, goal, says in rows:
             with self.subTest(name):
                 with self.assertRaises(Unplannable) as e:
