@@ -93,6 +93,28 @@ class CellsWith(unittest.TestCase):
                          ([(0, 64, 0)], [(3, 64, 0), (4, 64, 0)]))
 
 
+class StandingCells(unittest.TestCase):
+    """terrain.standing_cells: the one reading of "one could stand here" (find_open_spot, find_shelter_spot)."""
+
+    def test_over_the_table(self):
+        from bonobo import terrain
+        floor = {(x, 63, 0): "stone" for x in range(5)}
+        # (situation, blocks, here, radius) → cells
+        rows = [("a floor, open above: every cell over it", floor, (0, 64, 0), 10, [(x, 64, 0) for x in range(5)]),
+                ("out of the radius: left out", floor, (0, 64, 0), 2, [(0, 64, 0), (1, 64, 0), (2, 64, 0)]),
+                ("must fail: a roof at head height", dict(floor) | {(1, 65, 0): "stone"},
+                 (0, 64, 0), 1, [(0, 64, 0)]),
+                ("must fail: lava is no floor", dict(floor) | {(0, 63, 0): "lava"}, (0, 64, 0), 1, [(1, 64, 0)]),
+                ("must fail: a block where the feet go (standing on it instead)", dict(floor) | {(0, 64, 0): "dirt"},
+                 (0, 64, 0), 1, [(0, 65, 0), (1, 64, 0)]),
+                ("cave air is air", dict(floor) | {(0, 64, 0): "cave_air", (0, 65, 0): "cave_air"}, (0, 64, 0), 1,
+                 [(0, 64, 0), (1, 64, 0)])]
+        for name, blocks, here, radius, want in rows:
+            with self.subTest(name):
+                region = FakeRegion((-1, 60, -1), (6, 70, 1), blocks)
+                self.assertEqual(sorted(terrain.standing_cells(region, here, radius)), want)
+
+
 class NearestSoft(unittest.TestCase):
     """terrain.nearest_soft: ground that digs by hand, found along the ground we stand on."""
     # (situation, region, feet) → (cell, steps) or None
