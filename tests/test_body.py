@@ -70,13 +70,19 @@ class NothingAboutTheWorkDefendsIt(unittest.TestCase):
     log. A judgement that reads it is the arbiter pricing, which is the layer's job."""
 
     def test_what_has_been_spent_is_reported_and_never_compared(self):
-        """`spent_s` exists for the log and the tape; nothing in the arbiter may read it to decide."""
-        import inspect
-        running = intent("walk", at=-100.0)
-        self.assertGreater(running.spent_s(now=0.0), 0.0)
-        source = inspect.getsource(arbiter.Motion.preempt)
-        for forbidden in ("spent_s", "redo_s", "resumable", "interrupt_cost"):
-            self.assertNotIn(forbidden, source, f"the arbiter weighed the work itself: {forbidden}")
+        """`spent_s` exists for the log and the tape; the arbiter's answer is the same however long the work ran."""
+        # (how long the running plan has been at it) → its reported spend; every challenger gets the answer it gets
+        # against work that has just begun
+        rows = [(0.0, 0.0), (1.0, 1.0), (100.0, 100.0), (3600.0, 600.0)]     # sunk_s tops out at the intent's cost_s
+        for ran, spent in rows:
+            with self.subTest(ran=ran):
+                self.assertEqual(intent("walk", at=-ran).spent_s(now=0.0), spent)
+                for layer in ("reflex", "safety", "tactic", "plan"):
+                    fresh = body_with(intent("walk", layer="plan", at=0.0)).preempt(
+                        layer, lambda: None, "x", worth_s=5.0, now=0.0)
+                    long_run = body_with(intent("walk", layer="plan", at=-ran)).preempt(
+                        layer, lambda: None, "x", worth_s=5.0, now=0.0)
+                    self.assertEqual(long_run, fresh, f"{layer} against work that ran {ran}s")
 
 
 class ARefusalHasExactlyOneReason(unittest.TestCase):

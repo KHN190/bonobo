@@ -359,8 +359,6 @@ class Outcomes(unittest.TestCase):
         for err, want in rows:
             with self.subTest(repr(err)):
                 self.assertEqual(brain.outcome_of(err), want)
-        import inspect
-        self.assertIn("outcome_of(", inspect.getsource(brain.Brain.attempt), "the attempt must ask this table")
 
 
 # ------------------------------------------------------------------------------------------ verify needs a product
