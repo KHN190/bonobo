@@ -57,10 +57,10 @@ BLOOD = {"whole": [], "hurt": ["damage @p 12 minecraft:magic"]}
 # was missing what. `NEEDS` is what each column needs to exist at all, and the check before the window reads it.
 KIT = {
     "nothing": [],
-    "blocks": ["give @p iron_pickaxe", "give @p cobblestone 64", "give @p dirt 64"],
+    "blocks": [core.BEST_TOOLS["pickaxe"], "give @p cobblestone 64", "give @p dirt 64"],
     "food": ["give @p cooked_beef 8"],
     "shield": ["item replace entity @p weapon.offhand with shield"],
-    "full": ["give @p iron_pickaxe", "give @p cobblestone 64", "give @p dirt 64", "give @p cooked_beef 8",
+    "full": [core.BEST_TOOLS["pickaxe"], "give @p cobblestone 64", "give @p dirt 64", "give @p cooked_beef 8",
              "item replace entity @p weapon.offhand with shield"],
 }
 # What a kit value puts within reach. Read off the CELL, not off the priced state: "the bag was read as empty"

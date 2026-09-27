@@ -24,6 +24,21 @@ UNCOUNTED = ("setup", "harness")
 # Two sites, one box shape: the row runs at ORIGIN (site A) while the next row's world is built at ORIGIN + SITE_B,
 # then cloned over in one command. The player never goes to B; every coordinate a row knows is site A's.
 SITE_B = (100, 0, 0)
+
+# The kit rule (speedrun standard): a row whose work uses a tool gets the best one, unless getting the tool is the
+# thing tested. Work tools are the best tier; weapons follow the mob (MOB_WEAPON): iron for the ordinary ones,
+# diamond for the high tier. One place: scenarios.KIT_JOBS applies it to the rows, bench/fight.py's KIT reads it.
+BEST_TOOLS = {"axe": "give @p diamond_axe", "pickaxe": "give @p diamond_pickaxe", "shovel": "give @p diamond_shovel"}
+HIGH_TIER_MOBS = ("blaze", "wither_skeleton", "enderman", "ravager", "warden", "ender_dragon", "wither",
+                  "elder_guardian", "evoker")
+MOB_WEAPON = {**{m: "diamond_sword" for m in HIGH_TIER_MOBS}}      # anything else: ORDINARY_WEAPON
+ORDINARY_WEAPON = "iron_sword"
+
+
+def weapon_for(mobs):
+    """Pure: the sword a row fighting `mobs` (bare names) is given — the best any of them calls for."""
+    names = [MOB_WEAPON.get(m, ORDINARY_WEAPON) for m in mobs] or [ORDINARY_WEAPON]
+    return f"give @p {'diamond_sword' if 'diamond_sword' in names else ORDINARY_WEAPON}"
 WORLD_CMDS = ("fill", "setblock", "clone", "place", "forceload")     # the build: no player in it, built ahead
 LATE_CMDS = ("summon",)                  # actors: summoned in the row itself — built ahead they wander or burn
 

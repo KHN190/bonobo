@@ -873,6 +873,33 @@ class SliceVerdict(unittest.TestCase):
                 self.assertIn(says, why)
 
 
+class KitRule(unittest.TestCase):
+    """bench.core.weapon_for / scenarios.KIT_JOBS: iron for ordinary mobs, diamond for the high tier; the best work
+    tool for every row whose work uses one."""
+
+    def test_weapon_for(self):
+        from bonobo.bench import core
+        rows = [("a zombie: iron", ["zombie"], "give @p iron_sword"),
+                ("a blaze: diamond", ["blaze"], "give @p diamond_sword"),
+                ("a zombie and an enderman: the best either calls for", ["zombie", "enderman"], "give @p diamond_sword"),
+                ("nothing named: iron", [], "give @p iron_sword"),
+                ("the dragon: diamond", ["ender_dragon"], "give @p diamond_sword")]
+        for name, mobs, want in rows:
+            with self.subTest(name):
+                self.assertEqual(core.weapon_for(mobs), want)
+
+    def test_rows_carry_their_tools(self):
+        from bonobo.bench import core
+        rows = [("chop__base", core.BEST_TOOLS["axe"]), ("mine_stone__base", core.BEST_TOOLS["pickaxe"]),
+                ("unbury_sand", core.BEST_TOOLS["shovel"]), ("fight_blaze_3", "give @p diamond_sword"),
+                ("fight_zombie_1", "give @p iron_sword")]
+        for name, give in rows:
+            with self.subTest(name):
+                self.assertIn(give, sc.SCENARIOS[name]["setup"])
+        # must not: a row that tests getting the tool is left bare
+        self.assertNotIn(core.BEST_TOOLS["pickaxe"], sc.SCENARIOS["tool_tier__one_use"]["setup"])
+
+
 class TwoSites(unittest.TestCase):
     """The next row's world is built at site B while a row runs at A (bench.core classify / shift / split_setup)."""
 

@@ -3562,3 +3562,60 @@ def skill_spans(registry, root):
             continue
         out[name] = (path, first, first + len(lines) - 1)
     return out
+
+
+# -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
+# Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
+# whose weapon is the measured dimension, and brain cells whose input is tool state are not in here. One table, one pass.
+KIT_JOBS = {
+    ("axe",): [
+        "brain__night", "brain__tight", "chest_or_tree", "chop__base", "chop__lava_edge", "chop__night",
+        "chop__pickup_lag", "chop__stack_room", "chop__valuables_full", "chop_without_interrupt",
+        "dead_flicker_on_respawn", "floating_logs", "gather_logs", "gather_logs_birch",
+        "interrupted_rescue_is_not_a_failure", "leaves_block_trunk", "night_first__low", "resume_after_combat",
+        "seek_blocks_real", "tidy_then_task__junk_full", "tidy_then_task__one_slot",
+        "tidy_then_task__valuables_full",
+    ],
+    ("axe", "pickaxe",): [
+        "brain__base", "l3_order_swapped", "l3_two_goals_in_order",
+    ],
+    ("pickaxe",): [
+        "ban_needs_a_failure", "ban_then_other_source", "brain__underground", "bridge_the_gap", "burrow_hillside",
+        "cast_portal", "dig_out_morning", "falling_gravel", "find_air_capped", "lava_under_ore", "mine_iron__base",
+        "mine_iron__pickup_lag", "mine_stone__base", "mine_stone__buried_by_sand", "mine_stone__cave",
+        "mine_stone__full_bag", "mine_stone__interrupt_mid_work", "mine_while_hungry", "night_mines_under_cover",
+        "seen_store__noted", "strip_mine_real",
+    ],
+    ("pickaxe", "shovel",): [
+        "dig_in_night",
+    ],
+    ("shovel",): [
+        "buried_by_sand", "unbury_sand",
+    ],
+    ("sword",): [
+        "bed_bomb_kill", "break_caged_crystal", "combat__block_gap", "combat__dig_in", "combat__fight_and_block",
+        "combat__fight_without_shield", "combat__knocked_off_edge", "combat__low_hp_eat", "combat__pillar",
+        "combat__shield_arrows", "combat__surrounded_low", "combat__wall_in", "fight_blaze_3", "fight_creeper_1",
+        "fight_creeper_by_home", "fight_creeper_sword", "fight_enderman_1", "fight_skeleton_1", "fight_zombie_1",
+        "fight_zombie_1_full_bag", "fight_zombie_3", "hunt__base", "hunt__lava_edge", "hunt__one_slot",
+        "hunt__pickup_lag", "hunt__pillar", "hunt__valuables_full", "hunt_food", "siege__w1", "siege__w2",
+        "siege__w3", "siege__w4", "siege__w5", "siege__w6", "siege__w7",
+    ],
+}
+
+
+def _kit_gives(row, jobs):
+    """The gives the kit rule adds to `row`: the best work tool per job, and for a fight the sword its mobs call for."""
+    import re
+    from .bench.core import BEST_TOOLS, weapon_for
+    mobs = set(re.findall(r"summon (?:minecraft:)?(\w+)", " ".join(map(str, row.get("setup", ())))))
+    enemy = (row.get("tags") or {}).get("enemy")
+    mobs |= {enemy} if enemy else set()
+    if any(k in s for s in list(row.get("skills", ())) + [str(row.get("doc", ""))] for k in ("dragon", "crystal")):
+        mobs.add("ender_dragon")          # the End fight: the dragon is there, not summoned
+    return [weapon_for(sorted(mobs)) if j == "sword" else BEST_TOOLS[j] for j in jobs]
+
+
+for _jobs, _rows in KIT_JOBS.items():
+    for _name in _rows:
+        SCENARIOS[_name]["setup"] = list(SCENARIOS[_name]["setup"]) + _kit_gives(SCENARIOS[_name], _jobs)
