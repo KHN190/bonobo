@@ -1540,6 +1540,19 @@ class Retry(unittest.TestCase):
         self.assertTrue(ctx.blocked(cell))
         self.assertFalse(ctx.blocked(other))
 
+    def test_one_reading_of_a_ban(self):
+        # (situation, blacklist, key asked, now) → banned: skillcore.banned, read by Context.blocked and the cost model
+        rows = [("a cell banned till later", {(5, 64, 5): 200.0}, (5, 64, 5), 100.0, True),
+                ("must fail: the ban ran out", {(5, 64, 5): 50.0}, (5, 64, 5), 100.0, False),
+                ("must fail: expiring this instant is over", {(5, 64, 5): 100.0}, (5, 64, 5), 100.0, False),
+                ("an entity key, asked as a list", {(42, 0, 0): 200.0}, [42, 0, 0], 100.0, True),
+                ("must fail: another cell", {(5, 64, 5): 200.0}, (6, 64, 5), 100.0, False)]
+        for name, blacklist, key, now, want in rows:
+            with self.subTest(name):
+                self.assertEqual(skillcore.banned(blacklist, key, now), want)
+        ctx = skillcore.Context(None, None, OVER, blacklist={(1, 2, 3): time.time() + 60})
+        self.assertEqual((ctx.blocked((1, 2, 3)), ctx.blocked((1, 2, 4))), (True, False))
+
     # fixture: (module source) → (ban sites, the ones that follow a go_to walk in the same function)
     BANS = [("a ban after arrived: fine", "def f(ctx):\n    if not nav.arrived(c, p):\n        ctx.ban(c)\n", (1, [])),
             ("a ban after go_to: a stopped walk bans the place",

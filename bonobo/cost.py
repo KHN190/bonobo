@@ -12,6 +12,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .skillcore import banned
 from .world import ROUTES, entities, find, job_ready, nearest
 
 TICKS_PER_S = 20
@@ -51,11 +52,6 @@ class Cost:
         self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
     # -- where things are
-    def _banned(self, key):
-        import time
-        exp = self.blacklist.get(tuple(key))
-        return exp is not None and exp > time.time()
-
     def _nearest(self, kinds):
         """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None.
         Memory only, never a fresh query, so a recorded round replays the same."""
@@ -63,7 +59,7 @@ class Cost:
             return None
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
-        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not self._banned(r["pos"])]
+        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not banned(self.blacklist, r["pos"])]
         best = min(spots, key=lambda p: math.dist(p, here), default=None)
         return (best, math.dist(best, here)) if best is not None else None
 
@@ -119,7 +115,7 @@ class Cost:
             self.cache[key] = min(got) if got else self._known(types)
         if key not in self.cache:
             try:
-                es = [e for e in entities(64, list(types)) if not self._banned((e["id"], 0, 0))]
+                es = [e for e in entities(64, list(types)) if not banned(self.blacklist, (e["id"], 0, 0))]
             except McError:
                 es = []
             self.cache[key] = es[0]["distance"] if es else self._known(types)

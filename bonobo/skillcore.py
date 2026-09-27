@@ -69,6 +69,13 @@ _BAN_COUNTS = {}
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 
 
+def banned(blacklist, pos, now=None):
+    """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry}) — the one
+    reading of a ban, for the skills (Context.blocked) and the cost model alike."""
+    exp = blacklist.get(tuple(pos))
+    return exp is not None and exp > (time.time() if now is None else now)
+
+
 class Context:
     """What skills need from the brain: memory, movement policy, target blacklist."""
 
@@ -89,8 +96,7 @@ class Context:
         return got or {}
 
     def blocked(self, pos):
-        exp = self.blacklist.get(tuple(pos))
-        return exp is not None and exp > time.time()
+        return banned(self.blacklist, pos)
 
     def ban(self, pos, seconds=600):
         """Blacklist a cell after a FAILURE there (never after an interruption: nothing was learned about the place).
