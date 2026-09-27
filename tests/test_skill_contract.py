@@ -387,6 +387,30 @@ class NothingQueued(unittest.TestCase):
                 self.assertEqual(got, want)
 
 
+class AWalkCutShortIsNotAFailure(unittest.TestCase):
+    """nav.arrived under a fight holding the body raises the interruption instead of answering False: the caller's
+    "no way there" branch (skills.mine bans the vein) is for failures only."""
+
+    def test_over_the_table(self):
+        rows = [("a fight engaged, the walk not its intent", True, api.BodyContested)]
+        for name, engaged, want in rows:
+            with self.subTest(name):
+                body = arbiter.Motion()
+                body.engaged = engaged
+                with mock.patch.object(arbiter, "BODY", body):
+                    with self.assertRaises(want) as got:
+                        nav.arrived((5, 64, 5), nav.Policy(), range_=1.5)
+                self.assertEqual(retry.cause_of(got.exception), "interrupt")
+
+    def test_free_body_is_asked_normally(self):
+        """Must-fail counterpart: with the body free, go_to goes on to read the world (here: the fake api refuses)."""
+        body = arbiter.Motion()
+        with mock.patch.object(arbiter, "BODY", body), \
+                mock.patch.object(api, "api", side_effect=api.GameUnreachable("offline")):
+            with self.assertRaises(api.GameUnreachable):
+                nav.arrived((5, 64, 5), nav.Policy(), range_=1.5)
+
+
 class Outcomes(unittest.TestCase):
     def test_every_exception_maps_to_one_cause_and_one_class(self):
         for err, cause, cls in OUTCOMES:

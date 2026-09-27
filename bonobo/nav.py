@@ -352,7 +352,9 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
     pos = tuple(pos)
     from . import arbiter
     if not arbiter.BODY.owns("nav.go_to"):
-        return False
+        # A fight holds the body: an interruption, not "no way there" — read as False it banned the vein the walk
+        # was heading for (ban_needs_a_failure).
+        raise api.BodyContested(f"nav.go_to {pos}: a fight holds the body")
     _began, _from = time.time(), feet_now()
     if avoid_hazards:
         from . import combat_model
