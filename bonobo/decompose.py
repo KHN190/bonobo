@@ -163,6 +163,11 @@ SOURCES = {
                                        ("minecraft:flint_and_steel", 1), ("building", 16)],
                              "known": ("lava", "no lava known and no lava bucket", "minecraft:lava_bucket"),
                              "not_in": ("minecraft:the_nether", "water cannot be poured in the Nether")}],
+    # Blocks to build with, dug by hand where dirt or grass is in sight: no pickaxe, no tree for one.
+    "building": [{"name": "dig by hand", "steps": [("mine", "minecraft:dirt",
+                                                    {"blocks": ["dirt", "grass_block"], "tier": None, "breaks": 1})],
+                  "yields": 1, "needs": [], "near": (["dirt", "grass_block"], "no dirt or grass in sight"),
+                  "gives": "minecraft:dirt"}],
     # A night without a bed (upkeep.overnight): the default is the bed's plan; these are the other ways through it.
     "overnight": [{"name": "dig in", "steps": [("shelter", "dig_in", {})], "yields": 1,
                    "needs": [("tool", "pickaxe", 0)]},
@@ -195,6 +200,10 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
         if away and snap is not None and getattr(snap, "dimension", None) == away[0]:
             why.append(f"{src['name']}: {away[1]}")
             continue
+        near = src.get("near")
+        if near and cost.distance(near[0]) is None:
+            why.append(f"{src['name']}: {near[1]}")
+            continue
         known = src.get("known")
         if known and not ((mem is not None and snap is not None and mem.seen(known[0], snap.dimension))
                           or (len(known) > 2 and inv.count(known[2]))):
@@ -202,15 +211,18 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
             continue
         runs = math.ceil(amount / src["yields"])
         try:
-            pre = solve_needs(inv, [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs)
-                                    for n in src["needs"]], cost, solver, extra)
+            needs = [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs) for n in src["needs"]]
+            sourced, got = from_sources(inv, needs, cost, solver, extra)
+            pre = sourced + solve_needs(inv, needs, cost, solver, got)     # the way _decompose plans a goal
         except Unplannable as e:
             why.append(f"{src['name']}: {e}")
             continue
         own = []
         for kind, tok, detail in src["steps"]:
-            step = Step(kind, tok, runs, dict(detail))
-            step.est = cost.estimate(step) * runs
+            # Priced one run at a time; the step itself does every run (a per-run "breaks" scales with them).
+            step = Step(kind, tok, runs, {**detail, **({"breaks": detail["breaks"] * runs} if "breaks" in detail
+                                                       else {})})
+            step.est = cost.estimate(Step(kind, tok, 1, dict(detail))) * runs
             own.append(step)
         seconds = cost.plan_s(pre + own)
         if seconds < best:
@@ -235,11 +247,13 @@ def from_sources(inv, needs, cost, solver=None, pending=None):
         short = n - goals.held(inv, token) - extra.get(token, 0)
         if short <= 0:
             continue
-        chosen, _name = cheapest(token, short, lambda: solve_needs(inv, [(token, short)], cost, solver, extra),
-                                 inv, cost, solver, extra)
+        chosen, name = cheapest(token, short, lambda: solve_needs(inv, [(token, short)], cost, solver, extra),
+                                inv, cost, solver, extra)
         if chosen is not None:
             steps += chosen
-            extra[token] = extra.get(token, 0) + short
+            # Counted as on its way under the item it brings (a group like "building" is counted by its items).
+            gives = next(src.get("gives", token) for src in SOURCES[token] if src["name"] == name)
+            extra[gives] = extra.get(gives, 0) + short
     return steps, extra
 
 

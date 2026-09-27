@@ -1664,6 +1664,13 @@ class Overnight(unittest.TestCase):
                 got, _secs, steps = upkeep.overnight(snap.inv, cost(snap), facts, bed_too=False)
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
 
+    def test_stone_ground_dirt_near_walls_in(self):
+        """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
+        snap = snapshot(state(timeOfDay=NIGHT), inventory())
+        got, _secs, steps = upkeep.overnight(snap.inv, cost(snap, dirt=4), {"soft_ground": False}, bed_too=False)
+        self.assertEqual((got, [(st.kind, st.token) for st in steps]),
+                         ("wall in", [("mine", "minecraft:dirt"), ("shelter", "pod")]))
+
     def test_soft_below_over_the_table(self):
         from bonobo.terrain import soft_below
         from tests.world import FakeRegion

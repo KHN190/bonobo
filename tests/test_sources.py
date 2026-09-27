@@ -116,5 +116,35 @@ class Sources(unittest.TestCase):
                 inv, cost = world(items=items)
                 self.assertIs(goals.done(goal, cost.snap, cost.mem), want)
 
+
+class BuildingBlocks(unittest.TestCase):
+    """Blocks to build with: dug by hand where dirt is in sight (SOURCES["building"]) or mined as stone, by price."""
+
+    # (situation, bag, what is in sight) → the steps (kind, token, count) planned for 9 building blocks
+    ROWS = [("an empty bag, dirt 4 away: dug by hand", [], {"dirt": 4}, [("mine", "minecraft:dirt", 9)]),
+            ("a pickaxe, stone 2 away, dirt 40 away: the stone", [("stone_pickaxe", 1)], {"stone": 2, "dirt": 40},
+             [("mine", "building", 9)]),
+            ("16 cobblestone carried: nothing to do", [("cobblestone", 16)], {"dirt": 4}, [])]
+
+    def test_plan_over_the_table(self):
+        from tests.world import cost, snapshot, state
+        for name, carried, seen, want in self.ROWS:
+            with self.subTest(name):
+                snap = snapshot(state(), inventory(*carried))
+                steps = decompose.decompose(snap.inv, goals.have(("building", 9)), cost(snap, **seen))
+                self.assertEqual([(st.kind, st.token, st.count) for st in steps], want)
+
+    def test_no_dirt_says_why(self):
+        """No dirt in sight and no other way: unplannable, and the reason names the missing dirt."""
+        from tests.world import cost, snapshot, state
+        snap = snapshot(state(), inventory())
+
+        def no_way():
+            raise Unplannable("no pickaxe to mine stone with")
+        with self.assertRaises(Unplannable) as got:
+            decompose.cheapest("building", 9, no_way, snap.inv, cost(snap))
+        self.assertEqual(str(got.exception), "no way to building: default: no pickaxe to mine stone with; "
+                                             "dig by hand: no dirt or grass in sight")
+
 if __name__ == "__main__":
     unittest.main()
