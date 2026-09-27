@@ -57,7 +57,7 @@ FAMILIES = [
          ('plenty', 'full', 'fresh', 'surface', 'none', 'valuables_full'),
          ('plenty', 'full', 'fresh', 'surface', 'noted', 'room')]),
     ('upkeep', [('reach_land', 'treading water 6 blocks from a shore → on dry land',
-          [('tank', -6, 5, -4, 4, 1), ('fill', ('@', -6, -3, -4), ('@', 5, -1, 4), 'water'),
+          [('tank', -6, 5, -4, 4, 1, -1, -4, 'glass', 'east'),
            ('fill', ('@', 6, -3, -4), ('@', 9, -1, 4), 'stone'), ('stand',)],
           [], ('now', ('!all', ('!state', 'onGround'), ('!not', ('!state', 'inWater')))),
           ('all', ('!state', 'onGround'), ('!not', ('!state', 'inWater')))),
