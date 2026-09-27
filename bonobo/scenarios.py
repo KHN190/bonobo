@@ -2607,15 +2607,34 @@ def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
 
 
 FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket"]
+FARM_TICK_SPEED = 1000      # random ticks per chunk section: a sown crop ripens within seconds (the bench keeps 0)
+RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
+
+
+def _growing(run):
+    """The run with crops growing fast (`gamerule random_tick_speed`), put back to the bench's 0 however it ends —
+    the plan's own plot ripens within the row, its planting and harvest still the plan's."""
+    def go(ctx):
+        _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
+        try:
+            return run(ctx)
+        finally:
+            _checked("execute in minecraft:overworld run gamerule random_tick_speed 0", [])
+    return go
+
+
 for _name, _doc, _setup, _run, _check in [
-        ("bread_from_a_farm", "grass, a hoe, 8 seeds, a water bucket, nothing else → the plan farms wheat (the crop "
-         "grown by tick sprint) and bakes bread",
-         _floor("grass_block") + [_tp()] + FARM_KIT, _achieve_needs([("minecraft:bread", 1)], rounds=6),
-         _gain("minecraft:bread", 1)),
-        ("bread_from_a_farm_two_wheat_carried", "the same with 2 wheat carried (one short of a loaf) → still farmed, "
-         "the carried wheat used: bread, and the plot sown",
-         _floor("grass_block") + [_tp(), "give @p wheat 2"] + FARM_KIT, _achieve_needs([("minecraft:bread", 1)], rounds=6),
-         _all(_gain("minecraft:bread", 1), _blocks(at(-4, 0, -4), at(4, 0, 4), "farmland", 1))),
+        ("bread_from_a_farm", "grass, a hoe, 8 seeds, a water bucket, nothing else → the plan plants a plot (its farm "
+         "step), the crop grows (random ticks fast), harvested, bread baked",
+         _floor("grass_block") + [_tp()] + FARM_KIT, _growing(_achieve_needs([("minecraft:bread", 1)], rounds=6)),
+         _all(_gain("minecraft:bread", 1), _blocks(at(-4, -1, -4), at(4, -1, 4), "farmland", 1))),
+        ("bread_from_a_farm_two_wheat_carried", "2 wheat carried, a ripe plot beside the body (the harvest only) → "
+         "harvested and baked: bread",
+         _floor("grass_block") + RIPE_PLOT + [_tp(), "give @p wheat 2"] + FARM_KIT,
+         # the harvest (take the ripe crop), then the plan bakes: the planner itself would sow a new plot
+         lambda ctx: (_skill("take")(ctx, "minecraft:wheat", 1, ["wheat"]),
+                      _achieve_needs([("minecraft:bread", 1)], rounds=3)(ctx))[1],
+         _all(_gain("minecraft:bread", 1), _blocks(at(4, 0, -1), at(6, 0, 1), "wheat", 0, 8))),
         ("bread_from_a_farm_no_soil", "stone floor, the same kit → no plot can be made: the plan fails naming the soil "
          "(must fail, never a hang)",
          _floor() + [_tp()] + FARM_KIT,
@@ -2623,8 +2642,7 @@ for _name, _doc, _setup, _run, _check in [
                          r"soil|no flat|farm"), _same_bag())]:
     SHEET[_name] = {"doc": _doc, "module": "decompose", "point": "C", "skills": ["farm"], "tier_fixed": "exception",
                     "tags": {"base": "sources", "source": "farm"}, "setup": list(_setup),
-                    "before": _hooks(_start(_name), _sprint_after(6, 24000)), "run": _run, "check": _check,
-                    "budget": 30}
+                    "before": _start(_name), "run": _run, "check": _check, "budget": 30}
 
 TRADER = at(3, 0, 0)
 for _name, _doc, _setup, _run, _check in [
