@@ -192,11 +192,12 @@ class Tiers(unittest.TestCase):
     PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
               ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
               ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance"),
-              ("upkeep_preempts_task", "brain"), ("upkeep_waits_in_daylight", "brain"), ("food_lead", "brain"),
-              ("broken_tool_best_tier", "brain"), ("plan_repair_on_event", "brain"), ("ban_then_other_source", "brain"),
-              ("resume_after_combat", "brain"), ("seen_store_goes_back", "brain"), ("l3_two_goals_in_order", "brain"),
-              ("ban_needs_a_failure", "brain"), ("chop_without_interrupt", "brain"), ("seen_store_forgotten", "brain"),
-              ("l3_order_swapped", "brain"), ("upkeep_waits_in_daylight", "brain"), ("plan_without_events", "brain")]
+              
+              ("plan_repair_on_event", "brain"), ("night_first__tight", "brain"), ("seen_store__noted", "brain"),
+              ("chop_without_interrupt", "brain"), ("ban_then_other_source", "brain"),
+              ("resume_after_combat", "brain"), ("l3_two_goals_in_order", "brain"),
+              ("ban_needs_a_failure", "brain"), 
+              ("l3_order_swapped", "brain"), ("plan_without_events", "brain")]
 
     def test_placed_rows(self):
         for name, tier in self.PLACED:
@@ -438,3 +439,35 @@ class TimeoutSticks(unittest.TestCase):
         for name, runs, want in rows:
             with self.subTest(name):
                 self.assertEqual(sc.cached_timeout({"x": {"k": runs}}, "x", "k"), want)
+
+
+class BrainGrid(unittest.TestCase):
+    """The brain tier's families: cells from the fight sheet's walker, each family ≥ 4 cells and ≥ 2 expectations
+    (the decision and its boundary or must-not), every cell ≤ 60 s."""
+
+    def test_families(self):
+        for fam, (grid, _queue, rule) in sc.BRAIN_FAMILIES.items():
+            with self.subTest(fam):
+                grid = list(grid)
+                whys = {rule(c)[1] for c in grid}
+                names = [sc._cell_name(fam, c) for c in grid]
+                self.assertEqual((len(grid) >= 4, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
+                self.assertEqual([n for n in names if sc.SHEET[n]["budget"] > 60 or sc.tier_of(n, sc.SHEET[n]) != "brain"],
+                                 [])
+
+    def test_rules(self):
+        # (family, the cell's moved dimensions, the expectation it must get)
+        rows = [("night_first", {}, "a day ahead: the task first"),
+                ("night_first", {"dusk": "tight"}, "dusk or night on the surface, no bed: the night first"),
+                ("night_first", {"dusk": "night", "food": "low"}, "hungry: food before the task"),
+                ("tool_tier", {"tool": "one_use"}, "broken: the best tier this bag crafts (iron)"),
+                ("tool_tier", {}, "fresh: nothing crafted, the ingots kept"),
+                ("night_under", {"dusk": "night", "head": "underground"}, "night underground: work there (ore), no climb"),
+                ("night_under", {"dusk": "tight", "head": "underground"},
+                 "dusk underground: already under cover, no climb to the surface (boundary)"),
+                ("night_under", {}, "daylight: no bed made, no sleep (must not)"),
+                ("seen_store", {"seen": "noted"}, "noted: straight there, note retired"),
+                ("seen_store", {}, "not noted: cannot know it (must not find it)")]
+        for fam, moved, want in rows:
+            with self.subTest(fam, **moved):
+                self.assertEqual(sc.BRAIN_FAMILIES[fam][2](dict(sc.BRAIN_BASE, **moved))[1], want)

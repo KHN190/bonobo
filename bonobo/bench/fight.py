@@ -112,7 +112,7 @@ def _roof():
     return [f"fill {_c(lo)} {_c(hi)} stone"]
 
 
-def _cells(base, dims=None, repeat=1, over=None):
+def _cells(base, dims=None, repeat=1, over=None, table=None):
     """The cells a pass visits: one dimension off the baseline at a time, or the product of `over`, each repeated.
 
     A single window is one sample of a noisy world — a fight that happens to end in one swing says nothing about
@@ -121,14 +121,15 @@ def _cells(base, dims=None, repeat=1, over=None):
     what ground we stand on); everything else still moves one at a time.
     """
     import itertools
+    table = DIMS if table is None else table     # another sheet's dimensions (the brain tier's) walk the same way
     seen = []
     if over:
-        for values in itertools.product(*(DIMS[name] for name in over)):
+        for values in itertools.product(*(table[name] for name in over)):
             seen.append(dict(base, **dict(zip(over, values))))
     else:
         seen.append(dict(base))
     for name in (dims or ()):
-        for value in DIMS[name]:
+        for value in table[name]:
             if value != base[name]:
                 seen.append(dict(base, **{name: value}))
     for cell in seen:

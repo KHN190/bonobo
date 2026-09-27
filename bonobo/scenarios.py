@@ -2277,13 +2277,13 @@ START_ROWS = [   # (name, what the start cell is, setup commands after the floor
      (0, 2, 0)),
     ("nav_from_water", "a pool one deep", [f"fill {_c(at(-1, 0, -1))} {_c(at(1, 0, 1))} water"], (0, 0, 0)),
 ]
-for _name, _what, _cells, (_dx, _dy, _dz) in START_ROWS:
+for _name, _what, _start_cmds, (_dx, _dy, _dz) in START_ROWS:
     SHEET[_name] = {
         "doc": f"Walk 10 blocks starting on {_what} (GotoTask's start cell: '1 positions explored' reproduces here) "
                f"→ at the target",
         "module": "nav", "point": "A", "skills": ["goto"], "tier_fixed": "common",
         "tags": {"base": "nav", "start": _what},
-        "setup": _floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(12, -1, 3))} stone"] + list(_cells)
+        "setup": _floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(12, -1, 3))} stone"] + list(_start_cmds)
                  + [_tp(_dx, _dy, _dz)],
         "before": _start(_name), "run": lambda ctx: _skill("travel_to")(ctx, at(10, 0, 0), 2),
         "check": _at(at(10, 0, 0), 3.5), "budget": 30,
@@ -2306,6 +2306,43 @@ def _log_order(first, then):
         a = next((i for i, l in enumerate(lines) if first in l), None)
         b = next((i for i, l in enumerate(lines) if then in l), None)
         return a is not None and b is not None and a < b
+    return check
+
+
+FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
+
+
+def _first_times(ctx):
+    """`before` hook: watch the bag during the run and note when each token first appears — the order of the
+    brain's decisions, read from the world, not from its log."""
+    FIRST.clear()
+    t0, base = time.time(), {}
+
+    def watch():
+        from .world import Inventory
+        while time.time() - t0 < 70:
+            try:
+                inv = Inventory()
+            except Exception:
+                time.sleep(0.5)
+                continue
+            for s_ in inv.slots:
+                for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
+                    base.setdefault(tok, inv.count(tok) if tok == s_["id"] else 0)
+                    if tok not in FIRST and inv.count(tok) > base.get(tok, 0):
+                        FIRST[tok] = time.time() - t0
+            time.sleep(0.5)
+    base.update({t: 0 for t in ("bed", "log")})
+    _threading.Thread(target=watch, daemon=True).start()
+
+
+def _before_in_bag(first, then, or_never=False):
+    """`first` appeared in the bag before `then` did (with `or_never`: or `then` never did)."""
+    def check(api, inv):
+        a, b = FIRST.get(first), FIRST.get(then)
+        if b is None:
+            return or_never and a is not None
+        return a is not None and a < b
     return check
 
 
@@ -2406,41 +2443,6 @@ _PEN = lambda mob, n: _pen(mob, n, half=6)   # noqa: E731
 _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
 IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
 BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 min, the world built up to the decision
-    "upkeep_preempts_task": (
-        "Dusk, no bed but wool + planks + a table carried, a log task queued → the bed goes to the front, the night "
-        "is slept, then the logs",
-        _ARENA_B + _grove((3, 0)) + [_tp(), "give @p white_wool 3", "give @p oak_planks 3", "give @p crafting_table",
-                                     "time set 12200"],
-        [_have(("log", 2))], lambda: _count("log", 2)() and _is_day()(None, None), 1,
-        _all(_log_order("upkeep: have bed", "task done: have log"), _is_day(), _gain("log", 2))),
-    "upkeep_waits_in_daylight": (
-        "The same at 1000 (a whole day ahead) → no bed goes to the front: the logs first (control)",
-        _ARENA_B + _grove((3, 0)) + [_tp(), "give @p white_wool 3", "give @p oak_planks 3", "give @p crafting_table",
-                                     "time set 1000"],
-        [_have(("log", 2))], _count("log", 2), 0.75,
-        _all(_log_lacks("upkeep: have bed"), _gain("log", 2))),
-    "food_lead": (
-        "Hungry, 2 raw beef + a furnace placed + coal carried, a log task queued → food to the front (cooked, eaten), "
-        "then the logs",
-        _ARENA_B + _grove((3, 0)) + [f"setblock {_c(at(-2, 0, 0))} furnace", _tp(), "give @p beef 2",
-                                     "give @p coal 2"],
-        [_have(("log", 2))], _count("log", 2), 1,
-        _all(_log_order("upkeep: have food", "task done: have log"), _gain("log", 2))),
-    "broken_tool_best_tier": (
-        "An iron pickaxe on its last use, iron + sticks + a table carried, cobblestone to mine → it breaks and an "
-        "IRON pickaxe is made, not a stone one",
-        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=249]", "give @p iron_ingot 3",
-                           "give @p stick 2", "give @p crafting_table"],
-        [_have(("minecraft:cobblestone", 3))], _count("minecraft:cobblestone", 3), 1,
-        _all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1 and inv.count("minecraft:stone_pickaxe") == 0,
-             _gain("minecraft:cobblestone", 3))),
-    "broken_tool_nothing_better": (
-        "The same with only planks and sticks carried → a wooden pickaxe is made (the best this bag crafts; control)",
-        _floor(depth=4) + [_tp(), "clear @p", "give @p iron_pickaxe[damage=249]", "give @p oak_planks 6",
-                           "give @p stick 2", "give @p crafting_table"],
-        [_have(("minecraft:cobblestone", 3))], _count("minecraft:cobblestone", 3), 1,
-        _all(lambda api, inv: inv.count("minecraft:wooden_pickaxe") + inv.count("minecraft:stone_pickaxe") >= 1,
-             _gain("minecraft:cobblestone", 3))),
     "plan_repair_on_event": (
         "Planks + cobblestone carried, a stone pickaxe asked; the table the plan puts down is taken away → that step "
         "is redone, the plan is not started over (≤ 2 plans)",
@@ -2476,20 +2478,7 @@ BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 mi
         "The same with no zombie → no fight is logged, the same 4 logs (control)",
         _grove((3, 0)) + [_tp(), "give @p iron_sword"],
         [_have(("log", 4))], _count("log", 4), 0.75,
-        _all(_gain("log", 4), _log_lacks("fight"))),
-    "seen_store_goes_back": (
-        "Diamond ore remembered 6 blocks away (not in sight: behind stone) → walked to and mined; the note is "
-        "retired once it is gone",
-        _floor(depth=4) + [f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(at(6, 0, 0))} diamond_ore",
-                           _tp(), "give @p iron_pickaxe"],
-        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 0.75,
-        _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"))),
-    "seen_store_forgotten": (
-        "The same ore, no note → the brain cannot know it: 24 s pass without the diamond (must-fail control)",
-        _floor(depth=4) + [f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(at(6, 0, 0))} diamond_ore",
-                           _tp(), "give @p iron_pickaxe"],
-        [_have(("minecraft:diamond", 1))], _count("minecraft:diamond", 1), 0.4,
-        _all(_blocks(at(6, 0, 0), at(6, 0, 0), "diamond_ore", 1, 1), _gain("minecraft:diamond", 0, at_most=0))),
+        _all(_gain("log", 4), _hp_kept(20), _gone(["minecraft:zombie"]))),
     "l3_two_goals_in_order": (
         "Two goals queued (logs, then cobblestone) → both done, in queue order",
         _grove((3, 0)) + [f"fill {_c(at(-3, 0, 2))} {_c(at(-2, 1, 3))} stone", _tp(), "give @p wooden_pickaxe"],
@@ -2510,17 +2499,119 @@ _BEFORE = {"plan_repair_on_event": [_count_replans, _remove_table_when_placed],
            "ban_then_other_source": [_clear_bans],
            "ban_needs_a_failure": [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
                f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()],
-           "seen_store_goes_back": [_seen("diamond_ore", at(6, 0, 0))],
-           "food_lead": [lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5))],
-           "seen_store_forgotten": [_forget_all("diamond_ore")]}
+           }
 for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items():
     SHEET[_name] = {
         "doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
-        "combat": _name in ("resume_after_combat", "food_lead"), "tags": {"base": "brain"},
+        "combat": _name == "resume_after_combat", "tags": {"base": "brain"},
         "setup": list(_setup), "before": _hooks(_start(_name), *_BEFORE.get(_name, [])),
         "run": _slice(_done, _minutes, queue=_queue), "check": _all(_check, _slice_check(None)),
         "budget": min(60, int(_minutes * 60) + 5),
     }
+
+# -- the brain's decisions as a grid: one world, the moment set by dimensions, one rule table ------------------------
+# The world holds everything each decision could reach for (a grove, a stone field with iron and a diamond, bed and
+# pickaxe materials, meat and a lit furnace); the dimensions set the moment. Cells come from the fight sheet's own
+# walker (`_cells`), four families of ≥ 4 cells, each with its boundary and its must-not.
+DIAMOND_UP, DIAMOND_DOWN = at(6, 0, 0), at(4, -9, 0)     # sealed in stone: known only if noted
+POCKET = at(0, -9, 0)
+BRAIN_DIMS = {
+    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11800"], "night": ["time set 18000"]},
+    "food": {"full": [], "low": ["effect give @p minecraft:hunger 4 255 true"]},    # drained by the run's start
+    "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
+    "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
+    "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
+}
+BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none"}
+BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
+               + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
+                  f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
+                  f"fill {_c(at(5, 0, -1))} {_c(at(7, 2, 1))} stone", f"setblock {_c(DIAMOND_UP)} diamond_ore",
+                  f"setblock {_c(DIAMOND_DOWN)} diamond_ore", f"setblock {_c(at(-2, 0, 0))} furnace",
+                  "give @p white_wool 3", "give @p oak_planks 8", "give @p crafting_table", "give @p stick 4",
+                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", "give @p cobblestone 16"])
+
+
+def _diamond_of(cell):
+    return DIAMOND_DOWN if cell["head"] == "underground" else DIAMOND_UP
+
+
+# family → (grid, the queue, what each cell must show). A rule answers (check, why) from the cell; the checks read
+# the world (bag, blocks, clock, height) and the order things appeared in the bag (`_first_times`), never log text.
+def _bed_then_log(cell):
+    if cell["dusk"] == "plenty" and cell["food"] == "full":
+        return _all(_before_in_bag("log", "bed", or_never=True), _gain("log", 2)), "a day ahead: the task first"
+    if cell["food"] == "low":
+        return _before_in_bag("minecraft:cooked_beef", "log"), "hungry: food before the task"
+    return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
+
+
+def _tool_rule(cell):
+    if cell["tool"] == "one_use":
+        return (_all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1,
+                     lambda api, inv: inv.count("minecraft:stone_pickaxe") + inv.count("minecraft:wooden_pickaxe") == 0,
+                     _gain("minecraft:cobblestone", 3)), "broken: the best tier this bag crafts (iron)")
+    return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", 3)),
+            "fresh: nothing crafted, the ingots kept")
+
+
+def _night_rule(cell):
+    below = lambda api, inv: api.get("/state")["blockY"] < at(0, -3, 0)[1]      # noqa: E731
+    if cell["head"] == "underground" and cell["dusk"] == "night":
+        return _all(_gain("minecraft:raw_iron", 1), below), "night underground: work there (ore), no climb"
+    if cell["head"] == "underground" and cell["dusk"] == "tight":
+        return below, "dusk underground: already under cover, no climb to the surface (boundary)"
+    if cell["dusk"] != "plenty":
+        return _before_in_bag("bed", "minecraft:raw_iron", or_never=True), "dusk or night on the surface: a bed first"
+    return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 13000 and inv.count("bed") == 0,
+            "daylight: no bed made, no sleep (must not)")
+
+
+def _seen_rule(cell):
+    if cell["seen"] == "noted":
+        return _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore")), "noted: straight there, note retired"
+    return (_all(_gain("minecraft:diamond", 0, at_most=0), lambda api, inv, c=cell: _count_blocks(
+        api, _diamond_of(c), _diamond_of(c), "diamond_ore") == 1), "not noted: cannot know it (must not find it)")
+
+
+BRAIN_FAMILIES = {
+    "night_first": (list(_cells(BRAIN_BASE, over=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
+    "tool_tier": (list(_cells(BRAIN_BASE, over=("tool", "head"), table=BRAIN_DIMS)),
+                  [_have(("minecraft:cobblestone", 3))], _tool_rule),
+    "night_under": (list(_cells(BRAIN_BASE, over=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
+    "seen_store": (list(_cells(BRAIN_BASE, over=("seen", "head"), table=BRAIN_DIMS)),
+                   [_have(("minecraft:diamond", 1))], _seen_rule),
+}
+
+
+def _cell_name(family, cell):
+    moved = [cell[d] for d in BRAIN_DIMS if cell[d] != BRAIN_BASE[d]]
+    return f"{family}__" + ("_".join(moved) or "base")
+
+
+def _cell_before(cell):
+    hooks = [_clear_bans, _forget_all("diamond_ore"), _first_times]
+    if cell["seen"] == "noted":
+        hooks.append(_seen("diamond_ore", _diamond_of(cell)))
+    if cell["food"] == "low":
+        hooks.append(lambda ctx: time.sleep(4.5))      # the hunger effect set in setup drains the bar first
+    return hooks
+
+
+for _fam, (_grid, _queue, _rule) in BRAIN_FAMILIES.items():
+    for _cell in _grid:
+        _name = _cell_name(_fam, _cell)
+        _check, _why = _rule(_cell)
+        SHEET[_name] = {
+            "doc": f"{_fam}: " + ", ".join(f"{d} {_cell[d]}" for d in BRAIN_DIMS) + f" → {_why}",
+            "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": False,
+            "tags": {"base": "brain", "family": _fam, **{d: _cell[d] for d in BRAIN_DIMS}},
+            "setup": BRAIN_WORLD + [c for d in BRAIN_DIMS for c in BRAIN_DIMS[d][_cell[d]]],
+            "before": _hooks(_start(_name), *_cell_before(_cell)),
+            "run": _slice(None, 0.75, queue=list(_queue)), "check": _all(_check, _slice_check(None)),
+            "budget": 50,
+        }
+
 
 # -- test point D: acceptance ------------------------------------------------------------------------------------
 SCENARIOS[ACCEPTANCE_D] = {
