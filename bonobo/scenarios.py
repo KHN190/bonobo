@@ -2779,6 +2779,14 @@ def _first_times(ctx):
                 for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
                     if tok not in FIRST and inv.count(tok) > _base_count(tok):
                         FIRST[tok] = time.time() - t0
+            # A smelt set going (a furnace job remembered): "smelt:<item>" — food first may mean cooking it in the
+            # background while the task goes on, which the bag shows only when the furnace is emptied.
+            try:
+                for j in core.BRAIN.mem.jobs():
+                    tok = "smelt:" + j["item"].split(":")[-1]
+                    FIRST.setdefault(tok, time.time() - t0)
+            except Exception:
+                pass
             time.sleep(0.5)
     _threading.Thread(target=watch, daemon=True).start()
 
@@ -2980,6 +2988,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S):
         _chat("effect clear @p minecraft:hunger")
         time.sleep(1.0)                   # what exhaustion was left takes its last point, if any
         food = api.get("/state").get("food", 20)
+        BASE["food_drained"] = food
         from .reflexes import EAT_BELOW, STARVE
         if not STARVE < food < EAT_BELOW:
             raise SetupInvalid(f"food {food} after the drain: wanted between {STARVE} and {EAT_BELOW}")
@@ -3021,7 +3030,13 @@ def _bed_then_log(cell):
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
-        return _before_in_bag("minecraft:cooked_beef", "log"), "hungry: food before the task"
+        # Food first, judged from the world: the raw beef set cooking (a furnace job) before any log was gained —
+        # or cooked beef in the bag first — and the bar no lower at the end than the drain left it. Logs first with
+        # nothing cooking fails.
+        food_first = lambda api, inv: (_before_in_bag("smelt:cooked_beef", "log")(api, inv)      # noqa: E731
+                                       or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
+        kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
+        return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
     return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
 
 

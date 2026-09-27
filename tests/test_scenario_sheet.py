@@ -603,7 +603,7 @@ class BrainGrid(unittest.TestCase):
         # (family, the cell's moved dimensions, the expectation it must get)
         rows = [("night_first", {}, "a day ahead: the task first, no bed made (must not)"),
                 ("night_first", {"dusk": "tight"}, "dusk or night on the surface, no bed: the night first"),
-                ("night_first", {"dusk": "night", "food": "low"}, "hungry: food before the task"),
+                ("night_first", {"dusk": "night", "food": "low"}, "hungry: food before the task (cooking it counts)"),
                 ("tool_tier", {"tool": "one_use"}, "broken: the best tier this bag crafts (iron)"),
                 ("tool_tier", {}, "fresh: nothing crafted, the ingots kept (must not craft)"),
                 ("night_under", {"dusk": "night", "head": "underground"}, "night underground: work there (ore), no climb"),
@@ -615,6 +615,35 @@ class BrainGrid(unittest.TestCase):
         for fam, moved, want in rows:
             with self.subTest(fam, **moved):
                 self.assertEqual(sc.BRAIN_FAMILIES[fam][2](dict(sc.BRAIN_BASE, **moved))[1], want)
+
+
+class FoodFirstFromTheWorld(unittest.TestCase):
+    """night_first__low's check: the beef set cooking (or cooked beef in the bag) before any log, and the bar no
+    lower at the end than the drain left it. Logs first with nothing cooking must fail."""
+
+    def test_over_the_table(self):
+        from types import SimpleNamespace
+        check = sc.BRAIN_FAMILIES["night_first"][2](dict(sc.BRAIN_BASE, dusk="night", food="low"))[0]
+        rows = [("smelt at 2 s, logs at 9 s, food kept", {"smelt:cooked_beef": 2.0, "log": 9.0}, 12, True),
+                ("cooked beef in the bag before logs", {"minecraft:cooked_beef": 3.0, "log": 9.0}, 12, True),
+                ("must fail: logs first, nothing cooking", {"log": 4.0}, 12, False),
+                ("must fail: logs at 3 s, the smelt only at 8 s", {"log": 3.0, "smelt:cooked_beef": 8.0}, 12, False),
+                ("must fail: food first but the bar fell below the drain", {"smelt:cooked_beef": 2.0, "log": 9.0}, 7,
+                 False)]
+        for name, first, food_end, want in rows:
+            with self.subTest(name):
+                fake = SimpleNamespace(get=lambda path, _f=food_end: {"food": _f})
+                saved_first, saved_base = dict(sc.FIRST), dict(sc.BASE)
+                try:
+                    sc.FIRST.clear()
+                    sc.FIRST.update(first)
+                    sc.BASE["food_drained"] = 10
+                    self.assertIs(bool(check(fake, None)), want)
+                finally:
+                    sc.FIRST.clear()
+                    sc.FIRST.update(saved_first)
+                    sc.BASE.clear()
+                    sc.BASE.update(saved_base)
 
 
 class Chance(unittest.TestCase):
