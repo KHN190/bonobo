@@ -3341,17 +3341,17 @@ UPKEEP_ROWS = [
      [lambda ctx: (time.sleep(5.5), BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get(
          "/state")["food"]))], lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None), _food_up()),
     # hurt with the bar short of full: no regen below 18 and slow below 20 — eaten to full though not hungry
-    ("eat_to_regen", "hurt (instant damage), food 16 (not hungry: above EAT_BELOW), bread carried → eaten to a full "
-     "bar, and health rises",
-     # The damage in a `before` hook: in setup the body reset's instant health (after setup) undid it — the
-     # row started at 20 hp and never had a reason to eat.
+    ("eat_to_regen", "food drained to 16 (not hungry: above EAT_BELOW), then hurt (instant damage), bread carried → "
+     "eaten (the bread goes down), the bar to 18 or more, and health rises",
+     # Drained FIRST, then hurt: saturation left at a full bar healed the damage by itself (hp 14 → 18.7 in 2.6 s,
+     # food 20, the bread untouched), and the damage in setup was undone by the body reset's instant health.
      _floor() + [_tp(), "give @p bread 4", "effect give @p minecraft:hunger 1 0 true"],
-     [lambda ctx: (_chat("effect give @p minecraft:instant_damage 1 0 true"), time.sleep(0.5)),
-      _drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
+     [_drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
+      lambda ctx: (_chat("effect give @p minecraft:instant_damage 1 0 true"), time.sleep(0.5)),
       lambda ctx: BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"],
                               hp_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["health"])],
-     lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None),
-     _all(_food_up(), lambda api, inv: api.get("/state")["health"] > BASE["hp_before"])),
+     lambda: _regen_fed(__import__("bonobo.api", fromlist=["get"]), None),
+     _all(_regen_fed, lambda api, inv: api.get("/state")["health"] > BASE["hp_before"])),
     # the path blocked: a gap between us and where the last walk failed to go
     ("path_blocked", "the last walk failed toward the far side of a 6-block gap, 16 blocks carried → bridged across",
      _floor() + [f"fill {_c(at(2, -3, -8))} {_c(at(7, -1, 8))} air", _tp(), "give @p cobblestone 16"],
@@ -3819,4 +3819,11 @@ def _kit_gives(row, jobs):
 
 for _jobs, _rows in KIT_JOBS.items():
     for _name in _rows:
-        SCENARIOS[_name]["setup"] = list(SCENARIOS[_name]["setup"]) + _kit_gives(SCENARIOS[_name], _jobs)
+        SCENARIOS[_name]["setup"] = list(SCENARIOS[_name]["setup"]) + _kit_gives(SCENARIOS[_name], _jobs)def _regen_fed(api, inv):
+    """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
+    from .world import Inventory
+    inv = inv if inv is not None else Inventory()
+    return inv.count("minecraft:bread") < 4 and api.get("/state")["food"] >= 18
+
+
+
