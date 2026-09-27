@@ -953,6 +953,7 @@ def _start(name):
         from .. import api
         FAILED_AS_EXPECTED.pop(name, None)
         INTERRUPTS[name] = 0
+        RESUMED_LEFT.pop(name, None)
         BASE.clear()
         BASE.update(name=name, inv=api.get("/inventory"), state=api.get("/state"), t=time.time())
     return hook
@@ -2080,9 +2081,13 @@ def _iron_in_furnaces():
                      and item in ("minecraft:raw_iron", "minecraft:iron_ingot"))
     return total
 
+RESUMED_LEFT = {}          # row → what the resume found still to do (an interrupt after the last load left nothing)
+
+
 def _load_the_rest(ctx):
     """Resume: what is still in the bag, loaded — recomputed from the world, not from where the chain stopped."""
     left = _inv_now().count("minecraft:raw_iron")
+    RESUMED_LEFT["smelt_job_interrupted"] = left
     if left:
         _skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", left, "coal")
     return True

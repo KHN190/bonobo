@@ -105,6 +105,9 @@ CODE_ROWS = [
                      lambda ctx: _skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 6, "coal"),
                      _load_the_rest),
          check=_all(lambda api, inv: inv.count("minecraft:raw_iron") == 0, lambda api, inv: _iron_in_furnaces() == 6,
-                    lambda api, inv: INTERRUPTS.get("smelt_job_interrupted", 0) >= 1),
+                    lambda api, inv: INTERRUPTS.get("smelt_job_interrupted", 0) >= 1,
+                    # mid-work: the resume found raw iron still to load (an interrupt landing after the last furnace
+                    # counted as one, and the row passed in 1.6 s with nothing resumed)
+                    lambda api, inv: RESUMED_LEFT.get("smelt_job_interrupted", 0) >= 1),
          budget=BASES["smelt"]["budget"], expect=SHEET_EXPECT),       # an interrupted run keeps its base's time
 ]
