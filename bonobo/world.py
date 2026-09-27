@@ -1,4 +1,6 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
+import time
+
 from . import api
 from .data import (DAY_END, FALLING, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
@@ -230,3 +232,30 @@ def connected(region, seed, ids):
         out.add(p)
         todo.extend(add(p, d) for d in NEIGHBOURS6)
     return out
+
+
+def job_ready(job, tick=None, now=None):
+    """Pure given `tick`/`now`: is a background job done? By the game's clock when both the job and the reading
+    have one — the furnace cooks in ticks, so a lagging server or a sprinted clock (the iron bench's /tick sprint)
+    moves it; the wall clock (`ready_at`) only as a fallback (a jar without gameTime)."""
+    if job.get("ready_tick") is not None and tick is not None:
+        return tick >= job["ready_tick"]
+    return job["ready_at"] <= (time.time() if now is None else now)
+
+
+def ripe_cells(region):
+    """Pure: wheat blocks at full growth (age 7)."""
+    prop = getattr(region, "prop", None)
+    return [p for p, n in region.blocks.items() if n == "wheat" and prop and str(prop(p, "age")) == "7"]
+
+
+def ripe_near(feet, radius=32):
+    """Ripe wheat cells within `radius` of `feet` (one /find, then the block states read): a plot already grown is
+    harvested before a new one is sown (cost.ripe)."""
+    hits = find(["wheat"], radius=radius, limit=64) or []
+    if not hits or feet is None:
+        return []
+    cells = [(h["x"], h["y"], h["z"]) for h in hits]
+    lo = tuple(min(c[i] for c in cells) for i in range(3))
+    hi = tuple(max(c[i] for c in cells) for i in range(3))
+    return ripe_cells(Region(lo, hi, props=True))

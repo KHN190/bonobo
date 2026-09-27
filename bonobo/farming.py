@@ -9,7 +9,7 @@ from .api import McError, NotAvailable, log
 from .skill import skill
 from .skillcore import gained
 from .knowledge import BREED_FOOD
-from .world import Inventory, Region, add, entities, find
+from .world import Inventory, Region, add, entities, find, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
 
 SOIL = ("grass_block", "dirt", "coarse_dirt", "rooted_dirt")
 SAPLINGS = ("oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling",
@@ -34,12 +34,6 @@ def farm_plot(region, here, protected=(), radius=8):
             if best is None or d < best[0]:
                 best = (d, (x, y, z))
     return None if best is None else best[1]
-
-
-def ripe_cells(region):
-    """Pure: wheat blocks at full growth (age 7)."""
-    prop = getattr(region, "prop", None)
-    return [p for p, n in region.blocks.items() if n == "wheat" and prop and str(prop(p, "age")) == "7"]
 
 
 def breeding_pair(animals, kind, max_gap=8):

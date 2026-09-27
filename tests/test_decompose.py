@@ -301,6 +301,31 @@ class SkillNeeds(unittest.TestCase):
             solve(real_table(), dict(START), {"minecraft:unobtainium": 1})
 
 
+class RipeFirst(unittest.TestCase):
+    """A crop already grown is harvested (a take step) before a plot is sown (the farm step): the known-first rule."""
+
+    class Cost(NullCost):
+        def __init__(self, ripe):
+            self._n = ripe
+
+        def ripe(self, token):
+            return self._n if token == "minecraft:wheat" else 0
+
+        def estimate(self, step):
+            return 100
+
+    def test_ripe_before_sowing(self):
+        # (situation, ripe wheat cells known, wheat wanted) → the step kinds for the wheat
+        rows = [("nine ripe cells, one wanted: harvest, no sowing", 9, 1, ["take"]),
+                ("nine ripe, nine wanted (the boundary): harvest", 9, 9, ["take"]),
+                ("two ripe, three wanted: not enough grown, sow a plot", 2, 3, ["farm"]),
+                ("must fail to harvest: none ripe, sow", 0, 1, ["farm"])]
+        for name, ripe, n, want in rows:
+            with self.subTest(name):
+                steps = Planner({"minecraft:wheat_seeds": 8, "minecraft:water_bucket": 1, "minecraft:iron_hoe": 1},
+                                [], self.Cost(ripe)).plan([("minecraft:wheat", n)])
+                self.assertEqual([s.kind for s in steps if s.token == "minecraft:wheat"], want)
+
 class SourceRemoved(unittest.TestCase):
     """A source taken away: the goal is unplannable, answered at once — no hang, no partial plan."""
 

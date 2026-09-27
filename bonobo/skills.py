@@ -15,7 +15,7 @@ from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused
 
 
-from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
+from .world import Inventory, Region, add, connected, dark_spots, entities, find, job_ready, region_around, ripe_near  # noqa: F401  (job_ready: re-exported)
 from .bag import FLOOR, let_go, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, soft_below, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, StationMissing, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
@@ -502,15 +502,6 @@ def _smelter_for(ctx, s):
 
 
 TICKS_PER_ITEM = 200        # a furnace smelts one item in 200 game ticks (10 s at 20 tps)
-
-
-def job_ready(job, tick=None, now=None):
-    """Pure given `tick`/`now`: is a background job done? By the game's clock when both the job and the reading
-    have one — the furnace cooks in ticks, so a lagging server or a sprinted clock (the iron bench's /tick sprint)
-    moves it; the wall clock (`ready_at`) only as a fallback (a jar without gameTime)."""
-    if job.get("ready_tick") is not None and tick is not None:
-        return tick >= job["ready_tick"]
-    return job["ready_at"] <= (time.time() if now is None else now)
 
 
 @skill(gives={}, needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]["item"]),
@@ -1609,6 +1600,10 @@ def take(ctx, token, count, blocks):
         hits = [h for h in (find(blocks, radius=48, limit=20) or ())
                 if not ctx.blocked((h["x"], h["y"], h["z"]))
                 and (h["x"], h["y"], h["z"]) not in ctx.policy.protected]
+        if bare(token) == "wheat":
+            # A crop is taken ripe or not at all: green wheat breaks into seeds (world.ripe_near)
+            ripe = set(ripe_near(feet(), 48))
+            hits = [h for h in hits if (h["x"], h["y"], h["z"]) in ripe]
         if not hits:
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
         cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])

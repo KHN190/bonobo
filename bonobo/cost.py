@@ -12,7 +12,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .world import ROUTES, entities, find
+from .world import ROUTES, entities, find, job_ready, ripe_near
 
 TICKS_PER_S = 20
 
@@ -38,7 +38,7 @@ class Cost:
     """The cost model a planner is given. `snap` is this round's snapshot; `mem` and `blacklist` are optional (a
     test passes neither and gets the priors and straight lines)."""
 
-    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None):
+    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None):
         """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
         `finds`: {block or mob type: distance} standing in for /find and /entities (offline: nothing is queried).
         `policy`: the round's movement policy — the route cache is keyed by what a walk may dig and build."""
@@ -48,6 +48,7 @@ class Cost:
         self._known_fn = known
         self._finds = finds
         self.policy = policy
+        self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
     # -- where things are
     def _banned(self, key):
@@ -65,6 +66,28 @@ class Cost:
         spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not self._banned(r["pos"])]
         best = min(spots, key=lambda p: math.dist(p, here), default=None)
         return (best, math.dist(best, here)) if best is not None else None
+
+    def ripe(self, token):
+        """Ripe crop cells here that give `token`: a crop job of it that is due (memory first — the plot we
+        sowed), else the crop in sight read at full growth (one /find, one block read). 0 for anything not grown."""
+        if token != "minecraft:wheat":
+            return 0
+        if self._ripe is not None:
+            return self._ripe.get(token, 0)
+        key = ("ripe", token)
+        if key not in self.cache:
+            n = 0
+            if self.mem is not None and self.snap is not None:
+                n = sum(j.get("count", 0) for j in self.mem.jobs(self.snap.dimension)
+                        if j["kind"] == "crop" and j.get("item") == token
+                        and job_ready(j, self.snap.state.get("gameTime")))
+            if not n:
+                try:
+                    n = len(ripe_near(self.snap.feet if self.snap is not None else None))
+                except McError:
+                    n = 0
+            self.cache[key] = n
+        return self.cache[key]
 
     def _known(self, kinds):
         """Distance to the nearest remembered one of these, or None."""

@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .knowledge import COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, members, source
+from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, TAKEABLE, members,
+                        source)
 
 MAX_DEPTH = 14
 TOOL_MIN_DURABILITY = 10
@@ -237,6 +238,10 @@ class Planner:
             self.speed_up("hunt", math.ceil(missing / per), depth)
             self.add_step(Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
                                                         "fighter": hunts_a_fighter(types)}))
+        elif kind == "farm" and getattr(self.cost, "ripe", lambda t: 0)(token) * TAKEABLE[token]["gives"][token] \
+                >= missing:
+            # A crop already grown is harvested before a plot is sown (the ore rule: what is known first).
+            self.add_step(Step("take", token, missing, {"blocks": list(TAKEABLE[token]["blocks"])}))
         elif kind == "farm":
             # A plot (farming.plant_farm): a hoe, the seeds sown (given back at the harvest) and a water bucket that
             # stays in it; one plot is `per` of the crop.
@@ -310,7 +315,7 @@ def runnable(step, inv):
         return inv.count("minecraft:bucket") >= 1
     if step.kind == "hunt":
         return tool_ok(inv, "sword", 1, min_left=1) if step.detail.get("fighter") else True
-    if step.kind in ("gather", "trade"):
+    if step.kind in ("gather", "trade", "take"):
         return True
     if step.kind == "farm":
         return tool_ok(inv, "hoe", 0) and all(inv.count(t) >= n for t, n in step.detail.get("inputs", {}).items())
@@ -334,4 +339,4 @@ class NullCost:
 
     def estimate(self, step):
         return {"craft": 60, "smelt": 200 * step.count, "mine": 80 * step.count, "gather": 60 * step.count,
-                "hunt": 400 * step.count, "fill": 100, "farm": 6000, "trade": 600}[step.kind]
+                "hunt": 400 * step.count, "fill": 100, "farm": 6000, "trade": 600, "take": 100}[step.kind]
