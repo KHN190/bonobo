@@ -1094,6 +1094,48 @@ class HungryRowsTarget(unittest.TestCase):
                 self.assertIs("target_s" in vocab.BASE, want)
 
 
+class DecisionOrderWatch(unittest.TestCase):
+    """first_step: a row's watcher stamps tokens on its own clock; one left from an earlier row (its 70 s not up)
+    writes nothing once the next row's hook ran — two clocks in one FIRST put a bed made first after the logs."""
+
+    def test_first_step(self):
+        from bonobo.bench import vocab
+        from bonobo.world import Inventory
+        from tests.world import inventory
+        bag = Inventory(inventory(("white_bed", 1), ("oak_log", 2)))
+        logs_at_start = {"minecraft:oak_log": 2, "log": 2}
+        all_at_start = dict(logs_at_start, **{"minecraft:white_bed": 1, "bed": 1})
+        bed = {"minecraft:white_bed": 3.0, "bed": 3.0}
+        # (situation, generations behind, start counts, beef in a furnace, FIRST after, the watcher goes on)
+        rows = [("this row's watcher: the bed stamped on its clock", 0, logs_at_start, False, bed, True),
+                ("beef in a furnace stamped", 0, logs_at_start, True, dict(bed, furnace_beef=3.0), True),
+                ("must fail: a stale watcher (a later row started) writes nothing", 1, logs_at_start, True, {}, False),
+                ("must fail: tokens at their start count are not stamped", 0, all_at_start, False, {}, True)]
+        for name, behind, start, beef, want, going in rows:
+            with self.subTest(name), mock.patch.dict(vocab.FIRST_WATCH, {"gen": 5}), \
+                    mock.patch.dict(vocab.FIRST, {}, clear=True):
+                got = vocab.first_step(5 - behind, 100.0, bag, lambda t: start.get(t, 0), lambda: beef, 103.0)
+                self.assertEqual((dict(vocab.FIRST), got), (want, going))
+
+
+class DiamondScan(unittest.TestCase):
+    """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
+
+    def test_is_diamond_scan(self):
+        from bonobo.bench import vocab
+        rows = [("mine's search for the ore", "/find?blocks=minecraft:diamond_ore&radius=24&limit=60", True),
+                ("a travel scan's rare sightings", "/find?blocks=minecraft:diamond_ore,minecraft:obsidian&radius=48&limit=8",
+                 True),
+                ("must fail: the round's one look over every source block",
+                 "/find?blocks=minecraft:coal_ore,minecraft:diamond_ore,minecraft:oak_log&radius=48&limit=14&perBlock=1",
+                 False),
+                ("must fail: a find for other blocks", "/find?blocks=minecraft:oak_log&radius=48&limit=20", False),
+                ("must fail: not a find", "/state", False)]
+        for name, path, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.is_diamond_scan(path), want)
+
+
 class SliceVerdict(unittest.TestCase):
     """vocab.slice_verdict: a failed slice says which part failed (a bare False told nobody anything)."""
 

@@ -1599,10 +1599,34 @@ def _furnace_holds(items, radius=16):
             return True
     return False
 
+FIRST_WATCH = {"gen": 0}   # the row whose watcher may write FIRST: a new row's hook retires the last row's watcher
+
+def first_step(gen, t0, inv, base_count, furnace_beef, now):
+    """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
+    nothing written) once another row's hook has started its own watcher — a stale watcher's clock is not this row's."""
+    if gen != FIRST_WATCH["gen"]:
+        return False
+    for s_ in inv.slots:
+        for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
+            if tok not in FIRST and inv.count(tok) > base_count(tok):
+                FIRST[tok] = now - t0
+    if "furnace_beef" not in FIRST and furnace_beef():
+        FIRST["furnace_beef"] = now - t0
+    return True
+
 def _first_times(ctx):
     """`before` hook: note when each token first rises above the row's start: the brain's decision order, read from the world."""
+    FIRST_WATCH["gen"] += 1
+    gen = FIRST_WATCH["gen"]
     FIRST.clear()
     t0 = time.time()
+
+    def furnace_beef():
+        try:
+            return _furnace_holds(("minecraft:beef", "minecraft:cooked_beef"))    # beef in a furnace, read from the world
+        except Exception:
+            return False
+
     def watch():
         from ..world import Inventory
         while time.time() - t0 < 70:
@@ -1611,16 +1635,8 @@ def _first_times(ctx):
             except Exception:
                 time.sleep(0.5)
                 continue
-            for s_ in inv.slots:
-                for tok in (s_["id"], s_["id"].rsplit("_", 1)[-1]):     # "minecraft:white_bed" → also "bed"
-                    if tok not in FIRST and inv.count(tok) > _base_count(tok):
-                        FIRST[tok] = time.time() - t0
-            # beef in a furnace (input or output), read from the world
-            try:
-                if "furnace_beef" not in FIRST and _furnace_holds(("minecraft:beef", "minecraft:cooked_beef")):
-                    FIRST["furnace_beef"] = time.time() - t0
-            except Exception:
-                pass
+            if not first_step(gen, t0, inv, _base_count, furnace_beef, time.time()):
+                return
             time.sleep(0.5)
     _threading.Thread(target=watch, daemon=True).start()
 
@@ -1813,13 +1829,18 @@ def _bag_rule(cell):
 
 FINDS = {"diamond": 0}
 
+def is_diamond_scan(path):
+    """Pure: a /find that looks for diamond ore — not the estimates' one look per round (world.nearest's perBlock=1
+    over every source block, diamond among them), which sees what is near and searches for nothing."""
+    return path.startswith("/find") and "diamond" in path and "perBlock=1" not in path
+
 def _count_finds(ctx):
     """`before` hook: count /find scans for diamond ore during the row, at api.get."""
     from .. import api
     FINDS["diamond"] = 0
     real = FINDS.setdefault("real", api.get)
     def get(path, *a, **k):
-        if path.startswith("/find") and "diamond" in path:
+        if is_diamond_scan(path):
             FINDS["diamond"] += 1
         return real(path, *a, **k)
     api.get = get
