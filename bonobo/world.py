@@ -60,9 +60,6 @@ class Inventory:
                 out.append((TIER_OF_MATERIAL[material], s.get("maxDamage", 0) - s.get("damage", 0), s["id"]))
         return sorted(out, reverse=True)
 
-    def best_tool(self, kind, min_left=1):
-        return next((t for t in self.tools(kind) if t[1] >= min_left), None)
-
     def worn(self, slot):
         return self.equipment.get(slot, {}).get("id", "minecraft:air")
 

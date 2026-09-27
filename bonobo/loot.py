@@ -4,7 +4,7 @@ Pure `loot_plan` is offline-tested."""
 import math
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav, tape
+from . import api, nav
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
 from .skill import skill
@@ -49,35 +49,6 @@ def unlooted_chests(ctx, radius=32):
             continue
         out.append(pos)
     return sorted(out, key=lambda p: math.dist(p, here))
-
-
-_CACHE = {"t": 0, "pos": None, "hits": []}
-
-
-def unlooted_chests_cached(mem, snap, ttl=60):
-    """For goal feasibility (checked every round): the chest scan at most once a minute per 16-block area."""
-    import time
-    area = tuple(int(v) // 16 for v in snap.feet)
-    if time.time() - _CACHE["t"] < ttl and _CACHE["pos"] == area:
-        return _CACHE["hits"]
-
-    class _Ctx:
-        def __init__(self):
-            self.mem, self.dimension, self.blacklist = mem, snap.dimension, {}
-
-        def blocked(self, pos):
-            return False
-
-    try:
-        hits = unlooted_chests(_Ctx())
-    except (McError, tape.ReplayMiss) as err:
-        # A feasibility check is asked every round, including while a recorded round is being replayed offline,
-        # where this scan was never made. "Nobody could look" is not "there is a chest": it answers no, and says
-        # so rather than throwing the whole round away.
-        api.swallowed("loot.unlooted_chests_cached", err)
-        return []
-    _CACHE.update(t=time.time(), pos=area, hits=hits)
-    return _CACHE["hits"]
 
 
 @skill(gives=["state:looted"], remaining=_k.gained_any, needs={}, speed={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,

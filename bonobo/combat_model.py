@@ -18,8 +18,6 @@ TICK = 0.05                 # seconds per tick
 HORIZON = 4.0               # seconds ahead worth predicting; past that the dragon has re-decided anyway
 
 # Dragon phase ids (vanilla EnderDragonPhase type ids). Only the sitting ones open an attack window.
-LANDING = 3
-SITTING_FLAMING = 5         # breath: the perch is lethal, the pit is not
 SITTING_SCANNING = 6
 SITTING_ATTACKING = 7
 WINDOW_PHASES = {SITTING_SCANNING, SITTING_ATTACKING}
@@ -359,24 +357,6 @@ def windows(frames, window_phases=WINDOW_PHASES):
             "dragon_hp_lost": round((dragon_hp[0] - dragon_hp[-1]), 2) if len(dragon_hp) >= 2 else 0.0,
         })
     return out
-
-
-def window_summary(frames):
-    """Pure: the three numbers averaged over every window on the tape, plus how many windows a full-health dragon
-    would take at that rate. A planner that knows the rate knows how much a structure built to improve it is worth."""
-    ws = windows(frames)
-    if not ws:
-        return None
-    n = len(ws)
-    per_window = sum(w["dragon_hp_lost"] for w in ws) / n
-    return {
-        "windows": n,
-        "mean_duration_s": round(sum(w["duration_s"] for w in ws) / n, 2),
-        "mean_exposure_s": round(sum(w["exposure_s"] for w in ws) / n, 2),
-        "mean_hp_lost": round(sum(w["hp_lost"] for w in ws) / n, 2),
-        "mean_dragon_hp_lost": round(per_window, 2),
-        "windows_for_200hp": round(200 / per_window, 1) if per_window > 0 else None,
-    }
 
 
 # -- enderman geometry. A fact about a mob and a line of sight, not a tactic: `api.run` consults it before every

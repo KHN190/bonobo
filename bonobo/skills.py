@@ -157,9 +157,6 @@ class Station:
         self.__exit__(None, None, None)
         raise McError(f"could not open {bare(self.block)}")
 
-    def reopen(self):
-        api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60, awaits="the station's screen open again")
-
     def __exit__(self, *exc):
         api.post("/close")
         if self.placed and not takes_back(self.block, bool(Inventory().tools("pickaxe"))):
@@ -2052,18 +2049,6 @@ def tidy_inventory(ctx):
     if spots:
         far = max(spots, key=lambda p: math.dist(p, (x, y, z)))
         api.run({"type": "goto", "x": far[0], "y": far[1], "z": far[2], "range": 0.8, "partial": True}, wait=15, awaits="away from the thrown drops before their pickup delay ends")
-
-
-def can_store_here(ctx, local_only=False):
-    """A chest is possible without a long trip: a site within 96 blocks (unless local_only), a chest or the planks
-    for one in the bag."""
-    inv = Inventory()
-    if inv.usable("minecraft:chest") or inv.usable("planks") >= 8 or inv.usable("log") >= 2:
-        return True
-    if local_only:
-        return bool(find(["chest", "barrel"], radius=6, limit=1))
-    here = feet()
-    return any(math.dist(s["pos"], here) <= 96 and site_trek_ok(ctx, s) for s in ctx.mem.sites(ctx.dimension))
 
 
 def site_trek_ok(ctx, site):

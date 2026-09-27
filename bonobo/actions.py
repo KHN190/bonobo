@@ -378,10 +378,6 @@ def _seek(cost):
 MIN_FIND_P = 0.02
 
 
-# What walks away on its own. A note about one of these decays at the mob half-life, not the block one.
-_MOBS = frozenset(sum((list(v) for v in HUNT.values()), []))
-
-
 def _surface():
     """What is found on the surface, where the dark is dangerous: trees, animals, villages."""
     out = {"tree"}

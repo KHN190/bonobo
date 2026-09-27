@@ -378,16 +378,6 @@ def _threat_kinds():
     return set(threat.MOBS)
 
 
-def _mob_reach(kind):
-    from .. import threat
-    return threat.MOBS.get(kind, {}).get("reach", 3.0)
-
-
-def _player_speed():
-    from .. import threat
-    return threat.PLAYER["speed"]
-
-
 BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured nothing
 # A window has to be long enough to contain a fight: eight seconds caught one or two swings and then went quiet.
 # Repeating a cell inside one pass is not how the noise is averaged out — the rows accumulate across passes, and

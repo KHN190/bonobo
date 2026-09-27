@@ -142,12 +142,6 @@ class Intent:
         from . import estimate
         return estimate.sunk_s(self.cost_rate, (now if now is not None else time.time()) - self.at, self.cost_s)
 
-    def over_commitment(self, now=None):
-        """Has the body owed the world a fresh decision since `commit_s`? The action is not wrong, only stale."""
-        if self.commit_s is None:
-            return False
-        return (now if now is not None else time.time()) - self.at > self.commit_s
-
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
 

@@ -136,7 +136,6 @@ burst_damage = estimate.burst_hp
 keepoff_cost = estimate.keepoff_cost
 time_to_die = estimate.time_to_die_s
 fight_cost = estimate.fight_cost
-leaving_cost = estimate.leaving_hp
 hide_ratio = estimate.reaches_share
 
 

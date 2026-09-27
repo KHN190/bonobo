@@ -263,12 +263,6 @@ def code_for(name):
     return _CODE[name]
 
 
-def names_at(point, scenarios=None):
-    """Pure: the scenarios of one test point (refactor.md: A, B, C, D; rows without one are A), in table order."""
-    rows = SCENARIOS if scenarios is None else scenarios
-    return [n for n, sc in rows.items() if sc.get("point", "A") == point]
-
-
 def _code_for(name):
     """The row's own definition (`row_hash`), the production code it reaches (`reach_hash`) and the mod. Editing
     another row, or a production function this row never reaches, leaves the key — and the verdict — standing: the

@@ -39,8 +39,6 @@ CONCEPTS = {
     "terrain": ("terrain", "factor_of", "bucket_of"),
 }
 
-SKIP_DIRS = {"__pycache__", "tools", "bench"}
-
 
 def _modules(pkg=PKG):
     for name in sorted(os.listdir(pkg)):
