@@ -203,7 +203,7 @@ def seen_class(kind):
     return "never"
 
 
-# Step kinds a night under cover can carry on with: no sun, no open ground (brain.night_pick, upkeep's bed tonight).
+# Step kinds a night under cover can carry on with: no sun, no open ground (brain.plan_proposals, the bed tonight).
 NIGHT_WORK = frozenset({"mine", "craft", "smelt"})
 HAND_MINEABLE_SUFFIX = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_block", "leaves", "log", "wood",
                         "planks", "mud", "farmland", "dirt_path", "mycelium", "podzol", "soul_soil", "air", "water",

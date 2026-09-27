@@ -68,21 +68,6 @@ def craft_run(steps, first):
     return run
 
 
-def night_pick(kinds, night, can_dig, stocked):
-    """Pure: what the round takes from the queue, given each live task's next step kind in queue order. By day the
-    head (0), or None when nothing is queued. By night the first whose step works under cover (NIGHT_WORK); none →
-    "descend" (dig down for ore: goals.NIGHT_STOCK) with a pickaxe and no such task queued yet, else "wait" (sit
-    it out: wait_for_day)."""
-    if not night:
-        return 0 if kinds else None
-    first = next((i for i, k in enumerate(kinds) if k in NIGHT_WORK), None)
-    if first is not None:
-        return first
-    return "descend" if can_dig and not stocked else "wait"
-SCAN_EVERY_S = 20          # seconds between travel scans (explore.note_around)
-TRACK_FILE = paths.data("track.jsonl")
-
-
 class Act:
     """What the round decided: the layer, a name (the failure key), and what to run. `task`/`step` for queue work."""
 
@@ -290,36 +275,49 @@ class Brain:
 
     # -- deciding (nothing acts in here beyond queueing tasks)
     def decide(self, snap, ctx):
+        """Every layer proposes, the arbiter chooses (arbiter.arbitrate: layer, then arbiter.PLAN_ORDER). Nothing
+        here ranks: a fight or a rescue holding the body is a faster layer; a hazard is SAFETY; upkeep's rows, the
+        queue's head, the night's work under cover and idle stocking are PLAN proposals of their own kind."""
+        intents = []
         if arbiter.BODY.holder() is not None or api.MODE == "survival":
-            return Act("L0", "yield", lambda: time.sleep(0.5))     # a fight or a rescue holds the body
+            # a fight or a rescue holds the body
+            intents.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5))))
         k = hazard.due(snap.state)
         if k is not None and self.ready(f"rescue {k}"):
-            return Act("L0", f"rescue {k}", lambda: hazard.handle(ctx, snap.state, self.attempt, self.ready))
-        act = self.upkeep(snap, ctx)
-        if act is not None:
-            return act
+            intents.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
+                ctx, snap.state, self.attempt, self.ready))))
+        if not intents:
+            intents += [arbiter.Intent("plan", Act("upkeep", name, run), kind=name)
+                        for name, run in self.table.proposals(snap, ctx)]
+        if not intents:
+            intents += self.plan_proposals(snap, ctx)
+        chosen = arbiter.arbitrate(intents)
+        return chosen.action if chosen else None
+
+    def plan_proposals(self, snap, ctx):
+        """The queue's head (the first task with a step that can run now: by night, a step that needs no sun —
+        data.NIGHT_WORK), and what is proposed when the queue has nothing: the night's ore underground with a
+        pickaxe, waiting for day, or idle stocking. Asked only when upkeep proposed nothing: the queue ranks after
+        every upkeep row (arbiter.PLAN_ORDER), so asking it earlier would only repair plans for nothing."""
         items = tasks.load()
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
-        under = surface_closed(snap.night, snap.dimension)
-        acts = []
-        for task in live:
+        closed = surface_closed(snap.night, snap.dimension)
+        for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
             act = self.task_act(task, snap, ctx)
-            if act is None:
-                continue
-            if not under or act.step.kind in NIGHT_WORK:
-                return act
-            acts.append(act)
-        if not under:
-            return self.prepare(snap)
-        choice = night_pick([a.step.kind for a in acts], True, "pickaxe" in self.table.working,
-                            any(t.get("source") == "night" for t in live))
-        if choice == "descend":
-            return self.night_stock(snap)
-        return Act("idle", "wait for day", lambda: skills.wait_for_day(ctx))
+            if act is not None and (not closed or act.step.kind in NIGHT_WORK):
+                return [arbiter.Intent("plan", act, kind="queue", seq=seq)]
+        if not closed:
+            act = self.prepare(snap)
+            return [arbiter.Intent("plan", act, kind="idle")] if act else []
+        out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: skills.wait_for_day(ctx)),
+                              kind="wait for day")]
+        if "pickaxe" in self.table.working and not any(t.get("source") == "night" for t in live):
+            out.append(arbiter.Intent("plan", self.night_stock(snap), kind="night stock"))
+        return out
 
     def upkeep(self, snap, ctx):
         """The upkeep table (upkeep.py): the first row that applies, as this round's act."""

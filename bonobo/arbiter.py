@@ -101,11 +101,14 @@ class Intent:
     """What a layer would like the body to do. Data, not a command — the arbiter decides whether it happens."""
 
     def __init__(self, layer, action, reason="", deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0):
+                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         self.layer = layer
         self.action = action
+        # Within the PLAN layer: what kind of proposal this is (PLAN_ORDER) and, among several of one kind (the
+        # queue's tasks), its place in line.
+        self.kind, self.seq = kind, seq
         self.reason = reason
         self.deadline_s = deadline_s
         # How long the body may stay on this before the planner is asked again. Distinct from deadline_s, which says
@@ -159,13 +162,26 @@ def wants_body(body, running, now=None):
     return any(p.scale < running.scale and not p.expired(now) for p in pending)
 
 
+# The PLAN layer's one order — every slow proposal ranks here and nowhere else: what keeps the body alive and
+# working first (hunger, water, the night), then what the queue asks, then idle stocking. The upkeep rows, the
+# queue's head, the night's work under cover and idle preparation only PROPOSE; `arbitrate` chooses.
+PLAN_ORDER = ("recover items", "eat", "reach land", "leave the Nether", "dig out", "sleep", "shelter",
+              "collect job", "collect machine", "empty the bag", "path blocked", "unstuck",
+              "queue", "night stock", "wait for day", "idle")
+
+
+def plan_rank(kind):
+    """Pure: a PLAN proposal's place in PLAN_ORDER (an unknown kind after all of them)."""
+    return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
+
+
 def arbitrate(intents, now=None):
-    """Pure: the one intent that may drive the body, or None. Fastest layer wins; within a layer the newest wins;
-    expired intents are dropped rather than run late."""
+    """Pure: the one intent that may drive the body, or None. Fastest layer wins; within the PLAN layer the
+    PLAN_ORDER rank, then the place in line; otherwise the newest. Expired intents are dropped, never run late."""
     live = [i for i in intents if not i.expired(now)]
     if not live:
         return None
-    return min(live, key=lambda i: (i.scale, -i.at))
+    return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
 
 
 class Motion:

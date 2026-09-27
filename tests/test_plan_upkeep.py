@@ -1591,26 +1591,53 @@ class Queue(unittest.TestCase):
 
 
 # ------------------------------------------------------------------------------------------ the night's work
-class NightPick(unittest.TestCase):
-    """brain.night_pick: by night under cover, the first queued step that needs no sun; else dig down for ore with
-    a pickaxe; wait for day only when there is neither. By day the queue's head, untouched."""
+class OneArbiter(unittest.TestCase):
+    """Every layer proposes, arbiter.arbitrate chooses: the faster layer, then arbiter.PLAN_ORDER, then the place in
+    line. The day's failures, as the proposals each situation makes (brain.decide / upkeep.proposals)."""
 
-    # (situation, next step kind of each live task in queue order, night, a pickaxe, night ore already queued) → pick
-    ROWS = [("night: the head fells a tree, the second mines iron → the iron", ["gather", "mine"], True, True, False, 1),
-            ("night: the head waits for day, then a craft → the craft", ["wait", "craft"], True, False, False, 1),
-            ("night: every step needs the surface, a pickaxe → dig down for ore", ["gather", "hunt"], True, True, False,
-             "descend"),
-            ("night: nothing queued, a pickaxe → dig down for ore", [], True, True, False, "descend"),
-            ("night: the ore task queued but its step needs a tree (sticks) → wait, not queue it again",
-             ["gather"], True, True, True, "wait"),
-            ("night: no pickaxe, only surface work → wait for day", ["gather"], True, False, False, "wait"),
-            ("day: the head, whatever it is", ["gather", "mine"], False, True, False, 0),
-            ("day, nothing queued: nothing (idle prepare)", [], False, True, False, None)]
+    @staticmethod
+    def intent(layer, kind=None, seq=0, deadline_s=None, at=None):
+        from bonobo import arbiter
+        return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, deadline_s=deadline_s, at=at)
 
-    def test_pick_over_the_table(self):
-        for name, kinds, night, can_dig, stocked, want in self.ROWS:
+    def test_decisions_over_the_table(self):
+        from bonobo import arbiter
+        P = lambda kind, seq=0: self.intent("plan", kind, seq)   # noqa: E731
+        rows = [("afloat at dusk, the night's shelter due: land first", [P("shelter"), P("reach land")], "reach land"),
+                ("hungry, bread carried, a task queued: eat", [P("queue"), P("eat")], "eat"),
+                ("night, bed makings carried: sleep before the shelter", [P("shelter"), P("sleep")], "sleep"),
+                ("a fight holds the body, the queue wants a pickaxe: the fight",
+                 [P("queue"), self.intent("tactic", "fight")], "fight"),
+                ("drowning in a fight: the rescue", [self.intent("tactic", "fight"), self.intent("safety", "rescue")],
+                 "rescue"),
+                ("raw meat and a furnace, food queued: the queue's head (smelt), no hunt proposed", [P("queue")],
+                 "queue"),
+                ("a worn tool's replacement is queued first: the head of the line", [P("queue", 1), P("queue", 0)],
+                 "queue"),
+                ("night underground, nothing queued, a pickaxe: dig for ore before waiting",
+                 [P("wait for day"), P("night stock")], "night stock"),
+                ("night underground, no pickaxe: wait for day", [P("wait for day")], "wait for day"),
+                ("the bag full while hungry: eat first", [P("empty the bag"), P("eat")], "eat"),
+                ("a finished furnace job vs the queue: collect it", [P("queue"), P("collect job")], "collect job"),
+                ("nothing to do but stock up: idle", [P("idle")], "idle"),
+                ("died a minute ago: recover the items before anything slow", [P("eat"), P("recover items")],
+                 "recover items"),
+                ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
+                                                                P("queue")], "queue"),
+                ("nothing proposed: nothing", [], None)]
+        for name, intents, want in rows:
             with self.subTest(name):
-                self.assertEqual(brainmod.night_pick(kinds, night, can_dig, stocked), want)
+                got = arbiter.arbitrate(intents, now=100.0)
+                self.assertEqual(got.action if got else None, want)
+
+    def test_the_order_is_one_table(self):
+        from bonobo import arbiter
+        rows = [("hunger before water", "eat", "reach land"), ("water before the night", "reach land", "shelter"),
+                ("the night before the queue", "shelter", "queue"), ("the queue before idle stocking", "queue", "idle"),
+                ("an unknown kind after all of them", "idle", "made up")]
+        for name, first, then in rows:
+            with self.subTest(name):
+                self.assertLess(arbiter.plan_rank(first), arbiter.plan_rank(then))
 
     # (situation, night, dimension) → surface work closed
     CLOSED = [("day in the Overworld: open", False, "minecraft:overworld", False),
@@ -1629,9 +1656,9 @@ class NightPick(unittest.TestCase):
         from unittest import mock
         b = brainmod.Brain.__new__(brainmod.Brain)
         b.retry, b.place = retry.Retry(), PLACE
-        b.table = mock.Mock(working={}, sheltered=lambda snap, enclosed=None: False)     # caught in the open
+        b.table = mock.Mock(working={}, sheltered=lambda snap, enclosed=None: False,     # caught in the open
+                            proposals=lambda snap, ctx, reads=None: [])
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
-        b.upkeep = lambda snap, ctx: None
         b.task_act = lambda task, snap, ctx: chop
         b.prepare = lambda snap: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
@@ -1840,10 +1867,10 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             b = brainmod.Brain.__new__(brainmod.Brain)
             b.retry, b.place = retry.Retry(), PLACE
 
-            def upkeep(snap, ctx, _busy=busy):
+            def proposals(snap, ctx, reads=None, _busy=busy):
                 asked.append("upkeep")
-                return brainmod.Act("upkeep", "u", None) if _busy else None
-            b.upkeep = upkeep
+                return [("u", None)] if _busy else []
+            b.table = mock.Mock(working={}, proposals=proposals)
             b.task_act = lambda task, snap, ctx: None
             b.prepare = lambda snap: None
             snap = snapshot(state(), inventory())

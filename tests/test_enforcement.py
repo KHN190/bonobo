@@ -236,7 +236,8 @@ class OneDecisionPoint(unittest.TestCase):
                 return ask
             b = brain.Brain.__new__(brain.Brain)
             b.retry, b.place = retry.Retry(), None
-            b.upkeep = layer("upkeep", brain.Act("upkeep", "u", None))
+            ask_upkeep = layer("upkeep", [("u", None)])
+            b.table = type("Table", (), {"working": {}, "proposals": lambda self, *a, **k: ask_upkeep() or []})()
             b.task_act = layer("queue", brain.Act("task", "t", None))
             b.prepare = layer("prepare", brain.Act("idle", "p", None))
             with self.subTest(busy=sorted(busy)), mock.patch.object(api, "MODE", "normal"), \

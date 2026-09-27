@@ -216,9 +216,17 @@ class Upkeep:
 
     # -- the table
     def act(self, snap, ctx, reads=None):
-        """(name, run) of the first row that applies, or None; rows that only queue work are applied on the way.
-        `reads` = {"enclosed": bool, "bed_near": bool} stands in for the world reads the rows make (offline);
-        whatever is missing is read from the world, once, when a row first asks."""
+        """(name, run) of the row the arbiter picks among the rows that apply (`proposals`), or None."""
+        from . import arbiter
+        props = self.proposals(snap, ctx, reads)
+        got = arbiter.arbitrate([arbiter.Intent("plan", p, kind=p[0]) for p in props])
+        return got.action if got else None
+
+    def proposals(self, snap, ctx, reads=None):
+        """[(name, run)] of every row that applies — no order of its own: the arbiter ranks them
+        (arbiter.PLAN_ORDER). Rows that only queue work are applied on the way. `reads` = {"enclosed": bool,
+        "bed_near": bool} stands in for the world reads the rows make (offline); whatever is missing is read from
+        the world, once, when a row first asks."""
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         enclosed = _once(reads, "enclosed", skills.enclosed)
         bed_near = _once(reads, "bed_near", lambda: bool(find(BASE_MARKERS["bed"], radius=48, limit=1)))
@@ -250,9 +258,9 @@ class Upkeep:
              lambda: self.bridge(ctx, blocked)),
             ("unstuck", lambda: self.stuck_in_place(snap, enclosed), lambda: self.unstuck(snap, ctx)),
         ]
-        for name, due, run in rows:
-            if b.ready(name) and due():
-                return name, run
+        due_rows = [(name, run) for name, due, run in rows if b.ready(name) and due()]
+        if due_rows:
+            return due_rows
         # Rows that only queue work: the queue does it, at the front.
         # A tool is the plan's need (decompose puts one in any plan whose step wants it); upkeep only replaces one
         # that broke under a held plan that still wants it — "no working pickaxe" put a pickaxe (and its tree) in
@@ -274,7 +282,7 @@ class Upkeep:
             if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
                     and not self.sheltered(snap, enclosed):
                 self.prepare_night(way, steps)
-        return None
+        return []
 
     def overnight(self, snap):
         """(way, seconds, steps) of the cheapest way through the night from this bag, kept briefly."""
