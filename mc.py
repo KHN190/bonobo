@@ -293,14 +293,13 @@ def _scenario_selection(a, scenarios):
     the skills whose functions it touched."""
     import os
     import subprocess
+    # Acceptance is its own run; a tier narrows --failed and --pending alike when one is named.
+    in_tier = set(scenarios.tier_rows(scenarios.SCENARIOS, a.tier, "--tier" in sys.argv))
     if getattr(a, "failed", False):
-        return [n for n in scenarios.failed_last(scenarios.load_table()) if n in scenarios.SCENARIOS]
+        return [n for n in scenarios.failed_last(scenarios.load_table()) if n in in_tier]
     if getattr(a, "pending", False):
-        # Acceptance is its own run; a tier narrows the list when one is named.
-        named = "--tier" in sys.argv and a.tier != "all"
-        rows = {n: r for n, r in scenarios.SCENARIOS.items() if r["tier"] != "acceptance"
-                and (not named or r["tier"] == a.tier)}
-        return scenarios.pending(scenarios.load_table(), {n: scenarios.code_for(n) for n in rows})
+        return scenarios.pending(scenarios.load_table(), {n: scenarios.code_for(n) for n in scenarios.SCENARIOS
+                                                           if n in in_tier})
     changed = None
     if getattr(a, "changed", False):
         from bonobo import brain  # noqa: F401  (every skill module registers)

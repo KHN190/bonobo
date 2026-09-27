@@ -807,6 +807,20 @@ def slice_report(lines, positions, target, idle_s, picks=None):
     return {"loops": loops, "idle_s": round(idle_s), "away_m": round(away), "waits": waits(picks or {})}
 
 
+def queue_finished(items):
+    """Pure: every task of a slice's queue has left the live states (done, failed or cancelled) — the slice's own
+    work is over, whatever the brain would stock up on next. An empty queue is never finished (nothing was asked)."""
+    from .tasks import LIVE
+    return bool(items) and all(t["state"] not in LIVE for t in items)
+
+
+def tier_rows(rows, tier, named):
+    """Pure: the rows a tier selects for `--failed` / `--pending` — never acceptance (its own run); only `tier`'s
+    rows when a tier was named on the command line (`named`) and it is not "all"."""
+    return [n for n, r in rows.items() if r["tier"] != "acceptance"
+            and (not named or tier == "all" or r["tier"] == tier)]
+
+
 def _slice(done, minutes, target=None, queue=(), max_idle=15):
     """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private task queue holding `queue`
     (goals, in order; empty = the brain prepares on its own). Stops at once on a
@@ -830,7 +844,8 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         stopped = None
         try:
             while time.time() - t0 < minutes * 60:
-                if done is not None and done():
+                # The queue's goals all finished is the end of the slice: idle stocking after it is not the row's work.
+                if (done is not None and done()) or (queue and queue_finished(tasks.load())):
                     break
                 try:
                     core.BRAIN.round()

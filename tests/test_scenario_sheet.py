@@ -447,6 +447,33 @@ class Cover(unittest.TestCase):
         self.assertEqual({(sc.CONDITIONS[c]["axis"], b) for c, b in pairs},
                          {(v["axis"], b) for v in sc.CONDITIONS.values() for b in v["bases"] if b in sc.BASES})
 
+
+class SliceAndSelection(unittest.TestCase):
+    # (queue task states) → the slice's own work is over
+    QUEUES = [("all done", ["done", "done"], True),
+              ("one still running", ["done", "running"], False),
+              ("done, failed, cancelled: over (the row's check judges which)", ["done", "failed", "cancelled"], True),
+              ("still pending", ["pending"], False),
+              ("no queue: never over by this rule", [], False)]
+
+    def test_queue_finished(self):
+        for name, states, want in self.QUEUES:
+            with self.subTest(name):
+                self.assertEqual(sc.queue_finished([{"state": st} for st in states]), want)
+
+    ROWS = {"b": {"tier": "brain"}, "c": {"tier": "combat"}, "m": {"tier": "common"}, "a": {"tier": "acceptance"}}
+    # (tier asked, named on the command line) → the rows --failed / --pending may pick from
+    TIERS = [("brain named: only brain (fight and common rows out)", "brain", True, ["b"]),
+             ("combat named", "combat", True, ["c"]),
+             ("all named: every tier but acceptance", "all", True, ["b", "c", "m"]),
+             ("no tier named: every tier but acceptance", "core", False, ["b", "c", "m"]),
+             ("a tier with no rows: none", "exception", True, [])]
+
+    def test_tier_rows(self):
+        for name, tier, named, want in self.TIERS:
+            with self.subTest(name):
+                self.assertEqual(sorted(sc.tier_rows(self.ROWS, tier, named)), want)
+
 class EndgameBuilt(unittest.TestCase):
     # (row, what its setup must build so the job fits 30 s)
     ROWS = [("activate_end_portal", lambda r: "give @p ender_eye 3" in r["setup"]
