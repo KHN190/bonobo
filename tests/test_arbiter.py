@@ -48,7 +48,7 @@ class Ordering(unittest.TestCase):
         ("a broken tool under a held plan beats the queue", ["queue", "broken tool"], "broken tool"),
         ("underground at night: the queue before the night's stock", ["night stock", "queue"], "queue"),
         ("blocked path at dusk: night prep before bridge blocks", ["bridge stock", "night prep"], "night prep"),
-        ("an unknown kind ranks after every known one", ["mystery", "night stock"], "night stock"),
+        ("must fail: an unknown kind ranked first — an unknown kind ranks after every known one", ["mystery", "night stock"], "night stock"),
         ("only waiting for day", ["wait for day"], "wait for day"),
     ]
 
@@ -78,7 +78,7 @@ SEQUENCES = [
     ("a faster layer is never asked anything",
      [("preempt", "tactic", "shield up", {"release": PAYING}), ("preempt", "safety", "lava", {})],
      [("tactic", "shield up"), ("safety", "lava")], ["shield up", "lava"]),
-    ("a slower layer is refused on the layer",
+    ("must fail: a slower layer is refused on the layer",
      [("preempt", "tactic", "shield up", {"release": PAYING}), ("preempt", "plan", "mine", {"worth_s": 1e6})],
      [("tactic", "shield up"), "layer"], ["shield up"]),
 ]
@@ -100,7 +100,7 @@ class Sequences(unittest.TestCase):
 # (engaged?, who asks: None = outside any intent / "intent" = inside the running one / "thread" = a preemption on
 # another thread) → owns?, violations recorded
 OWNERSHIP = [("outside a fight, anyone", False, None, True, []),
-             ("inside a fight, a stray caller is refused and counted", True, None, False, ["nav.go_to"]),
+             ("must fail: inside a fight, a stray caller is refused and counted", True, None, False, ["nav.go_to"]),
              ("inside a fight, the chosen intent while it runs", True, "intent", True, []),
              ("inside a fight, a preemption on its own thread", True, "thread", True, [])]
 
@@ -141,7 +141,7 @@ class Ownership(unittest.TestCase):
 class LockDiscipline(unittest.TestCase):
 
     # (the layer that preempts) → the interrupt message it leaves: only safety and faster write it
-    INTERRUPTS = [("reflex", "fireball", "fireball"), ("safety", "breath", "breath"), ("tactic", "fight", None),
+    INTERRUPTS = [("reflex", "fireball", "fireball"), ("safety", "breath", "breath"), ("tactic", "fight", None),  # must fail: tactic and plan leave no message
                   ("plan", "mine", None)]
 
     def test_who_writes_the_interrupt_message(self):
@@ -238,7 +238,7 @@ class Invariants(unittest.TestCase):
         rows = [("the earlier place in line", ((1, 0.0), (0, 0.0)), 1),
                 ("same place: the newer reading", ((0, 1.0), (0, 2.0)), 1),
                 ("place beats newness", ((0, 1.0), (1, 5.0)), 0),
-                ("identical: the first submitted, every time", ((0, 1.0), (0, 1.0)), 0)]
+                ("must fail: a tie read as the newest — identical: the first submitted, every time", ((0, 1.0), (0, 1.0)), 0)]
         for name, ((s0, a0), (s1, a1)), want in rows:
             with self.subTest(name):
                 intents = [arbiter.Intent("plan", lambda: None, str(i), at=a, kind="queue", seq=sq)
@@ -294,7 +294,7 @@ class GroupsAskedInTurn(unittest.TestCase):
              {"broken tool"}, ("queue", ["g0", "g1"])),
             ("a need that can run: it, the queue not asked", [[P("broken tool")], [P("queue")]], set(),
              ("broken tool", ["g0"])),
-            ("every group empty: nothing", [[], [], []], set(), (None, ["g0", "g1", "g2"])),
+            ("must fail: every group empty: nothing", [[], [], []], set(), (None, ["g0", "g1", "g2"])),
             ("only waiting left at the end: kept", [[P("food stock")], [P("wait for day")]], {"food stock"},
              ("wait for day", ["g0", "g1"])),
             ("an empty first group (no fight): the next asked", [[], [P("eat", layer="maintain")], [P("queue")]],
@@ -386,7 +386,7 @@ class Hysteresis(unittest.TestCase):
              [True, True, True, True]),
             ("really ashore: out once the exit holds", [(True, 0.0), (False, 0.5), (False, OUT)], "reach land",
              [True, True, False]),
-            ("never in the water: never in", [(False, 0.0), (False, 0.0)], "reach land", [False, False]),
+            ("must fail: never in the water: never in", [(False, 0.0), (False, 0.0)], "reach land", [False, False]),
             ("a row without an exit leaves with its trigger", [(True, 0.0), (False, 0.0)], "eat", [True, False])]
 
     def test_rounds(self):
@@ -438,7 +438,7 @@ class NoProgress(unittest.TestCase):
     def test_rounds(self):
         backstop = retry_mod.BACKSTOP[reflexes.NO_PROGRESS]
         # (situation, view of round n, plan kinds, rounds, picks wanted — None: skip that round's check)
-        rows = [("a bag that will not empty: cools, the task gets the body", lambda n: self.FULL, ["queue"], 3,
+        rows = [("must fail: a bag that will not empty: cools, the task gets the body", lambda n: self.FULL, ["queue"], 3,
                  ["empty the bag", "queue", "queue"]),
                 ("a bag that empties a little each run: keeps going", lambda n: dict(self.FULL, used_slots=36 - n),
                  ["queue"], 3, ["empty the bag"] * 3),
