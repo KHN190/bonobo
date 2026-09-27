@@ -278,21 +278,37 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
                     skillcore.mine_cell(self.Policy(ours), cell)
                     self.assertEqual(sent, [("mine", posted)])
 
+    # fixture: (module source) → the lines that build a bare {"type": "mine"} task
+    BARE = [("a literal mine task", "t = {'type': 'mine', 'x': 1}\n", [1]),
+            ("another task type", "t = {'type': 'place'}\n", []),
+            ("a mine task built by the funnel", "t = nav.mine_task(c)\n", []),
+            ("two in one module", "a = {'type': 'mine'}\nb = 2\nc = {'type': 'mine'}\n", [1, 3]),
+            ("a key named type with a variable value", "t = {'type': kind}\n", [])]
+
+    def test_bare_mine_over_the_fixture(self):
+        for name, src, want in self.BARE:
+            with self.subTest(name):
+                self.assertEqual(bare_mine_lines(src), want)
+
     def test_no_module_posts_a_bare_mine_task(self):
-        import ast
         pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
         allowed = {"building.py", "end.py", "wood.py", "farming.py", "nav.py", "skillcore.py"}
         offenders = []
         for name in sorted(os.listdir(pkg)):
-            if not name.endswith(".py") or name in allowed:
-                continue
-            for node in ast.walk(ast.parse(open(os.path.join(pkg, name)).read())):
-                if isinstance(node, ast.Dict):
-                    for key, val in zip(node.keys, node.values):
-                        if isinstance(key, ast.Constant) and key.value == "type" \
-                                and isinstance(val, ast.Constant) and val.value == "mine":
-                            offenders.append(f"{name}:{node.lineno}")
+            if name.endswith(".py") and name not in allowed:
+                with open(os.path.join(pkg, name)) as f:
+                    offenders += [f"{name}:{line}" for line in bare_mine_lines(f.read())]
         self.assertEqual(offenders, [], f"these break blocks without the protection door: {offenders}")
+
+
+def bare_mine_lines(src):
+    """Pure: lines of dict literals {"type": "mine", ...} in a module's source (its AST): a task that breaks a block
+    without the protection door (`nav.mine_task` / `skillcore.mine_cell`)."""
+    import ast
+    return sorted(node.lineno for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Dict)
+                  for key, val in zip(node.keys, node.values)
+                  if isinstance(key, ast.Constant) and key.value == "type"
+                  and isinstance(val, ast.Constant) and val.value == "mine")
 
 
 class WhatIsWorthTakingIsDecidedByPrice(unittest.TestCase):

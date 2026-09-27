@@ -9,6 +9,7 @@ Unit tests cannot catch this, because the unit passes. These tests read the call
 there a path from the code that actually executes to the function that enforces it?
 """
 import ast
+import contextlib
 import os
 import sys
 import unittest
@@ -17,6 +18,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, nav  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
+
+
+def interrupt_writes(src):
+    """Pure: assignments of a message (anything but None) to `api.INTERRUPT` in a module's source (its AST)."""
+    return sum(1 for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Assign)
+               for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "INTERRUPT"
+               and isinstance(t.value, ast.Name) and t.value.id == "api"
+               and not (isinstance(node.value, ast.Constant) and node.value.value is None))
 
 
 def source(module):
@@ -118,18 +127,24 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
                 self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")
 
+    # fixture: (module source) → how many assignments write a message (not None) into api.INTERRUPT
+    WRITES = [("a message written", "api.INTERRUPT = 'stop'\n", 1),
+              ("cleared with None: not a writer", "api.INTERRUPT = None\n", 0),
+              ("two writes in one function", "def f():\n    api.INTERRUPT = x\n    api.INTERRUPT = 'y'\n", 2),
+              ("another module's INTERRUPT is not api's", "other.INTERRUPT = 'x'\n", 0),
+              ("reading it is not writing it", "x = api.INTERRUPT\n", 0)]
+
+    def test_the_writer_count_over_the_fixture(self):
+        for name, src, want in self.WRITES:
+            with self.subTest(name):
+                self.assertEqual(interrupt_writes(src), want)
+
     def test_the_interrupt_message_has_one_writer(self):
-        writers = {}
-        for name in ("perception", "end", "brain", "skill", "arbiter", "api"):
-            n = sum(1 for node in ast.walk(ast.parse(source(name))) if isinstance(node, ast.Assign)
-                    for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "INTERRUPT"
-                    and isinstance(t.value, ast.Name) and t.value.id == "api"
-                    and not (isinstance(node.value, ast.Constant) and node.value.value is None))
-            if n:
-                writers[name] = n
+        writers = {m: n for m in sorted(f[:-3] for f in os.listdir(PKG) if f.endswith(".py"))
+                   if (n := interrupt_writes(source(m)))}
         # perception may still hand a message to a soft skill without stopping it; every stop-and-tell goes
-        # through the arbiter.
-        self.assertEqual(set(writers) - {"perception"}, {"arbiter"}, f"writers: {writers}")
+        # through the arbiter. scenarios is the bench, which plays the interrupting player.
+        self.assertEqual(sorted(set(writers) - {"perception", "scenarios"}), ["arbiter"], f"writers: {writers}")
         self.assertLessEqual(writers.get("perception", 0), 1)
 
     # Every funnel that drives the body asks the arbiter, by name, before the game hears of it.
@@ -220,22 +235,23 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
 
                 def one_tick(_s, w=w):
                     w.stopped = True
-                with mock.patch.object(perception.time, "sleep", side_effect=one_tick), \
-                        mock.patch.object(perception.fight_loop, "active", return_value=False), \
-                        mock.patch.object(perception, "FLAG", path), mock.patch.object(perception, "PAUSED", False), \
-                        mock.patch.object(perception, "_eating", return_value=False), \
-                        mock.patch.object(perception, "note_hurt"), \
-                        mock.patch.object(api, "MODE", "normal"), mock.patch.object(api, "SOFT", soft), \
-                        mock.patch.object(api, "INTERRUPT", None), mock.patch.object(api, "log"), \
-                        mock.patch.object(api, "get", return_value=state(**changes)), \
-                        mock.patch.object(api, "post", side_effect=lambda p, b=None: posts.append(p)), \
-                        mock.patch.object(arbiter, "BODY", body), \
-                        mock.patch.object(w, "_look"), mock.patch.object(w, "_answer_threats"), \
-                        mock.patch.object(w, "_time_to_die", return_value=None), \
-                        mock.patch.object(w, "_enderman_after_us", return_value=False), \
-                        mock.patch.object(w, "_breath_within", return_value=False), \
-                        mock.patch.object(w, "hazard", types.SimpleNamespace(buried=lambda s: False,
-                                                                             fallen=lambda s: 0.0)):
+                # One ExitStack, not one `with` of twenty patches: Python caps statically nested blocks at 20.
+                with contextlib.ExitStack() as stack:
+                    for target, attr, kw in [
+                            (perception.time, "sleep", {"side_effect": one_tick}),
+                            (perception.fight_loop, "active", {"return_value": False}),
+                            (perception, "FLAG", {"new": path}), (perception, "PAUSED", {"new": False}),
+                            (perception, "_eating", {"return_value": False}), (perception, "note_hurt", {}),
+                            (api, "MODE", {"new": "normal"}), (api, "SOFT", {"new": soft}),
+                            (api, "INTERRUPT", {"new": None}), (api, "log", {}),
+                            (api, "get", {"return_value": state(**changes)}),
+                            (api, "post", {"side_effect": lambda p, b=None: posts.append(p)}),
+                            (arbiter, "BODY", {"new": body}), (w, "_look", {}), (w, "_answer_threats", {}),
+                            (w, "_time_to_die", {"return_value": None}),
+                            (w, "_enderman_after_us", {"return_value": False}),
+                            (w, "_breath_within", {"return_value": False}),
+                            (w, "hazard", {"new": types.SimpleNamespace(buried=lambda s: False, fallen=lambda s: 0.0)})]:
+                        stack.enter_context(mock.patch.object(target, attr, **kw))
                     w.run()
                     self.assertEqual((body.preempted, api.INTERRUPT, posts), (want_pre, want_msg, []),
                                      "perception never posts the /stop itself")

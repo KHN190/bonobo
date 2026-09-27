@@ -29,7 +29,12 @@ ALLOWED = set()
 
 def quiet_handlers(path):
     """[(line, function, what it swallows)] for handlers that catch a world read and return nothing."""
-    src = open(path).read()
+    with open(path) as f:
+        return quiet_in(f.read())
+
+
+def quiet_in(src):
+    """Pure: `quiet_handlers` over a module's source (its AST)."""
     tree = ast.parse(src)
     out = []
     for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
@@ -65,6 +70,23 @@ class NothingTurnsItselfOffInSilence(unittest.TestCase):
                 if fn not in ALLOWED:
                     found.append(f"{name}:{line} {fn}() swallows [{reads}]")
         self.assertEqual(found, [], "these decide something and hide it when the world does not answer")
+
+    # fixture: (module source) → the functions whose handler swallows a world read silently
+    SHAPES = [("a world read swallowed with pass", "def f():\n    try:\n        find(x)\n    except Exception:\n"
+               "        pass\n", ["f"]),
+              ("returns None: silent", "def f():\n    try:\n        return Region(a, b)\n    except E:\n"
+               "        return None\n", ["f"]),
+              ("marked with api.swallowed: fine", "def f():\n    try:\n        find(x)\n    except E as e:\n"
+               "        return api.swallowed('f', e)\n", []),
+              ("not a world read: fine", "def f():\n    try:\n        int(x)\n    except E:\n        pass\n", []),
+              ("re-raised: not silent", "def f():\n    try:\n        find(x)\n    except E:\n        raise\n", []),
+              ("a real fallback value is not silence", "def f():\n    try:\n        find(x)\n    except E:\n"
+               "        return 5\n", [])]
+
+    def test_the_shape_over_the_fixture(self):
+        for name, src, want in self.SHAPES:
+            with self.subTest(name):
+                self.assertEqual([fn for _line, fn, _r in quiet_in(src)], want)
 
     def test_the_mark_is_countable(self):
         """However many times it is ignored, that is how many the tally shows."""

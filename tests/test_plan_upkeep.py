@@ -1452,6 +1452,21 @@ class Retry(unittest.TestCase):
         self.assertTrue(ctx.blocked(cell))
         self.assertFalse(ctx.blocked(other))
 
+    # fixture: (module source) → (ban sites, the ones that follow a go_to walk in the same function)
+    BANS = [("a ban after arrived: fine", "def f(ctx):\n    if not nav.arrived(c, p):\n        ctx.ban(c)\n", (1, [])),
+            ("a ban after go_to: a stopped walk bans the place",
+             "def f(ctx):\n    ok = nav.go_to(c, p)\n    if not ok:\n        ctx.ban(c)\n", (1, ["f"])),
+            ("go_to in another function does not count",
+             "def g():\n    nav.go_to(c, p)\ndef f(ctx):\n    self.ban(c)\n", (1, [])),
+            ("go_to after the ban does not count", "def f(ctx):\n    ctx.ban(c)\n    nav.go_to(c, p)\n", (1, [])),
+            ("no ban at all", "def f():\n    nav.go_to(c, p)\n", (0, []))]
+
+    def test_ban_sites_over_the_fixture(self):
+        for name, src, want in self.BANS:
+            with self.subTest(name):
+                sites = ban_sites(src)
+                self.assertEqual((len(sites), [fn for fn, after_go_to in sites if after_go_to]), want)
+
     def test_the_failure_path_is_the_only_banning_path(self):
         """`arrived` answers False only for a walk that failed; an interruption propagates (test point A, ARRIVE). So
         a ban that follows a walk must follow `nav.arrived`, never `nav.go_to` (a Walked leg is truthy, a stopped
@@ -1460,15 +1475,26 @@ class Retry(unittest.TestCase):
         sites, bad = 0, []
         for path in sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                                   "bonobo", "*.py"))):
-            lines = open(path).read().splitlines()
-            for i, line in enumerate(lines):
-                if "ctx.ban(" in line or "self.ban(" in line:
-                    before = "\n".join(lines[max(0, i - 4):i])
-                    sites += 1
-                    if "go_to(" in before:
-                        bad.append(f"{os.path.basename(path)}:{i + 1}")
-        self.assertGreater(sites, 0, "no ban site found: the reading of the source is broken")
+            with open(path) as f:
+                found = ban_sites(f.read())
+            sites += len(found)
+            bad += [f"{os.path.basename(path)}:{fn}" for fn, after_go_to in found if after_go_to]
+        self.assertNotEqual(sites, 0, "no ban site found: the reading of the source is broken")
         self.assertEqual(bad, [], "a ban after go_to: a walk that was merely stopped bans the place")
+
+
+def ban_sites(src):
+    """Pure: [(function, whether a go_to call comes before it in that function)] for every `<x>.ban(...)` call in a
+    module's source (its AST, call graph within the function)."""
+    import ast
+    out = []
+    for fn in [n for n in ast.walk(ast.parse(src)) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)]
+        walks = [c.lineno for c in calls if c.func.attr == "go_to"]
+        for c in calls:
+            if c.func.attr == "ban":
+                out.append((fn.name, any(w < c.lineno for w in walks)))
+    return out
 
 
 # --------------------------------------------------------------------------------------------------------- queue
