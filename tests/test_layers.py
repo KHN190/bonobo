@@ -69,7 +69,7 @@ CLOSURE = {
     "perception": 21,
     "planner": 13,
     "recovery": 1,
-    "retry": 1,
+    "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
     "review": 16,
     "roads": 1,
     "scenarios": 56,                # upkeep→needs+reflexes split (4b61683)
