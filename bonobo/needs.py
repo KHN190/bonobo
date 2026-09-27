@@ -12,7 +12,7 @@ from . import api, decompose, goals, skills
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
+from .data import NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, mid
 from .knowledge import food_count, food_points
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -95,11 +95,20 @@ def tool_kinds(steps):
     return {"pickaxe"} if any(st.kind == "mine" and st.detail.get("tier") is not None for st in steps) else set()
 
 
-def food_lasts_s(snap):
-    """Seconds of work the stomach and the meals in the bag cover (`risk.food_drain_s` per hunger point)."""
+def food_on_its_way(pending):
+    """Pure: (meals, hunger points) of the ready food a background job or machine is making ({item id: count})."""
+    from .data import FOOD, NUTRITION
+    ready = {mid(f): NUTRITION[f] for f in FOOD}
+    meals = sum(n for item, n in pending.items() if item in ready)
+    return meals, sum(n * ready[item] for item, n in pending.items() if item in ready)
+
+
+def food_lasts_s(snap, pending=None):
+    """Seconds of work the stomach, the meals in the bag and those cooking in the background (`pending`, memory's
+    pending_outputs) cover (`risk.food_drain_s` per hunger point)."""
     from . import beliefs
     drain = float(beliefs.value("risk.food_drain_s"))
-    return (float(snap.get("food", 20)) + food_points(snap.inv)) * drain
+    return (float(snap.get("food", 20)) + food_points(snap.inv) + food_on_its_way(pending or {})[1]) * drain
 
 
 def working_tiers(inv):
@@ -206,9 +215,13 @@ class Needs:
             self.need("bridge stock", goals.have(("building", bridge_stock(snap.feet, blocked["pos"]))),
                       "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))
-        if food_count(inv) < 8:
+        # Food cooking in the background counts: its meals toward the stock, its points toward the stomach — two
+        # beef in the furnace and "hunt 6× porkchop" put a 345 s hunt before the task (night_first__low).
+        pending = b.mem.pending_outputs(snap.dimension) if getattr(b, "mem", None) is not None else {}
+        meals, points = food_on_its_way(pending)
+        if food_count(inv) + meals < 8:
             secs, known = self.plan(food_goal, snap)
-            if due_now(food_lasts_s(snap), secs, known, s.get("food", 20) < EAT_BELOW):
+            if due_now(food_lasts_s(snap, pending), secs, known, s.get("food", 20) + points < EAT_BELOW):
                 self.need("food stock", food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
             way, seconds, steps = self.overnight(snap)

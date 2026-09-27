@@ -2496,3 +2496,34 @@ class ToolsThatPayForThemselves(unittest.TestCase):
                 if want:
                     work = next(i for i, s in enumerate(steps) if s.kind in ("gather", "hunt"))
                     self.assertLess(steps.index(next(s for s in steps if s.token == want)), work)
+
+
+class FoodOnItsWay(unittest.TestCase):
+    """needs.food_on_its_way / food_lasts_s: ready food a background job is making counts — meals and points."""
+
+    def test_over_the_table(self):
+        rows = [("two cooked beef in the furnace: 2 meals, 16 points", {"minecraft:cooked_beef": 2}, (2, 16)),
+                ("raw iron smelting: no food", {"minecraft:iron_ingot": 3}, (0, 0)),
+                ("bread and beef: both", {"minecraft:bread": 1, "minecraft:cooked_beef": 1}, (2, 13)),
+                ("nothing on its way", {}, (0, 0))]
+        for name, pending, want in rows:
+            with self.subTest(name):
+                self.assertEqual(needs.food_on_its_way(pending), want)
+        snap = snapshot(state(food=10), inventory())
+        self.assertGreater(needs.food_lasts_s(snap, {"minecraft:cooked_beef": 2}), needs.food_lasts_s(snap))
+
+    def test_no_food_stock_while_it_cooks(self):
+        """Food 10, nothing ready carried, 2 cooked beef on their way: no food stock need (it was a pig hunt)."""
+        for pending, want in ((True, False), (False, True)):
+            with self.subTest(pending=pending), tempfile.TemporaryDirectory() as tmp:
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.mem = Memory(os.path.join(tmp, "notes.json"))
+                b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
+                b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+                if pending:
+                    b.mem.add_job("smelt", (3, 64, 0), OVER, "minecraft:cooked_beef", 2, time.time() + 20, [])
+                snap = snapshot(state(food=10), inventory(("oak_planks", 4)))
+                c = cost(snap, cow=30)
+                b.needs.cost = lambda _s: c
+                b.needs.propose(snap, None, reads={"enclosed": False, "bed_near": False, "soft_ground": False})
+                self.assertEqual(any(k == "food stock" for k, _g, _w in b.needs.needs_now), want)
