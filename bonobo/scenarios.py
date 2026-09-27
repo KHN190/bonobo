@@ -2628,10 +2628,10 @@ for _name, _doc, _setup, _run, _check in [
          "step), the crop grows (random ticks fast), harvested, bread baked",
          _floor("grass_block") + [_tp()] + FARM_KIT, _growing(_achieve_needs([("minecraft:bread", 1)], rounds=6)),
          _all(_gain("minecraft:bread", 1), _blocks(at(-4, -1, -4), at(4, -1, 4), "farmland", 1))),
-        ("bread_from_a_farm_two_wheat_carried", "2 wheat carried, a ripe plot beside the body → the plan harvests "
-         "it (no new plot sown) and bakes: bread",
+        ("bread_from_a_farm_two_wheat_carried", "2 wheat carried, a ripe plot beside the body → the plan's farm step "
+         "reaps it (the look at execution, not in the estimate; no new plot sown) and bakes: bread",
          _floor("grass_block") + RIPE_PLOT + [_tp(), "give @p wheat 2"] + FARM_KIT,
-         # the plan harvests the crop already grown (planner: ripe before sowing), then bakes
+         # the plan's farm step finds the grown crop and reaps it instead of sowing, then the plan bakes
          _achieve_needs([("minecraft:bread", 1)], rounds=4),
          _all(_gain("minecraft:bread", 1), _blocks(at(4, 0, -1), at(6, 0, 1), "wheat", 0, 8),
               _blocks(at(-8, -1, -8), at(3, -1, 8), "farmland", 0, 0))),        # no plot sown beside it

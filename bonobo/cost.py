@@ -12,7 +12,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .world import ROUTES, entities, find, job_ready, ripe_near
+from .world import ROUTES, entities, find, job_ready
 
 TICKS_PER_S = 20
 
@@ -68,8 +68,8 @@ class Cost:
         return (best, math.dist(best, here)) if best is not None else None
 
     def ripe(self, token):
-        """Ripe crop cells here that give `token`: a crop job of it that is due (memory first — the plot we
-        sowed), else the crop in sight read at full growth (one /find, one block read). 0 for anything not grown."""
+        """Ripe crop cells known to give `token`: the crop jobs of it that are due (memory only — an estimate never
+        touches the world; the farm step itself looks for a ripe crop before it sows, farming.plant_farm)."""
         if token != "minecraft:wheat":
             return 0
         if self._ripe is not None:
@@ -81,11 +81,6 @@ class Cost:
                 n = sum(j.get("count", 0) for j in self.mem.jobs(self.snap.dimension)
                         if j["kind"] == "crop" and j.get("item") == token
                         and job_ready(j, self.snap.state.get("gameTime")))
-            if not n:
-                try:
-                    n = len(ripe_near(self.snap.feet if self.snap is not None else None))
-                except McError:
-                    n = 0
             self.cache[key] = n
         return self.cache[key]
 

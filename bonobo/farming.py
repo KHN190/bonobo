@@ -100,13 +100,17 @@ def _plot_growing(centre):
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
 
-@skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={}, verify=lambda c: bool(c.result) and _plot_growing(c.result), budget=300, stall=90, per_unit=120,
+@skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={}, verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90, per_unit=120,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
-    """Make a 3×3 wheat plot here: dig the centre, pour the water bucket in (and take nothing back — it stays as
-    the plot's source), till the 8 neighbours with a hoe, sow seeds, start a crop job."""
+    """Wheat for the plan: a crop already grown nearby is reaped first (the world read here, at execution — the
+    estimate only knows memory); else make a 3×3 plot here: dig the centre, pour the water bucket in (and take
+    nothing back — it stays as the plot's source), till the 8 neighbours with a hoe, sow seeds, start a crop job."""
+    ripe = ripe_near(nav.feet_now(), RIPE_LOOK)
+    if ripe and _reap(ripe) > 0:
+        return REAPED
     inv = Inventory()
-    hoe = next((h for h in ("minecraft:iron_hoe", "minecraft:stone_hoe", "minecraft:wooden_hoe") if inv.count(h)), None)
+    hoe = next((h for h in HOES if inv.count(h)), None)
     if hoe is None:
         raise NotAvailable("no hoe")
     if inv.count("minecraft:wheat_seeds") < 8:
@@ -149,6 +153,22 @@ def plant_farm(ctx):
     return centre
 
 
+HOES = tuple(f"minecraft:{m}_hoe" for m in ("netherite", "diamond", "iron", "golden", "stone", "wooden"))
+RIPE_LOOK = 16          # how far a farm step looks for a crop already grown before it sows
+REAPED = "reaped"       # plant_farm's answer when it took a grown crop instead of sowing
+
+
+def _reap(cells):
+    """Break these ripe wheat cells and collect wheat and seeds; the wheat gained."""
+    before = Inventory().count("minecraft:wheat")
+    api.run({"type": "mine_many", "collect": True, "requireDrops": False,
+             "only": ["minecraft:wheat", "minecraft:wheat_seeds"],
+             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}, wait=120)
+    got = gained(lambda: Inventory().count("minecraft:wheat"), before) - before
+    log(f"reaped {got} wheat from {len(cells)} ripe cells")
+    return got
+
+
 def harvest(ctx, job):
     """A crop job is due: break ripe wheat, collect wheat + seeds, resow, schedule the next harvest."""
     centre = tuple(job["pos"])
@@ -159,11 +179,7 @@ def harvest(ctx, job):
         raise NotAvailable(f"wheat at {centre} not ripe yet")
     if not nav.arrived((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
         raise api.NavFailed(f"farm at {centre} not reachable")
-    before = Inventory().count("minecraft:wheat")
-    api.run({"type": "mine_many", "collect": True, "requireDrops": False,
-             "only": ["minecraft:wheat", "minecraft:wheat_seeds"],
-             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in ripe]}, wait=120)
-    got = gained(lambda: Inventory().count("minecraft:wheat"), before) - before
+    got = _reap(ripe)
     for p in ripe:
         if Inventory().count("minecraft:wheat_seeds"):
             try:

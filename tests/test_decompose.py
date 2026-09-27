@@ -314,6 +314,29 @@ class RipeFirst(unittest.TestCase):
         def estimate(self, step):
             return 100
 
+    def test_pricing_touches_no_world(self):
+        """An estimate reads memory only: with nothing remembered, pricing wheat asks the game nothing (every
+        request raises here) and plans a plot — the look for a grown crop is the farm step's, at execution."""
+        from bonobo import api
+        from bonobo.cost import Cost
+        from tests.world import snapshot
+        # (situation, crop jobs in memory, wheat wanted) → the wheat step kinds; no request made in any row
+        due = {"kind": "crop", "item": "minecraft:wheat", "count": 8, "ready_at": 0, "pos": [0, 64, 0]}
+        rows = [("nothing remembered: sow", [], 1, ["farm"]),
+                ("a due crop job of 8: harvest", [due], 1, ["take"]),
+                ("a job not yet due: sow", [dict(due, ready_at=9e12)], 1, ["farm"]),
+                ("a due job too small for the need: sow", [dict(due, count=1)], 5, ["farm"])]
+        for name, jobs, n, want in rows:
+            with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("a world read")):
+                import tempfile
+                from bonobo.memory import Memory
+                mem = Memory(os.path.join(tempfile.mkdtemp(prefix="ripe"), "notes.json"))
+                mem.data["jobs"] = [dict(j, dimension="minecraft:overworld") for j in jobs]
+                cost = Cost(snapshot(), mem=mem, known=lambda kinds: None, finds={})
+                steps = Planner({"minecraft:wheat_seeds": 8, "minecraft:water_bucket": 1, "minecraft:iron_hoe": 1},
+                                [], cost).plan([("minecraft:wheat", n)])
+                self.assertEqual([s.kind for s in steps if s.token == "minecraft:wheat"], want)
+
     def test_ripe_before_sowing(self):
         # (situation, ripe wheat cells known, wheat wanted) → the step kinds for the wheat
         rows = [("nine ripe cells, one wanted: harvest, no sowing", 9, 1, ["take"]),
