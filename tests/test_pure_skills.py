@@ -31,6 +31,24 @@ def run_table(t, fn, table):
 BOAT = ["planks", None, "planks", "planks", "planks", "planks", None, None, None]   # 5 planks cells
 
 
+class PickTrunks(unittest.TestCase):
+    L = staticmethod(lambda x, y, z: {"x": x, "y": y, "z": z})
+    # (situation, logs as /find lists them) → trunks as lists of (x, y, z), in listed order
+    ROWS = [("one trunk, three logs", [(0, 64, 0), (0, 65, 0), (0, 66, 0)], [[(0, 64, 0), (0, 65, 0), (0, 66, 0)]]),
+            ("two trees apart: two trunks, nearest listed first", [(5, 64, 0), (0, 64, 0), (5, 65, 0)],
+             [[(5, 64, 0), (5, 65, 0)], [(0, 64, 0)]]),
+            ("a branch one block off joins its trunk", [(0, 64, 0), (1, 66, 1)], [[(0, 64, 0), (1, 66, 1)]]),
+            ("two blocks off is another trunk", [(0, 64, 0), (2, 64, 0)], [[(0, 64, 0)], [(2, 64, 0)]]),
+            ("nothing seen: no trunks", [], [])]
+
+    def test_trunks(self):
+        from bonobo import wood
+        for name, logs, want in self.ROWS:
+            with self.subTest(name):
+                got = wood.pick_trunks([self.L(*c) for c in logs])
+                self.assertEqual([[(t["x"], t["y"], t["z"]) for t in tr] for tr in got], want)
+
+
 class BitesToFull(unittest.TestCase):
     B, BEEF, APPLE, CARROT, RAW = ("minecraft:bread", "minecraft:cooked_beef", "minecraft:apple", "minecraft:carrot",
                                    "minecraft:beef")

@@ -31,6 +31,20 @@ def felled(trunk, still):
     return not any((t["x"], t["y"], t["z"]) in still for t in trunk)
 
 
+def pick_trunks(logs):
+    """Pure: the logs grouped into trunks (a log within one block sideways of the first of its group), in the order
+    their first log was listed (nearest first, as /find answers)."""
+    trunks = []
+    for t in logs:
+        for tr in trunks:
+            if abs(t["x"] - tr[0]["x"]) <= 1 and abs(t["z"] - tr[0]["z"]) <= 1:
+                tr.append(t)
+                break
+        else:
+            trunks.append([t])
+    return trunks
+
+
 @skill(start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, per_unit=6, units=lambda c: c.args[1], key=lambda c: "chop",
        provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"])
@@ -50,8 +64,20 @@ def chop(ctx, n):
                 ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
                 raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
-        seed = logs[0]
-        trunk = [t for t in logs if abs(t["x"] - seed["x"]) <= 1 and abs(t["z"] - seed["z"]) <= 1]
+        # The nearest trunk the game's pathfinder can reach on this ground (`nav.reachable`, the same policy the
+        # walk uses), not the nearest one seen: a tree seen through a sky platform's floor was walked to over its
+        # edge ("chop: died"). A definite no bans the trunk; an unanswered one counts as maybe.
+        trunk = None
+        for seed in pick_trunks(logs)[:4]:
+            base = min(seed, key=lambda t: t["y"])
+            pos = (base["x"], base["y"], base["z"])
+            if math.dist(feet(), pos) <= 2.5 or nav.reachable(pos, ctx.policy, 2.0)[0]:
+                trunk = seed
+                break
+            for t in seed:
+                ctx.ban((t["x"], t["y"], t["z"]))
+        if trunk is None:
+            raise api.NavFailed("no tree in sight can be walked to on this ground")
         base = min(trunk, key=lambda t: t["y"])
         if math.dist(feet(), (base["x"], base["y"], base["z"])) > 2.5:   # stand beside the trunk (3.5 m was too far)
             # The walker alone can't climb a mountain or tunnel to a tree 30 blocks up: get to the trunk with the
