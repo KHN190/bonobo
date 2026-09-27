@@ -51,6 +51,14 @@ def _note_break(started):
     return beliefs.note("tools.mine_time_stone" if has else "tools.mine_time_no_pickaxe", took, where="mine_cell")
 
 
+class StationMissing(McError):
+    """A station the plan counted on is not there (taken, broken, never placed): not a failure of the step but a
+    changed world — the plan is repaired with the station as a need again (craft and place it, or further up)."""
+    def __init__(self, block):
+        super().__init__(f"no {block.split(':')[-1]} nearby or carried")
+        self.block = block
+
+
 class ToolMissing(McError):
     def __init__(self, kind, tier):
         super().__init__(f"need a tier-{tier} {kind}")

@@ -1831,5 +1831,48 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
                 act = b.decide(snap, None)
                 self.assertEqual((act.layer if act else None, asked), (want, asked_want))
 
+
+class StationGone(unittest.TestCase):
+    """A station the plan counted on is gone: memory forgets it, the failure is a replan (no count, no cooling), and
+    the repaired plan makes the station again from what is carried — or goes further up for it."""
+
+    # (situation, bag, goal, station memory still holds) → the repaired plan
+    ROWS = [("the table taken, 8 planks carried: make a table, then the pickaxe",
+             [("oak_planks", 8), ("stick", 2)], ("minecraft:wooden_pickaxe", 1), None, {},
+             [("craft", "minecraft:crafting_table"), ("craft", "minecraft:wooden_pickaxe")]),
+            ("the table taken, no planks: up to a tree", [("stick", 2)], ("minecraft:wooden_pickaxe", 1), None,
+             {"oak_log": 5}, [("gather", "log"), ("craft", "planks"), ("craft", "minecraft:crafting_table"),
+                              ("craft", "minecraft:wooden_pickaxe")]),
+            ("the furnace taken, cobblestone carried: a furnace, then smelt",
+             [("raw_iron", 2), ("coal", 1), ("cobblestone", 8), ("crafting_table", 1)], ("minecraft:iron_ingot", 2),
+             None, {}, [("craft", "minecraft:furnace"), ("smelt", "minecraft:iron_ingot")]),
+            ("the table still there: nothing added", [("oak_planks", 8), ("stick", 2)],
+             ("minecraft:wooden_pickaxe", 1), "minecraft:crafting_table", {}, [("craft", "minecraft:wooden_pickaxe")])]
+
+    def test_repair_over_the_table(self):
+        for name, carried, need, station, seen, want in self.ROWS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                if station:
+                    m.add_station(station, (1, 64, 1), OVER)
+                snap = snapshot(state(), inventory(*carried))
+                steps = decompose.decompose(snap.inv, goals.have(need), cost(snap, mem=m, **seen))
+                self.assertEqual([(st.kind, st.token) for st in steps], want)
+
+    def test_the_station_is_forgotten_and_it_is_a_replan(self):
+        from unittest import mock
+        from bonobo import skillcore
+        with tempfile.TemporaryDirectory() as tmp:
+            m = Memory(os.path.join(tmp, "notes.json"))
+            m.add_station("minecraft:crafting_table", (1, 64, 1), OVER)
+            ctx = skillcore.Context(m, None, OVER, {})
+            with mock.patch.object(skills, "close_screen"), mock.patch.object(skills, "find", return_value=[]), \
+                    mock.patch.object(skills, "Inventory", return_value=bag(inventory())), \
+                    mock.patch.object(skills, "feet", return_value=(0, 64, 0)), \
+                    self.assertRaises(skillcore.StationMissing) as got:
+                with skills.Station(ctx, "minecraft:crafting_table"):
+                    pass
+            self.assertEqual((m.stations(OVER), retry.cause_of(got.exception)), ([], "replan"))
+
 if __name__ == "__main__":
     unittest.main()

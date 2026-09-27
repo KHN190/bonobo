@@ -30,8 +30,8 @@ def cause_of(err):
     messages, its text)."""
     names = {c.__name__ for c in type(err).__mro__}
     text = str(err).lower()
-    if "CommitmentExpired" in names:
-        return "replan"      # the plan grew stale mid-action: nothing failed, decide again now
+    if "CommitmentExpired" in names or "StationMissing" in names:
+        return "replan"      # the plan grew stale (a station it counted on is gone): nothing failed, replan now
     if names & set(INTERRUPTION_NAMES):
         return "interrupt"   # a danger or another commander stopped it: not the skill's fault
     if "GameUnreachable" in names:

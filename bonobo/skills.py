@@ -17,7 +17,7 @@ from .bag import pickup_whitelist, supports
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
 from .bag import KEEP_ALWAYS_SUFFIX, KEEP_ITEMS, KEEP_GROUPS, tidy_plan, LOW_VALUE_CAPS, STACK_VALUE, _stack_value, PROTECTED_IDS, PROTECTED_SUFFIX, _protected_stack, RAW_MEAT, SURPLUS_CAP, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
 from .terrain import LAND, soft_below, pick_land, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
-from .skillcore import (_collect_only, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
+from .skillcore import (_collect_only, StationMissing, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
                         free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
                         body_state, head_buried, head_underwater,
                         carried_total)   # (split out; re-exported for skills.X callers)
@@ -113,7 +113,11 @@ class Station:
             self.ctx.mem.add_station(self.block, self.pos, self.ctx.dimension)
             api.run({"type": "wait", "ticks": 5})
         else:
-            raise McError(f"no {bare(self.block)} nearby or carried")
+            # Gone from where memory has it: memory stops counting it, so the repaired plan makes one again.
+            for s in self.ctx.mem.stations(self.ctx.dimension, near=feet(), within=8):
+                if bare(s["block"]) == bare(self.block):
+                    self.ctx.mem.remove_station(s["pos"])
+            raise StationMissing(self.block)
         for _ in range(3):
             try:
                 r = api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60)
