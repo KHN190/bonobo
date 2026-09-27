@@ -2996,20 +2996,26 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
 # three goals in one slice fit 30 s only with the ore at hand (console-built, the goal kept).
 DIAMOND_UP, DIAMOND_DOWN = at(2, 0, -2), at(4, -9, 0)
 POCKET = at(0, -9, 0)
-LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # drained until food ≤ 10, then the hunger cleared (closed loop: 4 s left 14,
-                                      # 5 and 8 s left 0 and the raw beef was eaten starving)
-# Hunger at 255 drains ~6 points a second: a poll every 0.1 s over HTTP overshot to 0. At 60 it is ~1.5 a second,
-# slow enough to stop on the point.
-LOW_FOOD_AMP = 60
+LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `before` hook: harness, not budget)
+DRAIN_POLL_S = 0.05
+
+
+def drain_done(food, level):
+    """Pure: stop the drain now — food at `level` + 1 or below (the exhaustion left over takes about one more point
+    once the effect is cleared). Saturation goes first on its own: the bar only moves once it is empty."""
+    return food <= level + 1
 
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S):
-    """`before` hook: wait while setup's hunger drains the bar, and clear it the moment food ≤ `level`."""
+    """`before` hook: hunger at full strength (~6 points a second: saturation first, then food), read from /state
+    every 50 ms, cleared at `level` + 1 — a few seconds, not the 19 s a slow drain took (saturation absorbed the
+    first 12.5 s)."""
     def hook(ctx):
         from . import api
+        _chat("effect give @p minecraft:hunger 30 255 true")
         t0 = time.time()
-        while time.time() - t0 < max_s and api.get("/state").get("food", 20) > level:
-            time.sleep(0.1)
+        while time.time() - t0 < max_s and not drain_done(api.get("/state").get("food", 20), level):
+            time.sleep(DRAIN_POLL_S)
         _chat("effect clear @p minecraft:hunger")
         time.sleep(1.0)                   # what exhaustion was left takes its last point, if any
         food = api.get("/state").get("food", 20)
@@ -3018,12 +3024,15 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S):
         if not STARVE < food < EAT_BELOW:
             raise SetupInvalid(f"food {food} after the drain: wanted between {STARVE} and {EAT_BELOW}")
     return hook
+
+
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
     # At 11800 dusk was 10 s off: not yet due, the 6 s log task came first and the bed after it (brain__tight).
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
-    # Drained by the run's start to below EAT_BELOW (14): 4 s left the bar at exactly 14, and "food < 14" never held.
-    "food": {"full": [], "low": [f"effect give @p minecraft:hunger {LOW_FOOD_MAX_S} {LOW_FOOD_AMP} true"]},
+    # Drained before the run to ~10 (`_drain_to`). The effect here only marks the row hungry for the body reset (no
+    # saturation after setup): one second at level I drains nothing that matters; the drain proper is the hook's.
+    "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
     "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook

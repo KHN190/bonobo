@@ -667,6 +667,18 @@ class FurnaceSlots(unittest.TestCase):
                 self.assertEqual(sc.furnace_slots(reply), want)
 
 
+class Drain(unittest.TestCase):
+    """scenarios.drain_done: the hunger drain stops at the level + 1 (one more point follows the clear)."""
+
+    def test_table(self):
+        rows = [("full: on", 20, 10, False), ("one above the stop: on", 12, 10, False),
+                ("at level + 1: stop", 11, 10, True), ("overshot to the level: stop", 10, 10, True),
+                ("well below: stop", 7, 10, True)]
+        for name, food, level, want in rows:
+            with self.subTest(name):
+                self.assertIs(sc.drain_done(food, level), want)
+
+
 class Chance(unittest.TestCase):
     """runner.stochastic / needs_clock / verdict_of(chance=): a deterministic row is decided by one run."""
 
