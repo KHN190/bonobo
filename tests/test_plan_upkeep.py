@@ -896,12 +896,34 @@ class HeldPlans(unittest.TestCase):
                (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), None)]
 
     def test_prepare(self):
+        """Idle stocking is a proposal toward the first missing item, never a task."""
         for inv, want in self.PREPARE:
             with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
-                act = q.b.prepare(snapshot(inv=inv))
-                queued = [tuple(t["args"]["needs"][0]) for t in tasks.load()]
-                self.assertEqual(queued, [want] if want else [])
-                self.assertEqual(act is None, want is None)
+                act = q.b.prepare(snapshot(inv=inv), None)
+                self.assertEqual(tasks.load(), [], "idle stocking queued a task")
+                self.assertEqual(None if act is None else act.name,
+                                 None if want is None else f"idle: {goals.describe(goals.have(want))}")
+
+    def test_idle_beside_the_queue(self):
+        """plan_proposals: stocking only when the queue has nothing that can run now, and never into the queue
+        (tool_tier__one_use: a queued sword took over whenever the row's own task cooled)."""
+        rows = [("a task that can run: the task, no stocking", True, False, ["queue"]),
+                ("nothing queued: stocking proposed", False, False, ["idle"]),
+                ("the task cooling: stocking may be picked", True, True, ["idle"]),
+                ("nothing queued, the bag full of what stocking wants: nothing", False, False, [])]
+        for name, queued, cooling, want in rows:
+            full = inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8))
+            inv = full if name.endswith("nothing") else inventory()
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+                if queued:
+                    q.task(goals.have(("log", 4)))
+                if cooling:
+                    for _ in range(3):
+                        q.b.failed("task t1", api.NavFailed("no path found"))
+                before = [t["id"] for t in tasks.load()]
+                got = q.b.plan_proposals(snapshot(state(), inv), None)
+                self.assertEqual([i.kind for i in got], want)
+                self.assertEqual([t["id"] for t in tasks.load()], before, "stocking changed the queue")
 
 
 # -------------------------------------------------------------------------------------------------------- upkeep
@@ -1740,7 +1762,7 @@ class OneArbiter(unittest.TestCase):
         b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
         b.task_act = lambda task, snap, ctx: chop
-        b.prepare = lambda snap: brainmod.Act("idle", "prepare", None)
+        b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
         with mock.patch.object(api, "MODE", "normal"), mock.patch.object(brainmod.hazard, "due", return_value=None), \
                 mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
@@ -1953,7 +1975,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
             b.reflexes = mock.Mock(proposals=proposals)
             b.task_act = lambda task, snap, ctx: None
-            b.prepare = lambda snap: None
+            b.prepare = lambda snap, ctx: None
             snap = snapshot(state(), inventory())
             with self.subTest(name), mock.patch.object(api, "MODE", mode), \
                     mock.patch.object(arbiter.BODY, "holder", return_value=holder), \

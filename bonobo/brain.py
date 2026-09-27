@@ -329,8 +329,8 @@ class Brain:
             if act is not None and (not closed or act.step.kind in NIGHT_WORK):
                 return [arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}")]
         if not closed:
-            act = self.prepare(snap)
-            return [arbiter.Intent("plan", act, kind="idle")] if act else []
+            act = self.prepare(snap, ctx)
+            return [arbiter.Intent("plan", act, kind="idle", key=act.name)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: skills.wait_for_day(ctx)),
                               kind="wait for day")]
         if "pickaxe" in self.needs.working:
@@ -469,15 +469,16 @@ class Brain:
             log(f"task done: {tasks.describe(task)}")
 
     # -- nothing queued
-    def prepare(self, snap):
-        """Idle: queue the first of tools, food, light that is not held; else nothing (the round waits)."""
+    def prepare(self, snap, ctx):
+        """Idle: a proposal for the next step toward the first of tools, food, light that is not held (need_act,
+        like the night's stock) — never a task: the queue is the player's and the cerebrum's. Queued, a stocking
+        goal ranked with the row's own task and took over whenever that one cooled (a sword and a pig hunt after
+        the pickaxe). None when everything is held or nothing toward it can run."""
         for needs in goals.PREPARE:
             if goals.short(snap.inv, [tuple(n) for n in needs]):
-                goal = goals.have(*needs)
-                if not self.ready(f"prepare {goals.describe(goal)}"):
-                    continue
-                tasks.add(goal, source="idle", expires_s=900)
-                return Act("idle", f"prepare {goals.describe(goal)}", lambda: None)
+                act = self.need_act("idle", goals.have(*needs), snap, ctx)
+                if act is not None:
+                    return act
         return None
 
     def night_stock(self, snap, ctx):
