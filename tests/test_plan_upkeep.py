@@ -2319,3 +2319,24 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheNightIsPricedOncePerBag(unittest.TestCase):
+    """needs.Needs.overnight: kept for PLAN_S_TTL per bag — priced every round it was the round's hotspot."""
+
+    def test_over_the_table(self):
+        rows = [("the same bag twice: priced once", [WELL_FED, WELL_FED], 1),
+                ("a changed bag: priced again", [WELL_FED, WELL_FED + [("cobblestone", 4)]], 2),
+                ("three rounds, one bag: once", [WELL_FED] * 3, 1),
+                ("back and forth: each new bag once", [WELL_FED, [("stick", 1)], WELL_FED], 2)]
+        for name, bags, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.mem = Memory(os.path.join(tmp, "notes.json"))
+                table, asked = needs.Needs(b), []
+                snap0 = snapshot(state(), inventory(*bags[0]))
+                c = cost(snap0)
+                table.cost = lambda snap: asked.append(1) or c
+                for items in bags:
+                    table.overnight(snapshot(state(), inventory(*items)))
+                self.assertEqual(len(asked), want)

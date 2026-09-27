@@ -178,9 +178,7 @@ class Needs:
             self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
         # The night's way from here (dig in, wall in, a hut): the shelter reflex runs it when its parts are in the
         # bag; otherwise its parts are this round's need.
-        night_way = _once(None, "night_way", lambda: overnight(
-            inv, self.cost(snap), night_facts(soft_ground()),
-            bed_too=False))
+        night_way = _once(None, "night_way", lambda: self.overnight(snap, night_facts(soft_ground()), bed_too=False))
         shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
                             and not b.reflexes.sheltered(snap, enclosed))
         if shelter_due():
@@ -205,7 +203,7 @@ class Needs:
             if due_now(food_lasts_s(snap), secs, known, s.get("food", 20) < EAT_BELOW):
                 self.need("food stock", food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
-            way, seconds, steps = overnight(inv, self.cost(snap))
+            way, seconds, steps = self.overnight(snap)
             if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
                     and not b.reflexes.sheltered(snap, enclosed):
                 self.prepare_night(way, steps)
@@ -218,7 +216,7 @@ class Needs:
         if not (snap.dimension == "minecraft:overworld" and snap.night and snap.inv.count("bed") == 0
                 and skills.can_sleep(snap.state) is None):
             return False
-        way, _secs, steps = overnight(snap.inv, self.cost(snap))
+        way, _secs, steps = self.overnight(snap)
         return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)
 
     def prepare_night(self, way, steps):
@@ -252,6 +250,18 @@ class Needs:
             got = (cost.plan_s(steps), all(cost.known_source(st) for st in steps))
         except Unplannable:
             got = (math.inf, False)
+        self.plan_s_cache[key] = (time.time(), got)
+        return got
+
+    def overnight(self, snap, facts=None, bed_too=True):
+        """`overnight` from this bag, kept briefly like `plan`: priced every round from a fresh cost model it was the
+        round's hotspot (0.7 s of /find in a 1.1 s decide; brain__base's 3 s between rounds)."""
+        key = ("overnight", json.dumps(facts, sort_keys=True, default=str), bed_too, bag_signature(snap.inv),
+               snap.dimension)
+        hit = self.plan_s_cache.get(key)
+        if hit and time.time() - hit[0] < PLAN_S_TTL:
+            return hit[1]
+        got = overnight(snap.inv, self.cost(snap), facts, bed_too=bed_too)
         self.plan_s_cache[key] = (time.time(), got)
         return got
 
