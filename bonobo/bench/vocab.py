@@ -1787,6 +1787,8 @@ BRAIN_DIMS = {
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
 BAG_FILL = {"room": None, "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
 KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask for more than this, or it is met at once
+COBBLE_MORE = 2         # a row proves the choice, not the job: two blocks (one_use's one-use pickaxe breaks on the second)
+KIT_LOG, LOG_GOAL = 1, 2   # one log carried, two wanted: one chop shows the task done
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
                   f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
@@ -1794,7 +1796,7 @@ BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone
                   f"setblock {_c(DIAMOND_UP)} diamond_ore",
                   f"setblock {_c(DIAMOND_DOWN)} diamond_ore", f"setblock {_c(at(-2, 0, 0))} furnace",
                   "give @p white_wool 3", "give @p oak_planks 8", "give @p crafting_table", "give @p stick 4",
-                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}",
+                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}", f"give @p oak_log {KIT_LOG}",
                   "give @p diamond_axe"])       # the best axe: logs are not the tool test here (kit rule)
 
 def _diamond_of(cell):
@@ -1803,7 +1805,7 @@ def _diamond_of(cell):
 # family → (grid, queue, what each cell must show): checks read the world and bag order, never log text
 def _bed_then_log(cell):
     if cell["dusk"] == "plenty" and cell["food"] == "full":
-        return (_all(_before_in_bag("log", "bed", or_never=True), _gain("log", 2),
+        return (_all(_before_in_bag("log", "bed", or_never=True), _gain("log", LOG_GOAL - KIT_LOG),
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
@@ -1818,8 +1820,8 @@ def _tool_rule(cell):
     if cell["tool"] == "one_use":
         return (_all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1,
                      lambda api, inv: inv.count("minecraft:stone_pickaxe") + inv.count("minecraft:wooden_pickaxe") == 0,
-                     _gain("minecraft:cobblestone", 3)), "broken: the best tier this bag crafts (iron)")
-    return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", 3)),
+                     _gain("minecraft:cobblestone", COBBLE_MORE)), "broken: the best tier this bag crafts (iron)")
+    return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", COBBLE_MORE)),
             "fresh: nothing crafted, the ingots kept (must not craft)")
 
 def _night_rule(cell):
@@ -1837,9 +1839,10 @@ def _bag_rule(cell):
     if cell["bag"] == "valuables_full":
         return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
     if cell["bag"] == "junk_full":
-        return (_all(_gain("log", 2), lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
+        return (_all(_gain("log", LOG_GOAL - KIT_LOG),
+                     lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
                 "a bag past BAG_FULL, junk: junk thrown, then the task done")
-    return _gain("log", 2), "room for it: the task done as usual"
+    return _gain("log", LOG_GOAL - KIT_LOG), "room for it: the task done as usual"
 
 FINDS = {"diamond": 0}
 
@@ -1875,12 +1878,12 @@ def _seen_rule(cell):
 
 # one value off the base at a time: which combination wins is tested offline; a row confirms the decision is carried out
 BRAIN_FAMILIES = {
-    "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
+    "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", LOG_GOAL))], _bed_then_log),
     "tool_tier": (list(_cells(BRAIN_BASE, dims=("tool", "head"), table=BRAIN_DIMS)),
-                  # 3 more than the kit carries, or the kit alone meets it
-                  [_have(("minecraft:cobblestone", KIT_COBBLE + 3))], _tool_rule),
+                  # more than the kit carries, or the kit alone meets it
+                  [_have(("minecraft:cobblestone", KIT_COBBLE + COBBLE_MORE))], _tool_rule),
     "night_under": (list(_cells(BRAIN_BASE, dims=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
-    "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
+    "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", LOG_GOAL))], _bag_rule),
     "seen_store": (list(_cells(BRAIN_BASE, dims=("seen", "head"), table=BRAIN_DIMS)),
                    [_have(("minecraft:diamond", 1))], _seen_rule),
 }
