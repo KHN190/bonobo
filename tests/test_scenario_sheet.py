@@ -491,7 +491,7 @@ class TimeoutSticks(unittest.TestCase):
     ROW = {"module": "skills", "setup": ["fill 0 0 0 1 1 1 stone"], "budget": 30}
 
     def key(self, row, dep="d1", mod="m1"):
-        with mock.patch.dict(sc.SCENARIOS, {"x": row}), mock.patch.object(runner, "dep_hash", lambda m: dep), \
+        with mock.patch.dict(sc.SCENARIOS, {"x": row}), mock.patch.object(runner, "reach_hash", lambda r: dep), \
                 mock.patch.object(runner, "mod_hash", lambda tags: mod):
             return runner._code_for("x")
 
@@ -806,3 +806,51 @@ class TwoSites(unittest.TestCase):
         runner.PREBUILT.update(name="chop__base", done=done, ok=True)
         self.assertEqual((runner.take_prebuilt("craft__base"), runner.take_prebuilt("chop__base"),
                           runner.take_prebuilt("chop__base")), (False, True, False))
+
+
+class RowKey(unittest.TestCase):
+    """A row's readiness key: its own definition (row_hash) and the production functions it reaches (reached), not
+    its module's whole closure — editing one row, or code a row never reaches, keeps every other verdict."""
+
+    INDEX = {"chop": ["wood.def chop(ctx, n):\n    return trunk_batch(n)\n"],
+             "trunk_batch": ["wood.def trunk_batch(n):\n    return [n]\n"],
+             "decide": ["threat.def decide(state):\n    return 1\n"]}
+
+    def key(self, index):
+        from bonobo.bench import runner
+        import hashlib
+        return hashlib.sha1("\n".join(runner.reached({"chop"}, index)).encode()).hexdigest()
+
+    def test_reach_over_the_table(self):
+        base = self.key(self.INDEX)
+        rows = [("an unrelated function changed (the fight's decide): same key",
+                 dict(self.INDEX, decide=["threat.def decide(state):\n    return 2\n"]), True),
+                ("a function it calls changed (trunk_batch): new key",
+                 dict(self.INDEX, trunk_batch=["wood.def trunk_batch(n):\n    return [n, n]\n"]), False),
+                ("the skill itself changed: new key", dict(self.INDEX, chop=["wood.def chop(ctx, n):\n    return 0\n"]),
+                 False),
+                ("nothing changed", dict(self.INDEX), True)]
+        for name, index, same in rows:
+            with self.subTest(name):
+                self.assertEqual(self.key(index) == base, same)
+
+    def test_row_hash(self):
+        from bonobo.bench import runner
+        row = dict(sc.SHEET["chop__base"])
+        other = dict(sc.SHEET["craft__base"])
+        base = runner.row_hash(row)
+        rows = [("the same row: same", dict(row), True),
+                ("its setup changed: new", dict(row, setup=list(row["setup"]) + ["give @p dirt"]), False),
+                ("its budget changed: new", dict(row, budget=row["budget"] + 1), False),
+                ("another row changed: this one untouched", dict(row), True)]
+        other["setup"] = list(other["setup"]) + ["give @p dirt"]        # the edit to another row
+        for name, r, same in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.row_hash(r) == base, same)
+
+    def test_a_call_on_a_module_is_that_module_s(self):
+        from bonobo.bench import runner
+        index = {"run": ["api.def run(task):\n    return 1\n", "perception.def run(self):\n    loop()\n"],
+                 "loop": ["perception.def loop():\n    pass\n"]}
+        got = runner.reached({"api.run"}, index)
+        self.assertEqual(got, ["api.def run(task):\n    return 1\n"])
