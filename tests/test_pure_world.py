@@ -892,19 +892,45 @@ class Nightfall(unittest.TestCase):
 
     def test_rows(self):
         from bonobo import perception
-        # (situation, /state) → the request
-        rows = [("surface at dusk, open sky", dict(dimension=self.OW, timeOfDay=13000, skyLight=15), "night"),
-                ("surface at midnight, day 5's clock", dict(dimension=self.OW, timeOfDay=5 * 24000 + 18000, skyLight=12),
+        # (situation, /state, walled in, in a site) → the request; the same judgement as the night way's
+        # (knowledge.sheltered, which reflexes.Maintain.sheltered asks)
+        rows = [("surface at dusk, open sky", dict(dimension=self.OW, timeOfDay=13000, skyLight=15), False, False,
                  "night"),
-                ("underground at night: none", dict(dimension=self.OW, timeOfDay=18000, skyLight=0), None),
-                ("sheltered under a roof: none", dict(dimension=self.OW, timeOfDay=18000, skyLight=4), None),
-                ("the Nether has no night: none", dict(dimension="minecraft:the_nether", timeOfDay=18000, skyLight=15),
+                ("surface at midnight, day 5's clock", dict(dimension=self.OW, timeOfDay=5 * 24000 + 18000, skyLight=12),
+                 False, False, "night"),
+                ("a cave mouth: dim, not walled in → still the night's", dict(dimension=self.OW, timeOfDay=18000,
+                                                                          skyLight=7), False, False, "night"),
+                ("underground at night: none", dict(dimension=self.OW, timeOfDay=18000, skyLight=0), False, False, None),
+                ("sheltered: walled in under open sky (a pod)", dict(dimension=self.OW, timeOfDay=18000, skyLight=15),
+                 True, False, None),
+                ("inside our hut's interior: none", dict(dimension=self.OW, timeOfDay=18000, skyLight=10), False, True,
                  None),
-                ("must fail: by day on the surface, nothing", dict(dimension=self.OW, timeOfDay=6000, skyLight=15), None),
-                ("must fail: dawn is day again", dict(dimension=self.OW, timeOfDay=23500, skyLight=15), None)]
-        for name, state, want in rows:
+                ("the Nether has no night: none", dict(dimension="minecraft:the_nether", timeOfDay=18000, skyLight=15),
+                 False, False, None),
+                ("must fail: by day on the surface, nothing", dict(dimension=self.OW, timeOfDay=6000, skyLight=15), False,
+                 False, None),
+                ("must fail: dawn is day again", dict(dimension=self.OW, timeOfDay=23500, skyLight=15), False, False,
+                 None)]
+        for name, state, walled, in_site, want in rows:
             with self.subTest(name):
-                self.assertEqual(perception.nightfall(state), want)
+                self.assertEqual(perception.nightfall(state, lambda: walled, lambda: in_site), want)
+
+    def test_one_judgement_with_the_night_way(self):
+        # the night rows' Maintain.sheltered and nightfall read knowledge.sheltered: over the same readings they agree
+        from types import SimpleNamespace
+        from bonobo import knowledge, perception, reflexes
+        for sky, walled, in_site in [(15, False, False), (7, False, False), (0, False, False), (15, True, False),
+                                     (10, False, True)]:
+            with self.subTest(sky=sky, walled=walled, in_site=in_site):
+                m = reflexes.Maintain.__new__(reflexes.Maintain)
+                m.in_site = lambda feet, dim, _v=in_site: _v
+                snap = SimpleNamespace(get=lambda k, d=None, _s=sky: _s if k == "skyLight" else d, feet=(0, 64, 0),
+                                       dimension=self.OW)
+                state = dict(dimension=self.OW, timeOfDay=18000, skyLight=sky)
+                self.assertEqual(m.sheltered(snap, lambda: walled),
+                                 perception.nightfall(state, lambda: walled, lambda: in_site) is None)
+                self.assertEqual(m.sheltered(snap, lambda: walled), knowledge.sheltered(sky, lambda: walled,
+                                                                                        lambda: in_site))
 
     def test_taken_only_between_tasks(self):
         # (situation, pending, soft skill, the night's way running) → raises NightFell at a boundary?

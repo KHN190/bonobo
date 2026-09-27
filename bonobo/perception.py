@@ -90,17 +90,29 @@ DANGERS = hazard.KINDS + HOSTILE
 NIGHTFALL = "night"
 
 
-def nightfall(state):
-    """Pure: the soft boundary request for surface work at dusk or night — "night" when the body stands in the
-    Overworld between DAY_END and NIGHT_END with open sky over it; None underground or under a roof (sky light
-    at most COVERED_SKY), in daylight, or in another dimension."""
-    from .data import COVERED_SKY, DAY_END, NIGHT_END
+IN_SITE = None      # (feet, dimension) → inside a site's interior: set by the brain (brain.run: Maintain.in_site)
+
+
+def nightfall(state, enclosed, in_site=lambda: False):
+    """Pure given its readers: the soft boundary request for surface work at dusk or night — "night" in the
+    Overworld between DAY_END and NIGHT_END unless sheltered by the night way's own judgement (knowledge.sheltered:
+    under rock, walled in, inside a site); None by day or in another dimension."""
+    from .data import DAY_END, NIGHT_END
+    from .knowledge import sheltered
     if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
         return None
     t = int(state.get("timeOfDay", 0)) % 24000
-    if not DAY_END <= t < NIGHT_END or state.get("skyLight", 15) <= COVERED_SKY:
+    if not DAY_END <= t < NIGHT_END or sheltered(state.get("skyLight", 15), enclosed, in_site):
         return None
     return NIGHTFALL
+
+
+def _enclosed_now(state):
+    """The walls around the feet read now (terrain.is_enclosed over the 3×4×3 box): the shelter's remainder is
+    empty."""
+    from .world import Region, is_enclosed
+    x, y, z = state["blockX"], state["blockY"], state["blockZ"]
+    return is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z))
 
 
 def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None,
@@ -308,10 +320,14 @@ class Watcher(threading.Thread):
                 continue        # a bite takes ~1.6 s and is what saves us: never interrupt it
             # nightfall on the surface: once per night, a soft request honoured between tasks (api.at_boundary);
             # the brain then takes the night's way and resumes the same target (arbiter.RESUME_OF "night")
-            night = nightfall(s)
+            told = getattr(self, "_night_told", False)
+            running = (s.get("control") or {}).get("task")
+            night = nightfall(s, lambda: running and not told and _enclosed_now(s),
+                              lambda: IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]),
+                                                                      s.get("dimension")))
             if night is None:
-                self._night_told = False
-            elif not getattr(self, "_night_told", False) and (s.get("control") or {}).get("task"):
+                self._night_told = False        # day, or sheltered: asked again when exposed next
+            elif not told and running:
                 self._night_told = True
                 api.AT_BOUNDARY = night
                 api.log("!! perception: night on the surface → the work stops at its next boundary")

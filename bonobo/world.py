@@ -15,6 +15,23 @@ def add(p, d):
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 
 
+def is_enclosed(region, inside):
+    """Pure: no 2-high opening on any side and a solid roof."""
+
+    return not openings(region, inside)
+
+def openings(region, inside):
+    """Pure: what an enclosure around `inside` lacks — {cell: "wall"} per 2-high gap and the roof; {} when enclosed."""
+
+    x, y, z = inside
+    out = {}
+    for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        if not region.solid((x + dx, y, z + dz)) and not region.solid((x + dx, y + 1, z + dz)):
+            out[(x + dx, y, z + dz)] = "wall"
+    if not region.solid((x, y + 2, z)):
+        out[(x, y + 2, z)] = "roof"
+    return out
+
 BAG_SLOTS = 36          # the main bag: hotbar 0-8 and the 27 above it (offhand and armour are not bag)
 
 

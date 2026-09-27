@@ -29,7 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, arbiter, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
-from bonobo.data import COVERED_SKY, bare  # noqa: E402
+from bonobo.data import bare  # noqa: E402
+from bonobo.knowledge import under_rock  # noqa: E402
 from bonobo.knowledge import food_count  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from bonobo.planner import Unplannable  # noqa: E402
@@ -1248,7 +1249,7 @@ class Upkeep(unittest.TestCase):
                 # A plan that knows where it goes leads by × LEAD; one that guesses waits for the real threshold.
                 bed_due = needs.dusk_s(snap) < secs * lead if plan_s["overnight:known"] else needs.dusk_s(snap) <= 0
                 bed = over and not snap.night and snap.inv.count("bed") == 0 and way == "bed" and bed_due \
-                    and snap.get("skyLight", 15) > COVERED_SKY
+                    and not under_rock(snap.get("skyLight", 15))
                 food_due = needs.food_lasts_s(snap) < plan_s["food"] * lead if plan_s["food:known"] \
                     else snap.get("food", 20) < reflexes.EAT_BELOW
                 food = food_count(snap.inv) < 8 and food_due

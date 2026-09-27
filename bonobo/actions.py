@@ -2,9 +2,10 @@
 
 import math
 
-from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
+from .data import (DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
-from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced)
+from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
+                        under_rock)
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate
 from .solve import Action
@@ -182,7 +183,7 @@ def _standing_at(kinds, snap, mem):
     return False
 
 def _sheltered(snap, mem):
-    if snap.get("skyLight", 15) <= COVERED_SKY:
+    if under_rock(snap.get("skyLight", 15)):
         return True
     site = mem.nearest_site(snap.feet, snap.dimension, kinds=["home", "shelter"])
     return bool(site) and math.dist(site["pos"], snap.feet) <= 64

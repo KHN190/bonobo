@@ -4,7 +4,7 @@ import math
 
 from . import nav
 from .bag import throw_direction
-from .world import add
+from .world import add, is_enclosed, openings  # noqa: F401  (the walls: world's, re-exported)
 
 def standing_cells(region, here, radius):
     """Pure: cells within `radius` of `here` one could stand in — solid harmless floor, two free cells up — in region order."""
@@ -218,20 +218,3 @@ def air_route(region, head):
         c = add(c, (0, 1, 0))
     return ("dig", c, "water capped, no air within reach: dig the cap") if region.inside(c) and region.solid(c) \
         else None
-
-def is_enclosed(region, inside):
-    """Pure: no 2-high opening on any side and a solid roof."""
-
-    return not openings(region, inside)
-
-def openings(region, inside):
-    """Pure: what an enclosure around `inside` lacks — {cell: "wall"} per 2-high gap and the roof; {} when enclosed."""
-
-    x, y, z = inside
-    out = {}
-    for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
-        if not region.solid((x + dx, y, z + dz)) and not region.solid((x + dx, y + 1, z + dz)):
-            out[(x + dx, y, z + dz)] = "wall"
-    if not region.solid((x, y + 2, z)):
-        out[(x, y + 2, z)] = "roof"
-    return out

@@ -17,12 +17,12 @@ def surface_first(ctx, max_climb=90):
     """Animals, trees and land are on the surface: legs through rock at y=-20 got stuck every 30 s."""
 
     s = api.get("/state")
-    if s.get("skyLight", 15) > 4:
+    if not _k.under_rock(s.get("skyLight", 15)):
         return
     x, y, z = s["blockX"], s["blockY"], s["blockZ"]
     log(f"   underground at y={y}: heading up to the surface first")
     nav.go_to((x, min(y + max_climb, 120), z), ctx.policy, range_=3, attempts=1)
-    if api.get("/state").get("skyLight", 15) <= 4:
+    if _k.under_rock(api.get("/state").get("skyLight", 15)):
         raise api.NavFailed(f"could not reach the surface from y={y}")
 
 LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]

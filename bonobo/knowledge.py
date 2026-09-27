@@ -555,3 +555,19 @@ def head_clear(st, c):
     eye = (x, math.floor(float(s.get("y", st["feet"][1])) + 1.62), z)
     return left(not region.solid(eye), "state:head_clear")
 
+
+COVERED_SKY = 4         # sky light at most this: rock overhead
+
+
+def under_rock(sky_light):
+    """Pure: rock over the feet (sky light at most COVERED_SKY) — underground: no surface work at night, a surface
+    trip starts with the climb. The one reading of it."""
+    return sky_light <= COVERED_SKY
+
+
+def sheltered(sky_light, enclosed, in_site=lambda: False):
+    """Pure given its readers: the night's one judgement of cover — under rock, walled in (`enclosed()`: the
+    shelter's remainder, terrain.openings, is empty) or inside a site's interior (`in_site()`). Sky light alone
+    never says walled in: a cave mouth or a pit under open sky is none of them. The readers are asked only when
+    the cheaper answer did not settle it (perception reads the walls once a night)."""
+    return under_rock(sky_light) or bool(enclosed()) or bool(in_site())

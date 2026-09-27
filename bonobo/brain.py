@@ -579,6 +579,7 @@ def autoplay(hours):
     from . import perception
     perception.start()  # ~5 Hz
     brain = Brain()
+    perception.IN_SITE = brain.reflexes.in_site     # nightfall asks the night way's judgement (knowledge.sheltered)
     deadline = time.time() + hours * 3600
     while time.time() < deadline:
         try:

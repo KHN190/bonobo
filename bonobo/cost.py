@@ -112,8 +112,8 @@ class Cost:
 
     def _surface_trip(self):
         """Under rock, getting out is part of any surface trip, and it scales with depth."""
-        from .data import COVERED_SKY
-        if self.snap.get("skyLight", 15) > COVERED_SKY:
+        from .knowledge import under_rock
+        if not under_rock(self.snap.get("skyLight", 15)):
             return 0
         return 200 + 30 * max(0, 64 - int(self.snap.feet[1]))
 

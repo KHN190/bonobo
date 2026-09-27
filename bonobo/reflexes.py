@@ -6,7 +6,7 @@ import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, nether, skills, tape
 from .api import McError, NotAvailable, log
-from .data import BASE_MARKERS, COVERED_SKY, FULL_BAR, MAX_HP
+from .data import BASE_MARKERS, FULL_BAR, MAX_HP
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
@@ -236,15 +236,17 @@ class Maintain:
         return SHELTER_RUN[steps[-1].token](ctx)
 
     def sheltered(self, snap, enclosed=None):
-        if snap.get("skyLight", 15) <= COVERED_SKY:
-            return True
-        try:
-            if (enclosed or skills.enclosed)():
-                return True
-        except (tape.ReplayMiss, McError):
-            pass
-        feet = list(snap.feet)
-        return any(feet in s.get("interior", []) for s in self.brain.mem.sites(snap.dimension))
+        """knowledge.sheltered over this round: under rock, walled in, or inside a site's interior."""
+        def walled():
+            try:
+                return (enclosed or skills.enclosed)()
+            except (tape.ReplayMiss, McError):
+                return False
+        return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
+
+    def in_site(self, feet, dimension):
+        """The feet stand inside one of our sites' interiors (a hut with its door open is still ours)."""
+        return any(list(feet) in s.get("interior", []) for s in self.brain.mem.sites(dimension))
 
     # -- jobs and the bag
     def ready_job(self, snap):

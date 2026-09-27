@@ -258,5 +258,3 @@ NIGHT_END = 23400
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 ROUTE_FACTOR = 1.5            # real route length / straight line
 
-# sky light ≤ this means under rock; lives here so the action table does not import the brain
-COVERED_SKY = 4

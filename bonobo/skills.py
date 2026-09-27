@@ -929,7 +929,7 @@ def hunt(ctx, token, count, types, night):
         before = Inventory().count(token)
         e = prey[0]
         # reach it with the navigator first: a blind chase from underground never lands a hit
-        if e["distance"] > 4 and api.get("/state").get("skyLight", 15) <= 4 and e["y"] > feet()[1] + 3:
+        if e["distance"] > 4 and _k.under_rock(api.get("/state").get("skyLight", 15)) and e["y"] > feet()[1] + 3:
             # in a cave below the animal: climb out (digging allowed) first
             surface_first(ctx)
             continue
