@@ -1294,6 +1294,16 @@ def _breathing(least=280):
         return s["air"] >= least and not skills.head_underwater(s)
     return check
 
+def _buried_first(ctx, polls=5):
+    """`before` hook: the head is inside the sand the row dropped — else the body was pushed clear, the check (head
+    clear) holds before any round and the row passes without a rescue: SetupInvalid."""
+    from .. import skills
+    for _ in range(polls):
+        if skills.head_buried():
+            return
+        time.sleep(0.2)
+    raise SetupInvalid("the sand did not bury the head: head clear before any round, nothing to rescue")
+
 def _head_clear():
     from .. import skills
     return not skills.head_buried()

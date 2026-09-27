@@ -1118,6 +1118,27 @@ class DecisionOrderWatch(unittest.TestCase):
                 self.assertEqual((dict(vocab.FIRST), got), (want, going))
 
 
+class BuriedFirst(unittest.TestCase):
+    """buried_by_sand's setup holds only when the sand buried the head: pushed clear, head_clear passes with no round."""
+
+    def test_buried_first(self):
+        from bonobo import skills
+        from bonobo.bench import vocab
+        from bonobo.bench.core import SetupInvalid
+        rows = [("buried at once", [True], None),
+                ("buried once the fill lands (third look)", [False, False, True], None),
+                ("must fail: pushed clear of the sand", [False] * 5, SetupInvalid),
+                ("must fail: never buried in the looks allowed", [False] * 9, SetupInvalid)]
+        for name, looks, raises in rows:
+            with self.subTest(name), mock.patch.object(skills, "head_buried", side_effect=looks), \
+                    mock.patch.object(vocab.time, "sleep"):
+                if raises:
+                    with self.assertRaises(raises):
+                        vocab._buried_first(None)
+                else:
+                    self.assertIsNone(vocab._buried_first(None))
+
+
 class DiamondScan(unittest.TestCase):
     """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
 
