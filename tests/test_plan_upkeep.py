@@ -1695,18 +1695,73 @@ class Queue(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     call(path)
 
-    def test_every_template_decomposes_or_says_why(self):
-        """Extensible: a new template in goals.TEMPLATES needs a decompose branch (or a clear Unplannable)."""
-        args = {"have": {"needs": [["log", 1]]}, "craft": {"needs": [["minecraft:stick", 4]]},
-                "milestone": {"name": "food"}, "goto": {"pos": [5, 64, 0]}, "road": {"a": [0, 64, 0], "b": [5, 64, 0]},
-                "build": {"bp": "shelter"}, "sleep": {}, "skill": {"name": "chop", "args": [1]},
-                "effect": {"effect": "breed"}}
-        self.assertEqual(set(args), set(goals.TEMPLATES), "a template without a row here")
-        for template, a in args.items():
+    # Every template: (args, the plan's last step (kind, token, detail it must carry)) — the chain ends at the goal
+    ENDS = {"have": ({"needs": [["log", 1]]}, ("gather", "log", {})),
+            "craft": ({"needs": [["minecraft:stick", 4]]}, ("craft", "minecraft:stick", {})),
+            "milestone": ({"name": "food"}, ("smelt", "food", {})),
+            "goto": ({"pos": [5, 64, 0]}, ("goto", "pos", {"pos": [5, 64, 0]})),
+            "road": ({"a": [0, 64, 0], "b": [5, 64, 0]}, ("goto", "pos", {"pos": [5, 64, 0]})),
+            "build": ({"bp": "shelter"}, ("build", "shelter", {})),
+            "sleep": ({}, ("sleep", "bed", {})),
+            "skill": ({"name": "chop", "args": [1]}, ("skill", "chop", {"args": [1]})),
+            "effect": ({"effect": "breed"}, ("breed", "breed", {}))}
+
+    @staticmethod
+    def complete(steps, last):
+        """The chain is whole: not empty, every step carried out by some registered skill (skill.handles), and its
+        last step the goal's own — its kind, its token (or a member of the group token: "food" ← cooked beef), and
+        the detail the goal fixed."""
+        from bonobo.knowledge import members
+        kind, token, detail = last
+        if not steps or not all(skillkit.handles(s) for s in steps):
+            return False
+        end = steps[-1]
+        tokens = {bare(token)} | {bare(m) for m in members(token)}
+        return (end.kind == kind and bare(end.token) in tokens
+                and all(end.detail.get(k) == v for k, v in detail.items()))
+
+    def test_every_template_decomposes_to_a_complete_chain(self):
+        """Extensible: a new template in goals.TEMPLATES needs a decompose branch and a row here."""
+        self.assertEqual(set(self.ENDS), set(goals.TEMPLATES), "a template without a row here")
+        for template, (a, last) in self.ENDS.items():
             with self.subTest(template):
                 steps = plan({"goal": template, "args": a}, snapshot(), {"oak_log": 5, "stone": 2, "cow": 9})
-                self.assertIsInstance(steps, list)
+                self.assertTrue(self.complete(steps, last), [str(s) for s in steps])
 
+    def test_an_incomplete_chain_is_caught(self):
+        # must fail: the chain cut short of its goal, a step no skill carries out, nothing at all — the same check
+        steps = plan(goals.make("craft", needs=[["minecraft:stick", 4]]), snapshot(), {"oak_log": 5})
+        last = self.ENDS["craft"][1]
+        rows = [("the whole chain", steps, True),
+                ("must fail: stops before the goal", steps[:-1], False),
+                ("must fail: a step no skill provides", steps[:1] + [planner.Step("teleport", "far", 1)] + steps[1:], False),
+                ("must fail: no steps", [], False),
+                ("must fail: ends at another goal", steps + [planner.Step("gather", "log", 1)], False)]
+        for name, chain, ok in rows:
+            with self.subTest(name):
+                self.assertEqual(self.complete(chain, last), ok)
+
+    def test_what_cannot_be_decomposed_says_why(self):
+        # must fail: a skill or an effect no registered skill provides, an effect missing its detail — Unplannable,
+        # naming what is missing
+        rows = [("an unknown skill", {"goal": "skill", "args": {"name": "fly"}}, "fly"),
+                ("an effect nobody provides", {"goal": "effect", "args": {"effect": "teleport"}}, "teleport"),
+                ("an effect without its detail", {"goal": "effect", "args": {"effect": "goto"}}, "pos"),
+                ("an unknown template", {"goal": "teleport", "args": {}}, "teleport")]
+        for name, goal, says in rows:
+            with self.subTest(name):
+                with self.assertRaises(Unplannable) as e:
+                    plan(goal, snapshot(), {})
+                self.assertIn(says, str(e.exception))
+
+    def test_the_skill_template_over_every_registered_skill(self):
+        # any registered skill asked for by name is one step that skill carries out, its args kept
+        self.assertGreaterEqual(len(skillkit.REGISTRY), 4)
+        for name in sorted(skillkit.REGISTRY):
+            with self.subTest(name):
+                steps = plan(goals.make("skill", name=name, args=[2]), snapshot(), {})
+                self.assertEqual([(s.kind, s.token, s.detail) for s in steps], [("skill", name, {"args": [2]})])
+                self.assertTrue(self.complete(steps, ("skill", name, {"args": [2]})))
 
 
 # ------------------------------------------------------------------------------------------ the night's work
