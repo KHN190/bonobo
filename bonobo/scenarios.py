@@ -1458,9 +1458,16 @@ def _tp(dx=0, dy=0, dz=0):
     return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
 
 
-def _grove(*spots, feature="minecraft:oak"):
-    return [f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block"] + \
-        [f"place feature {feature} {_c(at(x, 0, z))}" for x, z in spots]
+def _tree(x, z, wood="oak", height=5):
+    """One tree built block by block: the same trunk and crown every run (a generated feature is a random shape,
+    and its log count decided rows by chance). Leaves persistent: nothing decays under them."""
+    return [f"fill {_c(at(x - 2, height - 2, z - 2))} {_c(at(x + 2, height - 1, z + 2))} {wood}_leaves[persistent=true]",
+            f"fill {_c(at(x - 1, height, z - 1))} {_c(at(x + 1, height, z + 1))} {wood}_leaves[persistent=true]",
+            f"fill {_c(at(x, 0, z))} {_c(at(x, height - 1, z))} {wood}_log"]
+
+
+def _grove(*spots, wood="oak"):
+    return [f"fill {_c(at(-8, -1, -8))} {_c(at(8, -1, 8))} grass_block"] + [c for x, z in spots for c in _tree(x, z, wood)]
 
 
 def _chest(pos, *items):

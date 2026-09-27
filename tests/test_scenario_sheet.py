@@ -470,3 +470,36 @@ class BrainGrid(unittest.TestCase):
         for fam, moved, want in rows:
             with self.subTest(fam, **moved):
                 self.assertEqual(sc.BRAIN_FAMILIES[fam][2](dict(sc.BRAIN_BASE, **moved))[1], want)
+
+
+class Chance(unittest.TestCase):
+    """runner.stochastic / needs_clock / verdict_of(chance=): a deterministic row is decided by one run."""
+
+    def test_stochastic(self):
+        rows = [("blocks only", {"setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
+                ("a summoned mob", {"setup": ["summon cow 1 2 3"], "doc": ""}, True),
+                ("a generated tree", {"setup": ["place feature minecraft:oak 1 2 3"], "doc": ""}, True),
+                ("a fight", {"setup": [], "doc": "", "combat": True}, True),
+                ("a trade roll (barter)", {"setup": [], "doc": "barter with piglins"}, True),
+                ("marked deterministic over a summon", {"setup": ["summon cow 1 2 3"], "doc": "", "stochastic": False},
+                 False),
+                ("a built tree (_grove)", {"setup": sc._grove((3, 0)), "doc": ""}, False)]
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.stochastic(row), want)
+
+    def test_needs_clock(self):
+        rows = [("nothing about time", {"setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
+                ("a set time", {"setup": ["time set 18000"], "doc": ""}, True),
+                ("a sleep skill", {"setup": [], "doc": "", "skills": ["sleep"]}, True),
+                ("a night in the doc", {"setup": [], "doc": "survive the night"}, True)]
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.needs_clock(row), want)
+
+    def test_one_run_decides_a_deterministic_row(self):
+        rows = [([True], False, "pass"), ([False], False, "fail"), ([sc.TIMEOUT], False, "fail"),
+                ([False], True, None), ([False, True], True, None), ([], False, None)]
+        for oks, chance, want in rows:
+            with self.subTest(oks=oks, chance=chance):
+                self.assertEqual(sc.verdict_of(oks, chance=chance), want)

@@ -299,10 +299,36 @@ def settled(table, name):
 MAX_RUNS = 3      # a row runs once; a failure is re-run, three runs at most, and passes on ≥ 2 of 3
 
 
-def verdict_of(oks):
+# Rows whose outcome the world decides by chance: mobs (summoned or fought), random tree shapes, drop counts.
+# Everything else is deterministic: one run decides it, pass or fail.
+STOCHASTIC_MARKS = ("summon ", "place feature", "spreadplayers", "barter", "locate ")
+
+
+def stochastic(row):
+    """Pure: does this row's outcome depend on chance? An explicit `stochastic` wins; else a fight or anything the
+    setup leaves to chance (a summoned mob, a generated tree, a random landing spot, a trade roll)."""
+    if "stochastic" in row:
+        return bool(row["stochastic"])
+    if row.get("combat") or row.get("sweep"):
+        return True
+    text = " ".join(str(c) for c in row.get("setup", ())) + " " + row.get("doc", "")
+    return any(m in text for m in STOCHASTIC_MARKS)
+
+
+def needs_clock(row):
+    """Pure: does this row need the day to move (sleep, a night to wait out, a set time)? Else the runner stops it."""
+    names = " ".join(row.get("skills", ())) + " " + row.get("doc", "")
+    return any(str(c).startswith("time set") for c in row.get("setup", ())) or \
+        any(w in names for w in ("sleep", "wait:day", "night", "dusk", "morning"))
+
+
+def verdict_of(oks, chance=True):
     """Pure: the verdict of a row's counted runs, in order (the last MAX_RUNS). One pass is a pass; two failures are a
-    fail; one of each needs the third run, which decides (≥ 2 of 3). None = run again."""
+    fail; one of each needs the third run, which decides (≥ 2 of 3). None = run again. A deterministic row
+    (`chance` False) is decided by its one run."""
     oks = list(oks)[-MAX_RUNS:]
+    if not chance and oks:
+        return "fail" if oks[-1] == TIMEOUT or not oks[-1] else "pass"
     if oks and oks[-1] == TIMEOUT:
         return "fail"                  # stopped at the limit: slow every time, a re-run only costs the limit again
     oks = [o is True or (bool(o) and o != TIMEOUT) for o in oks]
@@ -328,7 +354,9 @@ def cached_timeout(table, name, code):
 def verdict(table, name, code):
     """Pure: 'pass' / 'fail' for the current code's counted runs (`verdict_of`), else None."""
     counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
-    return verdict_of([TIMEOUT if r.get("note", "").startswith(TIMEOUT) else r["ok"] for r in counted])
+    row = SCENARIOS.get(name)
+    return verdict_of([TIMEOUT if r.get("note", "").startswith(TIMEOUT) else r["ok"] for r in counted],
+                      chance=True if row is None else stochastic(row))
 
 
 # ---------------------------------------------------------------- readiness table (pure helpers are tested offline)
@@ -438,6 +466,11 @@ def _setup(name, sc, feedback):
                 "gamerule spawn_mobs false", f"difficulty {'normal' if combat else 'peaceful'}",
                 f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"):
         _checked(ex(cmd), feedback)
+    # No chance left in the world: no random ticks (leaf decay, crop growth, fire), no weather, and the clock only
+    # where the row needs it (sleep, a night). Unchecked: a rule this game version names differently is skipped.
+    for cmd in ("gamerule random_tick_speed 0", "gamerule advance_weather false",
+                f"gamerule advance_time {'true' if needs_clock(sc) else 'false'}"):
+        _command(ex(cmd), feedback)
     # Wait until the box's chunks are really loaded: a 1-block fill answers "not loaded" until then.
     probe = _c(at(0, BOX[1][1], 0))
     for _ in range(60):
