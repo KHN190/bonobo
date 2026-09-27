@@ -809,7 +809,8 @@ def run(name, make_ctx):
                 reached = bool(sc["check"](api, inv_after))
                 # A crash (IndexError from our own code) passed the check once and was recorded as PASS.
                 from .. import scenarios as _rows
-                ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"), sc.get("target_s"))
+                ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
+                                  _rows.BASE.get("target_s") or sc.get("target_s"))   # a row's own, measured at start
                 ok = ok and not fired.is_set()
                 if reached and not ok:
                     # The outcome happened, just too slowly (or through a crash of ours): say so.

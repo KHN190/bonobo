@@ -701,6 +701,21 @@ class Drain(unittest.TestCase):
                 self.assertEqual(sc.drain_step(food, sat, level), want)
 
 
+class EatTarget(unittest.TestCase):
+    """scenarios.eat_target_s: per bite × the bites the gap takes (a flat 3 s failed a 4-bite meal at 7.2 s)."""
+
+    def test_table(self):
+        per = sc.TARGET_S["eat"] * sc.TARGET_SLACK
+        rows = [("food 4, bread: 16 points of gap, 4 bites", 4, {"minecraft:bread": 8}, 4 * per),
+                ("food 10, bread: 2 bites", 10, {"minecraft:bread": 8}, 2 * per),
+                ("food 16, cooked beef: one bite", 16, {"minecraft:cooked_beef": 4}, 1 * per),
+                ("full: nothing to eat, no target", 20, {"minecraft:bread": 8}, None),
+                ("nothing carried: no target", 6, {}, None)]
+        for name, food, carried, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sc.eat_target_s(food, carried), want)
+
+
 class Chance(unittest.TestCase):
     """runner.stochastic / needs_clock / verdict_of(chance=): a deterministic row is decided by one run."""
 

@@ -1680,8 +1680,26 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
 # A miss is its own named failure ("slow"), judged by the runner (`judge`, row["target_s"]), never folded into the
 # outcome check: a pickaxe made in 11 s read "skill returned … without the outcome". The craft base carries its
 # table, so its sitting includes placing it and taking it back (inferred from one trace: ~9-11 s).
-TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air": 5.0}
+TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air": 5.0}   # eat: per BITE (eat_target_s)
 TARGET_SLACK = 1.5
+
+
+def eat_target_s(food, carried):
+    """Pure: an eat row's speed target — per bite × the bites the bar's gap takes from what is carried
+    (skills.bites_to_full), with the slack. Eating is every bite in one go (~1.6 s each): a flat 3 s failed a
+    4-bite meal that ran 7.2 s. None when nothing is to be eaten."""
+    from .skills import bites_to_full
+    _item, bites = bites_to_full(food, carried)
+    return TARGET_S["eat"] * bites * TARGET_SLACK if bites else None
+
+
+def _eat_target(ctx):
+    """`before` hook (after the drain): the eat row's target from the bar and the bag it starts with."""
+    from .world import Inventory
+    from .knowledge import ALL_FOOD
+    inv = Inventory()
+    food = __import__("bonobo.api", fromlist=["get"]).get("/state")["food"]
+    BASE["target_s"] = eat_target_s(food, {f: inv.count(f) for f in ALL_FOOD})
 
 
 def _timed(run):
@@ -1753,7 +1771,8 @@ BASES = {
     "eat": dict(skills=["eat"], doc="hungry, bread carried → the food bar rises", point="A",
                 setup=_floor() + [_tp(), "give @p bread 4"],
                 pre=lambda ctx: (_chat("effect give @p minecraft:hunger 5 255 true"), time.sleep(5.5),
-                                 BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"])),
+                                 BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"]),
+                                 _eat_target(ctx)),
                 run=lambda ctx: _skill("eat")(), check=_food_up(), budget=15,
                 combat=True),        # hunger only drains off peaceful: the runner sets normal difficulty for combat rows
     "sleep": dict(skills=["sleep"], doc="night, a bed carried → morning", point="A",
