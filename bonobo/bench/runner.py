@@ -94,13 +94,17 @@ def _watchdog(limit, fired):
     return t
 
 
-def judge(reached, seconds, budget, crashed=False):
+def judge(reached, seconds, budget, crashed=False, run_s=None, target_s=None):
     """Pure: (ok, why not) for a finished row. The world must show the effect, within the budget's slack, and our
-    own code must not have crashed on the way — a crash is never a pass, whatever the world looks like after."""
+    own code must not have crashed on the way — a crash is never a pass, whatever the world looks like after. A
+    row with a speed target (`target_s`) that reached its outcome too slowly says so: slow, not "not reached"."""
     if not reached:
         return False, "outcome not reached"
     if crashed:
         return False, "crashed on the way (a bug of ours)"
+    if target_s is not None and (run_s is None or run_s > target_s):
+        took = "never timed" if run_s is None else f"{run_s:.1f}s"
+        return False, f"outcome reached but slow: its own run {took} > target {target_s:.1f}s"
     if seconds > budget * BUDGET_SLACK:
         return False, f"outcome reached but over budget: {seconds:.0f}s > {budget * BUDGET_SLACK:.0f}s"
     return True, None
@@ -803,7 +807,8 @@ def run(name, make_ctx):
                 inv_after = Inventory()
                 reached = bool(sc["check"](api, inv_after))
                 # A crash (IndexError from our own code) passed the check once and was recorded as PASS.
-                ok, why = judge(reached, seconds, sc["budget"], crashed)
+                from .. import scenarios as _rows
+                ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"), sc.get("target_s"))
                 ok = ok and not fired.is_set()
                 if reached and not ok:
                     # The outcome happened, just too slowly (or through a crash of ours): say so.

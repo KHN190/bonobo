@@ -740,14 +740,20 @@ class Pending(unittest.TestCase):
 class SkillsAreTimed(unittest.TestCase):
     """A skill row fails past TARGET_SLACK × its target, timed from its own run (scenarios.TARGET_S)."""
 
+    # (situation, run_s, target_s) → ok, and the note names slowness (the outcome itself was reached)
+    QUICK = [("chop in 12 s against 15: inside", 12.0, 15.0, True, None),
+             ("chop in 16 s: slow, named", 16.0, 15.0, False, "slow: its own run 16.0s > target 15.0s"),
+             ("edge: exactly the target", 12.0, 12.0, True, None),
+             ("must fail: never timed", None, 3.0, False, "never timed"),
+             ("no target: speed not judged", 50.0, None, True, None)]
+
     def test_quick_over_the_table(self):
-        rows = [("chop in 12 s against 10: inside 15", 12.0, 10.0, True),
-                ("chop in 16 s: over", 16.0, 10.0, False),
-                ("a craft in 3 s against 2: exactly the slack", 3.0, 2.0, True),
-                ("never run: not quick", None, 2.0, False)]
-        for name, took, target, want in rows:
-            with self.subTest(name), mock.patch.dict(sc.BASE, {"run_s": took}):
-                self.assertIs(sc._quick(target)(None, None), want)
+        for name, took, target, want, why in self.QUICK:
+            with self.subTest(name):
+                ok, got_why = sc.judge(True, 5, 45, False, took, target)
+                self.assertIs(ok, want)
+                if why:
+                    self.assertIn(why, got_why)
 
     def test_the_timed_rows(self):
         """The rows with a target run through `_timed`; the others do not."""
@@ -755,6 +761,7 @@ class SkillsAreTimed(unittest.TestCase):
                            ("find_air_capped", True), ("smelt__base", False), ("chop__night", False)):
             with self.subTest(name):
                 self.assertEqual(sc.SHEET[name]["run"].__qualname__ == "_timed.<locals>.go", want)
+                self.assertEqual("target_s" in sc.SHEET[name], want)
         sc.BASE.pop("run_s", None)
         self.assertEqual((sc._timed(lambda ctx: "done")(None), sc.BASE["run_s"] < 1.0), ("done", True))
 
