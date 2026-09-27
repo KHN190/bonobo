@@ -13,11 +13,10 @@ from types import MappingProxyType
 from .bench import core, runner
 from .data import POD_BLOCKS
 from .bench.core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
-from .bench.core import (BOX, FLAG, NOTES, ORIGIN, PKG, SCENARIOS, SetupInvalid, _achieve, _batch, _c, _chat,
-                         _checked, _command, _count_blocks, _drain, _inv_has, _near, _platform, _sweep,
-                         _sweep_check, _by, at, server_count, set_brain)
+from .bench.core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
+                         _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
 from .bench.runner import *        # noqa: F403
-from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _report, _setup, _trace, classify, code_for, dep_hash, feedback_errors, load_table,
+from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 
 # name → module (for the readiness hash), setup commands (relative to ORIGIN), expected signature blocks
@@ -792,7 +791,6 @@ def slice_report(lines, positions, target, idle_s, picks=None):
     """Pure: loops (review.repeated over the brain's own log), longest idle, and how far the player moved away from
     `target` in total (walking the wrong way) — from the slice's log lines and (t, pos) samples."""
     from . import review
-    import datetime
     entries = []
     for raw in lines:
         parts = raw.split(" ", 1)
@@ -919,14 +917,6 @@ def _has_stone_pickaxe():
     return Inventory().count("minecraft:stone_pickaxe") >= 1
 
 
-def _has_tools_and_furnace():
-    from .world import Inventory
-    inv = Inventory()
-    return inv.count("minecraft:stone_pickaxe") >= 1 and (inv.count("minecraft:furnace") >= 1
-                                                          or bool(__import__("bonobo.world", fromlist=["find"])
-                                                                  .find(["furnace"], 8, 1)))
-
-
 def _nether_kit_ready():
     from .knowledge import nether_kit_missing
     from .world import Inventory
@@ -953,20 +943,6 @@ SCENARIOS["slice_start_tools"] = {
     "detail": _slice_detail,
     "budget": 30,
 }
-def _spread_to_located_biome():
-    """Move the player to the biome the setup's `/locate biome` just found. The kit needs meat, so the slice has to
-    start where animals spawn: at a fixed (12000, 12000) it landed in animal-free mountains and spent 8 minutes at
-    food 0/6 with everything else ready."""
-    spot = locate_reply(LAST_FEEDBACK)
-    if spot is None:
-        raise SetupInvalid("no /locate biome answer for the plains")
-    # Say where we are putting the player: a silent setup left no way to tell "landed in plains, still no animals"
-    # apart from "never moved at all" when the slice failed at food 0/6 again.
-    _chat(f"execute in minecraft:overworld run spreadplayers {spot[0]} {spot[1]} 0 4 false @p")
-    time.sleep(3)
-    from . import api as _api
-    s = _api.get("/state")
-    print(f"   slice starts at {(s['blockX'], s['blockY'], s['blockZ'])} (plains located at {spot})", flush=True)
 
 
 def _portal_beside_player(ctx):
@@ -1143,16 +1119,6 @@ def _stronghold_error():
     return math.dist(real, (sites[0]["pos"][0], sites[0]["pos"][2]))
 
 
-def _near_real_stronghold(ctx):
-    """Put a deliberately-off estimate in memory and stand on the surface above it."""
-    from . import api
-    real = locate_reply(LAST_FEEDBACK)
-    if not real:
-        raise SetupInvalid("no /locate answer for the stronghold")
-    est = (real[0] + 20, 30, real[1] - 12)
-    ctx.mem.add_site("stronghold", est, "minecraft:overworld", name="stronghold")
-    api.post("/chat", {"message": f"/spreadplayers {est[0]} {est[2]} 0 4 false @p"})
-    time.sleep(3)
 SCENARIOS["cross_lava_3"] = _lava_lake(3)
 SCENARIOS["cross_lava_8"] = _lava_lake(8)
 SCENARIOS["gather_logs_birch"] = {
@@ -1197,8 +1163,7 @@ def _trades(inv):
 
 from .bench import fight           # noqa: E402,F401  (the fight sheet registers itself)
 from .bench.fight import *         # noqa: E402,F403
-from .bench.fight import (_build, _cells, _combat_execute, _combat_intent, _fought, _hostiles,
-                          _siege_cells, _summon)        # noqa: E402
+from .bench.fight import _cells, _hostiles        # noqa: E402
 
 
 # ================================================================================================================
@@ -1210,7 +1175,6 @@ from .bench.fight import (_build, _cells, _combat_execute, _combat_intent, _foug
 # checks the sheet's shape and that every registered skill is proven somewhere. Nothing here runs until
 # `mc.py scenario <name>` in a test world.
 # ================================================================================================================
-import itertools as _it
 import threading as _threading
 
 BASE = {}                 # the bag, the /state and the time at the start of the run (`_start`)
@@ -1374,10 +1338,6 @@ def _food_up():
 
 def _is_day():
     return lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 12500
-
-
-def _dimension(dim):
-    return lambda api, inv: api.get("/state")["dimension"] == dim
 
 
 def _free_slots(n):
@@ -1863,10 +1823,6 @@ def _stack_room_setup(base):
 # the row an expected failure with that reason; `check` (a function of the base) replaces the base's effect check;
 # `run` (a function of name, base) wraps the base's run; `before` hooks run after the start snapshot.
 H = 6        # canopy height
-
-
-def _all_bases(*names):
-    return set(names) if names else set(BASES)
 
 
 CONDITIONS = {
@@ -2864,16 +2820,6 @@ def _log_lines():
     return list(LAST_LINES)
 
 
-def _log_order(first, then):
-    """`first` appears in the brain's log before `then` (both must appear)."""
-    def check(api, inv):
-        lines = _log_lines()
-        a = next((i for i, l in enumerate(lines) if first in l), None)
-        b = next((i for i, l in enumerate(lines) if then in l), None)
-        return a is not None and b is not None and a < b
-    return check
-
-
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 
@@ -2940,10 +2886,6 @@ def _before_in_bag(first, then, or_never=False):
             return or_never and a is not None
         return a is not None and a < b
     return check
-
-
-def _log_lacks(text):
-    return lambda api, inv: not any(text in l for l in _log_lines())
 
 
 def _count_replans(ctx):
@@ -3026,7 +2968,6 @@ def _forget_all(kind):
     return before
 
 
-_PEN = lambda mob, n: _pen(mob, n, half=6)   # noqa: E731
 _ARENA_B = [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", "clear @p"]
 IRON_ORE_FREE, IRON_ORE_CAGED = at(4, 0, 0), at(-4, 0, 0)
 BRAIN_ROWS = {   # (doc, setup, queue, done, minutes, check): every row ≤ 1 min, the world built up to the decision

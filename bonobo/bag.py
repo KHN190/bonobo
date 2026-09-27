@@ -1,6 +1,5 @@
 """The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them
 (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
-from .data import GROUPS
 from .world import add
 
 PICKUP_FILTER_AT = 28

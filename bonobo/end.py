@@ -8,7 +8,7 @@ from . import api, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import bare
-from .world import Inventory, Region, add, away_from, cells_with, entities, find
+from .world import Inventory, Region, away_from, cells_with, entities, find
 
 
 def frames_missing_eye(region):
@@ -583,7 +583,6 @@ def bed_bomb_window(ctx):
         raise NotAvailable("too hurt to take the blast")
     # The window is not the time to discover the pit was never finished: one run mined end stone for 10 s here and
     # died. Check the hole and our place in it first.
-    s = api.get("/state")
     from .world import Region
     dug = Region((pit_feet[0], pit_feet[1], pit_feet[2]), (pit_feet[0], floor_y - 1, pit_feet[2]))
     if any(dug.solid((pit_feet[0], y, pit_feet[2])) for y in range(pit_feet[1], floor_y)):

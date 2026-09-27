@@ -436,9 +436,6 @@ def structure(cells_of):
 
 
 # -- the bag ---------------------------------------------------------------------------------------------------------
-def bag_holds(rows_of):
-    """The bag holds `rows_of(state, call)` ([[token, n]]): knowledge.have_remainder."""
-    return lambda st, c: have_remainder(st["inv"], rows_of(st, c))
 
 
 def more_than_at_start(token_of, n_of=lambda c: 1):

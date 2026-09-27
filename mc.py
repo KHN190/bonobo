@@ -3,7 +3,6 @@
 import argparse
 import json
 import sys
-import time
 
 from bonobo import api, skills
 from bonobo.api import McError, log
@@ -134,7 +133,7 @@ def cmd_scenario(a):
     """Scenario bench (test world only): enable | disable | list | run NAME... | all | table."""
     import os
     from bonobo import scenarios, skills
-    from bonobo.brain import Brain, code_version
+    from bonobo.brain import Brain
     from bonobo.world import Snapshot
     if a.action == "enable":
         open(scenarios.FLAG, "w").write("test world confirmed by the user\n")
@@ -164,7 +163,6 @@ def cmd_scenario(a):
             print(f"{name:20} {code} {st:9} {'' if med is None else f'median {med}s'}")
         return
     from bonobo import perception
-    from bonobo import skill as skillkit
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
     # `all` skips release-only rows (minutes each) unless a tier was named: a tier's rows are the tier, all of them.
     tiered = getattr(a, "tier", "core") not in (None, "all")
@@ -291,7 +289,6 @@ def _scenario_migrate(scenarios):
 def _scenario_selection(a, scenarios):
     """The rows `--tier` / `--changed` name (scenarios.select): the diff against the merge-base with main, mapped to
     the skills whose functions it touched."""
-    import os
     import subprocess
     # Acceptance is its own run; a tier narrows --failed and --pending alike when one is named.
     in_tier = set(scenarios.tier_rows(scenarios.SCENARIOS, a.tier, "--tier" in sys.argv))

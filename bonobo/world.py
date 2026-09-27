@@ -3,7 +3,7 @@ import math
 import time
 
 from . import api
-from .data import (DAY_END, FALLING, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
+from .data import (DAY_END, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
 
 # The round's route answers from the game (`nav.route_s` writes them, `nav.forget_routes` clears): {key: (found,
@@ -47,11 +47,6 @@ class Inventory:
     def offhand(self):
         return self.equipment.get("offhand", {}).get("id", "minecraft:air")
 
-    def richest(self, group):
-        totals = {i: self.count(i) for i in GROUPS[group]}
-        best = max(totals, key=totals.get)
-        return best, totals[best]
-
     def tools(self, kind):
         """[(tier, durability_left, id)] best first."""
         out = []
@@ -60,9 +55,6 @@ class Inventory:
             if k == kind and material in TIER_OF_MATERIAL:
                 out.append((TIER_OF_MATERIAL[material], s.get("maxDamage", 0) - s.get("damage", 0), s["id"]))
         return sorted(out, reverse=True)
-
-    def best_tool(self, kind, min_left=1):
-        return next((t for t in self.tools(kind) if t[1] >= min_left), None)
 
     def worn(self, slot):
         return self.equipment.get(slot, {}).get("id", "minecraft:air")
@@ -250,9 +242,6 @@ class Region:
 
     def hazard(self, p):
         return self.name(p) in HAZARD
-
-    def falling(self, p):
-        return self.name(p) in FALLING
 
     def unbreakable(self, p):
         return self.name(p) in UNBREAKABLE

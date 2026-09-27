@@ -105,14 +105,6 @@ ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
 HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
 
 
-def looking_at_enderman(state, near):
-    """Pure: the crosshair is on an enderman right now (mod's /state lookingAt)."""
-    look = state.get("lookingAt") or {}
-    if look.get("kind") != "entity":
-        return False
-    return any(e["id"] == look.get("entity") and e["type"] == ENDERMAN for e in near)
-
-
 def endermen_near(near, here, radius=6.0):
     """Pure: endermen within `radius`, nearest first. In the End they are everywhere and one angry enderman does 7 hp
     a hit — the dragon benches ignored them completely."""
@@ -174,22 +166,6 @@ def shoot_batch(entity, eye, hold_ticks=22):
     aim = bow_aim(eye, (entity["x"], entity["y"], entity["z"]), height=entity.get("height", 1.0) * 0.6)
     return [{"type": "use_item", "item": "minecraft:bow", "x": aim[0], "y": aim[1], "z": aim[2],
              "holdTicks": hold_ticks}]
-
-
-def guard_batch(inv, yaw, ticks=30):
-    """Pure: raise the shield (hold 'use' with the weapon in hand), or [] without a shield in the offhand or a
-    sword to hold (swords have no use action in 1.21, so the offhand shield blocks)."""
-    if inv.offhand() != "minecraft:shield":
-        return []
-    weapon = next((w for w in ("minecraft:diamond_sword", "minecraft:iron_sword", "minecraft:stone_sword")
-                   if inv.count(w)), None)
-    return [] if weapon is None else [{"type": "use_item", "item": weapon, "yaw": yaw, "pitch": 0,
-                                       "holdTicks": ticks}]
-
-
-def strike_batch(entity):
-    """Pure: a melee attack on `entity`."""
-    return [{"type": "attack", "entity": entity["id"]}]
 
 
 def shoot(entity, hold_ticks=22, near=None):

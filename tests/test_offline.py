@@ -465,7 +465,6 @@ check("portal: light aim is the top face of an inner bottom obsidian (rotated)",
       _cells.get((int(_aim[0] // 1), 64, int(_aim[2] // 1))) == "minecraft:obsidian" and _aim[1] == 65.0, _aim)
 
 # -- perception: when a running task must be interrupted
-from bonobo import perception as PC  # noqa: E402
 
 same("perception: an interrupt is its own cause, never a failure",
      __import__("bonobo.retry", fromlist=["cause_of"]).cause_of(
@@ -551,9 +550,6 @@ check("repair: a single tool can't", UK.repair_pair(_tools[2:], "pickaxe") is No
 check("piglins: gold armor first, then ingots", NT.barter_ready(LInv({"minecraft:gold_ingot": 5}), [None, None, None, None])
       == "wear a piece of gold armor first"
       and NT.barter_ready(LInv({"minecraft:gold_ingot": 5}), ["minecraft:golden_helmet", None, None, None]) is None)
-check("clutch: pour just above the ground after a long fall",
-      PC.clutch_needed(8, 3, {"onGround": False}, True) and not PC.clutch_needed(8, 12, {"onGround": False}, True)
-      and not PC.clutch_needed(3, 3, {"onGround": False}, True) and not PC.clutch_needed(8, 3, {"onGround": False}, False))
 _dm = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
 _dm.log_death((1, 64, 1), "minecraft:overworld")
 check("death: recent death is recoverable for 5 minutes",
@@ -853,10 +849,6 @@ check("combat: only an aim through an enderman's head provokes it — level or l
       CM.aim_hits_enderman((12, 69, 0), (0, 64, 0), _ender)          # rising line crosses the head band
       and not CM.aim_hits_enderman((12, 64, 0), (0, 64, 0), _ender)  # same direction, below the head
       and not CM.aim_hits_enderman((0, 80, 20), (0, 64, 0), _ender))
-check("combat: the crosshair sitting on an enderman is seen (mod lookingAt)",
-      CB.looking_at_enderman({"lookingAt": {"kind": "entity", "entity": 7}}, _ender)
-      and not CB.looking_at_enderman({"lookingAt": {"kind": "entity", "entity": 9}}, _ender)
-      and not CB.looking_at_enderman({"lookingAt": {"kind": "block"}}, _ender))
 same("combat: endermen close by are handled before the boss, nearest first", [round(e["x"]) for e in CB.endermen_near(
           [{"type": "minecraft:enderman", "x": 4, "y": 64, "z": 0},
            {"type": "minecraft:enderman", "x": 2, "y": 64, "z": 0},

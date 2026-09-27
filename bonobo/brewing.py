@@ -1,10 +1,9 @@
 """Potions for the Nether and the End: water bottles, awkward potions (nether wart), fire resistance (magma cream).
 A brewing stand's slots: 0–2 bottles, 3 ingredient, 4 fuel (blaze powder). Pure `brew_steps` is offline-tested."""
-import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore
-from .api import McError, NotAvailable, log
+from .api import NotAvailable, log
 from .skill import skill
 from .skillcore import settle
 from .world import Inventory, find

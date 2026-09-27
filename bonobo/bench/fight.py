@@ -9,7 +9,7 @@ import time
 
 from .. import estimate, paths
 from . import core
-from .core import SCENARIOS, SWEEP, SetupInvalid, _by, _c, _chat, _platform, _sweep, _sweep_check, at
+from .core import SCENARIOS, SWEEP, SetupInvalid, _c, _chat, _platform, _sweep, _sweep_check, at
 
 # -- one table of dimensions, three benches -----------------------------------------------------------------------
 # The same shape as the offline sweep (`tests/world.py`): a cell is a point in a named product, `_cells` moves ONE
@@ -376,16 +376,6 @@ def blind_s(looks, seconds):
 def _threat_kinds():
     from .. import threat
     return set(threat.MOBS)
-
-
-def _mob_reach(kind):
-    from .. import threat
-    return threat.MOBS.get(kind, {}).get("reach", 3.0)
-
-
-def _player_speed():
-    from .. import threat
-    return threat.PLAYER["speed"]
 
 
 BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured nothing

@@ -148,7 +148,7 @@ def extinguish_commands(s, has_bucket, water):
 
 RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury, "burning": _extinguish}
 # Hazards answered by stopping the work and nothing more: a fall is over before a round could act, and the landing
-# belongs to the jar's WaterClutch (and to perception's clutch, `perception.clutch_needed`).
+# belongs to the jar's WaterClutch.
 STOP_ONLY = ("falling",)
 assert set(RESCUE) | set(STOP_ONLY) == set(KINDS), "every hazard kind is rescued or declared stop-only"
 

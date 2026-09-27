@@ -14,7 +14,7 @@ from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
 from .knowledge import step_call, tool_ok
 from .skillcore import banned
-from .world import ROUTES, entities, find, job_ready, nearest
+from .world import ROUTES, entities, job_ready, nearest
 
 TICKS_PER_S = 20
 

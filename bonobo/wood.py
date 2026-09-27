@@ -8,7 +8,7 @@ from .data import GROUPS
 from .explore import seek_blocks
 from .knowledge import CHOP_AXE_S
 from .skill import skill
-from .skillcore import _collect_only, feet, gained, settle
+from .skillcore import feet, gained, settle
 from .world import Inventory, find
 
 

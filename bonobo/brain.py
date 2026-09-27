@@ -374,11 +374,6 @@ class Brain:
             return None
         return Act("upkeep", name, lambda: dispatch.execute(ctx, step, snap.night), step=step)
 
-    def upkeep(self, snap, ctx):
-        """The reflex the arbiter picks this round (reflexes.Maintain.act), as an act."""
-        got = self.reflexes.act(snap, ctx)
-        return Act("upkeep", *got) if got else None
-
     # -- the queue: hold a plan, check it cheaply, repair it on events
     def task_act(self, task, snap, ctx):
         goal = tasks.goal_of(task)
@@ -536,10 +531,6 @@ class Brain:
         if time.time() - self.last_hold_log > 60:
             self.last_hold_log = time.time()
             log(text)
-
-    def survival(self, snap, ctx):
-        """The bench's L0 entry (scenarios): the rescue for whatever hazard is on the body now."""
-        return hazard.handle(ctx, snap.state, self.attempt, self.ready)
 
 
 FIGHT_POLL_S, FIGHT_WAIT_MAX_S = 0.5, 60.0

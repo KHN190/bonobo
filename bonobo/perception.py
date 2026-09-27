@@ -165,14 +165,6 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     return None
 
 
-def clutch_needed(fallen, gap, state, has_water_bucket):
-    """Pure: place water under us now? Falling (not on ground, not in water) for 5+ blocks already and the ground
-    within 2–5 blocks below (placing too early wastes it, too late does nothing)."""
-    if not has_water_bucket or state.get("onGround") or state.get("inWater") or state.get("inLava"):
-        return False
-    return fallen >= 5 and gap is not None and 2 <= gap <= 5
-
-
 def _running_skill():
     from .skill import HEARTBEAT
     try:

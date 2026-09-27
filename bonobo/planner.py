@@ -8,8 +8,8 @@ from dataclasses import dataclass, field
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
 from .beliefs import fights_back
-from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, STATIONS, TAKEABLE, TOOL_MIN_DURABILITY,
-                        have_remainder, members, needs_rows, source, step_call, tool_ok)
+from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MIN_DURABILITY,
+                        have_remainder, members, needs_rows, source, step_call)
 
 MAX_DEPTH = 14
 
@@ -324,10 +324,6 @@ def runnable(step, inv):
     if have_remainder(inv, needs_rows(needs)):
         return False
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
-
-
-def first_runnable(plan, inv):
-    return next((s for s in plan if runnable(s, inv)), None)
 
 
 class NullCost:

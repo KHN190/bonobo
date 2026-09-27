@@ -9,7 +9,7 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import ANCHORS, skill
-from .skillcore import _collect_only, body_state, feet, snapshot, mine_cell, place
+from .skillcore import body_state, feet, snapshot, mine_cell, place
 from .world import Inventory, Region, add
 
 

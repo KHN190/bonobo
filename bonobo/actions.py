@@ -23,8 +23,7 @@ import math
 
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
                    seen_class)
-from .knowledge import (BREED_FOOD, GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, SMELTS,
-                        STATIONS, TAKEABLE, produced)
+from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced)
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate
@@ -67,23 +66,6 @@ def with_exposure(action):
     """Teach one column how to price its own exposure. Returns it, so it can wrap a construction."""
     action._exposure = exposure_of
     return action
-
-
-def facility_dims(actions):
-    """Dimensions that work REQUIRES but never spends: benches, furnaces, being at the ore, being sheltered.
-
-    Leaving one of these behind is a gift to whatever comes next — nobody uses it up, so its lower price is a real
-    saving to every later goal. Materials are the opposite: a plan that ends holding less wood has not left wood
-    behind, it has spent it, and treating that fall as generosity charges the same work twice (it blew plan prices
-    up to a hundred and seventy thousand seconds).
-
-    Read off the actions rather than listed here, so a facility added tomorrow is covered tomorrow.
-    """
-    required, consumed = set(), set()
-    for a in actions:
-        required.update(a.requires)
-        consumed.update(d for d, delta in a.effect.items() if delta < 0)
-    return required - consumed
 
 
 def uses_dim(kind):
@@ -376,10 +358,6 @@ def _seek(cost):
 # A look that succeeds one time in fifty is not impossible, it is a day's work. The floor keeps the division from
 # becoming a wall — "unreachable" is still a price, which is the whole point of the seek column.
 MIN_FIND_P = 0.02
-
-
-# What walks away on its own. A note about one of these decays at the mob half-life, not the block one.
-_MOBS = frozenset(sum((list(v) for v in HUNT.values()), []))
 
 
 def _surface():

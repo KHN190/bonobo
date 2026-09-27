@@ -51,8 +51,7 @@ def sweep(seed, ticks=40):
         now += rng.choice((0.0, 0.05, 0.3, 1.0))
         layer = rng.choice(LAYERS)
         if layer == "plan":
-            body.submit("plan", seen.action(body, "plan"), "work", cost_rate=1.0, cost_s=100.0)
-            body.step(now)
+            body.drive("plan", seen.action(body, "plan"), "work")
         else:
             body.preempt(layer, seen.action(body, layer), f"{layer} says so", worth_s=1e6, now=now)
     return body, seen

@@ -13,10 +13,9 @@ Why a tunnel works (all of it is vanilla geometry, none of it is a trick):
 It is an extension of the bomb pit, not a separate structure: the pit's floor is the mouth, and the tunnel runs
 outward from it along the same side axis. The pit stays the place a bed is clicked from; the tunnel is where we wait.
 """
-import math
 
 from . import nav
-from .end import BED_R, BED_TOP, EYE, PIT_DEPTH, PIT_R, REACH
+from .end import PIT_DEPTH, PIT_R
 from .fight_plan import CONFIG as _CFG
 
 _GEO = _CFG["geometry"]
@@ -119,50 +118,3 @@ def reinforce_cells(side, floor_y, centre=(0, 0)):
             (m[0] - across[0], m[1], m[2] - across[1]),
             (m[0] + across[0], m[1] + 1, m[2] + across[1]),
             (m[0] - across[0], m[1] + 1, m[2] - across[1])]
-
-
-def bed_in_reach(cell, bed):
-    """Pure: standing in `cell`, can the bed be clicked? The whole design rests on the mouth being close enough to
-    place and detonate without stepping out of cover."""
-    eye = (cell[0] + 0.5, cell[1] + EYE, cell[2] + 0.5)
-    top = (bed[0] + 0.5, bed[1] + BED_TOP, bed[2] + 0.5)
-    return math.dist(eye, top) <= REACH
-
-
-def enderman_can_enter(cells):
-    """Pure: could a 2.9-block enderman stand in any corridor cell? It cannot, by construction — this exists so the
-    property is asserted rather than assumed, and fails loudly if the corridor is ever dug 3 high."""
-    return False if cells else True
-
-
-def bunker_checks(side, floor_y, bed, centre=(0, 0)):
-    """Pure: (bed reachable from the mouth, retreat clear of the mouth, bed reachable from the firing cell).
-
-    The third is the one that matters. If the bed can be clicked from inside cover, the fight never has an exposed
-    moment at all — and it can be, because reach is 4.5 blocks and the firing cell is 4.11 from the bed. An agent
-    reads entity data directly, so it needs no line of sight and has no reason to step out.
-    """
-    m = mouth(side, floor_y, centre)
-    r = retreat(side, floor_y, centre)
-    return (bed_in_reach(m, bed),
-            math.dist(m, r) >= 2,
-            bed_in_reach(fire(side, floor_y, centre), bed))
-
-
-def exposure_cells(side, floor_y, centre=(0, 0)):
-    """Pure: the cells where the dragon can actually touch us — the mouth and everything above it.
-
-    The controller needs one number, "how long until I am back in cover", and that is the walk from here to the
-    retreat cell; this names the region that walk has to leave.
-    """
-    m = mouth(side, floor_y, centre)
-    return [m, (m[0], m[1] + 1, m[2]), (m[0], m[1] + 2, m[2])]
-
-
-def time_to_cover(here, side, floor_y, centre=(0, 0), speed=4.3):
-    """Pure: seconds from `here` back to the waiting cell at sprinting speed.
-
-    This is the one quantity the window budget is spent against: with a 4.95 s sitting phase and 0.85 s of take-off
-    warning, a peek is only worth taking while this stays well under the warning.
-    """
-    return round(math.dist(here, retreat(side, floor_y, centre)) / speed, 2)

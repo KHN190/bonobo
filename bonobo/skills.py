@@ -2,15 +2,14 @@
 goal check, verification, time budget and a stall limit on its own goal metric. Skills never plan: inputs must be
 present. `python3 mc.py skills` lists the contracts."""
 import math
-import re
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
-from . import api, beliefs, blueprints, nav, world
+from . import api, beliefs, nav, world
 from .api import McError, NotAvailable, log
-from .skill import ANCHORS, skill, world_signature, current as current_call
-from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
+from .skill import ANCHORS, skill, current as current_call
+from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, POD_BLOCKS, RECIPES, bare, mid)
 from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused
@@ -156,9 +155,6 @@ class Station:
                 return self
         self.__exit__(None, None, None)
         raise McError(f"could not open {bare(self.block)}")
-
-    def reopen(self):
-        api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60, awaits="the station's screen open again")
 
     def __exit__(self, *exc):
         api.post("/close")
@@ -1188,12 +1184,6 @@ from .knowledge import RAW_MEAT  # noqa: E402  (one food table: knowledge.ALL_FO
 from .data import FULL_BAR, NUTRITION  # noqa: E402
 
 
-def edible_carried(inv):
-    """Anything edible at all, cooked or raw. `food_count` counts MEALS (cooked only); this counts food."""
-    from .knowledge import ALL_FOOD
-    return any(inv.count(f) for f in ALL_FOOD + RAW_MEAT)
-
-
 def bites_to_full(food, carried, raw_ok=False):
     """Pure: (item, bites) — what to eat to fill the bar from `food` points, and how many bites of it: the item whose
     restore fits the gap best (the biggest that does not overflow, else the smallest that does), raw meat only when
@@ -1271,17 +1261,6 @@ def swimming(state):
     swimming", and a PLAN goal went exploring for logs while the air ran out."""
     return bool(state.get("inWater")) and (not state.get("onGround", False)
                                             or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
-
-
-# What working needs of the BODY'S SITUATION, as opposed to of the bag. A rule about the world, stated once, the
-# way `can_sleep` states the one about beds: treading water there is nothing to stand on, so nothing can be dug,
-# placed or built — and the planner must know that before it prices walking to a site, not after the skill fails.
-# One minute of the log was eight different goals each discovering it alone and each cooling for two minutes.
-def can_work_here(state):
-    """None when ordinary work is possible where the body is, else why it is not."""
-    if swimming(state):
-        return "treading water: nothing to stand on"
-    return None
 
 
 def _on_land():
@@ -2053,18 +2032,6 @@ def tidy_inventory(ctx):
     if spots:
         far = max(spots, key=lambda p: math.dist(p, (x, y, z)))
         api.run({"type": "goto", "x": far[0], "y": far[1], "z": far[2], "range": 0.8, "partial": True}, wait=15, awaits="away from the thrown drops before their pickup delay ends")
-
-
-def can_store_here(ctx, local_only=False):
-    """A chest is possible without a long trip: a site within 96 blocks (unless local_only), a chest or the planks
-    for one in the bag."""
-    inv = Inventory()
-    if inv.usable("minecraft:chest") or inv.usable("planks") >= 8 or inv.usable("log") >= 2:
-        return True
-    if local_only:
-        return bool(find(["chest", "barrel"], radius=6, limit=1))
-    here = feet()
-    return any(math.dist(s["pos"], here) <= 96 and site_trek_ok(ctx, s) for s in ctx.mem.sites(ctx.dimension))
 
 
 def site_trek_ok(ctx, site):

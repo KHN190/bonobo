@@ -106,27 +106,6 @@ class BodyDims(unittest.TestCase):
                 self.assertEqual(actions.body_dims(state), want)
 
 
-class FacilityDims(unittest.TestCase):
-    MINE = Action("mine:coal", {"minecraft:coal": 1}, 2.0, requires={"at:coal_ore": 1})
-    TABLE_ACT = Action("craft:table", {"planks": -4, "minecraft:crafting_table": 1}, 1.0, requires={"planks": 4})
-    PICK = Action("craft:pick", {"planks": -3, "stick": -2, "tool:pickaxe:0": 1}, 1.0,
-                  requires={"minecraft:crafting_table": 1, "planks": 3, "stick": 2})
-    BREAK_TABLE = Action("break:table", {"minecraft:crafting_table": -1, "planks": 4}, 1.0)
-    TABLE = [
-        # actions                            expected                          why
-        ([],                                  set(),                            "boundary: nothing required"),
-        ([MINE],                              {"at:coal_ore"},                  "a place is required, never spent"),
-        ([TABLE_ACT],                         set(),                            "negative: planks are required AND spent"),
-        ([TABLE_ACT, PICK],                   {"minecraft:crafting_table"},     "the bench stays; materials do not"),
-        ([TABLE_ACT, PICK, BREAK_TABLE],      set(),                            "negative: some column spends the bench"),
-    ]
-
-    def test_table(self):
-        for acts, want, why in self.TABLE:
-            with self.subTest(why=why):
-                self.assertEqual(actions.facility_dims(acts), want)
-
-
 class TargetOf(unittest.TestCase):
     TABLE = [
         # needs                                          expected                         why
@@ -455,71 +434,6 @@ class Bunker(unittest.TestCase):
         for side, floor, centre, want, why in rows:
             with self.subTest(side=side, why=why):
                 self.assertEqual(bunker.reinforce_cells(side, floor, centre), want)
-
-    def test_bed_in_reach(self):
-        # eye at cell + (0.5, 1.62, 0.5), bed top at bed + (0.5, 0.5625, 0.5), reach 4.5
-        rows = [
-            ((0, 0, 0), (0, 0, 0),    True,    "same cell: 1.06"),
-            ((0, 0, 0), (4, 0, 1),    True,    "sqrt(18.12) = 4.26"),
-            ((0, 0, 0), (4, 1, 0),    True,    "boundary: 4.0004"),
-            ((0, 0, 0), (0, -3, 0),   True,    "straight down: 4.06"),
-            ((0, 0, 0), (0, -4, 0),   False,   "negative: straight down 5.06"),
-            ((0, 0, 0), (5, 0, 0),    False,   "negative: 5.11"),
-            ((0, 0, 0), (4, -1, 2),   False,   "negative: 4.92"),
-        ]
-        for cell, bed, want, why in rows:
-            with self.subTest(cell=cell, bed=bed, why=why):
-                self.assertEqual(bunker.bed_in_reach(cell, bed), want)
-
-    def test_enderman_can_enter(self):
-        rows = [
-            ([(5, 62, 0)],                                 False,  "a dug corridor keeps it out"),
-            (bunker.tunnel((1, 0), 64),                   False,  "the real tunnel"),
-            ([(0, 0, 0), (1, 0, 0), (2, 0, 0)],            False,  "any corridor"),
-            ([],                                           True,   "negative: no corridor at all is not cover"),
-            ((),                                           True,   "negative: empty tuple likewise"),
-        ]
-        for cells, want, why in rows:
-            with self.subTest(why=why):
-                self.assertEqual(bunker.enderman_can_enter(cells), want)
-
-    def test_bunker_checks(self):
-        rows = [
-            # side, floor, bed               expected                  why
-            ((1, 0), 64, (2, 65, 0),        (True, True, True),       "the designed bed: 3.57 from the mouth"),
-            ((1, 0), 64, (5, 62, 0),        (True, True, True),       "boundary: bed in the mouth itself"),
-            ((1, 0), 64, (0, 65, 0),        (False, True, False),     "negative: bed five across is out of reach"),
-            ((1, 0), 64, (-2, 65, 0),       (False, True, False),     "negative: bed on the far side"),
-        ]
-        for side, floor, bed, want, why in rows:
-            with self.subTest(bed=bed, why=why):
-                self.assertEqual(bunker.bunker_checks(side, floor, bed), want)
-
-    def test_exposure_cells(self):
-        rows = [
-            ((1, 0), 64, (0, 0),     [(5, 62, 0), (5, 63, 0), (5, 64, 0)],         "mouth and the column over it"),
-            ((0, -1), 64, (3, 3),    [(3, 62, -2), (3, 63, -2), (3, 64, -2)],      "north, off-centre"),
-            ((1, 0), 0, (0, 0),      [(5, -2, 0), (5, -1, 0), (5, 0, 0)],          "boundary: floor at zero"),
-            ((0, 0), 64, (0, 0),     [(0, 62, 0), (0, 63, 0), (0, 64, 0)],         "negative: no side puts the mouth on the centre"),
-        ]
-        for side, floor, centre, want, why in rows:
-            with self.subTest(side=side, why=why):
-                self.assertEqual(bunker.exposure_cells(side, floor, centre), want)
-
-    def test_time_to_cover(self):
-        rows = [
-            # here            speed  expected  why
-            ((8, 62, 0),      4.3,   0.0,      "boundary: already in the retreat cell"),
-            ((8, 62, 4.3),    4.3,   1.0,      "one second out"),
-            ((0, 62, 0),      4.3,   1.86,     "8 / 4.3 rounded"),
-            ((5, 66, 0),      4.3,   1.16,     "3-4-5: 5 / 4.3"),
-            ((8, 62, 3),      2.0,   1.5,      "slower walk"),
-        ]
-        for here, speed, want, why in rows:
-            with self.subTest(here=here, why=why):
-                self.assertEqual(bunker.time_to_cover(here, (1, 0), 64, speed=speed), want)
-        with self.assertRaises(ZeroDivisionError):     # negative: a body that cannot move never reaches cover
-            bunker.time_to_cover((0, 62, 0), (1, 0), 64, speed=0)
 
 
 if __name__ == "__main__":

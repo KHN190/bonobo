@@ -163,17 +163,6 @@ def time_to_die_s(hp, hp_per_s):
     return float("inf") if hp_per_s <= 1e-9 else float(hp) / float(hp_per_s)
 
 
-def sunk_s(rate, elapsed_s, cost_s=None):
-    """Seconds of work already put into something, which abandoning it would throw away.
-
-    The marginal price of time, and the only one: `arbiter` asks it of a running intent, and nothing else may
-    compute "how much have we invested" for itself. Capped at the whole job — you cannot throw away more than the
-    thing was ever going to cost.
-    """
-    spent = max(0.0, float(elapsed_s)) * float(rate)
-    return spent if cost_s is None else min(spent, float(cost_s))
-
-
 def damage_over(rate, seconds):
     """Health a rate takes off over a stretch of time. Trivial, and written down because it was not: a fight
     window converted its exposure into a risk with its own constant, so the same seconds meant different damage

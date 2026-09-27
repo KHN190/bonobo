@@ -25,7 +25,6 @@ Two levels of stuck detection: api.await_task watches one mod task (10 s without
 watches the skill's own goal metric across tasks (a hunt that walks around forever without closing in)."""
 import functools
 import inspect
-import os
 import time
 
 from . import api, paths, skillcore, tape
@@ -160,13 +159,6 @@ def unmet(contract, args, bag):
     from .knowledge import have_remainder, needs_rows
     needs = needs_of(contract, args)
     return have_remainder(bag(), needs_rows(needs)) if needs else {}
-
-
-def commands_of(fn, state, *args):
-    """The command batch this skill would send from `state`, or None when it is closed-loop. Pure: nothing runs."""
-    contract = getattr(fn, "contract", None)
-    make = getattr(contract, "commands", None)
-    return None if make is None else list(make(state, args))
 
 
 def step_keys(step):

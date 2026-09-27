@@ -451,32 +451,6 @@ class DarkHere(unittest.TestCase):
         run_table(self, skills.dark_here, self.TABLE)
 
 
-class EdibleCarried(unittest.TestCase):
-    TABLE = [
-        ("cooked food", (bag(inventory(cooked_beef=1)),), True),
-        ("raw meat counts as food", (bag(inventory(beef=1)),), True),
-        ("boundary: food only in the offhand", (bag(inventory(offhand="bread")),), True),
-        ("must fail: nothing edible", (bag(inventory(dirt=64)),), False),
-        ("must fail: empty bag", (bag(inventory()),), False),
-    ]
-
-    def test_table(self):
-        run_table(self, skills.edible_carried, self.TABLE)
-
-
-class CanWorkHere(unittest.TestCase):
-    TABLE = [
-        ("on the ground", ({"inWater": False, "onGround": True},), None),
-        ("treading water", ({"inWater": True, "onGround": False},), "treading water: nothing to stand on"),
-        ("boundary: in water but standing (shore block)", ({"inWater": True, "onGround": True},), None),
-        ("boundary: in water, no onGround field", ({"inWater": True},), "treading water: nothing to stand on"),
-        ("must fail: empty state reads as able", ({},), None),
-    ]
-
-    def test_table(self):
-        run_table(self, skills.can_work_here, self.TABLE)
-
-
 class PendingReady(unittest.TestCase):
     TABLE = [
         ("one output ready long ago", ({"pending": [{"ready_at": 0}]},), True),

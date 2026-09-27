@@ -37,15 +37,6 @@ def _kind(reason):
     return text.split(":")[-1].strip() if ":" in text else text
 
 
-def recovery_for(reason):
-    """Pure: the action name for a danger kind. Always returns something."""
-    k = _kind(reason)
-    for kind, act, _ in TABLE:
-        if kind == k:
-            return act
-    return DEFAULT
-
-
 def explain(reason):
     """Pure: (action, why) — the reason is logged so a wrong table entry is visible in the run, not just its effect."""
     k = _kind(reason)
@@ -53,26 +44,3 @@ def explain(reason):
         if kind == k:
             return act, why
     return DEFAULT, "unrecognised danger: cover first, diagnose afterwards"
-
-
-# Abort conditions. Every fight action declares when to give up on it and what to do instead — the half that was
-# missing from the skill contracts, which could say "this took too long" but never "and now do this".
-ABORTS = {
-    "dig_tunnel": [("health below the floor", "retreat_and_eat"),
-                   ("dragon perched", "retreat_to_cover"),
-                   ("breath within 6", "retreat_to_cover")],
-    "place_bed": [("dragon perched", "retreat_to_cover"),
-                  ("bed cell occupied", "abandon")],
-    "reinforce": [("dragon perched", "retreat_to_cover"),
-                  ("out of obsidian", "abandon")],
-    "shoot_crystal": [("enderman in the line of aim", "abandon"),
-                      ("dragon perched", "retreat_to_cover")],
-    # The window is open-loop on purpose: 0.4 s is shorter than one perception round trip (98 ms measured, and that
-    # is the best case), so there is nothing to abort into partway through. It either starts or it does not.
-    "fire_window": [],
-}
-
-
-def aborts_for(action_name):
-    """Pure: [(condition, action)] for an action. An empty list means the action is atomic and cannot be aborted."""
-    return ABORTS.get(action_name, [])

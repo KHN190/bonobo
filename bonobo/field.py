@@ -87,10 +87,6 @@ def bucket_of(state):
     return "open"
 
 
-def for_state(state, speed=4.3, terrain=None):
-    return Field(speed=speed, bucket=bucket_of(state), terrain=terrain)
-
-
 def bucket_at(region, here, radius):
     """Pure: the bucket of the ground around `here` (feet), read off the blocks: "enclosed" when every side of the
     feet and the head is solid and so is the cell above the head (a pod), "underground" when something solid is

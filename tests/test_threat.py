@@ -139,11 +139,6 @@ class PricesForTheOtherPlanner(unittest.TestCase):
             with self.subTest(name):
                 zones = threat.no_go(self.rows(*([hazard] if hazard else [])))
                 self.assertEqual(zones, want)
-                if not zones:
-                    continue
-                (centre, radius), = zones
-                outside = (centre[0], centre[1], centre[2] + radius + 1)
-                self.assertEqual([threat.inside_no_go(p, zones) for p in (centre, outside)], [True, False])
 
 
 class TheFastLane(unittest.TestCase):
@@ -189,7 +184,7 @@ class TheFastLane(unittest.TestCase):
 
 
 class TheSkillsBatches(unittest.TestCase):
-    """combat's shoot / guard / strike, as the pure batches the skills post."""
+    """combat's shoot, as the pure batch the skills post."""
 
     class Bag:
         def __init__(self, items=(), offhand="minecraft:air"):
@@ -200,32 +195,6 @@ class TheSkillsBatches(unittest.TestCase):
 
         def offhand(self):
             return self.hand
-
-    # (offhand, swords carried) → the guard batch
-    GUARD = [("minecraft:shield", ["minecraft:iron_sword"],
-              [{"type": "use_item", "item": "minecraft:iron_sword", "yaw": 90.0, "pitch": 0, "holdTicks": 30}]),
-             ("minecraft:shield", ["minecraft:stone_sword", "minecraft:diamond_sword"],
-              [{"type": "use_item", "item": "minecraft:diamond_sword", "yaw": 90.0, "pitch": 0, "holdTicks": 30}]),
-             ("minecraft:shield", [], []), ("minecraft:air", ["minecraft:iron_sword"], [])]
-
-    def test_guard_batch(self):
-        from bonobo import combat
-        for hand, swords, want in self.GUARD:
-            with self.subTest(hand=hand, swords=swords):
-                self.assertEqual(combat.guard_batch(self.Bag(swords, hand), 90.0), want)
-
-    def test_strike_batch(self):
-        from bonobo import combat
-        for name, e, want in [("by its id", {"id": 9, "x": 1.0, "y": 64.0, "z": 0.0}, [{"type": "attack", "entity": 9}]),
-                              ("id 0 is an id", {"id": 0}, [{"type": "attack", "entity": 0}]),
-                              ("position does not matter", {"id": 3, "x": 900.0}, [{"type": "attack", "entity": 3}]),
-                              ("no id: refused", {"x": 1.0}, KeyError)]:
-            with self.subTest(name):
-                if want is KeyError:
-                    with self.assertRaises(KeyError):
-                        combat.strike_batch(e)
-                else:
-                    self.assertEqual(combat.strike_batch(e), want)
 
     def test_shoot_batch(self):
         from bonobo import combat

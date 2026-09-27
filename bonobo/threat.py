@@ -11,7 +11,7 @@ when leaving costs more than building does. Numbers live in play.toml under [mob
 """
 import math
 
-from . import beliefs, combat_model, estimate
+from . import beliefs, estimate
 
 CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS
@@ -136,7 +136,6 @@ burst_damage = estimate.burst_hp
 keepoff_cost = estimate.keepoff_cost
 time_to_die = estimate.time_to_die_s
 fight_cost = estimate.fight_cost
-leaving_cost = estimate.leaving_hp
 hide_ratio = estimate.reaches_share
 
 
@@ -528,11 +527,6 @@ def no_go(state, margin=None):
     """
     margin = float(ENGAGE["no_go_margin"] if margin is None else margin)
     return [(tuple(h[0]), float(h[1]) + margin) for h in state.get("hazards", ()) if h[3] in MOBS]
-
-
-def inside_no_go(spot, zones):
-    """Pure: does this position sit in one of `no_go`'s circles?"""
-    return any(math.dist(spot, centre) <= radius for centre, radius in zones)
 
 
 # ------------------------------------------------------------------------------- the price of health
