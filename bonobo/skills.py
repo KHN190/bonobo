@@ -1515,8 +1515,12 @@ def dig_in(ctx):
         spot = soft_spot()
         if spot is None:
             raise NotAvailable("no pickaxe and no ground near that digs by hand")
-        if spot[1] and not nav.arrived(spot[0], ctx.policy, range_=0.5, attempts=1):
-            raise api.NavFailed(f"the soft ground at {spot[0]} is not reachable")
+        # The cell itself (range 0: `nav.there` floors the body and allows range + ARRIVE_SLACK, so 0.5 counted
+        # x 10006.24 as at 10007 and dug the stone next to the dirt by hand). Never dig a column that is not it.
+        if tuple(feet()) != tuple(spot[0]):
+            nav.arrived(spot[0], ctx.policy, range_=0, attempts=1)
+        if tuple(feet()) != tuple(spot[0]):
+            raise api.NavFailed(f"not on the soft ground at {spot[0]} (at {feet()})")
     x, y, z = feet()
     tasks = dig_in_commands(body_state(ctx, nav.dig_down_region((x, y, z), DIG_IN_DEPTH)))
     api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)

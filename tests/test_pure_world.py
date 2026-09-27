@@ -347,6 +347,22 @@ class Nav(unittest.TestCase):
             with self.subTest(why):
                 self.assertEqual(nav.climb_out_tasks(st, land), expected)
 
+    def test_there_at_the_cell_itself(self):
+        """nav.there with range 0 is the cell: dig_in walked to 10006.24 for the soft spot at 10007 and range 0.5
+        called it there (floored to 10006, 1 ≤ 0.5 + ARRIVE_SLACK), then dug the stone column beside it."""
+        spot = (10007, 200, 10000)
+        rows = [  # (why, body x, range) → there
+            ("the probe: one column short, range 0.5 — there (the bug)", 10006.2355, 0.5, True),
+            ("the probe, the cell itself asked: not there", 10006.2355, 0, False),
+            ("on the cell, off its centre: there", 10007.9, 0, True),
+            ("on the cell's centre: there", 10007.5, 0, True),
+            ("one column past it: not there", 10008.1, 0, False),
+        ]
+        for why, x, range_, want in rows:
+            with self.subTest(why):
+                st = {"x": x, "y": 200.0, "z": 10000.5, "onGround": True}
+                self.assertIs(nav.there(st, spot, range_), want)
+
     def test_at_rest(self):
         rows = [  # (why, state, expected)
             ("on the ground", {"onGround": True}, True),
