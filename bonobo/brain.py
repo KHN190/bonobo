@@ -280,27 +280,33 @@ class Brain:
         """Every layer proposes, the arbiter chooses (arbiter.arbitrate: layer, then arbiter.PLAN_ORDER). Nothing
         here ranks: a fight or a rescue holding the body is a faster layer; a hazard is SAFETY; upkeep's rows, the
         queue's head, the night's work under cover and idle stocking are PLAN proposals of their own kind."""
-        intents = []
-        if arbiter.BODY.holder() is not None or api.MODE == "survival":
-            # a fight or a rescue holds the body
-            intents.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5))))
-        k = hazard.due(snap.state)
-        if k is not None and self.ready(f"rescue {k}"):
-            intents.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
-                ctx, snap.state, self.attempt, self.ready))))
-        if not intents:
+        def fast():
+            out = []
+            if arbiter.BODY.holder() is not None or api.MODE == "survival":
+                # a fight or a rescue holds the body
+                out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5))))
+            k = hazard.due(snap.state)
+            if k is not None and self.ready(f"rescue {k}"):
+                out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
+                    ctx, snap.state, self.attempt, self.ready))))
+            return out
+
+        def upkeep():
             self.needs.propose(snap, ctx)
-            intents += [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
-                        for seq, name, run in self.reflexes.proposals(snap, ctx)]
+            out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
+                   for seq, name, run in self.reflexes.proposals(snap, ctx)]
             for kind, goal, _why in self.needs.needs_now:
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:
-                    intents.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}"))
-        if not intents:
-            intents += self.plan_proposals(snap, ctx)
+                    out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}"))
+            return out
+
         # The round's facts for the gate (arbiter.gate): what is cooling under the retry policy, by the name it
         # failed under. Met and unplannable needs never become intents (need_act answers None for them).
-        facts = {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
+        def facts_of(intents):
+            return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
+
+        intents, facts = arbiter.first_live((fast, upkeep, lambda: self.plan_proposals(snap, ctx)), facts_of)
         chosen = arbiter.arbitrate(intents, facts=facts)
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)
         return chosen.action if chosen else None
@@ -308,7 +314,8 @@ class Brain:
     def plan_proposals(self, snap, ctx):
         """The queue's head (the first task with a step that can run now: by night, a step that needs no sun —
         data.NIGHT_WORK), and what is proposed when the queue has nothing: the night's ore underground with a
-        pickaxe, waiting for day, or idle stocking. Asked only when upkeep proposed nothing: the queue ranks after
+        pickaxe, waiting for day, or idle stocking. Asked only when upkeep proposed nothing useful (arbiter.first_live):
+        the queue ranks after
         every upkeep row (arbiter.PLAN_ORDER), so asking it earlier would only repair plans for nothing."""
         items = tasks.load()
         if tasks.expire(items):
@@ -383,13 +390,11 @@ class Brain:
             return None
         step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None)
         if step is None:
-            held["event"] = True
-            held = self.repair(task, goal, snap, held)
-            step = next((s for s in held["steps"] if self.valid(s, snap, ctx)), None) if held else None
-            if step is None:
-                if held is not None:
-                    self.fail_step(task, NotAvailable("no step of the plan can run from here"))
-                return None
+            # The held plan is this bag's (repaired above on any event): solving again from the same bag gives the
+            # same plan — re-solved every round, "plan for t1" logged every 3 s and nothing run. The step cools;
+            # the next event (the bag changing, a failure) repairs.
+            self.fail_step(task, NotAvailable("no step of the plan can run from here"))
+            return None
         self.committed = task["id"]
         # Never consume our own work: what the held plans pass through is kept out of tidying and storing.
         bag.RESERVED = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \

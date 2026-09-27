@@ -324,6 +324,33 @@ class OnlyUsefulProposals(unittest.TestCase):
                 self.assertEqual(chosen_with(intents, facts), want)
 
 
+class GroupsAskedInTurn(unittest.TestCase):
+    """arbiter.first_live: the next group is asked only when every earlier one gated to nothing — plan_without_events
+    idled every round with the queue never asked, its needs all cooling."""
+    P = OnlyUsefulProposals.P
+    # (situation, groups by name, cooling keys) → (what arbitrate picks, the groups asked)
+    ROWS = [("every need cooling: the queue is asked and picked", [[P("broken tool")], [P("queue")]],
+             {"broken tool"}, ("queue", ["g0", "g1"])),
+            ("a need that can run: it, the queue not asked", [[P("broken tool")], [P("queue")]], set(),
+             ("broken tool", ["g0"])),
+            ("every group empty: nothing", [[], [], []], set(), (None, ["g0", "g1", "g2"])),
+            ("only waiting left at the end: kept", [[P("food stock")], [P("wait for day")]], {"food stock"},
+             ("wait for day", ["g0", "g1"])),
+            ("an empty first group (no fight): the next asked", [[], [P("eat", layer="maintain")], [P("queue")]],
+             set(), ("eat", ["g0", "g1"]))]
+
+    def test_first_live(self):
+        for name, groups, cooling, want in self.ROWS:
+            with self.subTest(name):
+                asked = []
+
+                def ask(i, g):
+                    return lambda: (asked.append(f"g{i}"), g)[1]
+                live, facts = arbiter.first_live([ask(i, g) for i, g in enumerate(groups)],
+                                                 lambda intents: {"cooling": {i.key for i in intents} & cooling})
+                self.assertEqual((chosen_with(live, facts), asked), want)
+
+
 def chosen_with(intents, facts):
     got = arbiter.arbitrate(intents, now=0.0, facts=facts)
     return None if got is None else got.reason

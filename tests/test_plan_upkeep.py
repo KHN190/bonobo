@@ -871,6 +871,23 @@ class HeldPlans(unittest.TestCase):
                     elif op_ == "check":
                         a[0](self, q)
 
+    def test_a_held_plan_is_solved_again_only_on_an_event(self):
+        """plan_without_events: a held plan none of whose steps could run was solved again every round from the same
+        bag ("plan for t1" every 3 s, nothing run). Solved again only when the bag changed."""
+        before, changed = inventory(), inventory(("oak_log", 2))
+        rows = [("a step runs, the same bag: held as it is", True, before, 0),
+                ("no step runs, the same bag: not solved again (it cools)", False, before, 0),
+                ("no step runs, the bag changed: solved again", False, changed, 1),
+                ("a step runs, the bag changed: solved again", True, changed, 1)]
+        for name, runs, bag_now, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
+                q.task(goals.have(("log", 8)))
+                _round(q, before)                           # the first plan: not counted
+                q.b.valid = lambda *a, **k: runs
+                with mock.patch.object(brainmod, "replan", wraps=brainmod.replan) as solved:
+                    _round(q, bag_now)
+                    self.assertEqual(solved.call_count, want)
+
     # (bag, what idle prepares first, or None when everything is held)
     PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
                (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),

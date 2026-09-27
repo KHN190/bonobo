@@ -213,6 +213,21 @@ def plan_rank(kind):
     return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
 
 
+def first_live(groups, facts_of):
+    """Pure given its callables: the proposals of the first group, in order, that still has a useful one after the
+    gate (`gate`, with `facts_of(intents)` — the round's facts for that group's keys). A later group is asked only
+    when every earlier one gated to nothing: the queue, dear to ask, is still asked late, but no longer lost when the
+    needs before it were all cooling (plan_without_events: the needs gated out, the queue never asked, every round
+    idle). Returns (live, facts) — [] and {} when every group is empty."""
+    for ask in groups:
+        intents = ask()
+        facts = facts_of(intents)
+        live = gate(intents, facts)
+        if live:
+            return live, facts
+    return [], {}
+
+
 def arbitrate(intents, now=None, facts=None):
     """Pure: the one intent that may drive the body, or None. Only useful proposals are considered (`gate`); fastest
     layer wins; within the PLAN layer the PLAN_ORDER rank, then the place in line; otherwise the newest. Expired
