@@ -15,10 +15,12 @@ import os
 import re
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import brain, fight_loop, scenarios as sc  # noqa: E402,F401  (brain/fight_loop: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
+from bonobo.bench import runner  # noqa: E402
 
 # Skills without a real verify (the runner judges them by nothing). May only shrink.
 VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit", "fight_dragon",
@@ -397,3 +399,42 @@ class ResetBrain(unittest.TestCase):
                 dirty()
                 sc.reset_brain(br, Memory(os.path.join(os.environ["MC_DATA"], "reset.json")))
                 self.assertEqual(read(), clean)
+
+
+class TimeoutSticks(unittest.TestCase):
+    """A TIMEOUT sticks to the row's key (setup + skill code + mod): same key → FAIL without a run; any change → run."""
+
+    ROW = {"module": "skills", "setup": ["fill 0 0 0 1 1 1 stone"], "budget": 30}
+
+    def key(self, row, dep="d1", mod="m1"):
+        with mock.patch.dict(sc.SCENARIOS, {"x": row}), mock.patch.object(runner, "dep_hash", lambda m: dep), \
+                mock.patch.object(runner, "mod_hash", lambda tags: mod):
+            return runner._code_for("x")
+
+    def test_timeout_is_cached_per_key(self):
+        stopped = {"ok": False, "note": f"{sc.TIMEOUT}: stopped at the 30s limit", "cls": "skill"}
+        table = {"x": {self.key(self.ROW): [stopped]}}
+        rows = [  # (what changed since the TIMEOUT, the key now, cached?)
+            ("nothing: skipped, reported FAIL", self.key(self.ROW), True),
+            ("the setup", self.key(dict(self.ROW, setup=["fill 0 0 0 2 2 2 stone"])), False),
+            ("the skill's Python", self.key(self.ROW, dep="d2"), False),
+            ("the mod jar", self.key(self.ROW, mod="m2"), False),
+            ("the budget", self.key(dict(self.ROW, budget=45)), False),
+        ]
+        for name, key, cached in rows:
+            with self.subTest(name):
+                got = sc.cached_timeout(table, "x", key)
+                self.assertEqual(got is not None and got.startswith(f"{sc.TIMEOUT} (cached)"), cached)
+
+    def test_only_a_timeout_sticks(self):
+        rows = [("an ordinary failure is re-run", [{"ok": False, "note": "NavFailed: no route", "cls": "skill"}], None),
+                ("a pass after the timeout clears it",
+                 [{"ok": False, "note": f"{sc.TIMEOUT}: x", "cls": "skill"}, {"ok": True, "note": "", "cls": "skill"}],
+                 None),
+                ("no runs", [], None),
+                ("the latest is the timeout", [{"ok": True, "note": "", "cls": "skill"},
+                                              {"ok": False, "note": f"{sc.TIMEOUT}: x", "cls": "skill"}],
+                 f"{sc.TIMEOUT} (cached): {sc.TIMEOUT}: x")]
+        for name, runs, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sc.cached_timeout({"x": {"k": runs}}, "x", "k"), want)

@@ -184,7 +184,13 @@ def cmd_scenario(a):
             for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else scenarios.MAX_RUNS)]
     for name, attempt in runs:
         table = scenarios.load_table()
-        decided = scenarios.verdict(table, name, scenarios.code_for(name))
+        code = scenarios.code_for(name)
+        cached = scenarios.cached_timeout(table, name, code)
+        if cached and not (a.force and attempt == 0):
+            if attempt == 0:
+                print(f"FAIL {name} 0s {cached}")      # stopped at its limit last time, nothing changed since
+            continue
+        decided = scenarios.verdict(table, name, code)
         if decided and not (a.force and attempt == 0):
             continue
         # Fresh memory per scenario: the real world's remembered pools/builds must not steer the test, and the

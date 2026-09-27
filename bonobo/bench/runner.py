@@ -315,6 +315,16 @@ def verdict_of(oks):
     return "pass" if sum(oks) >= 2 else "fail"
 
 
+def cached_timeout(table, name, code):
+    """Pure: the note of a TIMEOUT that sticks to this key (`code_for`: the row's setup, its skill's Python and the
+    mod's identity), else None. A row stopped at its limit is slow every time: it is reported FAIL again without
+    entering the game, until one of the three changes and the key with it."""
+    counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
+    if counted and counted[-1].get("note", "").startswith(TIMEOUT):
+        return f"{TIMEOUT} (cached): {counted[-1]['note']}"
+    return None
+
+
 def verdict(table, name, code):
     """Pure: 'pass' / 'fail' for the current code's counted runs (`verdict_of`), else None."""
     counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
