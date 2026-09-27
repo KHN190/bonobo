@@ -1498,15 +1498,33 @@ def _sand_on_head():
     _chat(f"fill {x} {y + 1} {z} {x} {y + 3} {z} sand")
 
 
-def _interrupt_when(token, n, message="bench: interrupt at the moment of success"):
-    """`before` hook: the interrupt lands the moment the bag first shows the effect (n more `token`)."""
+def gained_at_least(token, n):
+    """Progress: the bag holds `n` more `token` than at the start."""
+    return lambda: _inv_now().count(token) - _base_count(token) >= n
+
+
+def spent_at_least(token, n):
+    """Progress: the bag holds `n` fewer `token` than at the start (what a build or a sowing uses up)."""
+    return lambda: _base_count(token) - _inv_now().count(token) >= n
+
+
+def placed_at_least(lo, hi, block, n):
+    """Progress: `n` or more `block` stand in the box lo..hi (a build's parts in the world)."""
+    return lambda: _count_blocks(None, lo, hi, block) >= n
+
+
+def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
+    """`before` hook: the interrupt lands the moment progress is first seen — `when` a progress predicate on the
+    world (`gained_at_least`, `spent_at_least`, `placed_at_least`), or a token with `n` (items gained)."""
+    progress = when if callable(when) else gained_at_least(when, n)
+
     def hook(ctx):
         def fire():
             from . import api
             t0 = time.time()
             while time.time() - t0 < 120:
                 try:
-                    if _inv_now().count(token) - _base_count(token) >= n:
+                    if progress():
                         api.INTERRUPT = message
                         return
                 except api.McError:
@@ -2280,6 +2298,25 @@ for _name, _row_ in {
                     "before": _start(_name), "run": _run_, "check": _check_, "budget": _budget_,
                     "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"},
                     **({"stochastic": True} if _name == "explore_for_animals_real" else {})}
+
+# A batched build interrupted mid-chain (G): the interrupt lands once 4 of the frame's 10 obsidian stand (progress on
+# the world, not the clock); the resume builds what the frame still lacks, read from the world — every obsidian
+# placed once (none left in the bag, exactly 10 in the frame), the portal lit.
+PORTAL_BOX = (at(-8, 0, -8), at(8, 6, 8))
+SHEET["build_light_portal_interrupted"] = {
+    "doc": "flat stone, 10 obsidian, interrupted with 4 placed → resumed from the world: 10 in the frame, none in "
+           "the bag, lit",
+    "module": "building", "point": "A", "skills": ["build_blueprint"],
+    "tags": {"base": "build_blueprint", "surprise": "interrupt_mid_chain"},
+    "setup": list(SCENARIOS["build_light_portal"]["setup"]),
+    "before": _hooks(_start("build_light_portal_interrupted"),
+                     _interrupt_when(placed_at_least(*PORTAL_BOX, "obsidian", 4))),
+    "run": _resume("build_light_portal_interrupted", SCENARIOS["build_light_portal"]["run"],
+                   SCENARIOS["build_light_portal"]["run"]),
+    "check": _all(SCENARIOS["build_light_portal"]["check"], _blocks(*PORTAL_BOX, "obsidian", 10, 10),
+                  lambda api, inv: inv.count("minecraft:obsidian") == 0, _interrupted(1)),
+    "budget": 30,
+}
 
 # A batched skill interrupted mid-chain (G): the interrupt lands at the first bottle filled (progress, not the
 # clock); the resume fills what the bag still lacks, recomputed from it — never the chain's index, never a cooling.

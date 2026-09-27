@@ -350,9 +350,14 @@ def _build_parts(ctx, bp, origin, turns):
     a body-oriented block that came out mirrored — is finished part by part below, where each placement is looked
     at before the next."""
     batch = blueprint_commands(_build_state(ctx, bp, origin, turns), (bp, origin, turns))
-    if batch:
-        api.run_chain(batch, stop_on_failure=True)
+    # One chain per layer, bottom-up: a layer is the support of the next, so each is read back from the world before
+    # the next is sent; a layer short of what it should hold hands over to the part-by-part finish below.
+    for chunk in by_layer(batch):
+        api.run_chain(chunk, stop_on_failure=True)
         yield feet()
+        placed_ys = [t["y"] for t in chunk if t["type"] == "place"]
+        if placed_ys and any(pos[1] == max(placed_ys) for pos, _item in blueprint_wrong(bp, origin, turns)):
+            break
     cells = sorted(blueprints.placed(bp, origin, turns), key=lambda t: t[0][1])
     access = blueprints.access_spot(bp, origin, turns)
     done_region = Region(tuple(min(p[0][i] for p in cells) for i in range(3)),
@@ -410,6 +415,23 @@ def _build_parts(ctx, bp, origin, turns):
     wrong = blueprint_wrong(bp, origin, turns)
     if wrong:
         raise McError(f"{bp.name} incomplete: {wrong}")
+
+
+def by_layer(tasks):
+    """Pure: a build's tasks split into chunks, one per height of the blocks it places, in order. What comes between
+    two layers (a walk back, a pillar up) opens the next chunk; tasks after the last place stay in the last one."""
+    chunks, cur, y = [], [], None
+    for t in tasks:
+        if t["type"] == "place":
+            if y is not None and t["y"] != y:
+                cut = max(i for i, c in enumerate(cur) if c["type"] == "place") + 1
+                chunks.append(cur[:cut])
+                cur = cur[cut:]
+            y = t["y"]
+        cur.append(t)
+    if cur:
+        chunks.append(cur)
+    return chunks
 
 
 def _build_args(ctx, s):

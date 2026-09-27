@@ -86,3 +86,24 @@ class Sow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ByLayer(unittest.TestCase):
+    """building.by_layer: a build's chain cut into one chunk per placed height, bottom-up; what walks or pillars up to
+    a layer opens that layer's chunk."""
+    P = staticmethod(lambda y: {"type": "place", "y": y})
+    G, U, M = {"type": "goto", "y": 0}, {"type": "pillar"}, {"type": "mine_many"}
+    # (situation, tasks) → the chunks, as short names
+    ROWS = [("clear, two layers with a pillar between", [M, P(0), P(0), G, U, P(1), P(1)],
+             [["m", "p0", "p0"], ["g", "p", "p1", "p1"]]),
+            ("one block: one chunk", [P(0)], [["p0"]]),
+            ("three heights: three chunks", [P(0), P(1), P(2)], [["p0"], ["p1"], ["p2"]]),
+            ("nothing to build: no chunk (must fail to send anything)", [], []),
+            ("a task after the last place stays with it", [G, P(0), M], [["g", "p0", "m"]])]
+
+    def test_rows(self):
+        from bonobo.building import by_layer
+        name = lambda t: t["type"][0] + (str(t["y"]) if t["type"] == "place" else "")   # noqa: E731
+        for situation, tasks, want in self.ROWS:
+            with self.subTest(situation):
+                self.assertEqual([[name(t) for t in c] for c in by_layer(tasks)], want)
