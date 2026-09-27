@@ -28,6 +28,15 @@ WORLD_CMDS = ("fill", "setblock", "clone", "place", "forceload")     # the build
 LATE_CMDS = ("summon",)                  # actors: summoned in the row itself — built ahead they wander or burn
 
 
+def body_reset(sc):
+    """Pure: the commands that put the body back to full after a row's setup — health always, food unless the row
+    itself makes the player hungry (a hunger effect in its setup, or tagged hungry for its `before` hook): the
+    saturation given after the setup refilled the bar the row had just drained (eat_while_walking was never hungry)."""
+    hungry = sc.get("tags", {}).get("state") == "hungry" or any("minecraft:hunger" in c for c in sc.get("setup", ()))
+    return ["effect give @p minecraft:instant_health 1 10 true"] + \
+        ([] if hungry else ["effect give @p minecraft:saturation 1 10 true"])
+
+
 def classify(cmd):
     """Pure: "world" (a block build with absolute coordinates: built ahead at site B), "late" (a summon: in the
     row, after the switch) or "body" (the player and the world's global state — bag, effects, position, time,

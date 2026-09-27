@@ -814,6 +814,21 @@ class TwoSites(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(core.classify(cmd), want)
 
+    def test_the_body_reset_leaves_a_hungry_row_hungry(self):
+        from bonobo.bench import core
+        fed = "effect give @p minecraft:saturation 1 10 true"
+        rows = [("a plain row: fed after its setup", {"setup": ["give @p stone"]}, True),
+                ("hunger in its setup: not refilled", {"setup": ["effect give @p minecraft:hunger 4 255 true"]}, False),
+                ("tagged hungry (its before hook drains): not refilled",
+                 {"setup": [], "tags": {"state": "hungry"}}, False),
+                ("another state tag: fed", {"setup": [], "tags": {"state": "night"}}, True),
+                ("no setup at all: fed", {}, True)]
+        for name, sc_, want in rows:
+            with self.subTest(name):
+                got = core.body_reset(sc_)
+                self.assertIn("effect give @p minecraft:instant_health 1 10 true", got)
+                self.assertIs(fed in got, want)
+
     def test_shift(self):
         from bonobo.bench import core
         rows = [("a box corner pair moved 100 east", "fill 9994 184 9994 10006 199 10006 stone",

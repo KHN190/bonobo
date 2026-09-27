@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import core
-from .core import (BENCH, BOX, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
+from .core import (BENCH, BOX, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
 
 # ---------------------------------------------------------------- pure helpers (tested offline)
@@ -590,8 +590,8 @@ def _setup(name, sc, feedback):
             raise SetupInvalid(f"difficulty not {difficulty_of(sc)}: {said[:1]}")
         for cmd in sc["setup"]:
             _checked(ex(cmd), feedback)
-        _command(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
-        _command(ex("effect give @p minecraft:saturation 1 10 true"), feedback)
+        for cmd in body_reset(sc):
+            _command(ex(cmd), feedback)
         time.sleep(4 if moved else 1.5)
         s = api.get("/state")
         if s.get("dimension") != dim:
@@ -666,8 +666,8 @@ def _setup(name, sc, feedback):
     # The waiting glass must go once we're down: a 30-block fall landed on it 18 blocks early (water_clutch, hp 5).
     _checked(ex(f"fill {glass} {glass} air"), feedback)
     _command(ex("kill @e[type=item]"), feedback)
-    _checked(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
-    _checked(ex("effect give @p minecraft:saturation 1 10 true"), feedback)
+    for cmd in body_reset(sc):
+        _checked(ex(cmd), feedback)
     # The client sees the build a moment after the server made it (the first row, just teleported in, read 0 of 3
     # furnaces once): read again until the expectation holds, then judge.
     for _ in range(10):
@@ -701,7 +701,7 @@ def _trace(stop, out):
         try:
             s = api.get("/state")
             out.append({"t": round(time.time(), 1), **{k: s.get(k) for k in
-                        ("x", "y", "z", "health", "dead", "inWater", "inLava", "onGround", "screen")},
+                        ("x", "y", "z", "health", "food", "dead", "inWater", "inLava", "onGround", "screen")},
                         "task": (s.get("control") or {}).get("task")})
         except Exception as e:
             out.append({"t": round(time.time(), 1), "error": str(e)})
