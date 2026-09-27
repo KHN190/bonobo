@@ -256,7 +256,7 @@ class Tiers(unittest.TestCase):
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
 # sweeps included) that no setup can shorten without changing what they measure. May only shrink.
 LONG = set()  # rows over the 60 s limit still to be cut down by setup: none left (may only stay empty)
-LIMIT_S = {t: 30 for t in ("core", "common", "brain", "combat", "exception")}
+LIMIT_S = {t: runner.ROW_LIMIT_S for t in ("core", "common", "brain", "combat", "exception")}   # the one limit
 
 
 def over_limit(rows_):
@@ -264,15 +264,64 @@ def over_limit(rows_):
     return sorted(n for n, r in rows_.items() if r["tier"] in LIMIT_S and r["budget"] > LIMIT_S[r["tier"]])
 
 
+class SheetMerge(unittest.TestCase):
+    """Every generated row reaches SCENARIOS: the merge is the one door and SHEET is sealed after it
+    (search_night_resume was added after the merge and was in no run)."""
+
+    def test_every_sheet_row_is_a_scenario(self):
+        self.assertEqual(sorted(set(sc.SHEET) - set(sc.SCENARIOS)), [])
+        self.assertIn("search_night_resume", sc.SCENARIOS)
+
+    def test_a_row_added_after_the_merge_is_refused(self):
+        # must fail: a late SHEET row is an error at import, never a row silently left out
+        with self.assertRaises(TypeError):
+            sc.SHEET["late_row"] = {"budget": 1}
+        self.assertNotIn("late_row", sc.SCENARIOS)
+
+
+class FightRowsInCombat(unittest.TestCase):
+    """A row that fights (a hostile summoned in its setup or `before` hook, or the dragon slain) is in the combat tier.
+    resume_after_combat is exempt by name: its zombie comes mid-task and its tier is the user's decision."""
+    EXEMPT = {"resume_after_combat"}
+    HOSTILE = re.compile(r"summon (?:minecraft:)?(zombie|skeleton|creeper|blaze|ghast|spider|cave_spider|enderman|"
+                         r"witch|slime|magma_cube|wither|pillager|husk|drowned|stray|phantom|hoglin|vindicator|"
+                         r"piglin_brute)\b")
+
+    @classmethod
+    def fights(cls, row):
+        import inspect
+        text = " ".join(map(str, row.get("setup", ())))
+        try:
+            text += " " + inspect.getsource(row["before"]) if row.get("before") else ""
+        except (OSError, TypeError):
+            pass
+        return bool(cls.HOSTILE.search(text)) or "slay_dragon" in row.get("skills", ())
+
+    def test_fight_rows_are_combat(self):
+        out = sorted(n for n, r in sc.SCENARIOS.items()
+                     if n not in self.EXEMPT and r["tier"] != "combat" and self.fights(r))
+        self.assertEqual(out, [])
+
+    def test_the_check_sees_a_fight(self):
+        # must fail: a summoned zombie outside the combat tier is caught; a peaceful row is not
+        rows = [("summoned zombie", {"setup": ["summon zombie 0 0 0"]}, True),
+                ("a ghast in the before hook", {"before": sc.SCENARIOS["ghast_fireball"]["before"]}, True),
+                ("the dragon slain", {"skills": ["slay_dragon"]}, True),
+                ("cows only", {"setup": ["summon cow 0 0 0"]}, False)]
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(self.fights(row), want)
+
+
 class Budgets(unittest.TestCase):
     # (situation, a sheet) → the rows over their limit
     ROWS = [("the real sheet: only the long list", None, None),
-            ("a core row at 31 s", {"x": {"tier": "core", "budget": 31}}, ["x"]),
-            ("a core row at 30 s", {"x": {"tier": "core", "budget": 30}}, []),
-            ("an exception row at 31 s", {"x": {"tier": "exception", "budget": 31}}, ["x"]),
-            ("a brain row at 31 s", {"x": {"tier": "brain", "budget": 31}}, ["x"]),
-            ("a combat row at 31 s", {"x": {"tier": "combat", "budget": 31}}, ["x"]),
-            ("a common row at 30 s", {"x": {"tier": "common", "budget": 30}}, []),
+            ("a core row over the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a core row at the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S}}, []),
+            ("an exception row over the limit", {"x": {"tier": "exception", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a brain row over the limit", {"x": {"tier": "brain", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a combat row over the limit", {"x": {"tier": "combat", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
+            ("a common row at the limit", {"x": {"tier": "common", "budget": runner.ROW_LIMIT_S}}, []),
             ("acceptance is its own limit", {"x": {"tier": "acceptance", "budget": 1800}}, [])]
 
     def test_budget_limits(self):

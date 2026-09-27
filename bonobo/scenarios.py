@@ -8,6 +8,7 @@ import math
 import os
 import re
 import time
+from types import MappingProxyType
 
 from .bench import core, runner
 from .data import POD_BLOCKS
@@ -3161,6 +3162,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
     return hook
 
 
+THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now: dusk_s < plan_s × LEAD; the bed from the kit is ~3 s × 1.5).
     # At 11800 dusk was 10 s off: not yet due, the 6 s log task came first and the bed after it (brain__tight).
@@ -3168,13 +3170,24 @@ BRAIN_DIMS = {
     # Drained before the run to ~10 (`_drain_to`). The effect here only marks the row hungry for the body reset (no
     # saturation after setup): one second at level I drains nothing that matters; the drain proper is the hook's.
     "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
-    "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
+    # one_use: a crafting table stands by the start (within `_sitting`'s radius 6 of the start and the stone): the
+    # carried table's place, open and break-to-carry-back is not the row's behaviour (the tier chosen is) and costs
+    # seconds every run (measured 27.8 s against the 25 s limit; the cut is to be measured in-game). The kit's table
+    # item stays: nothing given, a block placed.
+    "tool": {"fresh": ["give @p iron_pickaxe"],
+             "one_use": ["give @p iron_pickaxe[damage=249]", f"setblock {_c(at(-2, 0, -1))} crafting_table"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
-    "bag": {"room": [], "one_slot": [], "junk_full": [], "valuables_full": []},     # filled by the `before` hook
+    # Filled by the `before` hook. junk_full starts at THROW_START: the only 3-deep open side is +x, over the arena's
+    # edge, so tidy_inventory throws the dirt away from the tree and steps back toward it. From the middle it throws +x
+    # as well — toward the tree — steps away to -x and walks back past the drops, where they can be picked up and the
+    # bag emptied again (the old one_slot measured 25.6 s against the 25 s limit; the cut is to be measured in-game).
+    # One junk cell: one free slot (35 used) is past reflexes.BAG_FULL (34) just as a full bag is — the bag is emptied
+    # first either way, so a one_slot cell was this row again with a weaker check (logs only).
+    "bag": {"room": [], "junk_full": [_tp(*THROW_START)], "valuables_full": []},
 }
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
-BAG_FILL = {"room": None, "one_slot": (1, "dirt"), "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
+BAG_FILL = {"room": None, "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
 KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask for more than this, or it is met at once
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
@@ -3235,8 +3248,8 @@ def _bag_rule(cell):
         return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
     if cell["bag"] == "junk_full":
         return (_all(_gain("log", 2), lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
-                "a bag of junk: junk thrown, then the task done")
-    return _gain("log", 2), "room (or one slot) for it: the task done as usual"
+                "a bag past BAG_FULL, junk: junk thrown, then the task done")
+    return _gain("log", 2), "room for it: the task done as usual"
 
 
 FINDS = {"diamond": 0}
@@ -3789,10 +3802,47 @@ for _name, _skills in COVERS.items():
     if _name in SCENARIOS:
         SCENARIOS[_name].setdefault("skills", list(_skills))
         SCENARIOS[_name].setdefault("point", "A")
+# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left for the night's way
+# (the other hand-offs — a fight, a meal — are resume_after_combat's and the eat rows') and taken up again for the
+# same target (memory's section map: no spot searched twice,
+# no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
+_goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
+SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
+                f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
+SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
+
+
+def _set_time(t):
+    return lambda: _chat(f"time set {t}")
+
+
+SEARCH_ROWS = {
+    "search_night_resume": (
+        "a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → the "
+        "same diamond, straight (no scan for it)",
+        SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
+        [_goal(("minecraft:diamond", 1))],
+        [_seen("diamond_ore", SEARCH_ORE), _count_finds, _when(walked_at_least(6), _set_time(13000)),
+         _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
+         lambda ctx: SEARCH_FLAGS.clear()],
+        _inv_has("minecraft:diamond", 1),
+        _all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False))),
+}
+SEARCH_FLAGS = {}
+for _name, (_doc, _setup, _queue, _hooks_, _done, _check) in SEARCH_ROWS.items():
+    SHEET[_name] = {"doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
+                    "combat": False, "tags": {"base": "brain", "family": "search_resume"},
+                    "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_), "queue": list(_queue),
+                    "run": _slice(_done, 0.45, queue=list(_queue)), "check": _check, "budget": 30}
+
+
 for _row_ in SHEET.values():              # the runner's setup signature: the box holds what the setup built
     if not _row_.get("raw"):
         _row_.setdefault("expect", [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)])
 SCENARIOS.update(SHEET)
+# The merge is the one door: SHEET is read-only from here, so a row added to it later fails at import instead of
+# never running (search_night_resume was added after the merge and was in no run).
+SHEET = MappingProxyType(SHEET)
 for _name in ("slice_retreat",):
     SCENARIOS[_name].setdefault("point", "C")
 for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one skill: they carry an empty list
@@ -3808,6 +3858,9 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 # Fighting is its own tier: every fight row, sweep shard and fight behaviour cell — never common.
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
+# Fights whose names say otherwise: blazes fought for their rods, a ghast's fireballs, the dragon killed by a bed.
+# resume_after_combat (a zombie mid-task, brain tier) is the user's call, left out on purpose.
+COMBAT_ROWS = ("bed_bomb_kill", "collect_blaze_rods", "ghast_fireball")
 # The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
 # what every change can afford to run.
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -3821,7 +3874,7 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if name.startswith(COMBAT_PREFIXES) or row.get("module") == "fight_loop":
+    if name.startswith(COMBAT_PREFIXES) or name in COMBAT_ROWS or row.get("module") == "fight_loop":
         return "combat"
     if row.get("tier_fixed") in ("core", "common", "brain", "combat", "exception"):
         return row["tier_fixed"]
@@ -3906,47 +3959,13 @@ def skill_spans(registry, root):
 # -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
 # Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
 # whose weapon is the measured dimension, and brain cells whose input is tool state are not in here. One table, one pass.
-# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left for the night's way
-# (the other hand-offs — a fight, a meal — are resume_after_combat's and the eat rows') and taken up again for the
-# same target (memory's section map: no spot searched twice,
-# no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
-_goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
-SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
-                f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
-SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
-
-
-def _set_time(t):
-    return lambda: _chat(f"time set {t}")
-
-
-SEARCH_ROWS = {
-    "search_night_resume": (
-        "a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → the "
-        "same diamond, straight (no scan for it)",
-        SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
-        [_goal(("minecraft:diamond", 1))],
-        [_seen("diamond_ore", SEARCH_ORE), _count_finds, _when(walked_at_least(6), _set_time(13000)),
-         _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
-         lambda ctx: SEARCH_FLAGS.clear()],
-        _inv_has("minecraft:diamond", 1),
-        _all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False))),
-}
-SEARCH_FLAGS = {}
-for _name, (_doc, _setup, _queue, _hooks_, _done, _check) in SEARCH_ROWS.items():
-    SHEET[_name] = {"doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
-                    "combat": False, "tags": {"base": "brain", "family": "search_resume"},
-                    "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_), "queue": list(_queue),
-                    "run": _slice(_done, 0.45, queue=list(_queue)), "check": _check, "budget": 30}
-
-
 KIT_JOBS = {
     ("axe",): [
         "brain__night", "brain__tight", "chest_or_tree", "chop__base", "chop__lava_edge", "chop__night",
         "chop__pickup_lag", "chop__stack_room", "chop__valuables_full", "chop_without_interrupt",
         "dead_flicker_on_respawn", "floating_logs", "gather_logs", "gather_logs_birch",
         "interrupted_rescue_is_not_a_failure", "leaves_block_trunk", "night_first__low", "resume_after_combat",
-        "seek_blocks_real", "tidy_then_task__junk_full", "tidy_then_task__one_slot",
+        "seek_blocks_real", "tidy_then_task__junk_full",
         "tidy_then_task__valuables_full",
     ],
     ("axe", "pickaxe",): [
