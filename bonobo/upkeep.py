@@ -28,6 +28,7 @@ JOB_RANGE = 96
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
+NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 BRIDGE_MIN = 8             # building blocks worth starting a bridge with
 BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN
@@ -125,6 +126,23 @@ def needs_water_bucket(snap, plans):
     return any(falls(s) for steps in plans for s in steps)
 
 
+def wear(inv):
+    """{tool kind: least durability left on a carried one} for TOOL_KINDS. Pure over the bag."""
+    out = {}
+    for kind in TOOL_KINDS:
+        left = [d for _t, d, _ in inv.tools(kind)]
+        if left:
+            out[kind] = min(left)
+    return out
+
+
+def broke(before, working):
+    """Pure: the tool kinds that broke between two rounds — one was nearly worn out last round (`before`: least
+    durability left ≤ NEAR_BREAK) and none works now (`working`: working_tiers). A tool that vanished whole was
+    stored, dropped or cleared: nothing to replace."""
+    return {kind for kind, left in before.items() if left <= NEAR_BREAK and kind not in working}
+
+
 class Upkeep:
     """The table, and what it remembers between rounds: where the body has been (stuck), which tools worked last
     round (broken), where the last path failure was going (blocked). `brain` supplies the failure policy
@@ -136,6 +154,7 @@ class Upkeep:
         self.history = []             # (time, feet, bag signature) for "stuck in place"
         self.escalated = {}
         self.working = {}             # tool kind -> tier that worked last round
+        self.wear = {}                # tool kind -> least durability left last round
         self.broken = set()           # tool kinds that broke and are not replaced yet
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
 
@@ -144,10 +163,10 @@ class Upkeep:
         now = time.time()
         self.history = [h for h in self.history if now - h[0] <= STUCK_LIMIT + 30]
         self.history.append((now, snap.feet, bag_signature(snap.inv)))
-        tiers = working_tiers(snap.inv)
-        self.broken |= {kind for kind in self.working if kind not in tiers}
+        tiers, now_wear = working_tiers(snap.inv), wear(snap.inv)
+        self.broken |= broke(self.wear, tiers)
         self.broken -= set(tiers)
-        self.working = tiers
+        self.working, self.wear = tiers, now_wear
 
     def failed(self, cause, err, place):
         """A path failure is remembered with where it was going: the "path blocked" rows answer it."""

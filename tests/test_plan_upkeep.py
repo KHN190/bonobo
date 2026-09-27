@@ -938,20 +938,20 @@ UPKEEP = [
         queued=lambda q: (("tool", "pickaxe", 2),) in q,
         inv=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 249), ("iron_ingot", 3), ("stick", 2),
              ("crafting_table", 1)],
-        last_round=[("cooked_beef", 8), ("white_bed", 1), ("iron_pickaxe", 1)]),
+        last_round=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 240)]),
     Row("the iron pickaxe broke, nothing to make one of: a pickaxe of any tier up to it", None,
         queued=lambda q: any(n[0][:2] == ("tool", "pickaxe") and n[0][2] <= 2 for n in q),
         inv=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 249)],
-        last_round=[("cooked_beef", 8), ("white_bed", 1), ("iron_pickaxe", 1)]),
+        last_round=[("cooked_beef", 8), ("white_bed", 1), slot("iron_pickaxe", 1, 240)]),
     Row("the stone sword broke: a sword back", None,
         queued=lambda q: any(n[0][:2] == ("tool", "sword") and 0 <= n[0][2] <= 1 for n in q),
-        inv=WELL_FED, last_round=WELL_FED + [("stone_sword", 1)]),
+        inv=WELL_FED, last_round=WELL_FED + [slot("stone_sword", 1, 125)]),
     Row("a tool that never worked is not broken", None, inv=WELL_FED, last_round=WELL_FED),
-    Row("the stone axe broke: an axe back", None, inv=WELL_FED, last_round=WELL_FED + [("stone_axe", 1)],
+    Row("the stone axe broke: an axe back", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_axe", 1, 125)],
         queued=lambda q: any(n[0][:2] == ("tool", "axe") for n in q)),
-    Row("the stone shovel broke: a shovel back", None, inv=WELL_FED, last_round=WELL_FED + [("stone_shovel", 1)],
+    Row("the stone shovel broke: a shovel back", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_shovel", 1, 125)],
         queued=lambda q: any(n[0][:2] == ("tool", "shovel") for n in q)),
-    Row("the stone hoe broke: a hoe back", None, inv=WELL_FED, last_round=WELL_FED + [("stone_hoe", 1)],
+    Row("the stone hoe broke: a hoe back", None, inv=WELL_FED, last_round=WELL_FED + [slot("stone_hoe", 1, 125)],
         queued=lambda q: any(n[0][:2] == ("tool", "hoe") for n in q)),
     Row("hungry at night with a bed: eat first, then sleep", "eat", food=10, time_of_day=NIGHT),
     Row("the bag full and the path blocked: empty the bag first", "empty the bag", inv=full_bag("cobblestone"),
@@ -1523,6 +1523,29 @@ class Queue(unittest.TestCase):
                 steps = plan({"goal": template, "args": a}, snapshot(), {"oak_log": 5, "stone": 2, "cow": 9})
                 self.assertIsInstance(steps, list)
 
+
+
+# ------------------------------------------------------------------------------------------------ a tool that broke
+class WhatBroke(unittest.TestCase):
+    """A tool is broken only when it was nearly worn out and is gone: a whole one that vanished was stored, dropped or
+    cleared, and replacing it is a task nobody asked for ("the axe broke" of an axe never carried)."""
+
+    # (situation, last round's bag, this round's bag) → the kinds that broke
+    ROWS = [("nearly worn out, then gone: broke", [slot("stone_axe", 1, 125)], [], {"axe"}),
+            ("whole, then gone (stored in a chest, /clear): not broken", [("stone_axe", 1)], [], set()),
+            ("nearly worn out, still in hand: not yet", [slot("stone_axe", 1, 125)], [slot("stone_axe", 1, 127)],
+             set()),
+            ("worn out, and a better one carried now: replaced, not broken", [slot("stone_pickaxe", 1, 128)],
+             [("iron_pickaxe", 1)], set()),
+            ("two kinds, one nearly worn out: only that one", [slot("wooden_sword", 1, 57), ("stone_shovel", 1)], [],
+             {"sword"}),
+            ("never carried: nothing", [], [], set())]
+
+    def test_broke_over_the_table(self):
+        for name, before, after, want in self.ROWS:
+            with self.subTest(name):
+                was = upkeep.wear(bag(inventory(*before)))
+                self.assertEqual(upkeep.broke(was, upkeep.working_tiers(bag(inventory(*after)))), want)
 
 
 # -------------------------------------------------------------------------------------------- a bucket before a fall
