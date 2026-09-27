@@ -17,6 +17,75 @@ def _now():
     return time.strftime("%Y-%m-%d %H:%M")
 
 
+# -- the section grid explore searches over (16×16×16, Minecraft's own sections): which sections were looked over,
+# when, and what they held (Memory.see_sections), and the frontier — the nearest section whose look has run out
+# for the kinds wanted, in each kind's own y band. Pure.
+SECTION = 16
+
+
+def section_of(pos):
+    """Pure: the (cx, cy, cz) section a position lies in."""
+    return int(math.floor(pos[0])) // SECTION, int(math.floor(pos[1])) // SECTION, int(math.floor(pos[2])) // SECTION
+
+
+def sections_within(pos, radius):
+    """Pure: every section whose centre lies within `radius` blocks of `pos` (in 3-D: a look sees above and below)."""
+    cx, cy, cz = section_of(pos)
+    r = int(radius) // SECTION + 1
+    return [(cx + dx, cy + dy, cz + dz) for dx in range(-r, r + 1) for dy in range(-r, r + 1) for dz in range(-r, r + 1)
+            if math.dist(((cx + dx) * SECTION + 8, (cy + dy) * SECTION + 8, (cz + dz) * SECTION + 8),
+                         pos) <= radius]
+
+
+def absent_ttl(kind):
+    """Game ticks "looked over, none here" holds for `kind` (data.VOLATILITY's `absent`, by the kind's class)."""
+    rule = VOLATILITY.get(seen_class(kind)) or VOLATILITY["slow"]
+    return rule.get("absent") or VOLATILITY["slow"]["absent"]
+
+
+def covered(row, kinds, tick):
+    """Pure: this section's looks still answer for every one of `kinds` — each looked for here within its `absent`
+    TTL (a kind it held counts as answered: the note says where). A look answers only for what it asked about."""
+    if row is None:
+        return False
+    looked = row.get("looked", {})
+    for k in map(bare, kinds):
+        if k in row["kinds"]:
+            continue
+        t = looked.get(k)
+        if t is None:
+            return False
+        if tick is not None and tick - t > absent_ttl(k):
+            return False
+    return True
+
+
+def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12):
+    """Pure: the sections to look next for `kinds`, nearest first — within `radius` sections sideways of `here`, at
+    each kind's own height (`band(kind)`: the y it is richest at, None for the surface: the feet's section), never
+    looked over or looked over too long ago. [] when everything near has been looked over lately. A section seen
+    at y 64 answers nothing for a band at y −58."""
+    hx, hy, hz = section_of(here)
+    layers = {(hy if band(k) is None else int(band(k)) // SECTION) for k in kinds}
+    out = set()
+    for cy in layers:
+        want = [k for k in kinds if (hy if band(k) is None else int(band(k)) // SECTION) == cy]
+        for dx in range(-radius, radius + 1):
+            for dz in range(-radius, radius + 1):
+                s = (hx + dx, cy, hz + dz)
+                if s != (hx, hy, hz) and not covered(smap.get(s), want, tick):
+                    out.add(s)
+    return sorted(out, key=lambda s: (math.dist(s, (hx, hy, hz)), s))
+
+
+def section_centre(section):
+    """Pure: the block at a section's centre (x, y, z)."""
+    return tuple(c * SECTION + 8 for c in section)
+
+
+SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, farthest go first)
+
+
 class Memory:
     def __init__(self, path=NOTES_FILE):
         self.path = path
@@ -306,6 +375,37 @@ class Memory:
     def remove_station(self, pos):
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
         self.save()
+
+    # ---- which sections were looked over, and what they held: explore's frontier (`frontier`)
+    def see_sections(self, dimension, pos, radius, found, looked=()):
+        """The sections within `radius` blocks of `pos` were looked over now (game clock) for `looked` (kinds);
+        `found`: {kind: [pos]} what the look saw — each marks its own section as holding that kind. A kind looked
+        for and not seen is absent until its class's `absent` TTL runs out. Only looked-over sections are kept, at
+        most SECTION_CAP."""
+        smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
+        asked = {bare(k) for k in looked} | {bare(k) for k in found}
+        for c in sections_within(pos, radius):
+            row = smap.setdefault(",".join(map(str, c)), {"t": self.clock, "kinds": {}, "looked": {}})
+            row["t"] = self.clock
+            row.setdefault("looked", {}).update({k: self.clock for k in asked})
+        for kind, spots in found.items():
+            for p in spots:
+                key = ",".join(map(str, section_of(p)))
+                smap.setdefault(key, {"t": self.clock, "kinds": {}, "looked": {}})["kinds"][bare(kind)] = self.clock
+        if len(smap) > SECTION_CAP:
+            here = section_of(pos)
+            by = sorted(smap, key=lambda k: ((smap[k]["t"] or 0), -math.dist(here, tuple(map(int, k.split(","))))))
+            for k in by[:len(smap) - SECTION_CAP]:
+                del smap[k]
+
+    def frontier(self, dimension, here, kinds, band=lambda kind: None):
+        """[(section, its centre)] to look next for `kinds` from `here` (module `frontier` over this dimension's
+        section map, on the game clock), nearest first."""
+        return [(s, section_centre(s)) for s in frontier(self.section_map(dimension), here, kinds, self.clock, band)]
+
+    def section_map(self, dimension):
+        """{(cx, cy, cz): {"t", "kinds"}} of this dimension (`frontier` reads it)."""
+        return {tuple(map(int, k.split(","))): v for k, v in self.data.get("sections", {}).get(dimension, {}).items()}
 
     # ---- what was seen where: one store, by volatility (data.VOLATILITY / seen_class), on the game clock
     CONFIRM_R = 12.0      # a note and a sighting within this are the same thing

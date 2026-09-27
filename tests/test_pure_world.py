@@ -664,3 +664,90 @@ class RetryAndSkill(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Frontier(unittest.TestCase):
+    """memory.frontier over the section map (16×16×16): what to look over next, per kind, in its own y band."""
+    HERE = (8, 70, 8)                  # section (0, 4, 0)
+    D = "diamond_ore"                  # static: absent holds 2 days
+    S = "minecraft:sheep"              # mobile: absent holds 2400 ticks
+
+    def mem(self):
+        import tempfile
+        from bonobo.memory import Memory
+        m = Memory(os.path.join(tempfile.mkdtemp(prefix="frontier"), "notes.json"))
+        m.clock = 1000
+        return m
+
+    def test_choice(self):
+        from bonobo import memory
+        seen_all = {(dx, 4, dz): {"t": 1000, "kinds": {}, "looked": {"sheep": 1000}}
+                    for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+        # (situation, section map, kinds, band, the first section chosen, or [] when nothing is left)
+        rows = [("nothing looked over: the nearest beside us", {}, [self.S], None, (-1, 4, 0)),
+                ("the west one looked over for sheep: the next nearest", {(-1, 4, 0): seen_all[(-1, 4, 0)]}, [self.S],
+                 None, (0, 4, -1)),
+                ("must fail: every section near looked over lately", seen_all, [self.S], None, []),
+                ("a look for sheep says nothing about diamonds", seen_all, [self.D], None, (-1, 4, 0)),
+                ("seen at y 64, the band at y -58: the frontier is down there", seen_all, [self.D], -58, (0, -4, 0))]
+        for name, smap, kinds, band, want in rows:
+            with self.subTest(name):
+                got = memory.frontier(smap, self.HERE, kinds, 1000, band=lambda k, b=band: b, radius=1)
+                self.assertEqual(got[0] if got else [], want)
+
+    def test_ttl_by_class(self):
+        from bonobo import memory
+        row = {"t": 0, "kinds": {}, "looked": {"diamond_ore": 0, "sheep": 0}}
+        # (kind, ticks since the look) → still covered
+        rows = [("an ore looked for a day ago: still no ore", self.D, 24000, True),
+                ("an ore looked for three days ago: look again", self.D, 3 * 24000, False),
+                ("sheep looked for a minute ago: none", self.S, 1200, True),
+                ("sheep looked for five minutes ago: they may have walked in", self.S, 6000, False),
+                ("never looked for: not covered", "iron_ore", 10, False)]
+        for name, kind, age, want in rows:
+            with self.subTest(name):
+                self.assertEqual(memory.covered(row, [kind], age), want)
+
+    def test_resume_and_shared(self):
+        # A search interrupted after one look resumes elsewhere; another task's look counts for the same kind.
+        m = self.mem()
+        m.see_sections("minecraft:overworld", self.HERE, 48, {}, [self.S])
+        after = [s for s, _c in m.frontier("minecraft:overworld", self.HERE, [self.S])]
+        self.assertNotIn((1, 4, 0), after)                        # covered by the first look: not walked again
+        self.assertTrue(after)                                    # the search goes on, farther out
+        other = [s for s, _c in m.frontier("minecraft:overworld", self.HERE, [self.D])]
+        self.assertIn((1, 4, 0), other)                           # a sheep look answers nothing for diamonds
+
+    def test_the_map_is_bounded(self):
+        from bonobo import memory
+        m = self.mem()
+        with mock.patch.object(memory, "SECTION_CAP", 50):
+            for x in range(0, 2000, 64):
+                m.see_sections("minecraft:overworld", (x, 70, 0), 48, {}, [self.S])
+        self.assertLessEqual(len(m.section_map("minecraft:overworld")), 50)
+
+    def test_nothing_left_says_so(self):
+        from bonobo import explore
+        m = self.mem()
+        m.see_sections("minecraft:overworld", self.HERE, 16 * 13, {}, [self.S])
+        ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
+        with mock.patch.object(explore, "feet", lambda: self.HERE):
+            with self.assertRaises(NotAvailable) as e:
+                list(explore._search(ctx, [self.S], lambda: [], 64, 3))
+        self.assertIn("searched", str(e.exception))
+
+    def test_a_cave_below_is_a_frontier_with_ground(self):
+        # The band's section has no known surface; the column's ground near the band's height (a cave floor) is
+        # walked to — and a candidate with no ground at all is skipped for the next.
+        from bonobo import explore
+        m = self.mem()
+        went = []
+        grounds = iter([None, -55])                                   # the first candidate: no ground; the next: a cave
+        ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
+        with mock.patch.object(explore, "feet", lambda: self.HERE), \
+                mock.patch.object(explore, "_ground", lambda tx, tz, y: next(grounds)), \
+                mock.patch.object(explore.nav, "go_to", lambda pos, *a, **k: went.append(pos)), \
+                mock.patch.object(explore, "log"):
+            gen = explore._search(ctx, [self.D], lambda: [], 48, 1)
+            next(gen)
+        self.assertEqual(went[0][1], -55)

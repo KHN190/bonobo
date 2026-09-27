@@ -29,97 +29,105 @@ def surface_first(ctx, max_climb=90):
         raise api.NavFailed(f"could not reach the surface from y={y}")
 
 
+LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]
+LOOK_MOBS, LOOK_BLOCKS = 64, 48       # how far one look sees: /entities and /find radii
+
+
+def _ground(tx, tz, y):
+    """The y to walk to at column (tx, tz): known land near it, else the column's own ground; None when neither is
+    known (never our own height for a spot far off: from a hilltop every leg pointed into mid-air)."""
+    land = [h for h in find(LAND, radius=48, limit=60) if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
+    if land:
+        return min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz)))["y"] + 1
+    from .world import Region
+    col = Region((tx, y - 40, tz), (tx, y + 20, tz))
+    return nav.ground_in_column(col.solid, tx, tz, y, span=40)
+
+
+def _search(ctx, kinds, look, radius, legs):
+    """Look, then walk to the nearest section not yet looked over for `kinds` (memory.frontier over the section map,
+    at each kind's own depth: `band`), and look again. Every look marks the sections it covered, with what it saw:
+    an interrupted search resumes by choosing the frontier again (no walk repeated), and another task's looks count
+    for these kinds too."""
+    for _ in range(legs):
+        here = feet()
+        hits = look()
+        ctx.mem.see_sections(ctx.dimension, here, radius, _by_kind(hits), kinds)
+        if hits:
+            return hits
+        todo = ctx.mem.frontier(ctx.dimension, here, kinds, band)
+        target = None
+        for section, (tx, sy, tz) in todo[:4]:
+            ty = _ground(tx, tz, sy)          # a cave floor counts: the column's ground near the band's height
+            if ty is not None:
+                target = (tx, ty, tz)
+                break
+        if target is None:
+            raise NotAvailable(f"no {bare(kinds[0])} found: searched "
+                               f"{len(ctx.mem.section_map(ctx.dimension))} sections"
+                               + ("" if todo else ", every section near looked over lately"))
+        log(f"   looking for {bare(kinds[0])}: heading to section {section} ({target[0]}, {target[1]}, {target[2]})")
+        nav.go_to(target, ctx.policy, range_=6, attempts=1, purpose="explore")    # looking: walk, never dig
+        yield (target[0], target[2])
+    hits = look()
+    ctx.mem.see_sections(ctx.dimension, feet(), radius, _by_kind(hits), kinds)
+    if not hits:
+        raise NotAvailable(f"no {bare(kinds[0])} found: searched {len(ctx.mem.section_map(ctx.dimension))} sections "
+                           f"in {legs} legs")
+    return hits
+
+
+def band(kind):
+    """The y a kind is richest at (knowledge.FIND_AT, through the MINE row whose blocks it is), None for the surface
+    (animals, trees, anything without a depth)."""
+    from .knowledge import FIND_AT, MINE
+    k = bare(kind)
+    item = next((tok for tok, (blocks, _t) in MINE.items() if k in blocks), None)
+    return FIND_AT.get(item) if item else None
+
+
+def _by_kind(hits):
+    """{kind: [pos]} of a look's hits (/find blocks or /entities)."""
+    out = {}
+    for h in hits or ():
+        out.setdefault(h.get("block") or h.get("type"), []).append((round(h["x"]), round(h["y"]), round(h["z"])))
+    return out
+
+
 @skill(gives={}, needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,
        provides={"explore:mobs": lambda ctx, s: (list(s.detail["types"]),)})
 def explore_for(ctx, types, legs=6, leg=40):
-    """Find entities of `types`: remembered sightings first, then an outward spiral over known land. Returns the
-    matches (maybe empty); walking counts as progress, so only a body that stops moving stalls."""
+    """Find entities of `types`: remembered sightings first, then the frontier of chunks not yet looked over for
+    them (`_search`). Returns the matches; walking counts as progress, so only a body that stops moving stalls."""
     for kind in types:
         for s in sorted(ctx.mem.seen(kind, ctx.dimension), key=lambda s: math.dist(s["pos"], feet()))[:2]:
             nav.go_to(tuple(s["pos"]), ctx.policy, range_=8, attempts=1)
-            found = entities(64, types)
+            found = entities(LOOK_MOBS, types)
             if found:
                 return found
             yield None
     surface_first(ctx)
     yield None
-    x, y, z = feet()
-    for i in range(legs):
-        dx, dz = [(1, 0), (0, 1), (-1, 0), (0, -1)][i % 4]
-        length = leg * (i // 2 + 1)
-        tx, tz = x + dx * length, z + dz * length
-        # Only explore toward land: a leg ending in water strands the player (drowning risk, no path back).
-        # /find only sees nearby blocks, so land 40+ blocks out is rarely "known": prefer known land, otherwise walk
-        # (or boat) as far toward the leg's end as the walker gets. Drowning is covered by the mod and find_air.
-        land = [h for h in find(["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"], radius=48, limit=60)
-                if math.dist((h["x"], h["z"]), (tx, tz)) <= 12]
-        if land:
-            ty = min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz)))["y"] + 1
-        else:
-            # Never reuse our own height for a spot 40 blocks away: from a hilltop at y 104 every leg pointed into
-            # mid-air and travel answered "no route" for a whole slice. Read that column's ground instead; if even
-            # that is unknown, skip this leg rather than walk at the sky.
-            from .world import Region
-            col = Region((tx, y - 40, tz), (tx, y + 20, tz))
-            ground = nav.ground_in_column(col.solid, tx, tz, y, span=40)
-            if ground is None:
-                yield None
-                continue
-            ty = ground
-        nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")   # looking: walk, never dig
-        found = entities(64, types)
-        if found:
-            e = found[0]
-            ctx.mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), ctx.dimension)
-            return found
-        x, y, z = feet()
-        yield None
-    return []
+    found = yield from _search(ctx, list(types), lambda: entities(LOOK_MOBS, types), LOOK_MOBS, legs)
+    e = found[0]
+    ctx.mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), ctx.dimension)
+    return found
 
 
 @skill(gives={}, needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,
        provides={"explore:blocks": lambda ctx, s: (list(s.detail["blocks"]),)})
 def seek_blocks(ctx, blocks, legs=6, leg=40):
-    """Find a block type that isn't in range (trees, sand, clay): outward spiral over known land, checking /find
-    after every leg. Returns the hits (maybe empty); walking counts as progress."""
-    if not find(blocks, radius=48, limit=1):
+    """Find a block type that isn't in range (trees, sand, clay): the frontier of chunks not yet looked over for it
+    (`_search`), looking after every leg. Only what a walk can get to counts as found (nav.reachable, chop's own
+    test): trees seen 100 blocks under a sky platform are not a find."""
+    if not find(blocks, radius=LOOK_BLOCKS, limit=1):
         surface_first(ctx)
-    x, y, z = feet()
-    for i in range(legs):
+
+    def look():
         here = feet()
-        # Only what a walk can get to counts as found (nav.reachable, chop's own test): trees seen 100 blocks
-        # under a sky platform are not a find, and the search walks on.
-        hits = [h for h in find(blocks, radius=48, limit=5)
+        return [h for h in find(blocks, radius=LOOK_BLOCKS, limit=5)
                 if nav.reachable((h["x"], h["y"], h["z"]), ctx.policy, 2.0, feet=here)[0]]
-        if hits:
-            return hits
-        dx, dz = [(1, 0), (0, 1), (-1, 0), (0, -1)][i % 4]
-        length = leg * (i // 2 + 1)
-        tx, tz = x + dx * length, z + dz * length
-        land = [h for h in find(["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"], radius=48, limit=60)
-                if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
-        if land:
-            ty = min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz)))["y"] + 1
-        else:
-            # Same rule as explore_for: our own height says nothing about a column 40 blocks away, and aiming at
-            # mid-air makes travel answer "no route" every time.
-            from .world import Region
-            col = Region((tx, y - 40, tz), (tx, y + 20, tz))
-            ground = nav.ground_in_column(col.solid, tx, tz, y, span=40)
-            if ground is None:
-                yield None
-                continue
-            ty = ground
-        log(f"   looking for {bare(blocks[0])}: heading toward ({tx}, {tz})")
-        nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")
-        x, y, z = feet()
-        yield (x, z)
-    hits = find(blocks, radius=48, limit=5)
-    if not hits:
-        # Said, not implied: "finished without reaching its goal" told nobody what was looked for or how far.
-        raise NotAvailable(f"no {bare(blocks[0])} within 48 blocks of {legs} search legs "
-                           f"(out to {leg * ((legs - 1) // 2 + 1)} blocks)")
-    return hits
+    return (yield from _search(ctx, list(blocks), look, LOOK_BLOCKS, legs))
 
 
 @skill(gives={}, needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,
@@ -182,19 +190,27 @@ def note_around(mem, dimension):
     """Map resources while travelling, so "where to find" starts from known places: the nearest tree, water, lava,
     iron and coal in 48 blocks, the takeable blocks (beds, chests…), the rare blocks and the animals in sight."""
     from .knowledge import takeable_blocks
+    here, looked_blocks, seen_blocks = feet(), [], []
     try:
         for kind, blocks in SCAN_BLOCKS.items():
             if not unknown(mem, dimension, [kind] if kind in _ALIAS else blocks):
                 continue           # already held in memory: looking again is a search, not a sighting
+            looked_blocks += blocks
             hits = find(blocks, radius=48, limit=1)
+            seen_blocks += hits
             if hits:
                 h = hits[0]
                 mem.note_seen(kind if kind in _ALIAS else h["block"], (h["x"], h["y"], h["z"]), dimension)
         rare = unknown(mem, dimension, list(RARE_SIGHTINGS))
+        looked_blocks += rare
         for h in (find(takeable_blocks(), radius=48, limit=16) or []) + \
                 ((find(rare, radius=48, limit=8) or []) if rare else []):
+            seen_blocks.append(h)
             mem.note_seen(h["block"], (h["x"], h["y"], h["z"]), dimension)
-        for e in entities(48, list(SCAN_MOBS)):
+        mobs = entities(48, list(SCAN_MOBS))
+        for e in mobs:
             mem.note_seen(e["type"], (round(e["x"]), round(e["y"]), round(e["z"])), dimension)
+        # What this look covered, section by section — what it asked about and what it saw — for the frontier.
+        mem.see_sections(dimension, here, 48, _by_kind(seen_blocks + mobs), looked_blocks + list(SCAN_MOBS))
     except api.McError as e:
         api.swallowed("scan_resources: looking around", e)

@@ -212,11 +212,13 @@ PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace"
 #   never   not worth a note: common ore, furniture, anything unknown. Stations and containers have their own
 #           records (memory.stations / containers), the only source for them.
 # `merge`: notes of one kind closer than this are one note.
+# `absent`: how long "this chunk was looked over and had none" holds (explore's frontier): an ore does not appear
+# (two days), a tree or a pond barely (a day), an animal walks in within minutes.
 VOLATILITY = {
-    "static": {"ttl": None, "merge": 1, "area": None},
-    "slow": {"ttl": 3 * 24000, "merge": 12, "area": None},
-    "mobile": {"ttl": 6000, "merge": 0, "area": 16},
-    "here": {"ttl": 2400, "merge": 1, "area": None},
+    "static": {"ttl": None, "merge": 1, "area": None, "absent": 2 * 24000},
+    "slow": {"ttl": 3 * 24000, "merge": 12, "area": None, "absent": 24000},
+    "mobile": {"ttl": 6000, "merge": 0, "area": 16, "absent": 2400},
+    "here": {"ttl": 2400, "merge": 1, "area": None, "absent": 2400},
     "hostile": None,
     "never": None,
 }
