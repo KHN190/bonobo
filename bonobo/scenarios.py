@@ -2064,15 +2064,21 @@ def _found_near(blocks, r=6):
 SHEET["brew_fire_resistance_stand"]["tick_rate"] = 60
 
 
+# What a *_real row looks for, put 16 blocks off on the real ground: in scan range, not in arm's reach — the walk
+# to it is the job, a minute of wandering until the terrain happens to offer one is not (30 s per row).
+REAL_TARGET = {
+    "seek_blocks_real": ["execute at @p run fill ~16 ~ ~ ~16 ~4 ~ oak_log"],
+    "explore_for_animals_real": ["execute at @p run summon cow ~16 ~3 ~", "execute at @p run summon cow ~16 ~3 ~1"],
+}
 for _name, _row_ in {
-    "seek_blocks_real": (["seek_blocks"], "real terrain, no tree in the first look → walked to one",
+    "seek_blocks_real": (["seek_blocks"], "real terrain, a log column 16 blocks off → walked to it",
                          lambda ctx: _skill("seek_blocks")(ctx, ["oak_log", "birch_log", "spruce_log"], 1, 20),
-                         _found_near(["oak_log", "birch_log", "spruce_log"], 8), 60),
-    "explore_for_animals_real": (["explore_for"], "real terrain → cows, sheep or pigs found",
+                         _found_near(["oak_log", "birch_log", "spruce_log"], 8), 30),
+    "explore_for_animals_real": (["explore_for"], "real terrain, two cows 16 blocks off → found",
                                  lambda ctx: _skill("explore_for")(ctx, ["minecraft:cow", "minecraft:sheep",
                                                                          "minecraft:pig"], 1, 20),
                                  lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
-                                     24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), 60),
+                                     24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), 30),
     "strip_mine_real": (["strip_mine_step"], "real terrain, a stone pickaxe → a mining tunnel started",
                         lambda ctx: _skill("strip_mine_step")(ctx, 2),
                         _gain("minecraft:cobblestone", 2), 30),
@@ -2080,11 +2086,13 @@ for _name, _row_ in {
     _skills_, _doc_, _run_, _check_, _budget_ = _row_
     _deep = (["execute at @p run fill ~-1 17 ~-1 ~1 19 ~1 air", "execute at @p run tp @p ~ 17 ~"]
              if _name == "strip_mine_real" else [])     # at iron depth already: the tunnel, not a 50-block descent
+    _deep += REAL_TARGET.get(_name, [])
     SHEET[_name] = {"doc": _doc_, "module": "skills", "raw": True, "release": True,
                     "setup": ["spreadplayers 14200 14200 0 4 false @p", "clear @p", "give @p stone_pickaxe",
                               "give @p torch 8", "give @p cobblestone 32", "give @p cooked_beef 8"] + _deep,
                     "before": _start(_name), "run": _run_, "check": _check_, "budget": _budget_,
-                    "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"}}
+                    "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"},
+                    **({"stochastic": True} if _name == "explore_for_animals_real" else {})}
 
 SHEET["dead_flicker_on_respawn"] = {
     "doc": "Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
