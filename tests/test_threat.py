@@ -535,6 +535,18 @@ class EvadeOnlyPostpones(unittest.TestCase):
             ("a zombie 3 off, bare hands: no fight on offer, leave", [row("minecraft:zombie", 3, 0)], dict(sword=0),
              "evade")]
 
+    def test_no_evade_past_a_lethal_drop(self):
+        """Nowhere to walk to on connected ground (footing answers None everywhere): evade is not offered."""
+        nowhere, anywhere = (lambda spot: None), (lambda spot: tuple(spot))
+        rows = [("bare hands, open ground: leave", dict(sword=0, footing=anywhere), "evade"),
+                ("bare hands, a pillar in the sky: no evade", dict(sword=0, footing=nowhere), "not evade"),
+                ("an iron sword, a pillar: fight", dict(sword=2, footing=nowhere), "fight"),
+                ("no ground read (footing None): as before", dict(sword=0), "evade")]
+        for name, kw, want in rows:
+            with self.subTest(name):
+                got = decide([row("minecraft:zombie", 3, 0)], **kw).kind
+                self.assertTrue(got != "evade" if want == "not evade" else got == want, got)
+
     def test_answers_over_the_table(self):
         for name, hazards, kw, want in self.ROWS:
             with self.subTest(name):

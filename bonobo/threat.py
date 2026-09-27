@@ -141,9 +141,12 @@ hide_ratio = estimate.reaches_share
 
 # -- the model ---------------------------------------------------------------------------------------------------------
 
-def escape_spot(here, hazards, blocks=None, cover=None):
+def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
     """Where to walk to leave every threat's reach: away from the dps-weighted centre of the threats, `blocks` far,
-    checked with the same slack rule the fight uses; `cover` (a known safe cell) is offered as a candidate."""
+    checked with the same slack rule the fight uses; `cover` (a known safe cell) is offered as a candidate.
+    `footing(spot)` (terrain.landing over the ground read around us) turns each candidate into the cell a walk
+    toward it reaches on connected ground, or None: a spot past a lethal drop is no escape. None when no
+    candidate is left — there is nowhere to leave to."""
     blocks = float(ENGAGE["evade_blocks"]) if blocks is None else blocks
     weights = [float(MOBS.get(h[3], {}).get("dps", 1.0)) for h in hazards]
     wsum = sum(weights) or 1.0
@@ -159,8 +162,12 @@ def escape_spot(here, hazards, blocks=None, cover=None):
         rx = dx * math.cos(a) - dz * math.sin(a)
         rz = dx * math.sin(a) + dz * math.cos(a)
         options.append((here[0] + blocks * rx / norm, here[1], here[2] + blocks * rz / norm))
+    if footing is not None:
+        options = [s for s in (footing(o) for o in options) if s is not None]
     if cover is not None:
         options.append(tuple(cover))
+    if not options:
+        return None
     speed = float(PLAYER["speed"])
     best, best_key = None, None
     for opt in options:
@@ -293,6 +300,28 @@ def horizon_for(state):
     return estimate.horizon_s(state.get("work_s"))
 
 
+def _evade_option(here, spot, hazards, prot, press, out):
+    """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
+    walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
+    # Leaving costs the walk out AND the walk back: the work is where we were standing. What it does not cost is a
+    # discounted forecast of being chased — leaving their reach ends the pressure, and if they follow, that is the
+    # next round's situation with its own answer. Predicting it here meant paying for the same threat twice and
+    # made every escape look fatal.
+    # Leaving does not kill anything. Most of what was coming at us follows, at its own speed, and the same
+    # account is opened again next round — which is exactly why killing a zombie can be worth the blood it costs.
+    # With `leaves` at zero, walking away was free of everything but the walk, so the fight column existed and was
+    # never once chosen: 56 evades, 0 fights in a session's log.
+    # ...unless nothing is left behind at all: when every threat would still be after us at the spot (it notices
+    # us there, or shoots that far) and a fight is on offer, leaving only postpones the same account — a
+    # skeleton, a zombie, a creeper out-walked for a minute was a fight never had (bench: evade for 60 s at 20 hp).
+    # With no fight to have (打不过就走), leaving is still the relief it was.
+    postpones = any(o.kind == "fight" for o in out) and all(estimate.follows_to(spot, h) for h in hazards)
+    follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
+    return Option("evade", spot, evade_cost(here, spot, hazards, prot),
+                  round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
+                  blast_after=burst_damage(spot, hazards, prot))
+
+
 def options(state):
     """Pure: every answer worth considering, priced. Always includes `ignore` — carrying on is a choice with a cost.
 
@@ -330,25 +359,9 @@ def options(state):
             t_guard = round(t_fight + float(ENGAGE["shield_s"]) * len(hazards), 2)
             out.append(Option("fight_shielded", ids[nearest], kept + blast_here, t_guard,
                               f"kill {len(hazards)} in ~{t_guard}s behind the shield for ~{kept} hp"))
-    spot = escape_spot(here, hazards, cover=state.get("cover"))
-    walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
-    # Leaving costs the walk out AND the walk back: the work is where we were standing. What it does not cost is a
-    # discounted forecast of being chased — leaving their reach ends the pressure, and if they follow, that is the
-    # next round's situation with its own answer. Predicting it here meant paying for the same threat twice and
-    # made every escape look fatal.
-    # Leaving does not kill anything. Most of what was coming at us follows, at its own speed, and the same
-    # account is opened again next round — which is exactly why killing a zombie can be worth the blood it costs.
-    # With `leaves` at zero, walking away was free of everything but the walk, so the fight column existed and was
-    # never once chosen: 56 evades, 0 fights in a session's log.
-    # ...unless nothing is left behind at all: when every threat would still be after us at the spot (it notices
-    # us there, or shoots that far) and a fight is on offer, leaving only postpones the same account — a
-    # skeleton, a zombie, a creeper out-walked for a minute was a fight never had (bench: evade for 60 s at 20 hp).
-    # With no fight to have (打不过就走), leaving is still the relief it was.
-    postpones = any(o.kind == "fight" for o in out) and all(estimate.follows_to(spot, h) for h in hazards)
-    follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
-    out.append(Option("evade", spot, evade_cost(here, spot, hazards, prot),
-                      round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
-                      blast_after=burst_damage(spot, hazards, prot)))
+    spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"))
+    if spot is not None:             # else nowhere to leave to (a lethal drop all round): fight, eat, wall in
+        out.append(_evade_option(here, spot, hazards, prot, press, out))
     for option in eat_options(state, hp, press, blast_here):
         out.append(option)
     if state.get("shield") and prot < float(PLAYER["protection_cap"]):

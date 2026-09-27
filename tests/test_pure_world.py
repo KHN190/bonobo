@@ -262,6 +262,25 @@ class Nav(unittest.TestCase):
             with self.subTest(why):
                 self.assertEqual(nav.safe_destination(pos, hz), want)
 
+    def test_landing(self):
+        """nav.landing: evade's walk ends on connected ground — never past a drop that kills (the sky platform)."""
+        lo, hi = (-18, 185, -3), (18, 205, 3)
+
+        def floor(xs, y, name="stone"):
+            return {(x, y, z): name for x in xs for z in range(-3, 4)}
+        rows = [  # (why, blocks, expected landing walking from (0.5, 200, 0.5) toward (16, 200, 0))
+            ("a sky platform x -3..3: to its edge, not off it", floor(range(-3, 4), 199), (3, 200, 0)),
+            ("the platform, a pool below its edge: over the edge into the water",
+             {**floor(range(-3, 4), 199), **floor(range(4, 18), 190, "water")}, (16, 191, 0)),
+            ("a one-block pillar: nowhere to go (None: fight or wall in)", floor(range(0, 2), 199), None),
+            ("flat ground: the whole way", floor(range(-18, 19), 199), (16, 200, 0)),
+            ("a terrace two down: stepped down onto it", {**floor(range(-3, 4), 199), **floor(range(4, 19), 197)},
+             (16, 198, 0)),
+        ]
+        for why, blocks, want in rows:
+            with self.subTest(why):
+                self.assertEqual(nav.landing(FakeRegion(lo, hi, blocks), (0.5, 200.0, 0.5), (16, 200, 0)), want)
+
     def test_at_rest(self):
         rows = [  # (why, state, expected)
             ("on the ground", {"onGround": True}, True),

@@ -274,6 +274,7 @@ class Watcher(threading.Thread):
             return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
         try:
             state = dict(state, field=ground(state), **kit(kit_signature(state, now)))
+            state["footing"] = footing(state)
         except Exception:
             pass
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
@@ -431,6 +432,7 @@ def watching():
     return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
 GRID, GRID_AT, GRID_AT_POS = None, 0.0, None
+REGION = None       # the blocks GRID was read from: evade asks it where a walk lands (nav.landing)
 GRID_R = 8
 GRID_TTL_S = 2.0
 _KIT, _KIT_SIG = {}, None
@@ -438,7 +440,7 @@ _KIT, _KIT_SIG = {}, None
 
 def ground(state, now=None, radius=GRID_R):
     """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved."""
-    global GRID, GRID_AT, GRID_AT_POS
+    global GRID, GRID_AT, GRID_AT_POS, REGION
     from . import field as _field
     from .world import Region
     now = now if now is not None else time.time()
@@ -451,9 +453,17 @@ def ground(state, now=None, radius=GRID_R):
         region = Region(lo, hi)
     except Exception:
         return GRID
-    GRID = _field.from_region(region, here, radius)
+    GRID, REGION = _field.from_region(region, here, radius), region
     GRID_AT, GRID_AT_POS = now, here
     return GRID
+
+
+def footing(state):
+    """spot → where a walk toward it lands on connected ground (nav.landing over REGION), for evade; None
+    before the ground was read (the threat model then prices evade as before)."""
+    from . import nav
+    region, here = REGION, (state["x"], state["y"], state["z"])
+    return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
 
 KIT_TTL_S = 2.0      # the bag is re-read at least this often: /state says nothing of a sword given or picked up

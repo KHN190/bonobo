@@ -256,6 +256,52 @@ def walked_closer(start, here, target):
 # explore leg bridged off the sky platform and a knockback threw the body 125 blocks down. Protected cells (our
 # builds) are avoided by every walk (`avoid_cells`). The one table for every walk.
 MOVES = {"work": (True, True, True), "explore": (True, True, False), "evade": (True, True, False)}
+SAFE_DROP = 3        # blocks a walk may drop onto dry ground unhurt; deeper only into water (`terrain.landing`)
+
+
+def landing(region, here, spot, max_drop=None, least=2):
+    """Pure: the farthest cell walking straight from `here` toward `spot` reaches on connected ground — every
+    column on the way has a floor at most `max_drop` (SAFE_DROP) below the last one and at most one above, or
+    water under it (a drop into water is survivable); the walk stops at the first column that fails, or at the
+    region's edge. None when that is under `least` blocks away. evade picked a spot 16 blocks off a sky platform
+    by geometry alone and the body fell 136 blocks (ban_needs_a_failure, resume_after_combat)."""
+    max_drop = SAFE_DROP if max_drop is None else max_drop
+    x0, y, z0 = (int(math.floor(v)) for v in here)
+    dx, dz = spot[0] - here[0], spot[2] - here[2]
+    steps = int(max(abs(dx), abs(dz)))
+    best, seen = None, set()
+
+    def far_enough(cell):
+        return cell if cell is not None and math.dist((cell[0], cell[2]), (x0, z0)) >= least else None
+    for k in range(1, steps + 1):
+        cx, cz = int(math.floor(here[0] + dx * k / steps)), int(math.floor(here[2] + dz * k / steps))
+        if (cx, cz) in seen:
+            continue
+        seen.add((cx, cz))
+        floor = None
+        for fy in range(y + 1, y - max_drop - 1, -1):          # feet cells, a step up first
+            below, feet_c, head_c = (cx, fy - 1, cz), (cx, fy, cz), (cx, fy + 1, cz)
+            if not all(region.inside(c) for c in (below, feet_c, head_c)):
+                return far_enough(best)
+            if region.solid(feet_c) or region.solid(head_c):
+                continue
+            if region.solid(below) or region.name(below).endswith("water"):
+                floor = fy
+                break
+        if floor is None:
+            # Nothing within a safe drop: only water further down makes the step survivable.
+            for fy in range(y - max_drop - 1, region.lo[1], -1):
+                c = (cx, fy - 1, cz)
+                if not region.inside(c) or region.solid(c):
+                    break
+                if region.name(c).endswith("water"):
+                    floor = fy
+                    break
+        if floor is None:
+            return far_enough(best)
+        y = floor
+        best = (cx, y, cz)
+    return far_enough(best)
 
 
 def may_alter(purpose, policy):
