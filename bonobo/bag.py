@@ -183,10 +183,13 @@ def buried(region, cell):
     return all(region.inside(f) and region.solid(f) for f in (add(cell, d) for d in FACES))
 
 def stand_spot(region, cell, drop):
-    """Pure: some open face of `cell` has a standing place beside it, ground within `drop`."""
+    """Pure: `cell` can be worked at — some open face has a standing place beside it (ground within `drop`), or its
+    open faces are only pockets too small to stand in (a neighbour mined out): the approach digs to it as to a
+    buried cell. Refused only when an open face gives onto air over a fall deeper than `drop`."""
 
     if buried(region, cell):
         return True
+    over_a_fall = False
     for face in (add(cell, d) for d in FACES):
         if region.inside(face) and region.solid(face):
             continue
@@ -194,9 +197,11 @@ def stand_spot(region, cell, drop):
             head = add(s, (0, 1, 0))
             if not all(region.inside(c) for c in (s, head)):
                 return True                     # beyond what was read: not a drop the blocks show
-            if not region.solid(s) and not region.solid(head) and floored(region, s, drop):
-                return True
-    return False
+            if not region.solid(s) and not region.solid(head):
+                if floored(region, s, drop):
+                    return True
+                over_a_fall = True              # room to stand, nothing under it
+    return not over_a_fall
 
 def mineable(cells, feet, region=None, drop=None):
     """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""

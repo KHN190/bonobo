@@ -1120,3 +1120,40 @@ class RoundLog(unittest.TestCase):
                 self.assertEqual(got["rounds"], n)
                 if phases is not None:
                     self.assertEqual((got["phases"], got["gaps"]), (phases, gaps))
+
+
+class IdleWait(unittest.TestCase):
+    """brain.idle_wait: the round that closed the last task waits not at all; otherwise 1 s slices until work is queued."""
+
+    def test_over_the_table(self):
+        from bonobo import api
+        from bonobo import brain as brainmod
+        full = brainmod.IDLE_WAIT_TICKS // brainmod.IDLE_SLICE_TICKS
+        rows = [("the round that closed the last task: no wait", True, [], 0),
+                ("nothing queued: the whole wait, in slices", False, [False] * full, full),
+                ("work queued after the second slice: ends there", False, [False, True], 2),
+                ("must fail: queued at once still waits one slice, never the whole 5 s", False, [True], 1)]
+        for name, finished, queued, want in rows:
+            posted = []
+            b = brainmod.Brain.__new__(brainmod.Brain)
+            b.just_finished = finished
+            answers = iter(queued)
+            with self.subTest(name), mock.patch.object(api, "run", side_effect=lambda t, **k: posted.append(t)):
+                self.assertEqual(b.idle_wait(lambda: next(answers)), want)
+                self.assertEqual(len(posted), want)
+                self.assertFalse(b.just_finished)
+
+
+class SkillLine(unittest.TestCase):
+    def test_skill_line(self):
+        from bonobo import skill as sk
+        rows = [("a generator skill", {"pre": 40.4, "body": 900.2, "checks": 310.0, "verify": 120.0, "n": 4},
+                 "skill mine pre=40 body=900 checks=310 verify=120 n=4"),
+                ("a plain function: no checks", {"pre": 5.0, "body": 12.0, "checks": 0.0, "verify": 1.0, "n": 0},
+                 "skill eat pre=5 body=12 checks=0 verify=1 n=0"),
+                ("must fail: a phase not reached is left out", {"pre": 5.0, "body": 1.0, "checks": 0.0, "n": 1},
+                 "skill eat pre=5 body=1 checks=0 n=1"),
+                ("no count: n=0", {"pre": 1.0}, "skill eat pre=1 n=0")]
+        for name, t, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sk.skill_line(want.split()[1], t), want)

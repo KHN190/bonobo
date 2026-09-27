@@ -31,6 +31,7 @@ fight_loop.lend("shoot", lambda option, state: combat.shoot_batch(
     option.target, (state["state"]["x"], state["state"]["y"] + 1.62, state["state"]["z"])))
 
 IDLE_WAIT_TICKS = 100
+IDLE_SLICE_TICKS = 20      # the idle wait is cut in 1 s slices: queued work ends it within a slice
 SCAN_EVERY_S = 20  # seconds
 TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
@@ -275,7 +276,7 @@ class Brain:
             jobs = self.mem.jobs(snap.dimension)
             if jobs:                           # only a furnace's clock is waited on: the bench may run it ahead
                 api.waiting_for_clock(max(0.0, min(j["ready_at"] for j in jobs) - time.time()))
-            api.run({"type": "wait", "ticks": IDLE_WAIT_TICKS}, wait=15, awaits="one task: the idle round's wait")
+            self.idle_wait(lambda: any(t["state"] in tasks.LIVE for t in tasks.load()))
             return
         self.idle_since = None
         intent.set("goal" if act.layer in ("task", "idle") else "safety", repr(act))
@@ -291,6 +292,21 @@ class Brain:
         tape.end(self, act, snap)
         if act.task is not None:
             write(act.task, self.after_step(act, outcome, Inventory))
+
+    def idle_wait(self, work_queued):
+        """Nothing to do: wait up to IDLE_WAIT_TICKS in IDLE_SLICE_TICKS slices, ending as soon as work is queued. The
+        round that just closed the last task waits not at all — its proposing nothing was a pause for breath, and
+        the next round decides at once (a 5 s wait there was the body idle between tasks)."""
+        if self.just_finished:
+            self.just_finished = False
+            return 0
+        slices = 0
+        for _ in range(max(1, IDLE_WAIT_TICKS // IDLE_SLICE_TICKS)):
+            api.run({"type": "wait", "ticks": IDLE_SLICE_TICKS}, wait=15, awaits="one task: a slice of the idle round's wait")
+            slices += 1
+            if work_queued():
+                break
+        return slices
 
     # -- deciding (nothing acts in here beyond queueing tasks)
     def decide(self, snap, ctx):
