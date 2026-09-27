@@ -277,9 +277,28 @@ class Maintain:
             jobs.collect(ctx, job)
 
     def empty_bag(self, snap, ctx):
-        if skills.store_plan(snap.inv.slots) and skills.can_store_here(ctx, local_only=snap.night):
-            return skills.deposit(ctx, local_only=snap.night)
-        return skills.tidy_inventory(ctx)
+        """One decision (bag.empty_how over bag.let_go's pricing): deposit into a chest that already exists when a
+        stack is worth the walk, else drop the cheapest — never a chest crafted for it (no chest and no planks
+        cooled the row for 180 s while dirt could simply be thrown)."""
+        from .bag import FREE_SLOTS_TARGET, empty_how
+        need = max(1, snap.inv.used_slots() - (36 - FREE_SLOTS_TARGET))
+        lava = bool(find(["lava"], radius=3, limit=1))
+        how = empty_how(snap.inv.slots, need, ctx.prices().get, self.chest_seconds(snap, ctx), lava)
+        return skills.deposit(ctx, local_only=snap.night) if how == "deposit" else skills.tidy_inventory(ctx)
+
+    def chest_seconds(self, snap, ctx):
+        """Seconds to a chest that already exists (one in reach, or a remembered site's; none at night beyond
+        reach), or None."""
+        from .data import WALK_BLOCKS_PER_TICK
+        if find(["chest", "barrel"], radius=6, limit=1):
+            return 2.0
+        if snap.night:
+            return None
+        sites = [s for s in ctx.mem.sites(ctx.dimension) if skills.site_trek_ok(ctx, s)
+                 and math.dist(s["pos"], snap.feet) <= 96]
+        if not sites:
+            return None
+        return min(math.dist(s["pos"], snap.feet) for s in sites) / (WALK_BLOCKS_PER_TICK * 20)
 
     # -- stuck
     def stuck_in_place(self, snap, enclosed=None):

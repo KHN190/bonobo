@@ -20,6 +20,32 @@ SLOT_S = float(beliefs.CONFIG["plan"]["slot_fill_s"])
 
 # ------------------------------------------------------------------------------------------------------ actions
 
+
+class EmptyHow(unittest.TestCase):
+    """bag.empty_how: the empty-the-bag reflex deposits into a chest that exists, else drops the cheapest; never a
+    chest made for it."""
+    FLESH = {"slot": 9, "id": "minecraft:rotten_flesh", "count": 10}
+    STRING = {"slot": 10, "id": "minecraft:string", "count": 5}
+    GEM = {"slot": 11, "id": "minecraft:diamond", "count": 3}
+    PRICE = {"minecraft:rotten_flesh": 0.1, "minecraft:string": 0.5, "minecraft:diamond": 600.0}.get
+    # (situation, slots, need, seconds to an existing chest, lava near) → "deposit" | "drop" | the reason it cannot
+    ROWS = [("no chest anywhere: drop the cheapest", [FLESH, STRING, GEM], 1, None, False, "drop"),
+            ("a chest near, the junk not worth the walk: drop", [FLESH, STRING, GEM], 1, 10.0, False, "drop"),
+            ("a chest near, diamonds to free a slot: deposit", [GEM], 1, 10.0, False, "deposit"),
+            ("lava near and a chest: deposit, nothing burns", [FLESH], 1, 10.0, True, "deposit"),
+            ("lava near, no chest: nothing may go", [FLESH], 1, None, True, "lava is near"),
+            ("the bag holds nothing that may go", [], 1, None, False, "every stack is needed")]
+
+    def test_empty_how(self):
+        for name, slots, need, chest_s, lava, want in self.ROWS:
+            with self.subTest(name):
+                try:
+                    got = bag.empty_how(slots, need, self.PRICE, chest_s, lava)
+                except NotAvailable as e:
+                    got = want if want in str(e) else str(e)
+                self.assertEqual(got, want)
+
+
 class GroupsOf(unittest.TestCase):
     TABLE = [
         # token                      expected groups           why

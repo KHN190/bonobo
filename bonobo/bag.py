@@ -126,6 +126,14 @@ def let_go(slots, need, price=None, chest_s=None, lava_near=False):
     return out
 
 
+def empty_how(slots, need, price=None, chest_s=None, lava_near=False):
+    """Pure: how the bag is emptied this time — "deposit" when `let_go` puts any stack in a chest that already
+    exists (`chest_s`: seconds to reach it, None when there is none), else "drop" (the cheapest stacks thrown). No
+    chest is ever made for it. Raises NotAvailable (let_go's reason) when nothing can go."""
+    plan = let_go(slots, need, price, chest_s, lava_near)
+    return "deposit" if any(how == "deposit" for _s, how in plan) else "drop"
+
+
 def free_slots_plan(slots, need=0, price=None):
     """Pure: the stacks to drop to free `need` slots (let_go without a chest); dead tools always go."""
     try:
