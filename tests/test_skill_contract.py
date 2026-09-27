@@ -194,7 +194,45 @@ THERE = [("on the platform, the target's cell", (3.5, 201.0, 3.5), (3, 201, 3), 
          ("a point target 2 blocks away at range 1", (12.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, False)]
 
 
+def xyz(*ps):
+    return [{"x": x, "y": y, "z": z} for x, y, z in ps]
+
+
+WALL = {(1, 64, 0), (1, 65, 0)}                       # our own wall on the straight line to the ore at (3, 64, 0)
+BOXED = {(3 + dx, 64 + dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)} - {(3, 64, 0)}
+# (situation, task, protected cells) → the "avoid" the jar gets (None: the task goes as it was)
+AVOID = [("our wall on the straight line to the ore: it goes with the mine, the dig goes round it",
+          {"type": "mine", "x": 3, "y": 64, "z": 0}, WALL, xyz((1, 64, 0), (1, 65, 0))),
+         ("nothing protected: an empty list, the dig goes straight", {"type": "mine", "x": 3, "y": 64, "z": 0},
+          set(), []),
+         ("the ore boxed in by our build: every cell listed, the jar's travel has no route and says so",
+          {"type": "mine", "x": 3, "y": 64, "z": 0}, BOXED, xyz(*sorted(BOXED))),
+         ("a build 100 blocks off: not carried", {"type": "place", "x": 3, "y": 64, "z": 0, "item": "stone"},
+          {(103, 64, 0)}, []),
+         ("mine_many: near any of its blocks", {"type": "mine_many", "blocks": xyz((50, 64, 0), (3, 64, 0))},
+          {(110, 64, 0), (-70, 64, 0)}, xyz((110, 64, 0))),
+         ("a walk-only goto: no digging, nothing added", {"type": "goto", "x": 3, "y": 64, "z": 0}, WALL, None),
+         ("a task that names its own avoid keeps it", {"type": "use", "x": 3, "y": 64, "z": 0, "avoid": []}, WALL,
+          None)]
+
+
 class Arrive(_Clean):
+    def test_avoid_over_the_table(self):
+        for name, task, protected, want in AVOID:
+            with self.subTest(name):
+                got = nav.with_avoid(task, protected)
+                self.assertEqual(got, task if want is None else {**task, "avoid": want})
+
+    def test_every_post_is_dressed(self):
+        """api.run and api.run_chain post the dressed task (brain sets api.DRESS each round)."""
+        posted = []
+        with mock.patch.object(api, "DRESS", lambda t: nav.with_avoid(t, WALL)), \
+                mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
+                                  {"status": "succeeded", "type": "mine", "message": "", "seconds": 0}):
+            api.run({"type": "mine", "x": 3, "y": 64, "z": 0})
+        self.assertEqual(posted, [{"type": "mine", "x": 3, "y": 64, "z": 0, "avoid": xyz((1, 64, 0), (1, 65, 0))}])
+
+
     def test_there_over_the_table(self):
         for name, (x, y, z), pos, range_, want in THERE:
             with self.subTest(name):

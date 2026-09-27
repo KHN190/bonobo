@@ -232,6 +232,8 @@ class Brain:
         self.mem.observe_phase(snap.night)
         self.place = retry.place_signature(snap.feet, snap.night)
         self.policy_cache = self.policy(snap, snap.night)
+        protected = self.policy_cache.protected
+        api.DRESS = lambda task: nav.with_avoid(task, protected)     # no approach digs through our own builds
         ctx = self.context(snap.dimension)
         self.table.observe(snap)
         self.track(snap)

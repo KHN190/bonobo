@@ -161,6 +161,31 @@ PROGRESS_BLOCKS = 2.0
 LEGS = 6
 
 
+AVOID_RADIUS = 64        # protected cells this near a walk's ends go with it: the jar may not dig or build in them
+AVOID_MAX = 4000
+# Task types whose approach may dig and build (jar ApproachTask → TravelTask): each carries the "avoid" list.
+APPROACHING = ("mine", "place", "use", "build", "mine_many")
+
+
+def avoid_cells(protected, *near):
+    """Pure: the "avoid" list a walk that may dig carries — the protected cells (memory.protected_cells: our own
+    builds, sites, machines) within AVOID_RADIUS of any of `near`, as the jar reads them. One list for travel and
+    for every approach."""
+    return [{"x": c[0], "y": c[1], "z": c[2]} for c in sorted(protected)
+            if any(math.dist(c, n) <= AVOID_RADIUS for n in near)][:AVOID_MAX]
+
+
+def with_avoid(task, protected):
+    """Pure: `task` with its "avoid" when its type approaches by digging (APPROACHING) and it names none; else the
+    task as it was. The cells near its own targets (x/y/z, or each of "blocks")."""
+    if task.get("type") not in APPROACHING or "avoid" in task:
+        return task
+    targets = [(b["x"], b["y"], b["z"]) for b in task.get("blocks", ())]
+    if "x" in task:
+        targets.append((task["x"], task["y"], task["z"]))
+    return {**task, "avoid": avoid_cells(protected, *targets)}
+
+
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 
 
@@ -255,8 +280,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 roads.add_leg(ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], []),
                               start, here, time.time() - t_start, time.time())
         budget = place_budget(Inventory().count("building"))
-        avoid = [{"x": c[0], "y": c[1], "z": c[2]} for c in policy.protected
-                 if math.dist(c, here) <= 64 or math.dist(c, pos) <= 64][:4000]
+        avoid = avoid_cells(policy.protected, here, pos)
         grounded = False
         # A journey is made of LEGS. The mod walks until the ground, the pickaxe or its own search budget runs
         # out, then stops at the closest point it could reach and says "target unreachable". Read as a failure,

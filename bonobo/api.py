@@ -352,6 +352,10 @@ def vet_aim(task):
     return None
 
 
+# How a task is dressed before it is posted (brain: nav.with_avoid over the protected cells), or None.
+DRESS = None
+
+
 def run(task, wait=900):
     """Runs one task to completion; returns its JSON (status may be failed — callers decide).
 
@@ -361,6 +365,7 @@ def run(task, wait=900):
     from . import arbiter
     if not arbiter.BODY.owns(f"api.run({task.get('type')})"):
         return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}
+    task = DRESS(task) if DRESS else task
     why = vet_aim(task)
     if why:
         log(f"  !! {why}")
@@ -452,7 +457,7 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
     global LAST_SEGMENT_S
     results = []
     for start in range(0, len(tasks), segment):
-        part = tasks[start:start + segment]
+        part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
         began = time.time()
         if before_segment:
             before_segment(part)
