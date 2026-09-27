@@ -823,18 +823,25 @@ class InterruptSources(unittest.TestCase):
             arbiter.resume_of("row:a reflex nobody declared")
 
     def test_every_interruption_has_its_resume(self):
-        """Generated from api.INTERRUPTIONS: what the attempt does (brain.outcome_of) meets the declared resume rule
-        of its source — a death recovers first, a dimension change resumes back there — and a real failure is the
-        contrast: counted and cooled."""
+        """Generated over api.INTERRUPTIONS: each class, the source that raises it and what the attempt does about it
+        (brain.outcome_of) — its resume rule and what comes first read from arbiter.RESUME_OF itself: a death recovers
+        first, a dimension change resumes back there. A class with no row fails; a real failure is the contrast:
+        counted and cooled."""
         from bonobo import api, arbiter
         from bonobo import brain as brainmod
-        source_of = {"recover": "death", "elsewhere": "dimension change", "fight": "layer:tactic",
-                     "stand_down": "manual", "handback": "manual", None: "layer:maintain"}
-        for cls in api.INTERRUPTIONS:
+        # (class, the source it stands for, outcome_of's (outcome, then), the rule's (resumes, what first))
+        rows = [(api.Interrupted, "layer:safety", ("interrupted", None), (True, None)),
+                (api.CommitmentExpired, "layer:plan", ("interrupted", None), (True, None)),
+                (api.BodyContested, "manual", ("interrupted", "stand_down"), (True, None)),
+                (api.FightHolds, "layer:tactic", ("interrupted", "fight"), (True, None)),
+                (api.PlayerTookControl, "manual", ("interrupted", "handback"), (True, None)),
+                (api.Died, "death", ("interrupted", "recover"), (True, "recover")),
+                (api.DimensionChanged, "dimension change", ("interrupted", "elsewhere"), (True, "back")),
+                (api.TaskStuck, "stuck", ("failed", "stop"), (False, "cool"))]
+        self.assertEqual(set(api.INTERRUPTIONS) - {r[0] for r in rows}, set(), "an interruption without a row")
+        for cls, source, outcome, rule in rows:
             with self.subTest(cls.__name__):
-                outcome, then = brainmod.outcome_of(cls() if cls is api.PlayerTookControl else cls("x"))
-                self.assertEqual(outcome, "interrupted")
-                resumes, _first = arbiter.resume_of(source_of[then])
-                self.assertIs(resumes, True)
-        self.assertEqual((brainmod.outcome_of(api.TaskStuck("no progress")), arbiter.resume_of("stuck")),
-                         (("failed", "stop"), (False, "cool")))
+                err = cls() if cls is api.PlayerTookControl else cls("x")
+                self.assertEqual(brainmod.outcome_of(err), outcome)
+                self.assertEqual(arbiter.resume_of(source), rule)
+                self.assertEqual(outcome[0] == "interrupted", api.interrupted(err))
