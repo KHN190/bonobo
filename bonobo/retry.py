@@ -12,7 +12,7 @@ NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
 
 # The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
-INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "FightHolds", "PlayerTookControl", "Died", "DimensionChanged")
+INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "FightHolds", "PlayerTookControl", "Died", "DimensionChanged", "NightFell")
 
 def cause_of(err):
     """The cause a failure is counted and cooled under, from the exception's class (and, for bare mod task messages, its text)."""

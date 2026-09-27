@@ -885,14 +885,55 @@ class Frontier(unittest.TestCase):
                 self.assertEqual((b.ready("seek sheep"), b.ready("step:seek:sheep"), b.retry.entries), (True, True, {}))
 
 
+class Nightfall(unittest.TestCase):
+    """perception.nightfall: surface work at dusk or night is asked to stop at its next boundary (the night's way
+    first, then the same target); underground, under a roof, by day or in another dimension, nothing."""
+    OW = "minecraft:overworld"
+
+    def test_rows(self):
+        from bonobo import perception
+        # (situation, /state) → the request
+        rows = [("surface at dusk, open sky", dict(dimension=self.OW, timeOfDay=13000, skyLight=15), "night"),
+                ("surface at midnight, day 5's clock", dict(dimension=self.OW, timeOfDay=5 * 24000 + 18000, skyLight=12),
+                 "night"),
+                ("underground at night: none", dict(dimension=self.OW, timeOfDay=18000, skyLight=0), None),
+                ("sheltered under a roof: none", dict(dimension=self.OW, timeOfDay=18000, skyLight=4), None),
+                ("the Nether has no night: none", dict(dimension="minecraft:the_nether", timeOfDay=18000, skyLight=15),
+                 None),
+                ("must fail: by day on the surface, nothing", dict(dimension=self.OW, timeOfDay=6000, skyLight=15), None),
+                ("must fail: dawn is day again", dict(dimension=self.OW, timeOfDay=23500, skyLight=15), None)]
+        for name, state, want in rows:
+            with self.subTest(name):
+                self.assertEqual(perception.nightfall(state), want)
+
+    def test_taken_only_between_tasks(self):
+        # (situation, pending, soft skill, the night's way running) → raises NightFell at a boundary?
+        from bonobo import api
+        rows = [("pending: the next boundary stops the work", "night", False, False, True),
+                ("nothing pending: goes on", None, False, False, False),
+                ("a soft skill (a fight): never cut", "night", True, False, False),
+                ("must fail: the shelter being built is never cut by the night it answers", "night", False, True, False)]
+        for name, pending, soft, exempt, raises in rows:
+            with self.subTest(name), mock.patch.object(api, "AT_BOUNDARY", pending), \
+                    mock.patch.object(api, "SOFT", soft), mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: exempt):
+                try:
+                    api.at_boundary()
+                    got = False
+                except api.NightFell:
+                    got = True
+                self.assertEqual(got, raises)
+                if raises:
+                    self.assertIsNone(api.AT_BOUNDARY)            # taken once
+
+
 class InterruptSources(unittest.TestCase):
     """Every source that can take a search's body has a declared resume rule (arbiter.RESUME_OF), the list built
     from the code's own tables: a new reflex row, hazard kind or layer without a rule fails here."""
 
     def sources(self):
-        from bonobo import arbiter, hazard, reflexes
+        from bonobo import arbiter, hazard, perception, reflexes
         return ([f"row:{n}" for n in reflexes.NAMES] + [f"hazard:{k}" for k in hazard.KINDS]
-                + [f"layer:{k}" for k in arbiter.SCALES]
+                + [f"layer:{k}" for k in arbiter.SCALES] + [perception.NIGHTFALL]
                 + ["manual", "player", "game lost", "jar reflex", "death", "dimension change", "user cancel", "stuck",
                    "crash"])
 
@@ -908,7 +949,7 @@ class InterruptSources(unittest.TestCase):
                 ("manual", (True, "stand_down")), ("row:empty the bag", (True, "recheck")), ("death", (True, "recover")),
                 ("dimension change", (True, "back")), ("row:leave the Nether", (True, "back")),
                 ("player", (True, "handback")), ("user cancel", (False, None)), ("stuck", (False, "cool")),  # must fail: a user cancel resumes nothing
-                ("crash", (False, "hold"))]
+                ("crash", (False, "hold")), ("night", (True, "night"))]
         for source, want in rows:
             with self.subTest(source):
                 self.assertEqual(arbiter.resume_of(source), want)
@@ -931,6 +972,9 @@ class InterruptSources(unittest.TestCase):
                 ("must fail: a stuck rule that resumes", api.TaskStuck("no progress"), {"stuck": "same"},
                  ("interrupted", None)),
                 ("our fight: waited out", api.FightHolds("x"), {}, ("interrupted", "fight")),
+                ("nightfall: interrupted, the night's way first", api.NightFell("night"), {}, ("interrupted", "night")),
+                ("must fail: the night rule made a failure", api.NightFell("night"), {"night": "cooled"},
+                 ("failed", "cool")),
                 ("a bug of ours: held", ValueError("x"), {}, ("failed", "hold"))]
         for name, err, changed, want in rows:
             with self.subTest(name), mock.patch.dict(arbiter.RESUME_OF, changed):

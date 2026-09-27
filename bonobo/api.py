@@ -48,11 +48,30 @@ class CommitmentExpired(McError):
 class Interrupted(McError):
     """The perception thread stopped the running task because of a danger; survival mode takes over next round."""
 
+class NightFell(Interrupted):
+    """Nightfall on the surface, taken between two tasks: the night's way first, then the same target (arbiter
+    RESUME_OF "night"); never counted, cooled or banned."""
+
+
 # Set by the perception thread (perception.py): a pending interrupt reason. MODE is "survival" while a rescue runs.
 INTERRUPT = None
 MODE = "normal"
 # set while a soft skill runs: perception's request stays for the skill to read, not cutting a task short
 SOFT = False
+
+# A soft request that takes effect only between tasks (a chain's segment boundary, a walk's next leg): nightfall on
+# the surface. Never cuts a task short, never /stop; skipped while the running work is itself the night's way.
+AT_BOUNDARY = None
+BOUNDARY_EXEMPT = lambda: False          # noqa: E731  (skill.py: is the night's way what runs now?)
+
+
+def at_boundary():
+    """Between two tasks: raise Interrupted for a pending boundary request (cleared), unless exempt."""
+    global AT_BOUNDARY
+    if AT_BOUNDARY and not SOFT and not BOUNDARY_EXEMPT():
+        reason, AT_BOUNDARY = AT_BOUNDARY, None
+        raise NightFell(reason)
+
 
 def consume_interrupt():
     """Return and clear the pending interrupt, or None: soft skills read it and take cover themselves."""
@@ -109,7 +128,7 @@ class DimensionChanged(McError):
     """The body left the task's dimension: the task resumes only back in its own (maps and notes are per dimension)."""
 
 INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl, Died,
-                 DimensionChanged)
+                 DimensionChanged, NightFell)
 
 def interrupted(err):
     """Was this an interruption rather than a failure?"""
@@ -406,6 +425,7 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
         if start:
             # an interrupt stops the chain at a segment boundary; the skill resumes by what the world lacks, never this index
             check_interrupt(chain_began, SOFT)
+        at_boundary()          # nightfall: before any segment, the first too — between tasks, never inside one
         part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
         began = time.time()
         if before_segment:

@@ -360,6 +360,7 @@ OUTCOMES = [
     (api.FightHolds("our fight holds the body"), "interrupt", "interrupted"),
     (api.PlayerTookControl(), "interrupt", "interrupted"),
     (api.Died("chop: died"), "interrupt", "interrupted"),
+    (api.NightFell("night"), "interrupt", "interrupted"),
     (api.DimensionChanged("mine: now in the Nether"), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
@@ -564,7 +565,8 @@ class Outcomes(unittest.TestCase):
         special = {api.PlayerTookControl: ("interrupted", "player"), api.GameUnreachable: ("interrupted", "game lost"),
                    api.BodyContested: ("interrupted", "manual"), api.FightHolds: ("interrupted", "layer:tactic"),
                    api.Died: ("interrupted", "death"), api.DimensionChanged: ("interrupted", "dimension change"),
-                   api.CommitmentExpired: ("interrupted", "layer:plan"), api.Interrupted: ("interrupted", "layer:safety")}
+                   api.CommitmentExpired: ("interrupted", "layer:plan"), api.Interrupted: ("interrupted", "layer:safety"),
+                   api.NightFell: ("interrupted", "night")}
         rows = [(err, special.get(type(err), ("failed", "stuck"))) for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]
         for err, want in rows:

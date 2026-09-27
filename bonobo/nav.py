@@ -334,6 +334,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         brk, plc, void = may_alter(purpose, policy)
         # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
         for _ in range(max(attempts, LEGS)):
+            api.at_boundary()                # nightfall between legs: never inside a walk
             was = feet()
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,

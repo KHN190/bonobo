@@ -87,6 +87,22 @@ REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let th
 HOSTILE = ("critical_health", "breath", "enderman", "hostiles")
 DANGERS = hazard.KINDS + HOSTILE
 
+NIGHTFALL = "night"
+
+
+def nightfall(state):
+    """Pure: the soft boundary request for surface work at dusk or night — "night" when the body stands in the
+    Overworld between DAY_END and NIGHT_END with open sky over it; None underground or under a roof (sky light
+    at most COVERED_SKY), in daylight, or in another dimension."""
+    from .data import COVERED_SKY, DAY_END, NIGHT_END
+    if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
+        return None
+    t = int(state.get("timeOfDay", 0)) % 24000
+    if not DAY_END <= t < NIGHT_END or state.get("skyLight", 15) <= COVERED_SKY:
+        return None
+    return NIGHTFALL
+
+
 def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None,
            buried=False, fallen=0.0):
     """Pure: the danger kind to interrupt for (one of DANGERS), or None."""
@@ -290,6 +306,15 @@ class Watcher(threading.Thread):
             # a fight skill handles "hurt with hostiles close" itself: only life-or-death interrupts it
             if _eating():
                 continue        # a bite takes ~1.6 s and is what saves us: never interrupt it
+            # nightfall on the surface: once per night, a soft request honoured between tasks (api.at_boundary);
+            # the brain then takes the night's way and resumes the same target (arbiter.RESUME_OF "night")
+            night = nightfall(s)
+            if night is None:
+                self._night_told = False
+            elif not getattr(self, "_night_told", False) and (s.get("control") or {}).get("task"):
+                self._night_told = True
+                api.AT_BOUNDARY = night
+                api.log("!! perception: night on the surface → the work stops at its next boundary")
             # a fight skill handles breath and endermen itself: only life-or-death reasons, or every window is cut
             fighting = fight_loop.active() or api.SOFT
             reason = danger(s, None if fighting else self._hostiles_within,

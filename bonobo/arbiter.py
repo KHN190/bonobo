@@ -62,6 +62,7 @@ RESUME_RULES = {
     "stand down": (True, "stand_down"),   # someone else drives the body: stand down a while, then the same
     "fight": (True, "fight"),         # our own fight holds the body: back when it ends, not 10 s later
     "game": (True, "wait_game"),      # the game cannot be reached: wait for it, then the same
+    "night": (True, "night"),         # nightfall on the surface: the night's way first, then the same target
     "none": (False, None),            # the user cancelled: nothing resumes
     "cooled": (False, "cool"),        # a real failure, not an interrupt: counted, /stop, cooled under the retry policy
     "crashed": (False, "hold"),       # a bug of ours: held a while, the trace logged
@@ -73,7 +74,7 @@ RESUME_OF = {
                                     "collect machine", "path blocked", "unstuck", "recover items")},
     "row:empty the bag": "recheck", "row:leave the Nether": "dimension",
     "manual": "stand down", "player": "handback", "game lost": "game", "jar reflex": "same", "death": "recover",
-    "dimension change": "dimension", "user cancel": "none", "stuck": "cooled", "crash": "crashed",
+    "dimension change": "dimension", "night": "night", "user cancel": "none", "stuck": "cooled", "crash": "crashed",
 }
 
 def resume_of(source):

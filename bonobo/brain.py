@@ -528,7 +528,7 @@ def step_key(step):
 # which interrupt source an exception stands for (first match, else crash); what is done about it is that source's rule
 SOURCE_OF = ((PlayerTookControl, "player"), (GameUnreachable, "game lost"), (api.FightHolds, "layer:tactic"),
              (api.BodyContested, "manual"), (api.Died, "death"), (api.DimensionChanged, "dimension change"),
-             (api.CommitmentExpired, "layer:plan"), (api.Interrupted, "layer:safety"),
+             (api.CommitmentExpired, "layer:plan"), (api.NightFell, "night"), (api.Interrupted, "layer:safety"),
              ((McError, skills.ToolMissing), "stuck"))
 
 def write(task, fields):

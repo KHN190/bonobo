@@ -21,6 +21,7 @@ class Call:
         self.args, self.kwargs, self.base, self.result = args, kwargs, None, None
         self.want = None            # an item skill's desired bag, fixed at its start (skill.wanted)
         self.keep = {}              # what the skill fixed at its first start (an anchor: a column, a direction)
+        self.contract = None        # the skill this call runs (set by its runner)
 
 # an interrupted call's base, wanted bag and anchors, for its resume (read off the world, never a step index); stale after RESUME_TTL_S
 RESUME = {}
@@ -28,6 +29,17 @@ RESUME_TTL_S = 300
 CALLS = []
 # skill → fn (state, args) → the keys a call fixes at its first start, kept so its resume rebuilds against the same anchor
 ANCHORS = {}
+
+def _night_way_running():
+    """Is the work running now the night's way itself (a shelter, sleep, waiting for day)? Then nightfall's
+    boundary request waits — it must never cut the shelter it asks for."""
+    return any(c.contract is not None and (c.contract.name == "sleep"
+                                           or {"state:sheltered", "state:day"} & set(c.contract.gives))
+               for c in CALLS)
+
+
+api.BOUNDARY_EXEMPT = _night_way_running
+
 
 def current():
     """The call running now (innermost); its `keep` survives an interruption for its resume."""
@@ -267,6 +279,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
         def runner(*args, **kwargs):
             key = _resume_key(contract, args)
             c = Call(args, kwargs)
+            c.contract = contract
             missing = unmet(contract, args, skillcore.Inventory)     # every caller: a plan step, a reflex, a direct call
             if missing:
                 raise skillcore.NeedMissing(missing)
