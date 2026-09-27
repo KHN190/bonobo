@@ -151,7 +151,6 @@ def bombable(dragon):
 # geometry lives in fight.toml only
 _GEO = __import__("bonobo.fight_plan", fromlist=["fight_plan"]).CONFIG["geometry"]
 EYE = 1.62
-REACH = 4.5
 
 def choose_side(here, centre=(0, 0)):
     """Pure: the axis side of the portal the player is on (the head turns toward the player)."""

@@ -512,7 +512,4 @@ NAMES = {"base": lambda base, cond=None, surprise=None: surprise or f"{base}__{c
 NAMED = {"arena", "fight_cell", "one", "real", "place", "start", "brain", "dirt"}          # templates whose first parameter is only the row's name
 
 
-# -- interrupts: the progress kinds a row's interruption waits for (the old sheet's `_interrupt_when`) -------------
-INTERRUPT_PROGRESS = ("gained_at_least", "placed_at_least", "walked_at_least")
-
-__all__ = ["ORIGIN", "OPS", "PREDICATES", "LOGIC", "SCENE", "INTERRUPT_PROGRESS", "cmp", "pos", "resolve", "scene"]
+__all__ = ["ORIGIN", "OPS", "PREDICATES", "LOGIC", "SCENE", "cmp", "pos", "resolve", "scene"]
