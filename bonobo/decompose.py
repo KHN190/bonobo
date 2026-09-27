@@ -88,7 +88,8 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
             continue
         token, n = need[0], int(need[1])
         ids = set(members(token))
-        short = n - goals.held(inv, token) - sum(v for k, v in extra.items() if k in ids)
+        on_way = {token: sum(v for k, v in extra.items() if k in ids)}
+        short = goals.have_remainder(inv, [[token, n]], on_way).get(token, 0)
         for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
             if short <= 0:
                 break
@@ -251,7 +252,7 @@ def from_sources(inv, needs, cost, solver=None, pending=None):
         if need[0] == "tool" or need[0] not in SOURCES:
             continue
         token, n = need[0], int(need[1])
-        short = n - goals.held(inv, token) - extra.get(token, 0)
+        short = goals.have_remainder(inv, [[token, n]], extra).get(token, 0)
         if short <= 0:
             continue
         chosen, name = cheapest(token, short, lambda: solve_needs(inv, [(token, short)], cost, solver, extra),

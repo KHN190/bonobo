@@ -302,11 +302,12 @@ def reconcile(want, have):
     return {k: n - have.get(k, 0) for k, n in want.items() if have.get(k, 0) < n}
 
 
-def have_remainder(inv, rows):
+def have_remainder(inv, rows, pending=None):
     """Pure: what of `rows` ([token, n] / ["tool", kind, tier]) the bag does not hold — {token: missing n,
-    "tool:<kind>": tier}, {} when all is held."""
+    "tool:<kind>": tier}, {} when all is held. `pending` ({token: n}): already on its way, counted as held."""
+    pending = pending or {}
     items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
-    out = reconcile(items, {t: held(inv, t) for t in items})
+    out = reconcile(items, {t: held(inv, t) + pending.get(t, 0) for t in items})
     for r in rows:
         if r[0] == "tool" and not tool_ok(inv, r[1], int(r[2])):
             out[f"tool:{r[1]}"] = int(r[2])

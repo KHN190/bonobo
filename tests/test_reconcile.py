@@ -184,6 +184,20 @@ class SharedHelpers(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(goals.have_remainder(bag(inv), need), want)
 
+    def test_have_remainder_counts_what_is_on_its_way(self):
+        # (situation, rows, bag, pending) → what is left: pending counted as held, per token, never below {}
+        from tests.world import bag
+        rows = [("nothing on its way", [["log", 4]], inventory(("oak_log", 1)), {}, {"log": 3}),
+                ("part on its way", [["log", 4]], inventory(("oak_log", 1)), {"log": 2}, {"log": 1}),
+                ("all on its way: met", [["log", 4]], inventory(), {"log": 5}, {}),
+                ("must fail: another token's pending is not this one's", [["log", 4]], inventory(("oak_log", 1)),
+                 {"stone": 9}, {"log": 3}),
+                ("a tool is never pending", [["tool", "pickaxe", 1]], inventory(), {"tool:pickaxe": 1},
+                 {"tool:pickaxe": 1})]
+        for name, need, inv, pending, want in rows:
+            with self.subTest(name):
+                self.assertEqual(goals.have_remainder(bag(inv), need, pending), want)
+
     def test_blocks_remainder(self):
         want = {(0, 64, 0): "obsidian", (1, 64, 0): "obsidian", (0, 65, 0): "minecraft:obsidian"}
         rows = [("nothing built", {}, want),

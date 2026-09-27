@@ -99,14 +99,14 @@ def short(inv, need_rows):
     """What of these is not held yet, as text; empty when everything is."""
     out = []
     for need in need_rows:
+        rest = have_remainder(inv, [need])          # the math is knowledge's; here only the text
         if need[0] == "tool":
-            if not tool_ok(inv, need[1], int(need[2])):
+            if rest:
                 out.append(f"{need[1]} tier {need[2]}")
             continue
         token, n = need[0], int(need[1])
-        have_n = held(inv, token)
-        if have_n < n:
-            out.append(f"{bare(token)} {have_n}/{n}")
+        if rest:
+            out.append(f"{bare(token)} {n - rest[token]}/{n}")
     return ", ".join(out)
 
 
