@@ -1073,7 +1073,12 @@ class BagRules(unittest.TestCase):
         ("a wall at feet level and one above: both kept, order kept", [(2, 65, 0), (2, 64, 0)], (0, 64, 0),
          [(2, 65, 0), (2, 64, 0)]),
         ("edge: the corner of the ring is floor too", [(1, 63, 1), (2, 63, 2)], (0, 64, 0), [(2, 63, 2)]),
-        ("edge: two below the feet is not the floor", [(0, 62, 0)], (0, 64, 0), [(0, 62, 0)]),
+        ("must fail: two below the feet — the body's own column, not a target", [(0, 62, 0)], (0, 64, 0), []),
+        ("must fail: the platform under the feet, any depth (upkeep__bridge_stock fell through)",
+         [(10000, 198, 10000), (10000, 197, 10000)], (10000, 200, 10000), []),
+        ("the next column down: allowed", [(10001, 198, 10000), (10000, 198, 10000)], (10000, 200, 10000),
+         [(10001, 198, 10000)]),
+        ("above the feet in the same column: allowed (a ceiling)", [(0, 66, 0)], (0, 64, 0), [(0, 66, 0)]),
         ("must fail: only the floor offered → nothing to mine", [(0, 63, 0), (-1, 63, 0), (0, 63, 1)], (0, 64, 0),
          []),
     ]

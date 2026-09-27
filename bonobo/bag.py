@@ -187,11 +187,20 @@ def supports(feet):
     return {(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
 
 
+def under(feet, cell):
+    """Pure: `cell` is in the body's own column below the feet, at any depth. Only dig_in digs there on purpose: a
+    building batch mined (10000,198) under the platform floor, then (10000,197) with the body standing on it, and
+    fell through a three-thick sky platform."""
+    return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
+
+
 def mineable(cells, feet):
     """Pure: the cells a skill may break standing at `feet`, in the order given — never the floor under or around
-    the feet (`supports`). Target selection and the no-floor rule are this one predicate."""
-    floor = supports(tuple(feet))
-    return [tuple(c) for c in cells if tuple(c) not in floor]
+    the feet (`supports`), nor anything in the body's own column below it (`under`). Target selection and the
+    no-floor rule are this one predicate."""
+    feet = tuple(feet)
+    floor = supports(feet)
+    return [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))]
 
 
 def refused(cells, refused_before, jar_digs):
