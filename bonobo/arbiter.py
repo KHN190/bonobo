@@ -89,10 +89,11 @@ LAST_RESORT = ("wait for day", "idle")
 WAIT_KINDS = ("wait for day", "wait")
 
 def viable(intent, facts):
-    """Pure: may this proposal be offered at all?"""
+    """Pure: may this proposal be offered at all — not while its key is cooling. Met and unplannable needs are judged
+    once, where they are proposed (needs.propose, brain.need_act): they never become intents."""
 
     key = intent.key
-    return key is None or not any(key in facts.get(f, ()) for f in ("met", "cooling", "unplannable"))
+    return key is None or key not in facts.get("cooling", ())
 
 def gate(intents, facts=None):
     """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left."""

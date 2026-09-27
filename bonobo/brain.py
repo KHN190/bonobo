@@ -286,7 +286,7 @@ class Brain:
                     out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}"))
             return out
 
-        # the gate's facts: what is cooling; met and unplannable needs never become intents
+        # the gate's one fact: what is cooling (met and unplannable needs are judged where proposed, never intents)
         def facts_of(intents):
             return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
 
