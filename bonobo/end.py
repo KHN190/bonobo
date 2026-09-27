@@ -8,14 +8,12 @@ from . import api, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import bare
-from .world import Inventory, Region, add, entities, find
+from .world import Inventory, Region, add, cells_with, entities, find
 
 
 def frames_missing_eye(region):
     """Pure: end portal frame blocks without an eye (block state eye=false)."""
-    prop = getattr(region, "prop", None)
-    return [p for p, n in region.blocks.items()
-            if n == "end_portal_frame" and prop and str(prop(p, "eye")) != "true"]
+    return cells_with(region, "end_portal_frame", "eye", "true", want=False)
 
 
 def portal_centre(frames):

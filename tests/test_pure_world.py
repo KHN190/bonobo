@@ -58,6 +58,41 @@ def soft_ground(patch=None, gap=False):
     return FakeRegion((-12, 58, -4), (12, 68, 4), b)
 
 
+class _Props:
+    """A region read with block states: {pos: name}, {pos: {key: value}} (None: read without states)."""
+
+    def __init__(self, blocks, props):
+        self.blocks = blocks
+        if props is not None:
+            self.prop = lambda p, key: props.get(p, {}).get(key)
+
+
+class CellsWith(unittest.TestCase):
+    """world.cells_with: the one filter over block states (ripe wheat, frames without an eye)."""
+
+    def test_over_the_table(self):
+        from bonobo import end, world
+        blocks = {(0, 64, 0): "wheat", (1, 64, 0): "wheat", (2, 64, 0): "end_portal_frame",
+                  (3, 64, 0): "end_portal_frame", (4, 64, 0): "end_portal_frame"}
+        props = {(0, 64, 0): {"age": "7"}, (1, 64, 0): {"age": "3"}, (2, 64, 0): {"eye": "true"},
+                 (3, 64, 0): {"eye": "false"}}
+        # (situation, region, name, key, value, want) → cells
+        rows = [("ripe wheat", _Props(blocks, props), "wheat", "age", "7", True, [(0, 64, 0)]),
+                ("frames without an eye (a state not read counts as not true)", _Props(blocks, props),
+                 "end_portal_frame", "eye", "true", False, [(3, 64, 0), (4, 64, 0)]),
+                ("must fail: another block's state is not this one's", _Props(blocks, props), "wheat", "eye", "true",
+                 True, []),
+                ("must fail: a region read without states says nothing", _Props(blocks, None), "wheat", "age", "7",
+                 False, []),
+                ("nothing of that name", _Props(blocks, props), "stone", "age", "7", True, [])]
+        for name, region, block, key, value, want, cells in rows:
+            with self.subTest(name):
+                self.assertEqual(sorted(world.cells_with(region, block, key, value, want)), cells)
+        region = _Props(blocks, props)
+        self.assertEqual((world.ripe_cells(region), sorted(end.frames_missing_eye(region))),
+                         ([(0, 64, 0)], [(3, 64, 0), (4, 64, 0)]))
+
+
 class NearestSoft(unittest.TestCase):
     """terrain.nearest_soft: ground that digs by hand, found along the ground we stand on."""
     # (situation, region, feet) → (cell, steps) or None

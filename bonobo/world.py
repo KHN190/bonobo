@@ -290,10 +290,16 @@ def job_ready(job, tick=None, now=None):
     return job["ready_at"] <= (time.time() if now is None else now)
 
 
+def cells_with(region, name, key, value, want=True):
+    """Pure: the `name` blocks of `region` whose block state `key` reads `value` (`want=False`: reads anything
+    else). [] from a region read without block states."""
+    prop = getattr(region, "prop", None)
+    return [p for p, n in region.blocks.items() if n == name and prop and (str(prop(p, key)) == value) == want]
+
+
 def ripe_cells(region):
     """Pure: wheat blocks at full growth (age 7)."""
-    prop = getattr(region, "prop", None)
-    return [p for p, n in region.blocks.items() if n == "wheat" and prop and str(prop(p, "age")) == "7"]
+    return cells_with(region, "wheat", "age", "7")
 
 
 def ripe_near(feet, radius=32):
