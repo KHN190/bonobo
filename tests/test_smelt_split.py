@@ -27,7 +27,8 @@ ROWS = [
 # (situation, furnaces, items, fuel, per) → the reason nothing is loaded
 FAILS = [("no furnace at all", [], 3, 3, 8, "no free furnace within reach"),
          ("every furnace busy", [(A, "busy"), (B, "busy")], 3, 3, 8, "no free furnace within reach"),
-         ("no fuel", FREE3, 3, 0, 8, "no fuel to burn")]
+         ("no fuel", FREE3, 3, 0, 8, "no fuel to burn"),
+         ("boundary: fuel that burns less than one item", [(A, "free")], 3, 1, 0.5, "no fuel to burn")]
 
 
 class SplitSmelt(unittest.TestCase):

@@ -559,7 +559,9 @@ class EndgameBuilt(unittest.TestCase):
     # (start, stronghold, the leg's padded box): the plane lies under the skill's perpendicular (-dz, dx) leg
     LEGS = [((0, 0), (1000, 0), (-12, -12, 12, 212)),
             ((0, 0), (0, 1000), (-212, -12, 12, 12)),
-            ((0, 0), (-1000, 0), (-12, -212, 12, 12))]
+            ((0, 0), (-1000, 0), (-12, -212, 12, 12)),
+            ((0, 0), (0, -1000), (-12, -12, 212, 12)),
+            ((0, 0), (0, 0), (-12, -12, 12, 12))]            # must fail: no leg at all, the padding only
 
     def test_leg_box(self):
         for start, sh, want in self.LEGS:
@@ -567,7 +569,8 @@ class EndgameBuilt(unittest.TestCase):
                 self.assertEqual(sc._leg_box(start, sh), want)
 
     # (rectangle) → every fill under 32768 blocks, together covering it
-    FLATS = [(0, 0, 200, 200), (-12, -12, 212, 12), (0, 0, 0, 0)]
+    FLATS = [(0, 0, 200, 200), (-12, -12, 212, 12), (0, 0, 0, 0), (0, 0, 300, 300),
+             (5, 5, 1, 1)]                                 # must fail: an inverted rectangle fills nothing
 
     def test_flat_fills(self):
         for x0, z0, x1, z1 in self.FLATS:

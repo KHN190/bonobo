@@ -214,18 +214,30 @@ class TheSkillsBatches(unittest.TestCase):
                 self.assertEqual([round(shot[k], 6) for k in "xyz"], [round(x, 6), round(y, 6), round(z, 6)])
 
     def test_a_fight_is_on_while_the_body_is_engaged(self):
+        import threading
+        from unittest import mock
         from bonobo import arbiter, fight_loop
-        rows = [(False, False), (True, True)]
-        for engaged, want in rows:
-            with self.subTest(engaged=engaged):
-                body = arbiter.Motion()
-                if engaged:
-                    body.engage()
-                saved, arbiter.BODY = arbiter.BODY, body
-                try:
-                    self.assertEqual(fight_loop.active(), want)
-                finally:
-                    arbiter.BODY = saved
+        done = threading.Event()
+        live = threading.Thread(target=done.wait, daemon=True)
+        live.start()
+        # (situation, the body engaged by a boss fight, our engagement's thread) → a fight is on
+        rows = [("must fail: nothing engaged", False, None, False),
+                ("a boss fight holds the body", True, None, True),
+                ("our engagement is running", False, live, True),
+                ("must fail: our engagement's thread has ended", False, threading.Thread(target=lambda: None), False)]
+        try:
+            for name, engaged, thread, want in rows:
+                with self.subTest(name), mock.patch.dict(fight_loop._ENG, {"thread": thread, "intent": "ours"}):
+                    body = arbiter.Motion()
+                    if engaged:
+                        body.engage()
+                    saved, arbiter.BODY = arbiter.BODY, body
+                    try:
+                        self.assertEqual(fight_loop.active(), want)
+                    finally:
+                        arbiter.BODY = saved
+        finally:
+            done.set()
 
 
 def nav_mine(cell):

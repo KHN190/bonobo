@@ -86,9 +86,12 @@ class Sources(unittest.TestCase):
                     self.assertEqual([s for s in got if s in has], has, "in this order")
 
     # (situation, world) → the reasons a portal cannot be had, when carrying obsidian is not plannable either
-    NO_WAY = [("no lava seen and no lava bucket", dict(items=CAST_KIT), "cast: no lava known and no lava bucket"),
-              ("in the Nether: water cannot be poured", dict(dim=NETHER, items=CAST_KIT, seen=[("lava", (6, 60, 0))]),
-               "cast: water cannot be poured in the Nether")]
+    # a reason the plan names, or None: the cast is the way when lava is known and the kit carried
+    NO_WAY = [("must fail: no lava seen and no lava bucket", dict(items=CAST_KIT), "cast: no lava known and no lava bucket"),
+              ("must fail: in the Nether, water cannot be poured",
+               dict(dim=NETHER, items=CAST_KIT, seen=[("lava", (6, 60, 0))]), "cast: water cannot be poured in the Nether"),
+              ("must fail: an empty bag, no lava known", dict(items=[]), "cast: no lava known and no lava bucket"),
+              ("lava seen, the kit carried: cast", dict(items=CAST_KIT, seen=[("lava", (6, 60, 0))]), None)]
 
     def test_no_way_says_every_reason(self):
         def nothing():
@@ -96,6 +99,9 @@ class Sources(unittest.TestCase):
         for name, w, reason in self.NO_WAY:
             with self.subTest(name):
                 inv, cost = world(**w)
+                if reason is None:
+                    self.assertEqual(decompose.cheapest("build:nether_portal", 1, nothing, inv, cost)[1], "cast")
+                    continue
                 with self.assertRaises(Unplannable) as caught:
                     decompose.cheapest("build:nether_portal", 1, nothing, inv, cost)
                 self.assertIn("default: no obsidian to be had here", str(caught.exception))
@@ -124,7 +130,8 @@ class BuildingBlocks(unittest.TestCase):
     ROWS = [("an empty bag, dirt 4 away: dug by hand", [], {"dirt": 4}, [("mine", "minecraft:dirt", 9)]),
             ("a pickaxe, stone 2 away, dirt 40 away: the stone", [("stone_pickaxe", 1)], {"stone": 2, "dirt": 40},
              [("mine", "building", 9)]),
-            ("16 cobblestone carried: nothing to do", [("cobblestone", 16)], {"dirt": 4}, [])]
+            ("must fail: 16 cobblestone carried, nothing to do", [("cobblestone", 16)], {"dirt": 4}, []),
+            ("boundary: exactly the 9 carried, nothing to do", [("cobblestone", 9)], {"dirt": 4}, [])]
 
     def test_plan_over_the_table(self):
         from tests.world import cost, snapshot, state
