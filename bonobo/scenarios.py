@@ -3123,9 +3123,14 @@ UPKEEP_ROWS += [
     ("shelter_dig_in", "night, a pickaxe → dug in: below the floor, enclosed",
      _NIGHT_FLOOR + ["give @p stone_pickaxe", "give @p cobblestone 8"], [], _enclosed,
      _all(lambda api, inv: _enclosed(), lambda api, inv: api.get("/state")["y"] < at(0, 0, 0)[1] - 0.5)),
-    ("shelter_hut", "night, no pickaxe, the hut's materials (stone, a door, a torch) → a hut: its door stands",
-     _NIGHT_FLOOR + ["give @p stone 32", "give @p oak_door", "give @p torch 2"], [], _enclosed,
-     _all(lambda api, inv: _enclosed(), _blocks(at(-6, 0, -6), at(6, 3, 6), "oak_door", 1))),
+    # The hut's materials in the blueprint's own group (cobblestone), no pickaxe: whichever way needs.overnight
+    # prices cheapest is built, judged by the world — sheltered. A cell where the hut is the cheapest does not
+    # exist: its 14 "stone" are building blocks, so walling in (9 of them, 40 s against 120 s) is always open and
+    # cheaper whenever the hut is.
+    ("shelter_hut", "night, no pickaxe, the hut's materials (cobblestone, a door, a torch) → sheltered by the way "
+     "the night's pricing chose",
+     _NIGHT_FLOOR + ["give @p cobblestone 32", "give @p oak_door", "give @p torch 2"], [], _enclosed,
+     lambda api, inv: _enclosed()),
     ("shelter_wall_in", "night, no pickaxe, cobblestone only → walled in where it stands",
      _NIGHT_FLOOR + ["give @p cobblestone 16"], [], _enclosed,
      _all(lambda api, inv: _enclosed(), _blocks(at(-1, 0, -1), at(1, 2, 1), "cobblestone", 9))),
@@ -3162,29 +3167,43 @@ SHEET["fight_before_upkeep"] = {
 }
 
 
-# Eating on the move: hungry, cooked beef carried, a 20-block walk (-2 → 18, the bench box's own length) → fed on arrival, and the walk no slower than the
-# same walk fed (it did not stop to eat). The control: hungry while mining — the mining is not interrupted to eat.
+# Eating on the move: hungry, cooked beef carried, one 20-block walk east → fed on the way, by the jar's autoeat
+# (no separate eat task), and still walking forward while it chewed. The control: hungry while mining — the mining
+# is not interrupted to eat.
 WALK = {}
-BITE_S = 1.6        # one bite standing still (32 ticks): what eating on the way must not be slower than
-WALK_SLACK_S = 1.0  # two legs of the same walk differ by this much with no eating at all (jitter)
+BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 
 
-def no_slower_than_stopping(hungry_s, fed_s, bites):
-    """Pure: the hungry leg took no longer than the fed one plus a standing bite per bite eaten — eating while
-    walking slows the walk (no sprint, ~20% speed while chewing), so "+1 s" was never reachable; stopping to eat
-    is the bar. No bite at all is not eating on the way."""
-    return bites > 0 and hungry_s <= fed_s + bites * BITE_S + WALK_SLACK_S
+def ate_on_the_way(frames):
+    """Pure, over trace frames ({"t", "x", "food", "task"}, the runner's `_trace` shape): the food bar rose during the
+    walk; no frame ran an "eat" task (it was the autoeat, not a stop); and over the bite before the rise, x grew in
+    every second (the walk went on while chewing)."""
+    fed = [f for f in frames if f.get("food") is not None]
+    if not fed or any((f.get("task") or {}).get("type") == "eat" for f in frames):
+        return False
+    rise = next((f for f in fed if f["food"] > fed[0]["food"]), None)
+    if rise is None:
+        return False
+    window = [f for f in frames if rise["t"] - BITE_S <= f["t"] <= rise["t"] and f.get("x") is not None]
+    if len(window) < 2:
+        return False
+    # x at each whole second of the window, and at its end: every step forward.
+    at_s = lambda sec: min(window, key=lambda f: abs(f["t"] - (window[0]["t"] + sec)))["x"]   # noqa: E731
+    xs = [at_s(sec) for sec in range(int(window[-1]["t"] - window[0]["t"]) + 1)] + [window[-1]["x"]]
+    xs = [x for k, x in enumerate(xs) if k == 0 or x != xs[k - 1] or k < len(xs) - 1]
+    return all(b > a for a, b in zip(xs, xs[1:]))
 
 
-def _walk_there_and_back(ctx):
-    """Walk 20 east hungry, then back fed: both times, the food after each and the beef eaten on each kept."""
-    from . import api
-    for leg, target in (("hungry", at(18, 0, 0)), ("fed", at(-2, 0, 0))):
-        beef, t0 = _inv_now().count("minecraft:cooked_beef"), time.time()
-        _skill("travel_to")(ctx, target, 2)
-        WALK[leg] = time.time() - t0
-        WALK[f"food_{leg}"] = api.get("/state")["food"]
-        WALK[f"bites_{leg}"] = beef - _inv_now().count("minecraft:cooked_beef")
+def _walk_once(ctx):
+    """Walk 20 east hungry, the whole walk traced (the runner's `_trace`: position, food, the jar's task)."""
+    import threading
+    frames, stop = [], threading.Event()
+    threading.Thread(target=_trace, args=(stop, frames), daemon=True).start()
+    try:
+        _skill("travel_to")(ctx, at(18, 0, 0), 2)
+    finally:
+        stop.set()
+        WALK["frames"] = frames
     return True
 
 
@@ -3197,16 +3216,14 @@ def _hungry(ctx):
 
 
 SHEET["eat_while_walking"] = {
-    "doc": "Hungry, cooked beef carried, 20 blocks to walk → fed on arrival, and no slower than the same walk fed "
-           "plus a standing bite per bite eaten (+1 s): it eats without stopping",
+    "doc": "Hungry, cooked beef carried, 20 blocks to walk → fed on the way without an eat task, still walking "
+           "forward while it chewed (ate_on_the_way over the walk's trace)",
     "module": "skills", "point": "A", "skills": ["goto"], "tier_fixed": "common", "combat": False, "stochastic": False,
     "tags": {"base": "nav", "state": "hungry"},
     "setup": _floor() + [f"fill {_c(at(8, -3, -3))} {_c(at(20, -1, 3))} stone", _tp(-2, 0, 0), "give @p cooked_beef 4"],
     "before": _hooks(_start("eat_while_walking"), _hungry),
-    "run": _walk_there_and_back,
-    "check": _all(lambda api, inv: WALK.get("food_hungry", 0) > BASE["food_before"],
-                  lambda api, inv: no_slower_than_stopping(WALK.get("hungry", 99), WALK.get("fed", 0),
-                                                           WALK.get("bites_hungry", 0))),
+    "run": _walk_once,
+    "check": _all(lambda api, inv: ate_on_the_way(WALK.get("frames", [])), _at(at(18, 0, 0), 3)),
     "budget": 30,
 }
 SHEET["mine_while_hungry"] = {

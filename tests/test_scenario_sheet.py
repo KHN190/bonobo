@@ -824,20 +824,34 @@ class EveryPartHasAMustFail(unittest.TestCase):
                 self.assertEqual(sc.SHEET[name]["fails"], fails)
 
 
-class EatingOnTheWay(unittest.TestCase):
-    """eat_while_walking's bar: the hungry leg no slower than the fed one plus a standing bite per bite eaten."""
+def walk_frames(speed=4.0, rise_at=3.0, stop=(None, None), task=None, food0=10, back=False):
+    """Frames every 0.2 s for 5 s: x advancing at `speed` (standing still over `stop`, backwards if `back`), the
+    food bar up by 3 from `rise_at` (never when None), `task` as the jar's running task."""
+    out, x = [], 0.0
+    for k in range(26):
+        t = k * 0.2
+        still = stop[0] is not None and stop[0] <= t <= stop[1]
+        x += 0.0 if still or k == 0 else (-1 if back else 1) * speed * 0.2
+        food = food0 + (3 if rise_at is not None and t >= rise_at else 0)
+        out.append({"t": t, "x": round(x, 2), "food": food, "task": task})
+    return out
 
-    def test_no_slower_than_stopping(self):
-        rows = [("the bench's run: 3 bites, 9.6 s against 4.5 s fed", 9.6, 4.5, 3, True),
-                ("exactly a standing bite per bite and the slack (boundary)", 4.5 + 3 * sc.BITE_S + sc.WALK_SLACK_S,
-                 4.5, 3, True),
-                ("just past the boundary", 4.5 + 3 * sc.BITE_S + sc.WALK_SLACK_S + 0.1, 4.5, 3, False),
-                ("slower than stopping to eat", 9.6, 4.5, 2, False),
-                ("no bite eaten: not eating on the way", 4.5, 4.5, 0, False),
-                ("a long stop: 20 s for one bite", 20.0, 4.5, 1, False)]
-        for name, hungry, fed, bites, want in rows:
+
+class EatingOnTheWay(unittest.TestCase):
+    """eat_while_walking's bar (ate_on_the_way over the walk's trace): fed during the walk, no eat task, and still
+    walking forward through the bite."""
+    ROWS = [("fed while walking on", walk_frames(), True),
+            ("stopped to chew: x flat through the bite", walk_frames(stop=(1.4, 3.0)), False),
+            ("a separate eat task ran", walk_frames(task={"type": "eat"}), False),
+            ("never fed", walk_frames(rise_at=None), False),
+            ("fed while walking the wrong way", walk_frames(back=True), False),
+            ("fed at the very first frame: no bite window", walk_frames(rise_at=0.0), False),
+            ("no frames", [], False)]
+
+    def test_ate_on_the_way(self):
+        for name, frames, want in self.ROWS:
             with self.subTest(name):
-                self.assertIs(sc.no_slower_than_stopping(hungry, fed, bites), want)
+                self.assertIs(sc.ate_on_the_way(frames), want)
 
 
 class TwoSites(unittest.TestCase):
