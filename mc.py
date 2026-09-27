@@ -213,6 +213,8 @@ def _scenario_selection(a, scenarios):
     the skills whose functions it touched."""
     import os
     import subprocess
+    if getattr(a, "failed", False):
+        return [n for n in scenarios.failed_last(scenarios.load_table()) if n in scenarios.SCENARIOS]
     changed = None
     if getattr(a, "changed", False):
         from bonobo import brain  # noqa: F401  (every skill module registers)
@@ -323,6 +325,8 @@ def main():
                    help="which tier to run with `all` / list (default core)")
     p.add_argument("--changed", action="store_true",
                    help="only rows proving skills changed since the merge-base with main (else core)")
+    p.add_argument("--failed", action="store_true",
+                   help="only rows whose latest run failed (FAIL or TIMEOUT in the readiness table)")
     p.set_defaults(fn=cmd_scenario)
     p = sub.add_parser("interrupt", help="end the running skill so the queue's head runs next")
     p.add_argument("--why", default="Claude redirected")

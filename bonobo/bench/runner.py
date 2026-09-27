@@ -394,6 +394,17 @@ def status(table, scenario, code):
     return ("scenario" if verdict_of([r["ok"] for r in runs]) == "pass" else "failing"), median
 
 
+def failed_last(table):
+    """Pure: the rows whose latest counted run (any code version) failed — FAIL or TIMEOUT — sorted. Setup and
+    harness failures say nothing about the row and are not counted (`status`)."""
+    out = []
+    for name, codes in table.items():
+        runs = [r for c in codes.values() for r in c if r.get("cls", "skill") not in UNCOUNTED]
+        if runs and not max(runs, key=lambda r: r.get("t", 0))["ok"]:
+            out.append(name)
+    return sorted(out)
+
+
 def save_table(table, path=None):
     path = path or TABLE
     os.makedirs(os.path.dirname(path), exist_ok=True)

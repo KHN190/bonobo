@@ -552,3 +552,24 @@ class Watchdog(unittest.TestCase):
                 finally:
                     signal.signal(signal.SIGINT, old)
                 self.assertEqual((hit, fired.is_set(), posts), (want, want, ["/stop"] if want else []))
+
+
+class FailedLast(unittest.TestCase):
+    """`mc.py scenario --failed`: the rows whose latest counted run failed (runner.failed_last)."""
+
+    def run_(self, ok, t, cls="skill", note=""):
+        return {"ok": ok, "s": 1.0, "note": note, "cls": cls, "t": t}
+
+    def test_rows_over_the_table(self):
+        table = {
+            "passed_last": {"a": [self.run_(False, 1)], "b": [self.run_(True, 2, "pass")]},
+            "failed_last": {"a": [self.run_(True, 1, "pass")], "b": [self.run_(False, 2)]},
+            "timed_out": {"a": [self.run_(False, 3, note="TIMEOUT: stopped at the 60s limit")]},
+            "setup_only_after_a_pass": {"a": [self.run_(True, 1, "pass"), self.run_(False, 5, "setup")]},
+            "never_counted": {"a": [self.run_(False, 1, "harness")]},
+            "failed_on_an_older_code_last": {"new": [self.run_(True, 1, "pass")], "old": [self.run_(False, 9)]},
+        }
+        self.assertEqual(runner.failed_last(table), ["failed_last", "failed_on_an_older_code_last", "timed_out"])
+
+    def test_empty_table(self):
+        self.assertEqual(runner.failed_last({}), [])
