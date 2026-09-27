@@ -319,7 +319,8 @@ class Arrive(_Clean):
 
 
 # ----------------------------------------------------------------------------------------------------- outcomes
-# exception → (cause, class). "interrupted" never counts, bans, stops or cools; "waits" is handled before the
+# exception → (cause, class). "interrupted" never counts, bans, stops or cools; "repair" (the world changed under the
+# plan: a station gone) stops the step and repairs the plan, never counted or cooled; "waits" is handled before the
 # failure path (brain.attempt); "failure" is counted for (task, cause) and cools the cause at the place.
 OUTCOMES = [
     (api.Interrupted("perception: lava"), "interrupt", "interrupted"),
@@ -328,6 +329,7 @@ OUTCOMES = [
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
     (skillcore.ToolMissing("pickaxe", 1), "tool", "failure"),
+    (skillcore.StationMissing("minecraft:crafting_table"), "replan", "repair"),
     (api.NavFailed("could not get to (1, 2, 3)"), "nav", "failure"),
     (api.Unreachable("the item landed where nothing can stand"), "nav", "failure"),
     (api.McError("travel: no path found"), "nav", "failure"),
@@ -356,9 +358,9 @@ class Outcomes(unittest.TestCase):
             with self.subTest(f"{type(err).__name__}: {err}"):
                 self.assertEqual(retry.cause_of(err), cause)
                 self.assertEqual(api.interrupted(err), cls == "interrupted")
-                self.assertEqual(cause in retry.NOT_FAILURES, cls == "interrupted")
+                self.assertEqual(cause in retry.NOT_FAILURES, cls in ("interrupted", "repair"))
                 verdict = retry.Retry().failed("task t1", cause, str(err), now=100.0, place=((0, 4, 0), False))
-                self.assertEqual(verdict is None, cls == "interrupted", "only failures are counted")
+                self.assertEqual(verdict is None, cls in ("interrupted", "repair"), "only failures are counted")
 
     def test_no_exception_type_is_unclassified(self):
         covered = {type(err) for err, _, _ in OUTCOMES}
