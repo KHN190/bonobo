@@ -90,7 +90,8 @@ def carry(want_of, answer, going, held, again=False):
     answers — the same answer keeps the posted task running, a different one /stops it and posts its own. `held`
     ({"done", "task_id"}) is the loop's memory, kept by the caller so a `finally` can stop what is still posted.
     `again`: a task that ended while its answer is still wanted is posted again (a crystal still standing is shot
-    again); otherwise the loop waits for a new answer. Returns when want_of() says None (nothing left to do).
+    again; an attack that ended with the skeleton alive attacks again — bench fight_skeleton_1 stood 16 s wanting
+    "fight" with nothing posted); otherwise the loop waits for a new answer. Returns when want_of() says None (nothing left to do).
     Yields once per pass, so a skill can `yield from` it."""
     while going():
         want = want_of()
@@ -108,6 +109,7 @@ def carry(want_of, answer, going, held, again=False):
                 held["task_id"] = None
                 if again:
                     held["done"] = None
+                    time.sleep(POLL_S)          # then post it again, not in a tight loop
         else:
             time.sleep(POLL_S)
         yield want.kind
@@ -118,7 +120,7 @@ def _engagement(intent, failure):
     held = {"done": None, "task_id": None}
     try:
         def loop():
-            for _ in carry(lambda: _ENG["want"], ANSWER, lambda: arbiter.BODY.holder() is intent, held):
+            for _ in carry(lambda: _ENG["want"], ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True):
                 pass
         arbiter.BODY.carry(intent, loop)
     except Exception as e:

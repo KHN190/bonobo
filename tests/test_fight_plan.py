@@ -245,6 +245,8 @@ class Carry(unittest.TestCase):
             ("the task ended, the answer still wanted, again: posted again",
              [A("shoot", "c"), A("shoot", "c"), A("shoot", "c")], ["succeeded"], True,
              ["post shoot", "watch", "post shoot"]),
+            ("an attack ended, the skeleton alive, again: attacked again",
+             [A("fight", 7), A("fight", 7), A("fight", 7)], ["failed"], True, ["post fight", "watch", "post fight"]),
             ("nothing left to do: the loop ends at once", [None], [], False, [])]
 
     def test_passes(self):
