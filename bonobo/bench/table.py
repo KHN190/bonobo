@@ -2,36 +2,16 @@
 use (setup, run, check, before, budget, tier, …). Nothing here decides; it only reads the words back into the
 sheet's own factories and `vocab`'s predicates."""
 import importlib
-import sys
 
 from . import vocab
 
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
-RUNS = ("skill", "skill_bare", "do")          # the run words a lambda was written in (the rest: sheet factories)
-WORDS = ("hooks", "named_all", "interrupt_when", "iter", "constant", "now_api")    # the interpreter's own words
-MARKERS = ("$api", "$inv", "$ctx")
+RUNS = ("skill", "skill_bare", "do", "seq", "remember", "pause")          # the run words a lambda was written in (the rest: sheet factories)
+WORDS = ("hooks", "named_all", "interrupt_when", "iter", "constant", "now_api", "thunk", "api_only")    # the interpreter's own words
 
 
-def _scen():
-    return sys.modules.get("bonobo.scenarios") or importlib.import_module("bonobo.scenarios")
-
-
-def resolve(name):
-    """A word → the sheet's function: "mod.path:attr", a dotted module function, or a sheet name (its own, or
-    with the leading underscore the table drops)."""
-    if ":" in name:
-        mod, attr = name.split(":")
-        return getattr(importlib.import_module(mod), attr)
-    scen = _scen()
-    if hasattr(scen, name):
-        return getattr(scen, name)
-    if hasattr(scen, "_" + name):
-        return getattr(scen, "_" + name)
-    if "." in name:
-        mod, attr = name.rsplit(".", 1)
-        return getattr(importlib.import_module(mod), attr)
-    raise KeyError(f"no word {name!r}")
+resolve = vocab.resolve
 
 
 # -- values -------------------------------------------------------------------------------------------------------
@@ -40,6 +20,8 @@ def dec(v):
     if isinstance(v, tuple) and v and isinstance(v[0], str):
         if v[0] == "@" and len(v) == 4:
             return vocab.pos(v)
+        if v[0] == "$set" and len(v) == 2:
+            return set(dec(v[1]))
         if v[0] == "$data" and len(v) == 2:
             from .. import paths
             return paths.data(v[1])
@@ -78,6 +60,12 @@ def _pred(kind, args):
     if kind == "not":
         p = dec(args[0])
         return lambda api, inv: not p(api, inv)
+    if kind == "api_only":
+        p = dec(args[0])
+        return lambda api, inv: p(api, None)
+    if kind == "thunk":
+        p = dec(args[0])
+        return lambda api, inv: p()
     if kind == "now_api":
         p = dec(args[0])
 
@@ -101,6 +89,16 @@ def _pred(kind, args):
 
 
 def _run(kind, args):
+    if kind == "seq":
+        at_, steps = args[0], [dec(a) for a in args[1:]]
+        return lambda ctx: (lambda done: tuple(done) if at_ is None else done[at_])([st(ctx) for st in steps])
+    if kind == "remember":
+        method, pargs, kwargs = args
+        return lambda ctx: getattr(ctx.mem, method)(*[_arg(a, ctx) for a in pargs],
+                                                   **{k: _arg(v, ctx) for k, v in kwargs.items()})
+    if kind == "pause":
+        import time
+        return lambda ctx=None: time.sleep(args[0])
     if kind in ("skill", "skill_bare"):
         name, rest = args[0], args[1:]
 
@@ -120,6 +118,8 @@ def make(item):
     """(kind, *args) → the callable it names, carrying its own data (`__table__`: what `tabulate` reads back)."""
     if item[0].startswith("&"):
         return resolve(item[0][1:])            # the function itself, not a call
+    if item[0] in vocab.WORDS:
+        return vocab.WORDS[item[0]](*[dec(a) for a in item[1:]])     # the old sheet's own callable, as it made it
     f = _make(item)
     try:
         f.__table__ = tuple(item)
@@ -130,7 +130,11 @@ def make(item):
 
 def _make(item):
     kind, args = item[0], item[1:]
-    if kind in vocab.PREDICATES or kind in vocab.LOGIC or kind == "now_api":
+    if kind in vocab.HOOKS:
+        return vocab.HOOKS[kind]
+    if kind in vocab.WORDS:
+        return vocab.WORDS[kind](*[dec(a) for a in args])
+    if kind in vocab.PREDICATES or kind in vocab.LOGIC or kind in ("now_api", "thunk", "api_only"):
         return _pred(kind, args)
     if kind in RUNS:
         return _run(kind, args)
@@ -171,18 +175,35 @@ def build(row, tier):
         out["queue"] = dec(row["queue"])
     if "detail" in row:
         out["detail"] = make(row["detail"])
+    from .bench_bases import KIT
+    if row["name"] in KIT:                   # the kit rule: the best work tool per job, the sword a fight calls for
+        out["setup"] = out["setup"] + resolve("_kit_gives")(out, tuple(KIT[row["name"]]))
     for k, v in row.items():
         if k not in out and k not in ("name", "scene", "why", "no_detail"):
             out[k] = dec(v)
+    out.setdefault("skills", [])            # a row that proves no one skill carries an empty list
+    out.setdefault("point", "A")
     if tier != "acceptance":
         out["budget"] = min(out["budget"], ROW_LIMIT_S)
     return out
 
 
+def expand(families):
+    """[(template, [params, ...])] → {name: row data}: one entry, many rows."""
+    out = {}
+    for template, params in families:
+        for p in params:
+            row = vocab.TEMPLATES[template](vocab.NAMES[template](*p), *(p[1:] if template in vocab.NAMED else p))
+            out[row["name"]] = row
+    return out
+
+
 def rows(tier):
-    """{name: row data} of one tier's table."""
+    """{name: row data} of one tier's table: its families expanded, then its own rows."""
     mod = importlib.import_module(TABLES[tier])
-    return {r["name"]: r for r in mod.ROWS}
+    out = expand(getattr(mod, "FAMILIES", ()))
+    out.update({r["name"]: r for r in getattr(mod, "ROWS", ())})
+    return out
 
 
 def sheet():

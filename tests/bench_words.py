@@ -14,8 +14,8 @@ import inspect
 import os
 import sys
 
-from . import table, vocab
-from .core import ORIGIN
+from bonobo.bench import table, vocab
+from bonobo.bench.core import ORIGIN
 
 NEAR = 256           # a triple within this of ORIGIN on every axis is a bench position ("@", dx, dy, dz)
 # Factory parameters the closure keeps under another name (the closure's value passes as the parameter as is).
@@ -37,7 +37,7 @@ def enc(v, depth=0):
     if depth > 40:
         raise NotExpressible("nested too deep")
     if isinstance(v, str):
-        from .. import paths
+        from bonobo import paths
         root = paths.data_dir().rstrip(os.sep) + os.sep
         return ("$data", v[len(root):]) if v.startswith(root) else v   # a data file: where this player keeps them
     if v is None or isinstance(v, (bool, int, float)):
@@ -46,6 +46,8 @@ def enc(v, depth=0):
                                                      for x in v) \
             and all(abs(v[i] - ORIGIN[i]) <= NEAR for i in range(3)):
         return ("@",) + tuple(_num_rel(v[i], ORIGIN[i]) for i in range(3))
+    if isinstance(v, (set, frozenset)):
+        return ("$set", sorted(enc(x, depth + 1) for x in v))
     if isinstance(v, (list, tuple)):
         out = [enc(x, depth + 1) for x in v]
         return out if isinstance(v, list) else tuple(out)
@@ -242,7 +244,15 @@ class _L:
         own = {p for p in self.params if p not in self.defaults}
         return not any(isinstance(n, ast.Name) and n.id in own for n in ast.walk(node))
 
+    def sub(self, node):
+        """A lambda written inside this one → its words (same globals and closure, its own parameters)."""
+        t = _L.__new__(_L)
+        t.f, t.node, t.params, t.defaults, t.env = self.f, node, [a.arg for a in node.args.args], {}, self.env
+        return _lambda_of(t, node)
+
     def value(self, node):
+        if isinstance(node, ast.Lambda):
+            return self.sub(node)
         if not self.free(node):
             raise NotExpressible(f"reads the call's arguments: {ast.unparse(node)[:50]}")
         if any(isinstance(n, (ast.Lambda, ast.GeneratorExp, ast.ListComp)) for n in ast.walk(node)):
@@ -274,6 +284,10 @@ class _L:
                 return ("count", args[0])
             return ("bag", node.func.attr, args)
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Call) \
+                and isinstance(node.value.func, ast.Name) and node.value.func.id == "_st" \
+                and len(node.value.args) == 1 and self.is_api(node.value.args[0]):
+            return ("state", self.value(node.slice))
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Call) \
                 and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "get" \
                 and self.is_api(node.value.func.value) and len(node.value.args) == 1 \
                 and isinstance(node.value.args[0], ast.Constant) and node.value.args[0].value == "/state":
@@ -283,8 +297,10 @@ class _L:
                 and node.func.id not in self.params and not node.keywords:
             args = []
             for a in node.args:
-                if isinstance(a, ast.Name) and a.id in ("api", "inv") and a.id in self.params:
-                    args.append("$" + a.id)
+                if self.is_api(a):
+                    args.append("$api")
+                elif self.is_inv(a):
+                    args.append("$inv")
                 else:
                     args.append(self.value(a))
             target = self.env[node.func.id]
@@ -311,6 +327,13 @@ class _L:
             return self.pred(node.args[0])
         if isinstance(node, ast.Constant) and isinstance(node.value, bool):
             return ("!constant", node.value)
+        if isinstance(node, ast.Call) and not node.args and not node.keywords and self.free(node.func) \
+                and not isinstance(node.func, ast.Name):         # _count("log", 2)() — a done read in place
+            return ("!thunk", fn(eval(compile(ast.Expression(node.func), "<row>", "eval"), self.env)))  # noqa: S307
+        if isinstance(node, ast.Call) and self.free(node.func) and not isinstance(node.func, ast.Name) \
+                and len(node.args) == 2 and self.is_api(node.args[0]) and isinstance(node.args[1], ast.Constant) \
+                and node.args[1].value is None:                     # a check asked with no bag: (api, None)
+            return ("!api_only", fn(eval(compile(ast.Expression(node.func), "<row>", "eval"), self.env)))  # noqa: S307
         # a factory's check called in place: _alive(10)(api, inv)
         if isinstance(node, ast.Call) and self.free(node.func) and not isinstance(node.func, ast.Name) \
                 and len(node.args) == 2 and self.is_api(node.args[0]) and self.is_inv(node.args[1]):
@@ -371,6 +394,19 @@ class _L:
         raise NotExpressible(f"no run target in {ast.unparse(func)[:50]}")
 
     def run(self, node):
+        if isinstance(node, ast.Tuple):                         # steps in order, the tuple of what they gave
+            return ("!seq", None) + tuple(self.run(e) for e in node.elts)
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Tuple) \
+                and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, int):
+            return ("!seq", node.slice.value) + tuple(self.run(e) for e in node.value.elts)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "mem" \
+                and isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "ctx":
+            return ("!remember", node.func.attr, [self.arg(a) for a in node.args],
+                    {k.arg: self.arg(k.value) for k in node.keywords})
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "sleep" \
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "time" and len(node.args) == 1:
+            return ("!pause", self.value(node.args[0]))
         if not isinstance(node, ast.Call):
             raise NotExpressible(f"a run that is not one call: {ast.unparse(node)[:60]}")
         kind, what = self.target(node.func)
@@ -387,7 +423,10 @@ class _L:
 
 def _lambda(f, depth):
     node = _lambda_node(f)
-    t = _L(f, node)
+    return _lambda_of(_L(f, node), node)
+
+
+def _lambda_of(t, node):
     params = [p for p in t.params if p not in t.defaults]
     if params == ["api", "inv"]:
         return t.pred(node.body)
@@ -428,66 +467,166 @@ def _as_list(data):
     return [_top(data)]
 
 
-def scene_of(setup):
-    """Setup commands → scene template items (vocab.SCENE), checked to render back to the same text."""
+def _one(cmd):
+    """One setup command → a scene word (checked to render back)."""
     import re
-    from .core import _TRIPLE
-    items = []
-    for cmd in setup:
-        rel, ok = [], True
+    from bonobo.bench.core import _TRIPLE
+    rel = []
 
-        def sub(m):
-            vals = [m.group(i + 1) for i in range(3)]
-            nums = [float(v) if "." in v else int(v) for v in vals]
-            if not all(abs(nums[i] - ORIGIN[i]) <= NEAR for i in range(3)):
-                return m.group(0)
-            rel.append(("@",) + tuple(nums[i] - ORIGIN[i] for i in range(3)))
-            return "{%d}" % (len(rel) - 1)
-        tmpl = _TRIPLE.sub(sub, cmd.replace("{", "{{").replace("}", "}}"))
-        item = None
-        if not rel:
-            m = re.fullmatch(r"give @p (\S+)(?: (\d+))?", cmd)
-            if m:
-                item = ("give", m.group(1)) + ((int(m.group(2)),) if m.group(2) else ())
-            m = re.fullmatch(r"time set (\d+)", cmd)
-            if m:
-                item = ("time", int(m.group(1)))
-            item = item or ("cmd", cmd)
-        else:
-            m = re.fullmatch(r"fill \{0\} \{1\} (\S+)", tmpl)
-            if m and len(rel) == 2:
-                item = ("fill", rel[0], rel[1], m.group(1))
-            m = re.fullmatch(r"setblock \{0\} (\S+)", tmpl)
-            if m and len(rel) == 1:
-                item = ("setblock", rel[0], m.group(1))
-            if tmpl == "tp @p {0}":
-                item = ("tp", rel[0])
-            m = re.fullmatch(r"summon (\S+) \{0\}(?: (.+))?", tmpl)
-            if m and len(rel) == 1:
-                nbt = m.group(2).replace("{{", "{").replace("}}", "}") if m.group(2) else None
-                item = ("summon", m.group(1), rel[0]) + ((nbt,) if nbt else ())
-            item = item or ("at", tmpl) + tuple(rel)
-        if vocab.scene([item]) != [cmd]:
-            item = ("cmd", cmd)
-        items.append(item)
-    return _trees(items)
+    def sub(m):
+        vals = [m.group(i + 1) for i in range(3)]
+        nums = [float(v) if "." in v else int(v) for v in vals]
+        if not all(abs(nums[i] - ORIGIN[i]) <= NEAR for i in range(3)):
+            return m.group(0)
+        rel.append(("@",) + tuple(nums[i] - ORIGIN[i] for i in range(3)))
+        return "{%d}" % (len(rel) - 1)
+    tmpl = _TRIPLE.sub(sub, cmd.replace("{", "{{").replace("}", "}}"))
+    item = None
+    if not rel:
+        m = re.fullmatch(r"give @p (\S+)(?: (\d+))?", cmd)
+        if m:
+            item = ("give", m.group(1)) + ((int(m.group(2)),) if m.group(2) else ())
+        m = re.fullmatch(r"time set (\d+)", cmd)
+        if m:
+            item = ("time", int(m.group(1)))
+        item = item or ("cmd", cmd)
+    else:
+        m = re.fullmatch(r"fill \{0\} \{1\} (\S+)", tmpl)
+        if m and len(rel) == 2:
+            item = ("fill", rel[0], rel[1], m.group(1))
+            lo, hi = rel
+            if lo[1] == lo[3] == -hi[1] == -hi[3] and hi[2] == -1 and lo[2] < 0:
+                item = _trim(("floor", m.group(1), hi[1], -lo[2]), ("stone", 8, 3))
+        m = re.fullmatch(r"setblock \{0\} (\S+)", tmpl)
+        if m and len(rel) == 1:
+            item = ("setblock", rel[0], m.group(1))
+        if tmpl == "tp @p {0}":
+            p = rel[0]
+            item = ("tp", p)
+            if isinstance(p[1], float) and isinstance(p[3], float) and p[1] % 1 == 0.5 and p[3] % 1 == 0.5:
+                item = _trim(("stand", p[1] - 0.5, p[2], p[3] - 0.5), (0, 0, 0))
+                item = tuple(int(x) if isinstance(x, float) and x == int(x) and i != 2 else x
+                             for i, x in enumerate(item))
+        m = re.fullmatch(r"summon (\S+) \{0\}(?: (.+))?", tmpl)
+        if m and len(rel) == 1:
+            nbt = m.group(2).replace("{{", "{").replace("}}", "}") if m.group(2) else None
+            item = ("summon", m.group(1), rel[0]) + ((nbt,) if nbt else ())
+        item = item or ("at", tmpl) + tuple(rel)
+    for cand in (item, ("cmd", cmd)):
+        try:
+            if vocab.scene([cand]) == [cmd]:
+                return cand
+        except Exception:     # noqa: BLE001
+            pass
+    return ("cmd", cmd)
 
 
-def _trees(items):
-    """Three fills that are `vocab._tree`'s → one ("tree", x, z, wood, height)."""
-    out, i = [], 0
-    while i < len(items):
-        it = items[i]
-        log = items[i + 2] if i + 2 < len(items) else None
-        if log is not None and log[0] == "fill" and log[3].endswith("_log") and log[1][2] == 0:
-            x, z, height, wood = log[1][1], log[1][3], log[2][2] + 1, log[3][:-4]
-            cand = ("tree", x, z, wood, height)
-            if vocab.scene([cand]) == vocab.scene(items[i:i + 3]):
-                out.append(cand if height != 5 else cand[:4] if wood != "oak" else cand[:3])
-                i += 3
+def _trim(word, defaults):
+    """Drop trailing parameters equal to their defaults (`defaults` align with the last parameters)."""
+    head, params = word[:1], list(word[1:])
+    k = len(params) - len(defaults)
+    while params and len(params) > k and params[-1] == defaults[len(params) - 1 - k]:
+        params.pop()
+    return head + tuple(params)
+
+
+def _sheet_lists():
+    """The old sheet's shared command lists (NAME → commands), longest first."""
+    import bonobo.bench.core as core_mod
+    import bonobo.bench.fight as fight_mod
+    scen = sys.modules["bonobo.scenarios"]
+    out = {}
+    for mod, prefix in ((scen, ""), (fight_mod, "bonobo.bench.fight:"), (core_mod, "bonobo.bench.core:")):
+        for k, v in vars(mod).items():
+            if isinstance(v, list) and len(v) >= 2 and all(isinstance(c, str) for c in v) and k.isupper() or \
+                    isinstance(v, list) and len(v) >= 2 and k.startswith("_") and k[1:].isupper() \
+                    and all(isinstance(c, str) for c in v):
+                if all(isinstance(c, str) for c in v) and any(c.split(" ")[0] in ("fill", "give", "setblock", "tp",
+                                                                                "clear", "summon", "kill", "item")
+                                                             for c in v):
+                    name = k if prefix == "" else prefix + k
+                    if getattr(scen, k, None) is v:
+                        name = k
+                    out.setdefault(name, v)
+    return sorted(out.items(), key=lambda kv: -len(kv[1]))
+
+
+def _groups(cmds, i):
+    """A word covering several commands from `i`: a shared list, a grove, a pen, a chest, a tank."""
+    for name, lst in _sheet_lists():
+        if cmds[i:i + len(lst)] == lst:
+            return ("sheet", name), len(lst)
+    first = _one(cmds[i])
+    if vocab.scene([first]) == vocab.scene([("grove",)]):
+        spots, j, wood = [], i + 1, "oak"
+        while j + 2 < len(cmds) + 0 and j + 2 <= len(cmds) - 1:
+            log = _one(cmds[j + 2])
+            if log[0] == "fill" and log[3].endswith("_log") and log[1][2] == 0:
+                cand = ("tree", log[1][1], log[1][3], log[3][:-4])
+                if vocab.scene([cand]) == cmds[j:j + 3]:
+                    spots.append((log[1][1], log[1][3]))
+                    wood = log[3][:-4]
+                    j += 3
+                    continue
+            break
+        word = ("grove",) + tuple(spots)
+        if wood != "oak":
+            raise NotExpressible("a grove of another wood")
+        if vocab.scene([word]) == cmds[i:j]:
+            return word, j - i
+    if first[0] == "fill" and first[3] == "oak_fence":
+        half = first[2][1]
+        for n in range(6, -1, -1):
+            for mob in ("cow", "sheep", "pig", "chicken"):
+                cand = ("pen", mob, n, half)
+                out = vocab.scene([cand])
+                if cmds[i:i + len(out)] == out:
+                    return _trim(cand, (7,)), len(out)
+    if first[0] == "setblock" and first[2] == "chest":
+        p, items, j = first[1], [], i + 1
+        while j < len(cmds):
+            w = _one(cmds[j])
+            k = len(items)
+            if w[0] == "at" and w[1].startswith(f"item replace block {{0}} container.{k} with ") and w[2] == p:
+                items.append(w[1].split(" with ", 1)[1])
+                j += 1
                 continue
-        out.append(it)
-        i += 1
+            break
+        cand = ("chest", p) + tuple(items)
+        if vocab.scene([cand]) == cmds[i:j]:
+            return cand, j - i
+    if first[0] in ("fill", "floor") and i + 4 < len(cmds):
+        f = _one(cmds[i])
+        if f[0] == "fill" and f[3] == "stone" and f[1][2] == f[2][2]:
+            x0, z0, x1, z1, fy = f[1][1] + 1, f[1][3] + 1, f[2][1] - 1, f[2][3] - 1, f[1][2]
+            for wall in ("glass", "stone", "obsidian"):
+                for top in range(fy + 1, fy + 20):
+                    for wt in [None] + list(range(fy + 1, top + 1)):
+                        for side in (None, "north", "south", "west", "east"):
+                            cand = ("tank", x0, x1, z0, z1, top, wt, fy, wall, side)
+                            out = vocab.scene([cand])
+                            if cmds[i:i + len(out)] == out:
+                                return _trim(cand, (None, -4, "glass", None)), len(out)
+    return None, 0
+
+
+def scene_of(setup):
+    """Setup commands → scene words (vocab.SCENE), the shared lists and groups first; renders back the same."""
+    out, i = [], 0
+    while i < len(setup):
+        word, n = _groups(setup, i)
+        if word is None:
+            word, n = _one(setup[i]), 1
+            if word[0] == "fill" and word[3].endswith("_leaves[persistent=true]") and i + 2 < len(setup):
+                log = _one(setup[i + 2])
+                if log[0] == "fill" and log[3].endswith("_log") and log[1][2] == 0:
+                    cand = _trim(("tree", log[1][1], log[1][3], log[3][:-4], log[2][2] + 1), ("oak", 5))
+                    if vocab.scene([cand]) == setup[i:i + 3]:
+                        word, n = cand, 3
+        out.append(word)
+        i += n
+    if vocab.scene(out) != list(setup):
+        raise NotExpressible("the scene does not render back")
     return out
 
 

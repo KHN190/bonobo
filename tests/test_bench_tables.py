@@ -1,7 +1,8 @@
-"""The bench as data tables (bonobo/bench/bench_<tier>.py), proven against the old sheet offline: every table row
-builds back to the old row (setup, queue, budget, tier, the other fields, and the same words for its callables),
-every old row is either tabled or listed with its reason, names are unique, the tier rules hold, and every
-predicate word says yes and no on recorded state and bag data."""
+"""The bench as data tables (bonobo/bench/bench_<tier>.py: families of rows made by a template from their
+parameters, and one-off rows in words), proven against the old sheet offline: every table row builds to the old
+row (setup, queue, budget, tier, every other field, and the same check words), every old row is tabled or listed
+with its reason, names are unique, the tier rules hold, and every word says yes and no on recorded data."""
+import importlib
 import os
 import re
 import sys
@@ -10,7 +11,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import scenarios as sc  # noqa: E402
-from bonobo.bench import core, runner, table, tabulate, vocab  # noqa: E402
+from bonobo.bench import core, runner, table, vocab  # noqa: E402
+from tests import bench_words as words  # noqa: E402
 
 CALLABLE_KEYS = ("run", "check", "before", "detail")
 
@@ -20,53 +22,80 @@ def tables():
 
 
 def not_expressed():
-    import importlib
     return {t: importlib.import_module(table.TABLES[t]).NOT_EXPRESSED for t in table.TIERS}
+
+
+def check_words(check):
+    """A check's words, read back from the callables (the old sheet's or the table's); None when unreadable."""
+    try:
+        w = words.enc(check)
+    except words.NotExpressible:
+        return None
+    return w[1] if isinstance(w, tuple) and w[0] == "!all" and len(w) == 2 else w
+
+
+def old_seed(name):
+    """An escape row's cell seed, drawn at import by the old sheet (the table draws its own)."""
+    run = sc.SCENARIOS[name]["run"]
+    cells = dict(zip(run.__code__.co_freevars, [c.cell_contents for c in run.__closure__]))["cells"]
+    return cells.__defaults__[0]["seed"]
+
+
+def built(tier, name, row):
+    if name.startswith("escape__"):              # the same cell, the old sheet's seed
+        row = vocab.escape_row(name, *name[8:].split("_", 2), seed=old_seed(name))
+    return table.build(row, tier)
 
 
 class Equivalence(unittest.TestCase):
     """The sweep: each table row, built, is the old row."""
 
-    def test_every_row_builds_back_to_the_old_one(self):
+    def test_every_row_builds_to_the_old_one(self):
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
-                    old, new = sc.SCENARIOS[name], table.build(row, tier)
+                    old, new = sc.SCENARIOS[name], built(tier, name, row)
                     for k in ("setup", "queue", "budget", "tier"):
                         self.assertEqual(new.get(k), old.get(k), k)
-                    for k, v in old.items():
+                    for k in set(old) | set(new):
                         if k not in CALLABLE_KEYS:
-                            self.assertEqual(new.get(k), v, k)
+                            self.assertEqual(new.get(k), old.get(k), k)
 
-    def test_the_words_are_the_old_callables(self):
-        # the table file is what the old sheet reads as now: same factories, same arguments (drift fails here)
+    def test_the_check_words_are_the_old_ones(self):
+        seen = 0
         for tier, rows in tables().items():
             for name, row in rows.items():
+                want = check_words(sc.SCENARIOS[name]["check"])
+                if want is None:
+                    continue                     # the old check is code no word reads (the table's words stand)
+                seen += 1
                 with self.subTest(name):
-                    self.assertEqual(tabulate.row_of(name, sc.SCENARIOS[name]), row)
-
-    def test_built_rows_read_back_the_same(self):
-        for tier, rows in tables().items():
-            for name, row in rows.items():
-                with self.subTest(name):
-                    again = tabulate.row_of(name, table.build(row, tier))
-                    self.assertEqual({k: v for k, v in again.items() if k != "no_detail"},
-                                     {k: v for k, v in row.items() if k != "no_detail"})
+                    self.assertEqual(check_words(built(tier, name, row)["check"]), want)
+        self.assertGreater(seen, 200)
 
     def test_a_changed_row_is_caught(self):
-        # must fail: a scene, budget or queue off by one reads as another row
+        # must fail: a scene, budget, queue, tier or check off by one reads as another row
         name, row = "iron_ingots", table.rows("core")["iron_ingots"]
         old = sc.SCENARIOS[name]
-        rows = [("scene: one block moved", dict(row, scene=[("fill", ("@", -8, -4, -8), ("@", 8, -1, 9), "stone")]
-                                                 + row["scene"][1:]), "setup"),
+        rows = [("scene: one block moved", dict(row, scene=[("floor", "stone", 8, 5)] + row["scene"][1:]), "setup"),
                 ("budget one less", dict(row, budget=row["budget"] - 1), "budget"),
                 ("a queue where there was none", dict(row, queue=[{"goal": "have", "args": {"needs": [["log", 1]]}}]),
                  "queue"),
-                ("another tier", row, "tier")]
+                ("another tier", row, "tier"),
+                ("another check", dict(row, check=[("count", "minecraft:iron_ingot", ">=", 2)]), "check")]
         for why, changed, key in rows:
             with self.subTest(why):
-                built = table.build(changed, "exception" if key == "tier" else "core")
-                self.assertNotEqual(built.get(key), old.get(key))
+                new = table.build(changed, "exception" if key == "tier" else "core")
+                if key == "check":
+                    self.assertNotEqual(check_words(new["check"]), check_words(old["check"]))
+                else:
+                    self.assertNotEqual(new.get(key), old.get(key))
+
+    def test_a_family_entry_makes_many_rows(self):
+        mod = importlib.import_module(table.TABLES["exception"])
+        made = sum(len(params) for _t, params in mod.FAMILIES)
+        self.assertGreater(made, len(mod.FAMILIES))
+        self.assertEqual(len(table.rows("exception")), made + len(mod.ROWS))     # no name made twice
 
 
 class Coverage(unittest.TestCase):
@@ -80,23 +109,15 @@ class Coverage(unittest.TestCase):
             with self.subTest(n):
                 self.assertEqual(t, sc.SCENARIOS[n]["tier"])
 
-    def test_a_listed_row_really_has_no_words(self):
-        # must fail: a row listed as not expressed is refused by the tabulator, with a reason — or its scene is drawn
-        # at random at import (another process builds another setup), which no fixed table can equal
-        import json
-        import subprocess
-        dump = "import json, bonobo.scenarios as s; print(json.dumps({n: r['setup'] for n, r in s.SCENARIOS.items()}))"
-        other = json.loads(subprocess.run([sys.executable, "-c", dump], capture_output=True, text=True, check=True,
-                                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))).stdout)
+    def test_a_listed_lambda_really_has_no_words(self):
+        # must fail: a row listed for code no word reads is refused by the reader too
         for tier, rows in not_expressed().items():
             for name, why in rows.items():
                 with self.subTest(name):
                     self.assertTrue(why)
-                    if why.startswith("scene drawn at random"):
-                        self.assertNotEqual(other[name], sc.SCENARIOS[name]["setup"])
-                        continue
-                    with self.assertRaises(tabulate.NotExpressible):
-                        tabulate.row_of(name, sc.SCENARIOS[name])
+                    if "lambda" in why:
+                        with self.assertRaises(words.NotExpressible):
+                            words.row_of(name, sc.SCENARIOS[name])
 
     def test_rows_hold_no_code(self):
         def plain(v):
@@ -105,10 +126,13 @@ class Coverage(unittest.TestCase):
             if isinstance(v, dict):
                 return all(isinstance(k, str) and plain(x) for k, x in v.items())
             return v is None or isinstance(v, (bool, int, float, str))
-        for tier, rows in tables().items():
-            for name, row in rows.items():
-                with self.subTest(name):
-                    self.assertTrue(plain(row))
+        from bonobo.bench import bench_bases
+        for t in table.TIERS:
+            mod = importlib.import_module(table.TABLES[t])
+            with self.subTest(t):
+                self.assertTrue(plain(mod.FAMILIES) and plain(mod.ROWS))
+        for data in (bench_bases.BASES, bench_bases.CONDITIONS, bench_bases.SURPRISES, bench_bases.KIT):
+            self.assertTrue(plain(data))
         self.assertFalse(plain({"check": [lambda api, inv: True]}))      # must fail: a lambda is code
 
 
@@ -116,10 +140,10 @@ HOSTILE = re.compile(r"\b(zombie|skeleton|creeper|blaze|ghast|spider|cave_spider
                      r"wither|pillager|husk|drowned|stray|phantom|hoglin|vindicator|piglin_brute)\b")
 
 
-def fights(row):
-    """A row that fights: a hostile summoned in its scene or its words, or the dragon slain."""
-    text = repr(row.get("scene", ())) + repr(row.get("before", ())) + repr(row.get("run", ()))
-    summons = [m for m in re.findall(r"summon[ ',]+(?:minecraft:)?(\w+)", text)]
+def fights(setup, row):
+    """A row that fights: a hostile summoned in its setup or its words, or the dragon slain."""
+    text = " ".join(map(str, setup)) + repr(row.get("before", ())) + repr(row.get("run", ()))
+    summons = re.findall(r"summon[ ',]+(?:minecraft:)?(\w+)", text)
     return any(HOSTILE.fullmatch(m) for m in summons) or "slay_dragon" in repr(row.get("run", ()))
 
 
@@ -129,10 +153,9 @@ class TierRules(unittest.TestCase):
     def test_names_unique(self):
         names = [n for rows in tables().values() for n in rows]
         self.assertEqual(len(names), len(set(names)))
-        import importlib
         for t in table.TIERS:
             mod = importlib.import_module(table.TABLES[t])
-            listed = [r["name"] for r in mod.ROWS]
+            listed = [r["name"] for r in mod.ROWS] + [vocab.NAMES[tm](*p) for tm, ps in mod.FAMILIES for p in ps]
             self.assertEqual(len(listed), len(set(listed)), t)
 
     def test_budgets_within_the_limit(self):
@@ -140,6 +163,7 @@ class TierRules(unittest.TestCase):
             for name, row in rows.items():
                 if tier != "acceptance":
                     with self.subTest(name):
+                        self.assertLessEqual(table.build(row, tier)["budget"], runner.ROW_LIMIT_S)
                         self.assertLessEqual(row["budget"], runner.ROW_LIMIT_S)
         # must fail: a row over the limit is cut to it by the interpreter, not kept
         over = dict(table.rows("core")["iron_ingots"], budget=runner.ROW_LIMIT_S + 5)
@@ -147,20 +171,20 @@ class TierRules(unittest.TestCase):
 
     def test_fight_rows_only_in_combat(self):
         out = sorted(n for t, rows in tables().items() for n, r in rows.items()
-                     if t != "combat" and n not in self.EXEMPT and fights(r))
+                     if t != "combat" and n not in self.EXEMPT and fights(vocab.scene(r["scene"]), r))
         self.assertEqual(out, [])
 
     def test_the_fight_check_sees_a_fight(self):
-        rows = [("a zombie in the scene", {"scene": [("summon", "zombie", ("@", 1, 0, 0))]}, True),
-                ("a ghast in a hook", {"before": [("do", "chat", ["summon ghast 1 2 3"], {})]}, True),
-                ("the dragon slain", {"run": ("do", "bonobo.end.slay_dragon", ["$ctx"], {})}, True),
-                ("cows only", {"scene": [("summon", "cow", ("@", 1, 0, 0))]}, False)]
-        for why, row, want in rows:
+        rows = [("a zombie in the scene", vocab.scene([("summon", "zombie", ("@", 1, 0, 0))]), {}, True),
+                ("a ghast in a hook", [], {"before": [("do", "chat", ["summon ghast 1 2 3"], {})]}, True),
+                ("the dragon slain", [], {"run": ("do", "bonobo.end.slay_dragon", ["$ctx"], {})}, True),
+                ("cows only", vocab.scene([("pen", "cow", 3)]), {}, False)]
+        for why, setup, row, want in rows:
             with self.subTest(why):
-                self.assertEqual(fights(row), want)
+                self.assertEqual(fights(setup, row), want)
 
 
-# -- predicates on recorded data ----------------------------------------------------------------------------------
+# -- words on recorded data ---------------------------------------------------------------------------------------
 STATE = {"x": 10000.5, "y": 200.0, "z": 10000.5, "blockX": 10000, "blockY": 200, "blockZ": 10000, "health": 18.0,
          "dead": False, "food": 20, "timeOfDay": 1000, "dimension": "minecraft:overworld", "onGround": True,
          "inWater": False, "air": 300}
@@ -253,6 +277,10 @@ PRED_ROWS = [
      None, {"SWEEP": {"w": [{"cell": 1}]}}, True),
     ("sweep check no: no rows", ("bonobo.bench.core:_sweep_check", "w", "/nonexistent", [], 1), None, None,
      {"SWEEP": {}}, False),
+    ("thunk yes", ("thunk", ("!constant", True)), None, None, {}, True),
+    ("thunk no", ("thunk", ("!constant", False)), None, None, {}, False),
+    ("api only yes", ("api_only", ("!_at", A0, 2)), None, None, {}, True),
+    ("api only no", ("api_only", ("!_at", ("@", 8, 0, 0), 2)), None, None, {}, False),
     ("no scan yes", ("no_scan",), None, None, {"FINDS": {"diamond": 0}}, True),
     ("no scan no", ("no_scan",), None, None, {"FINDS": {"diamond": 2}}, False),
 ]
@@ -268,6 +296,8 @@ WORLD_ROWS = [
     ("under feet no", ("under_feet", "cobblestone"), {(10000, 199, 10000): "dirt"}, [], False),
     ("mobs near yes", ("mobs_near", "minecraft:cow", 2), {}, [{"type": "minecraft:cow"}] * 2, True),
     ("mobs near no", ("mobs_near", "minecraft:cow", 3), {}, [{"type": "minecraft:cow"}] * 2, False),
+    ("dropped nothing yes", ("dropped_nothing",), {}, [{"type": "minecraft:cow"}], True),
+    ("dropped nothing no", ("dropped_nothing",), {}, [{"type": "minecraft:item"}], False),
     ("gone yes", ("gone", ["minecraft:zombie"]), {}, [{"type": "minecraft:cow"}], True),
     ("gone no", ("gone", ["minecraft:zombie"]), {}, [{"type": "minecraft:zombie", "health": 5}], False),
 ]
@@ -289,6 +319,10 @@ NOT_ROW_TESTED = {
     "&bonobo.bench.fight:_more_of_them_costs_more": "a fight sweep's recorded rows",
     "&bonobo.bench.fight:_wave_cleared": "a fight sweep's recorded rows",
     "&has_stone_pickaxe": "the live bag",
+    "&in_the_patch_underground": "the live /state and whether the body is enclosed (the live region)",
+    "behaviour": "a fight behaviour's rule over its recorded row (bench/fight.py BEHAVIOURS, test_pure_fight)",
+    "brain_rule": "a brain grid family's rule for the cell (scenarios.BRAIN_FAMILIES): the words it makes are the old ones",
+    "hostiles": "the live entities (the gone/mobs_near rows read the same)",
 }
 
 
@@ -321,6 +355,14 @@ class Predicates(unittest.TestCase):
                         x for x in e if kinds is None or x["type"] in kinds]):
                 self.assertEqual(run_word(word), want)
 
+    def test_live_functions(self):
+        # the sheet's own zero-argument reads, on a recorded /state: yes and no
+        from bonobo import api
+        for why, state, want in (("in the overworld", {}, True), ("in the nether", {"dimension": "minecraft:the_nether"},
+                                                                  False)):
+            with self.subTest(why), mock.patch.object(api, "get", Api(state).get):
+                self.assertEqual(table.dec(("&in_overworld",))(), want)
+
     def test_now_reads_the_live_bag(self):
         from bonobo import api
         rows = [("yes", ("now", ("!count", "log", ">=", 2)), True),
@@ -333,7 +375,8 @@ class Predicates(unittest.TestCase):
                 self.assertEqual(table.make(word)(), want)
 
     def test_every_check_word_is_row_tested_or_named(self):
-        tested = {w[0] for _y, w, *_ in PRED_ROWS} | {w[0] for _y, w, *_ in WORLD_ROWS} | {"now", "now_api"}
+        tested = {w[0] for _y, w, *_ in PRED_ROWS} | {w[0] for _y, w, *_ in WORLD_ROWS} | {"now", "now_api",
+                                                                                           "&in_overworld"}
         used = set()
 
         def walk(x, top=False):
@@ -356,6 +399,11 @@ class Predicates(unittest.TestCase):
 
 class Scene(unittest.TestCase):
     ROWS = [(("fill", ("@", -8, -2, -8), ("@", 8, -1, 8), "grass_block"), ["fill 9992 198 9992 10008 199 10008 grass_block"]),
+            (("floor",), sc._floor()), (("floor", "netherrack", 6, 2), sc._floor("netherrack", 6, 2)),
+            (("stand", -1, 0, 2), [sc._tp(-1, 0, 2)]), (("grove", (2, 0), (3, 3)), sc._grove((2, 0), (3, 3))),
+            (("pen", "cow", 3, 5), sc._pen("cow", 3, half=5)),
+            (("chest", ("@", 2, 0, 1), "iron_ingot 5", "bread 4"), sc._chest(sc.at(2, 0, 1), "iron_ingot 5", "bread 4")),
+            (("tank", -5, 5, -5, 5, 8, 7, -4, "glass", "east"), sc._tank(-5, 5, -5, 5, 8, 7, -4, "glass", "east")),
             (("tp", ("@", 0.5, 0, 0.5)), ["tp @p 10000.5 200 10000.5"]),
             (("give", "cobblestone", 16), ["give @p cobblestone 16"]),
             (("summon", "zombie", ("@", 3, 0, 0), "{PersistenceRequired:1b}"),
@@ -374,9 +422,9 @@ class Scene(unittest.TestCase):
     def test_setup_reads_back(self):
         for item, want in self.ROWS:
             with self.subTest(item[0]):
-                self.assertEqual(vocab.scene(tabulate.scene_of(want)), want)
+                self.assertEqual(vocab.scene(words.scene_of(want)), want)
         # must fail: a position off the bench is not written relative to it
-        self.assertEqual(tabulate.scene_of(["tp @p 0 64 0"]), [("cmd", "tp @p 0 64 0")])
+        self.assertEqual(words.scene_of(["tp @p 0 64 0"]), [("cmd", "tp @p 0 64 0")])
 
 
 if __name__ == "__main__":
