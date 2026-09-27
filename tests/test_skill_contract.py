@@ -1265,3 +1265,63 @@ class AttemptPolicy(unittest.TestCase):
             with self.subTest(name):
                 self.run_attempt(br, err)
                 self.assertEqual(br.retry.entries.get(("chop", "error"), {"n": 0})["n"], n)
+
+
+class BagFull(unittest.TestCase):
+    """The bag's pure rules on a full bag: room, what to throw, what never goes, and the reason a failure names."""
+    COBBLE = "minecraft:cobblestone"
+
+    @staticmethod
+    def bag_of(*stacks):
+        """stacks: (item, count, n) → n slots of `count` each, numbered in order."""
+        from tests.world import slot
+        out = []
+        for item, count, n in stacks:
+            out += [slot(item, count, i=len(out) + k) for k in range(n)]
+        return out
+
+    def test_has_room(self):
+        from bonobo import bag
+        rows = [("a free slot", self.bag_of(("cobblestone", 64, 35)), 1, True),
+                ("full, but a stack of it has room (63)", self.bag_of(("cobblestone", 64, 35), ("cobblestone", 63, 1)), 0,
+                 True),
+                ("full, every stack of it at 64", self.bag_of(("cobblestone", 64, 36)), 0, False),
+                ("full, only other items have room", self.bag_of(("cobblestone", 64, 35), ("dirt", 10, 1)), 0, False)]
+        for name, slots, free, want in rows:
+            with self.subTest(name):
+                self.assertEqual(bag.has_room(slots, free, {self.COBBLE}), want)
+
+    def test_bag_full_reason(self):
+        from bonobo.skill import bag_full_reason
+        rows = [("no free slot: the cause is named", "chop: finished without reaching its goal", 0,
+                 "bag full (no free slot): chop: finished without reaching its goal"),
+                ("room left: the failure is its own", "no trees", 3, None),
+                ("already says it", "bag full: nothing picked up", 0, None),
+                ("the bag could not be read", "no trees", None, None)]
+        for name, message, free, want in rows:
+            with self.subTest(name):
+                self.assertEqual(bag_full_reason(message, free), want)
+
+    def test_free_slots_plan(self):
+        from bonobo import bag
+        valuables = self.bag_of(("diamond", 64, 20), ("iron_pickaxe", 1, 8), ("white_bed", 1, 8))
+        rows = [("valuables only: nothing is thrown, whatever is needed", valuables, 3, []),
+                # dirt over the building-block keep (128 = two stacks) always goes, whatever is needed
+                ("junk over its keep goes, the smallest stack too", self.bag_of(("diamond", 64, 30), ("dirt", 5, 1),
+                                                                             ("dirt", 64, 5)), 1, ["minecraft:dirt"] * 4),
+                ("junk and valuables: only the junk (one gravel stack kept)",
+                 self.bag_of(("iron_ingot", 64, 30), ("gravel", 64, 6)), 2, ["minecraft:gravel"] * 5),
+                ("nothing needed and nothing over a cap", self.bag_of(("iron_ingot", 64, 10)), 0, [])]
+        for name, slots, need, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sorted(s["id"] for s in bag.free_slots_plan(slots, need=need)), want)
+
+    def test_tidy_plan(self):
+        from bonobo import bag
+        rows = [("valuables: kept", self.bag_of(("diamond", 64, 5), ("white_bed", 1, 2)), 0),
+                ("protected fuel: kept", self.bag_of(("coal", 64, 4)), 0),
+                ("blocks beyond the 128 keep: the third stack thrown", self.bag_of(("dirt", 64, 3), ("diamond", 1, 1)), 1),
+                ("blocks within the keep: kept", self.bag_of(("dirt", 64, 2)), 0)]
+        for name, slots, n in rows:
+            with self.subTest(name):
+                self.assertEqual(len(bag.tidy_plan(slots)), n)
