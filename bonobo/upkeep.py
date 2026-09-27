@@ -9,7 +9,8 @@ import json
 import math
 import time
 
-from . import api, decompose, goals, nav, nether, skills, tape
+from . import api, decompose, goals, nav, nether, reflexes, skills, tape
+from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW  # noqa: F401  (the reflex table's thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
 from .data import BASE_MARKERS, COVERED_SKY, NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
@@ -20,10 +21,8 @@ from .skillcore import gained, lost
 from .world import Inventory, find
 
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
-EAT_BELOW = 14             # hunger points: eat below this, while there is something to eat (the upkeep row: standing)
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
 FOOD_POINTS = 6.0          # hunger points one cooked item restores, roughly
-BAG_FULL = 34              # slots used before the bag is emptied
 DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
 JOB_RANGE = 96
 STUCK_LIMIT = 60           # seconds in the same block with the same bag → unstuck
@@ -31,7 +30,6 @@ PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = 3                # durability left for a tool to count as working
 NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
-BRIDGE_MIN = 8             # building blocks worth starting a bridge with
 BRIDGE_STOCK = 32          # what to fetch when the path is blocked and there is less than BRIDGE_MIN
 # Plan steps that put the body where a fall can happen — portals, strongholds, fortresses, deep ore reached by
 # digging down. The jar's WaterClutch saves a fall only with a water bucket to hand, so a plan with one of these
@@ -217,15 +215,15 @@ class Upkeep:
 
     # -- the table
     def act(self, snap, ctx, reads=None):
-        """(name, run) of the row the arbiter picks among the rows that apply (`proposals`), or None."""
+        """(name, run) of the reflex the arbiter picks among those that fire (`proposals`), or None."""
         from . import arbiter
         props = self.proposals(snap, ctx, reads)
-        got = arbiter.arbitrate([arbiter.Intent("plan", p, kind=p[0]) for p in props])
+        got = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq) for seq, name, run in props])
         return got.action if got else None
 
     def proposals(self, snap, ctx, reads=None):
-        """[(name, run)] of every row that applies — no order of its own: the arbiter ranks them
-        (arbiter.PLAN_ORDER). Rows that only queue work are applied on the way. `reads` = {"enclosed": bool,
+        """[(seq, name, run)] of every maintenance reflex that fires (reflexes.TABLE, `seq` its place there), and
+        this round's needs in `needs_now` (PLAN proposals). `reads` = {"enclosed": bool,
         "bed_near": bool} stands in for the world reads the rows make (offline); whatever is missing is read from
         the world, once, when a row first asks."""
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
@@ -250,29 +248,37 @@ class Upkeep:
             way, _secs, steps = night_way()
             if way is not None and any(st.kind != "shelter" for st in steps):
                 self.prepare_night(way, steps)
-        rows = [
-            ("recover items", lambda: b.mem.recent_death(snap.dimension) is not None, lambda: recover_items(ctx)),
-            ("eat", lambda: s.get("food", 20) < EAT_BELOW and skills.edible_carried(inv),
-             lambda: skills.eat(raw_ok=not food_count(inv))),
-            ("reach land", lambda: skills.swimming(s), lambda: skills.reach_land(ctx)),
-            ("leave the Nether", lambda: nether_retreat(snap) is not None,
-             lambda: nether.use_portal(ctx, "minecraft:overworld")),
-            ("dig out", lambda: not snap.night and enclosed(), lambda: skills.dig_out(ctx)),
-            ("sleep", lambda: over and snap.night and skills.can_sleep(s) is None
-             and (inv.count("bed") > 0 or bed_near()),
-             lambda: skills.sleep(ctx, b.policy(snap, True))),
-            ("shelter", lambda: shelter_due() and night_way()[0] is not None
-             and all(st.kind == "shelter" for st in night_way()[2]),
-             lambda: self.shelter(snap, ctx, night_way())),
-            ("collect job", lambda: self.ready_job(snap) is not None, lambda: self.collect_job(snap, ctx)),
-            ("collect machine", lambda: self.ready_machine(snap) is not None,
-             lambda: skills.collect_machine(ctx, self.ready_machine(snap))),
-            ("empty the bag", lambda: inv.used_slots() >= BAG_FULL, lambda: self.empty_bag(snap, ctx)),
-            ("path blocked", lambda: blocked is not None and inv.count("building") >= BRIDGE_MIN,
-             lambda: self.bridge(ctx, blocked)),
-            ("unstuck", lambda: self.stuck_in_place(snap, enclosed), lambda: self.unstuck(snap, ctx)),
-        ]
-        due_rows = [(name, run) for name, due, run in rows if b.ready(name) and due()]
+        # The maintenance reflexes (reflexes.TABLE): their triggers read this view, their actions are here.
+        view = reflexes.View({
+            "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
+            "edible": lambda: skills.edible_carried(inv),
+            "swimming": lambda: skills.swimming(s),
+            "nether_bad": lambda: nether_retreat(snap) is not None,
+            "enclosed": enclosed,
+            "bed_works": lambda: skills.can_sleep(s) is None,
+            "bed_near": bed_near,
+            "shelter_ready": lambda: shelter_due() and night_way()[0] is not None
+            and all(st.kind == "shelter" for st in night_way()[2]),
+            "job_ready": lambda: self.ready_job(snap) is not None,
+            "machine_ready": lambda: self.ready_machine(snap) is not None,
+            "stuck": lambda: self.stuck_in_place(snap, enclosed),
+        }, food=s.get("food", 20), night=snap.night, overworld=over, bed_carried=inv.count("bed") > 0,
+            used_slots=inv.used_slots(), blocked=blocked is not None, building=inv.count("building"))
+        actions = {
+            "recover items": lambda: recover_items(ctx),
+            "eat": lambda: skills.eat(raw_ok=not food_count(inv)),
+            "reach land": lambda: skills.reach_land(ctx),
+            "leave the Nether": lambda: nether.use_portal(ctx, "minecraft:overworld"),
+            "dig out": lambda: skills.dig_out(ctx),
+            "sleep": lambda: skills.sleep(ctx, b.policy(snap, True)),
+            "shelter": lambda: self.shelter(snap, ctx, night_way()),
+            "collect job": lambda: self.collect_job(snap, ctx),
+            "collect machine": lambda: skills.collect_machine(ctx, self.ready_machine(snap)),
+            "empty the bag": lambda: self.empty_bag(snap, ctx),
+            "path blocked": lambda: self.bridge(ctx, blocked),
+            "unstuck": lambda: self.unstuck(snap, ctx),
+        }
+        due_rows = [(seq, name, actions[name]) for seq, name in reflexes.due(view, b.ready)]
         # Needs: what upkeep wants got, proposed (not queued) — the arbiter ranks them with the rows.
         # A tool is the plan's need (decompose puts one in any plan whose step wants it); upkeep only replaces one
         # that broke under a held plan that still wants it — "no working pickaxe" put a pickaxe (and its tree) in

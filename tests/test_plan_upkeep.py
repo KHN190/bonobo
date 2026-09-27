@@ -1603,15 +1603,20 @@ class OneArbiter(unittest.TestCase):
         return arbiter.Intent(layer, kind or layer, kind=kind, seq=seq, deadline_s=deadline_s, at=at)
 
     def test_decisions_over_the_table(self):
-        from bonobo import arbiter
+        from bonobo import arbiter, reflexes
         P = lambda kind, seq=0: self.intent("plan", kind, seq)   # noqa: E731
-        rows = [("afloat at dusk, the night's shelter due: land first", [P("shelter"), P("reach land")], "reach land"),
-                ("hungry, bread carried, a task queued: eat", [P("queue"), P("eat")], "eat"),
-                ("night, bed makings carried: sleep before the shelter", [P("shelter"), P("sleep")], "sleep"),
+
+        def M(name):                                            # a maintenance reflex, in its table's place
+            return arbiter.Intent("maintain", name, seq=reflexes.NAMES.index(name))
+        rows = [("afloat at dusk, the night's shelter due: land first", [M("shelter"), M("reach land")], "reach land"),
+                ("hungry, bread carried, a task queued: eat (a reflex before any plan)", [P("queue"), M("eat")], "eat"),
+                ("night, a bed carried: sleep before the shelter", [M("shelter"), M("sleep")], "sleep"),
                 ("a fight holds the body, the queue wants a pickaxe: the fight",
                  [P("queue"), self.intent("tactic", "fight")], "fight"),
+                ("a fight vs a reflex (eat): the fight", [M("eat"), self.intent("tactic", "fight")], "fight"),
                 ("drowning in a fight: the rescue", [self.intent("tactic", "fight"), self.intent("safety", "rescue")],
                  "rescue"),
+                ("a rescue vs a reflex: the rescue", [M("reach land"), self.intent("safety", "rescue")], "rescue"),
                 ("raw meat and a furnace, food queued: the queue's head (smelt), no hunt proposed", [P("queue")],
                  "queue"),
                 ("the queue's head before the second in line", [P("queue", 1), P("queue", 0)], "queue"),
@@ -1625,18 +1630,20 @@ class OneArbiter(unittest.TestCase):
                  "bridge stock"),
                 ("food running out before it could be had, a task queued: food first", [P("queue"), P("food stock")],
                  "food stock"),
-                ("hungry and food running out: eat what is carried before getting more",
-                 [P("food stock"), P("eat")], "eat"),
+                ("hungry and food running out: eat what is carried (reflex) before getting more (plan)",
+                 [P("food stock"), M("eat")], "eat"),
                 ("a broken tool vs the night's parts at dusk: the night first", [P("broken tool"), P("night prep")],
                  "night prep"),
-                ("afloat with the night's parts due: land first", [P("night prep"), P("reach land")], "reach land"),
+                ("afloat with the night's parts due: land first", [P("night prep"), M("reach land")], "reach land"),
                 ("night underground, nothing queued, a pickaxe: dig for ore before waiting",
                  [P("wait for day"), P("night stock")], "night stock"),
                 ("night underground, no pickaxe: wait for day", [P("wait for day")], "wait for day"),
-                ("the bag full while hungry: eat first", [P("empty the bag"), P("eat")], "eat"),
-                ("a finished furnace job vs the queue: collect it", [P("queue"), P("collect job")], "collect job"),
+                ("the bag full while hungry: eat first", [M("empty the bag"), M("eat")], "eat"),
+                ("a finished furnace job vs the queue: collect it (reflex)", [P("queue"), M("collect job")],
+                 "collect job"),
                 ("nothing to do but stock up: idle", [P("idle")], "idle"),
-                ("died a minute ago: recover the items before anything slow", [P("eat"), P("recover items")],
+                ("died a minute ago: recover the items before anything else of its layer", [M("eat"),
+                                                                                         M("recover items")],
                  "recover items"),
                 ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
                                                                 P("queue")], "queue"),
@@ -1646,10 +1653,18 @@ class OneArbiter(unittest.TestCase):
                 got = arbiter.arbitrate(intents, now=100.0)
                 self.assertEqual(got.action if got else None, want)
 
+    def test_the_layers(self):
+        from bonobo import arbiter
+        order = ["reflex", "safety", "tactic", "maintain", "plan"]
+        self.assertEqual(sorted(arbiter.SCALES, key=arbiter.SCALES.get), order)
+
     def test_the_order_is_one_table(self):
         from bonobo import arbiter
-        rows = [("hunger before water", "eat", "reach land"), ("water before the night", "reach land", "shelter"),
-                ("the night before the queue", "shelter", "queue"), ("the queue before idle stocking", "queue", "idle"),
+        rows = [("the night's parts before a broken tool", "night prep", "broken tool"),
+                ("a tool before food stock", "broken tool", "food stock"),
+                ("upkeep's needs before the queue", "food stock", "queue"),
+                ("the queue before the night's ore", "queue", "night stock"),
+                ("the queue before idle stocking", "queue", "idle"),
                 ("an unknown kind after all of them", "idle", "made up")]
         for name, first, then in rows:
             with self.subTest(name):
@@ -1885,7 +1900,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
 
             def proposals(snap, ctx, reads=None, _busy=busy):
                 asked.append("upkeep")
-                return [("u", None)] if _busy else []
+                return [(0, "u", None)] if _busy else []
             b.table = mock.Mock(working={}, proposals=proposals)
             b.task_act = lambda task, snap, ctx: None
             b.prepare = lambda snap: None
@@ -2104,6 +2119,48 @@ class CraftInOneSitting(unittest.TestCase):
         for name, steps, first, want in rows:
             with self.subTest(name):
                 self.assertEqual(brainmod.craft_run(steps, first), want)
+
+
+class Reflexes(unittest.TestCase):
+    """reflexes.TABLE: each trigger over the round's view — fires, and does not."""
+
+    BASE = {"died_recently": False, "food": 20, "edible": True, "swimming": False, "nether_bad": False,
+            "night": False, "enclosed": False, "overworld": True, "bed_works": False, "bed_carried": False,
+            "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
+            "blocked": False, "building": 0, "stuck": False}
+    # (reflex, the view's changes that fire it, the changes that do not)
+    ROWS = [("recover items", {"died_recently": True}, {}),
+            ("eat", {"food": 10}, {"food": 10, "edible": False}),
+            ("reach land", {"swimming": True}, {}),
+            ("leave the Nether", {"nether_bad": True}, {}),
+            ("dig out", {"enclosed": True}, {"enclosed": True, "night": True}),
+            ("sleep", {"night": True, "bed_works": True, "bed_carried": True},
+             {"night": True, "bed_works": True, "overworld": False, "bed_carried": True}),
+            ("shelter", {"shelter_ready": True}, {}),
+            ("collect job", {"job_ready": True}, {}),
+            ("collect machine", {"machine_ready": True}, {}),
+            ("empty the bag", {"used_slots": 34}, {"used_slots": 33}),
+            ("path blocked", {"blocked": True, "building": 8}, {"blocked": True, "building": 7}),
+            ("unstuck", {"stuck": True}, {})]
+
+    def test_triggers(self):
+        from bonobo import reflexes
+        self.assertEqual([r[0] for r in self.ROWS], list(reflexes.NAMES))
+        for name, fires, quiet in self.ROWS:
+            with self.subTest(name):
+                self.assertIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **fires))])
+                self.assertNotIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **quiet))])
+
+    def test_cooling_reflexes_are_skipped(self):
+        from bonobo import reflexes
+        view = dict(self.BASE, food=10, swimming=True)
+        self.assertEqual(reflexes.due(view, ready=lambda n: n != "eat"), [(2, "reach land")])
+
+    def test_a_view_reads_once(self):
+        from bonobo import reflexes
+        calls = []
+        v = reflexes.View({"stuck": lambda: calls.append(1) or True})
+        self.assertEqual((v["stuck"], v["stuck"], len(calls)), (True, True, 1))
 
 if __name__ == "__main__":
     unittest.main()

@@ -287,8 +287,8 @@ class Brain:
             intents.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                 ctx, snap.state, self.attempt, self.ready))))
         if not intents:
-            intents += [arbiter.Intent("plan", Act("upkeep", name, run), kind=name)
-                        for name, run in self.table.proposals(snap, ctx)]
+            intents += [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq)
+                        for seq, name, run in self.table.proposals(snap, ctx)]
             for kind, goal, _why in getattr(self.table, "needs_now", ()):
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:

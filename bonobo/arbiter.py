@@ -28,9 +28,11 @@ import time
 
 from . import paths
 
-REFLEX, SAFETY, TACTIC, PLAN = 0.05, 0.2, 1.0, 10.0
+REFLEX, SAFETY, TACTIC, MAINTAIN, PLAN = 0.05, 0.2, 1.0, 3.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
-SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "plan": PLAN}
+# MAINTAIN: the fixed maintenance reflexes (reflexes.TABLE) — eat, out of the water, the night's shelter, a full
+# bag — faster than any plan, slower than a fight.
+SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAINTAIN, "plan": PLAN}
 
 # Why an answer did not get the body. A closed set, because "it did not happen" is not an observation: a bench
 # that cannot tell "outbid" from "locked out" reads fourteen empty cells and learns nothing from any of them.
@@ -162,12 +164,11 @@ def wants_body(body, running, now=None):
     return any(p.scale < running.scale and not p.expired(now) for p in pending)
 
 
-# The PLAN layer's one order — every slow proposal ranks here and nowhere else: what keeps the body alive and
-# working first (hunger, water, the night), then what the queue asks, then idle stocking. The upkeep rows, the
-# queue's head, the night's work under cover and idle preparation only PROPOSE; `arbitrate` chooses.
-PLAN_ORDER = ("recover items", "eat", "reach land", "leave the Nether", "dig out", "sleep", "shelter",
-              "night prep", "broken tool", "water bucket", "collect job", "collect machine", "empty the bag",
-              "path blocked", "bridge stock", "unstuck", "food stock",
+# The PLAN layer's one order — every planned proposal ranks here and nowhere else: what upkeep needs got (the
+# night's parts, a tool that broke, a bucket, blocks, food), then what the queue asks, then the night's work under
+# cover and idle stocking. They only PROPOSE; `arbitrate` chooses. (The MAINTAIN layer's reflexes rank by their
+# own table, reflexes.TABLE, through `seq`.)
+PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food stock",
               "queue", "night stock", "wait for day", "idle")
 
 
