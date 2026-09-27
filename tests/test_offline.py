@@ -621,16 +621,6 @@ _wp = NT.waypoints((-258, 65, 270), (-366, 120, 191))
 check("portal trip: 110 blocks go in legs of ≤40, ending at the portal",
       _wp[-1] == (-366, 120, 191) and len(_wp) == 4
       and all(math.hypot(b[0] - a[0], b[2] - a[2]) <= 41 for a, b in zip([(-258, 65, 270)] + _wp, _wp)), _wp)
-# Real case 03:03: dirt at (-17,61,241) next to a pond two blocks away; the pit filled and the agent nearly drowned.
-# WHERE the water is comes from the game; how far away is far enough is the rule being checked here.
-from unittest import mock as _mock_pond  # noqa: E402
-_pond_hits = [{"x": -15, "y": 61, "z": 241}, {"x": -15, "y": 62, "z": 241}]
-with _mock_pond.patch.object(skills, "find", lambda *a, **k: _pond_hits):
-    check("mine: surface blocks keep 2 blocks from water",
-          skills.fluids_near({(-17, 61, 241)}, 2) == {(-17, 61, 241)}
-          and skills.fluids_near({(-17, 61, 241)}, 1) == set()
-          and skills.fluids_near({(-20, 61, 241)}, 2) == set())
-
 # -- scenario bench: readiness table
 from bonobo import scenarios as SC  # noqa: E402
 

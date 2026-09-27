@@ -10,7 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import skills, solve, tape, threat  # noqa: E402
-from bonobo.api import McError  # noqa: E402
+from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
 from bonobo.world import connected  # noqa: E402
 from tests.world import FakeRegion, bag, inventory, state  # noqa: E402
@@ -199,6 +199,38 @@ class NotedHits(unittest.TestCase):
             with self.subTest(why):
                 got = skills.noted_hits(notes, blocks, lambda p: p in banned, protected)
                 self.assertEqual([(h["x"], h["y"], h["z"]) for h in got], want)
+
+
+class SealPlan(unittest.TestCase):
+    """skills.seal_plan: before breaking a cell, a block into every fluid cell touching it face to face."""
+
+    def test_table(self):
+        from tests.world import FakeRegion, bag, inventory
+        cell = (0, 64, 0)
+        lo, hi = (-3, 60, -3), (3, 68, 3)
+        stone = {(x, y, z): "stone" for x in range(-3, 4) for y in range(60, 69) for z in range(-3, 4)}
+        cobble, dirt, none = inventory(("cobblestone", 8)), inventory(("dirt", 1)), inventory()
+        rows = [  # (why, fluid cells, bag) → cells placed into (in face order), or the NotAvailable
+            ("lava below, cobblestone: sealed", {(0, 63, 0): "lava"}, cobble, [(0, 63, 0)]),
+            ("water beside, dirt: sealed", {(1, 64, 0): "water"}, dirt, [(1, 64, 0)]),
+            ("lava above, cobblestone: sealed", {(0, 65, 0): "lava"}, cobble, [(0, 65, 0)]),
+            ("water below and lava beside: both, below first", {(0, 63, 0): "water", (0, 64, 1): "lava"}, cobble,
+             [(0, 63, 0), (0, 64, 1)]),
+            ("water two away (not a face): nothing", {(2, 64, 0): "water"}, cobble, []),
+            ("dry all round: nothing, even with an empty bag", {}, none, []),
+            ("must fail: lava below, nothing to seal with", {(0, 63, 0): "lava"}, none, NotAvailable),
+            ("must fail: two faces, one block", {(0, 63, 0): "lava", (1, 64, 0): "water"}, dirt, NotAvailable),
+        ]
+        for why, fluids, inv, want in rows:
+            with self.subTest(why):
+                region = FakeRegion(lo, hi, {**stone, cell: "iron_ore", **fluids})
+                if want is NotAvailable:
+                    with self.assertRaises(NotAvailable):
+                        skills.seal_plan(region, [cell], bag(inv))
+                    continue
+                got = skills.seal_plan(region, [cell], bag(inv))
+                self.assertEqual([(t["x"], t["y"], t["z"]) for t in got], want)
+                self.assertTrue(all(t["type"] == "place" for t in got))
 
 
 class TakeBackVerdict(unittest.TestCase):

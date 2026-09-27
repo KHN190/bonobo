@@ -617,25 +617,6 @@ def equip_armor():
 # ---------------------------------------------------------------- gathering
 
 
-def fluids_near(cells, margin=2, radius=24):
-    """The cells of `cells` that have water or lava within `margin` — opening one would let the fluid in.
-
-    WHERE the fluid is comes from the game (`/find`), which knows about flowing source blocks, waterlogging and
-    chunks this side has never read; how far away is far enough is ours, because it is a policy about risk, not a
-    fact about water. The old version walked a box of a block snapshot, so fluid just outside the snapshot — the
-    common case, since the snapshot is built around the vein — read as "dry".
-    """
-    cells = {tuple(c) for c in cells}
-    if not cells:
-        return set()
-    hazards = [(h["x"], h["y"], h["z"]) for h in find(["water", "lava"], radius=radius, limit=200)]
-    if not hazards:
-        return set()
-    m = int(margin)
-    return {c for c in cells
-            if any(abs(c[0] - h[0]) <= m and -1 <= h[1] - c[1] <= m and abs(c[2] - h[2]) <= m for h in hazards)}
-
-
 MINE_BATCH = 32         # blocks one mine_many takes: a batch of 12 re-planned every 12 blocks (1.4 s each time)
 BESIDE = 0.5            # travel range that ends face to face with a block (the walker's arrival: range + 0.5)
 REACH_BUDGET = 3         # ways of not getting there, per call, before the place itself is the problem
@@ -751,14 +732,6 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
         # Surface blocks (dirt, sand, gravel, stone) keep 2 blocks from any fluid: a dirt pit dug beside a pond filled
         # with water and the agent kept digging inside it, nearly drowning.
-        if not ctx.policy.lava_ok:
-            margin = 2 if blocks[0] in ("stone", "deepslate", "dirt", "grass_block", "sand", "gravel") else 1
-            wet = fluids_near(vein, margin)
-            vein -= wet
-            for p in wet:
-                ctx.ban(p)
-            if not vein:
-                continue   # banned the wet cells: the next vein is a different target, not a retry
         want = breaks or max(1, target - have)
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
         # Getting to a vein is ONE question with two answers, tried in order: walk there if there is a way, dig a
@@ -812,6 +785,23 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {buried}: buried, and no way dug to it")
             continue
         vein = set(open_faced[:MINE_BATCH])
+        if not ctx.policy.lava_ok:
+            # Every fluid face of what is about to be broken is sealed first (seal_plan: lava or water, below, beside
+            # or above); with nothing to seal with, those cells are banned with the reason. The goal that wants the
+            # fluid (lava_ok) leaves it be.
+            try:
+                seal = seal_plan(region, sorted(vein), Inventory())
+            except NotAvailable as e:
+                wet = {c for c in vein if fluid_faces(region, c, vein)}
+                log(f"   {len(wet)} {blocks[0]} cells not mined: {e}")
+                for p in wet:
+                    ctx.ban(p)
+                vein -= wet
+                if not vein:
+                    continue
+                seal = []
+            if seal:
+                api.run_chain(seal, stop_on_failure=True, wait=60)
         before = Inventory().count(drop)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)
@@ -1044,16 +1034,14 @@ def _open_lava_now(ctx, radius=4):
     return len(_open_lava(_lava_region(here, radius), here))
 
 
-def contain_lava_commands(state, args=()):
-    """Pure: one place task per open lava cell, nearest first, blocks taken from the bag in turn."""
-    radius = args[0] if args else 4
-    open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
-    inv = state["inv"]
+def fill_with_blocks(cells, inv, why, partial=False):
+    """Pure: one place task per cell, in order, building blocks taken from the bag in turn. Too few blocks: raise
+    NotAvailable(why) — or, `partial`, place what there is. The one way a fluid is covered (contain_lava, seal_plan)."""
     stock = [[b, inv.count(b)] for b in GROUPS["building"] if inv.count(b)]
-    if open_lava and not stock:
-        raise NotAvailable("lava exposed and no blocks to cover it")
+    if cells and (not stock or (not partial and sum(n for _, n in stock) < len(cells))):
+        raise NotAvailable(f"{why}: {len(cells)} to cover, {sum(n for _, n in stock)} blocks carried")
     tasks = []
-    for p in open_lava:
+    for p in cells:
         while stock and stock[0][1] <= 0:
             stock.pop(0)
         if not stock:
@@ -1061,6 +1049,39 @@ def contain_lava_commands(state, args=()):
         stock[0][1] -= 1
         tasks.append({"type": "place", "item": stock[0][0], "x": p[0], "y": p[1], "z": p[2]})
     return tasks
+
+
+FLUID_NAMES = ("water", "lava", "flowing_water", "flowing_lava")
+
+
+def fluid_faces(region, cell, breaking=()):
+    """Pure: the fluid cells touching `cell` face to face (below, beside, above) — what pours in once it is broken.
+    Cells about to be broken themselves are not faces to seal."""
+    out = []
+    for d in ((0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0)):
+        n = add(cell, d)
+        if n not in breaking and region.inside(n) and bare(region.name(n)) in FLUID_NAMES:
+            out.append(n)
+    return out
+
+
+def seal_plan(region, cells, inv):
+    """Pure: before breaking `cells`, a block into every fluid cell touching one of them, face to face — the one
+    fluid rule of mining (it replaces the lava-only margin and the dirt-by-water margin of 2). Nothing to seal: [].
+    Not enough blocks: NotAvailable, with the count."""
+    cells = [tuple(c) for c in cells]
+    wet = []
+    for c in cells:
+        for f in fluid_faces(region, c, set(cells)):
+            if f not in wet:
+                wet.append(f)
+    return fill_with_blocks(wet, inv, "fluid beside the cells to break and nothing to seal it with")
+
+
+def contain_lava_commands(state, args=()):
+    """Pure: one place task per open lava cell, nearest first, blocks taken from the bag in turn."""
+    open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
+    return fill_with_blocks(open_lava, state["inv"], "lava exposed and no blocks to cover it", partial=True)
 
 
 @skill(start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
