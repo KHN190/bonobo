@@ -1,4 +1,6 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
+import math
+
 from .data import COLORS, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS, bare, mid
 
 # Group-level recipes: output type follows the input variant (spruce logs → spruce planks, white wool → white bed).
@@ -315,3 +317,326 @@ def blocks_remainder(want, name_at):
     """Pure: the cells of `want` ({pos: block}) the world does not show (`name_at(pos)` → the block there) —
     {pos: block}; a structure's remainder, grown back when a block is taken away."""
     return {p: b for p, b in want.items() if bare(name_at(p) or "air") != bare(b)}
+
+
+# -- what is left of a world-effect skill ---------------------------------------------------------------------------
+# A skill whose product is a state of the world declares `remaining` (a pure fn (state, call) → {what: missing},
+# {} when met), read off skillcore.body_state's shape — "state" (/state), "feet", "inv", "region" — plus what a
+# caller read for it ("entities", "dark", "machines", "sites"). A reading not taken is not a "done". One place for
+# these readers, beside the item math above (have_remainder, held, reconcile).
+AIR_FULL = 300
+
+
+def left(ok, what, n=1):
+    """{} when `ok`, else {what: n}."""
+    return {} if ok else {what: n}
+
+
+def body(st):
+    return st.get("state") or {}
+
+
+# -- where the body is ---------------------------------------------------------------------------------------------
+def in_dimension(dimension_of):
+    """In the dimension `dimension_of(call)` names."""
+    def fn(st, c):
+        want = dimension_of(c)
+        return left(body(st).get("dimension") == want, f"dimension:{bare(want)}")
+    return fn
+
+
+def near(pos_of, range_of=lambda c: 2.0):
+    """Within `range_of(call)` of `pos_of(call)` (feet to the point, in 3-D): the rest is the distance left."""
+    def fn(st, c):
+        pos = pos_of(c)
+        d = math.dist(tuple(st["feet"]), tuple(pos)) - float(range_of(c))
+        return {} if d <= 0 else {"blocks away": round(d, 1)}
+    return fn
+
+
+def on_dry_ground(st, c):
+    s = body(st)
+    return left(bool(s.get("onGround")) and not s.get("inWater"), "state:ashore")
+
+
+def standing(st, c):
+    return left(bool(body(st).get("onGround")), "state:footing")
+
+
+def breathing(st, c):
+    s = body(st)
+    return left(int(s.get("air", AIR_FULL)) >= AIR_FULL, "state:air", AIR_FULL - int(s.get("air", 0)))
+
+
+def daytime(st, c):
+    t = body(st).get("timeOfDay")
+    return left(t is not None and int(t) % 24000 < 12500, "state:day")
+
+
+def fed(st, c):
+    food = int(body(st).get("food", 0))
+    return left(food >= 20, "food", 20 - food)
+
+
+# -- the blocks read around us ---------------------------------------------------------------------------------------
+def names(st):
+    region = st.get("region")
+    return [bare(n) for n in region.blocks.values()] if region is not None else []
+
+
+def blocks_there(*kinds, least=1):
+    """`least` of these blocks stand in the region read (a portal lit, bricks found)."""
+    want = {bare(k) for k in kinds}
+
+    def fn(st, c):
+        n = sum(1 for b in names(st) if b in want)
+        return left(n >= least, f"blocks:{'|'.join(sorted(want))}", least - n)
+    return fn
+
+
+def blocks_gone(*kinds):
+    """None of these blocks left in the region read (lava covered). Unread: not gone."""
+    want = {bare(k) for k in kinds}
+
+    def fn(st, c):
+        if st.get("region") is None:
+            return {f"unread:{'|'.join(sorted(want))}": 1}
+        n = sum(1 for b in names(st) if b in want)
+        return left(n == 0, f"blocks:{'|'.join(sorted(want))}", n)
+    return fn
+
+
+def structure(cells_of):
+    """A structure's cells ({pos: block}, from the call) against the region read (knowledge.blocks_remainder)."""
+    
+    def fn(st, c):
+        want = cells_of(c)
+        region = st.get("region")
+        if region is None:
+            return dict(want)
+        return blocks_remainder(want, lambda p: region.name(p) if region.inside(p) else None)
+    return fn
+
+
+# -- the bag ---------------------------------------------------------------------------------------------------------
+def bag_holds(rows_of):
+    """The bag holds `rows_of(state, call)` ([[token, n]]): knowledge.have_remainder."""
+    return lambda st, c: have_remainder(st["inv"], rows_of(st, c))
+
+
+def more_than_at_start(token_of, n_of=lambda c: 1):
+    """`n_of(call)` more of `token_of(call)` than the call started with (`call.base`, the skill's own start)."""
+    def fn(st, c):
+        base = getattr(c, "base", None)
+        base = base if isinstance(base, int) else 0
+        return have_remainder(st["inv"], [[token_of(c), base + n_of(c)]])
+    return fn
+
+
+def less_than_at_start(token_of, n_of=lambda c: 1):
+    """`n_of(call)` fewer of `token_of(call)` in the bag than at the start (handed over: into a furnace, a chest)."""
+    def fn(st, c):
+        base = getattr(c, "base", None)
+        base = base if isinstance(base, int) else held(st["inv"], token_of(c))
+        now = held(st["inv"], token_of(c))
+        return left(now <= base - n_of(c), f"to hand over:{token_of(c)}", now - (base - n_of(c)))
+    return fn
+
+
+def slots_free(target):
+    def fn(st, c):
+        free = st["inv"].free_slots()
+        return left(free >= target, "free slots", target - free)
+    return fn
+
+
+def worn(item_of, below=0.25):
+    """The bag's `item_of(call)` worn less than `below` of its life (repaired)."""
+    def fn(st, c):
+        item = mid(item_of(c))
+        stacks = [s for s in st["inv"].slots if s["id"] == item and s.get("maxDamage")]
+        worst = max((s.get("damage", 0) / s["maxDamage"] for s in stacks), default=None)
+        return left(worst is not None and worst < below, f"repair:{bare(item)}")
+    return fn
+
+
+# -- what moves around us ------------------------------------------------------------------------------------------
+def entities(st):
+    return st.get("entities")
+
+
+def none_of(*types, within=24.0):
+    """None of these entity types within `within` (the /entities rows read). Unread: not none."""
+    want = {mid(t) for t in types}
+
+    def fn(st, c):
+        rows = entities(st)
+        if rows is None:
+            return {f"unread:{'|'.join(sorted(bare(t) for t in want))}": 1}
+        n = sum(1 for e in rows if e.get("type") in want and e.get("distance", 0) <= within)
+        return left(n == 0, f"entities:{'|'.join(sorted(bare(t) for t in want))}", n)
+    return fn
+
+
+def some_of(types_of, within=48.0):
+    """One of `types_of(call)` in sight (the /entities rows read)."""
+    def fn(st, c):
+        want = {mid(t) for t in types_of(c)}
+        rows = entities(st) or []
+        return left(any(e.get("type") in want and e.get("distance", 0) <= within for e in rows),
+                    f"seen:{'|'.join(sorted(bare(t) for t in want))}")
+    return fn
+
+
+def dragon_phase(phases):
+    def fn(st, c):
+        rows = entities(st) or []
+        dragon = next((e for e in rows if e.get("type") == "minecraft:ender_dragon"), None)
+        return left(dragon is not None and dragon.get("phase") in phases, "state:dragon_perched")
+    return fn
+
+
+def entity_gone(id_of):
+    def fn(st, c):
+        rows = entities(st)
+        if rows is None:
+            return {"unread:entity": 1}
+        gone = all(e.get("id") != id_of(c) for e in rows)
+        return left(gone, f"entity:{id_of(c)}")
+    return fn
+
+
+def few_dark(st, c):
+    """No dark spot left (the /dark spots read)."""
+    spots = st.get("dark")
+    if spots is None:
+        return {"unread:dark": 1}
+    return left(not spots, "dark spots", len(spots))
+
+
+def _base(c, default=0):
+    b = getattr(c, "base", None)
+    return b if b is not None else default
+
+
+# -- the skills' own readers (each a world state; the decorators name them) ------------------------------------------
+def bartered(st, c):
+    """More carried than gold at the start (what a piglin tosses back)."""
+    now = sum(int(s.get("count", 1)) for s in st["inv"].slots if s["id"] != "minecraft:gold_ingot")
+    return left(now > _base(c), "trades")
+
+
+def window_over(perch_phases):
+    """The attack window closed: the dragon no longer perched (or gone)."""
+    def fn(st, c):
+        rows = entities(st)
+        if rows is None:
+            return {"unread:dragon": 1}
+        dragon = next((e for e in rows if e.get("type") == "minecraft:ender_dragon"), None)
+        return left(dragon is None or dragon.get("phase") not in perch_phases, "state:window")
+    return fn
+
+
+def babies(st, c):
+    rows = entities(st)
+    if rows is None:
+        return {"unread:animals": 1}
+    n = sum(1 for e in rows if e.get("baby"))
+    return left(n > _base(c), "babies")
+
+
+def potions(pred):
+    """More potions matching `pred(stack)` than at the start."""
+    def fn(st, c):
+        n = sum(int(s.get("count", 1)) for s in st["inv"].slots if pred(s))
+        return left(n > _base(c), "potions")
+    return fn
+
+
+def walled_sides(st, c):
+    """The body in a pit: every side at feet level solid (the dragon's breath cannot reach in)."""
+    region = st.get("region")
+    if region is None:
+        return {"unread:pit": 1}
+    x, y, z = st["feet"]
+    open_ = [d for d in ((1, 0), (-1, 0), (0, 1), (0, -1)) if not region.solid((x + d[0], y, z + d[1]))]
+    return left(not open_, "state:in_pit", len(open_))
+
+
+def built(name_of):
+    """A machine of this blueprint remembered (memory rows the caller read: "machines")."""
+    def fn(st, c):
+        rows = st.get("machines") or []
+        return left(any(m.get("blueprint") == name_of(c) for m in rows), f"built:{name_of(c)}")
+    return fn
+
+
+def planned_items(st, c):
+    """craft_chain's start is {item: (held, made)}: every item at held + made."""
+    base = getattr(c, "base", None) or {}
+    return have_remainder(st["inv"], [[i, h + n] for i, (h, n) in base.items()])
+
+
+def machine_emptied(name_of):
+    def fn(st, c):
+        rows = [m for m in (st.get("machines") or []) if m.get("name") == name_of(c)]
+        pending = sum(p.get("count", 0) for m in rows for p in m.get("pending", []))
+        return left(bool(rows) and pending == 0, "pending", pending)
+    return fn
+
+
+
+def enchanted(item_of):
+    def fn(st, c):
+        n = sum(1 for s in st["inv"].slots if s["id"] == mid(item_of(c)) and s.get("enchanted"))
+        return left(n > _base(c), f"enchanted:{bare(item_of(c))}")
+    return fn
+
+
+def site_known(kind):
+    def fn(st, c):
+        return left(any(s.get("kind") == kind for s in (st.get("sites") or [])), f"site:{kind}")
+    return fn
+
+
+def gained_any(st, c):
+    total = sum(int(s.get("count", 1)) for s in st["inv"].slots)
+    return left(total > _base(c), "loot")
+
+
+
+def fewer_tools(kind_of):
+    def fn(st, c):
+        n = sum(1 for s in st["inv"].slots if s["id"].endswith("_" + kind_of(c)))
+        return left(n < _base(c, n + 1), f"combine:{kind_of(c)}")
+    return fn
+
+
+def found(kinds_of):
+    """One of `kinds_of(call)` in sight: a block of it in the region read, or an entity of it."""
+    def fn(st, c):
+        want = {bare(k) for k in kinds_of(c)}
+        seen = any(b in want for b in names(st)) or any(bare(e.get("type", "")) in want for e in (entities(st) or []))
+        return left(seen, f"seen:{'|'.join(sorted(want))}")
+    return fn
+
+
+def tunnelled(length_of):
+    """A strip-mine step: stone won (the tunnel's own yield) — half its length's worth over the start."""
+    def fn(st, c):
+        base = getattr(c, "base", None) or (0, 0)
+        stone = held(st["inv"], "stone") + held(st["inv"], "minecraft:cobbled_deepslate")
+        need = base[1] + max(1, length_of(c) // 2)
+        return left(stone >= need, "stone", need - stone)
+    return fn
+
+
+def head_clear(st, c):
+    region = st.get("region")
+    if region is None:
+        return {"unread:head": 1}
+    s = body(st)
+    x, z = st["feet"][0], st["feet"][2]
+    eye = (x, math.floor(float(s.get("y", st["feet"][1])) + 1.62), z)
+    return left(not region.solid(eye), "state:head_clear")
+

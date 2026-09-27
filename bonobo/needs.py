@@ -8,6 +8,7 @@ import json
 import math
 import time
 
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, decompose, goals, skills
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
@@ -333,7 +334,7 @@ def repair_commands(state, args):
     return [{"type": "craft", "pattern": [pair[0], pair[0], None, None], "count": 1}]
 
 
-@skill(gives={}, needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
+@skill(gives=["state:tool_combined"], remaining=_k.fewer_tools(_kind_of), needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
        commands=lambda state, args: repair_commands(state, args),
        budget=60, stall=30, per_unit=5, prefer=1,
        provides={"repair": lambda ctx, s: (s.token,) if repair_pair(Inventory().slots, s.token) else None})

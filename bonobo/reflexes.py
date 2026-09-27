@@ -12,6 +12,7 @@ round, lazily); the action is the upkeep executor's.
 import math
 import time
 
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, nether, skills, tape
 from .api import McError, NotAvailable, log
 from .data import BASE_MARKERS, COVERED_SKY, FULL_BAR, MAX_HP
@@ -382,7 +383,7 @@ def _drops_gone(c):
     return _death_retired(c) and not entities(10, ["minecraft:item"])
 
 
-@skill(gives={}, needs={}, speed={}, verify=_drops_gone, budget=300, stall=90, per_unit=120)
+@skill(gives=["state:recovered"], remaining=_k.none_of("minecraft:item", within=6.0), needs={}, speed={}, verify=_drops_gone, budget=300, stall=90, per_unit=120)
 def recover_items(ctx):
     """Go back to the last death spot within 5 minutes and pick up what dropped there."""
     s = api.get("/state")

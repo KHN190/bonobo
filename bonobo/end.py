@@ -3,6 +3,7 @@ combat.py. Pure `frames_missing_eye` / `portal_centre` are offline-tested."""
 import math
 import time
 
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
@@ -46,7 +47,7 @@ def outside_spot(frame, centre):
     return frame[0], frame[1], frame[2] + (1 if dz > 0 else -1)
 
 
-@skill(gives={}, needs={"minecraft:ender_eye": 1}, speed={}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
+@skill(gives=["state:end_portal_open"], remaining=_k.blocks_there("end_portal"), needs={"minecraft:ender_eye": 1}, speed={}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
        budget=600, stall=180, per_unit=60, provides={"activate:end_portal": lambda ctx, s: ()})
 def activate_end_portal(ctx):
     """At the stronghold's portal room: a block over the middle's lava, stand on it, every missing eye from there in
@@ -116,7 +117,7 @@ def next_brick(bricks, visited, radius=12):
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
 
 
-@skill(gives={}, needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
+@skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
        provides={"seek:portal_room": lambda ctx, s: ()})
 def find_portal_room(ctx):
     """From the triangulated estimate: dig down to stronghold depth, follow stronghold bricks toward unexplored parts,
@@ -295,7 +296,7 @@ def dragon_dead(near=None, centre=(0, 0)):
     return exit_portal_open(centre)
 
 
-@skill(gives={}, needs={"tool:pickaxe:0": 1}, speed={}, budget=240, stall=90, soft=True)
+@skill(gives=["state:in_pit"], remaining=_k.walled_sides, needs={"tool:pickaxe:0": 1}, speed={}, budget=240, stall=90, soft=True)
 def build_bed_pit(ctx):
     """Prepare the fight before the dragon lands: dig the 1×2 pit beside the exit portal and stand in it. Speedruns
     do this while the dragon still circles; the old code placed its cover mid-fight and died waiting."""
@@ -448,7 +449,7 @@ def _recover_body(ctx, act):
         _retreat(ctx)                                     # never an empty branch: see _retreat
 
 
-@skill(gives={}, needs={}, speed={}, budget=180, stall=120, soft=True)
+@skill(gives=["state:dragon_perched"], remaining=_k.dragon_phase(PERCH_PHASES), needs={}, speed={}, budget=180, stall=120, soft=True)
 def await_perch(ctx):
     """Sit in the pit until the dragon is really perched (mod ≥0.1.31 reports DragonPhase) and health is full enough
     to survive the bed's own blast. Never judged by height and distance again."""
@@ -560,7 +561,7 @@ def await_perch(ctx):
     raise McError("the dragon never perched")
 
 
-@skill(gives={}, needs={"bed": 1}, speed={}, budget=120, stall=60, soft=True)
+@skill(gives=["state:window_used"], remaining=_k.window_over(BOMB_PHASES), needs={"bed": 1}, speed={}, budget=120, stall=60, soft=True)
 def bed_bomb_window(ctx):
     """One bomb, then straight back into the pit. An attack window does exactly one thing: the old loop kept standing
     outside between bombs."""
@@ -695,7 +696,7 @@ def caged(crystal, here):
     return crystal[1] - here[1] > 8
 
 
-@skill(gives={}, needs={}, speed={}, budget=90, stall=45, soft=True)
+@skill(gives=["state:enderman_off"], remaining=_k.none_of("minecraft:enderman", within=8.0), needs={}, speed={}, budget=90, stall=45, soft=True)
 def shake_enderman(ctx):
     """Get an angry enderman off us without fighting it, in this order: drop into the wait pit (3 blocks tall, they
     can't follow), else stand in a water source (endermen teleport away from water), else walk away without turning
@@ -748,7 +749,7 @@ def shake_enderman(ctx):
     return True
 
 
-@skill(gives={}, needs={"building": 1}, speed={}, budget=300, stall=120, soft=True,
+@skill(gives=["state:crystal_broken"], remaining=_k.entity_gone(lambda c: c.args[1]["id"]), needs={"building": 1}, speed={}, budget=300, stall=120, soft=True,
        commands=lambda state, args: crystal_commands(state, args))
 def break_caged_crystal(ctx, crystal):
     """Tower up to a caged crystal, break the bars, stand in water and hit it. `crystal` is an /entities row."""
@@ -946,7 +947,7 @@ def _track_phase(near):
 DRAGON_PASSES = 2400     # passes of the fight loop (≈0.5 s each while waiting) before the fight is given up
 
 
-@skill(gives={}, needs={"tool:sword:1": 1}, speed={}, budget=1800, stall=300, soft=True)
+@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={"tool:sword:1": 1}, speed={}, budget=1800, stall=300, soft=True)
 def slay_dragon(ctx):
     """The fight is the fight loop's (fight_loop.carry), like any threat: each pass the phase model
     (fight_plan.Fight.plan) picks one intent, fight_loop.dragon_answer turns it into a batch, and the loop keeps
@@ -1042,7 +1043,7 @@ def _frame_region():
     return Region((min(xs) - 2, min(ys), min(zs) - 2), (max(xs) + 2, max(ys), max(zs) + 2), props=True)
 
 
-@skill(gives={}, needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
+@skill(gives=["state:in_the_end"], remaining=_k.in_dimension(lambda c: "minecraft:the_end"), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
 def enter_end(ctx):
     """Jump into the activated end portal (the centre of the frame ring)."""
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in find(["end_portal_frame"], radius=32, limit=12)])
