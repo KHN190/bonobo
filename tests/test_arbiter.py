@@ -49,7 +49,7 @@ class Ordering(unittest.TestCase):
         ("a broken tool under a held plan beats the queue", ["queue", "broken tool"], "broken tool"),
         ("underground at night: the queue before the night's stock", ["night stock", "queue"], "queue"),
         ("blocked path at dusk: night prep before bridge blocks", ["bridge stock", "night prep"], "night prep"),
-        ("an unknown kind ranks after every known one", ["mystery", "idle"], "idle"),
+        ("an unknown kind ranks after every known one", ["mystery", "night stock"], "night stock"),
         ("only waiting for day", ["wait for day"], "wait for day"),
     ]
 
@@ -293,11 +293,40 @@ class Invariants(unittest.TestCase):
                                  (None, "live", "stale"))
 
     def test_an_unknown_kind_ranks_after_every_known_one(self):
-        for kind in self.KINDS:
+        for kind in [k for k in self.KINDS if k not in arbiter.WAIT_KINDS]:     # waiting kinds: `gate`'s table
             with self.subTest(kind):
                 self.assertEqual(chosen([arbiter.Intent("plan", lambda: None, "?", at=0.0, kind="no such kind"),
                                          arbiter.Intent("plan", lambda: None, kind, at=0.0, kind=kind)]), kind)
 
+
+
+class OnlyUsefulProposals(unittest.TestCase):
+    """arbiter.gate: what is met, cooling or unplannable is not offered; a waiting kind only when nothing else is;
+    the gate filters and never reorders the layers."""
+    P = lambda k, key=None, layer="plan": arbiter.Intent(layer, lambda: None, k, at=0.0, kind=k, key=key or k)  # noqa: E731
+    # (situation, intents, facts) → the reason arbitrate picks
+    ROWS = [("a need already met in the bag is dropped", [P("food stock"), P("queue")], {"met": {"food stock"}},
+             "queue"),
+            ("a cooling need is dropped", [P("broken tool"), P("queue")], {"cooling": {"broken tool"}}, "queue"),
+            ("an unplannable need is dropped", [P("water bucket"), P("queue")], {"unplannable": {"water bucket"}},
+             "queue"),
+            ("work to do: waiting for day is not offered", [P("wait for day"), P("night stock")], {}, "night stock"),
+            ("idle stocking is not offered next to a task", [P("idle"), P("queue")], {}, "queue"),
+            ("only waiting left: kept", [P("wait for day"), P("food stock")], {"cooling": {"food stock"}},
+             "wait for day"),
+            ("everything dropped: nothing", [P("queue")], {"met": {"queue"}}, None),
+            ("the gate does not reorder layers: the faster still wins", [P("queue"), P("eat", layer="maintain")], {},
+             "eat")]
+
+    def test_gate(self):
+        for name, intents, facts, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(chosen_with(intents, facts), want)
+
+
+def chosen_with(intents, facts):
+    got = arbiter.arbitrate(intents, now=0.0, facts=facts)
+    return None if got is None else got.reason
 
 class Crowded(unittest.TestCase):
     # (situation: reflex view changes, a fight, a hazard, PLAN kinds) → what drives the body

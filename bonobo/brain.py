@@ -288,15 +288,18 @@ class Brain:
                 ctx, snap.state, self.attempt, self.ready))))
         if not intents:
             self.needs.propose(snap, ctx)
-            intents += [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq)
+            intents += [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
                         for seq, name, run in self.reflexes.proposals(snap, ctx)]
             for kind, goal, _why in self.needs.needs_now:
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:
-                    intents.append(arbiter.Intent("plan", act, kind=kind))
+                    intents.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}"))
         if not intents:
             intents += self.plan_proposals(snap, ctx)
-        chosen = arbiter.arbitrate(intents)
+        # The round's facts for the gate (arbiter.gate): what is cooling under the retry policy, by the name it
+        # failed under. Met and unplannable needs never become intents (need_act answers None for them).
+        facts = {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
+        chosen = arbiter.arbitrate(intents, facts=facts)
         return chosen.action if chosen else None
 
     def plan_proposals(self, snap, ctx):
@@ -314,7 +317,7 @@ class Brain:
                 continue
             act = self.task_act(task, snap, ctx)
             if act is not None and (not closed or act.step.kind in NIGHT_WORK):
-                return [arbiter.Intent("plan", act, kind="queue", seq=seq)]
+                return [arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}")]
         if not closed:
             act = self.prepare(snap)
             return [arbiter.Intent("plan", act, kind="idle")] if act else []

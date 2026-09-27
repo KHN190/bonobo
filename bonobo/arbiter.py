@@ -103,7 +103,7 @@ class Intent:
     """What a layer would like the body to do. Data, not a command — the arbiter decides whether it happens."""
 
     def __init__(self, layer, action, reason="", deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0):
+                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, key=None):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         self.layer = layer
@@ -111,6 +111,8 @@ class Intent:
         # Within the PLAN layer: what kind of proposal this is (PLAN_ORDER) and, among several of one kind (the
         # queue's tasks), its place in line.
         self.kind, self.seq = kind, seq
+        # What the round's facts know this proposal by (a need's or a task's retry name): `viable` reads it.
+        self.key = key if key is not None else (reason or None)
         self.reason = reason
         self.deadline_s = deadline_s
         # How long the body may stay on this before the planner is asked again. Distinct from deadline_s, which says
@@ -172,15 +174,37 @@ PLAN_ORDER = ("night prep", "broken tool", "water bucket", "bridge stock", "food
               "queue", "night stock", "wait for day", "idle")
 
 
+# Waiting kinds: offered only when nothing else is (`gate`) — a round spent waiting while work was possible is the
+# one waste the bench counts (slice_report's waits).
+WAIT_KINDS = ("wait for day", "idle")
+
+
+def viable(intent, facts):
+    """Pure: may this proposal be offered at all? Not when the round's facts say its goal is already met in the bag,
+    it is cooling (retry), or it cannot be planned from here now (planner.Unplannable, found once this round).
+    `facts`: {"met": keys, "cooling": keys, "unplannable": keys}."""
+    key = intent.key
+    return key is None or not any(key in facts.get(f, ()) for f in ("met", "cooling", "unplannable"))
+
+
+def gate(intents, facts=None):
+    """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left. Filters,
+    never reorders: the layers and PLAN_ORDER still choose among what passes."""
+    live = [i for i in intents if viable(i, facts or {})]
+    work = [i for i in live if not (i.layer == "plan" and i.kind in WAIT_KINDS)]
+    return work or live
+
+
 def plan_rank(kind):
     """Pure: a PLAN proposal's place in PLAN_ORDER (an unknown kind after all of them)."""
     return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
 
 
-def arbitrate(intents, now=None):
-    """Pure: the one intent that may drive the body, or None. Fastest layer wins; within the PLAN layer the
-    PLAN_ORDER rank, then the place in line; otherwise the newest. Expired intents are dropped, never run late."""
-    live = [i for i in intents if not i.expired(now)]
+def arbitrate(intents, now=None, facts=None):
+    """Pure: the one intent that may drive the body, or None. Only useful proposals are considered (`gate`); fastest
+    layer wins; within the PLAN layer the PLAN_ORDER rank, then the place in line; otherwise the newest. Expired
+    intents are dropped, never run late."""
+    live = gate([i for i in intents if not i.expired(now)], facts)
     if not live:
         return None
     return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))
