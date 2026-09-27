@@ -9,7 +9,7 @@ import json
 import math
 import time
 
-from . import api, decompose, goals, nav, nether, skills, tape, tasks
+from . import api, decompose, goals, nav, nether, skills, tape
 from .api import McError, NotAvailable, log
 from .cost import Cost
 from .data import BASE_MARKERS, COVERED_SKY, NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER
@@ -197,6 +197,7 @@ class Upkeep:
         self.working = {}             # tool kind -> tier that worked last round
         self.wear = {}                # tool kind -> least durability left last round
         self.broken = set()           # tool kinds that broke and are not replaced yet
+        self.needs_now = []           # [(kind, goal, why)] this round proposes getting (need)
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
 
     # -- what the rounds tell it
@@ -235,8 +236,20 @@ class Upkeep:
         # it comes before any shelter and before the night's work underground.
         bed_tonight = _once(reads, "bed_tonight", lambda: over and snap.night and inv.count("bed") == 0
                             and skills.can_sleep(s) is None and self.bed_tonight(snap))
+        self.needs_now = []
         if bed_tonight():
-            self.urgent(goals.have(("bed", 1)), "a bed skips the night")
+            self.need("night prep", goals.have(("bed", 1)), "a bed skips the night")
+        # The night's way from here (dig in, wall in, a hut): the shelter row runs it when its parts are in the
+        # bag; otherwise its parts are this round's need.
+        night_way = _once(None, "night_way", lambda: overnight(
+            inv, self.cost(snap), {"soft_ground": _once(reads, "soft_ground", skills.soft_ground_here)()},
+            bed_too=False))
+        shelter_due = _once(None, "shelter_due", lambda: over and snap.night and not bed_tonight()
+                            and not self.sheltered(snap, enclosed))
+        if shelter_due():
+            way, _secs, steps = night_way()
+            if way is not None and any(st.kind != "shelter" for st in steps):
+                self.prepare_night(way, steps)
         rows = [
             ("recover items", lambda: b.mem.recent_death(snap.dimension) is not None, lambda: recover_items(ctx)),
             ("eat", lambda: s.get("food", 20) < EAT_BELOW and skills.edible_carried(inv),
@@ -248,8 +261,9 @@ class Upkeep:
             ("sleep", lambda: over and snap.night and skills.can_sleep(s) is None
              and (inv.count("bed") > 0 or bed_near()),
              lambda: skills.sleep(ctx, b.policy(snap, True))),
-            ("shelter", lambda: over and snap.night and not bed_tonight() and not self.sheltered(snap, enclosed),
-             lambda: self.shelter(snap, ctx)),
+            ("shelter", lambda: shelter_due() and night_way()[0] is not None
+             and all(st.kind == "shelter" for st in night_way()[2]),
+             lambda: self.shelter(snap, ctx, night_way())),
             ("collect job", lambda: self.ready_job(snap) is not None, lambda: self.collect_job(snap, ctx)),
             ("collect machine", lambda: self.ready_machine(snap) is not None,
              lambda: skills.collect_machine(ctx, self.ready_machine(snap))),
@@ -259,30 +273,29 @@ class Upkeep:
             ("unstuck", lambda: self.stuck_in_place(snap, enclosed), lambda: self.unstuck(snap, ctx)),
         ]
         due_rows = [(name, run) for name, due, run in rows if b.ready(name) and due()]
-        if due_rows:
-            return due_rows
-        # Rows that only queue work: the queue does it, at the front.
+        # Needs: what upkeep wants got, proposed (not queued) — the arbiter ranks them with the rows.
         # A tool is the plan's need (decompose puts one in any plan whose step wants it); upkeep only replaces one
         # that broke under a held plan that still wants it — "no working pickaxe" put a pickaxe (and its tree) in
         # front of every task, a log chop included.
         wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
         for kind in sorted(self.broken & wanted):
-            self.urgent(goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
+            self.need("broken tool", goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
         if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()]):
-            self.urgent(goals.have(("minecraft:water_bucket", 1)), "a plan with a fall in it and no water to land in")
+            self.need("water bucket", goals.have(("minecraft:water_bucket", 1)),
+                      "a plan with a fall in it and no water to land in")
         if blocked is not None and inv.count("building") < BRIDGE_MIN:
-            self.urgent(goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
+            self.need("bridge stock", goals.have(("building", BRIDGE_STOCK)), "path blocked with nothing to bridge with")
         food_goal = goals.have(("food", 8))
         if food_count(inv) < 8:
             secs, known = self.plan(food_goal, snap)
             if due_now(food_lasts_s(snap), secs, known, s.get("food", 20) < EAT_BELOW):
-                self.urgent(food_goal, "food runs out before more could be had")
+                self.need("food stock", food_goal, "food runs out before more could be had")
         if over and not snap.night and inv.count("bed") == 0:
             way, seconds, steps = self.overnight(snap)
             if way is not None and due_now(dusk_s(snap), seconds, self.known(steps, snap), dusk_s(snap) <= 0) \
                     and not self.sheltered(snap, enclosed):
                 self.prepare_night(way, steps)
-        return []
+        return due_rows
 
     def overnight(self, snap):
         """(way, seconds, steps) of the cheapest way through the night from this bag, kept briefly."""
@@ -303,19 +316,20 @@ class Upkeep:
         """Dark comes before the chosen way could be had: its missing parts to the front. The bed is a plan of its
         own; a shelter is made at night by the shelter row, so only what it needs is fetched now."""
         if way == "bed":
-            self.urgent(goals.have(("bed", 1)), "dark before a bed could be made")
+            self.need("night prep", goals.have(("bed", 1)), "dark before a bed could be made")
             return
         src = next(s for s in decompose.SOURCES["overnight"] if s["name"] == way)
         if any(st.kind != "shelter" for st in steps):
-            self.urgent(goals.have(*src["needs"]), f"dark before {way} could be had")
+            self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
 
     def cost(self, snap):
         return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
 
-    def urgent(self, goal, why):
-        task = tasks.add(goal, front=True, source="upkeep", expires_s=1800)
-        if task.get("created", 0) >= time.time() - 1:
-            log(f"upkeep: {goals.describe(goal)} to the front ({why})")
+    def need(self, kind, goal, why):
+        """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER). Proposed, never queued: the queue holds
+        the player's and the cerebrum's goals only; what upkeep wants is ranked with its rows by the arbiter."""
+        if all(g != goal for _k, g, _w in self.needs_now):
+            self.needs_now.append((kind, goal, why))
 
     def plan(self, goal, snap):
         """(seconds the plan for `goal` takes from this bag, whether every place it goes is known), kept briefly."""
@@ -354,20 +368,14 @@ class Upkeep:
         return skills.bridge_toward(ctx, blocked["pos"])
 
     # -- night
-    def shelter(self, snap, ctx):
-        """Night, exposed, no bed to sleep in: the way `overnight` prices cheapest from this bag and this ground —
-        dig in (a pickaxe, or by hand in dirt or sand), wall in, a hut — its missing parts queued first (the same
-        `prepare_night` the dusk lead uses). None of them from here: say so; the round then waits for day."""
+    def shelter(self, snap, ctx, night_way):
+        """Night, exposed, no bed to sleep in, the parts in the bag: the way `overnight` priced cheapest from this
+        bag and this ground (dig in — with a pickaxe, or by hand in dirt or sand — wall in, a hut). Its parts, when
+        missing, are the round's "night prep" need instead (`prepare_night`)."""
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
-        way, _secs, steps = overnight(snap.inv, self.cost(snap), {"soft_ground": skills.soft_ground_here()},
-                                      bed_too=False)
-        if way is None:
-            raise NotAvailable("no way to shelter from here (no pickaxe, hard ground, no blocks)")
+        way, _secs, steps = night_way
         log(f"   the night: {way} ({' → '.join(map(str, steps))})")
-        if any(st.kind != "shelter" for st in steps):
-            self.prepare_night(way, steps)             # its parts to the front of the queue: got, then this row
-            raise NotAvailable(f"{way}: its parts first")
         return SHELTER_RUN[steps[-1].token](ctx)
 
     def sheltered(self, snap, enclosed=None):

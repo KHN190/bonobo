@@ -289,6 +289,10 @@ class Brain:
         if not intents:
             intents += [arbiter.Intent("plan", Act("upkeep", name, run), kind=name)
                         for name, run in self.table.proposals(snap, ctx)]
+            for kind, goal, _why in getattr(self.table, "needs_now", ()):
+                act = self.need_act(kind, goal, snap, ctx)
+                if act is not None:
+                    intents.append(arbiter.Intent("plan", act, kind=kind))
         if not intents:
             intents += self.plan_proposals(snap, ctx)
         chosen = arbiter.arbitrate(intents)
@@ -315,9 +319,29 @@ class Brain:
             return [arbiter.Intent("plan", act, kind="idle")] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: skills.wait_for_day(ctx)),
                               kind="wait for day")]
-        if "pickaxe" in self.table.working and not any(t.get("source") == "night" for t in live):
-            out.append(arbiter.Intent("plan", self.night_stock(snap), kind="night stock"))
+        if "pickaxe" in self.table.working:
+            act = self.night_stock(snap, ctx)
+            if act is not None:
+                out.append(arbiter.Intent("plan", act, kind="night stock"))
         return out
+
+    def need_act(self, kind, goal, snap, ctx):
+        """A proposal to get `goal` now (an upkeep need, the night's ore): the first step of its plan from this bag
+        that can run here — by night one that needs no sun — or None (met, unplannable, nothing runnable, cooling).
+        Planned each round from the bag, never queued: the queue is the player's and the cerebrum's."""
+        name = f"{kind}: {goals.describe(goal)}"
+        if not self.ready(name):
+            return None
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache)
+        try:
+            steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
+        except Unplannable:
+            return None
+        closed = surface_closed(snap.night, snap.dimension)
+        step = next((st for st in steps if self.valid(st, snap, ctx) and (not closed or st.kind in NIGHT_WORK)), None)
+        if step is None:
+            return None
+        return Act("upkeep", name, lambda: dispatch.execute(ctx, step, snap.night), step=step)
 
     def upkeep(self, snap, ctx):
         """The upkeep table (upkeep.py): the first row that applies, as this round's act."""
@@ -444,14 +468,12 @@ class Brain:
                 return Act("idle", f"prepare {goals.describe(goal)}", lambda: None)
         return None
 
-    def night_stock(self, snap):
-        """Night under cover, nothing in the queue to do there: queue the first ore not held (goals.NIGHT_STOCK);
-        its plan digs down to it, the next round works it."""
+    def night_stock(self, snap, ctx):
+        """Night under cover, nothing in the queue to do there: a proposal to dig down for the first ore not held
+        (goals.NIGHT_STOCK) — its next step, not a task."""
         needs = next((n for n in goals.NIGHT_STOCK if goals.short(snap.inv, [tuple(x) for x in n])),
                      goals.NIGHT_STOCK[-1])
-        goal = goals.have(*needs)
-        tasks.add(goal, source="night", expires_s=600)
-        return Act("idle", f"night: dig down for {goals.describe(goal)}", lambda: None)
+        return self.need_act("night stock", goals.have(*needs), snap, ctx)
 
     def price_table(self, snap=None):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth (the looter)."""

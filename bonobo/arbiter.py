@@ -166,7 +166,8 @@ def wants_body(body, running, now=None):
 # working first (hunger, water, the night), then what the queue asks, then idle stocking. The upkeep rows, the
 # queue's head, the night's work under cover and idle preparation only PROPOSE; `arbitrate` chooses.
 PLAN_ORDER = ("recover items", "eat", "reach land", "leave the Nether", "dig out", "sleep", "shelter",
-              "collect job", "collect machine", "empty the bag", "path blocked", "unstuck",
+              "night prep", "broken tool", "water bucket", "collect job", "collect machine", "empty the bag",
+              "path blocked", "bridge stock", "unstuck", "food stock",
               "queue", "night stock", "wait for day", "idle")
 
 

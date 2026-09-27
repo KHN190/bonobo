@@ -1049,8 +1049,10 @@ def run_upkeep(row, tmp):
     plan_s["overnight:known"] = all(c.known_source(st) for st in plan_s["overnight"][2])
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
-        got = table.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen})
-        queued = [tuple(tuple(n) for n in t["args"]["needs"]) for t in tasks.load() if t["state"] in tasks.LIVE]
+        got = table.act(snap, ctx=None, reads={"enclosed": row.enclosed, "bed_near": row.bed_seen,
+                                               "soft_ground": False})
+        # What upkeep wants got is proposed, never queued (arbiter.PLAN_ORDER ranks it): read off the proposals.
+        queued = [tuple(tuple(n) for n in goal["args"]["needs"]) for _kind, goal, _why in table.needs_now]
     return (got[0] if got else None), queued, plan_s
 
 
@@ -1612,8 +1614,22 @@ class OneArbiter(unittest.TestCase):
                  "rescue"),
                 ("raw meat and a furnace, food queued: the queue's head (smelt), no hunt proposed", [P("queue")],
                  "queue"),
-                ("a worn tool's replacement is queued first: the head of the line", [P("queue", 1), P("queue", 0)],
-                 "queue"),
+                ("the queue's head before the second in line", [P("queue", 1), P("queue", 0)], "queue"),
+                ("a tool broke under a held plan, a task queued: the tool first (proposed, not queued)",
+                 [P("queue"), P("broken tool")], "broken tool"),
+                ("a fall in the plan and no bucket, a task queued: the bucket first", [P("queue"), P("water bucket")],
+                 "water bucket"),
+                ("dusk soon, a bed or shelter parts to get, a task queued: the night's parts first",
+                 [P("queue"), P("night prep")], "night prep"),
+                ("path blocked, no blocks, a task queued: bridge blocks first", [P("queue"), P("bridge stock")],
+                 "bridge stock"),
+                ("food running out before it could be had, a task queued: food first", [P("queue"), P("food stock")],
+                 "food stock"),
+                ("hungry and food running out: eat what is carried before getting more",
+                 [P("food stock"), P("eat")], "eat"),
+                ("a broken tool vs the night's parts at dusk: the night first", [P("broken tool"), P("night prep")],
+                 "night prep"),
+                ("afloat with the night's parts due: land first", [P("night prep"), P("reach land")], "reach land"),
                 ("night underground, nothing queued, a pickaxe: dig for ore before waiting",
                  [P("wait for day"), P("night stock")], "night stock"),
                 ("night underground, no pickaxe: wait for day", [P("wait for day")], "wait for day"),
