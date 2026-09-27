@@ -7,7 +7,6 @@ chosen intent. A fight loses to several commanders long before it loses to a bad
 Every case is a row: a sequence of calls on one fresh `Motion`, what each returned, and what actually ran.
 """
 import threading
-import time
 import unittest
 
 from bonobo import api, arbiter
@@ -66,22 +65,10 @@ class Ordering(unittest.TestCase):
                 arbiter.Intent(layer, lambda: None)
 
 
-# A sequence on one Motion: ("submit", layer, reason) / ("preempt", layer, reason, kw) / ("step",) →
+# A sequence of preemptions on one Motion: ("preempt", layer, reason, kw) →
 # [what each call returned], and what ran, in order.
 PAYING, STOPPED = (lambda: False), (lambda: True)
 SEQUENCES = [
-    ("a preemption drops slower pending intents",
-     [("submit", "plan", "dig"), ("preempt", "safety", "breath", {}), ("step",)],
-     [None, ("safety", "breath"), None], ["breath"]),
-    ("a plan submitted after the preemption is fresh",
-     [("preempt", "safety", "breath", {}), ("submit", "plan", "dig"), ("step",)],
-     [("safety", "breath"), None, ("plan", "dig")], ["breath", "dig"]),
-    ("a preemption keeps faster pending intents",
-     [("submit", "reflex", "fireball"), ("preempt", "safety", "breath", {}), ("step",)],
-     [None, ("safety", "breath"), ("reflex", "fireball")], ["breath", "fireball"]),
-    ("only the winner of a step runs, and the queue clears",
-     [("submit", "plan", "dig"), ("submit", "tactic", "reposition"), ("step",), ("step",)],
-     [None, None, ("tactic", "reposition"), None], ["reposition"]),
     ("a held answer that still pays keeps the body against its own layer",
      [("preempt", "tactic", "shield up", {"release": PAYING}), ("preempt", "tactic", "step aside", {"worth_s": 1e6})],
      [("tactic", "shield up"), "held"], ["shield up"]),
@@ -103,15 +90,9 @@ class Sequences(unittest.TestCase):
             with self.subTest(name):
                 ran, m, got = [], arbiter.Motion(), []
                 for op in ops:
-                    if op[0] == "submit":
-                        m.submit(op[1], lambda r=op[2]: ran.append(r), op[2])
-                        got.append(None)
-                    elif op[0] == "preempt":
-                        kw = {"now": 0.5, "seen_at": 0.5, "worth_s": 10.0, **op[3]}
-                        taken, why = m.preempt(op[1], lambda r=op[2]: ran.append(r), op[2], **kw)
-                        got.append(taken if taken is not None else why)
-                    else:
-                        got.append(m.step())
+                    kw = {"now": 0.5, "seen_at": 0.5, "worth_s": 10.0, **op[3]}
+                    taken, why = m.preempt(op[1], lambda r=op[2]: ran.append(r), op[2], **kw)
+                    got.append(taken if taken is not None else why)
                 self.assertEqual(got, want)
                 self.assertEqual(ran, ran_want)
 
@@ -134,8 +115,7 @@ class Ownership(unittest.TestCase):
                 if asker is None:
                     seen.append(m.owns("nav.go_to"))
                 elif asker == "intent":
-                    m.submit("plan", lambda: seen.append(m.owns("nav.go_to")), "dig")
-                    m.step()
+                    m.drive("plan", lambda: seen.append(m.owns("nav.go_to")), "dig")
                 else:
                     t = threading.Thread(target=lambda: m.preempt("safety", lambda: seen.append(m.owns("nav.go_to")),
                                                                   "breath"))
@@ -159,25 +139,6 @@ class Ownership(unittest.TestCase):
 
 
 class LockDiscipline(unittest.TestCase):
-    def test_a_long_preempting_action_does_not_block_submit(self):
-        """perception preempts with a slow action; the fight thread must still be able to submit."""
-        m = arbiter.Motion()
-        started, release = threading.Event(), threading.Event()
-
-        def slow():
-            started.set()
-            release.wait(2.0)
-
-        t = threading.Thread(target=lambda: m.preempt("safety", slow, "slow"))
-        t.start()
-        started.wait(1.0)
-        t0 = time.time()
-        m.submit("plan", lambda: None, "dig")          # must not wait for `slow`
-        blocked = time.time() - t0
-        release.set()
-        t.join()
-        self.assertLess(blocked, 0.5, "submit blocked behind a running preemption: action ran under the lock")
-        self.assertEqual([p.reason for p in m.pending], ["dig"])
 
     # (the layer that preempts) → the interrupt message it leaves: only safety and faster write it
     INTERRUPTS = [("reflex", "fireball", "fireball"), ("safety", "breath", "breath"), ("tactic", "fight", None),

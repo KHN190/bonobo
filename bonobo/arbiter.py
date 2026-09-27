@@ -22,7 +22,6 @@ Two channels, kept distinct on purpose:
 The body is a singleton — one process, one player — so BODY is module state. Actions are per fight; the body is not.
 """
 import json
-import os
 import threading
 import time
 
@@ -51,24 +50,6 @@ REFUSED = ("layer", "held", "expired", "stood_down")
 HANDOVER = paths.data("handover.json", env="MC_HANDOVER")
 HANDOVER_POLL_S = 0.5
 _HANDOVER = (0.0, None)
-
-
-def handover(keep=None, clear=False):
-    """Write (or clear) the handover flag. `keep` is the slowest layer the agent may still run itself."""
-    global _HANDOVER
-    if clear:
-        try:
-            os.remove(HANDOVER)
-        except OSError:
-            pass
-    else:
-        if keep not in SCALES:
-            raise ValueError(f"unknown layer {keep!r}: expected one of {sorted(SCALES)}")
-        paths.ensure(HANDOVER)
-        with open(HANDOVER, "w") as fh:
-            json.dump({"keep": keep, "at": time.time()}, fh)
-    _HANDOVER = (0.0, None)
-    return None if clear else keep
 
 
 def handed_over(now=None):
@@ -301,32 +282,6 @@ class Motion:
             self.engaged = False
             self.pending = []
 
-    def stand_down(self, keep="reflex", persist=True):
-        """Hand the body to whoever is driving from outside; keep only layers at least as fast as `keep`."""
-        if keep not in SCALES:
-            raise ValueError(f"unknown layer {keep!r}: expected one of {sorted(SCALES)}")
-        if persist:
-            handover(keep)
-        with self._lock:
-            self.ceiling = SCALES[keep]
-            self.pending = []
-            self.lease = None
-        self._log(f"   motion: stood down to {keep}; the body is driven from outside")
-        return keep
-
-    def resume(self, persist=True):
-        """Take the layers back. Idempotent: resuming an agent that never stood down changes nothing."""
-        if persist:
-            handover(clear=True)
-        with self._lock:
-            was, self.ceiling = self.ceiling, None
-        if was is not None:
-            self._log("   motion: layers resumed; the agent decides for itself again")
-        return was is not None
-
-    def stood_down(self):
-        return self.ceiling_now() is not None
-
     def ceiling_now(self):
         """The ceiling in force: this process's own, or the one another process wrote."""
         if self.ceiling is not None:
@@ -498,10 +453,9 @@ class Motion:
     def drive(self, layer, action, reason="", commit_s=None, resumable=True, redo_s=0.0):
         """Run `action` now, on this thread, under a commitment. Ordinary play's entry point.
 
-        The fight submits intents and steps them; ordinary play runs one chosen candidate per round, which is the
-        same thing with a queue of one. What it needs from the arbiter is the commitment: `api.await_task` reads
-        the current intent, and without one a skill keeps the body for as long as it likes — which is why a zombie
-        could beat on the agent for the length of a mining task.
+        Ordinary play runs one chosen candidate per round. What it needs from the arbiter is the commitment:
+        `api.await_task` reads the current intent, and without one a skill keeps the body for as long as it likes —
+        which is why a zombie could beat on the agent for the length of a mining task.
 
         Returns whether it ran: a stood-down agent does not drive itself.
         """
@@ -510,35 +464,6 @@ class Motion:
             return False
         self._run(Intent(layer, action, reason, commit_s=commit_s, resumable=resumable, redo_s=redo_s))
         return True
-
-    # -- slow layers: submit + step ---------------------------------------------------------------------------------
-
-    def submit(self, layer, action, reason="", deadline_s=None, commit_s=None, cost_rate=0.0, cost_s=None,
-               resumable=True, redo_s=0.0):
-        with self._lock:
-            self.pending.append(Intent(layer, action, reason, deadline_s, commit_s=commit_s,
-                                       cost_rate=cost_rate, cost_s=cost_s,
-                                       resumable=resumable, redo_s=redo_s))
-
-    def step(self, now=None):
-        """Run the winning pending intent and drop the rest. Returns (layer, reason) or None.
-
-        A plan submitted before the last preemption is stale — it was made for a situation a faster layer has
-        since changed — and is dropped even if it would otherwise win.
-        """
-        with self._lock:
-            fresh = [p for p in self.pending
-                     if self.allows(p.layer) and not (p.layer == "plan" and p.at < self.preempted_at)]
-            chosen = arbitrate(fresh, now)
-            dropped = [p for p in self.pending if p is not chosen]
-            self.pending = []
-            if chosen is None:
-                return None
-            if dropped:
-                self._log(f"   motion: {chosen.layer} '{chosen.reason}' over "
-                          f"{', '.join(f'{d.layer}:{d.reason}' for d in dropped)}")
-        self._run(chosen)              # outside the lock
-        return chosen.layer, chosen.reason
 
 
 BODY = Motion(watch_handover=True)      # the one player this process drives

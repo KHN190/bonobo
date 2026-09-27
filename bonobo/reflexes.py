@@ -193,13 +193,6 @@ class Maintain:
         if cause == "nav":
             self.blocked = {"t": time.time(), "place": place, "pos": getattr(err, "pos", None)}
 
-    def act(self, snap, ctx, reads=None):
-        """(name, run) of the reflex the arbiter picks among those that fire (`proposals`), or None."""
-        from . import arbiter
-        props = self.proposals(snap, ctx, reads)
-        got = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq) for seq, name, run in props])
-        return got.action if got else None
-
     def proposals(self, snap, ctx, reads=None):
         """[(seq, name, run)] of every reflex that fires (TABLE, `seq` its place there): each trigger reads this
         round's view of the snapshot, made here — nothing another step of the round left behind, so the order in

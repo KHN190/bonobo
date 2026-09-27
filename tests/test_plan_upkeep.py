@@ -26,7 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
+from bonobo import api, arbiter, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import COVERED_SKY, bare  # noqa: E402
@@ -1135,7 +1135,9 @@ def run_upkeep(row, tmp):
     with mock.patch.object(tasks, "FILE", os.path.join(tmp, "tasks.json")), \
             mock.patch.object(api, "api", side_effect=AssertionError("upkeep read the world beyond the row")):
         reads = {"enclosed": row.enclosed, "bed_near": row.bed_seen, "soft_ground": False}
-        got = rx.act(snap, ctx=None, reads=dict(reads))
+        picked = arbiter.arbitrate([arbiter.Intent("maintain", (name, run), seq=seq)
+                                    for seq, name, run in rx.proposals(snap, None, dict(reads))])
+        got = picked.action if picked else None
         table.propose(snap, None, reads=dict(reads))
         if got:                                     # MAINTAIN outranks PLAN (arbiter.SCALES): no need acted this round
             table.needs_now = []
