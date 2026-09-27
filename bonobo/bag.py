@@ -178,3 +178,21 @@ def supports(feet):
     x, y, z = feet
     return {(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
 
+
+def mineable(cells, feet):
+    """Pure: the cells a skill may break standing at `feet`, in the order given — never the floor under or around
+    the feet (`supports`). Target selection and the no-floor rule are this one predicate."""
+    floor = supports(tuple(feet))
+    return [tuple(c) for c in cells if tuple(c) not in floor]
+
+
+def refused(cells, refused_before, jar_digs):
+    """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped). A cell refused
+    before is dropped — asking again is the same attempt (mine_stone looped on one floor block until its budget
+    ran out). So is every cell when the jar's own approach already dug for it (approach_dig)."""
+    cells = {tuple(c) for c in cells}
+    if jar_digs:
+        return set(), cells
+    drop = cells & set(refused_before)
+    return cells - drop, drop
+

@@ -11,7 +11,7 @@ from .skill import skill, world_signature
 from .data import (ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, RECIPES, bare, mid)
 from .knowledge import GROUP_RECIPES, members
-from .bag import pickup_whitelist, supports
+from .bag import mineable, pickup_whitelist, refused
 
 
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
@@ -575,6 +575,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     # as a nav failure, which is the one thing that makes the retry policy wait for a CHANGE OF PLACE.
     unreachable = 0
     empty_batches = 0    # batches the mod could not break at all; a few in a row means the seam really is dead
+    tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
     for _ in range(10):
         have = Inventory().count(drop)
         if have >= target:
@@ -611,7 +612,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             continue
-        vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)} - supports(start)
+        vein = set(mineable((p for p in connected(region, seed, blocks) if not ctx.blocked(p)), start))
         if not vein:
             continue      # the whole connected vein is already proven unreachable: next seed
         # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
@@ -668,7 +669,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
         # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
         # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
-        open_faced = [p for p in in_reach if p in exposed_cells and p not in supports(here_now)]
+        open_faced = [p for p in mineable(in_reach, here_now) if p in exposed_cells]
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
@@ -714,9 +715,11 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 # "No path found" to a block INSIDE rock is not news: nothing stands next to it yet. Dig one face
                 # open and it is an ordinary block. Banning it instead is how ten coal 2.4 blocks away stayed
                 # "unreachable" for a whole session while the tunneller went unused.
-                if bad and ctx.policy.allow_dig and nav.way_to(ctx, bad):
-                    continue           # a face is open now: the same blocks, asked again
-                for p in bad or ():
+                again, _ = refused(bad, tried, "approach_dig" in nav.mod_features())
+                tried |= bad
+                if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
+                    continue           # a face is open now: the same blocks, asked again — once
+                for p in bad:
                     ctx.ban(p)      # only the blocks the mod named as unreachable, and only with no way in
                 if bad:
                     # The mod's refusal costs a full path search each time, so it counts against the same budget as
@@ -724,10 +727,12 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                     unreachable += 1
                     _reach_budget(unreachable, blocks)
                 continue
-            if ctx.policy.allow_dig and nav.way_to(ctx, vein):
-                continue               # nothing broke because nothing could be stood next to: now it can
+            again, _ = refused(vein, tried, "approach_dig" in nav.mod_features())
+            tried |= vein
+            if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
+                continue               # nothing broke because nothing could be stood next to: now it can, once
             for p in vein:
-                ctx.ban(p)
+                ctx.ban(p)             # refused: dropped, never the same batch again
             # Ban this batch, then try the next one: one unmineable batch is not proof that the whole seam is dead,
             # and failing the step here cooled the goal for two minutes on every hillside landing.
             empty_batches += 1

@@ -1025,7 +1025,7 @@ class Commands(unittest.TestCase):
 
 
 
-class BagFull(unittest.TestCase):
+class BagRules(unittest.TestCase):
     """A gatherer's failure on a full bag names the bag (skill.bag_full_reason, one place for chop/hunt/mine/loot)."""
 
     # (situation, the failure, free slots) → the message raised (None: the failure stands as it is)
@@ -1065,6 +1065,42 @@ class BagFull(unittest.TestCase):
                 self.assertEqual(bag.supports(feet), want)
         self.assertNotIn((0, 62, 0), bag.supports((0, 64, 0)))       # two below is not the floor
         self.assertNotIn((2, 63, 0), bag.supports((0, 64, 0)))       # two aside is not either
+
+    # (situation, cells asked, feet) → the cells a skill may break, in order
+    MINEABLE = [
+        ("the bench floor: the ring block beside the feet is not a target", [(9999, 199, 10000), (9998, 199, 10000)],
+         (10000, 200, 10000), [(9998, 199, 10000)]),
+        ("a wall at feet level and one above: both kept, order kept", [(2, 65, 0), (2, 64, 0)], (0, 64, 0),
+         [(2, 65, 0), (2, 64, 0)]),
+        ("edge: the corner of the ring is floor too", [(1, 63, 1), (2, 63, 2)], (0, 64, 0), [(2, 63, 2)]),
+        ("edge: two below the feet is not the floor", [(0, 62, 0)], (0, 64, 0), [(0, 62, 0)]),
+        ("must fail: only the floor offered → nothing to mine", [(0, 63, 0), (-1, 63, 0), (0, 63, 1)], (0, 64, 0),
+         []),
+    ]
+
+    def test_mineable_is_the_floor_rule(self):
+        from bonobo import bag
+        for name, cells, feet, want in self.MINEABLE:
+            with self.subTest(name):
+                self.assertEqual(bag.mineable(cells, feet), want)
+
+    # (situation, cells refused now, refused before, jar digs its own approach) → (asked again, dropped)
+    REFUSED = [
+        ("first refusal, old jar: ask again after making a way", [(1, 2, 3)], set(), False, ({(1, 2, 3)}, set())),
+        ("the same block refused twice: dropped (the mine_stone loop)", [(9999, 199, 10000)], {(9999, 199, 10000)},
+         False, (set(), {(9999, 199, 10000)})),
+        ("mixed batch: only the repeat is dropped", [(1, 2, 3), (4, 5, 6)], {(4, 5, 6)}, False,
+         ({(1, 2, 3)}, {(4, 5, 6)})),
+        ("the jar already dug its approach: dropped on the first refusal", [(1, 2, 3)], set(), True,
+         (set(), {(1, 2, 3)})),
+        ("edge: nothing refused", [], {(1, 2, 3)}, False, (set(), set())),
+    ]
+
+    def test_refused_targets_are_dropped(self):
+        from bonobo import bag
+        for name, cells, before, jar_digs, want in self.REFUSED:
+            with self.subTest(name):
+                self.assertEqual(bag.refused(cells, before, jar_digs), want)
 
     def test_a_gatherer_checks_the_bag_before_it_starts(self):
         """chop/mine/hunt/loot on a bag with no room for what they gather fail before the body does anything; with
