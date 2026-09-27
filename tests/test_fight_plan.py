@@ -87,7 +87,8 @@ class StateShape(unittest.TestCase):
                 before = repr(s)
                 F.action(name).effect(s)
                 self.assertEqual(repr(s), before, "the original must not change")
-        self.assertTrue(F.action("dig_tunnel").effect(state(tunnel=False))["terrain"]["tunnel_ready"])
+        dug = F.action("dig_tunnel").effect(state(tunnel=False))
+        self.assertEqual((dug["terrain"]["tunnel_ready"], dug["self"]["in_cover"]), (True, True))
 
 
 class TimeModel(unittest.TestCase):

@@ -193,16 +193,19 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
         m = memory.Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
         m.data["deaths"].append({"pos": [0, 64, 0], "dimension": "minecraft:overworld", "t": 1000.0})
         with mock.patch.object(memory.time, "time", return_value=1000.0 + took):
-            self.assertIsNotNone(m.forget_death())
+            self.assertEqual(m.forget_death(), {"pos": [0, 64, 0], "dimension": "minecraft:overworld", "t": 1000.0,
+                                                "recovered": True})
 
     def _eat(self, took):
         from unittest import mock
         from bonobo import brain, skills  # noqa: F401  (brain registers every skill module)
+        from bonobo.knowledge import ALL_FOOD
         inv = type("Inv", (), {"count": lambda self, item: 1})
         with mock.patch.object(skills.time, "time", side_effect=[1000.0, 1000.0 + took]), \
                 mock.patch.object(skills, "Inventory", inv), \
-                mock.patch.object(skills.api, "run", return_value={"status": "succeeded"}):
-            self.assertTrue(skills.eat.__wrapped__(None, raw_ok=False))
+                mock.patch.object(skills.api, "run", return_value={"status": "succeeded"}) as run:
+            self.assertIs(skills.eat.__wrapped__(None, raw_ok=False), True)
+            run.assert_called_once_with({"type": "eat", "item": ALL_FOOD[0]}, wait=30)
 
     # (counter, how it is run, span in seconds) → the belief it files, or None when the span is not a sample
     ROWS = [("break with a pickaxe", "_break", (2.0, True), "tools.mine_time_stone"),
