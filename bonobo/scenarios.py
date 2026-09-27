@@ -2596,6 +2596,66 @@ SHEET["pearls_from_barter"] = {
     "check": lambda api, inv: inv.count("minecraft:gold_ingot") < 2 and _trades(inv) >= 1, "budget": 30,
 }
 
+# -- the producers the skills' `gives` added: a farm grows wheat (→ bread), a villager buys for emeralds, the
+# plan fills a bucket. Built with the console (a ripe-able plot's soil, a villager with exactly one offer), judged
+# by what the bag gained.
+def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
+    """A villager that stays put (NoAI) with one offer: `n_buy` of `buy` → `n_sell` of `sell`."""
+    return (f'summon villager {_c(pos)} {{NoAI:1b,VillagerData:{{profession:"minecraft:{profession}",level:2,'
+            f'type:"minecraft:plains"}},Offers:{{Recipes:[{{buy:{{id:"minecraft:{buy}",count:{n_buy}}},'
+            f'sell:{{id:"minecraft:{sell}",count:{n_sell}}},maxUses:12}}]}}}}')
+
+
+FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket"]
+for _name, _doc, _setup, _run, _check in [
+        ("bread_from_a_farm", "grass, a hoe, 8 seeds, a water bucket, nothing else → the plan farms wheat (the crop "
+         "grown by tick sprint) and bakes bread",
+         _floor("grass_block") + [_tp()] + FARM_KIT, _achieve_needs([("minecraft:bread", 1)], rounds=6),
+         _gain("minecraft:bread", 1)),
+        ("bread_from_a_farm_two_wheat_carried", "the same with 2 wheat carried (one short of a loaf) → still farmed, "
+         "the carried wheat used: bread, and the plot sown",
+         _floor("grass_block") + [_tp(), "give @p wheat 2"] + FARM_KIT, _achieve_needs([("minecraft:bread", 1)], rounds=6),
+         _all(_gain("minecraft:bread", 1), _blocks(at(-4, 0, -4), at(4, 0, 4), "farmland", 1))),
+        ("bread_from_a_farm_no_soil", "stone floor, the same kit → no plot can be made: the plan fails naming the soil "
+         "(must fail, never a hang)",
+         _floor() + [_tp()] + FARM_KIT,
+         _expect_failure("bread_from_a_farm_no_soil", _achieve_needs([("minecraft:bread", 1)], rounds=3),
+                         r"soil|no flat|farm"), _same_bag())]:
+    SHEET[_name] = {"doc": _doc, "module": "decompose", "point": "C", "skills": ["farm"], "tier_fixed": "exception",
+                    "tags": {"base": "sources", "source": "farm"}, "setup": list(_setup),
+                    "before": _hooks(_start(_name), _sprint_after(6, 24000)), "run": _run, "check": _check,
+                    "budget": 30}
+
+TRADER = at(3, 0, 0)
+for _name, _doc, _setup, _run, _check in [
+        ("emerald_from_a_villager", "a farmer buying 20 wheat for an emerald, 20 wheat carried → the plan sells: an "
+         "emerald gained, the wheat gone",
+         _floor() + [_tp(), "give @p wheat 20", _villager(TRADER, "wheat", 20, "emerald", 1)],
+         _achieve_needs([("minecraft:emerald", 1)], rounds=3),
+         _all(_gain("minecraft:emerald", 1), lambda api, inv: inv.count("minecraft:wheat") == 0)),
+        ("emerald_villager_without_the_trade", "a villager who only sells bread → no emerald offer: the trade ends "
+         "naming it (must fail, never a hang)",
+         _floor() + [_tp(), "give @p wheat 20", _villager(TRADER, "emerald", 1, "bread", 6)],
+         _expect_failure("emerald_villager_without_the_trade", lambda ctx: _skill("trade")(ctx, "minecraft:emerald"),
+                         r"no affordable|emerald trade"), _same_bag()),
+        ("emerald_no_villager", "no villager anywhere, wheat carried → the trade fails naming it (must fail)",
+         _floor() + [_tp(), "give @p wheat 20"],
+         _expect_failure("emerald_no_villager", lambda ctx: _skill("trade")(ctx, "minecraft:emerald"),
+                         r"no villager"), _same_bag())]:
+    SHEET[_name] = {"doc": _doc, "module": "decompose", "point": "C", "skills": ["trade"], "tier_fixed": "exception",
+                    "tags": {"base": "sources", "source": "trade"}, "setup": list(_setup),
+                    "before": _start(_name), "run": _run, "check": _check, "budget": 30}
+
+SHEET["water_bucket_from_the_plan"] = {
+    "doc": "An empty bucket, a pond 3 blocks off → the plan fills it (the fill producer): a water bucket held",
+    "module": "decompose", "point": "C", "skills": ["fill"], "tier_fixed": "exception",
+    "tags": {"base": "sources", "source": "fill"},
+    "setup": _floor() + [f"fill {_c(at(3, -1, -1))} {_c(at(4, -1, 1))} water", _tp(), "give @p bucket"],
+    "before": _start("water_bucket_from_the_plan"),
+    "run": _achieve_needs([("minecraft:water_bucket", 1)], rounds=3),
+    "check": _gain("minecraft:water_bucket", 1), "budget": 30,
+}
+
 SHEET["bucket_before_the_shaft"] = {
     "doc": "An empty bucket, water 2 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
            "before any digging (WaterClutch needs it in hand)",
