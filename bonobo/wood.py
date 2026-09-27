@@ -41,7 +41,7 @@ def pick_trunks(logs):
     return trunks
 
 @skill(gives=K.GIVES_GATHER, needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
-       budget=600, stall=90, per_unit=6, units=lambda c: c.args[1], key=lambda c: "chop",
+       budget=600, stall=90, units=lambda c: c.args[1], key=lambda c: "chop",
        provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"])
 def chop(ctx, n):
     """Fell whole trunks nearest first until `n` more logs are held."""

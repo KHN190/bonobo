@@ -302,7 +302,7 @@ def repair_commands(state, args):
 
 @skill(gives=["state:tool_combined"], remaining=_k.fewer_tools(_kind_of), needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
        commands=lambda state, args: repair_commands(state, args),
-       budget=60, stall=30, per_unit=5, prefer=1,
+       budget=60, stall=30, prefer=1,
        provides={"repair": lambda ctx, s: (s.token,) if repair_pair(Inventory().slots, s.token) else None})
 def repair_tool(ctx, kind="pickaxe"):
     """Combine the two most worn tools of one kind in the 2×2 grid into one repaired tool."""

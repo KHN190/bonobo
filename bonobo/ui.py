@@ -56,7 +56,7 @@ def _enchanted(item):
     """How many of `item` carried are enchanted (the jar reports `enchanted` on a stack from 0.1.39)."""
     return sum(1 for s in Inventory().slots if s["id"] == item and s.get("enchanted"))
 
-@skill(gives=["state:enchanted"], remaining=_k.enchanted(lambda c: c.args[1]), needs={"minecraft:lapis_lazuli": 1}, speed={}, start=lambda c: _enchanted(c.args[1]), verify=lambda c: _enchanted(c.args[1]) > c.base, budget=180, stall=60, per_unit=30, provides={"enchant": lambda ctx, s: (mid(s.token),)})
+@skill(gives=["state:enchanted"], remaining=_k.enchanted(lambda c: c.args[1]), needs={"minecraft:lapis_lazuli": 1}, speed={}, start=lambda c: _enchanted(c.args[1]), verify=lambda c: _enchanted(c.args[1]) > c.base, budget=180, stall=60, provides={"enchant": lambda ctx, s: (mid(s.token),)})
 def enchant_item(ctx, item):
     """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option, take the item back."""
 
@@ -84,7 +84,7 @@ def enchant_item(ctx, item):
     return pick
 
 @skill(gives=K.GIVES_TRADE, needs=lambda a: {} if str(a[1]).endswith("emerald") else {"minecraft:emerald": 1}, speed={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=60, per_unit=30, provides={"trade": lambda ctx, s: (mid(s.token),)})
+       budget=180, stall=60, provides={"trade": lambda ctx, s: (mid(s.token),)})
 def trade(ctx, want):
     """Buy `want` from a nearby villager: open its trades, pick an affordable offer, take the result."""
     villagers = [e for e in entities(24) if e["type"] == "minecraft:villager" and not ctx.blocked((e["id"], 0, 0))]
@@ -129,7 +129,7 @@ def _anvil_args(ctx, step):
     return (item, material) if material else None
 
 @skill(gives=["state:repaired"], remaining=_k.worn(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: _worn(c.args[1]), verify=lambda c: _worn(c.args[1]) < c.base,
-       budget=180, stall=60, per_unit=30, prefer=-1, provides={"repair": _anvil_args})
+       budget=180, stall=60, prefer=-1, provides={"repair": _anvil_args})
 def anvil_repair(ctx, item, material):
     """At an anvil: the damaged item + its repair material (e."""
 

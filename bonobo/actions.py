@@ -5,7 +5,6 @@ import math
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
 from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced)
-from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate
 from .solve import Action
@@ -499,35 +498,6 @@ def _shelter(cost, state):
                           requires={"sheltered": 1}, limit=1, tag=("wait", "day")))
     return out
 
-def marginal_batch(step, shadow, demand, bag_free, stack=64):
-    """How much to actually take, from the margin rather than from the shortfall."""
-
-    if step.kind not in ("mine", "gather", "take"):
-        return step
-    per_unit = float(shadow.get(step.token, 0.0) or 0.0)
-    want = int(max(step.count, min(int(demand.get(step.token, 0) or 0), _cap_for(bag_free, stack))))
-    pick_s = beliefs.cautious("batch.pick_s", "cost")
-    while want > step.count:
-        # Cost of the LAST unit of this batch: picking it up, plus the slot it eats, at the fullness it leaves.
-        free_after = float(bag_free) - float(want) / float(stack)
-        slots_needed = math.ceil(want / float(stack))
-        slot_cost = beliefs.slots_cost_s(slots_needed, float(bag_free))
-        if per_unit * want >= pick_s * want + slot_cost and free_after >= 1.0:
-            break
-        want -= 1
-    if want <= step.count:
-        return step
-    per_tick = step.est / step.count if step.count else 0
-    step.est = int(round(per_tick * want))
-    step.detail["batched"] = True        # one task chain: the body is busy for all of it
-    if step.kind == "mine" and step.detail.get("breaks"):
-        step.detail["breaks"] = int(math.ceil(step.detail["breaks"] * want / step.count))
-    step.count = want
-    return step
-
-def _cap_for(bag_free, stack):
-    """The most units the bag could hold, leaving a slot to move in."""
-    return int(max(0.0, float(bag_free) - 1.0) * float(stack))
 
 def target_of(needs):
     """A goal's `needs` as a target vector."""

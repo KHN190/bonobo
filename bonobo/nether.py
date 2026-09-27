@@ -31,7 +31,7 @@ def triangulate(p1, d1, p2, d2):
         return None
     return round(x1 + a1 * t), round(z1 + b1 * t)
 
-@skill(gives=["state:crossed"], remaining=_k.in_dimension(lambda c: c.args[1]), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90, per_unit=60,
+@skill(gives=["state:crossed"], remaining=_k.in_dimension(lambda c: c.args[1]), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90,
        provides={"portal": lambda ctx, s: (s.token,)})
 def use_portal(ctx, to_dimension):
     """Walk into the nearest known lit portal and stand in it until the dimension changes."""
@@ -84,7 +84,7 @@ def use_portal(ctx, to_dimension):
             return arrived
     raise McError("stood in the portal but the dimension didn't change")
 
-@skill(gives=["state:fortress_found"], remaining=_k.blocks_there("nether_bricks"), needs={}, speed={}, verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180, per_unit=600,
+@skill(gives=["state:fortress_found"], remaining=_k.blocks_there("nether_bricks"), needs={}, speed={}, verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180,
        provides={"seek:fortress": lambda ctx, s: ()})
 def find_fortress(ctx, legs=8, leg=48):
     """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava)."""
@@ -168,7 +168,7 @@ def _not_gold():
     """Everything carried except the gold being traded away: what a barter brings back raises this."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
-@skill(gives=["state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1}, speed={}, start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180, per_unit=15,
+@skill(gives=["state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1}, speed={}, start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180,
        provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)})
 def barter_piglin(ctx, ingots=8):
     """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect."""
@@ -239,7 +239,7 @@ def _thrown_there(c):
     spot = triangulate(*throws[0], *throws[1])
     return spot is not None and math.dist(spot, (site["pos"][0], site["pos"][2])) <= 1
 
-@skill(gives=["state:stronghold_known"], remaining=_k.site_known("stronghold"), needs={"minecraft:ender_eye": 2}, speed={}, verify=_thrown_there, budget=900, stall=240, per_unit=600, provides={"seek:stronghold": lambda ctx, s: ()})
+@skill(gives=["state:stronghold_known"], remaining=_k.site_known("stronghold"), needs={"minecraft:ender_eye": 2}, speed={}, verify=_thrown_there, budget=900, stall=240, provides={"seek:stronghold": lambda ctx, s: ()})
 def locate_stronghold(ctx):
     """Throw an eye here, walk ~200 blocks sideways, throw again, triangulate; the result is a 'stronghold' site."""
     known = ctx.mem.sites(OVERWORLD, kinds=["stronghold"])

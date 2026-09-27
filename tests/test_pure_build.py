@@ -268,20 +268,6 @@ class SlotCost(unittest.TestCase):
             with self.subTest(free=free, why=why):
                 self.assertAlmostEqual(beliefs.slot_cost_s(free), want, places=9)
 
-    def test_slots_cost_s(self):
-        rows = [
-            # slots  free   expected                               why
-            (0,      10,    0.0,                                    "boundary: nothing taken"),
-            (1,      6,     SLOT_S / 36,                            "one slot is slot_cost_s"),
-            (2,      6,     SLOT_S / 36 + SLOT_S / 25,              "each priced against the bag by then"),
-            (2.9,    6,     SLOT_S / 36 + SLOT_S / 25,              "fractional slots truncate"),
-            (3,      2,     SLOT_S / 4 + SLOT_S + SLOT_S,           "running out: clamps at one free"),
-            (-1,     6,     0.0,                                    "negative: a negative count takes nothing"),
-        ]
-        for slots, free, want, why in rows:
-            with self.subTest(slots=slots, free=free, why=why):
-                self.assertAlmostEqual(beliefs.slots_cost_s(slots, free), want, places=9)
-
 
 # --------------------------------------------------------------------------------------------------- blueprints
 

@@ -740,16 +740,15 @@ class RetryAndSkill(unittest.TestCase):
 
         def verify(c):
             return False
-        rows = [  # (why, fn, budget, per_unit, verify, expected per_unit, expected verify, expected doc)
-            ("per_unit defaults to budget / 3", documented, 30, None, None, 10.0, done, "First line."),
-            ("per_unit given", documented, 30, 5, None, 5, done, "First line."),
-            ("zero budget", bare, 0, None, None, 0.0, done, ""),
-            ("verify given is kept", bare, 90, None, verify, 30.0, verify, ""),
+        rows = [  # (why, fn, verify, expected verify, expected doc)
+            ("a documented skill: its doc's first line, verify defaults to done", documented, None, done, "First line."),
+            ("no docstring: no doc", bare, None, done, ""),
+            ("a lambda: no doc", lambda c: None, None, done, ""),
+            ("must fail: a verify given is kept, not replaced by done", bare, verify, verify, ""),
         ]
-        for why, fn, budget, per_unit, ver, want_pu, want_ver, want_doc in rows:
+        for why, fn, ver, want_ver, want_doc in rows:
             with self.subTest(why):
-                c = skillkit.Contract("x", fn, None, None, done, ver, budget, 10, per_unit, None, None)
-                self.assertEqual(c.per_unit, want_pu)
+                c = skillkit.Contract("x", fn, None, None, done, ver, 30, 10, None, None)
                 self.assertIs(c.verify, want_ver)
                 self.assertEqual(c.doc, want_doc)
                 self.assertEqual(c.units(object()), 1)

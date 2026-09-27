@@ -173,7 +173,7 @@ def _plot_growing(centre):
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
 @skill(gives=K.GIVES_FARM, needs={"minecraft:wheat_seeds": 1, "minecraft:water_bucket": 1, "tool:hoe:0": 1}, speed={},
-       commands=lambda state, args: plant_farm_commands(state, args), verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90, per_unit=120,
+       commands=lambda state, args: plant_farm_commands(state, args), verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
     """Wheat for the plan: a crop already grown nearby is reaped first (the world read here, at execution — the estimate only knows memory); else make a 3×3 plot here: dig the centre, pour the water bucket in (and take nothing back — it stays as the plot's source), till the 8 neighbours with a hoe, sow seeds, start a crop job."""
@@ -247,7 +247,7 @@ def _babies():
     """Young animals of the kinds we breed within 24 blocks: what a breeding makes (the jar reports `baby`)."""
     return sum(1 for e in entities(24, list(BREED_FOOD)) if e.get("baby"))
 
-@skill(gives=["state:bred"], remaining=_k.babies, needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60, per_unit=60,
+@skill(gives=["state:bred"], remaining=_k.babies, needs={}, speed={}, start=lambda c: _babies(), verify=lambda c: _babies() > c.base, budget=180, stall=60,
        commands=lambda state, args: breed_commands(state, args),
        provides={"breed": lambda ctx, s: ()})
 def breed(ctx):

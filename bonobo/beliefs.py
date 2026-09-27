@@ -200,11 +200,4 @@ def cautious(path, direction="benefit"):
         return float(v) * (2.0 - trust)
     return float(v) * (0.5 + 0.5 * trust)
 
-def slots_cost_s(slots, free):
-    """What `slots` more occupied slots cost, each priced against the bag as it will be by then."""
-
-    free = float(free)
-    return sum(slot_cost_s(max(1.0, free - i)) for i in range(int(slots)))
-
 TICKS_PER_S = 20.0      # the game's clock, in one place
-

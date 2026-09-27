@@ -40,7 +40,7 @@ def unlooted_chests(ctx, radius=32):
     return sorted(out, key=lambda p: math.dist(p, here))
 
 @skill(gives=["state:looted"], remaining=_k.gained_any, needs={}, speed={}, start=lambda c: carried_total(), verify=lambda c: carried_total() > c.base,
-       budget=240, stall=90, per_unit=60, provides={"loot": lambda ctx, s: ()}, fills_bag=True)
+       budget=240, stall=90, provides={"loot": lambda ctx, s: ()}, fills_bag=True)
 def loot_chest(ctx):
     """Open the nearest chest that isn't ours and hasn't been looted, take the valuable stacks, remember it."""
     chests = unlooted_chests(ctx)
