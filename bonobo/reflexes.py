@@ -175,7 +175,7 @@ class Maintain:
         enclosed, soft_ground = ground(reads)
 
         def night_way():
-            return b.needs.overnight(snap, needs.night_facts(soft_ground()), bed_too=False)
+            return b.needs.overnight(snap, needs.night_facts(soft_ground(), needs.cooled_ways(b.ready)), bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
             "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
@@ -232,9 +232,18 @@ class Maintain:
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
+        from .needs import way_key
         way, _secs, steps = night_way
         log(f"   the night: {way} ({' → '.join(map(str, steps))})")
-        return SHELTER_RUN[steps[-1].token](ctx)
+        try:
+            return SHELTER_RUN[steps[-1].token](ctx)
+        except McError as e:
+            if api.interrupted(e):
+                raise
+            # the way failed, not the night: it cools under its own key and drops out of the pricing, so the
+            # next way is chosen this same night (dig in: "no lid below the ground line" → wall in)
+            b.failed(way_key(way), e)
+            return None
 
     def sheltered(self, snap, enclosed=None):
         """knowledge.sheltered over this round: under rock, walled in, or inside a site's interior."""

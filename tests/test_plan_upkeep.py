@@ -2010,6 +2010,26 @@ class Overnight(unittest.TestCase):
                 got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=False)
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
 
+    def test_a_way_that_failed_here_gives_way_to_the_next(self):
+        """A night way that failed here (cooling under needs.way_key) drops out of the pricing: the next way is
+        chosen the same night (search_night_resume: dig in refused 'no lid below the ground line', then idling)."""
+        carried = [("stone_pickaxe", 1), ("cobblestone", 16)]            # both dig in and wall in can be had
+        # (situation, the ways cooling) → the way chosen
+        rows = [("dig in cooled: walled in", ["dig in"], "wall in"),
+                ("wall in cooled: dug in", ["wall in"], "dig in"),
+                ("a way this bag cannot take cooled: no change", ["hut", "dig in by hand"], None),
+                ("must fail: every way it has cooled: none tonight", ["dig in", "wall in"], "none")]
+        snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
+        free, _s, _st = needs.overnight(snap.inv, cost(snap), needs.night_facts(False), bed_too=False)
+        for name, cooled, want in rows:
+            with self.subTest(name):
+                got, _secs, steps = needs.overnight(snap.inv, cost(snap), needs.night_facts(False, cooled),
+                                                    bed_too=False)
+                self.assertEqual(got, free if want is None else (None if want == "none" else want))
+        with self.subTest("the cooling read from the retry keys"):
+            self.assertEqual(needs.cooled_ways(lambda key: key != needs.way_key("dig in")), ["dig in"])
+            self.assertEqual(needs.cooled_ways(lambda key: True), [])
+
     def test_stone_ground_dirt_near_walls_in(self):
         """On stone, an empty bag, dirt 4 away: nine dirt dug by hand, then walled in (SOURCES["building"])."""
         snap = snapshot(state(timeOfDay=NIGHT), inventory())

@@ -169,6 +169,9 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
         best, best_steps, name = math.inf, None, None
         why.append(f"default: {e}")
     for src in SOURCES.get(key, ()):
+        if src["name"] in (facts or {}).get("cooled", ()):
+            why.append(f"{src['name']}: failed here lately (cooling)")
+            continue                 # a way that just failed is not priced again tonight: the next way is
         when = src.get("when")
         if when and not (facts or {}).get(when[0]):
             why.append(f"{src['name']}: {when[1]}")
