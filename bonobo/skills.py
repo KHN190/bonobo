@@ -298,16 +298,30 @@ def craft_commands(state, args):
             out.append(nav.mine_task(pos, collect=True))
     return out
 
+def room_clicks(slots, need, price=None):
+    """Pure: the /click bodies that throw the `need` least valuable stacks (bag.free_slots_plan: priced by what
+    each costs to get again) — room for a result that needs a slot."""
+    return [{"slot": screen_slot(s["slot"]), "button": 1, "action": "THROW"}
+            for s in free_slots_plan(slots, need=need, price=price)[:need]]
+
+
+def make_room(ctx, need):
+    """Throw the `need` least valuable stacks now (room_clicks), the screen closed first. Returns the clicks."""
+    close_screen()
+    clicks = room_clicks(Inventory().slots, need, ctx.prices().get if ctx else None)
+    for body in clicks:
+        api.post("/click", body)
+    return clicks
+
+
 def _sitting(ctx, recipes):
     """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once."""
 
     inv = Inventory()
     if inv.used_slots() >= BAG_SLOTS:
         # the result needs a slot: drop the least valuable stack first
-        close_screen()
-        for s in free_slots_plan(inv.slots, need=1, price=ctx.prices().get if ctx else None)[:1]:
-            api.post("/click", {"slot": screen_slot(s["slot"]), "button": 1, "action": "THROW"})
-            log(f"   dropped {bare(s['id'])} to make room for crafting")
+        if make_room(ctx, 1):
+            log("   dropped a stack to make room for crafting")
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
     # world reads only when a table sitting is planned: a table near, else a spot for one
@@ -1821,12 +1835,8 @@ def _place_cache_chest(ctx):
         raise NotAvailable("a cache chest already exists within 24 blocks")
     if Inventory().usable("minecraft:chest") == 0:
         # the result needs somewhere to go: drop the two least valuable stacks first
-        inv = Inventory()
-        if inv.free_slots() <= 1:
-            close_screen()
-            for s in free_slots_plan(inv.slots, need=2, price=ctx.prices().get)[:2]:
-                api.post("/click", {"slot": screen_slot(s["slot"]), "button": 1,
-                                    "action": "THROW"})
+        if Inventory().free_slots() <= 1:
+            make_room(ctx, 2)
         if Inventory().usable("planks") < 8:
             if Inventory().usable("log") >= 2:
                 craft(ctx, "planks", 2)

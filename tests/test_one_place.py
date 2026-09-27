@@ -47,5 +47,30 @@ class BagSlots(unittest.TestCase):
                 self.assertEqual(bag(inventory(**counts)).free_slots(), want)
 
 
+
+class RoomClicks(unittest.TestCase):
+    """skills.room_clicks: the throws that make room (crafting's result, a cache chest), the cheapest stacks first."""
+
+    def test_rows(self):
+        from bonobo.skills import room_clicks
+        from bonobo.world import screen_slot
+        from tests.world import bag, inventory
+        slots = bag(inventory(rotten_flesh=5, cobblestone=10, diamond=3, poisonous_potato=2)).slots
+        at = {s["id"].split(":")[1]: s["slot"] for s in slots}
+        price = {"minecraft:rotten_flesh": 1, "minecraft:poisonous_potato": 1, "minecraft:cobblestone": 2,
+                 "minecraft:diamond": 500}.get
+        rows = [("one: a junk stack", 1, ["poisonous_potato"]),
+                ("two: both junk stacks", 2, ["poisonous_potato", "rotten_flesh"]),
+                ("none asked: nothing thrown", 0, []),
+                ("must fail: never the diamond, even asked for three", 3, None)]
+        for name, need, want in rows:
+            with self.subTest(name):
+                got = room_clicks(slots, need, price)
+                self.assertLessEqual(len(got), need)
+                self.assertNotIn(screen_slot(at["diamond"]), [c["slot"] for c in got])
+                self.assertTrue(all(c["action"] == "THROW" for c in got))
+                if want is not None:
+                    self.assertEqual(sorted(c["slot"] for c in got), sorted(screen_slot(at[w]) for w in want))
+
 if __name__ == "__main__":
     unittest.main()
