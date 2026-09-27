@@ -122,7 +122,7 @@ class RulesAreWired(unittest.TestCase):
          ["api.run(mine)"], False, {"status": "failed", "type": "mine", "message": "body owned by the arbiter",
                                     "seconds": 0}),
         ("walk, not the owner: no walk, the interruption raised (never False: a False banned the target)",
-         lambda: _raised(lambda: nav.go_to((5, 64, 5), None)), False, ["nav.go_to"], False, "BodyContested")]
+         lambda: _raised(lambda: nav.go_to((5, 64, 5), None)), False, ["nav.go_to"], False, "FightHolds")]
 
     def test_every_funnel_asks_who_owns_the_body(self):
         from unittest import mock

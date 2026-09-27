@@ -336,6 +336,7 @@ class Arrive(_Clean):
 OUTCOMES = [
     (api.Interrupted("perception: lava"), "interrupt", "interrupted"),
     (api.BodyContested("another commander posted a task"), "interrupt", "interrupted"),
+    (api.FightHolds("our fight holds the body"), "interrupt", "interrupted"),
     (api.PlayerTookControl(), "interrupt", "interrupted"),
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
@@ -392,7 +393,7 @@ class AWalkCutShortIsNotAFailure(unittest.TestCase):
     "no way there" branch (skills.mine bans the vein) is for failures only."""
 
     def test_over_the_table(self):
-        rows = [("a fight engaged, the walk not its intent", True, api.BodyContested)]
+        rows = [("a fight engaged, the walk not its intent", True, api.FightHolds)]
         for name, engaged, want in rows:
             with self.subTest(name):
                 body = arbiter.Motion()
@@ -442,6 +443,25 @@ class DigInSeals(unittest.TestCase):
                 self.assertEqual({t["collect"] for t in tasks if t["type"] == "mine"}, {collects})
 
 
+class WaitOutFight(unittest.TestCase):
+    """brain.wait_out_fight: back as soon as our fight lets the body go, polled — never the 10 s stand-down."""
+
+    def test_over_the_table(self):
+        from bonobo import fight_loop
+        rows = [("no fight: no wait", [None], 0.0),
+                ("a fight for two polls: two polls", ["zombie", "zombie", None], 2 * brain.FIGHT_POLL_S),
+                ("a fight that never ends: capped", ["zombie"] * 1000, brain.FIGHT_WAIT_MAX_S),
+                ("one poll", ["zombie", None], brain.FIGHT_POLL_S)]
+        for name, engaged, want in rows:
+            with self.subTest(name):
+                clock, seq = [0.0], iter(engaged + [None] * 1000)
+                sleep = lambda s: clock.__setitem__(0, clock[0] + s)     # noqa: E731
+                with mock.patch.object(fight_loop, "engaged", side_effect=lambda: next(seq)), \
+                        mock.patch.object(arbiter, "BODY", arbiter.Motion()):
+                    got = brain.wait_out_fight(sleep=sleep, now=lambda: clock[0])
+                self.assertAlmostEqual(got, want)
+
+
 class Outcomes(unittest.TestCase):
     def test_every_exception_maps_to_one_cause_and_one_class(self):
         for err, cause, cls in OUTCOMES:
@@ -463,7 +483,7 @@ class Outcomes(unittest.TestCase):
     def test_outcome_of(self):
         """What the attempt does about each: interruptions never fail (and some need a hand back or a wait)."""
         special = {api.PlayerTookControl: ("interrupted", "handback"), api.GameUnreachable: ("interrupted", "wait_game"),
-                   api.BodyContested: ("interrupted", "stand_down")}
+                   api.BodyContested: ("interrupted", "stand_down"), api.FightHolds: ("interrupted", "fight")}
         rows = [(err, special.get(type(err), ("interrupted", None) if cls == "interrupted" else ("failed", "stop")))
                 for err, _cause, cls in OUTCOMES]
         rows += [(None, ("ok", None)), (ValueError("a bug of ours"), ("failed", "crash"))]

@@ -214,6 +214,9 @@ class Brain:
         elif then == "stand_down":
             log(f"?? {err}; standing down 10 s")
             time.sleep(10)
+        elif then == "fight":
+            log(f"   {name} interrupted by our fight: resuming when it ends")
+            wait_out_fight()
         elif then is None:
             log(f"   {name} interrupted: {err}")     # no count, no /stop, no cooldown
         elif then == "stop":
@@ -520,6 +523,20 @@ class Brain:
         return hazard.handle(ctx, snap.state, self.attempt, self.ready)
 
 
+FIGHT_POLL_S, FIGHT_WAIT_MAX_S = 0.5, 60.0
+
+
+def wait_out_fight(sleep=time.sleep, now=time.monotonic):
+    """Until our own fight lets the body go (fight_loop.engaged() None, the arbiter holding nothing), polled every
+    FIGHT_POLL_S, at most FIGHT_WAIT_MAX_S. Returns the seconds waited."""
+    from . import fight_loop
+    began = now()
+    while (fight_loop.engaged() is not None or arbiter.BODY.holder() is not None) \
+            and now() - began < FIGHT_WAIT_MAX_S:
+        sleep(FIGHT_POLL_S)
+    return now() - began
+
+
 def outcome_of(err):
     """Pure: what an exception out of an attempt means — (outcome, what to do about it). Interruptions are not
     failures: no count, no /stop, no cooldown."""
@@ -529,8 +546,10 @@ def outcome_of(err):
         return "interrupted", "handback"
     if isinstance(err, GameUnreachable):
         return "interrupted", "wait_game"
+    if isinstance(err, api.FightHolds):
+        return "interrupted", "fight"           # our own fight: back when it ends, not 10 s later
     if isinstance(err, api.BodyContested):
-        return "interrupted", "stand_down"
+        return "interrupted", "stand_down"      # an outside driver (manual, another process)
     if isinstance(err, api.INTERRUPTIONS):
         return "interrupted", None
     if isinstance(err, (McError, skills.ToolMissing)):

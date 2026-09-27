@@ -126,8 +126,13 @@ def refused(r, queued):
     from . import arbiter
     if "owned by the arbiter" in str(r.get("message", "")) or arbiter.BODY.holder() is not None \
             or arbiter.BODY.engaged:
-        raise BodyContested(f"the body is held ({r.get('message') or 'a fight'}): nothing queued")
+        raise FightHolds(f"the body is held ({r.get('message') or 'a fight'}): nothing queued")
     raise NotAvailable("the game queued none of the posted tasks")
+
+
+class FightHolds(McError):
+    """Our own fight (the arbiter's held decision) has the body: an interruption that ends when the fight does —
+    not an outside driver to stand down 10 s for (resume_after_combat slept through its chop)."""
 
 
 class BodyContested(McError):
@@ -139,7 +144,7 @@ class BodyContested(McError):
 # The three outcomes of any attempt: success, failure (with a cause), or interrupted. These are the interrupted ones:
 # something else took the body or the world asked for a decision. None of them says anything about the skill, so
 # none of them counts as a retry, bans a cell, sends /stop or cools anything down.
-INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, PlayerTookControl)
+INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl)
 
 
 def interrupted(err):

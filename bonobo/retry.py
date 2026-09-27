@@ -24,7 +24,7 @@ REPLAN_LIMIT = 2    # a replan in a row this often with nothing done between is 
 
 
 # The exception classes (api.py) a cause is read from, by name: this module is a fact and imports nothing.
-INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "PlayerTookControl")
+INTERRUPTION_NAMES = ("Interrupted", "BodyContested", "FightHolds", "PlayerTookControl")
 
 
 def cause_of(err):
