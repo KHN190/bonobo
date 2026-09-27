@@ -7,7 +7,6 @@ death_cost_s = 240.0       # respawn, walk back, re-gear: what a death costs the
 # p(death) per night by how the night is spent. Sleeping skips it entirely.
 night_open = 0.35          # on the surface, no shelter, no bed
 night_sheltered = 0.03     # walled in or underground
-night_bed = 0.0
 # Extra p(death) per night without a weapon / per hunt without one.
 no_sword_night = 0.10
 # Starvation: below this food level nothing sprints or regenerates; the run slows and every hit sticks.
@@ -18,13 +17,11 @@ hunger_slowdown = 0.25     # fraction of working time lost at an empty bar, scal
 meal_share_of_day = 0.25   # how long a hunger level is carried before there is a chance to eat
 starving_slowdown = 0.5    # fraction of working time lost while low on food
 starving_death = 0.15      # p(death) per day at low food with no food carried
-dark_light = 7
 # Dark workplaces spawn mobs; torches remove that for the work site.
 dark_work_death = 0.05     # p(death) per working session with no torches
 encounters_per_day = 3.0
 reference_mob = "minecraft:zombie"   # what "a hostile" means when pricing a day
 regen_s_per_hp = 4.0                 # seconds to regenerate one health, fed and undisturbed
-regen_food_floor = 18                # health only regenerates above this food level
 food_drain_s = 80.0                  # seconds of ordinary activity per point of the food bar
 hurt_decay = 0.7
 # A bed only skips the night where we can actually sleep: in the open, mobs interrupt it.
@@ -38,9 +35,9 @@ mine_time_iron = 1.0
 mining_share_of_day = 0.4  # how much of a day is spent mining or digging
 
 unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_night", "starving_slowdown", "hunger_slowdown", "meal_share_of_day",
-              "starving_death", "dark_work_death", "dark_light", "phantom_night_death", "mine_time_no_pickaxe",
+              "starving_death", "dark_work_death", "phantom_night_death", "mine_time_no_pickaxe",
               "mine_time_stone", "mining_share_of_day", "death_cost_s", "armor_per_tier", "shield",
-              "encounters_per_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "regen_food_floor", "night_bed_open",
+              "encounters_per_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "night_bed_open",
               "slot_fill_s",
              
               "notice_r", "follow_p", "seek_prior_s",
@@ -93,7 +90,6 @@ hurt_immunity_s = 0.5       # the game ignores further damage for 10 ticks after
 
 [engage]
 horizon_s = 4.0             # how far ahead arrival is predicted, like the fight
-hp_reserve = 8.0            # fight only if the expected damage leaves this much
 evade_blocks = 16.0
 wall_in_blocks = 10         # blocks needed to pod (data.POD_BLOCKS: 9 cells + the roof's cap)
 wall_in_s = 8.0             # seconds exposed while building the pod
@@ -116,7 +112,6 @@ dig_s = 0.9                # digging one block down, out of sight
 hide_per_block = 0.45      # of an archer's fire that a block of depth takes out of the line
 melee_stop_blocks = 2      # blocks of height or depth that put us out of a walking mob's reach entirely
 shape_min_gain = 0.1       # a shape must cut this share of the pressure to be worth offering at all      # of what is coming at us that a block of height or depth takes out of the line
-detour_blocks = 8.0        # how far a placed block sends a mob around, where it cannot squeeze past
 interrupt_ttd_s = 4.0      # perception stops a task only when death is closer than one planning round      # perception interrupts a task when death is this close at the current pressure
 
 [build]
@@ -124,10 +119,6 @@ max_prepare_blocks = 12
 
 [nav]
 unit_s = 0.5               # seconds per move unit
-probe_r = 14               # blocks: how far from the body a target is priced by route search rather than by the
-                           # straight line. Beyond this the box to fetch is too big to be worth a query. Zero
-                           # switches route pricing OFF entirely — which is how a bed behind a lava sheet came to
-                           # cost exactly what a bed on flat ground costs.
 
 [water]
 surface_s = 4.0            # seconds to swim out from a working depth
