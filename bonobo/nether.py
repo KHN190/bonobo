@@ -20,15 +20,6 @@ def portal_cell(origin, turns):
     return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
 
 
-def waypoints(here, target, leg=40):
-    """Pure: points every `leg` blocks (horizontal) from here to target, height interpolated, ending at target."""
-    dx, dz = target[0] - here[0], target[2] - here[2]
-    dist = math.hypot(dx, dz)
-    n = max(1, math.ceil(dist / leg))
-    return [(round(here[0] + dx * k / n), round(here[1] + (target[1] - here[1]) * k / n), round(here[2] + dz * k / n))
-            for k in range(1, n)] + [tuple(target)]
-
-
 def triangulate(p1, d1, p2, d2):
     """Pure: intersection (x, z) of two eye-of-ender throws — rays from p1 along d1 and p2 along d2 (x, z vectors).
     None when the rays are (nearly) parallel or meet behind a thrower."""
@@ -62,7 +53,7 @@ def use_portal(ctx, to_dimension):
     cell = min(cells, key=lambda c: (math.dist(c, here), c[1]))
     log(f"   heading into the portal at {cell} → {to_dimension}")
     # Long trips in legs: one travel plan over 110 blocks and a 55-block climb ran out of search nodes four times.
-    for hop in waypoints(here, cell)[:-1]:
+    for hop in nav.waypoints(here, cell)[:-1]:
         if not nav.arrived(hop, ctx.policy, range_=6, attempts=1):
             raise api.NavFailed(f"stuck on the way to the portal near {hop}")
         yield hop
