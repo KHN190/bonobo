@@ -1118,6 +1118,90 @@ class DecisionOrderWatch(unittest.TestCase):
                 self.assertEqual((dict(vocab.FIRST), got), (want, going))
 
 
+class BuriedFirst(unittest.TestCase):
+    """buried_by_sand's setup holds only when the sand buried the head: pushed clear, head_clear passes with no round."""
+
+    def test_buried_first(self):
+        from bonobo import skills
+        from bonobo.bench import vocab
+        from bonobo.bench.core import SetupInvalid
+        rows = [("buried at once", [True], None),
+                ("buried once the fill lands (third look)", [False, False, True], None),
+                ("must fail: pushed clear of the sand", [False] * 5, SetupInvalid),
+                ("must fail: never buried in the looks allowed", [False] * 9, SetupInvalid)]
+        for name, looks, raises in rows:
+            with self.subTest(name), mock.patch.object(skills, "head_buried", side_effect=looks), \
+                    mock.patch.object(vocab.time, "sleep"):
+                if raises:
+                    with self.assertRaises(raises):
+                        vocab._buried_first(None)
+                else:
+                    self.assertIsNone(vocab._buried_first(None))
+
+
+class PlacedFacing(unittest.TestCase):
+    """place_*'s check: the asked block stands at the cell with the asked facing — not any block that faces so."""
+
+    def test_placed_facing_in(self):
+        from bonobo.bench import vocab
+
+        class Cell:
+            def __init__(self, name, facing):
+                self.n, self.f = name, facing
+
+            def name(self, p):
+                return self.n
+
+            def prop(self, p, key):
+                return self.f
+        pos = (3, 200, 0)
+        rows = [("the furnace, facing north", Cell("minecraft:furnace", "north"), "minecraft:furnace", "north", True),
+                ("cobblestone, no facing asked", Cell("minecraft:cobblestone", None), "minecraft:cobblestone", None, True),
+                ("must fail: another block with that facing", Cell("minecraft:chest", "north"), "minecraft:furnace",
+                 "north", False),
+                ("must fail: the furnace facing elsewhere", Cell("minecraft:furnace", "south"), "minecraft:furnace",
+                 "north", False),
+                ("must fail: nothing placed", Cell("minecraft:air", None), "minecraft:air", "north", False)]
+        for name, cell, item, facing, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.placed_facing_in(cell, pos, item, facing), want)
+
+
+class SleptBefore(unittest.TestCase):
+    """brain__night carries its bed: "night first" is the day coming back (a sleep, read from the world's clock) before
+    the logs rose — the bed never rises in the bag, so the bag's order cannot say it."""
+
+    def test_slept_through(self):
+        from bonobo.bench import vocab
+        rows = [("night, then morning after the sleep", 18000, 24100, True),
+                ("night, then morning in raw ticks", 18000, 1000, True),
+                ("must fail: still night", 18000, 18400, False),
+                ("must fail: began in daylight", 1000, 1200, False)]
+        for name, start, now, want in rows:
+            with self.subTest(name):
+                self.assertIs(vocab.slept_through(start, now), want)
+
+    def test_slept_before(self):
+        from bonobo.bench import vocab
+        rows = [("slept, then logs", {"morning": 3.0, "log": 9.0}, False, True),
+                ("slept, no ore after (or never)", {"morning": 3.0}, True, True),
+                ("must fail: logs rose while still night", {"log": 2.0, "morning": 8.0}, False, False),
+                ("must fail: never slept", {"log": 2.0}, False, False)]
+        for name, first, or_never, want in rows:
+            with self.subTest(name), mock.patch.dict(vocab.FIRST, first, clear=True):
+                self.assertIs(vocab.slept_before("log", or_never)(None, None), want)
+
+    def test_the_watcher_stamps_morning(self):
+        from bonobo.bench import vocab
+        from bonobo.world import Inventory
+        from tests.world import inventory
+        for name, turned, want in [("the day turned", True, {"morning": 2.0}), ("must fail: still night", False, {})]:
+            with self.subTest(name), mock.patch.dict(vocab.FIRST_WATCH, {"gen": 1}), \
+                    mock.patch.dict(vocab.FIRST, {}, clear=True):
+                vocab.first_step(1, 10.0, Inventory(inventory()), lambda t: 0, lambda: False, 12.0, lambda: turned)
+                self.assertEqual(dict(vocab.FIRST), want)
+
+
 class DiamondScan(unittest.TestCase):
     """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
 

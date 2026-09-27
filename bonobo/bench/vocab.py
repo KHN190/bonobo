@@ -1295,6 +1295,16 @@ def _breathing(least=280):
         return s["air"] >= least and not skills.head_underwater(s)
     return check
 
+def _buried_first(ctx, polls=5):
+    """`before` hook: the head is inside the sand the row dropped — else the body was pushed clear, the check (head
+    clear) holds before any round and the row passes without a rescue: SetupInvalid."""
+    from .. import skills
+    for _ in range(polls):
+        if skills.head_buried():
+            return
+        time.sleep(0.2)
+    raise SetupInvalid("the sand did not bury the head: head clear before any round, nothing to rescue")
+
 def _head_clear():
     from .. import skills
     return not skills.head_buried()
@@ -1527,12 +1537,16 @@ def _crystals_left(api, inv):
 NETHER_LAVA = [f"fill {_c(at(1, 0, -1))} {_c(at(4, 0, 1))} lava"]
 
 # -- jar 0.1.39 gaps: placing by facing, boats, awkward start cells
-def _placed_facing(pos, facing):
-    """The block at `pos` reports `facing` (None: a block with no facing at all, and it stands there)."""
+def placed_facing_in(region, pos, item, facing):
+    """Pure: the block at `pos` is `item` and reports `facing`."""
+    from ..data import bare
+    return bare(region.name(pos) or "air") == bare(item) and region.prop(pos, "facing") == facing
+
+def _placed_facing(pos, facing, item):
+    """The block at `pos` is the asked `item` and reports `facing`."""
     def check(api, inv):
         from ..world import Region
-        r = Region(pos, pos, props=True)
-        return r.name(pos) != "air" and r.prop(pos, "facing") == facing
+        return placed_facing_in(Region(pos, pos, props=True), pos, item, facing)
     return check
 
 def _place_facing(item, pos, facing):
@@ -1602,7 +1616,11 @@ def _furnace_holds(items, radius=16):
 
 FIRST_WATCH = {"gen": 0}   # the row whose watcher may write FIRST: a new row's hook retires the last row's watcher
 
-def first_step(gen, t0, inv, base_count, furnace_beef, now):
+def slept_through(start_tod, tod):
+    """Pure: the row began at night and the day is back — only a sleep turns it (the arena's clock stands still)."""
+    return int(start_tod) % 24000 >= 12542 and int(tod) % 24000 < 12000
+
+def first_step(gen, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
     """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
     nothing written) once another row's hook has started its own watcher — a stale watcher's clock is not this row's."""
     if gen != FIRST_WATCH["gen"]:
@@ -1613,6 +1631,8 @@ def first_step(gen, t0, inv, base_count, furnace_beef, now):
                 FIRST[tok] = now - t0
     if "furnace_beef" not in FIRST and furnace_beef():
         FIRST["furnace_beef"] = now - t0
+    if "morning" not in FIRST and morning():
+        FIRST["morning"] = now - t0             # slept: the night skipped, read from the world's clock
     return True
 
 def _first_times(ctx):
@@ -1628,6 +1648,13 @@ def _first_times(ctx):
         except Exception:
             return False
 
+    def morning():
+        try:
+            from .. import api
+            return slept_through(BASE["state"]["timeOfDay"], api.get("/state")["timeOfDay"])
+        except Exception:
+            return False
+
     def watch():
         from ..world import Inventory
         while time.time() - t0 < 70:
@@ -1636,10 +1663,14 @@ def _first_times(ctx):
             except Exception:
                 time.sleep(0.5)
                 continue
-            if not first_step(gen, t0, inv, _base_count, furnace_beef, time.time()):
+            if not first_step(gen, t0, inv, _base_count, furnace_beef, time.time(), morning):
                 return
             time.sleep(0.5)
     _threading.Thread(target=watch, daemon=True).start()
+
+def slept_before(item, or_never=False):
+    """The day came back (a sleep: FIRST's "morning", read from the world's clock) before `item` rose in the bag."""
+    return _before_in_bag("morning", item, or_never)
 
 def _before_in_bag(first, then, or_never=False):
     """`first` appeared in the bag before `then` did (with `or_never`: or `then` never did)."""
@@ -1760,7 +1791,8 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
 THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 BRAIN_DIMS = {
     # "tight": dusk inside the bed's lead (needs.due_now), so the bed comes first
-    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000"]},
+    # night: a bed carried — the row proves the night comes first (slept, then the task), not the bed's crafting
+    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000", "give @p white_bed"]},
     # the effect only marks the row hungry for the body reset; the drain proper is the hook's
     "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
     # one_use: a crafting table stands by the start, so the table's place-and-take-back is not measured
@@ -1774,6 +1806,8 @@ BRAIN_DIMS = {
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
 BAG_FILL = {"room": None, "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
 KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask for more than this, or it is met at once
+COBBLE_MORE = 2         # a row proves the choice, not the job: two blocks (one_use's one-use pickaxe breaks on the second)
+KIT_LOG, LOG_GOAL = 1, 2   # one log carried, two wanted: one chop shows the task done
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
                   f"fill {_c(at(1, -11, 1))} {_c(at(2, -10, 2))} iron_ore",
@@ -1781,7 +1815,7 @@ BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone
                   f"setblock {_c(DIAMOND_UP)} diamond_ore",
                   f"setblock {_c(DIAMOND_DOWN)} diamond_ore", f"setblock {_c(at(-2, 0, 0))} furnace",
                   "give @p white_wool 3", "give @p oak_planks 8", "give @p crafting_table", "give @p stick 4",
-                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}",
+                  "give @p iron_ingot 3", "give @p beef 2", "give @p coal 2", f"give @p cobblestone {KIT_COBBLE}", f"give @p oak_log {KIT_LOG}",
                   "give @p diamond_axe"])       # the best axe: logs are not the tool test here (kit rule)
 
 def _diamond_of(cell):
@@ -1790,7 +1824,7 @@ def _diamond_of(cell):
 # family → (grid, queue, what each cell must show): checks read the world and bag order, never log text
 def _bed_then_log(cell):
     if cell["dusk"] == "plenty" and cell["food"] == "full":
-        return (_all(_before_in_bag("log", "bed", or_never=True), _gain("log", 2),
+        return (_all(_before_in_bag("log", "bed", or_never=True), _gain("log", LOG_GOAL - KIT_LOG),
                      lambda api, inv: inv.count("bed") == 0),
                 "a day ahead: the task first, no bed made (must not)")
     if cell["food"] == "low":
@@ -1799,14 +1833,16 @@ def _bed_then_log(cell):
                                        or _before_in_bag("minecraft:cooked_beef", "log")(api, inv))
         kept = lambda api, inv: api.get("/state")["food"] >= BASE.get("food_drained", 0)        # noqa: E731
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
+    if cell["dusk"] == "night":
+        return slept_before("log"), "night on the surface, a bed carried: slept before the task"
     return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
 
 def _tool_rule(cell):
     if cell["tool"] == "one_use":
         return (_all(lambda api, inv: inv.count("minecraft:iron_pickaxe") >= 1,
                      lambda api, inv: inv.count("minecraft:stone_pickaxe") + inv.count("minecraft:wooden_pickaxe") == 0,
-                     _gain("minecraft:cobblestone", 3)), "broken: the best tier this bag crafts (iron)")
-    return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", 3)),
+                     _gain("minecraft:cobblestone", COBBLE_MORE)), "broken: the best tier this bag crafts (iron)")
+    return (_all(lambda api, inv: inv.count("minecraft:iron_ingot") == 3, _gain("minecraft:cobblestone", COBBLE_MORE)),
             "fresh: nothing crafted, the ingots kept (must not craft)")
 
 def _night_rule(cell):
@@ -1815,6 +1851,9 @@ def _night_rule(cell):
         return _all(_gain("minecraft:raw_iron", 1), below), "night underground: work there (ore), no climb"
     if cell["head"] == "underground" and cell["dusk"] == "tight":
         return below, "dusk underground: already under cover, no climb to the surface (boundary)"
+    if cell["dusk"] == "night":
+        return (slept_before("minecraft:raw_iron", or_never=True),
+                "night on the surface, a bed carried: slept first")
     if cell["dusk"] != "plenty":
         return _before_in_bag("bed", "minecraft:raw_iron", or_never=True), "dusk or night on the surface: a bed first"
     return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 13000 and inv.count("bed") == 0,
@@ -1824,9 +1863,10 @@ def _bag_rule(cell):
     if cell["bag"] == "valuables_full":
         return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
     if cell["bag"] == "junk_full":
-        return (_all(_gain("log", 2), lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
+        return (_all(_gain("log", LOG_GOAL - KIT_LOG),
+                     lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
                 "a bag past BAG_FULL, junk: junk thrown, then the task done")
-    return _gain("log", 2), "room for it: the task done as usual"
+    return _gain("log", LOG_GOAL - KIT_LOG), "room for it: the task done as usual"
 
 FINDS = {"diamond": 0}
 
@@ -1862,12 +1902,12 @@ def _seen_rule(cell):
 
 # one value off the base at a time: which combination wins is tested offline; a row confirms the decision is carried out
 BRAIN_FAMILIES = {
-    "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", 2))], _bed_then_log),
+    "night_first": (list(_cells(BRAIN_BASE, dims=("dusk", "food"), table=BRAIN_DIMS)), [_have(("log", LOG_GOAL))], _bed_then_log),
     "tool_tier": (list(_cells(BRAIN_BASE, dims=("tool", "head"), table=BRAIN_DIMS)),
-                  # 3 more than the kit carries, or the kit alone meets it
-                  [_have(("minecraft:cobblestone", KIT_COBBLE + 3))], _tool_rule),
+                  # more than the kit carries, or the kit alone meets it
+                  [_have(("minecraft:cobblestone", KIT_COBBLE + COBBLE_MORE))], _tool_rule),
     "night_under": (list(_cells(BRAIN_BASE, dims=("dusk", "head"), table=BRAIN_DIMS)), [], _night_rule),
-    "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", 2))], _bag_rule),
+    "tidy_then_task": (list(_cells(BRAIN_BASE, dims=("bag",), table=BRAIN_DIMS)), [_have(("log", LOG_GOAL))], _bag_rule),
     "seen_store": (list(_cells(BRAIN_BASE, dims=("seen", "head"), table=BRAIN_DIMS)),
                    [_have(("minecraft:diamond", 1))], _seen_rule),
 }
@@ -2511,7 +2551,7 @@ def place_row(name, item, asked, want, tier):
     return _row(name, f"Place {item.split(':')[1]} asking facing={asked} (the jar turns the body by the block's own "
                       f"rule) → the block reports facing={want}", "building",
                 [("floor",), ("stand",), ("give", item.split(":")[1], 2)], ("place_facing", item, p, asked),
-                [("placed_facing", p, want)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
+                [("placed_facing", p, want, item)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
                 variant=(item, asked))
 
 def start_row(name, what, start_scene, stand):

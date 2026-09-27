@@ -49,7 +49,11 @@ ROWS = [
     dict(name='buried_by_sand', module='brain',
          doc="Sand dropped on the body mid-task → L0 rescues (unbury) through the brain's own round, then alive",
          scene=[('floor',), ('stand',), ('give', 'stone_pickaxe')], run=('brain_rounds', 15, ('&head_clear',)),
-         before=[('start', 'buried_by_sand'), ('do', 'chat', ['fill 10000 200 10000 10000 203 10000 sand'], {})],
+         before=[('start', 'buried_by_sand'),
+                 # a stone ring round feet and head, so the sand cannot push the body out sideways
+                 ('do', 'chat', ['fill 9999 200 9999 10001 201 10001 stone'], {}),
+                 ('do', 'chat', ['fill 10000 200 10000 10000 203 10000 sand'], {}),
+                 ('&buried_first',)],
          check=[('call', 'head_clear', []), ('alive', 10)], budget=20, point='B', skills=['unbury'],
          tags={'base': 'l0', 'hazard': 'suffocating'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),

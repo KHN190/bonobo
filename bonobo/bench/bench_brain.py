@@ -129,15 +129,17 @@ ROWS = [
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
 _IRON_TWO = [("floor",), ("setblock", ("@", -4, 0, 0), "iron_ore"), ("setblock", ("@", 4, 0, 0), "iron_ore"), ("stand",)]
 CODE_ROWS = [
-    # the zombie comes on a timer, not by progress: moved unchanged (the user's call)
+    # the interruption lands by progress (the first ore in the bag: the walk to the second one), not a fight
     brain_row("ban_needs_a_failure",
-              "Two free iron ores, the walk interrupted once (a zombie) → nothing banned: an interruption teaches "
-              "nothing about the place (control)",
-              _IRON_TWO + [("give", "stone_pickaxe"), ("give", "iron_sword")], [_have(("minecraft:raw_iron", 2))],
+              "Two free iron ores, the walk to the second interrupted once (the bench's own interrupt) → nothing "
+              "banned: an interruption teaches nothing about the place (control)",
+              _IRON_TWO + [("give", "stone_pickaxe")], [_have(("minecraft:raw_iron", 2))],
               _count("minecraft:raw_iron", 2), 1,
-              _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE)),
-              [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
-                  f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()], ["_clear_bans", "<lambda>"]),
+              _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE),
+                   _interrupted()),
+              [_clear_bans, _when(lambda: _inv_now().count("minecraft:raw_iron") > _base_count("minecraft:raw_iron"),
+                                  lambda: (INTERRUPTS.update(ban_needs_a_failure=1), _inject_interrupt()))],
+              ["_clear_bans", "_when"]),
     # 4 logs held at the end, 2 given; a zombie summoned beside the body 1.5 s in (a timer: moved unchanged)
     brain_row("resume_after_combat",
               "4 logs wanted, 2 carried, the best axe; a zombie summoned beside it mid-way → fight_loop answers it, "
