@@ -3177,15 +3177,16 @@ BRAIN_DIMS = {
              "one_use": ["give @p iron_pickaxe[damage=249]", f"setblock {_c(at(-2, 0, -1))} crafting_table"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
-    # Filled by the `before` hook. one_slot (35 used ≥ reflexes.BAG_FULL: the bag is emptied first) starts at
-    # THROW_START: the only 3-deep open side is +x, over the arena's edge, so tidy_inventory throws the dirt away from
-    # the tree and steps back toward it. From the middle it throws +x as well — toward the tree — steps away to -x and
-    # walks back past the drops, where they can be picked up and the bag emptied again (measured 25.6 s against the
-    # 25 s limit; the cut is to be measured in-game).
-    "bag": {"room": [], "one_slot": [_tp(*THROW_START)], "junk_full": [], "valuables_full": []},
+    # Filled by the `before` hook. junk_full starts at THROW_START: the only 3-deep open side is +x, over the arena's
+    # edge, so tidy_inventory throws the dirt away from the tree and steps back toward it. From the middle it throws +x
+    # as well — toward the tree — steps away to -x and walks back past the drops, where they can be picked up and the
+    # bag emptied again (the old one_slot measured 25.6 s against the 25 s limit; the cut is to be measured in-game).
+    # One junk cell: one free slot (35 used) is past reflexes.BAG_FULL (34) just as a full bag is — the bag is emptied
+    # first either way, so a one_slot cell was this row again with a weaker check (logs only).
+    "bag": {"room": [], "junk_full": [_tp(*THROW_START)], "valuables_full": []},
 }
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
-BAG_FILL = {"room": None, "one_slot": (1, "dirt"), "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
+BAG_FILL = {"room": None, "junk_full": (0, "dirt"), "valuables_full": (0, "diamond")}
 KIT_COBBLE = 16         # the brain rows' kit: a goal of cobblestone must ask for more than this, or it is met at once
 BRAIN_WORLD = (_ARENA_B + [f"fill {_c(at(-8, -12, -8))} {_c(at(8, -3, 8))} stone"] + _grove((3, 3))
                + [f"fill {_c(POCKET)} {_c(at(0, -8, 0))} air",
@@ -3246,8 +3247,8 @@ def _bag_rule(cell):
         return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
     if cell["bag"] == "junk_full":
         return (_all(_gain("log", 2), lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
-                "a bag of junk: junk thrown, then the task done")
-    return _gain("log", 2), "room (or one slot) for it: the task done as usual"
+                "a bag past BAG_FULL, junk: junk thrown, then the task done")
+    return _gain("log", 2), "room for it: the task done as usual"
 
 
 FINDS = {"diamond": 0}
@@ -3957,7 +3958,7 @@ KIT_JOBS = {
         "chop__pickup_lag", "chop__stack_room", "chop__valuables_full", "chop_without_interrupt",
         "dead_flicker_on_respawn", "floating_logs", "gather_logs", "gather_logs_birch",
         "interrupted_rescue_is_not_a_failure", "leaves_block_trunk", "night_first__low", "resume_after_combat",
-        "seek_blocks_real", "tidy_then_task__junk_full", "tidy_then_task__one_slot",
+        "seek_blocks_real", "tidy_then_task__junk_full",
         "tidy_then_task__valuables_full",
     ],
     ("axe", "pickaxe",): [
