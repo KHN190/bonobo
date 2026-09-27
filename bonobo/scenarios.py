@@ -864,33 +864,25 @@ def _portal_beside_player(ctx):
 
 
 SCENARIOS["slice_nether_kit"] = {
-    "doc": "Slice: at a lit portal with tools but no kit → kit complete (food, blocks, gold helmet) without "
+    "doc": "Slice: at a lit portal, the kit two steps short (one block, the gold helmet) → kit complete (food, blocks, gold helmet) without "
            "stepping into the Nether early, no loops, idle ≤ 15 s.",
     "module": "brain",
-    # In the arena now, the kit one or two steps from complete (6 of 6 meals, 30 of 32 blocks, gold for the helmet),
-    # a stone wall at arm's length: the slice still has to mine and craft, in the right order, within 1 min.
-    # (History: on real terrain it landed in animal-free mountains and failed for 8 minutes at food 0/6.)
-    # slice failed for 8 minutes at food 0/6 with everything else in the kit ready (blocks 30/32, no idling, no
-    # loops). The kit needs meat, so the scenario must start where meat exists — this tests the queue, not the luck
-    # of a landing spot.
-    # Three cooked steaks to start with, like the iron pickaxe and the bucket. This slice measures scheduling
-    # (kit assembled without stepping into the Nether early, no loops, no idling), not whether cows happen to have
-    # spawned: in this world every landing spot tried, plains included, answered "no pig seen yet" for 8 minutes
-    # while blocks went 0 → 30/32. The remaining half of the food target still has to be hunted, so the food path
-    # is still exercised.
-    "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", f"fill {_c(at(4, 0, -2))} {_c(at(5, 1, 2))} stone",
+    # Two steps left: one block to mine (stone at arm's length) and the helmet to craft (gold + table carried).
+    # Food is over the kit's 6 with a margin (upkeep may eat one before the run starts); the cow stays 2 blocks off
+    # in case it does not.
+    "setup": [f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} grass_block", f"fill {_c(at(1, 0, -1))} {_c(at(1, 1, 1))} stone",
               f"tp @p {_c(at(0, 0, 0))}", "clear @p", "time set day", "give @p iron_pickaxe",
               "give @p iron_sword", "give @p bucket", "give @p flint_and_steel", "give @p gold_ingot 5",
-              "give @p coal 8", "give @p crafting_table", "give @p furnace", "give @p cooked_beef 6",
-              "give @p cobblestone 30", f"summon cow {_c(at(-3, 0, 2))}"],
-    "expect": [(at(4, 0, -2), at(5, 1, 2), "stone", 20, 20)],
+              "give @p crafting_table", "give @p cooked_beef 8", "give @p cobblestone 31",
+              f"summon cow {_c(at(-2, 0, 1))}"],
+    "expect": [(at(1, 0, -1), at(1, 1, 1), "stone", 6, 6)],
     "expect_entities": [("minecraft:cow", 1)],
     "before": lambda ctx: _portal_beside_player(ctx),
-    "run": _slice(lambda: _nether_kit_ready() or not _in_overworld(), 0.9,
+    "run": _slice(lambda: _nether_kit_ready() or not _in_overworld(), 0.5,
                   queue=[__import__("bonobo.goals", fromlist=["goals"]).make("milestone", name="nether kit")]),
     "check": _slice_check(lambda: _nether_kit_ready() and _in_overworld()),
     "detail": _slice_detail,
-    "budget": 60,
+    "budget": 35,
 }
 SCENARIOS["slice_retreat"] = {
     "doc": "Slice: in the Nether at 6 hp with one food, the arrival portal remembered 6 blocks away → back in "
