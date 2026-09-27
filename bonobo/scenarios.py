@@ -2890,7 +2890,7 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
 # walker (`_cells`), four families of ≥ 4 cells, each with its boundary and its must-not.
 DIAMOND_UP, DIAMOND_DOWN = at(6, 0, 0), at(4, -9, 0)     # sealed in stone: known only if noted
 POCKET = at(0, -9, 0)
-LOW_FOOD_S = 8          # seconds of hunger 255: 4 s drained 6 points (20 → 14), 8 s about twelve (→ ~8)
+LOW_FOOD_S = 5          # seconds of hunger 255: 4 s left 14 (never < EAT_BELOW), 8 s left 0 (raw beef eaten); 5 → ~10
 BRAIN_DIMS = {
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11800"], "night": ["time set 18000"]},
     # Drained by the run's start to below EAT_BELOW (14): 4 s left the bar at exactly 14, and "food < 14" never held.
