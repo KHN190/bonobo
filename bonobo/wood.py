@@ -10,22 +10,19 @@ from .skillcore import _collect_only, feet, gained, settle
 from .world import Inventory, find
 
 
+TRUNK_REACH = 4        # logs this far above the base are in reach from beside the trunk (eye 1.62, reach 4.5)
+
+
 def trunk_batch(base, overhead, want):
-    """Pure: one trunk as one batch — the base log from outside, into its cell (travel: the canopy may start one up,
-    and travel breaks what is over the head), the logs overhead from below (every bottom face right over the eye),
-    one pickup for all of them. Only as many overhead logs as are still wanted."""
+    """Pure: one trunk as one batch — ONE mine_many of every log in reach from beside it (the base and the logs
+    over it up to TRUNK_REACH, as many as are still wanted), then one pickup. No walk into the base cell: that walk
+    broke the head log itself and the mine after it hit air ("chain: 3/4 succeeded")."""
     x, y, z = base
-    mine = lambda c: {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False,   # noqa: E731
-                      "requireDrops": False}
-    out = [mine(base)]
-    up = [c for c in overhead][:max(0, want - 1)]
-    if up:
-        out.append({"type": "travel", "x": x, "y": y, "z": z, "range": 0.3})
-        # Standing in the base cell needs the head cell clear: the travel breaks the log there itself, and a mine
-        # of it after answered "nothing to mine (air)" (brain__base: "chain: 3/4 succeeded").
-        out += [mine(c) for c in up if c != (x, y + 1, z)]
-    out.append({"type": "collect", "radius": 4, "only": ["log"]})
-    return out
+    logs = [tuple(base)] + [tuple(c) for c in overhead if y < c[1] <= y + TRUNK_REACH]
+    logs = logs[:max(1, want)]
+    return [{"type": "mine_many", "collect": False, "requireDrops": False,
+             "blocks": [{"x": c[0], "y": c[1], "z": c[2]} for c in logs]},
+            {"type": "collect", "radius": 4, "only": ["log"]}]
 
 
 def felled(trunk, still):
