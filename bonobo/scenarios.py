@@ -1395,6 +1395,18 @@ def _all(*checks):
     return lambda api, inv: all(c(api, inv) for c in checks)
 
 
+def _named_all(named):
+    """`_all` over (check, why) pairs that says which one failed, once, in the log ("check: False — <why>"), with
+    the order the bag showed things in (FIRST): a row whose own check fails must say which part."""
+    def check(api, inv):
+        for c, why in named:
+            if not c(api, inv):
+                __import__("bonobo.api", fromlist=["log"]).log(f"check: False — {why} (first seen: {dict(FIRST)})")
+                return False
+        return True
+    return check
+
+
 # -- run wrappers: timing and expected failures -----------------------------------------------------------------
 def _expect_failure(name, run, pattern):
     """An expected-failure row: the run must END (the budget still applies) with a failure whose message names the
@@ -3315,7 +3327,7 @@ for _key, _entry in _grid_cells().items():
         "before": _hooks(*_cell_setup_hooks(_cell), _start(_name), *_cell_before(_cell)),
         "queue": list(_entry["queue"]),
         "run": _slice(None, 0.4, queue=list(_entry["queue"])),
-        "check": _all(*[c for c, _why in _judged], _slice_check(None)),
+        "check": _named_all(_judged + [(_slice_check(None), "the slice")]),
         "budget": 30,
     }
 
