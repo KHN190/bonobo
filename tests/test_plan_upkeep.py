@@ -121,7 +121,6 @@ FALLBACK = [
 ]
 
 
-
 def NOTHING_LEFT(state, call):
     """A test skill's `remaining`: what is left of it is nothing (the dummies here produce no world state)."""
     return {}
