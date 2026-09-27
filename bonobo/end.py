@@ -682,9 +682,17 @@ def crystal_commands(state, args):
     if rise and block is None:
         raise NotAvailable("no blocks to tower up with")
     region = state.get("region")
-    standing = [c for c in bars if region is None or region.solid(c)]
+    banned = state.get("banned", ())
+    standing = [c for c in bars if (region is None or region.solid(c)) and c not in banned]
     return [{"type": "pillar", "item": block} for _ in range(rise)] + \
         [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False} for c in standing]
+
+
+def unreachable(results):
+    """Pure: the cells a chain's results name as "cannot reach x, y, z" — the only ones a partial failure bans."""
+    import re
+    return {tuple(int(g) for g in m.groups()) for t in results if t["status"] != "succeeded"
+            for m in re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", t.get("message") or "")}
 
 
 def caged(crystal, here):
@@ -777,8 +785,13 @@ def break_caged_crystal(ctx, crystal):
     from .skillcore import body_state
     lo = tuple(min(c[i] for c in bars) for i in range(3))
     hi = tuple(max(c[i] for c in bars) for i in range(3))
-    tasks = crystal_commands(body_state(ctx, Region(lo, hi)), (crystal,))
-    api.run_chain(tasks, stop_on_failure=True)
+    banned = {c for c, until in ctx.blacklist.items() if until > time.time()}
+    tasks = crystal_commands(body_state(ctx, Region(lo, hi), banned=banned), (crystal,))
+    done = api.run_chain(tasks, stop_on_failure=True)
+    # "N of M failed": what broke stays broken (the next call recomputes from the world); only the bars the mod
+    # could not reach are banned. An interrupt raises out of run_chain before this and bans nothing.
+    for cell in unreachable(done):
+        ctx.ban(cell)
     # Judged by the world, not the chain's word: at the crystal's height (an interrupt resumes by what is left —
     # crystal_commands recomputes the rise and the standing bars from where we are).
     if nav.feet_now()[1] < stand[1]:

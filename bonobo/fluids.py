@@ -104,6 +104,19 @@ def use_task(item, aim, on_block):
     return {"type": "use_item", "item": item, "x": aim[0], "y": aim[1], "z": aim[2], "onBlock": on_block}
 
 
+def light_commands(state, args):
+    """Pure: the chain that lights the frame at `origin` — flint and steel on the inner bottom obsidian (the second
+    attempt one block further in), then half a second for the portal blocks to appear."""
+    origin, turns, attempt = args
+    if not state["inv"].count("minecraft:flint_and_steel"):
+        raise NotAvailable("no flint and steel to light the portal")
+    aim = portal_light_aim(origin, turns)
+    if attempt:
+        d = blueprints.rotate_offset((2, 0, 0), turns)
+        aim = (origin[0] + d[0] + 0.5, origin[1] + 1.0, origin[2] + d[2] + 0.5)
+    return [use_task("minecraft:flint_and_steel", aim, True), {"type": "wait", "ticks": 10}]
+
+
 def _use(item, aim, on_block):
     # closed loop: callers read where the click landed (the hit face) before the next use
     r = api.run(use_task(item, aim, on_block), wait=30)
@@ -209,13 +222,8 @@ def portal_lit(origin):
 def light_portal(ctx, origin, turns):
     """Flint and steel on the inner bottom obsidian; verified by a nether_portal block inside the frame."""
     for attempt in range(2):
-        aim = portal_light_aim(origin, turns)
-        if attempt:
-            d = blueprints.rotate_offset((2, 0, 0), turns)
-            aim = (origin[0] + d[0] + 0.5, origin[1] + 1.0, origin[2] + d[2] + 0.5)
         # The click and its settle as one chain; closed loop between attempts: the portal lit (portal_lit)
-        done = api.run_chain([use_task("minecraft:flint_and_steel", aim, True), {"type": "wait", "ticks": 10}],
-                             stop_on_failure=True)
+        done = api.run_chain(light_commands({"inv": Inventory()}, (origin, turns, attempt)), stop_on_failure=True)
         if done and done[0]["status"] != "succeeded":
             raise McError(f"using flint_and_steel failed: {done[0]['message']}")
         if portal_lit(origin):
