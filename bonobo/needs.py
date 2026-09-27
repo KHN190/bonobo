@@ -311,7 +311,7 @@ def _tools_of(kind):
     return sum(1 for s in Inventory().slots if s["id"].endswith("_" + kind))
 
 
-@skill(needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
+@skill(gives={}, needs={}, speed={}, start=lambda c: _tools_of(_kind_of(c)), verify=lambda c: _tools_of(_kind_of(c)) < c.base,
        budget=60, stall=30, per_unit=5, prefer=1,
        provides={"repair": lambda ctx, s: (s.token,) if repair_pair(Inventory().slots, s.token) else None})
 def repair_tool(ctx, kind="pickaxe"):

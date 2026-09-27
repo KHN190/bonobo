@@ -1,6 +1,7 @@
 """Wood: fell trunks from the ground up, nearest first."""
 import math
 
+from . import knowledge as K
 from . import api, nav
 from .api import McError, NotAvailable, log
 from .data import GROUPS
@@ -45,7 +46,7 @@ def pick_trunks(logs):
     return trunks
 
 
-@skill(needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
+@skill(gives=K.GIVES_GATHER, needs={}, speed={"axe": CHOP_AXE_S}, start=lambda c: Inventory().count("log"), done=lambda c: Inventory().count("log") >= c.base + c.args[1],
        budget=600, stall=90, per_unit=6, units=lambda c: c.args[1], key=lambda c: "chop",
        provides={"item:log": lambda ctx, s: (s.count,)}, fills_bag=lambda c: GROUPS["log"])
 def chop(ctx, n):

@@ -24,7 +24,7 @@ import math
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
                    seen_class)
 from .knowledge import (BREED_FOOD, GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, SMELTS,
-                        STATIONS, TAKEABLE)
+                        STATIONS, TAKEABLE, produced)
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate
@@ -338,7 +338,7 @@ def base_table(cost):
     hit = getattr(cost, "_base_columns", None)
     if hit is None:
         out = (_seek(cost) + _gather(cost) + _mine(cost) + _take(cost) + _hunt(cost) + _farm(cost) + _craft(cost)
-               + _smelt(cost))
+               + _smelt(cost) + _fill(cost) + _trade(cost))
         hit = [with_exposure(a) for a in out]
         try:
             cost._base_columns = hit
@@ -402,6 +402,8 @@ def _findable():
         seen.setdefault(types[0], list(types))
     for row in TAKEABLE.values():
         seen.setdefault(row["blocks"][0], list(row["blocks"]))
+    for _token, types in produced("trade"):
+        seen.setdefault(types[0], list(types))
     seen.setdefault("tree", list(GROUPS["log"]))
     seen.setdefault("water", ["minecraft:water"])
     return sorted(seen.items())
@@ -414,7 +416,7 @@ def _gather(cost):
 
 def _mine(cost):
     out = []
-    for token, (blocks, tier) in MINE.items():
+    for token, (blocks, tier) in produced("mine"):
         per = MINE_YIELD.get(mid(token), 1)
         # Room to put it is a requirement like any other: a full bag does not stop the digging, it stops the
         # keeping, so the solver must see "make room" as part of the plan rather than discover it by failing.
@@ -442,7 +444,7 @@ def _take(cost):
     is a requirement, the tool is a requirement where the block needs one, and the seconds are the block's own.
     """
     out = []
-    for token, row in TAKEABLE.items():
+    for token, row in produced("take"):
         requires = {at(row["blocks"][0]): 1, "bag_free": 1}
         tool = row["tool"]
         effect = {}
@@ -469,6 +471,8 @@ def _farm(cost):
     in the plot; one harvest is PLOT_CELLS wheat, ripe after the crop has grown. Breeding (`breed`): two of a kind
     fed their food, standing at them; one more animal to hunt once it has grown. Each is priced by the work AND the
     waiting, so with animals in sight the hunt wins and with none anywhere the farm does."""
+    if not produced("farm"):
+        return []
     out = [Action("farm:wheat", dict(produce("minecraft:wheat", PLOT_CELLS), **{"minecraft:water_bucket": -1}),
                   work_s(cost, "farm", "wheat") + GROW_S["crop"],
                   requires={tool_dim("hoe", 0): 1, "minecraft:wheat_seeds": PLOT_CELLS, "footing": 1,
@@ -487,9 +491,24 @@ def _farm(cost):
     return out
 
 
+def _fill(cost):
+    """A container filled at a source (fluids.fill_water_bucket): the empty one in, the full one out, at water."""
+    return [Action(f"fill:{token}", {token: 1, container: -1}, work_s(cost, "fill", token),
+                   requires={at("water"): 1, "hands_free": 1}, tag=("fill", token, container))
+            for token, container in produced("fill")]
+
+
+def _trade(cost):
+    """Sold to someone who buys (ui.trade): what the offer asks is the trader's to name, the one requirement is
+    standing at one."""
+    return [Action(f"trade:{token}", {token: 1}, work_s(cost, "trade", token),
+                   requires={at(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("trade", token, types))
+            for token, types in produced("trade")]
+
+
 def _hunt(cost):
     out = []
-    for token, types in HUNT.items():
+    for token, types in produced("hunt"):
         per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
         requires = {at(types[0]): 1, "bag_free": 1}
         if any(t in FIGHTERS for t in types):
@@ -515,7 +534,7 @@ def _craft_specs():
     if _CRAFT_SPEC is not None:
         return _CRAFT_SPEC
     specs = []
-    for token, (pattern, made) in list(GROUP_RECIPES.items()) + [(t, r) for t, r in RECIPES.items()]:
+    for token, (pattern, made) in produced("craft_group") + produced("craft"):
         effect = produce(token, made)
         for item in pattern:
             if item:
@@ -556,7 +575,7 @@ def _smelt_specs():
     if _SMELT_SPEC is not None:
         return _SMELT_SPEC
     specs = []
-    for token, source in SMELTS.items():
+    for token, source in produced("smelt"):
         effect = produce(token, 1)
         for d, v in consume(source, 1).items():
             effect[d] = effect.get(d, 0) + v
@@ -748,6 +767,12 @@ def _shape(action, times):
         return Step("wait", tag[1], 1, {})
     if kind == "farm":
         return Step("farm", tag[1], times, {})
+    if kind == "fill":
+        _, token, container = tag
+        return Step("fill", token, times, {"container": container})
+    if kind == "trade":
+        _, token, types = tag
+        return Step("trade", token, times, {"types": list(types)})
     if kind == "breed":
         return Step("breed", tag[1], times, {})
     return Step("craft", action.name, times, {"times": times, "inputs": {}})

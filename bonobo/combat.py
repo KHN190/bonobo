@@ -120,7 +120,7 @@ def endermen_near(near, here, radius=6.0):
     return sorted(out, key=lambda e: math.dist((e["x"], e["y"], e["z"]), here))
 
 
-@skill(needs={}, speed={}, budget=180, stall=90, soft=True)
+@skill(gives={}, needs={}, speed={}, budget=180, stall=90, soft=True)
 def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
     """Generic: wait out a fight at a safe distance from `anchor` — out of the breath/head/fireball, inside the band
     so the target stays reachable, eating when hurt. Ends when `until()` says the window is open (the caller then
@@ -211,7 +211,7 @@ def _rods_on_floor():
     return [e for e in entities(16, ["minecraft:item"]) if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]
 
 
-@skill(needs={"tool:sword:1": 1}, speed={}, start=lambda c: Inventory().count("minecraft:blaze_rod"),
+@skill(gives={}, needs={"tool:sword:1": 1}, speed={}, start=lambda c: Inventory().count("minecraft:blaze_rod"),
        done=lambda c: Inventory().count("minecraft:blaze_rod") >= c.base + c.args[1],
        budget=900, stall=180, per_unit=90, units=lambda c: c.args[1], key=lambda c: "collect_blaze_rods",
        provides={"hunt:minecraft:blaze_rod": lambda ctx, s: (s.count,)})

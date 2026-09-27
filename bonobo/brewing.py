@@ -30,7 +30,7 @@ def brew_steps(have):
     return steps
 
 
-@skill(needs={"minecraft:glass_bottle": 1}, speed={}, start=lambda c: Inventory().count("minecraft:potion"),
+@skill(gives={}, needs={"minecraft:glass_bottle": 1}, speed={}, start=lambda c: Inventory().count("minecraft:potion"),
        verify=lambda c: Inventory().count("minecraft:potion") > c.base, budget=180, stall=60, per_unit=10,
        provides={"fill:minecraft:potion": lambda ctx, s: (s.count,)})
 def fill_bottles(ctx, count=3):
@@ -65,7 +65,7 @@ def _fire_resistance_held():
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s.get("potion") in FIRE_RESISTANCE)
 
 
-@skill(needs={"minecraft:nether_wart": 1, "minecraft:blaze_powder": 1, "minecraft:glass_bottle": 1}, speed={}, start=lambda c: _fire_resistance_held(), verify=lambda c: _fire_resistance_held() > c.base,
+@skill(gives={}, needs={"minecraft:nether_wart": 1, "minecraft:blaze_powder": 1, "minecraft:glass_bottle": 1}, speed={}, start=lambda c: _fire_resistance_held(), verify=lambda c: _fire_resistance_held() > c.base,
        budget=300, stall=120, per_unit=60,
        provides={"brew:fire_resistance": lambda ctx, s: ()})
 def brew_fire_resistance(ctx):

@@ -182,34 +182,90 @@ def members(token):
     return GROUPS.get(token, [mid(token)])
 
 
+# -- where a token comes from: the producing skills' `gives`, read from the skill registry ------------------------
+# A skill declares what it produces (`@skill(gives=...)`) as one of these tables (rank, lookup); the planner's
+# `source` and the solver's columns are both read off the registry, so a producer exists in one place — the skill.
+# Rank settles a token two skills could make (the old if-chain's order): a group recipe before a hunt, a smelt
+# before a recipe (iron ingots from ore, not from a block), a mine last among the base sources.
+RANK = {"gather": 0, "craft_group": 10, "hunt": 20, "smelt": 30, "trade": 35, "craft": 40, "mine": 50, "fill": 60,
+        "farm": 70, "take": 90}
+# Tokens that are another token's source by definition: "stone"/"building" are what cobblestone is used as.
+ALIASES = {"stone": "minecraft:cobblestone", "building": "minecraft:cobblestone", "coal": "minecraft:coal"}
+
+
+class Produces:
+    """What one skill produces: `get(token)` → the source tuple (`source`'s shape) or None, `keys()` → every token.
+    Read from the live tables on every call, so a table patched in a test is what the planners see."""
+
+    def __init__(self, kind, get, keys, rows=None):
+        self.kind, self.rank, self._get, self._keys = kind, RANK[kind], get, keys
+        self._rows = rows or (lambda: [(t, None) for t in keys()])
+
+    def get(self, token):
+        return self._get(token)
+
+    def keys(self):
+        return list(self._keys())
+
+    def rows(self):
+        """(token, the table's own row) for every entry — what the solver builds its columns from."""
+        return list(self._rows())
+
+
+def _table(kind, table, make, skip=()):
+    """A producing table read live from `table`; `skip` keeps an entry out of `source` (a planner never smelts
+    charcoal for a coal need) while the solver still gets its column."""
+    return Produces(kind, lambda t: make(t, table[t]) if t in table and t not in skip else None,
+                    lambda: [t for t in table if t not in skip], lambda: list(table.items()))
+
+
+GIVES_GATHER = Produces("gather", lambda t: ("gather",) if t == "log" else None, lambda: ["log"])
+GIVES_CRAFT_GROUP = _table("craft_group", GROUP_RECIPES, lambda t, r: ("craft", r[0], r[1]))
+GIVES_CRAFT = _table("craft", RECIPES, lambda t, r: ("craft", r[0], r[1]))
+GIVES_HUNT = _table("hunt", HUNT, lambda t, types: ("hunt", types))
+GIVES_SMELT = _table("smelt", SMELTS, lambda t, inp: ("smelt", inp), skip=("minecraft:charcoal",))
+GIVES_MINE = _table("mine", MINE, lambda t, row: ("mine",) + row)
+def _one(kind, token, row, src):
+    """A producer of one token: `src` its source tuple, `row` what the solver's column reads."""
+    return Produces(kind, lambda t: src if t == token else None, lambda: [token], lambda: [(token, row)])
+
+
+GIVES_FILL = _one("fill", "minecraft:water_bucket", "minecraft:bucket", ("fill", "minecraft:bucket"))
+GIVES_FARM = _one("farm", "minecraft:wheat", ("minecraft:wheat_seeds", PLOT_CELLS),
+                  ("farm", "minecraft:wheat_seeds", PLOT_CELLS))
+GIVES_TRADE = _one("trade", "minecraft:emerald", ["minecraft:villager"], ("trade", ["minecraft:villager"]))
+GIVES_TAKE = _table("take", TAKEABLE, lambda t, row: ("take", row["blocks"]))
+
+
+PRODUCERS = []       # the registered skills' producing tables, filled by the `skill` decorator (like SKILL_SPEED)
+# The modules whose skills produce: loaded by name before the tables are read, so a reader does not depend on who
+# happened to import what (a string, not an import: knowledge stays below the skills).
+SKILL_MODULES = ("brewing", "building", "combat", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
+                 "reflexes", "skills", "ui", "wood")
+
+
+def producers():
+    """Every producing table the registered skills declare, in rank order (the skill modules loaded first)."""
+    if not PRODUCERS:
+        import importlib
+        for m in SKILL_MODULES:
+            importlib.import_module(f"{__package__}.{m}")
+    return sorted(PRODUCERS, key=lambda g: g.rank)
+
+
+def produced(kind):
+    """[(token, table row)] of every registered producer of this kind — what the solver builds its columns from."""
+    return [row for g in producers() if g.kind == kind for row in g.rows()]
+
+
 def source(token):
     """How a token is produced: ('craft', pattern, out) | ('smelt', input) | ('mine', blocks, tier) |
-    ('hunt', types) | ('gather',) | None."""
-    if token == "log":
-        return ("gather",)
-    if token in ("stone", "building"):
-        return ("mine",) + MINE["minecraft:cobblestone"]
-    if token in GROUP_RECIPES:
-        pattern, out = GROUP_RECIPES[token]
-        return ("craft", pattern, out)
-    if token == "stone":
-        return ("mine",) + MINE["minecraft:cobblestone"]
-    if token == "coal":
-        return ("mine",) + MINE["minecraft:coal"]
-    if token in HUNT:
-        return ("hunt", HUNT[token])
+    ('hunt', types) | ('gather',) | ('fill', container) | ('farm', seeds, per plot) | ('trade', types) |
+    ('take', blocks) | None — the first by rank of the registered skills that give it."""
+    token = ALIASES.get(token, token)
     item = mid(token)
-    if item in HUNT:
-        return ("hunt", HUNT[item])
-    if item in SMELTS and item != "minecraft:charcoal":
-        return ("smelt", SMELTS[item])
-    if item in RECIPES:
-        pattern, out = RECIPES[item]
-        return ("craft", pattern, out)
-    if item in MINE:
-        return ("mine",) + MINE[item]
-    if item == "minecraft:water_bucket":
-        # Filling is its own kind of production: an empty bucket plus a water source. Without it the planner called
-        # every water-dependent goal "no known way to obtain minecraft:water_bucket".
-        return ("fill", "minecraft:bucket")
+    for g in producers():
+        src = g.get(token) or (g.get(item) if item != token else None)
+        if src is not None:
+            return src
     return None

@@ -777,7 +777,7 @@ class Runner(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), mock.patch.object(skillkit, "STATS", stats), \
                     mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
-                runner = skillkit.skill(needs={}, speed={}, **kw)(fn)
+                runner = skillkit.skill(needs={}, speed={}, gives={}, **kw)(fn)
                 if isinstance(want, type):
                     with self.assertRaises(want):
                         runner(None)
@@ -807,7 +807,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillkit, "_heartbeat", lambda n: None), \
                     mock.patch.object(skillcore, "dead", lambda *a, **k: False), \
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01):
-                runner = skillkit.skill(needs={}, speed={}, budget=budget, stall=stall)(body)
+                runner = skillkit.skill(needs={}, speed={}, gives={}, budget=budget, stall=stall)(body)
                 if want is None:
                     self.assertEqual(runner(None), "done")
                     continue
@@ -823,7 +823,7 @@ class Runner(unittest.TestCase):
                           ([ok, _missing_pick], (False, "need a tier-1 pickaxe")),
                           ([lambda c: (_ for _ in ()).throw(RuntimeError())], (False, "RuntimeError"))):
             with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
-                runner = skillkit.skill(needs={}, speed={}, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
+                runner = skillkit.skill(needs={}, speed={}, gives={}, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
                 self.assertEqual(skillkit.can_run(runner, None), want)
 
     def test_step_keys_most_specific_first(self):
@@ -849,7 +849,7 @@ class Runner(unittest.TestCase):
         for name, provs, want in self.PROVIDERS:
             with self.subTest(name), mock.patch.dict(skillkit.REGISTRY, clear=True):
                 for pname, effect, prefer, got in provs:
-                    skillkit.skill(needs={}, speed={}, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
+                    skillkit.skill(needs={}, speed={}, gives={}, name=pname, provides={effect: lambda ctx, s, _g=got: _g}, prefer=prefer)(
                         lambda ctx, *a: None)
                 found = skillkit.provider(None, Step("zz", "tok", 1))
                 self.assertEqual(None if found is None else (found[0].contract.name, found[1]), want)
@@ -1127,8 +1127,9 @@ class Commands(unittest.TestCase):
 
 
 class Declarations(unittest.TestCase):
-    """@skill: every skill states `needs` (hard prerequisites) and `speed` (tools that make it faster, seconds saved
-    per unit) — `{}` written out when there are none — or it is refused at import."""
+    """@skill: every skill states `needs` (hard prerequisites), `speed` (tools that make it faster, seconds saved
+    per unit) and `gives` (what it produces: producing tables, or states) — `{}` written out when there are none —
+    or it is refused at import."""
 
     def test_every_registered_skill_declares_both(self):
         from bonobo import data, knowledge
@@ -1140,15 +1141,16 @@ class Declarations(unittest.TestCase):
         self.assertEqual(bad, {})
 
     def test_the_decorator_refuses_what_is_undeclared(self):
-        # (situation, needs, speed) → the TypeError's words, or None when it registers
-        rows = [("must fail: no needs", None, {}, "declares no needs"),
-                ("must fail: no speed", {}, None, "declares no speed"),
-                ("must fail: neither", None, None, "declares no needs and no speed"),
-                ("both written out empty: registers", {}, {}, None),
-                ("needs as a function of the call: registers", lambda a: {}, {}, None)]
-        for name, needs, speed, want in rows:
+        # (situation, needs, speed, gives) → the TypeError's words, or None when it registers
+        rows = [("must fail: no needs", None, {}, {}, "declares no needs"),
+                ("must fail: no speed", {}, None, {}, "declares no speed"),
+                ("must fail: no gives", {}, {}, None, "declares no gives"),
+                ("must fail: none of them", None, None, None, "declares no needs and no speed and no gives"),
+                ("all three written out empty: registers", {}, {}, {}, None),
+                ("needs as a function of the call: registers", lambda a: {}, {}, {}, None)]
+        for name, needs, speed, gives, want in rows:
             with self.subTest(name):
-                kw = {k: v for k, v in (("needs", needs), ("speed", speed)) if v is not None}
+                kw = {k: v for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is not None}
                 try:
                     skillkit.skill("_dummy_for_the_contract_test", **kw)(lambda ctx: None)
                     got = None
@@ -1158,7 +1160,8 @@ class Declarations(unittest.TestCase):
                     skillkit.REGISTRY.pop("_dummy_for_the_contract_test", None)
                     __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop(
                         "_dummy_for_the_contract_test", None)
-                self.assertEqual(None if got is None else want in got, None if want is None else True, got)
+                self.assertEqual(got if want is None else (got is not None and want in got),
+                                 None if want is None else True, got)
 
 class BagRules(unittest.TestCase):
     """A gatherer's failure on a full bag names the bag (skill.bag_full_reason, one place for chop/hunt/mine/loot)."""
@@ -1306,7 +1309,7 @@ class BagRules(unittest.TestCase):
         for name, fills, carried, want in rows:
             ran = []
 
-            @skillkit.skill(needs={}, speed={}, name="bag_gate_probe", fills_bag=fills)
+            @skillkit.skill(needs={}, speed={}, gives={}, name="bag_gate_probe", fills_bag=fills)
             def probe(ctx):
                 ran.append(True)
             inv = bag(inventory(*carried))
@@ -1324,7 +1327,7 @@ class BagRules(unittest.TestCase):
     def test_only_gatherers_say_it(self):
         """The same failure on a full bag: a gatherer's names the bag, another skill's stays its own."""
         for fills, want in ((True, "bag full (no free slot): nothing left to take"), (False, "nothing left to take")):
-            @skillkit.skill(needs={}, speed={}, name=f"bag_probe_{fills}", fills_bag=fills)
+            @skillkit.skill(needs={}, speed={}, gives={}, name=f"bag_probe_{fills}", fills_bag=fills)
             def probe(ctx):
                 raise api.NotAvailable("nothing left to take")
             with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_free_slots", return_value=0), \
