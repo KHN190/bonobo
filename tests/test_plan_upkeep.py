@@ -1797,5 +1797,39 @@ class Felled(unittest.TestCase):
             with self.subTest(name):
                 self.assertIs(wood.felled(trunk, still), want)
 
+
+class AFightComesBeforeUpkeep(unittest.TestCase):
+    """L0 > the fight's lease > upkeep > the queue: while a fight holds the body, upkeep is not even asked (a zombie
+    in the arena and upkeep sent the body off for logs, over the edge)."""
+
+    # (situation, the body's holder, api.MODE, a hazard due, upkeep has work) → the layer that takes the round
+    ROWS = [("a fight holds the body, upkeep has work", "fight", "normal", None, True, "L0", []),
+            ("a rescue runs (survival mode)", None, "survival", None, True, "L0", []),
+            ("nobody holds it, a hazard is due", None, "normal", "drowning", True, "L0", []),
+            ("nobody holds it, upkeep has work", None, "normal", None, True, "upkeep", ["upkeep"]),
+            ("nobody holds it, nothing to do", None, "normal", None, False, None, ["upkeep"])]
+
+    def test_order_over_the_table(self):
+        from unittest import mock
+        from bonobo import arbiter
+        for name, holder, mode, due, busy, want, asked_want in self.ROWS:
+            asked = []
+            b = brainmod.Brain.__new__(brainmod.Brain)
+            b.retry, b.place = retry.Retry(), PLACE
+
+            def upkeep(snap, ctx, _busy=busy):
+                asked.append("upkeep")
+                return brainmod.Act("upkeep", "u", None) if _busy else None
+            b.upkeep = upkeep
+            b.task_act = lambda task, snap, ctx: None
+            b.prepare = lambda snap: None
+            snap = snapshot(state(), inventory())
+            with self.subTest(name), mock.patch.object(api, "MODE", mode), \
+                    mock.patch.object(arbiter.BODY, "holder", return_value=holder), \
+                    mock.patch.object(brainmod.hazard, "due", return_value=due), \
+                    mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):
+                act = b.decide(snap, None)
+                self.assertEqual((act.layer if act else None, asked), (want, asked_want))
+
 if __name__ == "__main__":
     unittest.main()
