@@ -742,8 +742,55 @@ class Repairs(unittest.TestCase):
 TREES = {"oak_log": 6, "stone": 2}          # fixture: the default look-around of a held-plan row
 
 
+class Notes(Memory):
+    """Memory held in this process only: what the brain notes stays here, no file is written."""
+
+    def __init__(self):
+        super().__init__(os.path.join(os.sep, "nonexistent", "notes.json"))
+
+    def save(self):
+        pass
+
+
+class Held:
+    """The queue's decision (brain.task_act / after_step) on an unstarted Brain, IO outside as the brain's own caller
+    does it: the task is a dict here, each decision's task writes applied to it right after; the cost model and the
+    bag after a step are the row's readings."""
+
+    def __init__(self, goal, plan=None, seen=TREES):
+        from bonobo import bag as bagmod
+        self.seen, self.after_inv, self.act, self.first = seen, inventory(), None, None
+        b = self.b = brainmod.Brain.__new__(brainmod.Brain)
+        b.policy_cache = nav.Policy()
+        b.mem = Notes()
+        b.retry, b.blacklist, b.place, b.held = retry.Retry(), {}, PLACE, {}
+        b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+        b.last_failure, b.committed, b.last_hold_log, b.task_writes = None, None, 0, None
+        self.task = {"id": "t1", "goal": goal["goal"], "args": goal.get("args", {}), "state": "pending", "reason": "",
+                     "plan": plan}
+        self._reserved = bagmod.RESERVED          # task_act sets the module-wide reservation: put back after
+
+    def restore(self):
+        from bonobo import bag as bagmod
+        bagmod.RESERVED = self._reserved
+
+    def round(self, inv, st=None):
+        snap = snapshot(st or state(), inv)
+        if self.task["state"] not in tasks.LIVE:
+            return None
+        act, update = self.b.task_act(self.task, snap, None, cost(snap, mem=self.b.mem, **self.seen))
+        self.task.update(update)
+        return act
+
+    def after(self, outcome):
+        self.task.update(self.b.after_step(self.act, outcome, lambda: bag(self.after_inv)))
+
+    def state(self):
+        return self.task["state"], self.task["reason"]
+
+
 class Queue_:
-    """One brain, one task file, the row's readings."""
+    """One brain, one task file, the row's readings: plan_proposals, the queue's IO-owning caller."""
 
     def __init__(self, tmp, seen=TREES):
         self.tmp, self.seen, self.after_inv = tmp, seen, inventory()
@@ -782,12 +829,6 @@ class Queue_:
         return next((t["state"], t["reason"]) for t in tasks.load() if t["id"] == task_id)
 
 
-def _round(q, inv, st=None):
-    snap = snapshot(st or state(), inv)
-    task = next((t for t in tasks.load() if t["state"] in tasks.LIVE), None)
-    return q.b.task_act(task, snap, ctx=None) if task else None
-
-
 # (situation, goal, [(op, args...)]). ops: ("round", inv) → the act, kept as q.act; ("ok", bag after) / ("interrupted",)
 # / ("failed", n failures of cause nav): the step's outcome; ("check", fn(test, q)).
 HELD = [
@@ -795,7 +836,7 @@ HELD = [
         ("round", inventory()),
         ("check", lambda t, q: (t.assertEqual((q.act.step.kind, q.act.step.token), ("gather", "log")),
                                 t.assertEqual(q.state(), ("running", "")),
-                                t.assertTrue(tasks.load()[0]["plan"], "the plan is saved with the task")))]),
+                                t.assertTrue(q.task["plan"], "the plan is saved with the task")))]),
     ("the goal is met already: done, no act", goals.have(("log", 4)), [
         ("round", inventory(("oak_log", 4))),
         ("check", lambda t, q: (t.assertIsNone(q.act), t.assertEqual(q.state(), ("done", ""))))]),
@@ -876,30 +917,31 @@ HELD = [
 class HeldPlans(unittest.TestCase):
     def test_event_sequences(self):
         for name, goal, ops in HELD:
-            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
-                plan = next((o[1] for o in ops if o[0] == "saved"), None)
-                q.task(goal, plan)
-                q.act = q.first = None
-                for op_, *a in ops:
-                    if op_ == "round":
-                        q.act = _round(q, a[0])
-                        q.first = q.act.step if q.act else None
-                    elif op_ == "ok":
-                        q.after_inv = a[0]
-                        q.b.after_step(q.act, "ok")
-                    elif op_ == "interrupted":
-                        q.b.after_step(q.act, "interrupted")
-                    elif op_ in ("failed", "failed_as"):
-                        err, times = (api.NavFailed("no path found"), a[0]) if op_ == "failed" else (a[0], a[1])
-                        for _ in range(times):
-                            q.b.last_failure = q.b.failed(q.act.name, err)
-                        q.b.after_step(q.act, "failed")
-                    elif op_ == "seen":
-                        q.seen = a[0]
-                    elif op_ == "job":
-                        q.b.mem.add_job("smelt", (3, 64, 0), OVER, a[0], a[1], time.time() + 60, [])
-                    elif op_ == "check":
-                        a[0](self, q)
+            q = Held(goal, next((o[1] for o in ops if o[0] == "saved"), None))
+            try:
+                with self.subTest(name):
+                    for op_, *a in ops:
+                        if op_ == "round":
+                            q.act = q.round(a[0])
+                            q.first = q.act.step if q.act else None
+                        elif op_ == "ok":
+                            q.after_inv = a[0]
+                            q.after("ok")
+                        elif op_ == "interrupted":
+                            q.after("interrupted")
+                        elif op_ in ("failed", "failed_as"):
+                            err, times = (api.NavFailed("no path found"), a[0]) if op_ == "failed" else (a[0], a[1])
+                            for _ in range(times):
+                                q.b.last_failure = q.b.failed(q.act.name, err)
+                            q.after("failed")
+                        elif op_ == "seen":
+                            q.seen = a[0]
+                        elif op_ == "job":
+                            q.b.mem.add_job("smelt", (3, 64, 0), OVER, a[0], a[1], time.time() + 60, [])
+                        elif op_ == "check":
+                            a[0](self, q)
+            finally:
+                q.restore()
 
     def test_a_held_plan_is_solved_again_only_on_an_event(self):
         """plan_without_events: a held plan none of whose steps could run was solved again every round from the same
@@ -910,13 +952,16 @@ class HeldPlans(unittest.TestCase):
                 ("no step runs, the bag changed: solved again", False, changed, 1),
                 ("a step runs, the bag changed: solved again", True, changed, 1)]
         for name, runs, bag_now, want in rows:
-            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
-                q.task(goals.have(("log", 8)))
-                _round(q, before)                           # the first plan: not counted
-                q.b.valid = lambda *a, **k: runs
-                with mock.patch.object(brainmod, "replan", wraps=brainmod.replan) as solved:
-                    _round(q, bag_now)
+            q = Held(goals.have(("log", 8)))
+            try:
+                with self.subTest(name):
+                    q.round(before)                             # the first plan: not counted
+                    q.b.valid = lambda *a, **k: runs
+                    with mock.patch.object(brainmod, "replan", wraps=brainmod.replan) as solved:    # a spy: counts
+                        q.round(bag_now)
                     self.assertEqual(solved.call_count, want)
+            finally:
+                q.restore()
 
     # (bag, what idle prepares first, or None when everything is held)
     PREPARE = [(inventory(), ("tool", "pickaxe", 1)),
@@ -1878,7 +1923,8 @@ class OneArbiter(unittest.TestCase):
         b.needs = mock.Mock(working={}, needs_now=[], round={}, propose=lambda snap, ctx, reads=None: [])
         b.reflexes = mock.Mock(proposals=lambda snap, ctx, reads=None: [])       # caught in the open, nothing due
         chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
-        b.task_act = lambda task, snap, ctx: chop
+        b.task_act = lambda task, snap, ctx, cost: (chop, {})
+        b.mem, b.blacklist, b.policy_cache = None, {}, None
         b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
         with mock.patch.object(api, "MODE", "normal"), mock.patch.object(brainmod.hazard, "due", return_value=None), \

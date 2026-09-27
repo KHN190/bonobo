@@ -97,6 +97,7 @@ class Brain:
         self.place = None             # coarse location: what causes are cooled against
         self.idle_since = None
         self.committed = None         # the task being worked on
+        self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None      # the Verdict of the last failed attempt
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
         from . import fight_loop
@@ -284,7 +285,7 @@ class Brain:
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)
         if act.task is not None:
-            self.after_step(act, outcome)
+            write(act.task, self.after_step(act, outcome, Inventory))
 
     # -- deciding (nothing acts in here beyond queueing tasks)
     def decide(self, snap, ctx):
@@ -337,7 +338,9 @@ class Brain:
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
                 continue
-            act = self.task_act(task, snap, ctx)
+            act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist,
+                                                              policy=self.policy_cache))
+            write(task, update)
             if act is not None and (not closed or act.step.kind in NIGHT_WORK):
                 return [arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}")]
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
@@ -375,7 +378,27 @@ class Brain:
         return Act("upkeep", name, lambda: dispatch.execute(ctx, step, snap.night), step=step)
 
     # -- the queue: hold a plan, check it cheaply, repair it on events
-    def task_act(self, task, snap, ctx):
+    def task_act(self, task, snap, ctx, cost):
+        """The queue's decision for one task, IO outside: (the act, or None; the task's fields to write — `write`,
+        applied by the caller right after). `cost` is the round's cost model (a planner's only view of the world)."""
+        return self._collecting(lambda: self._task_act(task, snap, ctx, cost))
+
+    def _collecting(self, decide):
+        """(decide(), the task fields it changed): every task write in between is kept, not written (`_write`)."""
+        self.task_writes = {}
+        try:
+            return decide(), self.task_writes
+        finally:
+            self.task_writes = None
+
+    def _write(self, task, **fields):
+        """A change to the task file: kept while deciding (`_collecting`), written at once otherwise."""
+        if self.task_writes is not None:
+            self.task_writes.update(fields)
+        else:
+            tasks.update(task["id"], **fields)
+
+    def _task_act(self, task, snap, ctx, cost):
         goal = tasks.goal_of(task)
         # Reconcile: what the goal still wants, read from the world each round ({} = done). The held plan is a
         # cache of how to get it, redone when this remainder changes — never a count of what was done.
@@ -390,7 +413,7 @@ class Brain:
             held = {"steps": [decompose.from_dict(d) for d in task["plan"]], "sig": None, "event": True,
                     "dim": snap.dimension}
         if held is None or held["event"] or held.get("want") != rest or held["dim"] != snap.dimension:
-            held = self.repair(task, goal, snap, held)
+            held = self.repair(task, goal, snap, held, cost)
             if held is None:
                 return None
             held["want"] = rest
@@ -427,7 +450,7 @@ class Brain:
         out passes its own declared preconditions (`dispatch.can_start` → `skill.can_run`)."""
         return runnable(step, snap.inv) and self.ready(step_key(step)) and (ctx is None or dispatch.can_start(ctx, step))
 
-    def repair(self, task, goal, snap, held):
+    def repair(self, task, goal, snap, held, cost):
         """Bring the held plan up to date with the world. Run-once goals keep what is left of theirs (a road half
         walked is walked on, not restarted); item goals are recomputed from the bag by the task's solver, which
         skips whatever is already held. Only when that cannot plan does every registered solver get a go."""
@@ -435,21 +458,24 @@ class Brain:
             held.update(event=False, sig=bag_signature(snap.inv), dim=snap.dimension)
             self.held[task["id"]] = held
             return held
-        held, why = replan(task, goal, snap, Cost(snap, self.mem, self.blacklist, policy=self.policy_cache),
-                           self.mem.pending_outputs(snap.dimension))
+        held, why = replan(task, goal, snap, cost, self.mem.pending_outputs(snap.dimension))
         if held is None:
             self.fail_task(task, why)
             return None
         steps = held["steps"]
         self.held[task["id"]] = held
-        tasks.update(task["id"], state="running", plan=[decompose.to_dict(s) for s in steps])
+        self._write(task, state="running", plan=[decompose.to_dict(s) for s in steps])
         tape.event(f"task {task['id']}", "plan", " → ".join(map(str, steps)))
         if steps:
             api.detail(f"   plan for {tasks.describe(task)}: " + " → ".join(map(str, steps)))
         return held
 
-    def after_step(self, act, outcome):
-        """What the step's outcome means for the held plan."""
+    def after_step(self, act, outcome, bag_now):
+        """What the step's outcome means for the held plan; the task fields it changes (`write`, the caller's).
+        `bag_now()` reads the bag after the step (asked only when the step succeeded)."""
+        return self._collecting(lambda: self._after_step(act, outcome, bag_now))[1]
+
+    def _after_step(self, act, outcome, bag_now):
         task = act.task
         held = self.held.get(task["id"])
         if held is None:
@@ -458,8 +484,8 @@ class Brain:
             for st in act.steps:
                 if st in held["steps"]:
                     held["steps"].remove(st)
-            held["sig"] = bag_signature(Inventory())
-            tasks.update(task["id"], plan=[decompose.to_dict(s) for s in held["steps"]])
+            held["sig"] = bag_signature(bag_now())
+            self._write(task, plan=[decompose.to_dict(s) for s in held["steps"]])
             return
         held["event"] = True                          # failed or interrupted: repair before the next step
         verdict = self.last_failure
@@ -479,7 +505,7 @@ class Brain:
 
     def finish(self, task, state, reason):
         self.just_finished = True
-        tasks.mark(task["id"], state, reason)
+        self._write(task, **tasks.marked(state, reason))
         self.held.pop(task["id"], None)
         self.retry.succeeded(f"task {task['id']}")
         if state == "done":
@@ -559,6 +585,12 @@ SOURCE_OF = ((PlayerTookControl, "player"), (GameUnreachable, "game lost"), (api
              (api.BodyContested, "manual"), (api.Died, "death"), (api.DimensionChanged, "dimension change"),
              (api.CommitmentExpired, "layer:plan"), (api.Interrupted, "layer:safety"),
              ((McError, skills.ToolMissing), "stuck"))
+
+
+def write(task, fields):
+    """Apply a decision's task writes (task_act, after_step) to the task file: one update, nothing when unchanged."""
+    if fields:
+        tasks.update(task["id"], **fields)
 
 
 def outcome_of(err):

@@ -79,13 +79,18 @@ def update(task_id, path=None, **fields):
     return None
 
 
-def mark(task_id, state, reason="", path=None):
+def marked(state, reason=""):
+    """Pure: the fields a task in `state` gets (`reason`, and no plan once it is not live)."""
     if state not in STATES:
         raise ValueError(f"unknown task state {state!r}")
     fields = {"state": state, "reason": reason}
     if state not in LIVE:
         fields["plan"] = None
-    return update(task_id, path=path, **fields)
+    return fields
+
+
+def mark(task_id, state, reason="", path=None):
+    return update(task_id, path=path, **marked(state, reason))
 
 
 def cancel(task_id=None, path=None, reason="cancelled"):

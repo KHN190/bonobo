@@ -319,7 +319,9 @@ class OneDecisionPoint(unittest.TestCase):
             b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
                                          "propose": lambda self, *a, **k: None})()
             b.reflexes = type("Reflexes", (), {"proposals": lambda self, *a, **k: ask_upkeep() or []})()
-            b.task_act = layer("queue", brain.Act("task", "t", None))
+            ask_queue = layer("queue", brain.Act("task", "t", None))
+            b.task_act = lambda *a: (ask_queue(*a), {})
+            b.mem, b.blacklist, b.policy_cache = None, {}, None
             b.prepare = layer("prepare", brain.Act("idle", "p", None))
             with self.subTest(busy=sorted(busy)), mock.patch.object(api, "MODE", "normal"), \
                     mock.patch.object(brain.hazard, "due", layer("hazard", "drowning")), \
