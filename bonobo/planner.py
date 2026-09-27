@@ -64,6 +64,17 @@ class VirtualInventory:
         return any(k == kind and t >= tier and d >= min_left for k, t, d in self.tools)
 
 
+def cooked_from_carried(options, available, n):
+    """Pure: [(cooked item, how many)] made from raw meat already carried, most carried first, up to `n` in all."""
+    raw = sorted(((c, available(c.replace("cooked_", ""))) for c in options), key=lambda x: -x[1])
+    out = []
+    for cooked, have in raw:
+        k = min(have, n - sum(q for _c, q in out))
+        if k > 0:
+            out.append((cooked, k))
+    return out
+
+
 class Planner:
     def __init__(self, counts, tools, cost):
         self.inv = VirtualInventory(counts, tools)
@@ -125,6 +136,13 @@ class Planner:
         if not fresh:
             self.inv.consume(token, have)
         if token == "food":
+            # Raw meat already carried first: smelting it is seconds, hunting is minutes — a hungry agent with two
+            # raw beef and a lit furnace planned "hunt 8× porkchop" instead.
+            for cooked, k in cooked_from_carried(COOKABLE_FOOD, self.inv.available, missing):
+                self.need(cooked, k, depth + 1)
+                missing -= k
+            if missing <= 0:
+                return
             token = self.cost.cheapest_food(COOKABLE_FOOD)
         src = source(token)
         if src is None:

@@ -1929,5 +1929,39 @@ class ToolsAreThePlansNeed(unittest.TestCase):
             self.assertEqual([(st.kind, st.token) for st in steps][-2:],
                              [("craft", "minecraft:wooden_pickaxe"), ("mine", "minecraft:cobblestone")])
 
+
+class FoodFromTheBag(unittest.TestCase):
+    """Raw meat carried is food first: smelt it (seconds) before hunting (minutes)."""
+
+    def test_cooked_from_carried(self):
+        cooked = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraft:cooked_mutton"]
+        rows = [("two raw beef, want 8: the beef, the rest elsewhere", {"minecraft:beef": 2}, 8,
+                 [("minecraft:cooked_beef", 2)]),
+                ("nine raw beef, want 8: 8 of it", {"minecraft:beef": 9}, 8, [("minecraft:cooked_beef", 8)]),
+                ("beef and mutton: the larger pile first", {"minecraft:beef": 2, "minecraft:mutton": 5}, 6,
+                 [("minecraft:cooked_mutton", 5), ("minecraft:cooked_beef", 1)]),
+                ("nothing raw: nothing from the bag", {}, 8, [])]
+        for name, have, n, want in rows:
+            with self.subTest(name):
+                self.assertEqual(planner.cooked_from_carried(cooked, lambda t, h=have: h.get(t, 0), n), want)
+
+    def test_the_plan(self):
+        rows = [("2 raw beef, coal, a furnace near, want 2: smelt them", [("beef", 2), ("coal", 4)], 2, {},
+                 [("smelt", "minecraft:cooked_beef", 2)]),
+                ("2 raw beef, want 8, pigs 30 away: smelt the beef, hunt the rest",
+                 [("beef", 2), ("coal", 4)], 8, {"pig": 30},
+                 [("smelt", "minecraft:cooked_beef", 2), ("hunt", "minecraft:porkchop", 6),
+                  ("smelt", "minecraft:cooked_porkchop", 6)]),
+                ("nothing raw, pigs 30 away: hunt", [("coal", 4)], 2, {"pig": 30},
+                 [("hunt", "minecraft:porkchop", 2), ("smelt", "minecraft:cooked_porkchop", 2)]),
+                ("8 cooked carried: nothing", [("cooked_beef", 8)], 8, {}, [])]
+        for name, carried, n, seen, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                m.add_station("minecraft:furnace", (1, 64, 1), OVER)
+                snap = snapshot(state(food=6), inventory(*carried))
+                steps = decompose.decompose(snap.inv, goals.have(("food", n)), cost(snap, mem=m, **seen))
+                self.assertEqual([(st.kind, st.token, st.count) for st in steps], want)
+
 if __name__ == "__main__":
     unittest.main()
