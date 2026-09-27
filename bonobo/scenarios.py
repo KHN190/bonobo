@@ -3015,9 +3015,13 @@ def _cell_before(cell):
     hooks.append(_count_finds)
     if cell["food"] == "low":
         hooks.append(lambda ctx: time.sleep(LOW_FOOD_S + 0.5))     # the hunger effect set in setup drains the bar first
-    if BAG_FILL[cell["bag"]]:
-        hooks.append(_fill_bag(*BAG_FILL[cell["bag"]]))
     return hooks
+
+
+def _cell_setup_hooks(cell):
+    """`before` hooks that make the row's world and so run before `_start` takes the base: a bag filled after the
+    base was read made "dirt < base" (junk thrown) impossible — base dirt 0 (tidy_then_task__junk_full)."""
+    return [_fill_bag(*BAG_FILL[cell["bag"]])] if BAG_FILL[cell["bag"]] else []
 
 
 def _grid_cells():
@@ -3049,7 +3053,7 @@ for _key, _entry in _grid_cells().items():
         "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain", "combat": False,
         "tags": {"base": "brain", "family": "+".join(_entry["families"]), **{d: _cell[d] for d in BRAIN_DIMS}},
         "setup": BRAIN_WORLD + [c for d in BRAIN_DIMS for c in BRAIN_DIMS[d][_cell[d]]],
-        "before": _hooks(_start(_name), *_cell_before(_cell)),
+        "before": _hooks(*_cell_setup_hooks(_cell), _start(_name), *_cell_before(_cell)),
         "queue": list(_entry["queue"]),
         "run": _slice(None, 0.4, queue=list(_entry["queue"])),
         "check": _all(*[c for c, _why in _judged], _slice_check(None)),
