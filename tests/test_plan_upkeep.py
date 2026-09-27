@@ -2043,5 +2043,24 @@ class TrunkBatch(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(wood.trunk_batch((3, 64, 0), overhead, want), batch)
 
+
+class CraftInOneSitting(unittest.TestCase):
+    """brain.craft_run: the crafts made in one sitting — the step and the crafts straight after it."""
+
+    def test_run_over_the_table(self):
+        S = planner.Step
+        planks, sticks, table, pick = (S("craft", "planks", 8, {"times": 2}), S("craft", "minecraft:stick", 4, {}),
+                                       S("craft", "minecraft:crafting_table", 1, {}),
+                                       S("craft", "minecraft:wooden_pickaxe", 1, {}))
+        log, mine = S("gather", "log", 3, {}), S("mine", "stone", 3, {"tier": 0})
+        rows = [("a whole craft chain", [planks, sticks, table, pick], planks, [planks, sticks, table, pick]),
+                ("a mine step ends the run", [planks, sticks, mine, pick], planks, [planks, sticks]),
+                ("from the middle of the plan", [log, planks, sticks], planks, [planks, sticks]),
+                ("not a craft: itself alone", [log, planks], log, [log]),
+                ("a lone craft", [mine, pick], pick, [pick])]
+        for name, steps, first, want in rows:
+            with self.subTest(name):
+                self.assertEqual(brainmod.craft_run(steps, first), want)
+
 if __name__ == "__main__":
     unittest.main()

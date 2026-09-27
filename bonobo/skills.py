@@ -211,6 +211,36 @@ def craft(ctx, token, times):
         raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
 
 
+@skill(verify=lambda c: c.result is not None and len(c.result) == len(c.args[1]), budget=120, stall=60,
+       key=lambda c: "craft")
+def craft_chain(ctx, recipes):
+    """Consecutive crafts of one plan in ONE sitting: the table opened (or placed) once, every recipe made in turn,
+    the table closed (or taken back) once. One craft per round opened the table, crafted, closed and — for a carried
+    table — placed and broke it again, every step (a craft took 9 s for a second's work). `recipes`: [(token, times)]
+    in plan order; each is resolved against the bag as the one before it left it."""
+    needs_table = any(len((GROUP_RECIPES[t] if t in GROUP_RECIPES else RECIPES[mid(t)])[0]) == 9 for t, _ in recipes)
+    made = []
+
+    def run_all():
+        for token, times in recipes:
+            pattern, out = GROUP_RECIPES[token] if token in GROUP_RECIPES else RECIPES[mid(token)]
+            inv = Inventory()
+            concrete = resolve_pattern(pattern, times, inv)
+            item = output_of(token, concrete)
+            before = inv.count(item)
+            r = api.run({"type": "craft", "pattern": concrete, "count": out * times}, wait=120)
+            if gained(lambda: Inventory().count(item), before) <= before:
+                raise McError(f"crafting {bare(item)} produced nothing: {r['message']}")
+            made.append((token, times))
+    if needs_table:
+        with Station(ctx, "minecraft:crafting_table"):
+            run_all()
+    else:
+        close_screen()
+        run_all()
+    return made
+
+
 def move_into(ids, target_slot, amount):
     moved = 0
     while moved < amount:

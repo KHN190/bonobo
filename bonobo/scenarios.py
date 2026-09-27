@@ -2406,6 +2406,18 @@ SHEET["night_mines_under_cover"] = {
                   lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1] - 2), "budget": 30,
 }
 
+SHEET["craft_chain_one_sitting"] = {
+    "doc": "3 logs and a table carried → planks, sticks and a wooden pickaxe crafted in one sitting (craft_chain: the "
+           "table placed and taken back once, not per recipe)",
+    "module": "skills", "point": "A", "skills": ["craft_chain"], "tier_fixed": "exception",
+    "tags": {"base": "craft"},
+    "setup": _floor() + [_tp(), "clear @p", "give @p oak_log 3", "give @p crafting_table"],
+    "before": _start("craft_chain_one_sitting"),
+    "run": lambda ctx: _skill("craft_chain")(ctx, [("planks", 2), ("minecraft:stick", 1),
+                                                   ("minecraft:wooden_pickaxe", 1)]),
+    "check": _gain("minecraft:wooden_pickaxe", 1, at_most=1), "budget": 15,
+}
+
 START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)
     ("nav_from_stairs", "a stair step", [f"setblock {_c(at(0, 0, 0))} oak_stairs[facing=east]"], (0, 0.5, 0)),
     ("nav_from_slab", "a bottom slab", [f"setblock {_c(at(0, 0, 0))} stone_slab"], (0, 0.5, 0)),

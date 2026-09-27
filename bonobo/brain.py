@@ -55,6 +55,19 @@ def surface_closed(night, dimension):
     return bool(night) and dimension == "minecraft:overworld"
 
 
+def craft_run(steps, first):
+    """Pure: the crafts made in one sitting — `first` and the craft steps straight after it in the plan (a step of
+    another kind ends the run). One craft per round opened and closed the table every time."""
+    if first.kind != "craft" or first not in steps:
+        return [first]
+    run = []
+    for st in steps[steps.index(first):]:
+        if st.kind != "craft":
+            break
+        run.append(st)
+    return run
+
+
 def night_pick(kinds, night, can_dig, stocked):
     """Pure: what the round takes from the queue, given each live task's next step kind in queue order. By day the
     head (0), or None when nothing is queued. By night the first whose step works under cover (NIGHT_WORK); none →
@@ -73,8 +86,9 @@ TRACK_FILE = paths.data("track.jsonl")
 class Act:
     """What the round decided: the layer, a name (the failure key), and what to run. `task`/`step` for queue work."""
 
-    def __init__(self, layer, name, run, task=None, step=None):
+    def __init__(self, layer, name, run, task=None, step=None, steps=None):
         self.layer, self.name, self.run, self.task, self.step = layer, name, run, task, step
+        self.steps = steps or ([step] if step is not None else [])   # a craft run carries every craft it makes
 
     def __repr__(self):
         return f"{self.layer}: {self.name}" + (f" → {self.step}" if self.step else "")
@@ -351,6 +365,11 @@ class Brain:
         # Never consume our own work: what the held plans pass through is kept out of tidying and storing.
         bag.RESERVED = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
+        run = craft_run(held["steps"], step)
+        if len(run) > 1:
+            recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
+            return Act("task", f"task {task['id']}", lambda: skills.craft_chain(ctx, recipes), task=task, step=step,
+                       steps=run)
         return Act("task", f"task {task['id']}", lambda: dispatch.execute(ctx, step, snap.night), task=task, step=step)
 
     def valid(self, step, snap, ctx=None):
@@ -386,8 +405,9 @@ class Brain:
         if held is None:
             return
         if outcome == "ok":
-            if act.step in held["steps"]:
-                held["steps"].remove(act.step)
+            for st in act.steps:
+                if st in held["steps"]:
+                    held["steps"].remove(st)
             held["sig"] = bag_signature(Inventory())
             tasks.update(task["id"], plan=[decompose.to_dict(s) for s in held["steps"]])
             return
