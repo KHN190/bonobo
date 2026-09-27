@@ -1384,6 +1384,102 @@ class Declarations(unittest.TestCase):
                 self.assertEqual(got if want is None else (got is not None and want in got),
                                  None if want is None else True, got)
 
+def _item_of(token):
+    """A concrete item for a token (a group like "log" → its first member), bare, for `inventory(**{it: n})`."""
+    return (token if ":" in token else (members(token) or [token])[0]).split(":")[-1]
+
+
+def _shelter_done():
+    """The SHELTER hut standing whole at (0, 64, 0), unturned."""
+    return world(*[(pos, part.item.split(":")[-1]) for pos, part, *_ in
+                   blueprints.placed(blueprints.SHELTER, (0, 64, 0), 0)])
+
+
+def _call(base=FEET):
+    c = skillkit.Call((None,), {})
+    c.base = base
+    return c
+
+
+# A world-effect skill (a state in its gives): (its call, a state with the work not done, one with it done) —
+# fixtures its `remaining` is read over. A world-effect skill missing here fails the sweep by name.
+WORLD_LEFT = {
+    "burrow": (_call(), lambda: body(world()), lambda: body(hole())),
+    "pod": (_call(), lambda: body(world()), lambda: body(hole())),
+    "dig_in": (_call((0, 65, 0)), lambda: body(world(), feet=(0, 65, 0)), lambda: body(hole())),
+    "build_shelter": (_call(), lambda: body(world(), spot=((0, 64, 0), 0)),
+                      lambda: body(_shelter_done(), spot=((0, 64, 0), 0))),
+}
+
+
+def _reads_world(fn, call, undone, done):
+    """Does this `remaining` read the world: {} where the work stands done, something where it does not?"""
+    return fn(done(), call) == {} and bool(fn(undone(), call))
+
+
+class Remaining(unittest.TestCase):
+    """After any interruption the rest of a skill is read off the world, never a step index or a stored count: an
+    item skill's remainder is derived from its gives and the call's args (the bag wanted at its start less the bag
+    now, knowledge.have_remainder); a skill whose product lands in the world declares `remaining` — or is refused at
+    import."""
+
+    def test_every_world_effect_skill_reads_its_rest_off_the_world(self):
+        for name, c in sorted(skillkit.REGISTRY.items()):
+            if not skillkit.world_effect(c.gives):
+                continue
+            with self.subTest(name):
+                self.assertTrue(callable(c.remaining), f"{name}: a world effect with no remaining")
+                self.assertIn(name, WORLD_LEFT, f"{name}: no done/undone fixture for its remaining")
+                self.assertTrue(_reads_world(c.remaining, *WORLD_LEFT[name]), name)
+
+    def test_a_remaining_that_ignores_the_world_is_caught(self):
+        # must fail: a constant remainder (never met, or always met) — the sweep's own check says no
+        call, undone, done = WORLD_LEFT["pod"]
+        for name, fn in [("must fail: always something left", lambda st, c: {"wall": 1}),
+                         ("must fail: always done", lambda st, c: {}),
+                         ("the pod's own: reads the walls", skillkit.REGISTRY["pod"].remaining)]:
+            with self.subTest(name):
+                self.assertEqual(_reads_world(fn, call, undone, done), not name.startswith("must fail"))
+
+    def test_every_item_skill_derives_its_rest_from_the_bag(self):
+        # (situation, held at the start, asked, held now) → what is left; generated over every item skill
+        rows = [("nothing yet", 0, 2, 0, 2), ("half way", 0, 2, 1, 1), ("all of it", 0, 2, 2, 0),
+                ("held before the call: not credited to it", 3, 2, 3, 2), ("more than asked: met", 0, 2, 5, 0)]
+        items = {n: c for n, c in skillkit.REGISTRY.items()
+                 if not skillkit.world_effect(c.gives) and any(not isinstance(g, str) for g in c.gives)}
+        self.assertGreaterEqual(len(items), 4)
+        for name, c in sorted(items.items()):
+            token = next(iter(next(g for g in c.gives if not isinstance(g, str)).keys()))
+            it = _item_of(token)
+            for situation, before, asked, now, left in rows:
+                with self.subTest(f"{name}: {situation}"):
+                    call = _call()
+                    call.want = skillkit.wanted(c, body(inv=inventory(**{it: before})), (None, token, asked))
+                    got = skillkit.remaining_of(c, body(inv=inventory(**{it: now})), call)
+                    self.assertEqual(got, {token: left} if left else {}, name)
+
+    def test_the_decorator_refuses_a_world_effect_with_no_remaining(self):
+        # (situation, gives, remaining) → refused (TypeError naming the skill) or registered
+        rows = [("must fail: a state given, no remaining", ["state:sheltered"], None, True),
+                ("must fail: a state as a dict key, no remaining", {"sheltered": True}, None, True),
+                ("a state with its remaining: registers", ["state:sheltered"], lambda st, c: {}, False),
+                ("an item table: derived, registers", skillkit.REGISTRY["chop"].gives[:1], None, False),
+                ("nothing given: registers", {}, None, False)]
+        for situation, gives, remaining, refused in rows:
+            with self.subTest(situation):
+                try:
+                    skillkit.skill("_dummy_left", needs={}, speed={}, gives=gives, remaining=remaining)(lambda ctx: None)
+                    got = None
+                except TypeError as e:
+                    got = str(e)
+                finally:
+                    skillkit.REGISTRY.pop("_dummy_left", None)
+                    __import__("bonobo.knowledge", fromlist=["SKILL_SPEED"]).SKILL_SPEED.pop("_dummy_left", None)
+                self.assertEqual(got is not None, refused, got)
+                if refused:
+                    self.assertIn("_dummy_left", got)
+
+
 class BagRules(unittest.TestCase):
     """A gatherer's failure on a full bag names the bag (skill.bag_full_reason, one place for chop/hunt/mine/loot)."""
 

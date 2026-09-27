@@ -17,7 +17,7 @@ from .bag import mineable, pickup_whitelist, refused
 
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, job_ready, region_around, ripe_near  # noqa: F401  (job_ready: re-exported)
 from .bag import FLOOR, let_go, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
-from .terrain import LAND, soft_below, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
+from .terrain import LAND, soft_below, underground_target, shelter_method_at, find_shelter_spot, choose_burrow, NEIGHBOURS6_LOCAL, choose_exit, air_route, is_enclosed, openings, find_open_spot, chest_spot_ok  # noqa: F401  (moved; re-exported for skills.X callers)
 from .skillcore import (_collect_only, StationMissing, ToolMissing, Context, feet, close_screen, free_spots,  # noqa: F401,E402
                         free_spot, free_spots_here, spot_region, place, snapshot, mine_cell, gained, lost, settle,
                         body_state, head_buried, head_underwater,
@@ -1410,7 +1410,7 @@ def burrow_commands(state, args=()):
     return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
 
 
-@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: enclosed(), budget=90, stall=40, per_unit=20, commands=lambda st, a: burrow_commands(st, a),
+@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, per_unit=20, commands=lambda st, a: burrow_commands(st, a),
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
                  "shelter:burrow": lambda ctx, s: ()})
 def burrow(ctx):
@@ -1675,7 +1675,7 @@ def soft_ground_here():
     return None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)
 
 
-@skill(gives=["state:sheltered"], needs={}, speed={"shovel": DIG_SHOVEL_S}, start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
+@skill(gives=["state:sheltered"], needs={}, speed={"shovel": DIG_SHOVEL_S}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
                  "shelter:dig in": lambda ctx, s: ()}, prefer=1,
        budget=60, stall=30)
@@ -1745,6 +1745,23 @@ def enclosed():
     s = api.get("/state")
     x, y, z = s["blockX"], s["blockY"], s["blockZ"]
     return is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z))
+
+
+def shelter_left(state, call=None):
+    """`remaining` of a body shelter (burrow, pod): the enclosure's openings around the feet, read off the state's
+    region — {} once walled in; the whole shelter when no region was read."""
+    if state.get("region") is None:
+        return {"state:sheltered": 1}
+    return openings(state["region"], tuple(state["feet"]))
+
+
+def dug_in_left(state, call=None):
+    """`remaining` of dig_in: the openings, and the dig itself while the feet are not yet below where it began."""
+    left = shelter_left(state, call)
+    base = getattr(call, "base", None)
+    if base is not None and state["feet"][1] >= base[1]:
+        left["down"] = 1
+    return left
 
 
 def _pod_cells(feet_at):
@@ -1824,7 +1841,7 @@ def pod_commands(state, args=()):
     return tasks
 
 
-@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
+@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40, per_unit=10,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
     """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at

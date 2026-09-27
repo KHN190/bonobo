@@ -40,6 +40,7 @@ class Call:
 
     def __init__(self, args, kwargs):
         self.args, self.kwargs, self.base, self.result = args, kwargs, None, None
+        self.want = None            # an item skill's desired bag, fixed at its start (skill.wanted)
 
 
 def body_now():
@@ -157,13 +158,61 @@ def needs_of(contract, args):
     return dict(contract.needs_fn(args)) if getattr(contract, "needs_fn", None) else dict(contract.needs)
 
 
-def declared(name, needs, speed, gives=()):
+def declared(name, needs, speed, gives=(), remaining=None):
     """Every skill states its hard prerequisites (`needs`, {dimension: minimum}) and the optional tools that speed
     it up (`speed`, {tool kind: seconds saved per unit}) — written out, `{}` when there are none. A skill that says
-    neither is refused at import: an unstated need is one the planner can never price."""
+    neither is refused at import: an unstated need is one the planner can never price.
+
+    A skill whose product lands in the world rather than the bag (`world_effect`: a state in its gives) also states
+    how what is left of it is measured (`remaining`, a pure fn (state, call) → {what: missing}, {} when met): after
+    any interruption the rest is read off the world, and a skill that cannot say what is left would redo it."""
     missing = [k for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is None]
     if missing:
         raise TypeError(f"skill {name!r} declares no {' and no '.join(missing)} (write {{}} when there are none)")
+    if world_effect(gives) and not callable(remaining):
+        raise TypeError(f"skill {name!r} leaves {', '.join(g for g in gives_of(gives) if isinstance(g, str))} in the "
+                        f"world and declares no remaining= (a pure fn (state, call) → what is still missing, {{}} "
+                        f"when met)")
+
+
+def world_effect(gives):
+    """Does this skill's product land in the world (a state it leaves: "state:sheltered"), not in the bag?"""
+    return any(isinstance(g, str) for g in gives_of(gives))
+
+
+def wanted(contract, state, args):
+    """The bag an item skill's call wants, fixed when it starts: {token: held then + the count asked} — from its
+    gives (producing tables) and its args: the token is the first argument a table produces (else the table's only
+    key), the count the first whole number after it (else 1). None for a skill that produces no item."""
+    from .knowledge import held
+    tables = [g for g in contract.gives if not isinstance(g, str)]
+    if not tables:
+        return None
+    rest = list(args[1:])
+    at = next((i for i, a in enumerate(rest) if isinstance(a, str) and any(t.get(a) is not None for t in tables)),
+              None)
+    if at is None:
+        keys = {k for t in tables for k in t.keys()}
+        if len(keys) != 1:
+            return None
+        token, after = keys.pop(), rest
+    else:
+        token, after = rest[at], rest[at + 1:]
+    n = next((a for a in after if isinstance(a, int) and not isinstance(a, bool)), 1)
+    return {token: held(state["inv"], token) + n}
+
+
+def remaining_of(contract, state, call):
+    """What is left of this call, read off `state` (skillcore.body_state's shape) — {what: missing}, {} when done,
+    None when the world cannot say (only the skill running can): the skill's own `remaining`, else for an item
+    skill the bag it wants (`call.want`, `wanted`) less what the bag holds (knowledge.have_remainder)."""
+    if contract.remaining is not None:
+        return contract.remaining(state, call)
+    want = getattr(call, "want", None)
+    if want is None:
+        return None
+    from .knowledge import have_remainder
+    return have_remainder(state["inv"], [[t, n] for t, n in want.items()])
 
 
 def gives_of(gives):
@@ -175,7 +224,7 @@ def gives_of(gives):
 
 def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, done=None, verify=None, budget=300, stall=45,
           per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
-          fills_bag=False):
+          fills_bag=False, remaining=None):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
 
     A check can only answer "no". A dimension can be priced: `solve.reach_cost` walks the requirement graph and
@@ -183,7 +232,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
     forty seconds". The checks in `pre` stay as the runtime guard; `needs` is what the planner reads.
     """
     def wrap(fn):
-        declared(name or fn.__name__, needs, speed, gives)
+        declared(name or fn.__name__, needs, speed, gives, remaining)
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft, commands, provides, prefer)
         # A need that depends on the call (the pickaxe tier of the block mined) is a function of the call's args;
@@ -192,6 +241,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
         contract.needs = {} if callable(needs) else dict(needs)
         contract.speed = dict(speed)
         contract.gives = gives_of(gives)
+        contract.remaining = remaining
         from .knowledge import PRODUCERS
         for g in contract.gives:
             if not isinstance(g, str) and g not in PRODUCERS:

@@ -474,6 +474,15 @@ def _blueprint_commands_for(state, args):
         return []
 
 
+def _shelter_left(state, call=None):
+    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (blueprints.remaining over the
+    state's region) — the whole hut before a spot is chosen."""
+    if state.get("spot") is None or state.get("region") is None:
+        return {"shelter:hut": 1}
+    origin, turns = state["spot"]
+    return blueprints.remaining(blueprints.SHELTER, tuple(origin), turns, lambda p: state["region"].name(p) or "air")
+
+
 def _shelter_commands_for(state, args):
     """`commands` for build_shelter: the batch at the spot `state["spot"]` = (origin, turns)."""
     origin, turns = state["spot"]
@@ -513,7 +522,7 @@ def build_blueprint(ctx, name, near):
     return machine
 
 
-@skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), speed={}, pre=[_mod_at_least("0.1.14")],
+@skill(gives=["state:sheltered"], needs=blueprints.materials(blueprints.SHELTER), speed={}, pre=[_mod_at_least("0.1.14")], remaining=_shelter_left,
        verify=lambda c: c.result is not None and _shelter_built(c.args[0], c.result),
        commands=_shelter_commands_for, budget=360, stall=90, per_unit=60,
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),

@@ -244,8 +244,17 @@ def air_route(region, head):
 def is_enclosed(region, inside):
     """Pure: no 2-high opening on any side and a solid roof. A torch or flower in one side cell doesn't make an exit
     when the cell above it is solid: neither the player nor a zombie fits through a 1-high gap."""
+    return not openings(region, inside)
+
+
+def openings(region, inside):
+    """Pure: what an enclosure around `inside` still lacks — {cell: "wall"} for each side with a 2-high gap (its feet
+    cell) and the roof — {} when enclosed. The remainder of every body shelter (skill `remaining`)."""
     x, y, z = inside
+    out = {}
     for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         if not region.solid((x + dx, y, z + dz)) and not region.solid((x + dx, y + 1, z + dz)):
-            return False
-    return region.solid((x, y + 2, z))
+            out[(x + dx, y, z + dz)] = "wall"
+    if not region.solid((x, y + 2, z)):
+        out[(x, y + 2, z)] = "roof"
+    return out
