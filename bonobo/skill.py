@@ -277,6 +277,7 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
 
         @functools.wraps(fn)
         def runner(*args, **kwargs):
+            p0 = time.perf_counter()
             key = _resume_key(contract, args)
             c = Call(args, kwargs)
             c.contract = contract
@@ -303,6 +304,8 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
                 return None
             bag_check(contract, c)
             t0 = time.time()
+            c.times = {"pre": (time.perf_counter() - p0) * 1000, "body": 0.0, "checks": 0.0, "n": 0}
+            p1 = time.perf_counter()
             prev_soft, prev_skill = api.SOFT, tape.SKILL
             api.SOFT = contract.soft or prev_soft     # nested skills (eat inside a fight) inherit the protection
             tape.SKILL = contract.name                # whose post-action readings the tape is recording
@@ -323,6 +326,9 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
                 CALLS.pop()
                 api.SOFT, tape.SKILL = prev_soft, prev_skill
             c.result = out
+            if not c.times["n"]:
+                c.times["body"] = (time.perf_counter() - p1) * 1000      # a plain function: all of it is body
+            p2 = time.perf_counter()
             # judge the effect once the world caught up (a drop in the air, a slot filling next update)
             prev_skill, tape.SKILL = tape.SKILL, contract.name
             try:
@@ -330,6 +336,8 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
                                                                    timeout=VERIFY_SETTLE_S, stable_s=0)
             finally:
                 tape.SKILL = prev_skill
+            c.times["verify"] = (time.perf_counter() - p2) * 1000
+            api.detail(skill_line(contract.name, c.times))
             if not verified:
                 msg = f"{contract.name}: finished without reaching its goal"
                 raise McError((bag_full_reason(msg, _free_slots()) if contract.fills_bag else None) or msg)
@@ -396,32 +404,57 @@ def _drive(contract, c, gen):
     t0 = time.time()
     dim0 = body_now().get("dimension")
     last, since = world_signature(), t0
+    times = getattr(c, "times", None) or {"body": 0.0, "checks": 0.0, "n": 0}
     try:
         while True:
+            b0 = time.perf_counter()
             try:
                 marker = next(gen)
             except StopIteration as stop:
+                times["body"] += (time.perf_counter() - b0) * 1000
+                times["n"] += 1
                 return stop.value
-            now = time.time()
-            _heartbeat(contract.name)
-            api.check_interrupt(t0, contract.soft)   # Python-side loops stop too, not only mod tasks
-            s = body_now()
-            if skillcore.dead(s):
-                # dead ends every skill (a dragon fight kept travelling after dying); an interruption, not a failure
-                raise api.Died(f"{contract.name}: died")
-            if contract.done and contract.done(c):
-                return None          # before the dimension: a portal skill's goal IS the other dimension
-            if s.get("dimension") and dim0 and s["dimension"] != dim0:
-                raise api.DimensionChanged(f"{contract.name}: now in {s['dimension']}, begun in {dim0}")
-            bag_check(contract, c)
-            metric = marker if marker is not None else world_signature()
-            if metric != last:
-                last, since = metric, now
-            elif now - since >= contract.stall:
-                raise TaskStuck(f"{contract.name}: no progress toward its goal for {int(now - since)}s")
-            if now - t0 > contract.budget:
-                raise TaskStuck(f"{contract.name}: over its {contract.budget}s budget")
+            b1 = time.perf_counter()
+            times["body"] += (b1 - b0) * 1000
+            times["n"] += 1
+            try:
+                out = _drive_checks(contract, c, marker, t0, dim0, last, since)
+            finally:
+                times["checks"] += (time.perf_counter() - b1) * 1000
+            if out is not None:
+                last, since = out
+            else:
+                return None
     finally:
         gen.close()
+
+def skill_line(name, t):
+    """Pure: a skill's timing line for detail.log — `skill NAME pre= body= checks= verify= n=` in whole ms: where the
+    time between two chains goes (checks: the driver's reads between the body's yields)."""
+    parts = [f"{k}={t[k]:.0f}" for k in ("pre", "body", "checks", "verify") if k in t]
+    return f"skill {name} " + " ".join(parts) + f" n={t.get('n', 0)}"
+
+def _drive_checks(contract, c, marker, t0, dim0, last, since):
+    """The driver's checks after one yield: (last, since) to go on, None when the goal is met."""
+    now = time.time()
+    _heartbeat(contract.name)
+    api.check_interrupt(t0, contract.soft)   # Python-side loops stop too, not only mod tasks
+    s = body_now()
+    if skillcore.dead(s):
+        # dead ends every skill (a dragon fight kept travelling after dying); an interruption, not a failure
+        raise api.Died(f"{contract.name}: died")
+    if contract.done and contract.done(c):
+        return None          # before the dimension: a portal skill's goal IS the other dimension
+    if s.get("dimension") and dim0 and s["dimension"] != dim0:
+        raise api.DimensionChanged(f"{contract.name}: now in {s['dimension']}, begun in {dim0}")
+    bag_check(contract, c)
+    metric = marker if marker is not None else world_signature()
+    if metric != last:
+        last, since = metric, now
+    elif now - since >= contract.stall:
+        raise TaskStuck(f"{contract.name}: no progress toward its goal for {int(now - since)}s")
+    if now - t0 > contract.budget:
+        raise TaskStuck(f"{contract.name}: over its {contract.budget}s budget")
+    return last, since
 
 _wire_planner()
