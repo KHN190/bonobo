@@ -39,11 +39,6 @@ def head_cells(cells):
 
     return [(x, y + 1, z) for x, y, z in cells]
 
-def ceiling(cells):
-    """Pure: the cells that must stay solid over the corridor."""
-
-    return [(x, y + 2, z) for x, y, z in cells]
-
 def dig_batch(side, floor_y, solid, centre=(0, 0), length=TUNNEL_LEN):
     """Pure: the whole bunker as one batch from its rim — down the shaft, then the corridor, each cell within reach of the last."""
 

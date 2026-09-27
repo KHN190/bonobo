@@ -233,7 +233,7 @@ def exit_portal_open(centre=(0, 0)):
 def dragon_dead(near=None, centre=(0, 0)):
     """Pure-ish: the dragon is gone AND the exit portal is open (or its health reached 0)."""
     d = dragon_entry(near if near is not None else entities(128))
-    if d is not None and (d.get("health") or 1) > 0:
+    if d is not None and d["health"] > 0:          # 0 is dead (`or 1` read a dead dragon's 0 as alive)
         return False
     return exit_portal_open(centre)
 

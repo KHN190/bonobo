@@ -91,10 +91,6 @@ def threats(frame, prev=None, dps=None, horizon=HORIZON):
                     dps.get("dragon_head", 10.0), persistent))
     return sorted(out, key=lambda t: t[1])
 
-def exposure(frame, prev=None, dps=None):
-    """Pure: health per second we are taking right now (sum of the dps of every hazard we are already inside)."""
-    return sum(t[3] for t in threats(frame, prev, dps) if t[1] == 0.0)
-
 def hits(frames):
     """[(tick, amount, nearest)] — every recorded damage event."""
     return [(f["tick"], d["amount"], d.get("nearest"))
