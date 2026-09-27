@@ -165,11 +165,14 @@ ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts 
 
 
 def there(state, pos, range_):
-    """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — feet to a block's centre (int
-    coordinates) or to the point itself. The one arrival test: what the walker answered is not read, only where it
-    left the body (a travel "succeeded" one step below the target; a leg that stopped short is not there)."""
-    goal = [p + 0.5 if isinstance(p, int) and i != 1 else p for i, p in enumerate(pos)]
-    return math.dist((state["x"], state["y"], state["z"]), goal) <= range_ + ARRIVE_SLACK
+    """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — the feet's block to a block target
+    (int coordinates: the walker's own test, TravelTask.arrived) or the feet to a point. The one arrival test: what
+    the walker answered is not read, only where it left the body (a travel "succeeded" one step below the target;
+    a leg that stopped short is not there)."""
+    body = (state["x"], state["y"], state["z"])
+    if all(isinstance(p, int) for p in pos):
+        body = tuple(math.floor(v) for v in body)
+    return math.dist(body, pos) <= range_ + ARRIVE_SLACK
 
 
 def moved(got):

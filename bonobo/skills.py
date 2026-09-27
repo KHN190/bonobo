@@ -497,6 +497,7 @@ def fluids_near(cells, margin=2, radius=24):
             if any(abs(c[0] - h[0]) <= m and -1 <= h[1] - c[1] <= m and abs(c[2] - h[2]) <= m for h in hazards)}
 
 
+BESIDE = 0.5            # travel range that ends face to face with a block (the walker's arrival: range + 0.5)
 REACH_BUDGET = 3         # ways of not getting there, per call, before the place itself is the problem
 
 
@@ -624,9 +625,18 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Distance is not reachability: on a hillside the mod answered "cannot reach … no path found" for 6 of 7
         # blocks that were all within 4.5. Which of them can actually be worked is the game's answer, and the
         # blocks it just listed as exposed are exactly that set.
+        # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
+        # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
+        # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
         open_faced = [p for p in in_reach if p in exposed_cells]
-        in_reach = open_faced or in_reach
-        vein = set(in_reach[:12])
+        if not open_faced:
+            buried = in_reach[0]
+            if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
+                ctx.ban(buried)
+                unreachable += 1
+                _reach_budget(unreachable, blocks, f"{blocks[0]} at {buried}: buried, and no way dug to it")
+            continue
+        vein = set(open_faced[:12])
         before = Inventory().count(drop)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)

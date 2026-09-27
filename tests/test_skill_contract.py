@@ -187,6 +187,9 @@ THERE = [("on the platform, the target's cell", (3.5, 201.0, 3.5), (3, 201, 3), 
          ("one cell diagonally off at range 0.6 (the old range + 1 accepted it)", (4.5, 201.0, 4.5), (3, 201, 3), 0.6,
           False),
          ("one cell off at range 1.5", (4.5, 64.0, 3.5), (3, 64, 3), 1.5, True),
+         ("face to face with a block, at the far edge of the cell (skills.BESIDE)", (4.95, 64.0, 3.05), (3, 64, 3),
+          skills.BESIDE, True),
+         ("two cells off at BESIDE: not beside", (5.5, 64.0, 3.5), (3, 64, 3), skills.BESIDE, False),
          ("a point target (an entity's position), exactly there", (10.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, True),
          ("a point target 2 blocks away at range 1", (12.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, False)]
 

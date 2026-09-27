@@ -2263,9 +2263,9 @@ SHEET["night_mines_under_cover"] = {
               "give @p cobblestone 16", "time set 13000"],
     "expect": [(at(1, -13, 1), at(2, -12, 2), "iron_ore", 8, 8)],
     "before": _start("night_mines_under_cover"),
-    "run": _brain_rounds(60, lambda: _inv_now().count("minecraft:raw_iron") >= 1),
+    "run": _brain_rounds(30, lambda: _inv_now().count("minecraft:raw_iron") >= 1),
     "check": _all(lambda api, inv: inv.count("minecraft:raw_iron") >= 1,
-                  lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1] - 2), "budget": 60,
+                  lambda api, inv: api.get("/state")["blockY"] < at(0, 0, 0)[1] - 2), "budget": 30,
 }
 
 START_ROWS = [   # (name, what the start cell is, setup commands after the floor, where the body starts)
