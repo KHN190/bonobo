@@ -841,6 +841,38 @@ class TwoSites(unittest.TestCase):
                           runner.take_prebuilt("chop__base")), (False, True, False))
 
 
+class PrebuiltReady(unittest.TestCase):
+    """A row clones from site B only after its own prebuild signalled completion; everything else builds here."""
+
+    @staticmethod
+    def event(is_set):
+        import threading
+        e = threading.Event()
+        if is_set:
+            e.set()
+        return e
+
+    # (situation, PREBUILT, row) → clone from B
+    TABLE = [
+        ("the first row: nothing prebuilt → built synchronously", {"name": None, "done": None, "ok": False},
+         "iron_ingots", False),
+        ("its own build, finished and good → cloned", {"name": "iron_ingots", "done": True, "ok": True},
+         "iron_ingots", True),
+        ("must fail: another row's build", {"name": "chop__base", "done": True, "ok": True}, "iron_ingots", False),
+        ("must fail: its own build failed", {"name": "iron_ingots", "done": True, "ok": False}, "iron_ingots",
+         False),
+        ("must fail: its own build not finished (no completion signal)",
+         {"name": "iron_ingots", "done": False, "ok": True}, "iron_ingots", False),
+    ]
+
+    def test_table(self):
+        from bonobo.bench import runner
+        for why, pre, name, want in self.TABLE:
+            with self.subTest(why):
+                pre = dict(pre, done=None if pre["done"] is None else self.event(pre["done"]))
+                self.assertIs(runner.prebuilt_ready(pre, name), want)
+
+
 class RowKey(unittest.TestCase):
     """A row's readiness key: its own definition (row_hash) and the production functions it reaches (reached), not
     its module's whole closure — editing one row, or code a row never reaches, keeps every other verdict."""

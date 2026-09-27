@@ -526,13 +526,24 @@ def prebuild(name):
     threading.Thread(target=work, daemon=True, name=f"prebuild {name}").start()
 
 
-def take_prebuilt(name, wait_s=30):
-    """Was row `name`'s world built ahead at site B (waiting for the build to finish)? Consumed either way."""
-    if PREBUILT["name"] != name or PREBUILT["done"] is None:
+def prebuilt_ready(prebuilt, name):
+    """Pure: may row `name` clone its world from site B? Only when its OWN prebuild signalled completion and
+    succeeded. The first row (nothing prebuilt), another row's build, a failed or an unfinished one: built here,
+    synchronously (iron_ingots, the first row, once found 0 of its 3 furnaces)."""
+    done = prebuilt.get("done")
+    return prebuilt.get("name") == name and done is not None and done.is_set() and bool(prebuilt.get("ok"))
+
+
+def take_prebuilt(name, wait_s=120):
+    """Was row `name`'s world built ahead at site B? Waits for a running prebuild's completion signal first —
+    whichever row it is for, so site B is never still being written while this row builds or clones. Consumed
+    when it is this row's."""
+    if PREBUILT["done"] is not None:
+        PREBUILT["done"].wait(wait_s)
+    if PREBUILT["name"] != name:
         return False
-    PREBUILT["done"].wait(wait_s)
-    ok = PREBUILT["done"].is_set() and PREBUILT["ok"]
-    PREBUILT.update(name=None, done=None)
+    ok = prebuilt_ready(PREBUILT, name)
+    PREBUILT.update(name=None, done=None, ok=False)
     return ok
 
 
@@ -653,9 +664,13 @@ def _setup(name, sc, feedback):
     _command(ex("kill @e[type=item]"), feedback)
     _checked(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
     _checked(ex("effect give @p minecraft:saturation 1 10 true"), feedback)
-    time.sleep(1.0)
-    blocks = Region(lo, hi).blocks
-    bad = setup_mismatches(blocks, sc.get("expect", []))
+    # The client sees the build a moment after the server made it (the first row, just teleported in, read 0 of 3
+    # furnaces once): read again until the expectation holds, then judge.
+    for _ in range(10):
+        time.sleep(0.5)
+        bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", []))
+        if not bad:
+            break
     for _ in range(12):          # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
         # Count on the server: the client's entity list missed a summoned ghast 18 blocks away ("seen: nothing").
         ents = [f"{t}: {n} on the server, expected ≥ {want}" for t, want in sc.get("expect_entities", [])
