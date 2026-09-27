@@ -139,11 +139,6 @@ class PricesForTheOtherPlanner(unittest.TestCase):
             with self.subTest(name):
                 zones = threat.no_go(self.rows(*([hazard] if hazard else [])))
                 self.assertEqual(zones, want)
-                if not zones:
-                    continue
-                (centre, radius), = zones
-                outside = (centre[0], centre[1], centre[2] + radius + 1)
-                self.assertEqual([threat.inside_no_go(p, zones) for p in (centre, outside)], [True, False])
 
 
 class TheFastLane(unittest.TestCase):

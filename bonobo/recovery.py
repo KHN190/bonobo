@@ -37,15 +37,6 @@ def _kind(reason):
     return text.split(":")[-1].strip() if ":" in text else text
 
 
-def recovery_for(reason):
-    """Pure: the action name for a danger kind. Always returns something."""
-    k = _kind(reason)
-    for kind, act, _ in TABLE:
-        if kind == k:
-            return act
-    return DEFAULT
-
-
 def explain(reason):
     """Pure: (action, why) — the reason is logged so a wrong table entry is visible in the run, not just its effect."""
     k = _kind(reason)

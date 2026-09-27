@@ -179,7 +179,6 @@ class TheTaxTheOtherPlannerReads(unittest.TestCase):
             self.assertEqual(len(zones), len(cell.rows()), cell)
             for (centre, radius), hazard in zip(zones, cell.rows()):
                 self.assertGreater(radius, hazard[1], cell)
-                self.assertTrue(threat.inside_no_go(centre, zones), cell)
 
 
 class TimeToDie(unittest.TestCase):

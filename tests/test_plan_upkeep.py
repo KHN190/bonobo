@@ -143,9 +143,6 @@ class Plans(unittest.TestCase):
                     for s in steps:
                         self.assertTrue(skillkit.handles(s), f"{s}: no skill provides it")
                         self.assertGreaterEqual(s.est, 0)
-                    # The plan's first runnable step exists from this very bag: the cheap check can start it.
-                    if steps:
-                        self.assertIsNotNone(planner.first_runnable(steps, snap.inv))
 
     def test_goal_to_steps_ordered(self):
         """Inputs before what consumes them: every craft/smelt step's inputs are produced earlier or held."""

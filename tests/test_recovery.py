@@ -32,15 +32,14 @@ class Lookup(unittest.TestCase):
     def test_every_reason_gets_exactly_this_answer(self):
         for reason, act, why in LOOKUP:
             with self.subTest(reason=reason):
-                self.assertEqual(recovery.recovery_for(reason), act)
                 got_act, got_why = recovery.explain(reason)
-                self.assertEqual(got_act, act, "explain and recovery_for disagree")
+                self.assertEqual(got_act, act)
                 self.assertTrue(got_why.startswith(why), got_why)
 
     def test_every_row_of_the_table_is_reachable_by_its_kind(self):
         for kind, act, _ in recovery.TABLE:
             with self.subTest(kind):
-                self.assertEqual(recovery.recovery_for(kind), act)
+                self.assertEqual(recovery.explain(kind)[0], act)
         self.assertEqual(len({k for k, _, _ in recovery.TABLE}), len(recovery.TABLE), "a kind listed twice")
 
     # A 2.9-block enderman does not fit in a 1×2 corridor, but it teleports and reaches into the mouth: the
@@ -53,7 +52,7 @@ class Lookup(unittest.TestCase):
         self.assertEqual(recovery.DEFAULT, "retreat_to_cover")
         for kind, cover in self.COVER:
             with self.subTest(kind):
-                self.assertEqual(recovery.recovery_for(kind) == recovery.DEFAULT, cover)
+                self.assertEqual(recovery.explain(kind)[0] == recovery.DEFAULT, cover)
 
 
 if __name__ == "__main__":

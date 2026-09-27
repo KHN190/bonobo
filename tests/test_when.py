@@ -164,7 +164,7 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
     def test_a_state_picks_the_ground_it_is_standing_on(self):
         for state, bucket in (({"skyLight": 15, "y": 70}, "open"), ({"skyLight": 0, "y": 30}, "underground"),
                               ({"enclosed": True}, "enclosed")):
-            self.assertEqual(field.for_state(state).bucket, bucket, state)
+            self.assertEqual(field.bucket_of(state), bucket, state)
 
     def test_only_a_walk_that_arrived_teaches_anything(self):
         from unittest import mock

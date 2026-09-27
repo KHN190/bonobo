@@ -529,11 +529,6 @@ def no_go(state, margin=None):
     return [(tuple(h[0]), float(h[1]) + margin) for h in state.get("hazards", ()) if h[3] in MOBS]
 
 
-def inside_no_go(spot, zones):
-    """Pure: does this position sit in one of `no_go`'s circles?"""
-    return any(math.dist(spot, centre) <= radius for centre, radius in zones)
-
-
 # ------------------------------------------------------------------------------- the price of health
 # What losing health costs in seconds depends on the state it is lost from: a chance of dying plus a loss of margin
 # against a day of ordinary risk. The threat layer prices every answer through `hp_seconds`; nothing else here is a

@@ -317,10 +317,6 @@ def runnable(step, inv):
     return all(inv.count(tok) >= n for tok, n in step.detail.get("inputs", {}).items())
 
 
-def first_runnable(plan, inv):
-    return next((s for s in plan if runnable(s, inv)), None)
-
-
 class NullCost:
     """Offline cost model for tests."""
 

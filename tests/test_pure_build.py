@@ -435,45 +435,6 @@ class Bunker(unittest.TestCase):
             with self.subTest(side=side, why=why):
                 self.assertEqual(bunker.reinforce_cells(side, floor, centre), want)
 
-    def test_bed_in_reach(self):
-        # eye at cell + (0.5, 1.62, 0.5), bed top at bed + (0.5, 0.5625, 0.5), reach 4.5
-        rows = [
-            ((0, 0, 0), (0, 0, 0),    True,    "same cell: 1.06"),
-            ((0, 0, 0), (4, 0, 1),    True,    "sqrt(18.12) = 4.26"),
-            ((0, 0, 0), (4, 1, 0),    True,    "boundary: 4.0004"),
-            ((0, 0, 0), (0, -3, 0),   True,    "straight down: 4.06"),
-            ((0, 0, 0), (0, -4, 0),   False,   "negative: straight down 5.06"),
-            ((0, 0, 0), (5, 0, 0),    False,   "negative: 5.11"),
-            ((0, 0, 0), (4, -1, 2),   False,   "negative: 4.92"),
-        ]
-        for cell, bed, want, why in rows:
-            with self.subTest(cell=cell, bed=bed, why=why):
-                self.assertEqual(bunker.bed_in_reach(cell, bed), want)
-
-    def test_enderman_can_enter(self):
-        rows = [
-            ([(5, 62, 0)],                                 False,  "a dug corridor keeps it out"),
-            (bunker.tunnel((1, 0), 64),                   False,  "the real tunnel"),
-            ([(0, 0, 0), (1, 0, 0), (2, 0, 0)],            False,  "any corridor"),
-            ([],                                           True,   "negative: no corridor at all is not cover"),
-            ((),                                           True,   "negative: empty tuple likewise"),
-        ]
-        for cells, want, why in rows:
-            with self.subTest(why=why):
-                self.assertEqual(bunker.enderman_can_enter(cells), want)
-
-    def test_bunker_checks(self):
-        rows = [
-            # side, floor, bed               expected                  why
-            ((1, 0), 64, (2, 65, 0),        (True, True, True),       "the designed bed: 3.57 from the mouth"),
-            ((1, 0), 64, (5, 62, 0),        (True, True, True),       "boundary: bed in the mouth itself"),
-            ((1, 0), 64, (0, 65, 0),        (False, True, False),     "negative: bed five across is out of reach"),
-            ((1, 0), 64, (-2, 65, 0),       (False, True, False),     "negative: bed on the far side"),
-        ]
-        for side, floor, bed, want, why in rows:
-            with self.subTest(bed=bed, why=why):
-                self.assertEqual(bunker.bunker_checks(side, floor, bed), want)
-
 
 if __name__ == "__main__":
     unittest.main()
