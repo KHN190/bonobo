@@ -1903,9 +1903,12 @@ SURPRISES = {
     "eat_with_nothing": dict(base="eat", doc="hungry, nothing edible carried: nothing to eat, named",
                              replace_setup=True, setup=_floor() + [_tp()], fails=r"nothing edible",
                              check=_same_bag()),
+    # The lava directly under the one ore (it was at x 4..5, nowhere near it), the body's floor kept stone; one ore
+    # gives one raw iron (the check wanted 2 of a single ore: never passable).
     "lava_under_ore": dict(base="mine_iron", doc="lava right under the iron ore",
-                           setup=[f"fill {_c(at(4, -2, -1))} {_c(at(5, -1, 1))} lava"],
-                           check=_all(_gain("minecraft:raw_iron", 2), _alive(14))),
+                           setup=[f"setblock {_c(at(2, -1, 0))} lava", f"setblock {_c(at(1, -1, 0))} stone",
+                                  f"setblock {_c(at(0, -1, 0))} stone"],
+                           check=_all(_gain("minecraft:raw_iron", 1), _alive(14))),
     "falling_gravel": dict(base="mine_stone", doc="gravel stacked over the stone to be mined",
                            setup=[f"fill {_c(at(-3, 0, -3))} {_c(at(3, 3, 3))} gravel",
                                   f"fill {_c(at(-1, 0, -1))} {_c(at(1, 3, 1))} air"],
