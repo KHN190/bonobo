@@ -2888,9 +2888,11 @@ for _name, (_doc, _setup, _queue, _done, _minutes, _check) in BRAIN_ROWS.items()
 # walker (`_cells`), four families of ≥ 4 cells, each with its boundary and its must-not.
 DIAMOND_UP, DIAMOND_DOWN = at(6, 0, 0), at(4, -9, 0)     # sealed in stone: known only if noted
 POCKET = at(0, -9, 0)
+LOW_FOOD_S = 8          # seconds of hunger 255: 4 s drained 6 points (20 → 14), 8 s about twelve (→ ~8)
 BRAIN_DIMS = {
     "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11800"], "night": ["time set 18000"]},
-    "food": {"full": [], "low": ["effect give @p minecraft:hunger 4 255 true"]},    # drained by the run's start
+    # Drained by the run's start to below EAT_BELOW (14): 4 s left the bar at exactly 14, and "food < 14" never held.
+    "food": {"full": [], "low": [f"effect give @p minecraft:hunger {LOW_FOOD_S} 255 true"]},
     "tool": {"fresh": ["give @p iron_pickaxe"], "one_use": ["give @p iron_pickaxe[damage=249]"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
@@ -3012,7 +3014,7 @@ def _cell_before(cell):
         hooks.append(_seen("diamond_ore", _diamond_of(cell)))
     hooks.append(_count_finds)
     if cell["food"] == "low":
-        hooks.append(lambda ctx: time.sleep(4.5))      # the hunger effect set in setup drains the bar first
+        hooks.append(lambda ctx: time.sleep(LOW_FOOD_S + 0.5))     # the hunger effect set in setup drains the bar first
     if BAG_FILL[cell["bag"]]:
         hooks.append(_fill_bag(*BAG_FILL[cell["bag"]]))
     return hooks
