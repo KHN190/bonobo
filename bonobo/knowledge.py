@@ -176,6 +176,12 @@ FIND_AT = {
 }
 
 
+# Every block kind the cost model asks "how far is the nearest" about: one scan per round answers them all
+# (world.nearest over this union).
+SOURCE_BLOCKS = sorted({b for blocks, _tier in MINE.values() for b in blocks} | set(GROUPS["log"])
+                       | {"dirt", "grass_block", "water", "lava"} | {bare(s) for s in STATIONS})
+
+
 def members(token):
     if token == "food":
         return ALL_FOOD

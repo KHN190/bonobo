@@ -364,6 +364,43 @@ class Nav(unittest.TestCase):
                 st = {"x": x, "y": 200.0, "z": 10000.5, "onGround": True}
                 self.assertIs(nav.there(st, spot, range_), want)
 
+    def test_one_look_per_round(self):
+        """world.nearest: on a jar with perBlock, one /find answers every kind of the union for the round."""
+        from unittest import mock
+        from bonobo import api, world
+        answer = {"blocks": [{"block": "minecraft:iron_ore", "distance": 6.0},
+                             {"block": "minecraft:oak_log", "distance": 3.0}]}
+        rows = [("new jar: iron, then logs, then stone — one request", True, [["iron_ore"], ["oak_log"], ["stone"]],
+                 [6.0, 3.0, None], 1),
+                ("old jar: each group asked once", False, [["iron_ore"], ["oak_log"], ["iron_ore"]], [6.0, 3.0, 6.0], 2),
+                ("new jar, moved between asks: asked again", True, [["iron_ore"], "move", ["iron_ore"]],
+                 [6.0, None, 6.0], 2),
+                ("past the radius: None", True, [["iron_ore", 5]], [None], 1)]
+        for name, new, asks, want, requests in rows:
+            with self.subTest(name):
+                calls = []
+                world._SIGHT.update(key=None, t=0.0, near={})
+                world._PER_BLOCK[:] = [new]
+                feet = [(0, 64, 0)]
+                got = []
+                def ask(path):
+                    calls.append(path)
+                    wanted = path.split("blocks=")[1].split("&")[0].split(",")
+                    return {"blocks": [h for h in answer["blocks"] if h["block"] in wanted]}
+                with mock.patch.object(api, "get", side_effect=ask):
+                    for a in asks:
+                        if a == "move":
+                            feet[0] = (5, 64, 0)
+                            got.append(None)
+                            continue
+                        kinds, radius = (a[:-1], a[-1]) if isinstance(a[-1], int) else (a, 48)
+                        got.append(world.nearest(kinds, feet[0], "minecraft:overworld", radius,
+                                                 union=["iron_ore", "oak_log", "stone"]))
+                self.assertEqual((got, len(calls)), (want, requests))
+                if new:
+                    self.assertIn("perBlock=1", calls[0])
+        world._PER_BLOCK[:] = []
+
     def test_at_rest(self):
         rows = [  # (why, state, expected)
             ("on the ground", {"onGround": True}, True),

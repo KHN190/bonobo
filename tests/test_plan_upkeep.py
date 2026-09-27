@@ -2407,26 +2407,24 @@ class RawOnlyWhenStarving(unittest.TestCase):
 
 
 class EstimatesRememberFirst(unittest.TestCase):
-    """cost.Cost.distance: a remembered cell answers without a world read — /find only when memory knows none."""
+    """cost.Cost.distance: an estimate never searches the world — the round's one look (`finds`, pre-read) and
+    memory answer; with the api raising on any request, the same answers."""
 
     def test_over_the_table(self):
         from bonobo.cost import Cost
-        rows = [("a noted diamond 10 off: remembered, no /find", {"diamond_ore": 10.0}, ["diamond_ore"], 48, 10.0, 0),
-                ("nothing noted: /find asked", {}, ["diamond_ore"], 48, 7.0, 1),
-                ("noted but past the radius: /find asked", {"diamond_ore": 40.0}, ["diamond_ore"], 32, 7.0, 1),
-                ("a noted tree for logs: no /find", {"oak_log": 5.0}, ["oak_log"], 48, 5.0, 0)]
-        for name, noted, blocks, radius, want, finds in rows:
-            with self.subTest(name):
-                asked = []
-
-                def fake_find(bl, radius=48, limit=20, exposed=False):
-                    asked.append(bl)
-                    return [{"x": 7, "y": 64, "z": 0, "distance": 7.0}]
-                c = Cost(snapshot(state(), inventory()), known=lambda kinds: min(
-                    (noted[k] for k in kinds if k in noted), default=None))
-                with mock.patch("bonobo.cost.find", side_effect=fake_find):
-                    self.assertEqual((c.distance(blocks, radius), len(asked)), (want, finds))
-
+        rows = [("a noted diamond 10 off, nothing in sight: remembered", {"diamond_ore": 10.0}, {}, ["diamond_ore"],
+                 48, 10.0),
+                ("nothing noted, one in sight 7 off: in sight", {}, {"diamond_ore": 7.0}, ["diamond_ore"], 48, 7.0),
+                ("in sight only past the radius: memory answers (it has no radius)", {"diamond_ore": 40.0},
+                 {"diamond_ore": 40.0}, ["diamond_ore"], 32, 40.0),
+                ("a log of any wood in sight: the nearest", {}, {"oak_log": 9.0, "birch_log": 5.0},
+                 ["oak_log", "birch_log"], 48, 5.0),
+                ("nothing anywhere: None", {}, {}, ["diamond_ore"], 48, None)]
+        for name, noted, sight, blocks, radius, want in rows:
+            with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("an estimate read the world")):
+                c = Cost(snapshot(state(), inventory()), finds=sight,
+                         known=lambda kinds, _n=noted: min((_n[k] for k in kinds if k in _n), default=None))
+                self.assertEqual(c.distance(blocks, radius), want)
 
 class BridgeStockSizedToTheGap(unittest.TestCase):
     """needs.bridge_stock: one block per block across, between BRIDGE_MIN and BRIDGE_STOCK."""

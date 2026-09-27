@@ -137,6 +137,53 @@ class Snapshot:
         return self.state.get(key, default)
 
 
+SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
+_SIGHT = {"key": None, "t": 0.0, "near": {}}
+_PER_BLOCK = []            # [bool] once known: the running jar answers /find?perBlock (≥ 0.1.55)
+
+
+def _per_block_ok():
+    if not _PER_BLOCK:
+        import re
+        try:
+            v = tuple(int(x) for x in re.findall(r"\d+", str(api.status().get("version", "0")))[:3])
+        except api.McError:
+            return False
+        _PER_BLOCK.append(v >= (0, 1, 55))
+    return _PER_BLOCK[0]
+
+
+def nearest(kinds, feet, dimension, radius=48, union=()):
+    """Blocks to the nearest of `kinds` in sight, or None — for estimates (the cost model), which never search the
+    world themselves. On a jar with /find?perBlock: ONE scan of the whole `union` per round (kept while the feet
+    stay put and for SIGHT_TTL_S), every later kind answered from it — fifteen scans a cold round were 1.5 s of a
+    1.95 s decide. On an older jar: one scan of `kinds`, kept the same way."""
+    names = [bare(k) for k in kinds]
+    key = (tuple(feet), dimension)
+    fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
+    if not fresh:
+        _SIGHT.update(key=key, t=time.time(), near={})
+    near = _SIGHT["near"]
+    missing = [n for n in names if n not in near]
+    if missing:
+        ask = sorted({bare(u) for u in union} | set(missing)) if _per_block_ok() else missing
+        ids = ",".join(mid(b) for b in ask)
+        path = (f"/find?blocks={ids}&radius=48&limit={len(ask) * 2 + 8}&perBlock=1" if _per_block_ok()
+                else f"/find?blocks={ids}&radius=48&limit=20")
+        try:
+            hits = api.get(path)["blocks"]
+        except api.McError:
+            hits = []
+        for b in ask:
+            near.setdefault(b, None)
+        for h in hits:
+            b = bare(h["block"])
+            if near.get(b) is None or h["distance"] < near[b]:
+                near[b] = h["distance"]
+    got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
+    return min(got) if got else None
+
+
 def find(blocks, radius=32, limit=50, exposed=False):
     """What `/find` sees. Seeing through blocks is allowed: sealed blocks are found unless `exposed` is asked for,
     and then the flag is sent only as true (a jar that reads the key's presence took `exposed=false` as strict)."""

@@ -12,7 +12,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .world import ROUTES, entities, find, job_ready
+from .world import ROUTES, entities, find, job_ready, nearest
 
 TICKS_PER_S = 20
 
@@ -104,12 +104,12 @@ class Cost:
             if known is not None and known <= radius:
                 self.cache[key] = known
         if key not in self.cache:
-            try:
-                hits = [h for h in find(list(blocks), radius=radius, limit=20)
-                        if not self._banned((h["x"], h["y"], h["z"]))]
-            except McError:
-                hits = []
-            self.cache[key] = hits[0]["distance"] if hits else self._known(blocks)
+            # In sight: the round's one look (world.nearest over SOURCE_BLOCKS), never a search of its own.
+            from .knowledge import SOURCE_BLOCKS
+            seen = None
+            if self.snap is not None:
+                seen = nearest(list(blocks), self.snap.feet, self.snap.dimension, radius, union=SOURCE_BLOCKS)
+            self.cache[key] = seen if seen is not None else self._known(blocks)
         return self.cache[key]
 
     def _entity(self, types):
