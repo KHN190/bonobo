@@ -214,8 +214,9 @@ class Burning(unittest.TestCase):
                     mock.patch.object(world, "Inventory", lambda data=None, _i=inv: _i), \
                     mock.patch.object(world, "find", lambda *a, _w=water, **k: list(_w)), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: calls.append(("post", path))), \
-                    mock.patch.object(api, "run", side_effect=lambda t, wait=0: calls.append(("run", t["type"])) or
-                                      {"status": "succeeded"}):
+                    mock.patch.object(api, "run_chain", side_effect=lambda ts, **k: [calls.append(("run", t["type"]))
+                                                                                      for t in ts] and
+                                      [{"status": "succeeded"} for _ in ts]):
                 if raises:
                     with self.assertRaises(raises):
                         hazard.RESCUE["burning"](None, state(onFire=True, health=5.0))
@@ -462,6 +463,32 @@ class Disengage(unittest.TestCase):
                 self.assertEqual(body.lease[0] if body.lease else None, {"theirs": theirs, None: None}[left])
                 self.assertEqual(fight_loop._ENG["intent"] is None, cleared)
 
+
+
+class Extinguish(unittest.TestCase):
+    """hazard.extinguish_commands: the fire put out in one chain — pour and scoop back, else into water."""
+    S = {"blockX": 10, "blockY": 64, "blockZ": -3}
+    WATER = {"x": 13, "y": 63, "z": -3}
+    # (situation, a water bucket carried, water within reach) → the task types, or the error
+    ROWS = [("a bucket carried: pour at the feet, scoop it back", True, None, ["use_item", "use_item"]),
+            ("a bucket and water near: the bucket still (no walk)", True, WATER, ["use_item", "use_item"]),
+            ("no bucket, water near: walk into it", False, WATER, ["goto"]),
+            ("must fail: no bucket, no water", False, None, api.NotAvailable)]
+
+    def test_rows(self):
+        for name, bucket, water, want in self.ROWS:
+            with self.subTest(name):
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        hazard.extinguish_commands(self.S, bucket, water)
+                    continue
+                tasks = hazard.extinguish_commands(self.S, bucket, water)
+                self.assertEqual([t["type"] for t in tasks], want)
+                if bucket:
+                    self.assertEqual([t["item"] for t in tasks], ["minecraft:water_bucket", "minecraft:bucket"])
+                    self.assertEqual({(t["x"], t["y"], t["z"]) for t in tasks}, {(10.5, 64, -2.5)})
+                else:
+                    self.assertEqual((tasks[0]["x"], tasks[0]["z"]), (13, -3))
 
 if __name__ == "__main__":
     unittest.main()
