@@ -1011,3 +1011,84 @@ class InterruptSources(unittest.TestCase):
                 outcome, source = brainmod.outcome_of(err)
                 self.assertEqual((outcome, arbiter.resume_of(source)[1]), want)
 
+
+
+class RoundLog(unittest.TestCase):
+    """The round's timing line (brain.phase_ms, round_line), the api's task clock, and the summary mc.py rounds prints."""
+
+    def test_round_line(self):
+        from bonobo import brain as brainmod
+        rows = [("every phase, a gap", 0.0, [("inv", .001), ("snap", .051), ("plan", .251)], .301, 120.4,
+                 "round t=301 inv=1 snap=50 plan=200 act=50 gap=120"),
+                ("the idle round: nothing posted after an end", 0.0, [("inv", .002)], .010, None,
+                 "round t=10 inv=2 act=8 gap=-"),
+                ("a phase marked twice adds up", 0.0, [("fast", .010), ("fast", .030)], .030, 0.0,
+                 "round t=30 fast=30 act=0 gap=0"),
+                ("must fail: a phase not reached is left out, not zero", 0.0, [], .005, None, "round t=5 act=5 gap=-")]
+        for name, t0, marks, end, gap, want in rows:
+            with self.subTest(name):
+                self.assertEqual(brainmod.round_line(brainmod.phase_ms(t0, marks, end), gap), want)
+
+    def test_task_clock(self):
+        from bonobo import api
+        # (situation, method, path, answer, stamped, ids already seen ended)
+        rows = [("a watched task ended", "GET", "/task?id=4&wait=2", {"id": 4, "status": "succeeded"},
+                 {"ended"}, set()),
+                ("api.run's post, the task over at once", "POST", "/task?wait=0", {"id": 5, "status": "failed"},
+                 {"ended", "first_post"}, set()),
+                ("a chain's post: queued, none ended yet", "POST", "/task?wait=0",
+                 {"tasks": [{"id": 6, "status": "running"}, {"id": 7, "status": "queued"}]}, {"first_post"}, set()),
+                ("must fail: still running is no end", "GET", "/task?id=4&wait=2", {"id": 4, "status": "running"},
+                 set(), set()),
+                ("must fail: a read-back of a task already seen ended", "GET", "/task?id=4", {"id": 4, "status": "succeeded"},
+                 set(), {4}),
+                ("must fail: a state read is neither", "GET", "/state", {"id": 1, "status": "x"}, set(), set())]
+        for name, method, path, out, want, seen in rows:
+            with self.subTest(name), mock.patch.dict(api.CLOCK, {"ended": None, "first_post": None, "ended_id": -1}), \
+                    mock.patch.object(api, "_ENDED_IDS", set(seen)), \
+                    mock.patch.object(api.time, "perf_counter", return_value=7.0):
+                api._clock(method, path, out)
+                self.assertEqual({k for k in ("ended", "first_post") if api.CLOCK[k] is not None}, want)
+
+    def test_a_chain_stamps_its_last_task_once(self):
+        """run_chain: the end is stamped when the watch first sees the last task ended — the read-back of every
+        queued task after it does not move it later (that would hide the idle time)."""
+        from bonobo import api, arbiter
+        clock = iter([float(k) for k in range(1, 100)])
+        answers = {"/task?id=9&wait=2": {"id": 9, "status": "succeeded", "type": "wait", "message": ""},
+                   "/task?id=8": {"id": 8, "status": "succeeded", "type": "wait", "message": ""},
+                   "/task?id=9": {"id": 9, "status": "succeeded", "type": "wait", "message": ""},
+                   "/state": {"control": {"task": None}}}
+
+        def call(method, path, body=None, timeout=1200):
+            out = answers[path] if method == "GET" else {"tasks": [{"id": 8, "status": "running"},
+                                                                   {"id": 9, "status": "queued"}]}
+            api._clock(method, path, out)
+            return out
+        with mock.patch.dict(api.CLOCK, {"ended": None, "first_post": None, "ended_id": -1}), \
+                mock.patch.object(api, "_ENDED_IDS", set()), mock.patch.object(api, "api", side_effect=call), \
+                mock.patch.object(api.time, "perf_counter", side_effect=lambda: next(clock)), \
+                mock.patch.object(api, "DRESS", None), mock.patch.object(api, "LAST_POSTED", None), \
+                mock.patch.object(api, "detail"), mock.patch.object(api, "at_boundary", lambda: None), \
+                mock.patch.object(api, "_raise_if_released", lambda *a, **k: None), \
+                mock.patch.object(arbiter, "BODY", arbiter.Motion()):
+            api.run_chain([{"type": "wait", "ticks": 1}, {"type": "wait", "ticks": 1}])
+            self.assertEqual((api.CLOCK["first_post"], api.CLOCK["ended"]), (1.0, 2.0))
+
+    def test_summary(self):
+        from bonobo.tools import rounds
+        lines = ["10:00:00 round t=100 snap=40 act=60 gap=900", "10:00:01 plan for t1: gather",
+                 "10:00:02 round t=300 snap=20 act=280 gap=-", "10:00:03 round t=200 snap=30 act=170 gap=50",
+                 "10:00:04 round t=50 snap=10 act=40 gap=3000"]
+        rows = [("everything", None, 4, {"t": (150.0, 300.0), "snap": (25.0, 40.0), "act": (115.0, 280.0)},
+                 [(3000.0, "10:00:04"), (900.0, "10:00:00"), (50.0, "10:00:03")]),
+                ("since 10:00:02", "10:00:02", 3, {"t": (200.0, 300.0), "snap": (20.0, 30.0), "act": (170.0, 280.0)},
+                 [(3000.0, "10:00:04"), (50.0, "10:00:03")]),
+                ("must fail: other lines are not rounds", "10:00:01", 3, None, None),
+                ("nothing since", "11:00:00", 0, {}, [])]
+        for name, since, n, phases, gaps in rows:
+            with self.subTest(name):
+                got = rounds.summarize(lines, since)
+                self.assertEqual(got["rounds"], n)
+                if phases is not None:
+                    self.assertEqual((got["phases"], got["gaps"]), (phases, gaps))

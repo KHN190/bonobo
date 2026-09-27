@@ -181,6 +181,30 @@ def _token():
 
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+# the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was first
+# posted since the round began (perf_counter seconds; None when not yet)
+CLOCK = {"ended": None, "first_post": None, "ended_id": -1}
+TERMINAL = ("succeeded", "failed", "cancelled")     # a task's end states (queued and running are not)
+_ENDED_IDS = set()          # tasks whose end is already stamped: a later read of the same ended task is no new end
+
+def _clock(method, path, out):
+    """The one stamp point: every /task answer (a watch, api.run's post, a chain's post or its read-back) is looked
+    at; a task seen ended for the first time stamps "ended", the round's first POST stamps "first_post"."""
+    if not path.startswith("/task") or not isinstance(out, dict):
+        return
+    now = time.perf_counter()
+    if method == "POST" and CLOCK["first_post"] is None:
+        CLOCK["first_post"] = now
+    for t in [out] + list(out.get("tasks") or []):
+        if isinstance(t, dict) and t.get("id") is not None and t.get("status") in TERMINAL \
+                and t["id"] not in _ENDED_IDS:
+            if len(_ENDED_IDS) > 4096:
+                _ENDED_IDS.clear()
+            _ENDED_IDS.add(t["id"])
+            if isinstance(t["id"], int) and t["id"] < CLOCK.get("ended_id", -1):
+                continue        # an earlier task (ids rise) read back after a later one ended: it ended before that
+            CLOCK["ended"], CLOCK["ended_id"] = now, t["id"] if isinstance(t["id"], int) else -1
+
 def api(method, path, body=None, timeout=1200):
     from . import tape
     if tape.REPLAY is not None:          # an offline decision replay: the world answers from the recording
@@ -192,6 +216,7 @@ def api(method, path, body=None, timeout=1200):
         with _DIRECT.open(req, timeout=timeout) as r:
             out = json.loads(r.read())
             tape.recorded(method, path, out)
+            _clock(method, path, out)
             return out
     except urllib.error.HTTPError as e:
         try:

@@ -379,6 +379,11 @@ def cmd_incidents(a):
     raise SystemExit(incidents.main())
 
 
+def cmd_rounds(a):
+    from bonobo.tools import rounds
+    raise SystemExit(rounds.main([a.since] if a.since else []))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -423,6 +428,9 @@ def main():
     p = sub.add_parser("review", help="review packet for the last N minutes")
     p.add_argument("--minutes", type=int, default=5)
     p.set_defaults(fn=cmd_review)
+    p = sub.add_parser("rounds", help="round phase times from detail.log: median/max per phase, the 3 longest gaps")
+    p.add_argument("since", nargs="?", help="HH:MM:SS: only rounds from then on")
+    p.set_defaults(fn=cmd_rounds)
     p = sub.add_parser("find")
     p.add_argument("blocks")
     p.add_argument("--radius", type=int, default=32)

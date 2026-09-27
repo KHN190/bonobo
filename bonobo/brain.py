@@ -225,10 +225,31 @@ class Brain:
             intent.publish()
 
     def _round(self):
+        """One round, its phases timed into one detail.log line (round_line): where an idle body's time goes."""
+        clock = {"t0": time.perf_counter(), "marks": [], "ended": api.CLOCK["ended"]}
+        api.CLOCK["first_post"] = None
+        self._clock = clock
+        try:
+            self._round_body(clock)
+        finally:
+            now = time.perf_counter()
+            post = api.CLOCK["first_post"]
+            gap = (post - clock["ended"]) * 1000 if post is not None and clock["ended"] is not None else None
+            api.detail(round_line(phase_ms(clock["t0"], clock["marks"], now), gap))
+
+    def _mark(self, name):
+        """End of a timed phase of this round."""
+        c = getattr(self, "_clock", None)
+        if c is not None:
+            c["marks"].append((name, time.perf_counter()))
+
+    def _round_body(self, clock):
         self.invariants()
+        self._mark("inv")
         tape.begin()
         nav.forget_routes()
         snap = Snapshot()
+        self._mark("snap")
         self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
         self.mem.observe_phase(snap.night)
         self.place = retry.place_signature(snap.feet, snap.night)
@@ -236,12 +257,15 @@ class Brain:
         protected = self.policy_cache.protected
         api.DRESS = lambda task: nav.with_avoid(task, protected)     # no approach digs through our own builds
         ctx = self.context(snap.dimension)
+        self._mark("policy")
         self.needs.observe(snap)
         self.reflexes.observe(snap)
         self.track(snap)
+        self._mark("observe")
         if time.time() - self.last_scan >= SCAN_EVERY_S:
             self.last_scan = time.time()
             explore.note_around(self.mem, snap.dimension, snap.feet)
+        self._mark("note")
         act = self.decide(snap, ctx)
         if act is None:
             tape.end(self, None, snap)
@@ -292,8 +316,17 @@ class Brain:
         def facts_of(intents):
             return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
 
-        intents, facts = arbiter.first_live((fast, upkeep, lambda: self.plan_proposals(snap, ctx)), facts_of)
+        def timed(name, ask):
+            def run():
+                out = ask()
+                self._mark(name)
+                return out
+            return run
+
+        intents, facts = arbiter.first_live((timed("fast", fast), timed("upkeep", upkeep),
+                                             timed("plan", lambda: self.plan_proposals(snap, ctx))), facts_of)
         chosen = arbiter.arbitrate(intents, facts=facts)
+        self._mark("arb")
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)
         return chosen.action if chosen else None
 
@@ -527,11 +560,24 @@ def step_key(step):
     """Pure: a step's failure key, shared by every goal that plans it (a failed gather is not retried for the next goal)."""
     return f"step:{step.kind}:{step.token}"
 
-# which interrupt source an exception stands for (first match, else crash); what is done about it is that source's rule
-SOURCE_OF = ((PlayerTookControl, "player"), (GameUnreachable, "game lost"), (api.FightHolds, "layer:tactic"),
-             (api.BodyContested, "manual"), (api.Died, "death"), (api.DimensionChanged, "dimension change"),
-             (api.CommitmentExpired, "layer:plan"), (api.NightFell, "night"), (api.Interrupted, "layer:safety"),
-             ((McError, skills.ToolMissing), "stuck"))
+ROUND_PHASES = ("inv", "snap", "policy", "observe", "note", "fast", "upkeep", "plan", "arb", "act")
+
+def phase_ms(t0, marks, end):
+    """Pure: {phase: ms} from the round's start, its (phase, time) marks in order, and its end; the time after the
+    last mark is "act" (the dispatch). A phase marked twice adds up."""
+    out, last = {}, t0
+    for name, t in marks:
+        out[name] = out.get(name, 0.0) + (t - last) * 1000
+        last = t
+    out["act"] = out.get("act", 0.0) + (end - last) * 1000
+    out["t"] = (end - t0) * 1000
+    return out
+
+def round_line(ms, gap_ms):
+    """Pure: the round's detail.log line — `round t=… inv=… … act=… gap=…` in whole ms; a phase not reached is left
+    out, gap "-" when no task ended before the round or none was posted in it."""
+    parts = [f"t={ms['t']:.0f}"] + [f"{k}={ms[k]:.0f}" for k in ROUND_PHASES if k in ms]
+    return "round " + " ".join(parts) + " gap=" + ("-" if gap_ms is None else f"{gap_ms:.0f}")
 
 def write(task, fields):
     """Apply a decision's task writes (task_act, after_step) to the task file: one update, nothing when unchanged."""
@@ -542,7 +588,7 @@ def outcome_of(err):
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
     if err is None:
         return "ok", None
-    source = next((s for cls, s in SOURCE_OF if isinstance(err, cls)), "crash")
+    source = retry.source_of(err)
     return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
 
 def replan(task, goal, snap, cost, pending=None):
