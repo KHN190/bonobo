@@ -3858,6 +3858,9 @@ for _row_ in SCENARIOS.values():          # brain/nav/fight rows prove no one sk
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 # Fighting is its own tier: every fight row, sweep shard and fight behaviour cell — never common.
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
+# Fights whose names say otherwise: blazes fought for their rods, a ghast's fireballs, the dragon killed by a bed.
+# resume_after_combat (a zombie mid-task, brain tier) is the user's call, left out on purpose.
+COMBAT_ROWS = ("bed_bomb_kill", "collect_blaze_rods", "ghast_fireball")
 # The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
 # what every change can afford to run.
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
@@ -3871,7 +3874,7 @@ ACCEPTANCE = (ACCEPTANCE_D,)
 
 def tier_of(name, row):
     """Pure: the tier a row belongs to (a row that states its own tier keeps it)."""
-    if name.startswith(COMBAT_PREFIXES) or row.get("module") == "fight_loop":
+    if name.startswith(COMBAT_PREFIXES) or name in COMBAT_ROWS or row.get("module") == "fight_loop":
         return "combat"
     if row.get("tier_fixed") in ("core", "common", "brain", "combat", "exception"):
         return row["tier_fixed"]

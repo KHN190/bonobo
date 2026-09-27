@@ -279,6 +279,40 @@ class SheetMerge(unittest.TestCase):
         self.assertNotIn("late_row", sc.SCENARIOS)
 
 
+class FightRowsInCombat(unittest.TestCase):
+    """A row that fights (a hostile summoned in its setup or `before` hook, or the dragon slain) is in the combat tier.
+    resume_after_combat is exempt by name: its zombie comes mid-task and its tier is the user's decision."""
+    EXEMPT = {"resume_after_combat"}
+    HOSTILE = re.compile(r"summon (?:minecraft:)?(zombie|skeleton|creeper|blaze|ghast|spider|cave_spider|enderman|"
+                         r"witch|slime|magma_cube|wither|pillager|husk|drowned|stray|phantom|hoglin|vindicator|"
+                         r"piglin_brute)\b")
+
+    @classmethod
+    def fights(cls, row):
+        import inspect
+        text = " ".join(map(str, row.get("setup", ())))
+        try:
+            text += " " + inspect.getsource(row["before"]) if row.get("before") else ""
+        except (OSError, TypeError):
+            pass
+        return bool(cls.HOSTILE.search(text)) or "slay_dragon" in row.get("skills", ())
+
+    def test_fight_rows_are_combat(self):
+        out = sorted(n for n, r in sc.SCENARIOS.items()
+                     if n not in self.EXEMPT and r["tier"] != "combat" and self.fights(r))
+        self.assertEqual(out, [])
+
+    def test_the_check_sees_a_fight(self):
+        # must fail: a summoned zombie outside the combat tier is caught; a peaceful row is not
+        rows = [("summoned zombie", {"setup": ["summon zombie 0 0 0"]}, True),
+                ("a ghast in the before hook", {"before": sc.SCENARIOS["ghast_fireball"]["before"]}, True),
+                ("the dragon slain", {"skills": ["slay_dragon"]}, True),
+                ("cows only", {"setup": ["summon cow 0 0 0"]}, False)]
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(self.fights(row), want)
+
+
 class Budgets(unittest.TestCase):
     # (situation, a sheet) → the rows over their limit
     ROWS = [("the real sheet: only the long list", None, None),
