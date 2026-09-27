@@ -86,7 +86,11 @@ def seek_blocks(ctx, blocks, legs=6, leg=40):
         surface_first(ctx)
     x, y, z = feet()
     for i in range(legs):
-        hits = find(blocks, radius=48, limit=5)
+        here = feet()
+        # Only what a walk can get to counts as found (nav.reachable, chop's own test): trees seen 100 blocks
+        # under a sky platform are not a find, and the search walks on.
+        hits = [h for h in find(blocks, radius=48, limit=5)
+                if nav.reachable((h["x"], h["y"], h["z"]), ctx.policy, 2.0, feet=here)[0]]
         if hits:
             return hits
         dx, dz = [(1, 0), (0, 1), (-1, 0), (0, -1)][i % 4]

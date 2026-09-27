@@ -572,14 +572,26 @@ def forget_routes():
     _ROUTE_BUDGET[0] = 0
 
 
-def reachable(cell, policy, range_=1.5, nodes=6000):
-    """Is there a way to `cell` at all? The first half of `route_s`.
+def plainly_below(feet, cell, max_drop=None):
+    """Pure: `cell` is further below the feet than a safe drop and nearer sideways than it is deep — a cliff or a
+    sky platform's floor, not a slope a walk goes down. A tree 100 blocks under the platform, 20 across."""
+    max_drop = SAFE_DROP if max_drop is None else max_drop
+    deep = feet[1] - cell[1]
+    return deep > max_drop and math.dist((feet[0], feet[2]), (cell[0], cell[2])) < deep
+
+
+def reachable(cell, policy, range_=1.5, nodes=6000, feet=None):
+    """Is there a way to `cell` at all? The first half of `route_s`. The one judgement a skill picking where to
+    walk asks (wood.chop's trunk, explore.seek_blocks's hits).
 
     Unknown counts as "maybe": only a definite No from the game may stand behind a ban, because the alternative
-    is banning a place because nobody asked.
+    is banning a place because nobody asked — unless the cell is plainly below a drop from `feet`
+    (`plainly_below`): that unknown is a no (chop walked off a sky platform to a tree below, the budget spent).
     """
     found, seconds = route_s(cell, policy, range_=range_, nodes=nodes)
-    return (True if found is None else found), seconds
+    if found is None:
+        found = not (feet is not None and plainly_below(feet, cell))
+    return found, seconds
 
 
 def way_to(ctx, cells, range_=2.0):

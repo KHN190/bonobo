@@ -281,6 +281,22 @@ class Nav(unittest.TestCase):
             with self.subTest(why):
                 self.assertEqual(nav.landing(FakeRegion(lo, hi, blocks), (0.5, 200.0, 0.5), (16, 200, 0)), want)
 
+    def test_reachable_when_the_game_cannot_say(self):
+        """nav.reachable with no answer from the game (/plan unasked): maybe — unless plainly below a drop."""
+        from unittest import mock
+        feet = (0, 200, 0)
+        rows = [  # (why, cell, feet given, expected)
+            ("a tree 100 below the platform, 20 across: no", (20, 100, 0), feet, False),
+            ("a tree on the same ground 30 off: maybe", (30, 200, 0), feet, True),
+            ("a tree 3 below (a safe drop): maybe", (2, 197, 0), feet, True),
+            ("a valley 20 down, 60 across (a slope): maybe", (60, 180, 0), feet, True),
+            ("no feet given: maybe, as before", (20, 100, 0), None, True),
+        ]
+        policy = nav.Policy()
+        for why, cell, at, want in rows:
+            with self.subTest(why), mock.patch.object(nav, "route_s", return_value=(None, None)):
+                self.assertIs(nav.reachable(cell, policy, 2.0, feet=at)[0], want)
+
     def test_at_rest(self):
         rows = [  # (why, state, expected)
             ("on the ground", {"onGround": True}, True),

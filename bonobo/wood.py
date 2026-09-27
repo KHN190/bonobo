@@ -71,7 +71,7 @@ def chop(ctx, n):
         for seed in pick_trunks(logs)[:4]:
             base = min(seed, key=lambda t: t["y"])
             pos = (base["x"], base["y"], base["z"])
-            if math.dist(feet(), pos) <= 2.5 or nav.reachable(pos, ctx.policy, 2.0)[0]:
+            if math.dist(feet(), pos) <= 2.5 or nav.reachable(pos, ctx.policy, 2.0, feet=feet())[0]:
                 trunk = seed
                 break
             for t in seed:
