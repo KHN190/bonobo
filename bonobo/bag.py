@@ -194,13 +194,48 @@ def under(feet, cell):
     return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
 
 
-def mineable(cells, feet):
+FACES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))
+
+
+def floored(region, cell, drop):
+    """Pure: a body standing in `cell` has ground within `drop` blocks under it — or the region cannot say (the
+    column leaves it first): only a drop the blocks show is refused."""
+    x, y, z = cell
+    for k in range(1, drop + 2):
+        c = (x, y - k, z)
+        if not region.inside(c):
+            return True
+        if region.solid(c) or region.name(c).endswith("water"):
+            return True
+    return False
+
+
+def stand_spot(region, cell, drop):
+    """Pure: some open face of `cell` has a standing place beside it — feet in the face's cell or one below it
+    (head in the face), room for the body, ground within `drop`. None of them: the only way at it is over a gap
+    (upkeep__bridge_stock: the platform's edge cell, its one face over the void; the walker stepped out, 97 down)."""
+    for d in FACES:
+        face = add(cell, d)
+        if region.inside(face) and region.solid(face):
+            continue
+        for s in (face, add(face, (0, -1, 0))):
+            head = add(s, (0, 1, 0))
+            if not all(region.inside(c) for c in (s, head)):
+                return True                     # beyond what was read: not a drop the blocks show
+            if not region.solid(s) and not region.solid(head) and floored(region, s, drop):
+                return True
+    return False
+
+
+def mineable(cells, feet, region=None, drop=None):
     """Pure: the cells a skill may break standing at `feet`, in the order given — never the floor under or around
-    the feet (`supports`), nor anything in the body's own column below it (`under`). Target selection and the
-    no-floor rule are this one predicate."""
+    the feet (`supports`), nor anything in the body's own column below it (`under`), nor (with `region`) a cell
+    whose every open face is over a drop deeper than `drop` (`stand_spot`). Target selection and the no-floor
+    rule are this one predicate."""
     feet = tuple(feet)
     floor = supports(feet)
-    return [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))]
+    return [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
+            and (region is None or stand_spot(region, tuple(c), drop))]
 
 
 def refused(cells, refused_before, jar_digs):

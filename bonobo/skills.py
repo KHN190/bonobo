@@ -724,7 +724,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             continue
-        vein = set(mineable((p for p in connected(region, seed, blocks) if not ctx.blocked(p)), start))
+        vein = set(mineable((p for p in connected(region, seed, blocks) if not ctx.blocked(p)), start,
+                            region, nav.SAFE_DROP))
         if not vein:
             continue      # the whole connected vein is already proven unreachable: next seed
         # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
@@ -781,7 +782,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
         # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
         # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
-        open_faced = [p for p in mineable(in_reach, here_now) if exposed_cells is None or p in exposed_cells]
+        open_faced = [p for p in mineable(in_reach, here_now, region, nav.SAFE_DROP)
+                      if exposed_cells is None or p in exposed_cells]
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):

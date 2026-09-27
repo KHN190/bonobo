@@ -1131,6 +1131,27 @@ class BagRules(unittest.TestCase):
          []),
     ]
 
+    def test_mineable_only_where_a_body_can_stand_at_it(self):
+        """bag.mineable with the blocks: a cell whose every open face is over a drop is not a target (the platform's
+        edge cell, its face over the gap: the walker stepped out and fell 97)."""
+        from bonobo import bag
+        from tests.world import FakeRegion
+        lo, hi = (9990, 180, 9994), (10010, 205, 10006)
+        plat = {(x, y, z): "stone" for x in range(9995, 10002) for y in (197, 198, 199) for z in range(9995, 10006)}
+        below = {(x, 197, z): "stone" for x in range(10002, 10006) for z in range(9995, 10006)}
+        pool = {(x, 190, z): "water" for x in range(10002, 10006) for z in range(9995, 10006)}
+        edge, feet = (10001, 198, 10000), (10000, 200, 10000)
+        rows = [("must fail: the edge cell, its one face over the gap", plat, [edge], []),
+                ("the same cell, a floor under its face: allowed", {**plat, **below}, [edge], [edge]),
+                ("the same cell over deep water below the gap: still a drop past SAFE_DROP", {**plat, **pool},
+                 [edge], []),
+                ("a top cell of the platform, open above: allowed", plat, [(9997, 199, 10000)], [(9997, 199, 10000)]),
+                ("no blocks read (region None): the floor rule only", None, [edge], [edge])]
+        for name, blocks, cells, want in rows:
+            with self.subTest(name):
+                region = None if blocks is None else FakeRegion(lo, hi, blocks)
+                self.assertEqual(bag.mineable(cells, feet, region, nav.SAFE_DROP), want)
+
     def test_mineable_is_the_floor_rule(self):
         from bonobo import bag
         for name, cells, feet, want in self.MINEABLE:
