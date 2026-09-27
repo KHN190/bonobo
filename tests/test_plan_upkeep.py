@@ -2151,10 +2151,18 @@ class Reflexes(unittest.TestCase):
                 self.assertIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **fires))])
                 self.assertNotIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **quiet))])
 
+    # (which reflexes are cooling) → what is due, when both eat and reach land fire
+    COOLING = [("none cooling: both, in table order", set(), [(1, "eat"), (2, "reach land")]),
+               ("eat cooling: skipped, reach land still due", {"eat"}, [(2, "reach land")]),
+               ("reach land cooling: eat alone", {"reach land"}, [(1, "eat")]),
+               ("both cooling: nothing due though both fire", {"eat", "reach land"}, [])]
+
     def test_cooling_reflexes_are_skipped(self):
         from bonobo import reflexes
         view = dict(self.BASE, food=10, swimming=True)
-        self.assertEqual(reflexes.due(view, ready=lambda n: n != "eat"), [(2, "reach land")])
+        for name, cooling, want in self.COOLING:
+            with self.subTest(name):
+                self.assertEqual(reflexes.due(view, ready=lambda n, c=cooling: n not in c), want)
 
     def test_a_view_reads_once(self):
         from bonobo import reflexes
