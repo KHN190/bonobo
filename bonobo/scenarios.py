@@ -1525,25 +1525,40 @@ def placed_at_least(lo, hi, block, n):
     return lambda: _count_blocks(None, lo, hi, block) >= n
 
 
-def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
-    """`before` hook: the interrupt lands the moment progress is first seen — `when` a progress predicate on the
-    world (`gained_at_least`, `spent_at_least`, `placed_at_least`), or a token with `n` (items gained)."""
-    progress = when if callable(when) else gained_at_least(when, n)
+def walked_at_least(m):
+    """Progress: the body stands `m` or more blocks (sideways) from where the row began."""
+    def done():
+        s = __import__("bonobo.api", fromlist=["get"]).get("/state")
+        b = BASE["state"]
+        return math.hypot(s["x"] - b["x"], s["z"] - b["z"]) >= m
+    return done
 
+
+def _when(progress, act, limit_s=120):
+    """`before` hook: `act()` the first moment `progress()` holds — the one way a row changes the world mid-run
+    (a summoned zombie, the clock set to night, a hunger): by progress, never by the clock."""
     def hook(ctx):
-        def fire():
+        def watch():
             from . import api
             t0 = time.time()
-            while time.time() - t0 < 120:
+            while time.time() - t0 < limit_s:
                 try:
                     if progress():
-                        api.INTERRUPT = message
+                        act()
                         return
                 except api.McError:
                     pass
                 time.sleep(0.05)
-        _threading.Thread(target=fire, daemon=True).start()
+        _threading.Thread(target=watch, daemon=True).start()
     return hook
+
+
+def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
+    """`before` hook: the interrupt lands the moment progress is first seen — `when` a progress predicate on the
+    world (`gained_at_least`, `spent_at_least`, `placed_at_least`, `walked_at_least`), or a token with `n` (items
+    gained)."""
+    progress = when if callable(when) else gained_at_least(when, n)
+    return _when(progress, lambda: setattr(__import__("bonobo.api", fromlist=["INTERRUPT"]), "INTERRUPT", message))
 
 
 def _unless_done(check, run):
@@ -3892,6 +3907,74 @@ def skill_spans(registry, root):
 # -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
 # Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
 # whose weapon is the measured dimension, and brain cells whose input is tool state are not in here. One table, one pass.
+# -- a search interrupted mid-way (the user's "unknown behaviour"): the frontier search is left by something faster —
+# a fight, the night, hunger — and taken up again for the same target (memory's section map: no spot searched twice,
+# no ore scanned again). Brain rows: the queue asks, the world is judged; the change comes by progress (`_when`).
+_goal = lambda *needs: __import__("bonobo.goals", fromlist=["have"]).have(*needs)     # noqa: E731
+SEARCH_ARENA = [f"fill {_c(at(-8, -3, -8))} {_c(at(20, -1, 8))} stone",               # the bench box's whole floor
+                f"fill {_c(at(6, 0, -6))} {_c(at(8, 4, 6))} stone", _tp()]                # a hill in the way
+SEARCH_ORE = at(14, -1, 3)                   # a diamond remembered past the hill, one down (dig one to it)
+
+
+def _summon_beside(mob):
+    return lambda: _chat(f"execute at @p run summon {mob} ~2 ~ ~ {{PersistenceRequired:1b}}")
+
+
+def _set_time(t):
+    return lambda: _chat(f"time set {t}")
+
+
+def _starve_to(level):
+    """A hunger quick enough to be felt mid-walk, cleared at `level` (the same drain the food rows use)."""
+    def act():
+        from . import api
+        _chat("effect give @p minecraft:hunger 30 255 true")
+        t0 = time.time()
+        while time.time() - t0 < 10 and api.get("/state").get("food", 20) > level:
+            time.sleep(0.05)
+        _chat("effect clear @p minecraft:hunger")
+    return act
+
+
+SEARCH_ROWS = {
+    "search_fight_resume": (
+        "mutton wanted, a sheep 18 blocks off behind a hill (out of sight); 6 blocks into the walk a zombie beside "
+        "us → fought, then the search goes on: mutton, the zombie gone, nothing banned",
+        SEARCH_ARENA + [f"summon sheep {_c(at(18, 0, 0))} {{NoAI:1b,PersistenceRequired:1b}}",
+                        "give @p diamond_sword", "item replace entity @p armor.chest with iron_chestplate"],
+        [_goal(("minecraft:mutton", 1))], [_when(walked_at_least(6), _summon_beside("zombie"))],
+        _inv_has("minecraft:mutton", 1),
+        _all(_gain("minecraft:mutton", 1), _gone(["minecraft:zombie"]),
+             lambda api, inv: not core.BRAIN.blacklist)),
+    "search_night_resume": (
+        "a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → the "
+        "same diamond, straight (no scan for it)",
+        SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
+        [_goal(("minecraft:diamond", 1))],
+        [_seen("diamond_ore", SEARCH_ORE), _count_finds, _when(walked_at_least(6), _set_time(13000)),
+         _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
+         lambda ctx: SEARCH_FLAGS.clear()],
+        _inv_has("minecraft:diamond", 1),
+        _all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False))),
+    "search_hunger_resume": (
+        "a remembered diamond past the hill, bread carried; 6 blocks in, the bar drained below EAT_BELOW → eaten (all "
+        "the bites), then the same diamond",
+        SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p bread 4"],
+        [_goal(("minecraft:diamond", 1))],
+        [_seen("diamond_ore", SEARCH_ORE), _when(walked_at_least(6), _starve_to(10))],
+        _inv_has("minecraft:diamond", 1),
+        _all(_gain("minecraft:diamond", 1), lambda api, inv: inv.count("minecraft:bread") < 4,
+             lambda api, inv: api.get("/state")["food"] >= 16)),
+}
+SEARCH_FLAGS = {}
+for _name, (_doc, _setup, _queue, _hooks_, _done, _check) in SEARCH_ROWS.items():
+    SHEET[_name] = {"doc": _doc, "module": "brain", "point": "C", "skills": [], "tier_fixed": "brain",
+                    "combat": _name == "search_fight_resume", "tags": {"base": "brain", "family": "search_resume"},
+                    "setup": list(_setup), "before": _hooks(_start(_name), *_hooks_), "queue": list(_queue),
+                    "run": _slice(_done, 0.45, queue=list(_queue)), "check": _check, "budget": 30,
+                    **({"stochastic": True} if _name == "search_fight_resume" else {})}
+
+
 KIT_JOBS = {
     ("axe",): [
         "brain__night", "brain__tight", "chest_or_tree", "chop__base", "chop__lava_edge", "chop__night",
