@@ -997,6 +997,57 @@ class Commands(unittest.TestCase):
                          {n: None for n in closed}, "a closed-loop skill has no batch to hand over")
 
 
+
+class BagFull(unittest.TestCase):
+    """A gatherer's failure on a full bag names the bag (skill.bag_full_reason, one place for chop/hunt/mine/loot)."""
+
+    # (situation, the failure, free slots) → the message raised (None: the failure stands as it is)
+    ROWS = [("chop, no free slot", "could not chop enough logs", 0,
+             "bag full (no free slot): could not chop enough logs"),
+            ("hunt, three slots free: its own failure", "no cow found", 3, None),
+            ("loot, nothing carried away, bag full", "loot_chest: finished without reaching its goal", 0,
+             "bag full (no free slot): loot_chest: finished without reaching its goal"),
+            ("mine, already said", "bag full: 12 stone left on the ground", 0, None),
+            ("the bag could not be read", "could not hunt enough beef", None, None)]
+
+    def test_reason_over_the_table(self):
+        for name, msg, free, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(skillkit.bag_full_reason(msg, free), want)
+
+    # (situation, bag slots, free slots, what is gathered) → room for one more
+    ROOM = [("a free slot", [], 1, {"minecraft:cobblestone"}, True),
+            ("full, a cobblestone stack at 40", [{"id": "minecraft:cobblestone", "count": 40}], 0,
+             {"minecraft:cobblestone"}, True),
+            ("full, the cobblestone stack at 64", [{"id": "minecraft:cobblestone", "count": 64}], 0,
+             {"minecraft:cobblestone"}, False),
+            ("full of dirt, mining stone", [{"id": "minecraft:dirt", "count": 64}], 0, {"minecraft:cobblestone"}, False)]
+
+    def test_room_over_the_table(self):
+        from bonobo import bag
+        for name, slots, free, ids, want in self.ROOM:
+            with self.subTest(name):
+                self.assertIs(bag.has_room(slots, free, ids), want)
+
+    def test_the_floor_is_not_mined(self):
+        from bonobo import bag
+        for feet, want in (((0, 64, 0), (0, 63, 0)), ((10003, 200, 9999), (10003, 199, 9999)),
+                           ((-5, -60, 7), (-5, -61, 7)), ((1, 0, 1), (1, -1, 1))):
+            with self.subTest(feet=feet):
+                self.assertEqual(bag.supports(feet), want)
+
+    def test_only_gatherers_say_it(self):
+        """The same failure on a full bag: a gatherer's names the bag, another skill's stays its own."""
+        for fills, want in ((True, "bag full (no free slot): nothing left to take"), (False, "nothing left to take")):
+            @skillkit.skill(name=f"bag_probe_{fills}", fills_bag=fills)
+            def probe(ctx):
+                raise api.NotAvailable("nothing left to take")
+            with self.subTest(fills_bag=fills), mock.patch.object(skillkit, "_free_slots", return_value=0), \
+                    self.assertRaises(api.McError) as got:
+                probe(None)
+            self.assertEqual(str(got.exception), want)
+            skillkit.REGISTRY.pop(f"bag_probe_{fills}", None)
+
 if __name__ == "__main__":
     unittest.main()
 

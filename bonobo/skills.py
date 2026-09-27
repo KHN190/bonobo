@@ -11,7 +11,7 @@ from .skill import skill, world_signature
 from .data import (ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, KEEP_BUILDING_BLOCKS, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, RECIPES, bare, mid)
 from .knowledge import GROUP_RECIPES, members
-from .bag import pickup_whitelist
+from .bag import has_room, pickup_whitelist, supports
 
 
 from .world import Inventory, Region, add, connected, dark_spots, entities, find, region_around
@@ -522,7 +522,7 @@ def mine_segment_commands(state, args):
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
        per_unit=8, units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
-                                          s.detail.get("breaks"))})
+                                          s.detail.get("breaks"))}, fills_bag=True)
 def mine(ctx, token, count, blocks, tier, breaks=None):
     """Tunnel to the nearest reachable vein of `blocks` and mine it until `count` more `token` are held."""
     drop = token
@@ -541,6 +541,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             return
         yield None
         require_pickaxe(tier)
+        inv = Inventory()
+        if not has_room(inv.slots, inv.free_slots(), set(members(drop))):
+            raise NotAvailable(f"bag full: no room for {bare(drop)}")
         # Exposed ore first (an open face a stand spot can see): buried coal and stone ended "skipped after repeated
         # unreachable blocks" again and again; hidden veins only when no exposed one is in range.
         shown = find(blocks, radius=radius, limit=60, exposed=True)
@@ -571,7 +574,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             continue
-        vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)}
+        vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)} - {supports(start)}
         if not vein:
             continue      # the whole connected vein is already proven unreachable: next seed
         # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
@@ -628,7 +631,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
         # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
         # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
-        open_faced = [p for p in in_reach if p in exposed_cells]
+        open_faced = [p for p in in_reach if p in exposed_cells and p != supports(here_now)]
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
@@ -785,7 +788,7 @@ def _hunt_progress(token, types):
 
 @skill(start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
        budget=480, stall=60, per_unit=30, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
-       provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))})
+       provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))}, fills_bag=True)
 def hunt(ctx, token, count, types, night):
     """Kill animals of `types` (reach them with the navigator first) until `count` more `token` drops are held."""
     target = Inventory().count(token) + count
@@ -1306,7 +1309,7 @@ def dig_in(ctx):
 
 
 @skill(start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=45, per_unit=8, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])})
+       budget=180, stall=45, per_unit=8, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])}, fills_bag=True)
 def take(ctx, token, count, blocks):
     """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops.
 

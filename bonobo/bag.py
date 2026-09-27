@@ -290,3 +290,20 @@ def store_plan(slots):
         else:
             move.append(s)
     return move
+
+
+STACK = 64
+
+
+def has_room(slots, free, ids):
+    """Pure: can one more of these (`ids`) go in the bag — a free slot, or a stack of one of them not yet full.
+    A gatherer on a full bag breaks what it cannot pick up, and a miner kept breaking the floor under itself."""
+    return free > 0 or any(s["id"] in ids and int(s.get("count", 1)) < STACK for s in slots)
+
+
+def supports(feet):
+    """Pure: the cell the body stands on — never mined by a skill that is not digging down on purpose (a full-bag
+    miner broke its own floor and fell through the platform)."""
+    x, y, z = feet
+    return (x, y - 1, z)
+

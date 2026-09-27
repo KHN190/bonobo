@@ -147,7 +147,8 @@ def handles(step):
 
 
 def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, budget=300, stall=45,
-          per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0):
+          per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
+          fills_bag=False):
     """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
 
     A check can only answer "no". A dimension can be priced: `solve.reach_cost` walks the requirement graph and
@@ -158,6 +159,7 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
                             key, soft, commands, provides, prefer)
         contract.needs = dict(needs or {})
+        contract.fills_bag = fills_bag      # a gatherer: its failure on a full bag says so (bag_full_reason)
         REGISTRY[contract.name] = contract
 
         @functools.wraps(fn)
@@ -177,6 +179,13 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
                 out = fn(*args, **kwargs)
                 if inspect.isgenerator(out):
                     out = _drive(contract, c, out)
+            except api.INTERRUPTIONS:
+                raise
+            except McError as e:
+                why = bag_full_reason(str(e), _free_slots()) if contract.fills_bag else None
+                if why is None:
+                    raise
+                raise (type(e)(why) if _same_shape(e) else McError(why)) from e
             finally:
                 api.SOFT, tape.SKILL = prev_soft, prev_skill
             c.result = out
@@ -189,7 +198,8 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
             finally:
                 tape.SKILL = prev_skill
             if not verified:
-                raise McError(f"{contract.name}: finished without reaching its goal")
+                msg = f"{contract.name}: finished without reaching its goal"
+                raise McError((bag_full_reason(msg, _free_slots()) if contract.fills_bag else None) or msg)
             if STATS is not None:
                 try:
                     STATS.record_duration(contract.key(c), time.time() - t0, max(1, contract.units(c)))
@@ -203,6 +213,31 @@ def skill(name=None, *, pre=(), needs=None, start=None, done=None, verify=None, 
         return runner
 
     return wrap
+
+
+def bag_full_reason(message, free):
+    """Pure: a failure said again with its cause named when the bag had no free slot (`free` = 0) — a gatherer
+    that could not pick up what it made failed "for no reason" (chop, hunt, mine, loot on a full bag). None when
+    the bag had room (the failure is its own) or the message already names the bag."""
+    if free is None or free > 0 or message.lower().startswith("bag full"):
+        return None
+    return f"bag full (no free slot): {message}"
+
+
+def _free_slots():
+    try:
+        return skillcore.Inventory().free_slots()
+    except McError:
+        return None
+
+
+def _same_shape(e):
+    """The failure's own type can carry the new message (a one-argument McError subclass)."""
+    try:
+        type(e)("")
+        return True
+    except TypeError:
+        return False
 
 
 HEARTBEAT = paths.data("skill-heartbeat")
