@@ -49,6 +49,12 @@ IDLE_WAIT_TICKS = 100
 NIGHT_WORK = frozenset({"mine", "craft", "smelt"})
 
 
+def surface_closed(night, dimension):
+    """Pure: surface work (a tree, an animal) waits for morning — night in the Overworld, sheltered or not. Only
+    under cover was the rule once, and a night caught in the open (the shelter row cooling) walked out to chop."""
+    return bool(night) and dimension == "minecraft:overworld"
+
+
 def night_pick(kinds, night, can_dig, stocked):
     """Pure: what the round takes from the queue, given each live task's next step kind in queue order. By day the
     head (0), or None when nothing is queued. By night the first whose step works under cover (NIGHT_WORK); none →
@@ -278,7 +284,7 @@ class Brain:
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
-        under = snap.night and self.table.sheltered(snap)
+        under = surface_closed(snap.night, snap.dimension)
         acts = []
         for task in live:
             if not self.ready(f"task {task['id']}"):

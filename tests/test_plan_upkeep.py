@@ -1590,6 +1590,35 @@ class NightPick(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(brainmod.night_pick(kinds, night, can_dig, stocked), want)
 
+    # (situation, night, dimension) → surface work closed
+    CLOSED = [("day in the Overworld: open", False, "minecraft:overworld", False),
+              ("night in the Overworld, in the open (the shelter row failed): closed", True, "minecraft:overworld",
+               True),
+              ("night in the Nether: no sun to wait for, open", True, "minecraft:the_nether", False),
+              ("night by the clock in the End: open", True, "minecraft:the_end", False)]
+
+    def test_surface_closed_over_the_table(self):
+        for name, night, dim, want in self.CLOSED:
+            with self.subTest(name):
+                self.assertIs(brainmod.surface_closed(night, dim), want)
+
+    def test_night_in_the_open_does_not_chop(self):
+        """Night, exposed, empty bag, a tree in the queue: the round waits for day, it does not walk to the tree."""
+        from unittest import mock
+        b = brainmod.Brain.__new__(brainmod.Brain)
+        b.retry, b.place = retry.Retry(), PLACE
+        b.table = mock.Mock(working={}, sheltered=lambda snap, enclosed=None: False)     # caught in the open
+        chop = brainmod.Act("task", "task t1", None, step=planner.Step("gather", "log", 2))
+        b.upkeep = lambda snap, ctx: None
+        b.task_act = lambda task, snap, ctx: chop
+        b.prepare = lambda snap: brainmod.Act("idle", "prepare", None)
+        snap = snapshot(state(timeOfDay=NIGHT), inventory())
+        with mock.patch.object(api, "MODE", "normal"), mock.patch.object(brainmod.hazard, "due", return_value=None), \
+                mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                mock.patch.object(tasks, "expire", return_value=False):
+            act = b.decide(snap, None)
+        self.assertEqual((act.layer, act.name), ("idle", "wait for day"))
+
     def test_night_stock_plans_under_cover(self):
         """The ore the night digs for plans, from a stone pickaxe in a dark hole, as work NIGHT_WORK allows first."""
         for bag_, want in (([("stone_pickaxe", 1)], ["mine"]),
