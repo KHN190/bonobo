@@ -230,7 +230,11 @@ class Tiers(unittest.TestCase):
               ("chop_without_interrupt", "brain"), ("ban_then_other_source", "brain"),
               ("resume_after_combat", "brain"), ("l3_two_goals_in_order", "brain"),
               ("ban_needs_a_failure", "brain"), 
-              ("l3_order_swapped", "brain"), ("plan_without_events", "brain")]
+              ("l3_order_swapped", "brain"), ("plan_without_events", "brain")] + [
+              # the fight's behaviour cells: one each, all in the combat tier
+              (f"combat__{b}", "combat") for b in ("block_gap", "dig_in", "pillar", "shield_arrows",
+                                                   "fight_without_shield", "fight_and_block", "wall_in",
+                                                   "surrounded_low")]
 
     def test_placed_rows(self):
         for name, tier in self.PLACED:

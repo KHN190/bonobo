@@ -676,34 +676,60 @@ def _gap_blocked(api):
     return sum(1 for c in GAP if region.solid(c))
 
 
+def _walled(row):
+    """Cobblestone (or any placed solid) on all four sides of the feet AND the head cell, where the body ended."""
+    from ..world import Region
+    x, y, z = (math.floor(v) for v in row["trace"][-1]["pos"])
+    region = Region((x - 1, y, z - 1), (x + 1, y + 1, z + 1))
+    return all(region.solid((x + dx, y + dy, z + dz))
+               for dy in (0, 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+
+
+def _offhand_shield():
+    from ..data import bare
+    from ..world import Inventory
+    return bare((Inventory().equipment.get("offhand") or {}).get("id", "")) == "shield"
+
+
+def _less_hurt_than(row, control):
+    base = _last(f"combat__{control}")
+    return base is not None and row["outcome"]["hp_lost"] < base["outcome"]["hp_lost"]
+
+
 START_Y = at(0, 0, 0)[1]
+# name: (cell moved off ARMED, what must be true of the recorded row and the world, why). A control runs before
+# the cell that is compared to it (dict order is bench order).
 BEHAVIOURS = {
-    # name: (cell moved off ARMED, what must be true of the recorded row and the world, why)
     "block_gap": (dict(ground="corridor", kit="blocks", distance="across"),
-                  lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["hp_lost"] <= 4,
-                  "a corridor with one gap, blocks carried: the gap closed, the walker kept out"),
+                  lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["gap"] >= 2
+                  and r["outcome"]["hp_lost"] <= 4,
+                  "a corridor with one gap, blocks carried: the gap closed, the walker kept outside it"),
     "dig_in": (dict(ground="roofed", kit="blocks"),
-               lambda r, api: _went_out(r, "reshape", "wall_in") and min(_ys(r)) <= START_Y - 1.5,
-               "a roof overhead, blocks and a pickaxe: dug into the floor out of reach"),
+               lambda r, api: _went_out(r, "reshape", "wall_in") and min(_ys(r)) <= START_Y - 2
+               and r["outcome"]["hp_lost"] <= 4,
+               "a roof overhead, blocks and a pickaxe: dug two down into the floor out of reach, health kept"),
     "pillar": (dict(ground="open", kit="blocks"),
-               lambda r, api: _went_out(r, "reshape") and max(_ys(r)) >= START_Y + 1.5,
-               "open ground, blocks: stood up out of a walker's reach"),
+               lambda r, api: _went_out(r, "reshape") and max(_ys(r)) >= START_Y + 2,
+               "open ground, blocks: stood two up out of a walker's reach"),
     "shield_arrows": (dict(enemy="archer", kit="shield", distance="across"),
-                      lambda r, api: _went_out(r, "shield") and r["outcome"]["hp_lost"] <= 6,
-                      "an archer across open ground, a shield: raised against the arrows"),
-    "fight_and_block": (dict(kit="shield"),
-                        lambda r, api: _went_out(r, "fight") and _went_out(r, "shield") and r["outcome"]["left"] == 0,
-                        "a walker, sword and shield: struck and blocked in turn (new behaviour), the walker dead"),
+                      lambda r, api: _went_out(r, "shield") and _offhand_shield() and r["outcome"]["hp_lost"] <= 4,
+                      "an archer across open ground, a shield: raised against the arrows (still in the offhand)"),
     "fight_without_shield": (dict(kit="nothing"),
                              lambda r, api: _went_out(r, "fight") and not _went_out(r, "shield")
                              and r["outcome"]["hp_lost"] > 0,
-                             "the same walker, no shield (control): fought, never blocked, and hurt for it"),
+                             "a walker, no shield (control): fought, never blocked, and hurt for it"),
+    "fight_and_block": (dict(kit="shield"),
+                        lambda r, api: _went_out(r, "fight") and _went_out(r, "shield") and r["outcome"]["left"] == 0
+                        and _less_hurt_than(r, "fight_without_shield"),
+                        "the same walker, sword and shield: struck and blocked in turn, the walker dead, and less "
+                        "hurt than the no-shield control"),
     "wall_in": (dict(count="three", kit="blocks", blood="hurt"),
-                lambda r, api: _went_out(r, "wall_in") and r["outcome"]["hp"] > 0,
-                "three walkers, hurt, blocks: walled in"),
+                lambda r, api: _went_out(r, "wall_in") and _walled(r) and r["outcome"]["hp"] > 0,
+                "three walkers, hurt, blocks: walled in (feet and head cells closed on four sides)"),
     "surrounded_low": (dict(count="three", blood="hurt", kit="full"),
-                       lambda r, api: _first_out(r) in ("evade", "wall_in", "reshape") and r["outcome"]["hp"] > 0,
-                       "three walkers at 8 hp: the first answer is to get away or wall in, not to swing"),
+                       lambda r, api: _first_out(r) in ("evade", "wall_in", "reshape") and not _went_out(r, "fight")
+                       and r["outcome"]["hp"] > 0,
+                       "three walkers at 8 hp: got away or walled in, never swung; alive"),
 }
 
 
