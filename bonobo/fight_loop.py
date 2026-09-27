@@ -58,6 +58,7 @@ def offer(option, worth, key, now, release, held, seen_at):
 
     def run():
         intent = arbiter.BODY.current()
+        _CHASE["at"] = None                      # a new engagement: its own chase clock
         with _ENG_LOCK:
             th = threading.Thread(target=_engagement, args=(intent, failure), daemon=True, name="fight")
             _ENG.update(thread=th, want=option, failure=failure, intent=intent)
@@ -192,15 +193,46 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
     return (option, round(worth, 1)) if worth > 0 else None
 
 
+LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end
+CLOSING = 0.3          # blocks/s toward us: a threat coming this fast is following, wherever it is
+_CHASE = {"at": None}  # when a threat was last seen chasing, in this engagement
+
+
+def chasing(rows, here):
+    """Pure: some threat is still after us — within its own notice radius (it follows from there), or closing."""
+    from .estimate import MOBS
+    for centre, _reach, vel, kind, *_ in rows:
+        d = math.dist(centre, here)
+        if d <= float(MOBS.get(kind, {}).get("notice_r", 16.0)):
+            return True
+        if d > 0 and sum(vel[i] * (here[i] - centre[i]) / d for i in range(3)) > CLOSING:
+            return True
+    return False
+
+
+def engagement_over(rows, here, chased_at, now):
+    """Pure: (over, chased_at). Never over while a threat chases (a creeper evaded for 2 s is still coming); over
+    once nothing has chased for LOST_S — it died, it went, or we outran it. No rows at all counts the same way: a
+    blind moment is shorter than LOST_S, a dead mob stays gone."""
+    if rows and chasing(rows, here):
+        return False, now
+    chased_at = now if chased_at is None else chased_at
+    return now - chased_at >= LOST_S, chased_at
+
+
 def lease_done(state, rows, price, ids=()):
     """Has answering stopped paying? The lease's release condition, and nothing else releases it.
 
-    Blind moments are NOT an answer: the entity read is a second old, the watcher was busy, the rows aged out. A
-    lease that reads "nothing visible" as "nothing to deal with" hands the body back in the middle of a fight, and
-    the planner's next mine task lands on top of the answer — which is what `BodyContested` was, all along.
+    Not while anything still chases (`engagement_over`): an evade that bought distance is not the end of a creeper.
+    Blind moments are NOT an answer either: the entity read is a second old, the watcher was busy, the rows aged
+    out — the chase clock only ends after LOST_S of nobody after us. Then: ended when answering stops paying.
     """
-    if not rows:
+    here = (state["x"], state["y"], state["z"])
+    over, _CHASE["at"] = engagement_over(rows, here, _CHASE["at"], time.time())
+    if not over:
         return False
+    if not rows:
+        return True
     try:
         fresh = bid(state, rows, price, now=time.time(), ids=ids)
     except Exception:

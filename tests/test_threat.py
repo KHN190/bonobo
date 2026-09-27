@@ -325,29 +325,43 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
         self.fight_loop, self.sv = fight_loop, sv
         fight_loop.HELD = None
 
-    def release(self, rows):
-        """The lease's own judgement, given what perception can see right now."""
+    def release(self, frames):
+        """The lease's own judgement over a few perception frames [(seconds since the first, rows seen)]."""
+        from unittest import mock
         from bonobo import field
         state = {"x": 0, "y": 64, "z": 0, "health": 12, "armor": 0, "sword_tier": 2,
                  "food_items": 0, "shield": False, "blocks": 64, "field": field.Field()}
         ss = self.sv.price_state(hp=12, sword=2)
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
-        return self.fight_loop.lease_done(state, rows, price)
+        self.fight_loop._CHASE["at"] = None
+        done = None
+        for dt, rows in frames:
+            with mock.patch.object(self.fight_loop.time, "time", return_value=1000.0 + dt):
+                done = self.fight_loop.lease_done(state, rows, price)
+        return done
 
-    # (what perception sees now) → is the answer done (hand the body back)?
-    LEASE = [("a blind moment: nothing visible", [], False),
-             ("a zombie still at 4", [row("minecraft:zombie", 4, 0)], False),
-             ("a zombie at 20: further than one decision takes, nothing owed yet", [row("minecraft:zombie", 20, 0)],
+    # (what perception sees, frame by frame) → is the answer done (hand the body back)?
+    LOST = 3.5            # a little past fight_loop.LOST_S
+    LEASE = [("a blind moment: nothing visible for a second", [(0, []), (1.0, [])], False),
+             ("a zombie still at 4", [(0, [row("minecraft:zombie", 4, 0)]), (LOST, [row("minecraft:zombie", 4, 0)])],
+              False),
+             ("a zombie at 20, inside its notice radius: it follows, not over",
+              [(0, [row("minecraft:zombie", 20, 0)]), (LOST, [row("minecraft:zombie", 20, 0)])], False),
+             ("a skeleton at 10", [(0, [row("minecraft:skeleton", 10, 0)]), (LOST, [row("minecraft:skeleton", 10, 0)])],
+              False),
+             ("a zombie 60 away closing at 2 b/s: still chasing",
+              [(0, [row("minecraft:zombie", 60, 0, vel=(-2.0, 0.0, 0.0))]),
+               (LOST, [row("minecraft:zombie", 60, 0, vel=(-2.0, 0.0, 0.0))])], False),
+             ("a zombie 60 away, standing, for LOST_S: outrun, and nothing owed",
+              [(0, [row("minecraft:zombie", 60, 0)]), (LOST, [row("minecraft:zombie", 60, 0)])], True),
+             ("the zombie killed: gone for LOST_S", [(0, [row("minecraft:zombie", 4, 0)]), (0.5, []), (LOST + 1, [])],
               True),
-             ("a zombie at 30", [row("minecraft:zombie", 30, 0)], True),
-             ("a skeleton at 10", [row("minecraft:skeleton", 10, 0)], False),
-             ("the zombie is 60 away: stopped paying", [row("minecraft:zombie", 60, 0)], True)]
+             ("gone only a moment ago", [(0, [row("minecraft:zombie", 4, 0)]), (1.0, [])], False)]
 
     def test_the_lease_over_the_table(self):
-        for name, rows, done in self.LEASE:
+        for name, frames, done in self.LEASE:
             with self.subTest(name):
-                self.assertEqual(self.release(rows), done)
-
+                self.assertEqual(self.release(frames), done)
 
 if __name__ == "__main__":
     unittest.main()
