@@ -11,7 +11,7 @@ when leaving costs more than building does. Numbers live in play.toml under [mob
 """
 import math
 
-from . import beliefs, combat_model, estimate
+from . import beliefs, estimate
 
 CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS

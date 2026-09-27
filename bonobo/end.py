@@ -8,7 +8,7 @@ from . import api, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import bare
-from .world import Inventory, Region, add, entities, find
+from .world import Inventory, Region, entities, find
 
 
 def frames_missing_eye(region):

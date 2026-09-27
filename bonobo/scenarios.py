@@ -12,11 +12,10 @@ import time
 from .bench import core, runner
 from .data import POD_BLOCKS
 from .bench.core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
-from .bench.core import (BOX, FLAG, NOTES, ORIGIN, PKG, SCENARIOS, SetupInvalid, _achieve, _batch, _c, _chat,
-                         _checked, _command, _count_blocks, _drain, _inv_has, _near, _platform, _sweep,
-                         _sweep_check, _by, at, server_count, set_brain)
+from .bench.core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
+                         _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
 from .bench.runner import *        # noqa: F403
-from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _report, _setup, _trace, classify, code_for, dep_hash, feedback_errors, load_table,
+from .bench.runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 
 # name → module (for the readiness hash), setup commands (relative to ORIGIN), expected signature blocks
@@ -791,7 +790,6 @@ def slice_report(lines, positions, target, idle_s, picks=None):
     """Pure: loops (review.repeated over the brain's own log), longest idle, and how far the player moved away from
     `target` in total (walking the wrong way) — from the slice's log lines and (t, pos) samples."""
     from . import review
-    import datetime
     entries = []
     for raw in lines:
         parts = raw.split(" ", 1)
@@ -1164,8 +1162,7 @@ def _trades(inv):
 
 from .bench import fight           # noqa: E402,F401  (the fight sheet registers itself)
 from .bench.fight import *         # noqa: E402,F403
-from .bench.fight import (_build, _cells, _combat_execute, _combat_intent, _fought, _hostiles,
-                          _siege_cells, _summon)        # noqa: E402
+from .bench.fight import _cells, _hostiles        # noqa: E402
 
 
 # ================================================================================================================
@@ -1177,7 +1174,6 @@ from .bench.fight import (_build, _cells, _combat_execute, _combat_intent, _foug
 # checks the sheet's shape and that every registered skill is proven somewhere. Nothing here runs until
 # `mc.py scenario <name>` in a test world.
 # ================================================================================================================
-import itertools as _it
 import threading as _threading
 
 BASE = {}                 # the bag, the /state and the time at the start of the run (`_start`)

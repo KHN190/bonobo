@@ -11,7 +11,6 @@ health readings meaningless; damage has to come from real fights.
 
 Usage: dragon_data.py [CYCLES] [TICKS_PER_CYCLE]
 """
-import os
 import sys
 import time
 

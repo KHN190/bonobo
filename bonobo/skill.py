@@ -25,7 +25,6 @@ Two levels of stuck detection: api.await_task watches one mod task (10 s without
 watches the skill's own goal metric across tasks (a hunt that walks around forever without closing in)."""
 import functools
 import inspect
-import os
 import time
 
 from . import api, paths, skillcore, tape

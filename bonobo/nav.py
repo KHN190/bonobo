@@ -10,7 +10,6 @@ disagreement between them became a bug: water in the floor priced as flat ground
     way_to(ctx, cells)      the answer to "could not get to it": walk with digging allowed, then check
 
 What stays on this side is the decision: what is worth walking to, what a walk is worth, and when to give up."""
-import heapq
 import math
 import re
 import time
@@ -18,8 +17,8 @@ from dataclasses import dataclass, field
 
 from . import api, tape
 from .api import McError, NotAvailable, log
-from .data import GROUPS, HAND_MINEABLE_SUFFIX, bare
-from .world import NEIGHBOURS6, Inventory, Region, add, region_around
+from .data import GROUPS
+from .world import NEIGHBOURS6, Inventory, Region, add
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 

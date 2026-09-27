@@ -13,11 +13,11 @@ from . import api, decompose, goals, skills
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import NIGHT_WORK, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, mid
+from .data import NIGHT_WORK, TOOL_KINDS, mid
 from .knowledge import food_count, food_points
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
-from .skillcore import gained, lost
+from .skillcore import lost
 from .world import Inventory
 
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin

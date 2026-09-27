@@ -13,7 +13,6 @@ import sys
 import threading
 import time
 
-from . import core
 from .core import (BENCH, BOX, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
 
@@ -548,7 +547,7 @@ def take_prebuilt(name, wait_s=120):
 def _setup(name, sc, feedback):
     from .. import api
     SETUP_S.clear()
-    from ..world import Region, entities
+    from ..world import Region
     if api.get("/state").get("dead"):
         api.post("/respawn")
         time.sleep(2)

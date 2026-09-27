@@ -9,7 +9,7 @@ import time
 
 from .. import estimate, paths
 from . import core
-from .core import SCENARIOS, SWEEP, SetupInvalid, _by, _c, _chat, _platform, _sweep, _sweep_check, at
+from .core import SCENARIOS, SWEEP, SetupInvalid, _c, _chat, _platform, _sweep, _sweep_check, at
 
 # -- one table of dimensions, three benches -----------------------------------------------------------------------
 # The same shape as the offline sweep (`tests/world.py`): a cell is a point in a named product, `_cells` moves ONE

@@ -23,8 +23,7 @@ import math
 
 from .data import (COVERED_SKY, DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid,
                    seen_class)
-from .knowledge import (BREED_FOOD, GROUP_RECIPES, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, SMELTS,
-                        STATIONS, TAKEABLE, produced)
+from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced)
 from . import beliefs
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate

@@ -2,15 +2,14 @@
 goal check, verification, time budget and a stall limit on its own goal metric. Skills never plan: inputs must be
 present. `python3 mc.py skills` lists the contracts."""
 import math
-import re
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
-from . import api, beliefs, blueprints, nav, world
+from . import api, beliefs, nav, world
 from .api import McError, NotAvailable, log
-from .skill import ANCHORS, skill, world_signature, current as current_call
-from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, JUNK, LOG_TO_PLANKS,
+from .skill import ANCHORS, skill, current as current_call
+from .data import (HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, POD_BLOCKS, RECIPES, bare, mid)
 from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
 from .bag import mineable, pickup_whitelist, refused

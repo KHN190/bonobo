@@ -3,7 +3,6 @@ what changed in the bag, which skills are slow or unreliable, and where the dire
 distils lessons into SKILL.md / skills / tests, and queues tasks for the long-term plan."""
 import collections
 import datetime
-import os
 import re
 
 from . import paths, tasks

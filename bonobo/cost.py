@@ -12,7 +12,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .world import ROUTES, entities, find, job_ready, nearest
+from .world import ROUTES, entities, job_ready, nearest
 
 TICKS_PER_S = 20
 

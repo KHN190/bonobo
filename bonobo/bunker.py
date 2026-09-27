@@ -16,7 +16,7 @@ outward from it along the same side axis. The pit stays the place a bed is click
 import math
 
 from . import nav
-from .end import BED_R, BED_TOP, EYE, PIT_DEPTH, PIT_R, REACH
+from .end import BED_TOP, EYE, PIT_DEPTH, PIT_R, REACH
 from .fight_plan import CONFIG as _CFG
 
 _GEO = _CFG["geometry"]

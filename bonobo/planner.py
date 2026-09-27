@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STATIONS, STEP_SKILL, TAKEABLE,
+from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, SKILL_SPEED, STEP_SKILL, TAKEABLE,
                         TOOL_MIN_DURABILITY, members, source, tool_ok)
 
 MAX_DEPTH = 14

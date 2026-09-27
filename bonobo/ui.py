@@ -4,15 +4,14 @@ block/villager, arrange slots with /click and press the buttons.
 
 Container JSON extras: enchanting → "enchant": [{"cost", "id", "level"}×3] and "lapis"; merchant → "offers":
 [{"buy", "buyCount", "buy2", "buy2Count", "sell", "sellCount", "disabled"}]; anvil → "levelCost"."""
-import math
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
-from . import api, nav
-from .api import McError, NotAvailable, log
+from . import api
+from .api import NotAvailable, log
 from .data import mid
 from .skill import skill
-from .world import Inventory, container, entities, find
+from .world import Inventory, container, entities
 
 
 def choose_enchant(options, xp_level, lapis):
