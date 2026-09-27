@@ -194,7 +194,7 @@ class Unique(unittest.TestCase):
         first = next(iter(some))
         rows = [("the real sheet", sc.SCENARIOS, []),
                 ("a copy under another name", {**some, "zz_copy": dict(some[first])}, [(first, "zz_copy")]),
-                ("the same setup, another queue", {"a": {"setup": ["x"], "budget": 5, "queue": [1, 2]},
+                ("must fail: the same setup, another queue", {"a": {"setup": ["x"], "budget": 5, "queue": [1, 2]},
                                                    "b": {"setup": ["x"], "budget": 5, "queue": [2, 1]}}, []),
                 ("the same setup, another tag", {"a": {"setup": ["x"], "budget": 5, "tags": {"inventory": "full"}},
                                                  "b": {"setup": ["x"], "budget": 5, "tags": {}}}, [])]
@@ -316,7 +316,7 @@ class Budgets(unittest.TestCase):
     # (situation, a sheet) → the rows over their limit
     ROWS = [("the real sheet: only the long list", None, None),
             ("a core row over the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
-            ("a core row at the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S}}, []),
+            ("must fail: the off-by-one a strict count gets wrong — a core row at the limit", {"x": {"tier": "core", "budget": runner.ROW_LIMIT_S}}, []),
             ("an exception row over the limit", {"x": {"tier": "exception", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
             ("a brain row over the limit", {"x": {"tier": "brain", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
             ("a combat row over the limit", {"x": {"tier": "combat", "budget": runner.ROW_LIMIT_S + 1}}, ["x"]),
@@ -352,7 +352,7 @@ SELECT = [
     ("all", {"eat"}, ["eat_row"]),                         # by name, for a skill that provides nothing
     ("all", {"load_smelter"}, ["smelt_row"]),              # an effect shared by two skills: either proves it
     ("core", {"eat"}, ["chop_row", "mine_row"]),           # nothing in this tier proves it: core stands in
-    ("all", {"a_skill_no_row_proves"}, ["chop_row", "mine_row"]),
+    ("all", {"a_skill_no_row_proves"}, ["chop_row", "mine_row"]),  # must fail: no row proves it, core stands in
     ("all", set(), ["chop_row", "mine_row"]),              # a change that touched no skill: core
 ]
 DIFF = """diff --git a/bonobo/wood.py b/bonobo/wood.py
@@ -408,7 +408,7 @@ class Changed(unittest.TestCase):
 
     # (reached?, seconds, budget, crashed?) → ok, and the note says why not
     JUDGE = [(True, 30, 45, False, True, None), (True, 45, 45, False, True, None),
-             (True, 46, 45, False, False, "over budget"), (False, 10, 45, False, False, "not reached"),
+             (True, 46, 45, False, False, "over budget"), (False, 10, 45, False, False, "not reached"),  # must fail: one second over the budget
              (True, 10, 45, True, False, "crash"), (False, 500, 45, True, False, "not reached")]
 
     def test_budget_and_crash_judgment(self):
@@ -601,7 +601,7 @@ class ResetBrain(unittest.TestCase):
                 ("a held plan", lambda: br.held.update(t1={}), lambda: br.held, {}),
                 ("a committed task", lambda: setattr(br, "committed", "t1"), lambda: br.committed, None),
                 ("the ban dict stays the one fight_loop holds", lambda: None, lambda: br.blacklist is shared, True),
-                ("a fight left holding the body: the next row starts with it free",
+                ("must fail: a fight left holding the body: the next row starts with it free",
                  lambda: setattr(arbiter.BODY, "lease", (arbiter.Intent(sorted(arbiter.SCALES)[0], "fight", "last row"),
                                                           lambda: False, time.time())),
                  lambda: arbiter.BODY.holder(), None)]
@@ -627,7 +627,7 @@ class TimeoutSticks(unittest.TestCase):
         table = {"x": {self.key(self.ROW): [stopped]}}
         rows = [  # (what changed since the TIMEOUT, the key now, cached?)
             ("nothing: skipped, reported FAIL", self.key(self.ROW), True),
-            ("the setup", self.key(dict(self.ROW, setup=["fill 0 0 0 2 2 2 stone"])), False),
+            ("must fail: the setup changed, not cached", self.key(dict(self.ROW, setup=["fill 0 0 0 2 2 2 stone"])), False),
             ("the skill's Python", self.key(self.ROW, dep="d2"), False),
             ("the mod jar", self.key(self.ROW, mod="m2"), False),
             ("the budget", self.key(dict(self.ROW, budget=45)), False),
@@ -638,7 +638,7 @@ class TimeoutSticks(unittest.TestCase):
                 self.assertEqual(got is not None and got.startswith(f"{sc.TIMEOUT} (cached)"), cached)
 
     def test_only_a_timeout_sticks(self):
-        rows = [("an ordinary failure is re-run", [{"ok": False, "note": "NavFailed: no route", "cls": "skill"}], None),
+        rows = [("must fail: an ordinary failure is re-run", [{"ok": False, "note": "NavFailed: no route", "cls": "skill"}], None),
                 ("a pass after the timeout clears it",
                  [{"ok": False, "note": f"{sc.TIMEOUT}: x", "cls": "skill"}, {"ok": True, "note": "", "cls": "skill"}],
                  None),
@@ -669,7 +669,7 @@ class BrainGrid(unittest.TestCase):
 
     def test_rules(self):
         # (family, the cell's moved dimensions, the expectation it must get)
-        rows = [("night_first", {}, "a day ahead: the task first, no bed made (must not)"),
+        rows = [("night_first", {}, "a day ahead: the task first, no bed made (must not)"),  # must fail: the (must not) expectations
                 ("night_first", {"dusk": "tight"}, "dusk or night on the surface, no bed: the night first"),
                 ("night_first", {"dusk": "night", "food": "low"}, "hungry: food before the task (cooking it counts)"),
                 ("tool_tier", {"tool": "one_use"}, "broken: the best tier this bag crafts (iron)"),
@@ -746,7 +746,7 @@ class Drain(unittest.TestCase):
                 ("one above the stop: slow", 12, 0.0, 10, "slow"),
                 ("saturation left though low: fast (the bar cannot move before it is gone)", 13, 3.0, 10, "fast"),
                 ("at level + 1: stop", 11, 0.0, 10, "stop"),
-                ("overshot below the level: stop", 8, 0.0, 10, "stop")]
+                ("must fail: overshot below the level: stop", 8, 0.0, 10, "stop")]
         for name, food, sat, level, want in rows:
             with self.subTest(name):
                 self.assertEqual(sc.drain_step(food, sat, level), want)
@@ -771,7 +771,7 @@ class Chance(unittest.TestCase):
     """runner.stochastic / needs_clock / verdict_of(chance=): a deterministic row is decided by one run."""
 
     def test_stochastic(self):
-        rows = [("blocks only", {"setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
+        rows = [("must fail: blocks only", {"setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
                 ("a summoned mob", {"setup": ["summon cow 1 2 3"], "doc": ""}, True),
                 ("a generated tree", {"setup": ["place feature minecraft:oak 1 2 3"], "doc": ""}, True),
                 ("a fight", {"setup": [], "doc": "", "combat": True}, True),
@@ -794,7 +794,7 @@ class Chance(unittest.TestCase):
 
     def test_one_run_decides_a_deterministic_row(self):
         rows = [([True], False, "pass"), ([False], False, "fail"), ([sc.TIMEOUT], False, "fail"),
-                ([False], True, None), ([False, True], True, None), ([], False, None)]
+                ([False], True, None), ([False, True], True, None), ([], False, None)]  # must fail: one failure of a chance row decides nothing
         for oks, chance, want in rows:
             with self.subTest(oks=oks, chance=chance):
                 self.assertEqual(sc.verdict_of(oks, chance=chance), want)
@@ -1010,7 +1010,7 @@ class SliceVerdict(unittest.TestCase):
     def test_over_the_table(self):
         ok = {"idle_s": 3.0, "loops": [], "waits": 0}
         rows = [("done, quiet, no waits: passes", True, ok, True, {}, True, "done=True"),
-                ("not done: fails, says so", False, ok, True, {}, False, "done=False"),
+                ("must fail: not done: fails, says so", False, ok, True, {}, False, "done=False"),
                 ("idle too long: fails, says how long", True, dict(ok, idle_s=40.0), True, {}, False, "idle_s=40.0/15"),
                 ("a loop: fails, counts it", True, dict(ok, loops=["x ×5"]), True, {}, False, "loops=1/0"),
                 ("waited with work queued: fails, names the kind", True, dict(ok, waits=2), True,
@@ -1031,7 +1031,7 @@ class KitRule(unittest.TestCase):
         from bonobo.bench import core
         rows = [("a zombie: iron", ["zombie"], "give @p iron_sword"),
                 ("a blaze: diamond", ["blaze"], "give @p diamond_sword"),
-                ("a zombie and an enderman: the best either calls for", ["zombie", "enderman"], "give @p diamond_sword"),
+                ("must fail: the first mob alone — a zombie and an enderman: the best either calls for", ["zombie", "enderman"], "give @p diamond_sword"),
                 ("nothing named: iron", [], "give @p iron_sword"),
                 ("the dragon: diamond", ["ender_dragon"], "give @p diamond_sword")]
         for name, mobs, want in rows:
@@ -1088,7 +1088,7 @@ class TwoSites(unittest.TestCase):
                 ("a summon: late (it would wander, or burn)", "summon zombie 10004 200 10000", "late"),
                 ("a gamerule: the global state, in the row", "gamerule spawn_mobs false", "body"),
                 ("time and difficulty: in the row", "time set 13000", "body"),
-                ("a fill relative to the player: in the row", "fill ~-1 ~ ~-1 ~1 ~2 ~1 air", "body"),
+                ("must fail: a fill read as the build — a fill relative to the player: in the row", "fill ~-1 ~ ~-1 ~1 ~2 ~1 air", "body"),
                 ("wrapped in execute: what it runs", "execute in minecraft:overworld run setblock 1 2 3 stone", "world"),
                 ("a tp: the body", "tp @p 10000.5 200 10000.5", "body")]
         for name, cmd, want in rows:
@@ -1115,7 +1115,7 @@ class TwoSites(unittest.TestCase):
         rows = [("a box corner pair moved 100 east", "fill 9994 184 9994 10006 199 10006 stone",
                  "fill 10094 184 9994 10106 199 10006 stone"),
                 ("a decimal stays a decimal", "setblock 10000.5 200 10000.5 stone", "setblock 10100.5 200 10000.5 stone"),
-                ("far outside the box: untouched", "fill 5 64 5 6 64 6 stone", "fill 5 64 5 6 64 6 stone"),
+                ("must fail: far outside the box: untouched", "fill 5 64 5 6 64 6 stone", "fill 5 64 5 6 64 6 stone"),
                 ("block states and item counts untouched", "setblock 10002 200 10000 chest[facing=north]",
                  "setblock 10102 200 10000 chest[facing=north]")]
         for name, cmd, want in rows:
@@ -1191,7 +1191,7 @@ class RowKey(unittest.TestCase):
 
     def test_reach_over_the_table(self):
         base = self.key(self.INDEX)
-        rows = [("an unrelated function changed (the fight's decide): same key",
+        rows = [("must fail: a key over the whole module — an unrelated function changed (the fight's decide): same key",
                  dict(self.INDEX, decide=["threat.def decide(state):\n    return 2\n"]), True),
                 ("a function it calls changed (trunk_batch): new key",
                  dict(self.INDEX, trunk_batch=["wood.def trunk_batch(n):\n    return [n, n]\n"]), False),
@@ -1210,7 +1210,7 @@ class RowKey(unittest.TestCase):
         rows = [("the same row: same", dict(row), True),
                 ("its setup changed: new", dict(row, setup=list(row["setup"]) + ["give @p dirt"]), False),
                 ("its budget changed: new", dict(row, budget=row["budget"] + 1), False),
-                ("another row changed: this one untouched", dict(row), True)]
+                ("must fail: another row changed: this one untouched", dict(row), True)]
         other["setup"] = list(other["setup"]) + ["give @p dirt"]        # the edit to another row
         for name, r, same in rows:
             with self.subTest(name):
