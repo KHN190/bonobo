@@ -46,6 +46,15 @@ def row(centre, reach, velocity, kind, aware=1.0, dps=None):
             float(MOBS.get(kind, {}).get("dps", 0.0) if dps is None else dps))
 
 
+def follows_to(spot, hazard):
+    """Pure: would this threat still be after us at `spot` — inside its notice radius (it walks after us from
+    there), or, ranged, inside its reach (it shoots from where it stands)."""
+    centre, reach, _vel, kind = hazard[:4]
+    mob = MOBS.get(kind, {})
+    d = math.dist(spot, centre)
+    return d <= float(mob.get("notice_r", 16.0)) or (bool(mob.get("ranged")) and d <= float(reach))
+
+
 def horizon_s(horizon=None):
     """The account's length. One number: what presses us, what an answer leaves and what work we would do have to
     be measured over the same seconds or they cannot be compared."""

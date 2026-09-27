@@ -307,7 +307,12 @@ def options(state):
     # account is opened again next round — which is exactly why killing a zombie can be worth the blood it costs.
     # With `leaves` at zero, walking away was free of everything but the walk, so the fight column existed and was
     # never once chosen: 56 evades, 0 fights in a session's log.
-    follows = round(press * float(ENGAGE["follow_p"]), 3)
+    # ...unless nothing is left behind at all: when every threat would still be after us at the spot (it notices
+    # us there, or shoots that far) and a fight is on offer, leaving only postpones the same account — a
+    # skeleton, a zombie, a creeper out-walked for a minute was a fight never had (bench: evade for 60 s at 20 hp).
+    # With no fight to have (打不过就走), leaving is still the relief it was.
+    postpones = any(o.kind == "fight" for o in out) and all(estimate.follows_to(spot, h) for h in hazards)
+    follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
     out.append(Option("evade", spot, evade_cost(here, spot, hazards, prot),
                       round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
                       blast_after=burst_damage(spot, hazards, prot)))

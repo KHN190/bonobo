@@ -199,12 +199,13 @@ _CHASE = {"at": None}  # when a threat was last seen chasing, in this engagement
 
 
 def chasing(rows, here):
-    """Pure: some threat is still after us — within its own notice radius (it follows from there), or closing."""
-    from .estimate import MOBS
-    for centre, _reach, vel, kind, *_ in rows:
-        d = math.dist(centre, here)
-        if d <= float(MOBS.get(kind, {}).get("notice_r", 16.0)):
+    """Pure: some threat is still after us — it notices or reaches us here (`estimate.follows_to`), or closes."""
+    from .estimate import follows_to
+    for h in rows:
+        centre, vel = h[0], h[2]
+        if follows_to(here, h):
             return True
+        d = math.dist(centre, here)
         if d > 0 and sum(vel[i] * (here[i] - centre[i]) / d for i in range(3)) > CLOSING:
             return True
     return False

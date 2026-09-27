@@ -508,3 +508,35 @@ class Kit(unittest.TestCase):
         for name, a, ta, b, tb, same in rows:
             with self.subTest(name):
                 self.assertEqual(sig(a, ta) == sig(b, tb), same)
+
+
+class EvadeOnlyPostpones(unittest.TestCase):
+    """Walking away from what follows (it notices us at the spot, or shoots that far) is no answer while a fight is
+    on offer: the same threat is there again. Evade is for what cannot be fought, or cover."""
+
+    # (situation, threats, our state) → the answer
+    ROWS = [("one zombie, an iron sword", [row("minecraft:zombie", 4, 0)], dict(sword=2, protection=0.5), "fight"),
+            ("one skeleton 8 off, an iron sword", [row("minecraft:skeleton", 8, 0)], dict(sword=2), "fight"),
+            ("one skeleton 14 off, an iron sword: it shoots that far, fight it", [row("minecraft:skeleton", 14, 0)],
+             dict(sword=2, protection=0.5), "fight"),
+            ("a creeper, cover 6 behind", [row("minecraft:creeper", 3, 0)],
+             dict(sword=2, cover=(HERE[0] - 6, HERE[1], HERE[2])), "evade"),
+            ("three zombies, 5 hp, a stone sword: cannot win, leave",
+             [row("minecraft:zombie", 3, 0), row("minecraft:zombie", 0, 3), row("minecraft:zombie", -3, 0)],
+             dict(hp=5, sword=1), "evade"),
+            ("one zombie 40 away", [row("minecraft:zombie", 40, 0)], dict(sword=2), "ignore")]
+
+    def test_answers_over_the_table(self):
+        for name, hazards, kw, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(decide(hazards, **kw).kind, want)
+
+    def test_follows_to(self):
+        from bonobo import estimate
+        cases = [("a zombie 20 from the spot: notices (35)", row("minecraft:zombie", 20, 0), True),
+                 ("a zombie 50 from the spot: left behind", row("minecraft:zombie", 50, 0), False),
+                 ("a skeleton 15 off: in reach", row("minecraft:skeleton", 15, 0), True),
+                 ("a skeleton 30 off: neither", row("minecraft:skeleton", 30, 0), False)]
+        for name, h, want in cases:
+            with self.subTest(name):
+                self.assertIs(estimate.follows_to(HERE, h), want)
