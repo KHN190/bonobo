@@ -3315,6 +3315,13 @@ def _machine_due(origin, n):
 _st = lambda api: api.get("/state")     # noqa: E731
 UPKEEP_FURNACE = at(2, 0, 0)
 BRIDGE_ACROSS = 9       # needs.bridge_stock from the start to at(9, 0, 0)
+def _regen_fed(api, inv):
+    """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
+    from .world import Inventory
+    inv = inv if inv is not None else Inventory()
+    return inv.count("minecraft:bread") < 4 and api.get("/state")["food"] >= 18
+
+
 UPKEEP_ROWS = [
     ("reach_land", "treading water 6 blocks from a shore → on dry land",
      _tank(-6, 5, -4, 4, 1, water_top=-1) + [f"fill {_c(at(6, -3, -4))} {_c(at(9, -1, 4))} stone", _tp()], [],
@@ -3819,11 +3826,4 @@ def _kit_gives(row, jobs):
 
 for _jobs, _rows in KIT_JOBS.items():
     for _name in _rows:
-        SCENARIOS[_name]["setup"] = list(SCENARIOS[_name]["setup"]) + _kit_gives(SCENARIOS[_name], _jobs)def _regen_fed(api, inv):
-    """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
-    from .world import Inventory
-    inv = inv if inv is not None else Inventory()
-    return inv.count("minecraft:bread") < 4 and api.get("/state")["food"] >= 18
-
-
-
+        SCENARIOS[_name]["setup"] = list(SCENARIOS[_name]["setup"]) + _kit_gives(SCENARIOS[_name], _jobs)
