@@ -17,7 +17,7 @@ BENCH = paths.data("bench")
 ORIGIN = (10000, 200, 10000)   # a sky platform: skills search 48 blocks, natural terrain (y ≤ ~120) stays out of it
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Everything a scenario touches lies inside this box (cleared to air before each setup, force-loaded).
-BOX = ((-10, -4, -10), (20, 9, 10))
+BOX = ((-10, -17, -10), (20, 9, 10))   # down to -17: the underground rows (cave_escape, night_mines) are reset too
 UNCOUNTED = ("setup", "harness")
 
 
