@@ -3283,6 +3283,48 @@ SHEET["combat__low_hp_eat"] = {
 }
 
 
+# A creeper met with a sword: hit and back out of its blast (jar footwork "keepoff") — dead, or blown up in the air,
+# either way gone; the health kept. Next to our own builds it is first led away from them: a bed (the least blast
+# resistant block we own) and a furnace within 3 of it, registered as ours, are still standing after.
+CREEPER_AT = at(4, 0, 0)
+HOME_BED, HOME_FURNACE = (at(4, 0, 2), at(5, 0, 2)), at(4, 0, -2)
+
+
+def _creeper_row(name, extra_setup=(), before=(), check=()):
+    return {
+        "doc": "Iron sword, a creeper 4 blocks off" + (", a bed and a furnace of ours within 3 of it" if extra_setup
+                                                      else "") + " → the creeper gone (dead or blown up in the air), "
+               "health ≥ 16" + (", the bed and the furnace still standing" if extra_setup else ""),
+        "module": "fight_loop", "point": "B", "skills": [], "combat": True, "stochastic": True,
+        "tags": {"base": "fight", "enemy": "creeper", "ground": "home" if extra_setup else "open"},
+        "setup": list(_ARENA) + list(extra_setup) + [f"summon creeper {_c(CREEPER_AT)} {{PersistenceRequired:1b}}"],
+        "expect_entities": [("minecraft:creeper", 1)],
+        "before": _hooks(_start(name), _record_bids, *before),
+        "run": _fight_until(["minecraft:creeper"], 25, True),
+        "check": _all(_gone(["minecraft:creeper"]), _hp_kept(16), *check),
+        "budget": 30,
+    }
+
+
+def _home_is_ours(ctx):
+    """`before` hook: the bed and the furnace are a site of ours (memory.protected_cells) and the furnace a station
+    — what the fight has to keep out of the blast."""
+    blocks = {f"{c[0]},{c[1]},{c[2]}": "red_bed" for c in HOME_BED}
+    blocks[f"{HOME_FURNACE[0]},{HOME_FURNACE[1]},{HOME_FURNACE[2]}"] = "furnace"
+    core.BRAIN.mem.add_site("home", HOME_BED[0], "minecraft:overworld", snapshot={"blocks": blocks}, name="home")
+    core.BRAIN.mem.add_station("minecraft:furnace", HOME_FURNACE, "minecraft:overworld")
+
+
+SHEET["fight_creeper_sword"] = _creeper_row("fight_creeper_sword")
+SHEET["fight_creeper_by_home"] = _creeper_row(
+    "fight_creeper_by_home",
+    extra_setup=[f"setblock {_c(HOME_BED[0])} red_bed[facing=east,part=foot]",
+                 f"setblock {_c(HOME_BED[1])} red_bed[facing=east,part=head]",
+                 f"setblock {_c(HOME_FURNACE)} furnace"],
+    before=[_home_is_ours],
+    check=[_blocks(HOME_BED[0], HOME_BED[1], "red_bed", 2), _blocks(HOME_FURNACE, HOME_FURNACE, "furnace", 1)])
+
+
 # Fighting at the edge of a raised platform, knocked off it: a zombie with a strong knockback on a 5×5 platform
 # 20 blocks above the floor. The combat kit's water bucket (every combat row carries one) must catch the fall.
 EDGE_Y = 4
