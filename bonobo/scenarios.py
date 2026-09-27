@@ -2693,11 +2693,38 @@ def _bag_rule(cell):
     return _gain("log", 2), "room (or one slot) for it: the task done as usual"
 
 
+FINDS = {"diamond": 0}
+
+
+def _count_finds(ctx):
+    """`before` hook: count the world scans (/find asked for diamond ore) during the row, at the one door every
+    module's `find` goes through (api.get)."""
+    from . import api
+    FINDS["diamond"] = 0
+    real = FINDS.setdefault("real", api.get)
+
+    def get(path, *a, **k):
+        if path.startswith("/find") and "diamond" in path:
+            FINDS["diamond"] += 1
+        return real(path, *a, **k)
+    api.get = get
+
+
+def _no_scan():
+    def check(api_, inv):
+        from . import api
+        api.get = FINDS.get("real", api.get)
+        return FINDS["diamond"] == 0
+    return check
+
+
 def _seen_rule(cell):
+    # Seeing through stone is allowed (user, 2026-09-27): memory's worth is speed — a noted ore is walked to
+    # straight, with no scan; an unnoted one is still found, by scanning.
     if cell["seen"] == "noted":
-        return _all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore")), "noted: straight there, note retired"
-    return (_all(_gain("minecraft:diamond", 0, at_most=0), lambda api, inv, c=cell: _count_blocks(
-        api, _diamond_of(c), _diamond_of(c), "diamond_ore") == 1), "not noted: cannot know it (must not find it)")
+        return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"), _no_scan()),
+                "noted: straight there without a scan, the note retired")
+    return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
 
 
 BRAIN_FAMILIES = {
@@ -2720,6 +2747,7 @@ def _cell_before(cell):
     hooks = [_clear_bans, _forget_all("diamond_ore"), _first_times]
     if cell["seen"] == "noted":
         hooks.append(_seen("diamond_ore", _diamond_of(cell)))
+    hooks.append(_count_finds)
     if cell["food"] == "low":
         hooks.append(lambda ctx: time.sleep(4.5))      # the hunger effect set in setup drains the bar first
     if BAG_FILL[cell["bag"]]:

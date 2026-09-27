@@ -505,8 +505,8 @@ class BrainGrid(unittest.TestCase):
                 ("night_under", {"dusk": "tight", "head": "underground"},
                  "dusk underground: already under cover, no climb to the surface (boundary)"),
                 ("night_under", {}, "daylight: no bed made, no sleep (must not)"),
-                ("seen_store", {"seen": "noted"}, "noted: straight there, note retired"),
-                ("seen_store", {}, "not noted: cannot know it (must not find it)")]
+                ("seen_store", {"seen": "noted"}, "noted: straight there without a scan, the note retired"),
+                ("seen_store", {}, "not noted: found anyway, by scanning")]
         for fam, moved, want in rows:
             with self.subTest(fam, **moved):
                 self.assertEqual(sc.BRAIN_FAMILIES[fam][2](dict(sc.BRAIN_BASE, **moved))[1], want)
