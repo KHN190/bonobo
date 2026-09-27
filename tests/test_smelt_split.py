@@ -44,5 +44,32 @@ class SplitSmelt(unittest.TestCase):
                 self.assertEqual(str(caught.exception), why)
 
 
+
+class JobsLoadedTogether(unittest.TestCase):
+    """Three furnaces loaded in one second are three jobs: finishing one leaves the others (bench iron_ingots
+    collected 2 of 3 — the ids were per second, so the first finish removed all of them)."""
+
+    # (situation, jobs finished by their index in the order added, None: an id no job has) → items still pending
+    ROWS = [("none finished: all three pending", [], 3),
+            ("the first collected: two left", [0], 2),
+            ("two collected: one left", [0, 2], 1),
+            ("an unknown id: nothing removed", [None], 3),
+            ("all collected: none left", [0, 1, 2], 0)]
+
+    def test_finish_over_the_table(self):
+        import os
+        import tempfile
+        from unittest import mock
+        from bonobo import memory
+        for name, finish, want in self.ROWS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, \
+                    mock.patch.object(memory.time, "time", return_value=1000.0):
+                m = memory.Memory(os.path.join(tmp, "notes.json"))
+                jobs = [m.add_job("furnace", (i, 64, 0), "minecraft:overworld", "minecraft:iron_ingot", 1, 1014.0, [])
+                        for i in range(3)]
+                for k in finish:
+                    m.finish_job(jobs[k]["id"] if k is not None else "furnace-1000")
+                self.assertEqual(m.pending_outputs("minecraft:overworld").get("minecraft:iron_ingot", 0), want)
+
 if __name__ == "__main__":
     unittest.main()

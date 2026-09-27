@@ -2,7 +2,7 @@
 import math
 
 from . import api, nav
-from .api import log
+from .api import NotAvailable, log
 from .data import RARE_SIGHTINGS, bare
 from .skill import skill
 from .skillcore import feet
@@ -110,7 +110,12 @@ def seek_blocks(ctx, blocks, legs=6, leg=40):
         nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1)
         x, y, z = feet()
         yield (x, z)
-    return find(blocks, radius=48, limit=5)
+    hits = find(blocks, radius=48, limit=5)
+    if not hits:
+        # Said, not implied: "finished without reaching its goal" told nobody what was looked for or how far.
+        raise NotAvailable(f"no {bare(blocks[0])} within 48 blocks of {legs} search legs "
+                           f"(out to {leg * ((legs - 1) // 2 + 1)} blocks)")
+    return hits
 
 
 @skill(start=lambda c: feet(), verify=_searched, budget=900, stall=120, per_unit=150,

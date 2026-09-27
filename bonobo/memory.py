@@ -196,7 +196,10 @@ class Memory:
         return [j for j in self.data["jobs"] if dimension is None or j["dimension"] == dimension]
 
     def add_job(self, kind, pos, dimension, item, count, ready_at, carried):
-        job = {"id": f"{kind}-{int(time.time())}", "kind": kind, "pos": list(pos), "dimension": dimension,
+        # One id per job: three furnaces loaded in the same second shared "furnace-<second>", and finishing the
+        # first finished all three (bench iron_ingots: 3 ordered, 2 collected).
+        self.data["job_seq"] = self.data.get("job_seq", 0) + 1
+        job = {"id": f"{kind}-{int(time.time())}-{self.data['job_seq']}", "kind": kind, "pos": list(pos), "dimension": dimension,
                "item": item, "count": count, "ready_at": ready_at, "carried": carried}
         self.data["jobs"].append(job)
         self.save()

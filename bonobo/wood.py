@@ -28,9 +28,11 @@ def chop(ctx, n):
         logs = [t for t in find(GROUPS["log"], radius=48, limit=80) if not ctx.blocked((t["x"], t["y"], t["z"]))
                 and (t["x"], t["y"], t["z"]) not in ctx.policy.protected]
         if not logs:
-            if not seek_blocks(ctx, GROUPS["log"]):
+            try:
+                seek_blocks(ctx, GROUPS["log"])
+            except NotAvailable as e:
                 ctx.mem.forget_seen("tree", feet(), ctx.dimension, radius=48)
-                raise NotAvailable("no trees found nearby, even after exploring")
+                raise NotAvailable(f"no trees found nearby, even after exploring ({e})")
             continue
         seed = logs[0]
         trunk = [t for t in logs if abs(t["x"] - seed["x"]) <= 1 and abs(t["z"] - seed["z"]) <= 1]
