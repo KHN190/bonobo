@@ -1,6 +1,6 @@
 """Bench table, core tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
-NOT_EXPRESSED: old rows kept in the old sheet, with the reason. Not wired to the runner yet."""
+Built into the one SCENARIOS by table.py."""
 
 
 FAMILIES = [
@@ -67,6 +67,3 @@ ROWS = [
          tags={'base': 'l0', 'hazard': 'drowning'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
 ]
-
-NOT_EXPRESSED = {
-}

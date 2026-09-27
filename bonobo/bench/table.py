@@ -1,9 +1,11 @@
-"""The one interpreter: a bench table row (plain data in `vocab`'s words) → the row dict the runner and SCENARIOS
-use (setup, run, check, before, budget, tier, …). Nothing here decides; it only reads the words back into the
-sheet's own factories and `vocab`'s predicates."""
+"""The one interpreter and the bench's one sheet: every tier's table (bench_<tier>.py) read into the runner's row
+dicts (setup, run, check, before, budget, tier, …) — SCENARIOS, built here at import and nowhere else. Nothing here
+decides; it reads the words back into vocab's helpers and predicates. The bench's other names (the runner's, the
+helpers') are reached through here too: `from bonobo.bench import table as sheet`."""
 import importlib
 
-from . import vocab
+from . import core, vocab
+from .vocab import *  # noqa: F401,F403  (the sheet's names: the runner's, the primitives', the helpers')
 
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
@@ -115,7 +117,10 @@ def _run(kind, args):
 
 
 def make(item):
-    """(kind, *args) → the callable it names, carrying its own data (`__table__`: what `tabulate` reads back)."""
+    """(kind, *args) → the callable it names, carrying its own data (`__table__`: what the tests read back). A
+    one-off row's code is taken as it is."""
+    if callable(item):
+        return item
     if item[0].startswith("&"):
         return resolve(item[0][1:])            # the function itself, not a call
     if item[0] in vocab.WORDS:
@@ -156,6 +161,8 @@ def _make(item):
 # -- rows ---------------------------------------------------------------------------------------------------------
 def _slot(items, wrap):
     """A slot's list (check, before) → one callable: the item alone, or `wrap` over them."""
+    if callable(items):
+        return items
     made = [make(i) for i in items]
     return made[0] if len(made) == 1 else wrap(made)
 
@@ -163,9 +170,10 @@ def _slot(items, wrap):
 def build(row, tier):
     """A table row → the runner's row dict."""
     from .runner import ROW_LIMIT_S
-    out = {"doc": row["doc"], "module": row["module"], "setup": vocab.scene(row["scene"]),
+    setup = list(row["setup"]) if "scene" not in row else vocab.scene(row["scene"])    # a one-off row: its commands
+    out = {"doc": row["doc"], "module": row["module"], "setup": setup,
            "run": make(row["run"]), "budget": row["budget"], "tier": tier}
-    if "why" in row:
+    if "why" in row and not callable(row["check"]):
         out["check"] = resolve("_named_all")([(make(c), w) for c, w in zip(row["check"], row["why"])])
     else:
         out["check"] = _slot(row["check"], lambda ps: resolve("_all")(*ps))
@@ -199,13 +207,27 @@ def expand(families):
 
 
 def rows(tier):
-    """{name: row data} of one tier's table: its families expanded, then its own rows."""
+    """{name: row data} of one tier's table: its families expanded, its rows in words, its rows in code."""
     mod = importlib.import_module(TABLES[tier])
     out = expand(getattr(mod, "FAMILIES", ()))
-    out.update({r["name"]: r for r in getattr(mod, "ROWS", ())})
+    for r in list(getattr(mod, "ROWS", ())) + list(getattr(mod, "CODE_ROWS", ())):
+        if r["name"] in out:
+            raise ValueError(f"{r['name']} made twice in the {tier} table")
+        out[r["name"]] = r
     return out
 
 
 def sheet():
-    """{name: runner row} of every table (not wired to the runner yet)."""
+    """{name: runner row} of every table."""
     return {name: build(r, t) for t in TIERS for name, r in rows(t).items()}
+
+
+def load():
+    """The one SCENARIOS (bench.core's dict, which the runner reads): every table's rows, built."""
+    built = sheet()
+    core.SCENARIOS.clear()
+    core.SCENARIOS.update(built)
+    return core.SCENARIOS
+
+
+SCENARIOS = load()

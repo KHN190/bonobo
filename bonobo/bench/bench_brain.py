@@ -1,6 +1,6 @@
 """Bench table, brain tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
-NOT_EXPRESSED: old rows kept in the old sheet, with the reason. Not wired to the runner yet."""
+CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
 
 FAMILIES = [
@@ -137,10 +137,59 @@ FAMILIES = [
 ROWS = [
 ]
 
-NOT_EXPRESSED = {
-    'ban_needs_a_failure': 'a zombie summoned on a 2 s timer: a timed interruption (the rule: by progress only) — fix in the old sheet first',
-    'resume_after_combat': 'a zombie summoned on a 1.5 s timer: a timed interruption (the rule: by progress only) — fix in the old sheet first',
-    'upkeep__eat': '<lambda>: a lambda; no run target in BASE.update',
-    'upkeep__eat_to_regen': '<lambda>: a lambda; no run target in BASE.update',
-    'search_night_resume': '_when.<locals>.hook: <lambda>: a lambda; no predicate for (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())',
-}
+# -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
+from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
+
+_IRON_TWO = [("floor",), ("setblock", ("@", -4, 0, 0), "iron_ore"), ("setblock", ("@", 4, 0, 0), "iron_ore"), ("stand",)]
+CODE_ROWS = [
+    # the zombie comes on a timer, not by progress: moved unchanged (the user's call)
+    brain_row("ban_needs_a_failure",
+              "Two free iron ores, the walk interrupted once (a zombie) → nothing banned: an interruption teaches "
+              "nothing about the place (control)",
+              _IRON_TWO + [("give", "stone_pickaxe"), ("give", "iron_sword")], [_have(("minecraft:raw_iron", 2))],
+              _count("minecraft:raw_iron", 2), 1,
+              _all(_gain("minecraft:raw_iron", 2), _not_banned(IRON_ORE_CAGED), _not_banned(IRON_ORE_FREE)),
+              [_clear_bans, lambda ctx: _threading.Timer(2.0, lambda: _chat(
+                  f"summon zombie {_c(at(3, 0, 3))} {{PersistenceRequired:1b}}")).start()], ["_clear_bans", "<lambda>"]),
+    # 4 logs held at the end, 2 given; a zombie summoned beside the body 1.5 s in (a timer: moved unchanged)
+    brain_row("resume_after_combat",
+              "4 logs wanted, 2 carried, the best axe; a zombie summoned beside it mid-way → fight_loop answers it, "
+              "then the chopping resumes for what is still missing",
+              [("grove", (3, 0)), ("stand",), ("give", "iron_sword"), ("give", "diamond_axe"), ("give", "oak_log", 2),
+               ("cmd", "item replace entity @p armor.chest with iron_chestplate")],
+              [_have(("log", 4))], lambda: _inv_now().count("log") >= 4, 1,
+              _all(lambda api, inv: 4 <= inv.count("log") <= 7, _gone(["minecraft:zombie"]), _alive(10)),
+              [lambda ctx: _threading.Timer(1.5, lambda: _chat(
+                  f"summon zombie {_c(at(1, 0, 1))} {{PersistenceRequired:1b}}")).start()], ["<lambda>"]),
+    upkeep_row("upkeep__eat", "eat", "hungry, bread carried → eaten (the food bar rises)",
+               [("floor",), ("stand",), ("give", "bread", 4), ("cmd", "effect give @p minecraft:hunger 5 255 true")],
+               [lambda ctx: (time.sleep(5.5), BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get(
+                   "/state")["food"]))], lambda: _food_up()(__import__("bonobo.api", fromlist=["get"]), None),
+               _food_up()),
+    # hurt with the bar short of full: no regen below 18 and slow below 20 — eaten to full though not hungry
+    upkeep_row("upkeep__eat_to_regen", "eat_to_regen",
+               "food drained to 16 (not hungry: above EAT_BELOW), then hurt (instant damage), bread carried → eaten "
+               "(the bread goes down), the bar to 18 or more, and health rises",
+               [("floor",), ("stand",), ("give", "bread", 4), ("cmd", "effect give @p minecraft:hunger 1 0 true")],
+               [_drain_to(16, window=(__import__("bonobo.reflexes", fromlist=["EAT_BELOW"]).EAT_BELOW - 1, 18)),
+                lambda ctx: (_chat("effect give @p minecraft:instant_damage 1 0 true"), time.sleep(0.5)),
+                lambda ctx: BASE.update(food_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["food"],
+                                        hp_before=__import__("bonobo.api", fromlist=["get"]).get("/state")["health"])],
+               lambda: _regen_fed(__import__("bonobo.api", fromlist=["get"]), None),
+               _all(_regen_fed, lambda api, inv: api.get("/state")["health"] > BASE["hp_before"])),
+    # a search interrupted mid-way (for the night) and taken up again: no section searched twice, no ore scanned again
+    dict(name="search_night_resume",
+         doc="a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → "
+             "the same diamond, straight (no scan for it)",
+         module="brain", point="C", skills=[], tier_fixed="brain", combat=False,
+         tags={"base": "brain", "family": "search_resume"},
+         setup=SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
+         before=_hooks(_start("search_night_resume"), _seen("diamond_ore", SEARCH_ORE), _count_finds,
+                       _when(walked_at_least(6), _set_time(13000)),
+                       _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
+                       lambda ctx: SEARCH_FLAGS.clear()),
+         queue=[_goal(("minecraft:diamond", 1))],
+         run=_slice(_inv_has("minecraft:diamond", 1), 0.45, queue=[_goal(("minecraft:diamond", 1))]),
+         check=_all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False)),
+         budget=limit(), expect=SHEET_EXPECT),
+]

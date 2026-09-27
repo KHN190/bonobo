@@ -1,4 +1,4 @@
-"""The fighting benches: seven waves of a siege, a swept combat arena, and one escape per enemy kind. All three are the same sweep — build a cell, price it, live in it, write one row of intent, execution and outcome — so a new enemy or a new column is a row in a table here, never another scenario to keep in step."""
+"""The fighting benches' machinery: the dimensions of a fight cell, how one is built, fought, recorded and judged. The rows (the siege waves, the combat arena, the escapes, the behaviours) are families in bench_combat.py, made by vocab's templates."""
 
 import math
 import random
@@ -6,7 +6,7 @@ import time
 
 from .. import estimate, paths
 from . import core
-from .core import SCENARIOS, SWEEP, SetupInvalid, _c, _chat, _platform, _sweep, _sweep_check, at
+from .core import SWEEP, SetupInvalid, _c, _chat, _platform, at
 
 # one table of dimensions, as offline (tests/world.py): only `_build` turns a cell into a world; a dimension is {value: commands}
 
@@ -459,60 +459,17 @@ def _shards(cells, size):
     cells = list(cells)
     return [cells[i:i + size] for i in range(0, len(cells), size)]
 
-# one wave per row (the cumulative row took 820 s), each from its wave's `carry`
-for _wave, (_line_up, _, _left) in enumerate(WAVES, start=1):
-    SCENARIOS[f"siege__w{_wave}"] = {
-        "doc": f"Siege wave {_wave} of {len(WAVES)} ({_line_up}), sword, pickaxe, full iron, shield, food and blocks: "
-               "every answer the model offers is available → the wave cleared alive.",
-        "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld",
-        "setup": _FIGHT_SETUP + ["effect give @p minecraft:instant_health 3 10 true"] + _siege_kit()
-        + _carry(*_left),
-        "run": _sweep(f"siege__w{_wave}", lambda w=_wave, n=_line_up: iter([{"wave": w, "line_up": n}]), _siege_build,
-                      _siege_record(per_wave_s=24.0), SIEGE_ROWS, settle=0.6),
-        "check": _sweep_check(f"siege__w{_wave}", SIEGE_ROWS, [_answers_are_closed, _wave_cleared], least=1),
-        "detail": lambda inv, w=_wave: _siege_detail_of(f"siege__w{w}"),
-        "budget": 30,
-    }
+# one wave per row (the cumulative row took 820 s), each from its wave's `carry` (bench_combat: the siege family)
 
 # combat_arena, one cell per row; nothing-to-answer is one control cell
 ARENA_SHARDS = _shards([c for c in _cells(ARMED, dims=("kit", "blood"), over=("enemy", "ground"), repeat=CELL_REPEAT)
                         if ENEMY[c["enemy"]] is not None or c["ground"] == "open"], 1)
-for _i, _shard in enumerate(ARENA_SHARDS, start=1):
-    SCENARIOS[f"combat_arena__{_i}"] = {
-        "doc": "combat_arena shard " + "; ".join(f"{c['enemy']}/{c['ground']}/{c['kit']}/{c['blood']}" for c in _shard)
-               + ": each cell writes the whole decision into bench/combat.jsonl; the rules are relations between rows.",
-        "module": "threat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "sweep": True,
-        "variant": [sorted(c.items()) for c in _shard],
-        "setup": list(_FIGHT_SETUP),
-        "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
-        "run": _sweep(f"combat_arena__{_i}", lambda sh=_shard: iter(sh), _build,
-                      _fought(_kinds_of, seconds=CELL_SECONDS), COMBAT_ROWS, settle=0.6),
-        "check": _sweep_check(f"combat_arena__{_i}", COMBAT_ROWS,
-                              [_answers_are_closed, _shapes_fit_the_enemy, _more_of_them_costs_more], least=len(_shard)),
-        "tick_rate": 60, "budget": 30,
-    }
 
 # getting away: nothing to fight with, one enemy; alive and further away at the end, the row says how
 
 # the cell is built in setup, so the exposure starts at setup's end
 ESCAPE_SECONDS = 25.0      # the row's limit is 30 s (the user's rule): the window is what is left of it
 ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: ~2 s of the window already spent
-for _cell in _cells(UNARMED, dims=("enemy", "ground", "kit")):
-    _key = "_".join(str(_cell[k]) for k in ("enemy", "ground", "kit"))
-    SCENARIOS[f"escape__{_key}"] = {
-        "doc": f"No weapon, no armour, {_cell['enemy']} on {_cell['ground']} ground with {_cell['kit']}, "
-               f"{ESCAPE_SECONDS:.0f} s: the answer has to come from somewhere other than swinging — back off, block "
-               "the way, dig down, eat, or leave a teleporter alone (bench/escape.jsonl).",
-        "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "sweep": True,
-        "setup": ["gamemode survival @p", "kill @e[type=!player,type=!item,distance=..48]"] + _build(_cell),
-        "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
-        "run": _sweep(f"escape__{_key}", lambda c=_cell: iter([c]), lambda c: [],
-                      _fought(_kinds_of, seconds=ESCAPE_WATCH), ESCAPE_ROWS, settle=0.0),
-        "check": _sweep_check(f"escape__{_key}", ESCAPE_ROWS, [_answers_are_closed, _shapes_fit_the_enemy], least=1),
-        "detail": lambda inv, k=f"escape__{_key}": "; ".join(
-            f"{r['enemy']}: {r['outcome']['hp']:.0f} hp, gap {r['outcome']['gap']}" for r in (SWEEP.get(k) or [])),
-        "tick_rate": 60, "budget": 30,
-    }
 
 # the fight's behaviours: each cell makes one answer worth the most; the row asks it was chosen and worked
 BEHAVIOUR_ROWS = paths.data("bench/behaviour.jsonl")
@@ -603,16 +560,3 @@ def _record_with_start(record):
         return dict(record(cell), trace_start_y=y)
     return rec
 
-for _bname, (_moved, _rule, _why) in BEHAVIOURS.items():
-    _bcell = dict(next(iter(_cells(dict(ARMED, **_moved)))), seed=0)
-    SCENARIOS[f"combat__{_bname}"] = {
-        "doc": f"Fight behaviour: {_why}",
-        "module": "combat", "raw": True, "combat": True, "dimension": "minecraft:overworld", "stochastic": True,
-        "variant": sorted(_bcell.items()),
-        "setup": list(_FIGHT_SETUP),
-        "expect": [(at(-9, -1, -9), at(12, -1, 9), "stone", 418, 418)],
-        "run": _sweep(f"combat__{_bname}", lambda c=_bcell: iter([c]), _build,
-                      _record_with_start(_fought(_kinds_of, seconds=BEHAVIOUR_SECONDS)), BEHAVIOUR_ROWS, settle=0.6),
-        "check": _behaviour_check(f"combat__{_bname}", _rule),
-        "tick_rate": 60, "budget": 30,
-    }

@@ -61,7 +61,7 @@ def enc(v, depth=0):
 
 
 def _scen():
-    return sys.modules.get("bonobo.scenarios") or __import__("bonobo.scenarios", fromlist=["x"])
+    return sys.modules.get("bonobo.bench.vocab") or __import__("bonobo.bench.vocab", fromlist=["x"])
 
 
 def name_of(f):

@@ -1,6 +1,6 @@
 """Bench table, acceptance tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
-NOT_EXPRESSED: old rows kept in the old sheet, with the reason. Not wired to the runner yet."""
+Built into the one SCENARIOS by table.py."""
 
 
 FAMILIES = [
@@ -18,6 +18,3 @@ ROWS = [
          check=[('slice_check', ('!now', ('!count', 'minecraft:iron_pickaxe', '>=', 1)), 60)],
          detail=('&slice_detail',), budget=1800, raw=True, release=True, point='D', tags={'base': 'acceptance'}),
 ]
-
-NOT_EXPRESSED = {
-}

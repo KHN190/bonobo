@@ -1,6 +1,6 @@
 """Bench table, exception tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
-NOT_EXPRESSED: old rows kept in the old sheet, with the reason. Not wired to the runner yet."""
+CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
 
 FAMILIES = [
@@ -555,19 +555,166 @@ ROWS = [
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
 ]
 
-NOT_EXPRESSED = {
-    'activate_end_portal': "_timed.<locals>.go: <lambda>: a lambda; reads the call's arguments: __import__('bonobo.end', fromlist=['activate_end_p",
-    'gold_helmet_swap': '<lambda>: a lambda; no run target in core.BRAIN.invariants',
-    'find_fortress': "<lambda>: a lambda; no predicate for __import__('bonobo.memory', fromlist=['Memory']).Memory(NOTE",
-    'road_reuse': '<lambda>: a lambda; no comparison for len(ROAD_TIMES) … 3',
-    'smelt_in_background': "<lambda>: a lambda; reads the call's arguments: ctx.mem.jobs('minecraft:overworld')[0]",
-    'repair_two_pickaxes': "<lambda>: a lambda; no predicate for any((s_['id'] == 'minecraft:stone_pickaxe' and s_.get('damag",
-    'anvil_repair_pickaxe': "<lambda>: a lambda; no predicate for any((s_['id'] == 'minecraft:diamond_pickaxe' and s_.get('dam",
-    'explore_for_animals_real': "<lambda>: a lambda; no predicate for __import__('bonobo.world', fromlist=['entities']).entities(2",
-    'fill_bottles_interrupted': "_resume.<locals>.go: <lambda>: a lambda; not evaluable offline: 3 - (_inv_now().count('minecraft:potion') - _base_ (McError)",
-    'dead_flicker_on_respawn': "<lambda>: a lambda; no run target in _brain_rounds(15, lambda: not __import__('bonobo.a",
-    'interrupted_rescue_is_not_a_failure': 'a hazard set on a 3 s timer: a timed interruption (the rule: by progress only) — fix in the old sheet first',
-    'nether_full_bag': "<lambda>: a lambda; no predicate for __import__('bonobo.world', fromlist=['entities']).entities(1",
-    'portal_from_cast': '_queue.<locals>.hook: no factory _queue in bonobo.scenarios',
-    'bucket_before_the_shaft': '_queue.<locals>.hook: no factory _queue in bonobo.scenarios',
-}
+# -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
+from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
+
+
+def _scene_of(name):
+    """A tabled row's scene here, for a one-off row built on it."""
+    for t, ps in FAMILIES:
+        for p in ps:
+            if t == "one" and p[0] == name:
+                return scene(p[3])
+    return scene(next(r["scene"] for r in ROWS if r["name"] == name))
+
+
+def _expect_of(name):
+    return next(r["expect"] for r in ROWS if r["name"] == name)
+
+
+CODE_ROWS = [
+    dict(name="activate_end_portal",
+         doc="A stronghold portal ring, 9 frames with eyes and the 3 nearest empty, 3 eyes and a block → a block over "
+             "the middle, stood on, the 3 eyes from there: an open end portal ≤ 3 s.",
+         module="end", skills=["activate_end_portal"], mod=["travel", "use"], target_s=3.0,
+         # 9 frames already hold an eye: the three on our side are the job, so the row fits the limit
+         setup=[f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone_bricks",
+                f"fill {_c(at(-1, 0, -2))} {_c(at(1, 0, -2))} end_portal_frame[facing=south]",
+                f"fill {_c(at(-1, 0, 2))} {_c(at(1, 0, 2))} end_portal_frame[facing=north,eye=true]",
+                f"fill {_c(at(-2, 0, -1))} {_c(at(-2, 0, 1))} end_portal_frame[facing=east,eye=true]",
+                f"fill {_c(at(2, 0, -1))} {_c(at(2, 0, 1))} end_portal_frame[facing=west,eye=true]",
+                f"fill {_c(at(-1, -1, -1))} {_c(at(1, -1, 1))} lava",
+                # beside the ring, a block to put over the middle's lava (end.eye_plan)
+                f"tp @p {_c(at(0, 0, -3))}", "clear @p", "give @p ender_eye 3", "give @p cobblestone 1"],
+         expect=[(at(-2, 0, -2), at(2, 0, 2), "end_portal_frame", 12, 12)],
+         # the speedrun standard from where the job is done: 12 eyes from one spot ≤ 3 s
+         run=_timed(lambda ctx: _drain(__import__("bonobo.end", fromlist=["activate_end_portal"]).activate_end_portal(ctx))),
+         # open: the 9 portal blocks, or already fallen through them (standing in the middle is the speedrun way)
+         check=lambda api, inv: api.get("/state")["dimension"] == "minecraft:the_end"
+         or _count_blocks(api, at(-1, 0, -1), at(1, 0, 1), "end_portal") == 9,
+         budget=limit()),
+    dict(name="gold_helmet_swap",
+         doc="In the Nether wearing iron, a gold helmet in the bag → the reflex puts gold on (piglins stay neutral).",
+         module="brain", dimension="minecraft:the_nether", mod=[],
+         setup=[f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} netherrack",
+                f"tp @p {_c(at(0, 0, 0))}", "clear @p", "item replace entity @p armor.head with iron_helmet",
+                "give @p golden_helmet"],
+         expect=[(at(-6, -1, -6), at(6, -1, 6), "netherrack", 169, 169)],
+         run=lambda ctx: core.BRAIN.invariants(),
+         check=lambda api, inv: _worn_head() == "minecraft:golden_helmet" and inv.count("minecraft:iron_helmet") >= 1,
+         budget=10),
+    dict(name="find_fortress",
+         doc="Nether platform, a nether brick hall 18 blocks away → found and remembered as the fortress site.",
+         module="nether", dimension="minecraft:the_nether", skills=["find_fortress"],
+         setup=[f"fill {_c(at(-6, -2, -6))} {_c(at(20, -1, 6))} netherrack",
+                f"fill {_c(at(16, 0, -3))} {_c(at(20, 4, 3))} nether_bricks hollow",
+                f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p cobblestone 32", "give @p cooked_beef 16"],
+         expect=[(at(16, 0, -3), at(20, 4, 3), "nether_bricks", 60, 200)],
+         run=lambda ctx: __import__("bonobo.nether", fromlist=["find_fortress"]).find_fortress(ctx),
+         check=lambda api, inv: bool(__import__("bonobo.memory", fromlist=["Memory"]).Memory(NOTES)
+                                     .sites("minecraft:the_nether", kinds=["fortress"])),
+         budget=15),
+    dict(name="road_reuse",
+         doc="Overworld, 10 blocks there, back, there again → the third trip reuses the road and is no slower.",
+         module="nav", raw=True, release=True,
+         setup=["spreadplayers 11200 11200 0 4 false @p", "clear @p", "give @p stone_pickaxe",
+                "give @p cobblestone 64", "give @p cooked_beef 16"],
+         run=_road_reuse,
+         check=lambda api, inv: len(ROAD_TIMES) == 3 and ROAD_TIMES[2] <= ROAD_TIMES[0] * 1.05,
+         detail=lambda inv: "trips " + ", ".join(f"{t:.0f}s" for t in ROAD_TIMES),
+         budget=limit()),
+    one_row("smelt_in_background", ["start_smelt_job", "collect_job"], "load a furnace, walk off, come back → ingots",
+            [("floor",), ("stand",), ("give", "furnace"), ("give", "raw_iron", 2), ("give", "coal", 1)],
+            lambda ctx: (_skill("start_smelt_job")(ctx, "minecraft:iron_ingot", "minecraft:raw_iron", 2, "coal"),
+                         _chat("tick sprint 400"), time.sleep(2),
+                         _skill("collect_job")(ctx, ctx.mem.jobs("minecraft:overworld")[0]))[2],
+            _gain("minecraft:iron_ingot", 2), limit()),
+    one_row("repair_two_pickaxes", ["repair_tool"], "two worn stone pickaxes → one",
+            [("floor",), ("stand",), ("give", "stone_pickaxe[damage=100]"), ("give", "stone_pickaxe[damage=100]")],
+            lambda ctx: _skill("repair_tool")(ctx, "pickaxe"),
+            lambda api, inv: inv.count("minecraft:stone_pickaxe") == 1 and any(
+                s_["id"] == "minecraft:stone_pickaxe" and s_.get("damage", 999) < 100 for s_ in inv.slots), 20),
+    one_row("anvil_repair_pickaxe", ["repair"], "an anvil, a worn diamond pickaxe, diamonds, levels → repaired",
+            [("floor",), ("setblock", ("@", 2, 0, 0), "anvil"), ("stand",), ("give", "diamond_pickaxe[damage=1200]"),
+             ("give", "diamond", 2), ("cmd", "experience add @p 20 levels")],
+            lambda ctx: _skill("anvil_repair")(ctx, "minecraft:diamond_pickaxe", "minecraft:diamond"),
+            lambda api, inv: any(s_["id"] == "minecraft:diamond_pickaxe" and s_.get("damage", 0) < 1200
+                                 for s_ in inv.slots), limit()),
+    real_row("explore_for_animals_real", ["explore_for"], "real terrain, two cows 16 blocks off → found",
+             ("skill", "explore_for", ["minecraft:cow", "minecraft:sheep", "minecraft:pig"], 1, 20),
+             lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
+                 24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), limit(),
+             [("cmd", "execute at @p run summon cow ~16 ~3 ~"), ("cmd", "execute at @p run summon cow ~16 ~3 ~1")],
+             True),
+    dict(name="fill_bottles_interrupted",
+         doc="a pond, 3 glass bottles, interrupted at the first water bottle → resumed for the 2 left: exactly 3",
+         module="skills", point="A", skills=["fill_bottles"],
+         tags={"base": "fill_bottles", "surprise": "interrupt_mid_chain"},
+         setup=_scene_of("fill_bottles_at_pond"),
+         before=_hooks(_start("fill_bottles_interrupted"), _interrupt_when("minecraft:potion", 1)),
+         run=_resume("fill_bottles_interrupted", lambda ctx: _skill("fill_bottles")(ctx, 3),
+                     lambda ctx: _skill("fill_bottles")(
+                         ctx, 3 - (_inv_now().count("minecraft:potion") - _base_count("minecraft:potion")))),
+         check=_gain("minecraft:potion", 3, at_most=3), budget=limit(), expect=SHEET_EXPECT),
+    dict(name="dead_flicker_on_respawn",
+         doc="Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
+             "respawn, not call every skill dead, and still chop its 4 logs",
+         module="brain", point="A", skills=["item:log"], tags={"base": "chop", "surprise": "dead_flicker"},
+         setup=_grove((3, 0), (-3, 2)) + [_tp()],
+         before=_hooks(_start("dead_flicker_on_respawn"), lambda ctx: _chat("kill @p")),
+         run=lambda ctx: (_brain_rounds(15, lambda: not __import__("bonobo.api", fromlist=["get"]).get("/state")["dead"])(ctx),
+                          _skill("chop")(ctx, 4))[1],
+         check=_all(_alive(10), lambda api, inv: inv.count("log") >= 4), budget=limit(), expect=SHEET_EXPECT),
+    # lava on a 3 s timer, not by progress: moved unchanged (the user's call)
+    dict(name="interrupted_rescue_is_not_a_failure",
+         doc="Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
+             "brain resumes and still gets its 4 logs",
+         module="brain", point="B", skills=["item:log"], tags={"base": "chop", "hazard": "lava"},
+         setup=_grove((3, 0)) + [_tp(), "give @p cobblestone 16"],
+         before=_hooks(_start("interrupted_rescue_is_not_a_failure"),
+                       lambda ctx: _threading.Timer(3.0, lambda: _chat(f"setblock {_c(at(0, 0, 1))} lava")).start()),
+         run=_resume("interrupted_rescue_is_not_a_failure", lambda ctx: _skill("chop")(ctx, 4),
+                     _achieve_needs([("log", 4)])),
+         check=_all(_gain("log", 4), _alive(10)), budget=limit(), expect=SHEET_EXPECT),
+    dict(name="nether_full_bag",
+         doc="Nether platform, lava at feet level on the east, the bag full of netherrack and diamonds → tidied: "
+             "slots freed, the netherrack thrown where it lands (on the ground, not in the lava), no diamond lost",
+         module="skills", point="A", skills=["tidy_inventory"], tier_fixed="exception",
+         dimension="minecraft:the_nether", stochastic=False, tags={"base": "tidy", "inventory": "full_bag"},
+         setup=[f"fill {_c(at(-8, -2, -8))} {_c(at(8, -1, 8))} netherrack", _tp()] + NETHER_LAVA + ["give @p diamond 640"],
+         before=_hooks(_start("nether_full_bag"), _fill_bag(0, "netherrack")),
+         run=lambda ctx: _skill("tidy_inventory")(ctx),
+         check=_all(_free_slots(3), _kept("minecraft:diamond"),
+                    lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
+                        10, ["minecraft:item"]))),
+         budget=limit(), expect=SHEET_EXPECT),
+    dict(name="portal_from_cast",
+         doc="The queue asks for a portal: no obsidian carried, no diamond pickaxe, buckets, blocks and flint, a frame "
+             "standing 8 of 10 (its bottom two missing), a lava pool memory knows 3 blocks off → the plan casts the "
+             "two in place and lights it, the cast itself ≤ 5 s",
+         module="decompose", point="C", skills=["cast:nether_portal"], tier_fixed="exception",
+         tags={"base": "sources"},
+         # both lava buckets carried: the trips to the pool are not the cast
+         setup=_scene_of("cast_portal") + PORTAL_8_OF_10 + ["give @p lava_bucket", "give @p lava_bucket"],
+         expect=[_scene_params(_expect_of("cast_portal")[0]), (at(-3, 0, 2), at(0, 4, 2), "obsidian", 8, 8)],
+         before=_hooks(_start("portal_from_cast"), _forget_skill_time("cast_portal"),
+                       lambda ctx: ctx.mem.note_seen("lava", at(3, -1, 0), "minecraft:overworld"),
+                       _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
+         run=_brain_rounds(28, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1),
+         check=_all(lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
+                    _skill_within("cast_portal", 5.0)),
+         budget=limit()),
+    dict(name="bucket_before_the_shaft",
+         doc="An empty bucket, water 2 blocks off, the queue's head needs iron (dug down to) → the bucket is filled "
+             "before any digging (WaterClutch needs it in hand)",
+         module="needs", point="C", skills=["fill"], tier_fixed="exception", tags={"base": "upkeep"},
+         setup=_floor(depth=4) + [f"setblock {_c(at(2, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
+                                  "give @p stone_pickaxe", "give @p cooked_beef 8", "give @p white_bed"],
+         before=_hooks(_start("bucket_before_the_shaft"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
+             ("minecraft:raw_iron", 1)))),
+         run=_brain_rounds(22, lambda: _inv_now().count("minecraft:water_bucket") >= 1),
+         # filled, and nothing dug down: the feet still on their floor
+         check=_all(lambda api, inv: inv.count("minecraft:water_bucket") >= 1,
+                    lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]),
+         budget=limit(), expect=SHEET_EXPECT),
+]
