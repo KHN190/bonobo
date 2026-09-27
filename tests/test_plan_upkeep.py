@@ -1784,6 +1784,7 @@ class ModFeatures(unittest.TestCase):
     ROWS = [("0.1.14: nothing", "0.1.14+mc1.21.11", set()), ("0.1.15: pillar", "0.1.15", {"pillar"}),
             ("0.1.39: travel", "0.1.39+mc1.21.11", {"pillar", "travel"}),
             ("0.1.40: the approach digs", "0.1.40+mc1.21.11", {"pillar", "travel", "approach_dig"}),
+            ("0.1.46: eats on the way", "0.1.46+mc1.21.11", {"pillar", "travel", "approach_dig", "autoeat"}),
             ("no version read: nothing assumed", "unknown", set())]
 
     def test_version_to_features(self):
@@ -2000,6 +2001,19 @@ class TheToolTheBagMakes(unittest.TestCase):
             with self.subTest(extra=extra):
                 inv = bag(inventory(("stick", 2), ("crafting_table", 1), *extra))
                 self.assertEqual(upkeep.craftable_tier(inv, "pickaxe"), tier)
+
+
+class EatOnTheWay(unittest.TestCase):
+    """What the jar is told to eat while walking (upkeep.autoeat_policy): the threshold sits where regen stops, above
+    the standing row's, and the foods go best first."""
+
+    def test_policy(self):
+        p = upkeep.autoeat_policy()
+        self.assertEqual((p["below"], p["foods"][:3]),
+                         (18, ["minecraft:cooked_beef", "minecraft:cooked_porkchop", "minecraft:cooked_mutton"]))
+        self.assertGreater(p["below"], upkeep.EAT_BELOW)
+        self.assertNotIn("minecraft:beef", p["foods"])          # raw meat is the standing row's, when starving
+        self.assertNotIn("minecraft:rotten_flesh", p["foods"])
 
 if __name__ == "__main__":
     unittest.main()

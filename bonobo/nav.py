@@ -59,6 +59,8 @@ def mod_features():
             _features.add("travel")   # the mod plans and executes walk/dig/bridge/pillar routes itself
         if v >= (0, 1, 40):
             _features.add("approach_dig")   # mine/place/use dig their own way when walking finds none (ApproachTask)
+        if v >= (0, 1, 46):
+            _features.add("autoeat")        # the jar eats while only walking, on the policy /autoeat sets
     return _features
 
 
