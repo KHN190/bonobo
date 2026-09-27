@@ -137,7 +137,7 @@ class Action:
 
     @property
     def commitment_s(self):
-        """kernel's contract: the part that cannot be abandoned half-way — one segment for interruptible work, the whole duration for anything atomic."""
+        """kernel's contract: what cannot be abandoned half-way — one segment of interruptible work, all of an atomic one."""
 
         return self.segment_s if self.segment_s else self.duration_s
 
@@ -270,14 +270,14 @@ class Fight:
         return estimate.fatal_chance(spare, damage, cap=0.9)
 
     def dps_here(self, state):
-        """Health per second we are taking NOW: the one pressure function over a horizon of nothing, which is what "now" means — only what already covers us counts, and anything on its way counts once it arrives."""
+        """Health per second we take now: only what already covers us counts."""
 
         pos = state["self"]["pos"]
         rows = [estimate.row(t[0], t[1], t[2], t[3], dps=self.dps.get(t[3], 0.0)) for t in state["threats"]]
         return estimate.pressure_hp_s(pos, rows, horizon=NOW_S)
 
     def immediate_risk(self, state):
-        """p(death) from what is hitting us right now, before any window: the damage a reaction time lets through at the rate covering us, against the health we can spare."""
+        """p(death) from what hits us now: the damage a reaction time lets through, against the health we can spare."""
 
         spare = max(state["self"]["hp"] - state["self"]["hp_floor"], 1.0)
         damage = estimate.damage_over(self.dps_here(state), self.cfg["combat"]["reaction_s"])

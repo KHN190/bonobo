@@ -91,7 +91,7 @@ def _leave_lava(ctx, s):
              "partial": True}, wait=20, awaits="out of the lava: the next reading decides")
 
 def _surface(ctx, s):
-    """Drowning (`due` decides when, once): find_air, the one way out of water — to the nearest dry cell to stand on, a block at the surface, or through the cap."""
+    """Drowning: find_air, the one way out of water."""
 
     api.post("/stop")
     SKILLS["find_air"](ctx)
@@ -100,7 +100,7 @@ def _unbury(ctx, s):
     SKILLS["unbury"](ctx)
 
 def _extinguish(ctx, s):
-    """On fire and hurting: put water on it — pour the bucket at the feet and take it back — else step into water within 8 blocks."""
+    """On fire and hurting: pour the bucket at the feet and take it back, else step into water within 8 blocks."""
 
     from .world import Inventory, find
     api.post("/stop")
@@ -110,7 +110,7 @@ def _extinguish(ctx, s):
     api.run_chain(extinguish_commands(s, has_bucket, water), stop_on_failure=True, wait=10)
 
 def extinguish_commands(s, has_bucket, water):
-    """Pure: the tasks that put a fire on the body out — the water bucket poured at the feet and taken back, else a walk into water within reach (`water`: a /find hit or None)."""
+    """Pure: tasks that put the fire out — the bucket poured and taken back, else a walk into water in reach."""
 
     x, y, z = s["blockX"], s["blockY"], s["blockZ"]
     if has_bucket:

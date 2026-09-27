@@ -246,7 +246,7 @@ class Watcher(threading.Thread):
         return self._breath_seen
 
     def _enderman_after_us(self, radius):
-        """An enderman that is actually provoked within `radius` (mod ≥0.1.33 reports `angry`). Same 1 s cache as the breath check."""
+        """An enderman provoked within `radius` (mod ≥0.1.33 reports `angry`); same 1 s cache as the breath check."""
 
         now = time.time()
         if now - getattr(self, "_ender_t", 0) < 1.0:
@@ -370,7 +370,7 @@ _KIT, _KIT_SIG = {}, None
 _FAILED = set()          # what perceived() already logged once: a failing read says so, and only once
 
 def perceived(state, now, ground_of=None, kit_of=None):
-    """The state the threat model prices: the kit (sword, armour, food…) merged, the ground (`field`) and the footing evade walks on — each read on its own."""
+    """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
 
     ground_of = ground_of or ground
     kit_of = kit_of or (lambda st: kit(kit_signature(st, now)))
@@ -408,7 +408,7 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
     return GRID
 
 def footing(state):
-    """spot → where a walk toward it lands on connected ground (nav.landing over REGION), for evade; None before the ground was read (the threat model then prices evade as before)."""
+    """spot → where a walk toward it lands (nav.landing), for evade; None before the ground was read."""
 
     from . import nav
     region, here = REGION, (state["x"], state["y"], state["z"])
@@ -422,7 +422,7 @@ def kit_signature(state, now):
     return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // KIT_TTL_S))
 
 def sword_level(tiers):
-    """Pure: the dps table's sword level from the sword tiers carried (working ones): 0 = no sword (fist); a wooden or golden sword (material tier 0) is level 1, as the table says ("1" = wood/stone); at most 3."""
+    """Pure: the dps table's sword level from working sword tiers: 0 = fist, wood/gold = 1, at most 3."""
 
     return min(3, max(1, max(tiers))) if tiers else 0
 

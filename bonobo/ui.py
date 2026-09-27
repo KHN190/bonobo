@@ -9,7 +9,7 @@ from .skill import skill
 from .world import Inventory, container, entities
 
 def choose_enchant(options, xp_level, lapis):
-    """Pure: the enchant button to press — the best option whose level cost the player can pay (level requirement ≤ xp, lapis ≥ button + 1)."""
+    """Pure: the best enchant button the player can pay for (level ≤ xp, lapis ≥ button + 1)."""
 
     best = None
     for i, o in enumerate(options):
@@ -131,7 +131,7 @@ def _anvil_args(ctx, step):
 @skill(gives=["state:repaired"], remaining=_k.worn(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: _worn(c.args[1]), verify=lambda c: _worn(c.args[1]) < c.base,
        budget=180, stall=60, prefer=-1, provides={"repair": _anvil_args})
 def anvil_repair(ctx, item, material):
-    """At an anvil: the damaged item + its repair material (e.g. diamond pickaxe + diamonds), take the result when the level cost is affordable."""
+    """At an anvil: item + repair material (e.g. diamond pickaxe + diamonds), take the result when the level cost is affordable."""
 
     from .skills import Station, _open_container
     xp = api.get("/state").get("xpLevel", 0)

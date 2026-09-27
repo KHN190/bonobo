@@ -39,14 +39,14 @@ WORLD_CMDS = ("fill", "setblock", "clone", "place", "forceload")     # the build
 LATE_CMDS = ("summon",)                  # actors: summoned in the row itself — built ahead they wander or burn
 
 def body_reset(sc):
-    """Pure: the commands that put the body back to full after a row's setup — health always, food unless the row itself makes the player hungry (a hunger effect in its setup, or tagged hungry for its `before` hook): the saturation given after the setup refilled the bar the row had just drained (eat_while_walking was never hungry)."""
+    """Pure: commands that refill the body after setup — health always, food unless the row makes the player hungry."""
 
     hungry = sc.get("tags", {}).get("state") == "hungry" or any("minecraft:hunger" in c for c in sc.get("setup", ()))
     return ["effect give @p minecraft:instant_health 1 10 true"] + \
         ([] if hungry else ["effect give @p minecraft:saturation 1 10 true"])
 
 def classify(cmd):
-    """Pure: "world" (a block build with absolute coordinates: built ahead at site B), "late" (a summon: in the row, after the switch) or "body" (the player and the world's global state — bag, effects, position, time, rules, difficulty — and anything relative to the player, `~`: in the row)."""
+    """Pure: "world" (absolute block build: ahead at site B), "late" (a summon: in the row) or "body" (player, global state, `~`: in the row)."""
 
     inner = cmd
     while inner.startswith("execute ") and " run " in inner:
@@ -244,7 +244,7 @@ def _command(cmd, feedback, timeout=REPLY_WAIT_S):
     return lines
 
 def _batch(cmds, feedback, settle=REPLY_WAIT_S):
-    """Send commands back to back, then read all their chat replies at once (until one per command came back, or `settle`); any error line fails the setup."""
+    """Send commands back to back, then read the replies at once; any error line fails the setup."""
 
     lines = _send(list(cmds), len(cmds), settle) if cmds else []
     feedback.append({"cmd": f"batch of {len(cmds)}", "cmds": list(cmds), "reply": lines})
@@ -271,7 +271,7 @@ def server_count(lines):
 
 
 def reset_brain(brain, mem):
-    """Every row starts from a brain that knows nothing of the rows before it: fresh memory, no bans, no retry ledger, no held plans, and a fresh upkeep table (its `working`/`broken` tool notes outlived `clear @p`: the next row's first round reported "the axe broke" for an axe the previous row's setup had cleared)."""
+    """Every row starts from a brain that knows nothing of earlier rows (upkeep's tool notes outlived `clear @p`)."""
 
     from .. import arbiter, fight_loop, nav, needs, reflexes, retry, skill as skillkit
     # A fight the last row left engaged still holds the body: every later row failed "body owned by the arbiter".

@@ -1,14 +1,6 @@
-"""The task queue (L3): what the cerebrum wants done, in the order it wants it. One file, MC_DATA/tasks.json.
+"""The task queue (L3), MC_DATA/tasks.json: what the cerebrum wants done, first live task first.
 
-A task is {id, goal, args, state, reason, created, expires, source, plan}. State is one of STATES; several tasks may
-be pending, and the first live one in the list is the one worked on. The brain may put upkeep tasks at the front
-(a bed before dark, food before it runs out); everything else is ordered by whoever wrote the file.
-
-`plan` is the plan the brain holds for the task, as step dicts: it is saved with the task so work half done
-survives a restart, and it is only ever a hint — on resume the brain checks it against the bag and repairs it
-(steps are amounts to hold, not "chop this tree").
-One door in, and it is a queue.
-"""
+A task's `plan` is saved with it so half-done work survives a restart — only a hint, re-checked against the bag."""
 import json
 import os
 import time

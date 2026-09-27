@@ -14,7 +14,7 @@ from .world import Inventory, find
 TRUNK_REACH = 4        # logs this far above the base are in reach from beside the trunk (eye 1.62, reach 4.5)
 
 def trunk_batch(base, overhead, want):
-    """Pure: one trunk as one batch — ONE mine_many of every log in reach from beside it (the base and the logs over it up to TRUNK_REACH, as many as are still wanted), then one pickup."""
+    """Pure: one trunk as one batch — one mine_many of every log in reach up to TRUNK_REACH, then one pickup."""
 
     x, y, z = base
     logs = [tuple(base)] + [tuple(c) for c in overhead if y < c[1] <= y + TRUNK_REACH]
@@ -28,7 +28,7 @@ def felled(trunk, still):
     return not any((t["x"], t["y"], t["z"]) in still for t in trunk)
 
 def pick_trunks(logs):
-    """Pure: the logs grouped into trunks (a log within one block sideways of the first of its group), in the order their first log was listed (nearest first, as /find answers)."""
+    """Pure: logs grouped into trunks (within one block sideways of the group's first), in /find's nearest-first order."""
 
     trunks = []
     for t in logs:

@@ -14,7 +14,7 @@ def _searched(c):
 from .world import entities, find
 
 def surface_first(ctx, max_climb=90):
-    """Animals, trees and land are on the surface: walking 80-block legs through rock at y=-20 got "stuck" every 30 s."""
+    """Animals, trees and land are on the surface: legs through rock at y=-20 got stuck every 30 s."""
 
     s = api.get("/state")
     if s.get("skyLight", 15) > 4:
@@ -29,7 +29,7 @@ LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]
 LOOK_MOBS, LOOK_BLOCKS = 64, 48       # how far one look sees: /entities and /find radii
 
 def _ground(tx, tz, y):
-    """The y to walk to at column (tx, tz): known land near it, else the column's own ground; None when neither is known (never our own height for a spot far off: from a hilltop every leg pointed into mid-air)."""
+    """The y to walk to at (tx, tz): known land, else the column's ground, else None (never our own height far off)."""
 
     land = [h for h in find(LAND, radius=48, limit=60) if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
     if land:
@@ -39,7 +39,7 @@ def _ground(tx, tz, y):
     return nav.ground_in_column(col.solid, tx, tz, y, span=40)
 
 def _search(ctx, kinds, look, radius, legs):
-    """Look, then walk to the nearest section not yet looked over for `kinds` (memory.frontier over the section map, at each kind's own depth: `band`), and look again."""
+    """Look, then walk to the nearest section not yet looked over for `kinds` at their own depth, and look again."""
 
     for _ in range(legs):
         here = feet()
@@ -69,7 +69,7 @@ def _search(ctx, kinds, look, radius, legs):
     return hits
 
 def band(kind):
-    """The y a kind is richest at (knowledge.FIND_AT, through the MINE row whose blocks it is), None for the surface (animals, trees, anything without a depth)."""
+    """The y a kind is richest at (knowledge.FIND_AT), None for surface kinds."""
 
     from .knowledge import FIND_AT, MINE
     k = bare(kind)
@@ -156,18 +156,18 @@ _ALIAS = {"tree", "water", "lava"}      # scan kinds noted by their own name; th
 SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chicken")
 
 def unknown(mem, dimension, names):
-    """Of `names`, those memory holds no live note of here: the only ones a look around asks the world about (a noted diamond scanned again every 20 s was a search the bench counted: seen_store__noted)."""
+    """Of `names`, those memory holds no live note of here: the only ones a look asks the world about."""
 
     return [n for n in names if not any(mem.seen(v, dimension) for v in variants(n))]
 
 def variants(block):
-    """Pure: the blocks that are the same find as `block` — the ore and its deepslate form (knowledge.MINE's one row)."""
+    """Pure: the blocks that are the same find as `block` (the ore and its deepslate form)."""
 
     from .knowledge import MINE
     return next((list(blocks) for blocks, _tier in MINE.values() if block in blocks), [block])
 
 def note_around(mem, dimension, here):
-    """Map resources while travelling, so "where to find" starts from known places: the nearest tree, water, lava, iron and coal in 48 blocks, the takeable blocks (beds, chests…), the rare blocks and the animals in sight."""
+    """Note resources in sight while travelling (trees, water, lava, ores, takeable and rare blocks, animals) for later searches."""
 
     from .knowledge import takeable_blocks
     looked_blocks, seen_blocks = [], []

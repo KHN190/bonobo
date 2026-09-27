@@ -9,7 +9,7 @@ PICKUP_FILTER_AT = 28
 RESERVED = set()
 
 def reserved_stacks(slots):
-    """Pure: the stacks kept for open goals' plans — the biggest stack of each reserved item id, not all of them (reserving every cobblestone stack would make the bag impossible to tidy)."""
+    """Pure: the biggest stack of each reserved item id (reserving every stack would make the bag untidyable)."""
 
     best = {}
     for s in slots:
@@ -18,7 +18,7 @@ def reserved_stacks(slots):
     return list(best.values())
 
 def reserved_ids(plan, needs=()):
-    """Pure: every item id a plan consumes or produces on the way (step inputs, intermediate outputs) plus the goal's own needs — the one reservation list bag, deposit and free_slots all read."""
+    """Pure: every item id a plan passes through plus the goal's needs — the one reservation list."""
 
     from .knowledge import members
     tokens = set()
@@ -40,7 +40,7 @@ PICKUP_ALWAYS = ("minecraft:raw_iron", "minecraft:raw_gold", "minecraft:iron_ing
                  "minecraft:string", "minecraft:flint")
 
 def pickup_whitelist(used_slots, wanted=()):
-    """Pure: None (collect everything) below PICKUP_FILTER_AT slots; from there only the keep list, basic supplies and what the task is for."""
+    """Pure: None (collect all) below PICKUP_FILTER_AT slots; above, only the keep list, supplies and the task's own items."""
 
     if used_slots < PICKUP_FILTER_AT:
         return None
@@ -71,7 +71,7 @@ def dead(s):
     return bool(s.get("maxDamage")) and s["maxDamage"] - s.get("damage", 0) <= 1
 
 def kept(slots):
-    """Pure: the stacks the bag keeps whatever — one stack of each item a held plan uses (RESERVED), working tools and armour, and the biggest stacks that fill the FLOOR."""
+    """Pure: stacks kept whatever — one of each RESERVED id, working tools and armour, the biggest up to FLOOR."""
 
     keep = list(reserved_stacks(slots)) + [s for s in slots if s.get("maxDamage") and not dead(s)]
     for token, n in FLOOR.items():
@@ -113,7 +113,7 @@ def let_go(slots, need, price=None, chest_s=None, lava_near=False):
     return out
 
 def empty_how(slots, need, price=None, chest_s=None, lava_near=False):
-    """Pure: how the bag is emptied this time — "deposit" when `let_go` puts any stack in a chest that already exists (`chest_s`: seconds to reach it, None when there is none), else "drop" (the cheapest stacks thrown)."""
+    """Pure: "deposit" when let_go puts a stack in an existing chest, else "drop" (the cheapest stacks thrown)."""
 
     plan = let_go(slots, need, price, chest_s, lava_near)
     return "deposit" if any(how == "deposit" for _s, how in plan) else "drop"
@@ -129,7 +129,7 @@ def free_slots_plan(slots, need=0, price=None):
 FREE_SLOTS_TARGET = 5     # keep this many slots free: crafting, pickups and loot need room
 
 def throw_direction(region, inside):
-    """Pure: a horizontal side open at feet and head height to throw items into — the one with the most open room beyond (a tunnel's way back rather than a 1-block niche), or None in a sealed shaft."""
+    """Pure: the side open at feet and head with the most room beyond to throw into, or None in a sealed shaft."""
 
     x, y, z = inside
     best, best_room = None, 0
@@ -158,7 +158,7 @@ def has_room(slots, free, ids):
     return free > 0 or any(s["id"] in ids and int(s.get("count", 1)) < STACK for s in slots)
 
 def supports(feet):
-    """Pure: the cells the body stands on — the one under the feet and the ring around it the body's edge can rest on — never mined by a skill that is not digging down on purpose (a full-bag miner broke its own floor and fell through the platform; a stone batch dug the floor ring at its feet)."""
+    """Pure: the cells the body stands on, never mined unless digging down on purpose (a full-bag miner fell through its floor)."""
 
     x, y, z = feet
     return {(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
@@ -187,7 +187,7 @@ def buried(region, cell):
     return all(region.inside(f) and region.solid(f) for f in (add(cell, d) for d in FACES))
 
 def stand_spot(region, cell, drop):
-    """Pure: some open face of `cell` has a standing place beside it — feet in the face's cell or one below it (head in the face), room for the body, ground within `drop`."""
+    """Pure: some open face of `cell` has a standing place beside it, ground within `drop`."""
 
     if buried(region, cell):
         return True
@@ -203,7 +203,7 @@ def stand_spot(region, cell, drop):
     return False
 
 def mineable(cells, feet, region=None, drop=None):
-    """Pure: the cells a skill may break standing at `feet`, in the order given — never the floor under or around the feet (`supports`), nor anything in the body's own column below it (`under`), nor (with `region`) a cell whose every open face is over a drop deeper than `drop` (`stand_spot`)."""
+    """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""
 
     feet = tuple(feet)
     floor = supports(feet)

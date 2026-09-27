@@ -35,7 +35,7 @@ def absent_ttl(kind):
     return rule.get("absent") or VOLATILITY["slow"]["absent"]
 
 def covered(row, kinds, tick):
-    """Pure: this section's looks still answer for every one of `kinds` — each looked for here within its `absent` TTL (a kind it held counts as answered: the note says where)."""
+    """Pure: this section's looks still answer every one of `kinds` within its `absent` TTL."""
 
     if row is None:
         return False
@@ -51,7 +51,7 @@ def covered(row, kinds, tick):
     return True
 
 def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12):
-    """Pure: the sections to look next for `kinds`, nearest first — within `radius` sections sideways of `here`, at each kind's own height (`band(kind)`: the y it is richest at, None for the surface: the feet's section), never looked over or looked over too long ago."""
+    """Pure: sections to look next for `kinds`, nearest first, at each kind's own height, never or long ago looked over."""
 
     hx, hy, hz = section_of(here)
     layers = {(hy if band(k) is None else int(band(k)) // SECTION) for k in kinds}
@@ -188,7 +188,7 @@ class Memory:
         return cells | self.machine_cells(dimension) | self.build_cells(dimension)
 
     def build_cells(self, dimension):
-        """Cells of blueprint builds that were started but not finished: never mined (the portal goal once took its own half-built frame apart for obsidian)."""
+        """Cells of started, unfinished builds: never mined (the portal goal once took its own frame apart)."""
 
         from . import blueprints
         cells = set()
@@ -217,7 +217,7 @@ class Memory:
         self.save()
 
     def settle_pending(self, name, got):
-        """Subtract collected items from a machine's pending outputs; stale or empty entries go away, entries that yielded nothing yet are rescheduled a minute later."""
+        """Subtract collected items from a machine's pending outputs; empty ones reschedule a minute later."""
 
         got, now = dict(got), time.time()
         for m in self.data["machines"]:
@@ -250,7 +250,7 @@ class Memory:
         return [j for j in self.data["jobs"] if dimension is None or j["dimension"] == dimension]
 
     def add_job(self, kind, pos, dimension, item, count, ready_at, carried, **contents):
-        """A background job; `contents` says what went in (a furnace: input, input_count, fuel, fuel_count) — what the furnace holds is known from here, never guessed."""
+        """A background job; `contents` records what went in, so what the furnace holds is known, never guessed."""
 
         # One id per job: three furnaces loaded in the same second shared "furnace-<second>", and finishing the
         # first finished all three (bench iron_ingots: 3 ordered, 2 collected).
@@ -316,7 +316,7 @@ class Memory:
         return (s["ok"] + 1) / (s["ok"] + s["fail"] + 1)
 
     def mark_dirty_near(self, positions, dimension, radius=6):
-        """Our own digging: sites near it are dirty (repair checks them), slow notes near it are to-verify, and a static note on a cell we dug is gone (we mined it)."""
+        """Our own digging: sites near it turn dirty, slow notes to-verify, and a static note on the dug cell goes."""
 
         changed = False
         dug = [tuple(p) for p in positions]
@@ -361,7 +361,7 @@ class Memory:
 
     # ---- which sections were looked over, and what they held: explore's frontier (`frontier`)
     def see_sections(self, dimension, pos, radius, found, looked=()):
-        """The sections within `radius` blocks of `pos` were looked over now (game clock) for `looked` (kinds); `found`: {kind: [pos]} what the look saw — each marks its own section as holding that kind."""
+        """Sections within `radius` of `pos` were looked over now for `looked`; each `found` kind marks its own section."""
 
         smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
         asked = {bare(k) for k in looked} | {bare(k) for k in found}
@@ -380,7 +380,7 @@ class Memory:
                 del smap[k]
 
     def frontier(self, dimension, here, kinds, band=lambda kind: None):
-        """[(section, its centre)] to look next for `kinds` from `here` (module `frontier` over this dimension's section map, on the game clock), nearest first."""
+        """[(section, centre)] to look next for `kinds` from `here`, nearest first."""
 
         return [(s, section_centre(s)) for s in frontier(self.section_map(dimension), here, kinds, self.clock, band)]
 
@@ -430,7 +430,7 @@ class Memory:
             self.save()
 
     def note_here(self, kind, pos, dimension):
-        """Standing at one of `kind` at `pos`: noted as its class keeps it, or for two minutes ("here") when its class keeps none — `at:<kind>` for the next plan, never a map of common blocks."""
+        """Standing at one of `kind`: noted as its class keeps it, else for two minutes ("here") — never a map of common blocks."""
 
         self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
         cls = seen_class(kind)

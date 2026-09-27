@@ -54,7 +54,7 @@ class Cost:
         return (best, math.dist(best, here)) if best is not None else None
 
     def ripe(self, token):
-        """Ripe crop cells known to give `token`: the crop jobs of it that are due (memory only — an estimate never touches the world; the farm step itself looks for a ripe crop before it sows, farming.plant_farm)."""
+        """Ripe crop cells known to give `token` from due crop jobs (memory only: an estimate never touches the world)."""
 
         if token != "minecraft:wheat":
             return 0
@@ -149,7 +149,7 @@ class Cost:
         return work + self._walk(step)
 
     def _sped_up(self, step):
-        """Ticks the tools carried save on this step's prior: the speed its skill declares (knowledge.step_call — every skill's `speed`, seconds saved per unit) for each tool the bag holds, times the step's units."""
+        """Ticks the carried tools save on this step's prior: each held tool's declared speed times the step's units."""
 
         inv = getattr(self.snap, "inv", None)
         if inv is None:
@@ -223,7 +223,7 @@ class Cost:
         return hit[0] if hit else None
 
     def seek_s(self, kinds):
-        """Seconds to go to one of these: what the game already said the route takes, else the known distance, else walked (`walk_ticks`); else the declared prior."""
+        """Seconds to reach one of these: the game's route, else the known distance walked, else the prior."""
 
         seconds = self.route_s(kinds)
         if seconds is not None:
@@ -234,7 +234,7 @@ class Cost:
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
-        """The game's own estimate for walking to the nearest known one, when it has already been asked this round (nav's route cache; read, never added to — whoever is about to act asks the game)."""
+        """The game's own walk estimate when already asked this round (nav's route cache; read, never added to)."""
 
         where = self.where(kinds)
         if where is None:

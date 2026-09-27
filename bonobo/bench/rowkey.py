@@ -11,7 +11,7 @@ _INDEX = {}
 NOT_PRODUCTION = ("scenarios",)          # and every bench module: the row's own definition covers what it uses
 
 def code_index(pkg_dir=PKG):
-    """{name: [source]} of every function, method and class in the production modules (not scenarios, not the bench): the graph a row's key walks, by name (a name defined twice counts both: over-reaching is safe)."""
+    """{name: [source]} of every production function, method and class (a name defined twice counts both: over-reaching is safe)."""
 
     if pkg_dir in _INDEX:
         return _INDEX[pkg_dir]
@@ -116,7 +116,7 @@ def _callable_sources(obj, depth=0, seen=None):
     return [repr(obj)]
 
 def row_hash(sc):
-    """The row's own definition: its commands, what it expects and its limits, and the source of its run, check and hooks with everything their closures hold."""
+    """The row's own definition: commands, expectations, limits, and the source of its run, check and hooks with their closures."""
 
     parts = [repr((sc.get("setup"), sc.get("expect"), sc.get("budget"), sc.get("fails"), sc.get("tier"),
                    sc.get("dimension"), sc.get("tick_rate"), sc.get("skills")))]
@@ -125,7 +125,7 @@ def row_hash(sc):
     return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:6]
 
 def reach_hash(sc, index=None, registry=None, pkg_dir=PKG):
-    """The production code the row reaches: from its skills (their contracts' functions) and every name its run, check and hooks mention, through the call graph (`reached`)."""
+    """The production code the row reaches, through the call graph from its skills and every name its hooks mention."""
 
     if registry is None:
         from .. import skill as skillkit

@@ -88,7 +88,7 @@ def _free(region, c):
     return not region.solid(c) or region.name(c) == "nether_portal"
 
 def started_builds(bp, region, near):
-    """Pure: [(origin, turns)] of builds of `bp` already half standing in `region` or more, the most complete and then the nearest first."""
+    """Pure: [(origin, turns)] of builds of `bp` half standing or more in `region`, most complete then nearest first."""
 
     own = [p for p in bp.parts if ":" in p.item]
     if not own:
@@ -249,7 +249,7 @@ def blueprint_wrong(bp, origin, turns):
     return [(pos, bare(part.item)) for pos, part, *_ in cells if not block_matches(region.name(pos), part.item)]
 
 def blueprint_commands(state, args):
-    """Pure: the whole build as one batch, from the access spot — clear the foliage in the way, then every part not yet in place, bottom-up, pillaring under the body wherever a part's only face is above the eye."""
+    """Pure: the whole build as one batch from the access spot — clear foliage, then missing parts bottom-up, pillaring where needed."""
 
     bp, origin, turns = args
     region, inv, protected = state["region"], state["inv"], state["protected"]
@@ -398,7 +398,7 @@ def _shelter_built(ctx, name):
     return s is not None and not blueprint_wrong(blueprints.SHELTER, tuple(s["pos"]), s.get("turns", 0))
 
 def _blueprint_spot(state, args):
-    """Pure: (origin, turns, prepare) of a build not yet started — the cheapest spot around `near` in `state["region"]` (`spot_options`) — or None."""
+    """Pure: (origin, turns, prepare) of the cheapest unstarted spot around `near`, or None."""
 
     bp = blueprints.REGISTRY[args[0]]
     if state.get("region") is None:
@@ -409,7 +409,7 @@ def _blueprint_spot(state, args):
     return options[0][1:] if options else None
 
 def _blueprint_anchor(state, args):
-    """What build_blueprint fixes at its first start: the site (memory's `builds`, noted before the first block), so a resumed build carries on there — {"started": {origin, turns}}; {} when nothing can be sited."""
+    """The site build_blueprint fixes at its first start, so a resumed build carries on there; {} when nothing can be sited."""
 
     if state.get("started"):
         return {"started": state["started"]}
@@ -419,7 +419,7 @@ def _blueprint_anchor(state, args):
 ANCHORS["build_blueprint"] = _blueprint_anchor
 
 def _blueprint_commands_for(state, args):
-    """`commands` for build_blueprint(ctx, name, near): the batch where the build stands — a build already started (`state["started"]`, memory's `builds`), else the cheapest spot around `near` in `state["region"]` (`spot_options`), its levelling first: break what is in the way, fill what nothing stands on."""
+    """`commands` for build_blueprint: the batch at the started site, else the cheapest spot around `near`, levelling first."""
 
     bp = blueprints.REGISTRY[args[0]]
     started = state.get("started")
@@ -438,7 +438,7 @@ def _blueprint_commands_for(state, args):
         return []
 
 def _shelter_left(state, call=None):
-    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (blueprints.remaining over the state's region) — the whole hut before a spot is chosen."""
+    """`remaining` of build_shelter: the hut's parts not yet standing at its spot (the whole hut before a spot)."""
 
     if state.get("spot") is None or state.get("region") is None:
         return {"shelter:hut": 1}
@@ -488,7 +488,7 @@ def build_blueprint(ctx, name, near):
        provides={"build:shelter": lambda ctx, s: (), "state:sheltered": lambda ctx, s: (),
                  "shelter:hut": lambda ctx, s: ()})
 def build_shelter(ctx):
-    """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more safe place to sleep in the area being worked."""
+    """Put up the SHELTER hut near here and register it as a shelter site."""
 
     bp = blueprints.SHELTER
     origin, turns, prepare = plan_machine_spot(bp, feet(), ctx.policy, radius=6)
@@ -513,7 +513,7 @@ def _portal_cast(c):
 @skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
        verify=_portal_cast, budget=900, stall=240, provides={"cast:nether_portal": lambda ctx, s: ()})
 def cast_portal(ctx):
-    """Cast a Nether portal frame in place (no obsidian carried, no diamond pickaxe): pick the spot, and for each frame cell bottom-up wall it in with mould (`fluids.cast_frame_plan`), pour lava in, pour water on it, take the water back; break the mould inside the frame, light it."""
+    """Cast a Nether portal frame in place (no obsidian, no diamond pickaxe): mould each cell, lava in, water on, then light it."""
 
     from . import fluids
     block = nav.building_item()          # its needs (water, flint and steel, 16 blocks) held: the runner checked

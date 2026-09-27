@@ -43,7 +43,7 @@ _features = None
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
 
 def autoeat_policy():
-    """Pure: what the jar eats on the way, and when (POST /autoeat, jar ≥ 0.1.46): below WALK_EAT_BELOW, the best food first (data.FOOD's order)."""
+    """Pure: what the jar eats on the way and when (jar ≥ 0.1.46): below WALK_EAT_BELOW, the best food first."""
 
     from .data import FOOD
     return {"below": WALK_EAT_BELOW, "foods": [f"minecraft:{f}" for f in FOOD]}
@@ -82,7 +82,7 @@ def building_item():
     return max(options, key=inv.usable) if options else None
 
 def ground_in_column(solid, x, z, y_hint, span=32):
-    """Pure: standing height (one above the highest solid block with 2 free cells above it) in column (x, z), searching y_hint ± span from the top down; None when the column has no such spot."""
+    """Pure: standing height in column (x, z) within y_hint ± span, or None."""
 
     for y in range(y_hint + span, y_hint - span - 1, -1):
         if solid((x, y, z)) and not solid((x, y + 1, z)) and not solid((x, y + 2, z)):
@@ -131,7 +131,7 @@ def _arrived(start, target, began, ok, closer=False):
     return Walked(math.dist(start, target) - math.dist(feet(), target)) if closer else False
 
 class Walked(float):
-    """A leg that got nearer without arriving: never arrival, so falsy (a travel stopped 1.7 below the platform read as True and the scenario was over)."""
+    """A leg that got nearer without arriving: falsy, never arrival."""
 
     def __bool__(self):
         return False
@@ -154,7 +154,7 @@ AVOID_MAX = 4000
 APPROACHING = ("mine", "place", "use", "build", "mine_many")
 
 def avoid_cells(protected, *near):
-    """Pure: the "avoid" list a walk that may dig carries — the protected cells (memory.protected_cells: our own builds, sites, machines) within AVOID_RADIUS of any of `near`, as the jar reads them."""
+    """Pure: the protected cells within AVOID_RADIUS of `near`: the "avoid" list a digging walk carries."""
 
     return [{"x": c[0], "y": c[1], "z": c[2]} for c in sorted(protected)
             if any(math.dist(c, n) <= AVOID_RADIUS for n in near)][:AVOID_MAX]
@@ -172,7 +172,7 @@ def with_avoid(task, protected):
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 
 def there(state, pos, range_):
-    """Pure: the body stands within range_ + ARRIVE_SLACK of `pos`, in 3-D — the feet's block to a block target (int coordinates: the walker's own test, TravelTask.arrived, with the height within range_) or the feet to a point."""
+    """Pure: within range_ + ARRIVE_SLACK of `pos` in 3-D (block targets by the walker's own test)."""
 
     if not at_rest(state):
         return False                   # mid-jump over the target cell (y 200.18, off the ground) is not there
@@ -194,7 +194,7 @@ CLIMB_REACH = 2.0      # horizontal blocks from the bank's cell within which a s
 CLIMB_TICKS = 40
 
 def climb_out_tasks(state, land):
-    """Pure: the batch that lifts a swimmer beside the bank onto `land` (its feet cell): face the bank, then forward+jump held until standing (jar "input", ≥ 0.1.50) — the move the walker never made, bobbing at the bank's edge (reach_land_swim). [] when already ashore or not beside it."""
+    """Pure: face the bank, then hold forward+jump until standing (jar ≥ 0.1.50): the walker never climbs out; [] when ashore."""
 
     if ashore(state, land) or not state.get("inWater"):
         return []
@@ -238,7 +238,7 @@ MOVES = {"work": (True, True, True), "explore": (True, True, False), "evade": (T
 SAFE_DROP = 3        # blocks a walk may drop onto dry ground unhurt; deeper only into water (`terrain.landing`)
 
 def landing(region, here, spot, max_drop=None, least=2):
-    """Pure: the farthest cell walking straight from `here` toward `spot` reaches on connected ground — every column on the way has a floor at most `max_drop` (SAFE_DROP) below the last one and at most one above, or water under it (a drop into water is survivable); the walk stops at the first column that fails, or at the region's edge."""
+    """Pure: the farthest cell a straight walk toward `spot` reaches on connected ground (drops ≤ max_drop, or into water)."""
 
     max_drop = SAFE_DROP if max_drop is None else max_drop
     x0, y, z0 = (int(math.floor(v)) for v in here)
@@ -410,7 +410,7 @@ def arrive(pos, policy, range_=1.5, **kw):
                         pos=pos)
 
 def arrived(pos, policy, range_=1.5, **kw):
-    """`arrive` for a caller that handles not getting there itself (ban the spot, try the next one): True or False, never a `Walked`."""
+    """`arrive` for a caller that handles failure itself: True or False, never a `Walked`."""
 
     try:
         return arrive(pos, policy, range_=range_, **kw)
@@ -515,7 +515,7 @@ def forget_routes():
     _ROUTE_BUDGET[0] = 0
 
 def plainly_below(feet, cell, max_drop=None):
-    """Pure: `cell` is further below the feet than a safe drop and nearer sideways than it is deep — a cliff or a sky platform's floor, not a slope a walk goes down."""
+    """Pure: `cell` is deeper below the feet than a safe drop and nearer sideways than deep — a cliff, not a slope."""
 
     max_drop = SAFE_DROP if max_drop is None else max_drop
     deep = feet[1] - cell[1]

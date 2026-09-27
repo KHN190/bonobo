@@ -94,7 +94,7 @@ def short(inv, need_rows):
 DESIRED = {}
 
 def desired(*templates):
-    """Register the remainder function for goal `templates`: fn(goal, snap, mem) → {what: how much is missing} ({} = met), or None for a goal the world cannot judge (it is done when its plan ran: RUN_ONCE)."""
+    """Register goal `templates`' remainder fn(goal, snap, mem) → {missing} ({} met), or None when only the plan running can say."""
 
     def wrap(fn):
         for t in templates:

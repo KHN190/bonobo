@@ -14,7 +14,7 @@ ARROW_SPEED = 3.0          # blocks per tick at full draw
 GRAVITY = 0.05             # blocks per tick² on arrows
 
 def bow_aim(eye, target, height=1.0):
-    """Pure: the point to aim at so a fully drawn arrow from `eye` hits `target` (x, y, z of the entity's feet): aim at its body, raised by the arrow's drop over the flight time."""
+    """Pure: where to aim so a fully drawn arrow from `eye` hits `target`: its body, raised by the arrow's drop."""
 
     tx, ty, tz = target[0], target[1] + height, target[2]
     d = math.dist((eye[0], eye[2]), (tx, tz))
@@ -28,7 +28,7 @@ def crystal_order(crystals, here):
     return sorted(crystals, key=lambda e: (e["y"] - here[1] > 30, math.dist((e["x"], e["y"], e["z"]), here)))
 
 def blaze_cover(region, here, blaze, radius=4):
-    """Pure: a standable cell within `radius` where a solid block sits between the cell and the blaze at head height (the blaze's fireballs need a line of sight) but the blaze is still within 5 blocks to hit when it comes around."""
+    """Pure: a standable cell with a block between it and the blaze at head height, yet within 5 blocks to hit it."""
 
     best = None
     bx, by, bz = blaze
@@ -54,7 +54,7 @@ def clearance(spot, hazards):
     return min((math.dist(spot, p) - r for p, r in hazards), default=float("inf"))
 
 def safe_stand(region, here, hazards, anchor, band=(8, 14), clear=1.0):
-    """Pure: where to wait out an attack — a standable cell whose horizontal distance to `anchor` is inside `band` and which is at least `clear` blocks from every hazard, nearest to `here`."""
+    """Pure: the nearest standable cell within `band` of `anchor` and `clear` from every hazard."""
 
     lo, hi = band
     ax, az = anchor[0], anchor[-1]      # (x, z) or (x, y, z)
@@ -101,7 +101,7 @@ def endermen_near(near, here, radius=6.0):
 
 @skill(gives=["state:fight_over"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={}, speed={}, budget=180, stall=90, soft=True)
 def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
-    """Generic: wait out a fight at a safe distance from `anchor` — out of the breath/head/fireball, inside the band so the target stays reachable, eating when hurt."""
+    """Wait out a fight at a safe distance from `anchor`, inside the band so the target stays reachable, eating when hurt."""
 
     from .world import Region
     from . import skills

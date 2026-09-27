@@ -101,7 +101,7 @@ hide_ratio = estimate.reaches_share
 # -- the model ---------------------------------------------------------------------------------------------------------
 
 def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
-    """Where to walk to leave every threat's reach: away from the dps-weighted centre of the threats, `blocks` far, checked with the same slack rule the fight uses; `cover` (a known safe cell) is offered as a candidate."""
+    """Where to leave every threat's reach: `blocks` away from their dps-weighted centre, under the fight's slack rule; `cover` a candidate."""
 
     blocks = float(ENGAGE["evade_blocks"]) if blocks is None else blocks
     weights = [float(MOBS.get(h[3], {}).get("dps", 1.0)) for h in hazards]
@@ -165,7 +165,7 @@ class Option:
 SHAPES = ("between", "under", "down")
 
 def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
-    """Blocking the way, standing on a block and digging down are one column with a different place to put the work: each is n units of the same currency (seconds, and blood while exposed) buying the same two effects — they take longer to reach us, or they stop being able to see us."""
+    """Blocking, standing on a block and digging down are one column: seconds (and blood while exposed) buying delay or no sight."""
 
     carried = int(state.get("blocks", 0))
     cap = int(ENGAGE.get("block_max", 4))
@@ -324,7 +324,7 @@ def options(state):
     return out
 
 def action_cost(option, price, work_s=None):
-    """kernel's `cost_s` for an option: its seconds, plus the health it spends priced ON TOP of what it still leaves owed (`work_s` given) — one price of all the damage, not two."""
+    """kernel's `cost_s` for an option: its seconds plus its health spent, priced on top of what it leaves owed — one damage price."""
 
     if work_s is None:
         return estimate.act_cost_s(option.seconds, option.hp, price)
@@ -463,7 +463,7 @@ def fight_loss(s):
     return _R["encounters_per_day"] * (kill_s + _fatal_chance(20, damage) * _T["death_cost_s"])
 
 def hurt_loss(s):
-    """Seconds the current health deficit costs: the time to regenerate it, plus the extra chance of dying in the encounters that happen before it is back."""
+    """Seconds the current health deficit costs: regeneration time plus the extra death chance before it is back."""
 
     hp = max(0.1, float(s["hp"]))
     if hp >= 20:
@@ -533,7 +533,7 @@ def expected_loss(s):
             + bag_loss(s))
 
 def hp_seconds(s, dhp):
-    """The fourth quantity, implemented here because health is only worth what being hurt costs FROM THIS STATE: seconds that expecting to lose `dhp` health costs."""
+    """Seconds that expecting to lose `dhp` health costs from this state."""
 
     if dhp <= 0:
         return 0.0

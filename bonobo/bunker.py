@@ -52,7 +52,7 @@ def ceiling(cells):
     return [(x, y + 2, z) for x, y, z in cells]
 
 def dig_batch(side, floor_y, solid, centre=(0, 0), length=TUNNEL_LEN):
-    """Pure: the whole bunker as one batch from its rim — down the shaft one block at a time (mine what is solid, step in), then the corridor outward (`dig_plan` after the mouth's own two cells), every cell within arm's reach of the last."""
+    """Pure: the whole bunker as one batch from its rim — down the shaft, then the corridor, each cell within reach of the last."""
 
     mx, my, mz = mouth(side, floor_y, centre)
     out = []

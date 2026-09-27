@@ -15,7 +15,7 @@ def _collect_only(wanted):
     return {"only": only} if only else {}
 
 def mine_cell(policy, cell, wanted=(), collect=True, require_drops=False, wait=30):
-    """Break one block, never one of ours. Site cells — the shelter's walls, the base, a built machine — are in `policy.protected`, and nav has always respected them. Every other way of digging went straight to the task API, so the night the agent ran out of things to do it mined the hut it had just built for the cobblestone. One door for breaking a single cell, and the protection is on this side of it."""
+    """Break one block, never one of ours (`policy.protected`): the one door for breaking a single cell."""
     cell = tuple(cell)
     if cell in getattr(policy, "protected", ()):  
         raise NotAvailable(f"{cell} is part of one of our own structures")
@@ -26,7 +26,7 @@ def mine_cell(policy, cell, wanted=(), collect=True, require_drops=False, wait=3
     return out
 
 def _note_break(started):
-    """How long breaking ONE block actually took, against what the model believes it takes. `[tools] mine_time_stone` and `mine_time_no_pickaxe` are the two numbers every mining estimate is built on and both were declared guesses. Every block this door breaks is one measurement of one of them — which one depends on whether there is a pickaxe in hand, because that is the whole difference between the two."""
+    """Note how long breaking one block took: each is a measurement of mine_time_stone or mine_time_no_pickaxe."""
     took = time.time() - started
     if not 0.05 <= took <= 30.0:
         return None                      # a queued task, a stall, an interrupted break: not a measurement
@@ -37,7 +37,7 @@ def _note_break(started):
     return beliefs.note("tools.mine_time_stone" if has else "tools.mine_time_no_pickaxe", took, where="mine_cell")
 
 class StationMissing(McError):
-    """A station the plan counted on is not there (taken, broken, never placed): not a failure of the step but a changed world — the plan is repaired with the station as a need again (craft and place it, or further up)."""
+    """A station the plan counted on is gone: not the step's failure — the plan is repaired with the station as a need."""
     def __init__(self, block):
         super().__init__(f"no {block.split(':')[-1]} nearby or carried")
         self.block = block
@@ -58,7 +58,7 @@ _BAN_COUNTS = {}
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 
 def banned(blacklist, pos, now=None):
-    """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry}) — the one reading of a ban, for the skills (Context.blocked) and the cost model alike."""
+    """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry})?"""
     exp = blacklist.get(tuple(pos))
     return exp is not None and exp > (time.time() if now is None else now)
 
@@ -69,11 +69,11 @@ class Context:
         self.mem = memory
         self.policy = policy
         self.dimension = dimension
-        # What a unit of each token would cost to get another way, this round (`solve.reach_cost`). Injected, so a skill can ask "is this worth carrying" in seconds without importing the planner.
+        # what a unit of each token costs another way this round (solve.reach_cost), injected so skills skip the planner
         self._prices = prices
-        # position or (entity id, 0, 0) -> expiry time. Owned by the brain so bans outlive one round.
+        # position or (entity id, 0, 0) → expiry; the brain owns it so bans outlive a round
         self.blacklist = blacklist if blacklist is not None else {}
-        self.ban_counts = _BAN_COUNTS      # how often each cell was banned this session, shared like the blacklist
+        self.ban_counts = _BAN_COUNTS  # shared like the blacklist
 
     def prices(self):
         """{token: seconds per unit}, or {} when nobody handed any over (tests, replays)."""
@@ -84,7 +84,7 @@ class Context:
         return banned(self.blacklist, pos)
 
     def ban(self, pos, seconds=600):
-        """Blacklist a cell after a FAILURE there (never after an interruption: nothing was learned about the place). Repeats escalate, a place proven unreachable twice waits twice as long, but never past BAN_MAX_S: the world changes (we dig, we bridge, the mob moves), and a two-hour ban outlived every one of those reasons."""
+        """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world changes."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1
         self.ban_counts[key] = count
@@ -93,7 +93,7 @@ class Context:
 SETTLE_POLL_S = 0.25
 
 def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S, clock=time.time, sleep=time.sleep):
-    """Poll `read()` until `ok(value)` has held for `stable_s`, or `timeout` runs out. Returns the last value read. What an action did is seen after the world has caught up with it: a log drops, bounces and is picked up a tick later; a furnace slot fills on the next update; a respawn reports `dead` for a frame. Counting once, right after the action, called all of those failures. The caller still judges the value — `ok` only says when to stop looking. A pending interrupt ends the wait (`api.check_interrupt`) unless `soft`. `clock`/`sleep` are injectable, so a recorded reading sequence can be judged offline."""
+    """Poll `read()` until `ok(value)` held for `stable_s` or `timeout`; returns the last value (the world catches up a tick later)."""
     from . import tape
     began = clock()
     value = read()
@@ -118,7 +118,7 @@ def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S, 
         tape.reading(seq, held_since is not None)     # the numbers the verdict came from, for replaying it
 
 def gained(read, before, timeout=3.0, stable_s=0.5):
-    """What `read()` says once it has settled above `before` (a count after picking up, crafting, taking out), or what it says when time runs out. The caller compares; this only waits for the world to catch up."""
+    """What `read()` says once settled above `before`, or at the timeout; the caller compares."""
     return settle(read, lambda v: v > before, timeout, stable_s)
 
 def lost(read, before, timeout=3.0, stable_s=0.5):
@@ -126,7 +126,7 @@ def lost(read, before, timeout=3.0, stable_s=0.5):
     return settle(read, lambda v: v < before, timeout, stable_s)
 
 def confirmed(readings, stable_s=0.5):
-    """Pure: [(seconds, reading)] → did the reading (a bool, or a /state dict's `dead`) hold from the first one for `stable_s`? One reading never confirms anything."""
+    """Pure: did the reading hold from the first one for `stable_s`? One reading never confirms."""
     if not readings:
         return False
     t0 = readings[0][0]
@@ -138,7 +138,7 @@ def confirmed(readings, stable_s=0.5):
     return False
 
 def dead(state=None, readings=None):
-    """Is the body really dead? One reading can say so for a frame while a chunk loads or the player respawns, so a death is confirmed by readings that agree for a moment, never by a single one. With `readings` ([(s, state)]) this is the pure judgment (`confirmed`)."""
+    """Is the body really dead? Confirmed by readings that agree for a moment, never one (a chunk load or respawn lies for a frame)."""
     if readings is not None:
         return confirmed(readings)
     first = (state if state is not None else api.get("/state")).get("dead")
@@ -147,14 +147,14 @@ def dead(state=None, readings=None):
     return bool(settle(lambda: api.get("/state").get("dead"), bool, timeout=1.5, stable_s=0.5, soft=True))
 
 def body_state(ctx, region=None, **extra):
-    """The state dict a skill's `commands` are built from: where the body is, what it carries, what it may not touch, and the blocks around it. Read once, here; `commands` itself reads nothing."""
+    """The state `commands` are built from — body, bag, protected cells, blocks around; read once here."""
     s = api.get("/state")
     return dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
                  "protected": set(getattr(getattr(ctx, "policy", None), "protected", ()) or ()), "region": region},
                 **extra)
 
 def carried_total():
-    """Every item in the bag, counted: what a pickup or a loot raises even when it only tops up existing stacks."""
+    """Every item in the bag counted (a pickup that only tops up a stack still raises it)."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots)
 
 def head_underwater(s=None):
@@ -183,7 +183,7 @@ def spot_region(state, reach=4):
     return Region((fx - reach, fy - 3, fz - reach), (fx + reach, fy + 4, fz + reach))
 
 def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5):
-    """Pure over `region` (anything with name/solid/hazard) and `state` (/state): air cells with a solid floor within reach, clear of the body, best first — same height as us, open above (not a wall nook or under a roof), about two blocks away. Callers read the world: `free_spots(spot_region(s, reach), s, ...)`."""
+    """Pure: air cells with a solid floor in reach, clear of the body, best first (same height, open above, ~2 away)."""
     s = state
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
     scored = []

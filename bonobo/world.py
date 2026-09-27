@@ -140,7 +140,7 @@ def _per_block_ok():
     return _PER_BLOCK[0]
 
 def nearest(kinds, feet, dimension, radius=48, union=()):
-    """Blocks to the nearest of `kinds` in sight, or None — for estimates (the cost model), which never search the world themselves."""
+    """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves."""
 
     names = [bare(k) for k in kinds]
     key = (tuple(feet), dimension)
@@ -283,7 +283,7 @@ def ripe_cells(region):
     return cells_with(region, "wheat", "age", "7")
 
 def ripe_near(feet, radius=32):
-    """Ripe wheat cells within `radius` of `feet` (one /find, then the block states read): a plot already grown is harvested before a new one is sown (cost.ripe)."""
+    """Ripe wheat cells within `radius` of `feet` (one /find, then block states): reaped before a new plot is sown."""
 
     hits = find(["wheat"], radius=radius, limit=64) or []
     if not hits or feet is None:

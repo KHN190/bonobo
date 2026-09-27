@@ -28,7 +28,7 @@ def standable(region, p):
             and not region.solid(p) and not region.hazard(p) and not region.solid(head) and not region.hazard(head))
 
 def clear_line(region, eye, target_cell, target_point, margin=0.2):
-    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0.1 block, with a margin for aim error)."""
+    """Pure: nothing solid between the eye and a point in `target_cell` (sampled every 0.1 block, with an aim margin)."""
 
     steps = max(1, int(math.dist(eye, target_point) / 0.1))
     target = tuple(target_cell)
@@ -52,12 +52,12 @@ def lava_within(region, p, r):
     return False
 
 def surface_aim(cell):
-    """Pure: where to point a bucket at a source block — just under its top face, so the ray comes down onto the surface instead of crossing neighbouring (flowing) water on the way in."""
+    """Pure: aim just under a source's top face, so the ray comes down onto it rather than through flowing water."""
 
     return cell[0] + 0.5, cell[1] + 0.95, cell[2] + 0.5
 
 def fill_spot(region, here, fluid="water", reach=REACH):
-    """Pure: (stand, source) to fill a bucket from — a dry standable cell whose eye is within reach of a source block's top face, never below its surface (and, for lava, never within 2 blocks of lava itself)."""
+    """Pure: (stand, source) to fill a bucket from: a dry cell whose eye reaches the source's top, never below its surface (lava: 2 away)."""
 
     best = None
     sources = [p for p in region.blocks if is_source(region, p, fluid)]
@@ -94,7 +94,7 @@ def use_task(item, aim, on_block):
     return {"type": "use_item", "item": item, "x": aim[0], "y": aim[1], "z": aim[2], "onBlock": on_block}
 
 def light_commands(state, args):
-    """Pure: the chain that lights the frame at `origin` — flint and steel on the inner bottom obsidian (the second attempt one block further in), then half a second for the portal blocks to appear."""
+    """Pure: flint and steel on the inner bottom obsidian (then one block further in), then half a second for the portal."""
 
     origin, turns, attempt = args
     if not state["inv"].count("minecraft:flint_and_steel"):
@@ -141,7 +141,7 @@ def fill_water_bucket(ctx):
     raise NotAvailable("no still water with a clear line of sight within 48 blocks")
 
 def cast_frame_plan(bp, origin, turns, solid):
-    """Pure: [(cell, mould)] — the frame's obsidian cells bottom-up, each with the mould cells to fill first: every neighbour a lava source would run into (the four sides and below) that `solid(cell)` says is open."""
+    """Pure: [(cell, mould)] bottom-up: each obsidian cell with the open neighbours a lava source would run into."""
 
     obs = [pos for pos, part, *_ in blueprints.placed(bp, origin, turns) if part.item == "minecraft:obsidian"]
     frame = set(pos for pos, *_ in blueprints.placed(bp, origin, turns))
@@ -159,7 +159,7 @@ def cast_frame_plan(bp, origin, turns, solid):
     return out
 
 def mould_to_break(bp, origin, turns, placed_mould):
-    """Pure: the mould blocks that must go again — inside the frame (the portal needs the air) or on a frame cell still to be cast (the lava goes there)."""
+    """Pure: mould blocks to break again: inside the frame, or on a frame cell still to be cast."""
 
     inside = set(blueprints.clear_cells(bp, origin, turns))
     frame = set(pos for pos, *_ in blueprints.placed(bp, origin, turns))

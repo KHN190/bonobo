@@ -72,7 +72,7 @@ def same(a, b):
             and all(isinstance(v, (int, float)) for v in pa + pb) and math.dist(pa, pb) <= SAME_R)
 
 def carry(want_of, answer, going, held, again=False):
-    """The one loop that carries out answers, for a threat and for a boss: while `going()`, post what `want_of()` answers — the same answer keeps the posted task running, a different one /stops it and posts its own."""
+    """The one loop carrying answers: while `going()`, the same answer keeps the posted task, a new one /stops it and posts its own."""
 
     while going():
         want = want_of()
@@ -217,7 +217,7 @@ def still_worth(choice, field_model, price, horizon):
 # ------------------------------------------------------------------------------------------------ the batches
 
 def batch(option, state):
-    """Pure: the command batch that carries out one answer, from a body state (`skillcore.body_state` plus `threats`, the rows being answered). [] when the answer cannot be carried out from here — then it is not an answer at all."""
+    """Pure: the batch that carries out one answer from a body state; [] when it cannot be carried out from here."""
 
     make = BATCH.get(option.kind)
     return list(make(option, state)) if make else []
@@ -240,7 +240,7 @@ def footwork(target, state):
     return FOOTWORK["burst" if mob.get("burst") else "ranged" if mob.get("ranged") else "melee"]
 
 def lure_spot(here, creeper, protected, blast):
-    """Pure: where to lead a creeper before fighting it — LURE_BLOCKS from here, away from our builds within `blast` of it (memory's protected cells, nav.avoid_cells' source), or None when none is that near: a blast by the house takes the house with it, so the fight starts away from it."""
+    """Pure: where to lead a creeper first — LURE_BLOCKS away from our builds within `blast` of it, or None when none is that near."""
 
     near = [c for c in protected if math.dist(c, creeper) <= blast]
     if not near:
@@ -313,7 +313,7 @@ def _reshape(option, state):
     return [{"type": "place", "item": item, "x": x + step[0], "y": y + i, "z": z + step[1]} for i in range(n)]
 
 def _bed_bomb(option, state):
-    """Into the bombing hole, detonate (use a bed already there, else place-and-use), back to cover: one window as one batch — a round trip is ~0."""
+    """Into the hole, detonate, back to cover: one window as one batch (a round trip is ~0.1 s of a short window)."""
 
     bed, item, stand, cover, placed = option.target
     bomb = ({"type": "use", "x": bed[0], "y": bed[1], "z": bed[2]} if placed
@@ -340,7 +340,7 @@ def lend(kind, make, region=None):
         REGION[kind] = region
 
 def engage(decision, s, ctx):
-    """Carry out one threat answer — an Option from perception or a Decision from the emergency; both name a `kind` and a `target`: its batch (`batch`) is POSTED, not awaited."""
+    """Carry out one threat answer: its batch is posted, not awaited."""
 
     from . import perception
     from .skillcore import body_state, feet

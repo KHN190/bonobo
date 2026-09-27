@@ -38,7 +38,7 @@ class Field:
         self.terrain = terrain or TERRAIN
 
     def slowdown(self, squeezes=False):
-        """How much longer anything takes over this ground than over a straight line: what the ground itself costs (learned per bucket) times what the blocks we placed cost."""
+        """How much longer anything takes over this ground than a straight line: learned per bucket times our placed blocks' cost."""
 
         return self.terrain.of(self.bucket) * self.delay_ratio(squeezes)
 
@@ -74,7 +74,7 @@ def bucket_of(state):
     return "open"
 
 def bucket_at(region, here, radius):
-    """Pure: the bucket of the ground around `here` (feet), read off the blocks: "enclosed" when every side of the feet and the head is solid and so is the cell above the head (a pod), "underground" when something solid is over the head within `radius` (a roof, a cave), else "open"."""
+    """Pure: the ground bucket at `here`: "enclosed" (walled and roofed), "underground" (solid overhead within `radius`) or "open"."""
 
     x, y, z = (int(math.floor(v)) for v in here)
     sides = [(x + dx, yy, z + dz) for yy in (y, y + 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))]

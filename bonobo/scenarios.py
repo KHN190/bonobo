@@ -297,7 +297,7 @@ LEG = 200        # nether.locate_stronghold's sideways leg between the two throw
 LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
 
 def _leg_box(start, stronghold):
-    """Pure: (x0, z0, x1, z1) around the leg the skill walks — perpendicular to the line to the stronghold, (-dz, dx) as the skill turns it — padded on every side."""
+    """Pure: (x0, z0, x1, z1) around the leg the skill walks, perpendicular to the line to the stronghold, padded."""
 
     x, z = start
     d = math.dist(stronghold, start) or 1.0
@@ -305,7 +305,7 @@ def _leg_box(start, stronghold):
     return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
 
 def _stronghold_leg(ctx):
-    """The walk between the throws on a flat stone plane at sky height, with speed: 200 blocks of real hills were most of a 60 s row."""
+    """The walk between throws on a flat stone plane at sky height (real hills were most of a 60 s row)."""
 
     real = locate_reply(LAST_FEEDBACK)
     if not real:
@@ -342,7 +342,7 @@ STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed 
 ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
 
 def _stronghold_piece(x, y, z):
-    """Commands for a corridor of stone bricks (3×3 inside) running 58 blocks east from the start, ending in a portal room with a ring of 12 empty frames, all sealed in stone: the search, the brick-following and the walk, without a /place structure and a 40-block dig down (most of the old 60 s)."""
+    """Commands for a sealed stone-brick corridor ending in a portal room with 12 empty frames, without a /place structure."""
 
     f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
     cx = x + ROOM_OFF
@@ -369,7 +369,7 @@ def _built_stronghold(ctx):
 PORTAL_ROOM_OK = []
 
 def _portal_room_run(ctx):
-    """Run the search and remember whether the skill itself succeeded: a run that raised "finished without reaching its goal" was recorded as PASS because the check only asked whether any frame stood within 48 blocks."""
+    """Run the search and note whether the skill itself succeeded (a frame in range is not success)."""
 
     from .end import find_portal_room
     PORTAL_ROOM_OK.clear()
@@ -441,7 +441,7 @@ def _wait_landed(ctx, seconds=10):
     return bool(s.get("onGround") or s.get("inWater") or s.get("dead"))
 
 def _snap_survival(ctx, seconds=20):
-    """Brain rounds until the body is back in the Overworld: leaving the Nether is an upkeep row now (low food, health or room → `nether.use_portal`), not an L0 rescue."""
+    """Brain rounds until the body is back in the Overworld (leaving the Nether is an upkeep row)."""
 
     from . import api
     t0 = time.time()
@@ -635,7 +635,7 @@ SCENARIOS["find_fortress_far"] = {
 }
 
 def _trek(dx, dz, dimension="minecraft:overworld"):
-    """Walk a straight-line distance over real terrain; the note gets seconds per 100 blocks (the main time sink: travel + goto were 47 % of 5.5 h of task time)."""
+    """Walk a straight-line distance over real terrain; note seconds per 100 blocks (travel was 47 % of task time)."""
 
     def run(ctx):
         from . import api, nav
@@ -717,7 +717,7 @@ for _name in ("fight_dragon", "find_fortress_far", "locate_stronghold", "trek_ov
               "trek_nether_25"):
     SCENARIOS[_name]["release"] = True       # minutes each: run by name before a live run, not in every round
 def _road_reuse(ctx):
-    """There, back, and there again over the same 150 blocks: the third trip must follow the remembered legs (roads.py) and take no longer than the first."""
+    """There, back, and there again over 150 blocks: the third trip must follow the remembered legs and be no slower than the first."""
 
     from . import api, nav
     s = api.get("/state")
@@ -754,7 +754,7 @@ SLICE = {}
 MAX_WAITS_WITH_QUEUE = 0
 
 def slice_report(lines, positions, target, idle_s, picks=None):
-    """Pure: loops (review.repeated over the brain's own log), longest idle, and how far the player moved away from `target` in total (walking the wrong way) — from the slice's log lines and (t, pos) samples."""
+    """Pure: loops, the longest idle, and the total walked away from `target`, from a slice's log lines and samples."""
 
     from . import review
     entries = []
@@ -773,19 +773,19 @@ def slice_report(lines, positions, target, idle_s, picks=None):
     return {"loops": loops, "idle_s": round(idle_s), "away_m": round(away), "waits": waits(picks or {})}
 
 def queue_finished(items):
-    """Pure: every task of a slice's queue has left the live states (done, failed or cancelled) — the slice's own work is over, whatever the brain would stock up on next."""
+    """Pure: every task of a slice's queue left the live states — the slice's own work is over."""
 
     from .tasks import LIVE
     return bool(items) and all(t["state"] not in LIVE for t in items)
 
 def tier_rows(rows, tier, named):
-    """Pure: the rows a tier selects for `--failed` / `--pending` — never acceptance (its own run); only `tier`'s rows when a tier was named on the command line (`named`) and it is not "all"."""
+    """Pure: the rows a tier selects for `--failed` / `--pending`: never acceptance; only `tier`'s when one was named."""
 
     return [n for n, r in rows.items() if r["tier"] != "acceptance"
             and (not named or tier == "all" or r["tier"] == tier)]
 
 def _slice(done, minutes, target=None, queue=(), max_idle=15):
-    """Run the whole cerebellum (brain.round) until done() or `minutes`, on a private task queue holding `queue` (goals, in order; empty = the brain prepares on its own)."""
+    """Run the whole cerebellum until done() or `minutes`, on a private task queue holding `queue`."""
 
     def run(ctx):
         from . import api, tasks
@@ -894,7 +894,7 @@ SCENARIOS["slice_start_tools"] = {
 }
 
 def _portal_beside_player(ctx):
-    """A lit portal three blocks east of wherever the player landed, remembered as built — the slice starts in the 'nether kit' milestone."""
+    """A lit portal three blocks east of the player, remembered as built."""
 
     from . import api
     s = api.get("/state")
@@ -964,7 +964,7 @@ SPEEDRUN_END_KIT = ["clear @p", "give @p stone_sword", "give @p stone_pickaxe", 
                     "give @p cobblestone 64", "give @p cooked_beef 16", "give @p water_bucket"]
 
 def _summon_perched_dragon(phase=6):
-    """After setup: a dragon standing ON the exit-portal pillar (its real top read from the world, not a guessed y — a dragon summoned in mid-air at y 70 never perched and the fight stood still)."""
+    """After setup: a dragon standing on the exit-portal pillar's real top (one summoned mid-air never perched)."""
 
     def before(ctx):
         from .end import find_pillar_top
@@ -1224,7 +1224,7 @@ def _no_block_suffix(lo, hi, suffix):
     return check
 
 def fed_as_needed(food_before, carried_before, food_after, carried_after):
-    """Pure: the eating filled the bar — every bite the gap called for was eaten (the food carried fell by exactly `bite_plan`'s bites) and the bar reached FULL_BAR − (the last bite's points − 1) or better."""
+    """Pure: the eating filled the bar — every bite called for eaten, and the bar within the last bite of FULL_BAR."""
 
     from .data import FULL_BAR, NUTRITION
     from .skills import bite_plan
@@ -1261,7 +1261,7 @@ def _all(*checks):
     return lambda api, inv: all(c(api, inv) for c in checks)
 
 def _named_all(named):
-    """`_all` over (check, why) pairs that says which one failed, once, in the log ("check: False — <why>"), with the order the bag showed things in (FIRST): a row whose own check fails must say which part."""
+    """`_all` over (check, why) pairs that logs which part failed, once."""
 
     def check(api, inv):
         for c, why in named:
@@ -1273,7 +1273,7 @@ def _named_all(named):
 
 # -- run wrappers: timing and expected failures -----------------------------------------------------------------
 def _expect_failure(name, run, pattern):
-    """An expected-failure row: the run must END (the budget still applies) with a failure whose message names the reason — not succeed, not fail for some other reason."""
+    """An expected-failure row: the run must end with a failure naming the reason — not succeed, not fail otherwise."""
 
     def go(ctx):
         from . import api
@@ -1306,7 +1306,7 @@ def _resume(name, run, resume, tries=4):
     return go
 
 def _progress_of(base):
-    """Pure: how this base's progress is counted — ("bag", token) by its products (`progress`, else `effect`), or ("walk", target) by the distance walked toward its target; None when neither is known."""
+    """Pure: how this base's progress counts — ("bag", token), ("walk", target), or None."""
 
     token = (base.get("progress") or base.get("effect") or (None,))[0]
     if token:
@@ -1316,7 +1316,7 @@ def _progress_of(base):
     return None
 
 def _on_progress(name, base, action, times=1):
-    """`before` hook: `action()` the moment the run has made progress — the k-th product in the bag, or k/(times+1) of the walk to the target — for k = 1."""
+    """`before` hook: `action()` the moment the run first makes progress."""
 
     how = _progress_of(base)
 
@@ -1386,7 +1386,7 @@ def walked_at_least(m):
     return done
 
 def _when(progress, act, limit_s=120):
-    """`before` hook: `act()` the first moment `progress()` holds — the one way a row changes the world mid-run (a summoned zombie, the clock set to night, a hunger): by progress, never by the clock."""
+    """`before` hook: `act()` the first moment `progress()` holds — the world changes by progress, never by the clock."""
 
     def hook(ctx):
         def watch():
@@ -1404,7 +1404,7 @@ def _when(progress, act, limit_s=120):
     return hook
 
 def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
-    """`before` hook: the interrupt lands the moment progress is first seen — `when` a progress predicate on the world (`gained_at_least`, `spent_at_least`, `placed_at_least`, `walked_at_least`), or a token with `n` (items gained)."""
+    """`before` hook: interrupt the moment progress is first seen (a progress predicate, or a token with `n`)."""
 
     progress = when if callable(when) else gained_at_least(when, n)
     return _when(progress, lambda: setattr(__import__("bonobo.api", fromlist=["INTERRUPT"]), "INTERRUPT", message))
@@ -1417,7 +1417,7 @@ def _unless_done(check, run):
     return go
 
 def _after_l0(name, run, resume, tries=4):
-    """Run; when an interruption stops it (L0 preempted for a hazard), let the brain's own rounds rescue the body — L0 goes first in every round — then resume by what is still missing."""
+    """Run; on an L0 interruption let the brain's rounds rescue the body, then resume by what is still missing."""
 
     def go(ctx):
         from . import api, hazard
@@ -1435,7 +1435,7 @@ def _after_l0(name, run, resume, tries=4):
     return go
 
 def _sprint_after(delay, ticks):
-    """`before` hook: `delay` s into the run, the game sprints `ticks` ahead (/tick sprint): a furnace, a night, a crop is waited out in a second instead of in real time."""
+    """`before` hook: `delay` s in, sprint the game `ticks` ahead so waits pass in a second."""
 
     def hook(ctx):
         def fire():
@@ -1506,7 +1506,7 @@ def _tp(dx=0, dy=0, dz=0):
     return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
 
 def _tree(x, z, wood="oak", height=5):
-    """One tree built block by block: the same trunk and crown every run (a generated feature is a random shape, and its log count decided rows by chance)."""
+    """One tree built block by block: the same shape every run (a generated tree's log count decided rows by chance)."""
 
     return [f"fill {_c(at(x - 2, height - 2, z - 2))} {_c(at(x + 2, height - 1, z + 2))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x - 1, height, z - 1))} {_c(at(x + 1, height, z + 1))} {wood}_leaves[persistent=true]",
@@ -1541,22 +1541,12 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
         out.append(f"fill {_c(at(x0, floor_y + 1, z0))} {_c(at(x1, water_top, z1))} water")
     return out
 
-# -- the bases: one skill, one job, one arena ---------------------------------------------------------------------
-# `skills` names what a row proves: an effect a skill provides (`@skill(provides=...)`, e.g. "item:log", "sleep") —
-# which survives skills being merged or renamed — or, for a skill that provides nothing, its registered name.
-# name → dict(skills, doc, setup, run, check, budget, needs (the goal as planner needs, for resume / goal-met),
-#             effect (token, n) for the at-success interrupt, progress: what counts as progress when it is not the effect)
-# How long a skill's own work should take here (seconds, measured from its run starting, the setup's waits
-# excluded); a row fails past TARGET_SLACK × this. From the speed-run targets: one tree, a small stone batch, one
-# craft sitting, one bite, surfacing.
-# A miss is its own named failure ("slow"), judged by the runner (`judge`, row["target_s"]), never folded into the
-# outcome check: a pickaxe made in 11 s read "skill returned … without the outcome". The craft base carries its
-# table, so its sitting includes placing it and taking it back (inferred from one trace: ~9-11 s).
+# the bases: one skill, one job; TARGET_S: seconds its own work should take here — past TARGET_SLACK × this fails as "slow"
 TARGET_S = {"chop": 10.0, "mine_stone": 8.0, "craft": 8.0, "eat": 2.0, "find_air": 5.0}   # eat: per BITE (eat_target_s)
 TARGET_SLACK = 1.5
 
 def eat_target_s(food, carried):
-    """Pure: an eat row's speed target — per bite × the bites the bar's gap takes from what is carried (skills.bites_to_full), with the slack."""
+    """Pure: an eat row's speed target: per bite × the bites the bar's gap takes, with slack."""
 
     from .skills import bites_to_full
     _item, bites = bites_to_full(food, carried)
@@ -1581,7 +1571,7 @@ def _timed(run):
     return go
 
 def _skill_within(name, seconds):
-    """The skill `name` itself (skill.LAST_S: from its own start, no planning, setup or walk to it) finished inside `seconds` — for rows whose run is the brain, where the run's own clock counts the plan too."""
+    """The skill `name` itself (skill.LAST_S, no planning or walk) finished inside `seconds`."""
 
     return lambda api, inv: __import__("bonobo.skill", fromlist=["LAST_S"]).LAST_S.get(name, 1e9) <= seconds
 
@@ -2193,7 +2183,7 @@ def _on_rim(top):
     return check
 
 def _surfaced(top, hold_s=2.0):
-    """Out of the water's grip: on the rim, or the air bar full with the head out of the water for `hold_s` (a single sample passed a body bobbing at the surface that went down again)."""
+    """Out of the water's grip: on the rim, or a full air bar with the head out for `hold_s`."""
 
     def check(api, inv):
         if _on_rim(top)(api, inv):
@@ -2292,7 +2282,7 @@ _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-
 RESOLVE_GAP, RESOLVE_HOLD_S, RESOLVE_HP_LOSS = 6.0, 5.0, 4.0
 
 def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESOLVE_HP_LOSS):
-    """The threat is over: every one of `kinds` dead, or all at least `gap` blocks off and not closing in for `hold_s` seconds (watched now) — and health within `hp_loss` of where the row began."""
+    """The threat is over: every `kinds` dead or `gap` off and not closing for `hold_s`, health within `hp_loss`."""
 
     def check(api, inv):
         from .world import feet
@@ -2506,7 +2496,7 @@ FARM_TICK_SPEED = 1000      # random ticks per chunk section: a sown crop ripens
 RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
 
 def _growing(run):
-    """The run with crops growing fast (`gamerule random_tick_speed`), put back to the bench's 0 however it ends — the plan's own plot ripens within the row, its planting and harvest still the plan's."""
+    """The run with fast crop ticks, reset to 0 however it ends: the plan's own plot ripens within the row."""
 
     def go(ctx):
         _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
@@ -2642,7 +2632,7 @@ def _log_lines():
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 
 def furnace_slots(reply):
-    """Pure: {slot: (item id, count)} from the game's answer to `data get block <pos> Items` ("… has the following block data: [{Slot: 0b, id: "minecraft:beef", count: 2}, …]")."""
+    """Pure: {slot: (item id, count)} from the game's `data get block <pos> Items` answer."""
 
     import re
     text = " ".join(reply)
@@ -2656,7 +2646,7 @@ def furnace_slots(reply):
     return out
 
 def _furnace_holds(items, radius=16):
-    """A furnace near holds one of `items` in its input or output slot, read from the world (the console's `data get block … Items`): what is in the furnace, not whether it is lit."""
+    """A furnace near holds one of `items` in input or output, read from the world."""
 
     from .world import find
     for h in find(["furnace"], radius=radius, limit=8):
@@ -2666,7 +2656,7 @@ def _furnace_holds(items, radius=16):
     return False
 
 def _first_times(ctx):
-    """`before` hook: watch the bag during the run and note when each token first shows more than the row began with — the order of the brain's decisions, read from the world, not from its log."""
+    """`before` hook: note when each token first rises above the row's start: the brain's decision order, read from the world."""
 
     FIRST.clear()
     t0 = time.time()
@@ -2729,7 +2719,7 @@ def _count(token, n):
     return lambda: _inv_now().count(token) - _base_count(token) >= n
 
 def _remove_table_when_placed(ctx):
-    """`before` hook: the moment the plan's crafting table stands in the world, take it away (the plan must repair that one step, not start over)."""
+    """`before` hook: remove the plan's crafting table the moment it stands (the plan must repair one step, not restart)."""
 
     def watch():
         from .world import find
@@ -2861,7 +2851,7 @@ DRAIN_FAST, DRAIN_SLOW = 255, 30     # hunger amplifiers: ~6 points a second; ~0
 DRAIN_SLOW_FROM = 4                  # the last points above the stop are taken slowly
 
 def drain_step(food, saturation, level):
-    """Pure: the drain's next move from /state — "fast" while saturation is left or food is more than DRAIN_SLOW_FROM above `level` + 1, "slow" for the last points, "stop" at `level` + 1 or below (clearing the effect leaves at most one point of stored exhaustion)."""
+    """Pure: the drain's next move — "fast" with saturation or a high bar, "slow" for the last points, "stop" at `level` + 1."""
 
     if food <= level + 1:
         return "stop"
@@ -2870,7 +2860,7 @@ def drain_step(food, saturation, level):
     return "slow"
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
-    """`before` hook: hunger fast while saturation is left and the bar is high, slow for its last points, cleared at `level` + 1 (drain_step), read from /state every 50 ms."""
+    """`before` hook: drain hunger to `level` + 1 (drain_step), read from /state every 50 ms."""
 
     def hook(ctx):
         from . import api
@@ -2984,7 +2974,7 @@ def _bag_rule(cell):
 FINDS = {"diamond": 0}
 
 def _count_finds(ctx):
-    """`before` hook: count the world scans (/find asked for diamond ore) during the row, at the one door every module's `find` goes through (api.get)."""
+    """`before` hook: count /find scans for diamond ore during the row, at api.get."""
 
     from . import api
     FINDS["diamond"] = 0
@@ -3039,12 +3029,12 @@ def _cell_before(cell):
     return hooks
 
 def _cell_setup_hooks(cell):
-    """`before` hooks that make the row's world and so run before `_start` takes the base: a bag filled after the base was read made "dirt < base" (junk thrown) impossible — base dirt 0 (tidy_then_task__junk_full)."""
+    """`before` hooks that make the row's world, run before `_start` reads the base."""
 
     return [_fill_bag(*BAG_FILL[cell["bag"]])] if BAG_FILL[cell["bag"]] else []
 
 def _grid_cells():
-    """Cells of every family, one row per distinct cell: a cell two families share (the base, dusk, underground) is one scenario whose check is every family's expectation and whose queue is every family's goals, in order."""
+    """Cells of every family, one row per distinct cell: a shared cell checks every family's expectation."""
 
     cells = {}
     for fam, (grid, queue, rule) in BRAIN_FAMILIES.items():
@@ -3274,7 +3264,7 @@ WALK = {}
 BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 
 def ate_on_the_way(frames):
-    """Pure, over trace frames ({"t", "x", "food", "task"}, the runner's `_trace` shape): the food bar rose during the walk; no frame ran an "eat" task (it was the autoeat, not a stop); and over the bite before the rise, x grew in every second (the walk went on while chewing)."""
+    """Pure over trace frames: food rose during the walk, no frame ran "eat", and x grew through the bite (autoeat while walking)."""
 
     fed = [f for f in frames if f.get("food") is not None]
     if not fed or any((f.get("task") or {}).get("type") == "eat" for f in frames):
@@ -3420,7 +3410,7 @@ def _creeper_row(name, extra_setup=(), before=(), check=()):
     }
 
 def _home_is_ours(ctx):
-    """`before` hook: the bed and the furnace are a site of ours (memory.protected_cells) and the furnace a station — what the fight has to keep out of the blast."""
+    """`before` hook: the bed and furnace are a site of ours and the furnace a station — to be kept out of the blast."""
 
     blocks = {f"{c[0]},{c[1]},{c[2]}": "red_bed" for c in HOME_BED}
     blocks[f"{HOME_FURNACE[0]},{HOME_FURNACE[1]},{HOME_FURNACE[2]}"] = "furnace"
@@ -3578,8 +3568,7 @@ def tier_of(name, row):
 for _name, _row_ in SCENARIOS.items():
     _row_["tier"] = tier_of(_name, _row_)
     if _row_["tier"] != "acceptance" and _row_["budget"] > runner.ROW_LIMIT_S:
-        # The runner stops every row at runner.ROW_LIMIT_S (the user's hard limit per row). A row whose job was not
-        # cut down to fit keeps its work and meets the limit: it is reported TIMEOUT, the honest answer, until its setup is squeezed.
+        # every row stops at runner.ROW_LIMIT_S; one that does not fit reports TIMEOUT until its setup is squeezed
         _row_["budget"] = runner.ROW_LIMIT_S
 
 def proves(entry, registry):
@@ -3634,9 +3623,7 @@ def skill_spans(registry, root):
         out[name] = (path, first, first + len(lines) - 1)
     return out
 
-# -- the kit rule, applied (bench.core.BEST_TOOLS / weapon_for): rows whose work uses a tool, by the tools it uses.
-# Rows that test getting a tool (tool_tier, wrong_tool, craft_stone_tools, hand digs, fight_before_upkeep), the sweeps
-# whose weapon is the measured dimension, and brain cells whose input is tool state are not in here. One table, one pass.
+# the kit rule: rows whose work uses a tool, by the tools used (rows testing tool state itself are not here)
 KIT_JOBS = {
     ("axe",): [
         "brain__night", "brain__tight", "chest_or_tree", "chop__base", "chop__lava_edge", "chop__night",

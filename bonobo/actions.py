@@ -369,7 +369,7 @@ def _fill(cost):
             for token, container in produced("fill")]
 
 def _trade(cost):
-    """Sold to someone who buys (ui.trade): what the offer asks is the trader's to name, the one requirement is standing at one."""
+    """Sold to someone who buys: the trader names the price; the one requirement is standing at one."""
 
     return [Action(f"trade:{token}", {token: 1}, work_s(cost, "trade", token),
                    requires={at(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1}, tag=("trade", token, types))

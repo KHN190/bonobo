@@ -23,7 +23,7 @@ DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 
 STEP_CALL = None
 
 def step_call(step):
-    """(needs, speed) of what carries out `step` (skill.step_call), the skill modules loaded first; ({}, {}) when no skill is wired in."""
+    """(needs, speed) of what carries out `step`, skill modules loaded first; ({}, {}) when none is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else ({}, {})
@@ -145,7 +145,7 @@ def food_points(inv):
     return sum(inv.count(mid(f)) * NUTRITION[f] for f in FOOD)
 
 def nether_kit_missing(inv):
-    """Pure: what a Nether trip still lacks (empty = ready): cooked food, building blocks for bridges/shelter, a gold helmet for piglins, bag room for the loot."""
+    """Pure: what a Nether trip still lacks (empty = ready): cooked food, blocks, a gold helmet, bag room."""
 
     missing = []
     if food_count(inv) < KIT_FOOD:
@@ -216,7 +216,7 @@ class Produces:
         return list(self._rows())
 
 def _table(kind, table, make, skip=()):
-    """A producing table read live from `table`; `skip` keeps an entry out of `source` (a planner never smelts charcoal for a coal need) while the solver still gets its column."""
+    """A producing table read live; `skip` keeps an entry out of `source` while the solver still gets its column."""
 
     return Produces(kind, lambda t: make(t, table[t]) if t in table and t not in skip else None,
                     lambda: [t for t in table if t not in skip], lambda: list(table.items()))
@@ -256,7 +256,7 @@ def produced(kind):
     return [row for g in producers() if g.kind == kind for row in g.rows()]
 
 def source(token):
-    """How a token is produced: ('craft', pattern, out) | ('smelt', input) | ('mine', blocks, tier) | ('hunt', types) | ('gather',) | ('fill', container) | ('farm', seeds, per plot) | ('trade', types) | ('take', blocks) | None — the first by rank of the registered skills that give it."""
+    """How a token is produced (a source tuple by kind), the first by rank of the registered skills that give it, or None."""
 
     token = ALIASES.get(token, token)
     item = mid(token)
@@ -291,7 +291,7 @@ def needs_rows(needs):
             for k, n in needs.items()]
 
 def have_remainder(inv, rows, pending=None):
-    """Pure: what of `rows` ([token, n] / ["tool", kind, tier]) the bag does not hold — {token: missing n, "tool:<kind>": tier}, {} when all is held."""
+    """Pure: what of `rows` the bag does not hold — {token: missing, "tool:<kind>": tier}, {} when all held."""
 
     pending = pending or {}
     items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
@@ -302,7 +302,7 @@ def have_remainder(inv, rows, pending=None):
     return out
 
 def blocks_remainder(want, name_at):
-    """Pure: the cells of `want` ({pos: block}) the world does not show (`name_at(pos)` → the block there) — {pos: block}; a structure's remainder, grown back when a block is taken away."""
+    """Pure: the cells of `want` the world does not show; grows back when a block is taken away."""
 
     return {p: b for p, b in want.items() if bare(name_at(p) or "air") != bare(b)}
 

@@ -199,7 +199,7 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
     return best
 
 def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None):
-    """Pure: (spot, slack) — where to stand, by the rule "first arrival must be later than getting there": each option's slack is `min_tti - travel_time - margin`, the best one wins, distance from the nearest hazard breaks ties."""
+    """Pure: (spot, slack): each option's slack is `min_tti - travel_time - margin`; best wins, distance from hazards breaks ties."""
 
     frame = {"player": {"pos": {"x": here[0], "y": here[1], "z": here[2]},
                         "vel": {"x": 0, "y": 0, "z": 0}, "hp": 20}}

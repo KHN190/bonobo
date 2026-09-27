@@ -15,7 +15,7 @@ def row(centre, reach, velocity, kind, aware=1.0, dps=None):
             float(MOBS.get(kind, {}).get("dps", 0.0) if dps is None else dps))
 
 def follows_to(spot, hazard):
-    """Pure: would this threat still be after us at `spot` — inside its notice radius (it walks after us from there), or, ranged, inside its reach (it shoots from where it stands)."""
+    """Pure: would this threat still chase us at `spot` — inside its notice radius, or, ranged, inside its reach."""
 
     centre, reach, _vel, kind = hazard[:4]
     mob = MOBS.get(kind, {})
@@ -54,7 +54,7 @@ def reaches_share(shape, mob):
     return max(0.0, 1.0 - n / float(ENGAGE["melee_stop_blocks"]))
 
 def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None):
-    """Health per second expected at `here` over the horizon: each threat's damage rate, weighted by the share of the horizon during which it can actually reach us, and by how much of it has noticed us."""
+    """Health per second expected at `here`: each threat's rate, weighted by its reachable share of the horizon and its notice."""
 
     horizon = horizon_s(horizon)
     total, hardest = 0.0, 0.0
@@ -72,7 +72,7 @@ def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None
     return min(total, incoming_cap(hardest)) * (1.0 - prot)
 
 def incoming_cap(hardest_hit):
-    """The most health per second anything can take off us: after a hit the game ignores damage for `hurt_immunity_s`, so a crowd does not add up — three zombies land what one zombie's hit allows every 10 ticks."""
+    """The most health per second anything can take: hurt immunity means a crowd lands one hit per `hurt_immunity_s`."""
 
     return float(hardest_hit) / float(PLAYER["hurt_immunity_s"]) if hardest_hit > 0 else float("inf")
 
@@ -114,7 +114,7 @@ def _row_dps(row):
     return float(row[5]) if len(row) > 5 and row[5] is not None else float(MOBS[row[3]]["dps"])
 
 def keepoff_cost(here, hazard, sword, prot, speed=None):
-    """(seconds, hp lost) to kill a creeper hit-and-back: step in, one swing, back out past its blast (`keep_out`) before the fuse runs, again until it is dead (jar AttackTask footwork "keepoff")."""
+    """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat."""
 
     speed = float(PLAYER["speed"]) if speed is None else float(speed)
     mob = MOBS[hazard[3]]
@@ -158,6 +158,6 @@ def saved_s(price, before, after, cost_s=0.0):
     return price(before) - price(after) - float(cost_s)
 
 def eat_due(food, hp, hungry_below, max_hp, full_bar):
-    """Pure: eat now — hungry (food below `hungry_below`), or hurt with the bar short of full: vanilla heals only at food ≥ 18, and fast only at a full bar (food 15, hp 10 stayed at 10)."""
+    """Pure: eat now — hungry, or hurt short of a full bar (vanilla heals only at food ≥ 18, fast only when full)."""
 
     return food < hungry_below or (hp < max_hp and food < full_bar)

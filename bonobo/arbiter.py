@@ -149,7 +149,7 @@ def gate(intents, facts=None):
     return work or live
 
 def note_pick(picks, intent):
-    """Count the chosen intent by its kind (a Counter the brain keeps): how many rounds went to waiting is read here, not from log text."""
+    """Count the chosen intent by kind: rounds spent waiting are read here, not from log text."""
 
     if intent is not None:
         picks[intent.kind or intent.layer] += 1
@@ -164,7 +164,7 @@ def plan_rank(kind):
     return PLAN_ORDER.index(kind) if kind in PLAN_ORDER else len(PLAN_ORDER)
 
 def first_live(groups, facts_of):
-    """Pure given its callables: the proposals of the first group, in order, that still has a useful one after the gate (`gate`, with `facts_of(intents)` — the round's facts for that group's keys)."""
+    """Pure: the proposals of the first group that still has one after the gate."""
 
     for ask in groups:
         intents = ask()
@@ -252,7 +252,7 @@ class Motion:
         return getattr(self._local, "current", None)
 
     def carry(self, intent, action):
-        """Run `action` on THIS thread as `intent`: a held decision handed to a worker thread keeps the ownership (`owns`) of the thread that took it."""
+        """Run `action` on THIS thread as `intent`: a worker thread keeps the ownership of the one that took it."""
 
         prev = getattr(self._local, "current", None)
         self._local.current = intent

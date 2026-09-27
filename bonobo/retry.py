@@ -45,7 +45,7 @@ def cause_key(cause, place):
     return f"{cause}@{place}"
 
 class Verdict:
-    """What a failure means: how often this (task, cause) has failed, how long the cause cools here, and whether the task is out of sources and must be reported upward."""
+    """What a failure means: its count for (task, cause), how long the cause cools here, and whether to report upward."""
 
     def __init__(self, n, wait, escalate, worth_logging):
         self.n, self.wait, self.escalate, self.worth_logging = n, wait, escalate, worth_logging

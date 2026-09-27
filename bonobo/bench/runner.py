@@ -221,7 +221,7 @@ def jar_matches_source():
 _CODE = {}
 
 def code_for(name):
-    """Readiness key: the skill's Python modules, the scenario's own layout (a broken setup — fences covering the pen — must not keep counting against the skill after it is fixed) and the Java sources it uses."""
+    """Readiness key: the skill's Python modules, the scenario's own layout and the Java sources it uses."""
 
     if name not in _CODE:
         _CODE[name] = _code_for(name)
@@ -302,7 +302,7 @@ def verdict_of(oks, chance=True):
     return "pass" if sum(oks) >= 2 else "fail"
 
 def cached_timeout(table, name, code):
-    """Pure: the note of a TIMEOUT that sticks to this key (`code_for`: the row's setup, its skill's Python and the mod's identity), else None."""
+    """Pure: the note of a TIMEOUT that sticks to this key, else None."""
 
     counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
     if counted and counted[-1].get("note", "").startswith(TIMEOUT):
@@ -353,7 +353,7 @@ def failed_last(table):
     return sorted(out)
 
 def pending(table, codes):
-    """Pure: the rows still to run — no counted result under their current key (never run, or the setup, the skill's code or the mod changed since), or their latest counted run under that key failed (FAIL or TIMEOUT)."""
+    """Pure: rows with no counted result under their current key, or whose latest counted run under it failed."""
 
     out = []
     for name, code in codes.items():
@@ -363,7 +363,7 @@ def pending(table, codes):
     return sorted(out)
 
 def migrate(table, current, key_then):
-    """Pure: carry old verdicts over to the current key — the rows whose key, recomputed in the current format on the code of the time (`key_then(name, t)` → the key's code part, or None when that code cannot say), equals the current one and whose mod part is the current mod's."""
+    """Pure: carry old verdicts over to rows whose key, recomputed on the code of the time, equals the current one."""
 
     moved = []
     for name, codes in table.items():

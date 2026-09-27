@@ -22,7 +22,7 @@ def _planner(inv, needs, cost, pending=None):
 register("planner", _planner)
 
 def _solve(inv, needs, cost, pending=None):
-    """The column solver (solve.py over actions.table): slower, and it can see further — where to go for a thing, what to take that is already made, which half-done work to finish."""
+    """The column solver: slower, sees further — where to go, what to take ready-made, which half-done work to finish."""
 
     from . import actions as act
     from .solve import Unsolvable, solve
@@ -90,7 +90,7 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
     return steps, extra
 
 def effect_detail(kind, token, count):
-    """What an effect step's skill reads from `detail`, filled from the tables where the tables know it: what a hunt chases, what a mine breaks, what a take breaks, how many times a craft runs."""
+    """What an effect step's skill reads from `detail`, filled where the tables know it."""
 
     from . import knowledge
     from .data import mid
@@ -165,7 +165,7 @@ SOURCES = {
 }
 
 def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=None):
-    """The cheapest way to `key` × amount: `default()` (the solver's steps; raises Unplannable) or each SOURCES[key] source's runs plus the plan for what they need."""
+    """The cheapest way to `key` × amount: the solver's steps, or a SOURCES[key] source's runs plus their needs."""
 
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     why = []
@@ -240,7 +240,7 @@ def from_sources(inv, needs, cost, solver=None, pending=None):
     return steps, extra
 
 def where_it_lives(steps, cost):
-    """Put the way to where a thing lives before the step that gets it: blaze rods come from a Nether fortress, so "have blaze_rod" is the portal, the fortress, then collecting (fighting is fight_loop's)."""
+    """Put the way to where a thing lives before the step that gets it (blaze rods: portal, fortress, then collect)."""
 
     snap, mem = getattr(cost, "snap", None), getattr(cost, "mem", None)
     out = []
@@ -319,7 +319,7 @@ def _decompose(inv, goal, cost, solver, pending):
     raise Unplannable(f"no way to decompose a {template!r} goal")
 
 def _prepared(inv, step, cost, solver, pending):
-    """The steps that get what `step`'s skill needs held for its call (knowledge.step_call → needs_of: the bed of a sleep, the pickaxe of a mine), then the step — what planner.before does for the planner's own steps."""
+    """The steps that get `step`'s skill needs held for its call, then the step (planner.before's rule for decompose's steps)."""
 
     needs, _speed = knowledge.step_call(step)
     return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]

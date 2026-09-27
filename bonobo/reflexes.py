@@ -28,7 +28,7 @@ FUELS = ("coal", "charcoal", "planks", "log")
 STATION_R = 8          # a furnace of ours this near counts as one to cook in
 
 def can_cook(inv, furnace_near):
-    """Pure: raw meat carried can be cooked from here — fuel in the bag, and a furnace carried, one near, or the eight cobblestone to make one."""
+    """Pure: raw meat can be cooked from here — fuel, and a furnace carried, near, or eight cobblestone for one."""
 
     fuel = any(inv.count(f) for f in FUELS)
     furnace = inv.count("minecraft:furnace") or furnace_near or inv.count("minecraft:cobblestone") >= 8
@@ -102,7 +102,7 @@ class View(dict):
         return value
 
 def due(view, ready=lambda name: True, active=frozenset()):
-    """[(seq, name)] of the reflexes that fire, in table order, skipping those cooling (`ready`): the trigger holds, or the row is `active` (it fired last round) and has an exit that does not hold yet."""
+    """[(seq, name)] of reflexes that fire in table order, skipping cooling ones: the trigger holds, or it is active with its exit unmet."""
 
     return [(i, name) for i, (name, trigger, _act) in enumerate(TABLE)
             if ready(name) and (trigger(view) or (name in active and name in EXIT and not EXIT[name](view)))]
@@ -121,7 +121,7 @@ def nether_retreat(snap):
     return None
 
 def ground(reads=None):
-    """The two readings of the ground under the body both needs and reflexes ask (lazy, each read once when first asked; `reads` stands in offline): enclosed (skills.enclosed → terrain.is_enclosed) and soft ground to dig in by hand (skills.soft_ground_here → terrain.soft_below)."""
+    """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
 
     return _once(reads, "enclosed", skills.enclosed), _once(reads, "soft_ground", skills.soft_ground_here)
 
@@ -142,7 +142,7 @@ SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skil
                "hut": lambda ctx: skills.build_shelter(ctx)}
 
 class Maintain:
-    """The reflex table's executor, and what it remembers between rounds: where the body has been (stuck), where the last path failure was going (blocked)."""
+    """The reflex table's executor, remembering where the body has been (stuck) and where the last path failed (blocked)."""
 
     def __init__(self, brain):
         self.brain = brain
@@ -167,7 +167,7 @@ class Maintain:
             self.blocked = {"t": time.time(), "place": place, "pos": getattr(err, "pos", None)}
 
     def proposals(self, snap, ctx, reads=None):
-        """[(seq, name, run)] of every reflex that fires (TABLE, `seq` its place there): each trigger reads this round's view of the snapshot, made here — nothing another step of the round left behind, so the order in which needs and reflexes are asked makes no difference."""
+        """[(seq, name, run)] of every reflex that fires; triggers read this round's snapshot only, so asking order does not matter."""
 
         from . import needs
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
@@ -228,7 +228,7 @@ class Maintain:
 
     # -- night
     def shelter(self, snap, ctx, night_way):
-        """Night, exposed, no bed to sleep in, the parts in the bag: the way `overnight` priced cheapest from this bag and this ground (dig in — with a pickaxe, or by hand in dirt or sand — wall in, a hut)."""
+        """Night, exposed, no bed, the parts in the bag: the way `overnight` priced cheapest here."""
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
@@ -266,7 +266,7 @@ class Maintain:
             jobs.collect(ctx, job)
 
     def empty_bag(self, snap, ctx):
-        """One decision (bag.empty_how over bag.let_go's pricing): deposit into a chest that already exists when a stack is worth the walk, else drop the cheapest — never a chest crafted for it (no chest and no planks cooled the row for 180 s while dirt could simply be thrown)."""
+        """Deposit into an existing chest when a stack is worth the walk, else drop the cheapest — never craft a chest for it."""
 
         from .bag import FREE_SLOTS_TARGET, empty_how
         need = max(1, snap.inv.used_slots() - (36 - FREE_SLOTS_TARGET))
@@ -275,7 +275,7 @@ class Maintain:
         return skills.deposit(ctx, local_only=snap.night) if how == "deposit" else skills.tidy_inventory(ctx)
 
     def chest_seconds(self, snap, ctx):
-        """Seconds to a chest that already exists (one in reach, or a remembered site's; none at night beyond reach), or None."""
+        """Seconds to an existing chest (in reach, or a remembered site's; at night only in reach), or None."""
 
         from .data import WALK_BLOCKS_PER_TICK
         if find(["chest", "barrel"], radius=6, limit=1):

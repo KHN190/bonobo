@@ -27,7 +27,7 @@ from .building import _mod_at_least, _open_container, _empty_container_slot, _ma
 # ---------------------------------------------------------------- placing things near us
 
 def make_room(ctx):
-    """Boxed in a 1-wide shaft with nowhere to put a station: dig out the side cell at head height next to us (its floor stays), so there is a supported free spot."""
+    """Boxed in a 1-wide shaft: dig the side cell at head height so there is a free spot for a station."""
 
     s = api.get("/state")
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
@@ -86,14 +86,14 @@ def takes_back(block, has_pickaxe):
     return has_pickaxe or bare(block).endswith(HAND_MINEABLE_SUFFIX)
 
 def take_back_verdict(gained, standing):
-    """Pure: what became of a placed station after picking it up — "taken" (the bag gained it), "left" (still standing: the break did not happen; it stays a station where it is), "lost" (gone from the world and not in the bag: the drop was not picked up)."""
+    """Pure: a picked-up station was "taken" (bag gained it), "left" (still standing) or "lost" (gone, not in the bag)."""
 
     if gained:
         return "taken"
     return "left" if standing else "lost"
 
 def _standing(block, pos, tries=10):
-    """The world shows `block` at `pos` (read again a few ticks apart: the client sees a placement a moment after the server made it — "could not open crafting_table" right after placing it)."""
+    """The world shows `block` at `pos`, read again a few ticks apart (the client sees a placement late)."""
 
     for i in range(tries):
         if any((b["x"], b["y"], b["z"]) == tuple(pos) for b in find([block], radius=6, limit=20)):
@@ -246,7 +246,7 @@ def sittings(steps):
     return out
 
 def _plan_start(recipes):
-    """`start` of both craft skills: the plan (raises on a missing input before anything moves) and the counts the items it makes start from."""
+    """`start` of both craft skills: the plan (raises on a missing input before anything moves) and the starting counts."""
 
     inv = Inventory()
     _, _, delta = craft_plan(recipes, inv)
@@ -259,7 +259,7 @@ def _plan_made(c):
 CLOSE = {"type": "_close"}     # a split point in a chain: the screen is closed between two sends (no close task)
 
 def run_split(tasks, **kw):
-    """Run a `*_commands` chain: every stretch between CLOSE markers in ONE `run_chain`, the screen closed between them — closed-loop only where the game needs its screen shut (breaking a block with a table's screen open)."""
+    """Run a `*_commands` chain: each stretch between CLOSE markers in one run_chain, the screen closed between them."""
 
     results, part = [], []
     for t in list(tasks) + [None]:
@@ -277,7 +277,7 @@ def run_split(tasks, **kw):
     return results
 
 def craft_commands(state, args):
-    """Pure: the whole crafting session as one chain — per sitting (`sittings`): the 2×2 crafts in the bag; the 3×3 ones at the table near (`state["table"]`) or at the one placed on `state["spot"]` (carried, or made by an earlier sitting), opened once, then taken back (broken by the best tool the bag holds — the jar picks it) when it was placed here."""
+    """Pure: the crafting session as one chain per sitting — 2×2 in the bag, 3×3 at a table near or placed and taken back."""
 
     (recipes,) = args
     inv = state["inv"]
@@ -301,7 +301,7 @@ def craft_commands(state, args):
     return out
 
 def _sitting(ctx, recipes):
-    """Craft `recipes` [(token, times)] in ONE sitting: the table opened (or placed) once, each recipe made in turn, the table closed (or taken back) once."""
+    """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once."""
 
     inv = Inventory()
     if inv.used_slots() >= 36:
@@ -412,7 +412,7 @@ FURNACE_REACH = 16          # every furnace this close shares a batch
 ITEMS_PER_FUEL = {"coal": 8, "charcoal": 8, "planks": 1.5, "log": 1.5}
 
 def split_smelt(furnaces, n, fuel, per):
-    """Pure: [(pos, items, fuel items)] — `n` items spread evenly over the free furnaces ([(pos, "free"|"busy")]), each given the fuel its share burns (`per` items a fuel item), as many furnaces as the fuel can light."""
+    """Pure: [(pos, items, fuel)] — `n` items spread over free furnaces, each fuelled for its share, as many as the fuel lights."""
 
     free = [pos for pos, state in furnaces if state == "free"]
     if not free:
@@ -428,7 +428,7 @@ def split_smelt(furnaces, n, fuel, per):
     return [(free[0], total, math.ceil(total / per))]
 
 def furnace_takes(slots, input_ids, output):
-    """Pure: an open furnace's slots ({slot: item id}) take this batch — its input empty or the same input, its output empty or the same output."""
+    """Pure: an open furnace takes this batch — input and output empty or the same item."""
 
     inp, out = slots.get(0, "minecraft:air"), slots.get(2, "minecraft:air")
     return inp in ("minecraft:air", *input_ids) and out in ("minecraft:air", output)
@@ -437,7 +437,7 @@ def furnace_takes(slots, input_ids, output):
        budget=180, stall=40,
        provides={"smelt": lambda ctx, s: _smelt_args(s) if s.count >= ASYNC_SMELT_MIN else None})
 def start_smelt_job(ctx, output, input_token, count, fuel):
-    """Multitasking: spread the batch over every free furnace within FURNACE_REACH (placing the carried one when there is none), fuel each for its share (`split_smelt`), and walk away."""
+    """Spread the batch over the free furnaces within FURNACE_REACH (placing one if none), fuel each, and walk away."""
 
     from .building import _open_container
     count = min(64, count)
@@ -511,7 +511,7 @@ def _smelter_for(ctx, s):
 TICKS_PER_ITEM = 200        # a furnace smelts one item in 200 game ticks (10 s at 20 tps)
 
 def after_take(job, got, still_cooking, now, tick=None):
-    """Pure: what memory knows of a furnace job after taking `got` of its output with `still_cooking` items left in its input — None when the job is over (nothing left cooking), else the fields to update: what it still holds and when it is next ready."""
+    """Pure: a furnace job after taking `got` with `still_cooking` left — None when over, else the fields to update."""
 
     if not still_cooking:
         return None
@@ -571,7 +571,7 @@ def shield_wanted_in_offhand():
     return inv.offhand() != "minecraft:shield" and inv.usable("minecraft:shield") > 0
 
 def shield_to_offhand():
-    """Swap the carried shield into the offhand (vanilla F-swap in the inventory screen); whatever was there (a torch someone parked) goes back to the shield's slot, where tasks can use it."""
+    """Swap the shield into the offhand (F-swap); whatever was there goes back to the shield's slot."""
 
     close_screen()
     inv = Inventory()
@@ -637,7 +637,7 @@ def seek_hits(blocks, found, radius, blocked, protected):
     raise NotAvailable(f"no {blocks[0]} within {SEEK_RADII[-1]} blocks{why}")
 
 def noted_hits(notes, blocks, blocked, protected):
-    """Pure: the remembered cells of `blocks` (memory's seen notes) a mining pass may go straight to — the same shape `/find` answers with, minus bans and our own builds."""
+    """Pure: remembered cells of `blocks` a mining pass may go straight to, shaped like /find's answer, minus bans and builds."""
 
     names = {bare(b) for b in blocks}
     out = []
@@ -881,7 +881,7 @@ def _not_in_water(c):
        start=lambda c: (feet()[1], _stone_held()),
        verify=lambda c: feet()[1] != c.base[0] or _stone_held() > c.base[1], budget=300, stall=60)
 def strip_mine_step(ctx, length=16):
-    """Always-available work: descend toward iron depth (diamond depth once an iron pickaxe exists), then drive a 2-high tunnel and take any ore it reveals."""
+    """Always-available work: descend toward iron (diamond once an iron pickaxe exists) and tunnel, taking the ore revealed."""
 
     s = api.get("/state")
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
@@ -1040,7 +1040,7 @@ def fluid_faces(region, cell, breaking=()):
     return out
 
 def seal_plan(region, cells, inv):
-    """Pure: before breaking `cells`, a block into every fluid cell touching one of them, face to face — the one fluid rule of mining (it replaces the lava-only margin and the dirt-by-water margin of 2)."""
+    """Pure: before breaking `cells`, a block into every fluid cell touching one — the one fluid rule of mining."""
 
     cells = [tuple(c) for c in cells]
     wet = []
@@ -1059,7 +1059,7 @@ def contain_lava_commands(state, args=()):
        verify=lambda c: c.base == 0 or _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4) < c.base,
        commands=contain_lava_commands, budget=120, stall=30)
 def contain_lava(ctx, radius=4):
-    """Cover lava exposed within reach (a dig broke into a pool or a flow reached us) with building blocks, nearest first — what players do before continuing a tunnel."""
+    """Cover lava exposed within reach with building blocks, nearest first, before the tunnel goes on."""
 
     if ctx.policy.lava_ok:
         return 0
@@ -1077,7 +1077,7 @@ def dark_here(s):
     return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
 
 def torch_commands(state, args=(4, 1)):
-    """Pure: place tasks for up to `limit` of the darkest floor spots within `radius` (args = (radius, limit)), never the body's own cells; [] when no torch is placeable or nothing is dark."""
+    """Pure: place tasks for up to `limit` of the darkest floor spots within `radius`, never the body's cells; [] when none."""
 
     radius, limit = (tuple(args) + (4, 1)[len(args):])[:2]
     s = state["state"]
@@ -1095,7 +1095,7 @@ from .knowledge import RAW_MEAT  # noqa: E402  (one food table: knowledge.ALL_FO
 from .data import FULL_BAR, NUTRITION  # noqa: E402
 
 def bites_to_full(food, carried, raw_ok=False):
-    """Pure: (item, bites) — what to eat to fill the bar from `food` points, and how many bites of it: the item whose restore fits the gap best (the biggest that does not overflow, else the smallest that does), raw meat only when `raw_ok` (starving)."""
+    """Pure: (item, bites) to fill the bar from `food`: the best fit for the gap, raw meat only when `raw_ok`."""
 
     from .knowledge import ALL_FOOD
     gap = FULL_BAR - food
@@ -1108,7 +1108,7 @@ def bites_to_full(food, carried, raw_ok=False):
     return item, math.ceil(gap / points(item))
 
 def bite_plan(food, carried, raw_ok=False):
-    """Pure: the bites to eat, in order, to fill the bar from `food` — each the item that fits the remaining gap best (`bites_to_full`), no more of an item than is carried."""
+    """Pure: the bites, in order, to fill the bar from `food`, no more of an item than is carried."""
 
     left, out = dict(carried), []
     while True:
@@ -1120,7 +1120,7 @@ def bite_plan(food, carried, raw_ok=False):
         food = min(FULL_BAR, food + NUTRITION[item.split(":")[-1]])
 
 def eat_commands(state, args):
-    """`commands` for eat: one eat task per bite of `bite_plan`, back to back (open loop) — one bite a round left the bar hungry with bread in the bag."""
+    """`commands` for eat: one eat task per planned bite, back to back (one bite a round left the bar hungry)."""
 
     from .knowledge import ALL_FOOD
     raw_ok = bool(args[0]) if args else False
@@ -1139,7 +1139,7 @@ def _fed_as_planned(c):
        commands=lambda state, args: eat_commands(state, args), budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
-    """Eat until the bar is full: every bite `bite_plan` names, as one chain (the jar eats them back to back); an interruption stops it where it is."""
+    """Eat until the bar is full, every planned bite as one chain; an interruption stops it where it is."""
 
     from .knowledge import ALL_FOOD
     st = body_state(ctx) if ctx is not None else {"state": api.get("/state"), "inv": Inventory()}
@@ -1159,7 +1159,7 @@ def eat(ctx=None, raw_ok=False):
     return target
 
 def swimming(state):
-    """The one "in the water" test, shared by the brain's trigger and reach_land's done: in water and not standing on ground (a shore block's water overlapping the body box reads inWater while standing) — or standing on the bottom with the head under (breath below full): drowning_in_a_pit stood on the shaft's floor, read as "not swimming", and a PLAN goal went exploring for logs while the air ran out."""
+    """The one "in the water" test: in water and not standing, or standing with the head under (breath below full)."""
 
     return bool(state.get("inWater")) and (not state.get("onGround", False)
                                             or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
@@ -1190,7 +1190,7 @@ def bridge_region(feet_, target):
     return Region((min(x, tx) - 1, y - 2, min(z, tz) - 1), (max(x, tx) + 1, y + BRIDGE_CLIMB + 2, max(z, tz) + 1))
 
 def bridge_commands(state, args):
-    """Pure: a way made toward `args[0]` where the walker found none — pillar up (at most BRIDGE_CLIMB) when the target is above, then cell by cell along a 4-connected line (at most BRIDGE_REACH): dig what stands at feet and head height (never a protected cell), lay a block where there is no floor, step on."""
+    """Pure: a way made toward `args[0]`: pillar up if above, then cell by cell — dig feet and head, lay a floor, step on."""
 
     target, region, inv, protected = args[0], state["region"], state["inv"], state["protected"]
     block = next((b for b in GROUPS["building"] if inv.count(b)), None)
@@ -1225,7 +1225,7 @@ def _bridged_nearer(c):
 
 @skill(gives=["state:bridged"], remaining=_k.near(lambda c: c.args[1], lambda c: BRIDGE_REACH), needs={"building": 1}, speed={}, start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
 def bridge_toward(ctx, target):
-    """Path blocked: make the way toward `target` by hand — pillar, dig, lay blocks — instead of asking the walker again (upkeep's "path blocked" row)."""
+    """Path blocked: make the way toward `target` by hand instead of asking the walker again."""
 
     target = tuple(target)
     tasks = bridge_commands(body_state(ctx, bridge_region(feet(), target)), (target,))
@@ -1236,7 +1236,7 @@ def bridge_toward(ctx, target):
 
 @skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, speed={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
 def reach_land(ctx):
-    """Night in the water: nothing can be dug or built there, so swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
+    """Night in the water: swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
 
     x, y, z = feet()
     # The land a swim reaches (terrain.air_route: the same breadth-first search as surfacing), not the nearest dry
@@ -1261,7 +1261,7 @@ def _burrow_here(ctx):
     return choose_burrow(Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4)), (x, y, z), ctx.policy.protected)
 
 def burrow_anchor(state, args=()):
-    """Pure: what a burrow fixes at its first start — {"anchor": (feet, direction)}: the entrance cell and the side tunnelled into (`args[0]`, else terrain.choose_burrow)."""
+    """Pure: {"anchor": (feet, direction)} a burrow fixes at its first start."""
 
     x, y, z = state["feet"]
     d = args[0] if args else choose_burrow(state["region"], (x, y, z), state["protected"])
@@ -1272,7 +1272,7 @@ def burrow_anchor(state, args=()):
 ANCHORS["burrow"] = burrow_anchor
 
 def burrow_commands(state, args=()):
-    """Pure: the whole burrow as one chain — two cells deep into the hillside (head, then feet, each step), a step to the end, the entrance sealed behind (feet block, then head block)."""
+    """Pure: the burrow as one chain — two cells into the hillside, a step to the end, the entrance sealed behind."""
 
     (x, y, z), (dx, dz) = (state.get("anchor") or burrow_anchor(state, args)["anchor"])
     block = next((b for b in GROUPS["building"] if state["inv"].usable(b)), None)
@@ -1294,7 +1294,7 @@ def burrow_commands(state, args=()):
        provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
                  "shelter:burrow": lambda ctx, s: ()})
 def burrow(ctx):
-    """Night shelter in a hillside: tunnel 2 blocks into solid ground, step to the end, seal the entrance behind (feet block on the floor, head block on top of it — both faces are visible from inside) — one chain (burrow_commands); `enclosed()` judges it after."""
+    """Night shelter in a hillside: tunnel 2 in, step to the end, seal the entrance (both faces visible from inside), one chain."""
 
     keep = current_call().keep
     if "anchor" not in keep:
@@ -1321,7 +1321,7 @@ def dig_out_commands(state, args=()):
 @skill(gives=["state:outside"], remaining=lambda st, c: outside_left(st, c), needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, commands=lambda st, a: dig_out_commands(st, a),
        provides={"reach:outside": lambda ctx, s: ()})
 def dig_out(ctx):
-    """Morning in a sealed pod: open one side (by hand if no pickaxe — slower, same result) and step out — one chain (dig_out_commands); `enclosed()` judges it after."""
+    """Morning in a sealed pod: open one side (by hand if no pickaxe) and step out, one chain."""
 
     x, y, z = feet()
     tasks = dig_out_commands(body_state(ctx, Region((x - 3, y - 2, z - 3), (x + 3, y + 3, z + 3))))
@@ -1343,7 +1343,7 @@ BREATH_HOLD_S = 2.0     # the head out of the water this long, lungs full: breat
 BREATH_WAIT_S = 8.0     # how long the verify watches for that (lungs refill in about 4 s)
 
 def breathed(samples):
-    """Pure: [(t, head under water, air)] → the head has been out without a break for BREATH_HOLD_S up to the last sample, which reads full lungs."""
+    """Pure: the head has been out unbroken for BREATH_HOLD_S up to the last sample, which reads full lungs."""
 
     if not samples:
         return False
@@ -1370,7 +1370,7 @@ def _breathing():
         time.sleep(0.25)
 
 def _breathing_now():
-    """One reading: the head out of the water with full lungs (the contract's `done`, asked after every pass — it must not wait; the 2 s hold is the verify's, `_breathing`)."""
+    """One reading: head out with full lungs (`done` must not wait; the 2 s hold is the verify's)."""
 
     s = api.get("/state")
     return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
@@ -1378,7 +1378,7 @@ def _breathing_now():
 @skill(gives=["state:air"], remaining=_k.breathing, needs={}, speed={}, done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
        provides={"reach:air": lambda ctx, s: ()})
 def find_air(ctx):
-    """Out of breath underwater: to the nearest dry cell to stand on reached by swimming (a shaft's rim, the shore) — surfacing in the column sank back under; no land in reach → a block underfoot at the surface; water capped by blocks → dig the cap (terrain.air_route)."""
+    """Out of breath underwater: swim to the nearest dry cell (surfacing in place sank back), else a block at the surface, else dig the cap."""
 
     for _ in range(4):
         x, y, z = feet()
@@ -1442,7 +1442,7 @@ def _day_now():
 
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
 def wait_for_day(ctx):
-    """Sit the night out where we are (the plan put us under cover first): wait in ten-second slices until the sun is up."""
+    """Sit the night out where we are, in ten-second waits, until the sun is up."""
 
     while True:
         api.run({"type": "wait", "ticks": 200}, wait=15, awaits="the time of day")
@@ -1493,7 +1493,7 @@ def sleep(ctx, night_policy):
 DIG_IN_DEPTH = 3
 
 def dig_in_start(region, feet):
-    """Pure: where a dig-in began, read off the world — one above the top of the walled shaft the body stands in (cells open with all four sides solid, at most DIG_IN_DEPTH), the feet themselves when not in one."""
+    """Pure: where a dig-in began: one above the top of the walled shaft the body stands in, else the feet."""
 
     x, y, z = feet
     top = y
@@ -1503,7 +1503,7 @@ def dig_in_start(region, feet):
     return x, top, z
 
 def dig_in_commands(state, args=()):
-    """Pure: dig DIG_IN_DEPTH straight down (`nav.dig_down_tasks`: 199, 198, 197 from feet 200), stand at the bottom, and seal the first dug cell — the ground line, ground on every side to place against."""
+    """Pure: dig DIG_IN_DEPTH straight down, stand at the bottom, and seal the first dug cell."""
 
     region, inv = state["region"], state["inv"]
     x, y, z = start = dig_in_start(region, tuple(state["feet"]))
@@ -1527,7 +1527,7 @@ def dig_in_commands(state, args=()):
     return tasks
 
 def soft_spot():
-    """(cell, steps) of the nearest ground that digs by hand to DIG_IN_DEPTH, on the ground we stand on (terrain.nearest_soft), or None."""
+    """(cell, steps) of the nearest hand-diggable ground to DIG_IN_DEPTH on our ground, or None."""
 
     from .terrain import SOFT_RADIUS, nearest_soft
     x, y, z = feet()
@@ -1535,7 +1535,7 @@ def soft_spot():
     return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
 
 def soft_ground_here():
-    """Seconds' walk to ground that digs by hand (0: right under the feet), or None when there is none near: the night's pricing adds the walk to digging in by hand (needs.night_facts)."""
+    """Seconds' walk to hand-diggable ground (0: underfoot), or None when none near."""
 
     from .data import WALK_BLOCKS_PER_TICK
     spot = soft_spot()
@@ -1631,7 +1631,7 @@ def outside_left(state, call=None):
     return {} if openings(state["region"], tuple(state["feet"])) else {"state:outside": 1}
 
 def shelter_left(state, call=None):
-    """`remaining` of a body shelter (burrow, pod): the enclosure's openings around the feet, read off the state's region — {} once walled in; the whole shelter when no region was read."""
+    """`remaining` of a body shelter: its openings around the feet ({} walled in; everything when no region read)."""
 
     if state.get("region") is None:
         return {"state:sheltered": 1}
@@ -1721,7 +1721,7 @@ def pod_commands(state, args=()):
 @skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
        provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
 def pod(ctx):
-    """Night fallback where digging in is unsafe (water/caves below): wall in the body with blocks — four sides at feet and head height plus a roof."""
+    """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""
 
     x, y, z = feet()
     tasks = pod_commands(body_state(ctx, _pod_region((x, y, z))))
@@ -1779,7 +1779,7 @@ def light_area(ctx, radius=10, limit=6):
 @skill(gives=["state:smelter_loaded"], remaining=_k.less_than_at_start(lambda c: c.args[2], lambda c: min(64, c.args[3])), needs={}, speed={}, start=lambda c: Inventory().count(c.args[2]), verify=lambda c: Inventory().count(c.args[2]) < c.base,
        budget=300, stall=60, provides={"smelt": _smelter_for}, prefer=1)
 def load_smelter(ctx, machine, input_token, count, fuel, output):
-    """Put up to a stack of input into an auto smelter's input chest and matching fuel into its fuel chest, and note the expected output as pending so the planner treats it as on its way."""
+    """Load an auto smelter's input and fuel chests and note the output as pending, so the planner counts it on its way."""
 
     roles = _machine_roles(machine)
     _go_to_machine(ctx, machine)
@@ -1832,7 +1832,7 @@ def collect_machine(ctx, machine):
 @skill(gives=["state:room"], remaining=_k.slots_free(FREE_SLOTS_TARGET), needs={}, speed={}, start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=60, stall=30, provides={"room:tidy": lambda ctx, s: ()})
 def tidy_inventory(ctx):
-    """Free slots anywhere, no chest needed: drop the least valuable stacks (free_slots_plan) until FREE_SLOTS_TARGET slots are free, then step away so they aren't picked straight back up."""
+    """Free slots with no chest: drop the least valuable stacks to FREE_SLOTS_TARGET, then step away so they aren't picked back up."""
 
     close_screen()
     x, y, z = feet()
@@ -1916,7 +1916,7 @@ def _has_something_to_store(c):
 @skill(gives=["state:stored"], remaining=lambda st, c: stored_left(st, c), needs={}, speed={}, pre=[_has_something_to_store], start=lambda c: Inventory().used_slots(), verify=lambda c: Inventory().used_slots() < c.base,
        budget=600, stall=90, provides={"room:deposit": lambda ctx, s: ()})
 def deposit(ctx, local_only=False):
-    """Store everything beyond the keep list: in a chest at the nearest reachable site within 96 blocks (skipped with local_only, e.g. at night), else in a cache chest placed right here (crafted if needed, recorded as a site for later trips)."""
+    """Store everything beyond the keep list in a site chest within 96 blocks, else in a cache chest placed here (a new site)."""
 
     before = Inventory().used_slots()
     moving = store_plan(Inventory().slots)
@@ -1971,7 +1971,7 @@ def deposit(ctx, local_only=False):
        budget=180, stall=60,
        provides={"withdraw": lambda ctx, s: (s.token, s.count, tuple(s.detail["pos"]))})
 def withdraw(ctx, item, count, pos):
-    """Take `count` of `item` out of the container at `pos` (memory said it held them: memory.stored), and write down what is left in it."""
+    """Take `count` of `item` from the container at `pos` and note what is left in it."""
 
     nav.arrive(pos, ctx.policy, range_=3)
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots read on its screen")

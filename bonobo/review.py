@@ -67,7 +67,7 @@ def macro(track, minutes, now):
     return "\n".join(lines)
 
 def plans(rows, minutes, now):
-    """Pure: from round-tape rows (tape.py), each task's latest plan in the window and how often its steps failed or were interrupted — what Claude reads to see whether the queue is moving."""
+    """Pure: each task's latest plan and how often its steps failed or were interrupted — is the queue moving?"""
 
     window = [r for r in rows if r.get("t", 0) >= now - minutes * 60 and r.get("task")]
     if not window:
@@ -87,7 +87,7 @@ def plans(rows, minutes, now):
     return "\n".join(out)
 
 def repeated(entries, at_least=5):
-    """Pure: brain decisions/failures that repeat with the same text (numbers normalised) — a loop reads as one line with a count, e."""
+    """Pure: brain decisions/failures repeating with the same text (numbers normalised): a loop reads as one line with a count."""
 
     counts = collections.Counter()
     for _, text in entries:

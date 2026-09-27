@@ -37,7 +37,7 @@ def runner_for(ctx, step):
     return skillkit.provider(ctx, step)
 
 def can_start(ctx, step):
-    """Would the skill for `step` pass its own preconditions right now (`skill.can_run`)? Asked before the step is offered, so a refusal the skill already knows about is not discovered by failing."""
+    """Would the skill for `step` pass its own preconditions now? Asked before the step is offered."""
 
     found = runner_for(ctx, step)
     if found is None:
@@ -71,7 +71,7 @@ def run_step(ctx, step, night, seek=True):
         raise
 
 def go_find(ctx, step):
-    """Where to look when nothing is in range, in a fixed order: what memory has seen of it (static and slow notes checked on arrival and retired when missing; mobile ones are an area to look in), the depth the kind is richest at (knowledge.FIND_AT), a spiral."""
+    """Where to look when nothing is in range: memory's sightings, then the kind's richest depth, then a spiral."""
 
     here, dim, mem = skillcore.feet(), ctx.dimension, ctx.mem
     blocks = list(step.detail.get("blocks", ()))

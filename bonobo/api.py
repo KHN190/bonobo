@@ -91,7 +91,7 @@ class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
 def refused(r, queued):
-    """A post that queued nothing: an interruption while the body is held — a fight owns it (arbiter.BODY: a holder, engaged, or post's own "body owned by the arbiter") — else the world declining the work (NotAvailable)."""
+    """A post that queued nothing: an interruption while a fight holds the body, else the world declining the work (NotAvailable)."""
 
     if queued:
         return
@@ -102,7 +102,7 @@ def refused(r, queued):
     raise NotAvailable("the game queued none of the posted tasks")
 
 class FightHolds(McError):
-    """Our own fight (the arbiter's held decision) has the body: an interruption that ends when the fight does — not an outside driver to stand down 10 s for (resume_after_combat slept through its chop)."""
+    """Our own fight has the body: an interruption that ends when the fight does, not an outside driver to stand down for."""
 
 class BodyContested(McError):
     """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second process) is driving the body."""
@@ -111,10 +111,10 @@ class BodyContested(McError):
 # something else took the body or the world asked for a decision. None of them says anything about the skill, so
 # none of them counts as a retry, bans a cell, sends /stop or cools anything down.
 class Died(McError):
-    """The body died mid-task: an interruption, not the task's failure — the items are recovered first (the recover reflex), then the task replans from where the body now stands, its target kept."""
+    """The body died mid-task: an interruption — recover the items, then replan from here, target kept."""
 
 class DimensionChanged(McError):
-    """The body is in another dimension than the task began in (a portal, a death in the Nether): the task stays live and resumes only back in its own dimension — the frontier map and every note are per dimension."""
+    """The body left the task's dimension: the task resumes only back in its own (maps and notes are per dimension)."""
 
 INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl, Died,
                  DimensionChanged)
@@ -203,7 +203,7 @@ def get(path):
 BODY_PATHS = ("/task", "/stop")
 
 def with_item_ids(body):
-    """A task post with every "only" list as the jar's item ids (data.item_ids): the one place tokens become ids, whoever built the task."""
+    """A task post with every "only" list as the jar's item ids: the one place tokens become ids."""
 
     from .data import item_ids
     if isinstance(body, dict) and "tasks" in body:
@@ -409,7 +409,7 @@ def resume_id(tasks, running, last_posted):
     return task_id
 
 def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segment=None):
-    """Queues tasks in segments so the game never idles, calling `before_segment(segment_tasks)` first (the brain uses it for reflexes: tools, light, site bookkeeping)."""
+    """Queue tasks in segments so the game never idles, calling `before_segment(segment_tasks)` before each."""
 
     global LAST_SEGMENT_S
     results = []

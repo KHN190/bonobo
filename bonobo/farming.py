@@ -19,7 +19,7 @@ RING = [(dx, dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if (dx, dz) != (0, 0)
 # ---------------------------------------------------------------- pure planners
 
 def farm_plot(region, here, protected=(), radius=8):
-    """Pure: a centre cell for a 3×3 plot — the centre and its 8 neighbours are soil at one height with two air cells above (nothing to clear), none protected."""
+    """Pure: a 3×3 plot centre: nine soil cells at one height, two air above each, none protected."""
 
     best = None
     for (x, y, z), name in region.blocks.items():
@@ -50,7 +50,7 @@ def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     return [nav.use_on_top(seeds, c) for c in cells]
 
 def plot_commands(centre, hoe, region=None):
-    """Pure: the 3×3 plot as one chain — dig the centre, pour the water in, then till and sow each of the 8 neighbours (ring order)."""
+    """Pure: the plot as one chain — dig the centre, pour water, then till and sow the ring."""
 
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
     below = add(centre, (0, -1, 0))
@@ -68,7 +68,7 @@ def plot_commands(centre, hoe, region=None):
     return out
 
 def started_plot(region, here, radius=8):
-    """Pure: the centre of a plot begun and not finished here — the centre dug (water in, or not yet: air on solid ground), its ring soil or farmland, some cell not yet sown — nearest first; None when there is none (a fresh plot is chosen by `farm_plot`)."""
+    """Pure: the centre of a plot begun and unfinished here, nearest first, or None."""
 
     best = None
     centres = {c for c, n in region.blocks.items() if n == "water"} | \
@@ -87,14 +87,14 @@ def started_plot(region, here, radius=8):
     return None if best is None else best[1]
 
 def unreachable_cells(tasks, results):
-    """Pure: the cells of the tasks the jar refused as out of reach — the only ones a partial chain bans; the rest stand (done) or are asked again (`plot_commands` recomputes them from the world)."""
+    """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
 
     return sorted({(t["x"] - 0.5, t["y"] - 1.0, t["z"] - 0.5) if isinstance(t["x"], float) else (t["x"], t["y"], t["z"])
                    for t, r in zip(tasks, results)
                    if r.get("status") != "succeeded" and "reach" in str(r.get("message", "")).lower()})
 
 def plant_farm_commands(state, args):
-    """`commands` for plant_farm: the plot chain at the nearest flat 3×3 soil (`farm_plot`), with the best hoe carried; NotAvailable naming what is missing."""
+    """`commands` for plant_farm: the plot chain at the nearest flat 3×3 soil with the best hoe; NotAvailable names what is missing."""
 
     inv = state["inv"]
     hoe = next((h for h in HOES if inv.count(h)), None)
@@ -115,7 +115,7 @@ def feed_commands(pair, food):
     return [{"type": "interact", "entity": eid, "item": food} for eid in pair]
 
 def breed_commands(state, args):
-    """`commands` for breed: the first kind with its food carried (2) and an adult pair (`breeding_pair`) away from a breeding still cooling (`state["cooling"]`: positions); [] when there is none."""
+    """`commands` for breed: the first kind with food carried and an adult pair away from a cooling breeding; [] when none."""
 
     for kind, food in BREED_FOOD.items():
         if state["inv"].count(food) < 2:
@@ -176,7 +176,7 @@ def _plot_growing(centre):
        commands=lambda state, args: plant_farm_commands(state, args), verify=lambda c: c.result == REAPED or (bool(c.result) and _plot_growing(c.result)), budget=300, stall=90,
        provides={"farm": lambda ctx, s: ()})
 def plant_farm(ctx):
-    """Wheat for the plan: a crop already grown nearby is reaped first (the world read here, at execution — the estimate only knows memory); else make a 3×3 plot here: dig the centre, pour the water bucket in (and take nothing back — it stays as the plot's source), till the 8 neighbours with a hoe, sow seeds, start a crop job."""
+    """Wheat: reap a grown crop nearby first, else make a 3×3 plot (dig, water, till, sow) and start a crop job."""
 
     ripe = ripe_near(skillcore.feet(), RIPE_LOOK)
     if ripe and _reap(ripe) > 0:

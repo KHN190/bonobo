@@ -79,7 +79,7 @@ class Planner:
 
     @classmethod
     def from_inventory(cls, inv, cost, extra=None):
-        """`extra`: items on their way (e.g. smelting in a machine) that count as held but aren't usable yet — steps consuming them stay unrunnable until they arrive, so nothing is mined twice."""
+        """`extra`: items on their way (e.g. smelting) that count as held but not usable yet, so nothing is mined twice."""
 
         counts = Counter()
         for item, n in (extra or {}).items():
@@ -118,7 +118,7 @@ class Planner:
         self.inv.tools.append((kind, tier, 999))
 
     def craftable_tier(self, kind):
-        """The best tier of `kind` this (planned) bag crafts outright — crafting steps only, nothing to gather, mine or smelt — or 0."""
+        """The best tier of `kind` this planned bag crafts with crafting steps only, or 0."""
 
         for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
             probe = Planner(self.inv.counts, [], NullCost())
@@ -133,7 +133,7 @@ class Planner:
         return 0
 
     def before(self, step, depth):
-        """Every step passes here before it is added: what the skill carrying it out needs held (knowledge.step_call — its `needs` for this call: tools first, then items, planned and kept, never used up by it), then the tools it runs faster with where making one pays (`speed_up`)."""
+        """Before a step is added: plan its skill's needs for the call (tools first, kept not used up), then worthwhile speed tools."""
 
         needs, speed = step_call(step)
         for dim, n in sorted(needs.items(), key=lambda kv: not kv[0].startswith("tool:")):
@@ -148,7 +148,7 @@ class Planner:
         self.speed_up(step.kind, speed, units, depth)
 
     def speed_up(self, kind, speed, units, depth):
-        """Before `units` of work of step `kind`: the optional tools its skill runs faster with here (`speed`: its `@skill(speed=...)`, seconds saved per unit — a shovel only on soft ground, step_call), made when making one costs less than it saves — and only from what does not need this same work (an axe that needs the logs it would speed up is made after them, too late)."""
+        """Before `units` of `kind` work: make a speed tool when it costs less than it saves, never from the same work (an axe needing the logs)."""
 
         if self.probing:
             return

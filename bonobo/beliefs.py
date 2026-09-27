@@ -33,9 +33,7 @@ COUNTS = {}
 OBSERVED = {}
 LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
 
-# How much a declared number is discounted while nothing has been measured. One observation is worth this many
-# "prior" observations' worth of doubt: with n = 0 a benefit is read at half, and it climbs toward the declared
-# value as the count grows. It also weighs the prior against the measurements in `value`: the number moves as the count grows.
+# prior observations' worth of doubt in a declared number: with n = 0 a benefit reads at half, climbing as measurements come
 PRIOR_STRENGTH = 1.0
 
 def declared(path):
@@ -62,7 +60,7 @@ def is_unmeasured(path):
     return path.rsplit(".", 1)[-1] in UNMEASURED
 
 def _median(xs):
-    """The middle measurement, not the mean: one round that walked into a wall should not be able to drag a belief, and there is no theory here to fit — only what happened."""
+    """The median, not the mean: one bad round must not drag a belief."""
 
     s = sorted(float(x) for x in xs)
     mid = len(s) // 2

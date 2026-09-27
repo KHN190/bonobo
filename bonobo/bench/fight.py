@@ -122,7 +122,7 @@ def _cells(base, dims=None, repeat=1, over=None, table=None):
             yield dict(cell, run=run)
 
 def _seed_of(cell):
-    """One seed per cell, per pass: the same number lays out the ground, places the enemies and sets their mood, and it goes into the row so the whole situation can be built again exactly."""
+    """One seed per cell per pass lays out ground, enemies and mood, and goes into the row so it can be rebuilt exactly."""
 
     return cell.get("seed") if cell.get("seed") is not None else random.randrange(1 << 30)
 
@@ -335,7 +335,7 @@ def _plain(state):
                 field=None if ground is None else {"bucket": ground.bucket, "blocks": ground.blocks})
 
 def _fought(kinds, seconds):
-    """The shared record: price the cell, live in it, and say what came of it — and what the clock said about the numbers the pricing was built on."""
+    """The shared record: price the cell, live in it, report the outcome and the clock's word on the pricing's numbers."""
 
     def record(cell):
         from ..world import Snapshot
@@ -361,7 +361,7 @@ def _fought(kinds, seconds):
     return record
 
 def _where(row):
-    """A row's cell, named by the dimensions it actually carries — a rule that lists the keys is a second copy of the dimension table."""
+    """A row's cell, named by the dimensions it carries (listing keys would copy the dimension table)."""
 
     return "/".join(f"{k}={row[k]}" for k in DIMS if k in row) or str(row.get("line_up", "?"))
 
