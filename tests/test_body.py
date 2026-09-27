@@ -38,8 +38,8 @@ class LayeringIsHard(unittest.TestCase):
     below is worth, however long it has run, and whatever the answer above claims to save."""
 
     def test_a_faster_layer_always_takes_the_body(self):
-        self.assertEqual((ORDER, len(PAIRS), FASTER), (["reflex", "safety", "tactic", "plan"], 6,
-                                                       ("reflex", "safety", "tactic")))
+        self.assertEqual((ORDER, len(PAIRS), FASTER), (["reflex", "safety", "tactic", "maintain", "plan"], 10,
+                                                       ("reflex", "safety", "tactic", "maintain")))
         for kind, elapsed, worth in itertools.product(INTENT, ELAPSED, WORTH):
             for slow, fast in PAIRS:
                 if slow == "plan":
