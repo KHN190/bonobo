@@ -30,7 +30,22 @@ def brew_steps(have):
     return steps
 
 
+def bottle_commands(state, args):
+    """`commands` for fill_bottles: one fill per bottle wanted and carried, all aimed at the water source
+    (`state["source"]`, from fluids.fill_spot), back to back. NotAvailable with no bottle or no source."""
+    count = args[0] if args else 3
+    bottles = state["inv"].count("minecraft:glass_bottle")
+    if bottles < 1:
+        raise NotAvailable("no glass bottles")
+    source = state.get("source")
+    if source is None:
+        raise NotAvailable("no reachable still water for bottles")
+    return [{"type": "use_item", "item": "minecraft:glass_bottle", "x": source[0] + 0.5, "y": source[1] + 0.5,
+             "z": source[2] + 0.5}] * min(count, bottles)
+
+
 @skill(gives={}, needs={"minecraft:glass_bottle": 1}, speed={}, start=lambda c: Inventory().count("minecraft:potion"),
+       commands=lambda state, args: bottle_commands(state, args),
        verify=lambda c: Inventory().count("minecraft:potion") > c.base, budget=180, stall=60, per_unit=10,
        provides={"fill:minecraft:potion": lambda ctx, s: (s.count,)})
 def fill_bottles(ctx, count=3):
@@ -49,10 +64,8 @@ def fill_bottles(ctx, count=3):
         stand, source = spot
         if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
             continue
-        for _ in range(min(count, Inventory().count("minecraft:glass_bottle"))):
-            api.run({"type": "use_item", "item": "minecraft:glass_bottle", "x": source[0] + 0.5,
-                     "y": source[1] + 0.5, "z": source[2] + 0.5}, wait=10)
-            yield None
+        api.run_chain(bottle_commands({"inv": Inventory(), "source": source}, (count,)), stop_on_failure=True)
+        yield None
         return True
     raise NotAvailable("no reachable still water for bottles")
 

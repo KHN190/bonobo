@@ -915,6 +915,64 @@ SPOT = {"x": 1, "y": 64, "z": 1}          # fixture: one dark spot /dark answere
 
 # skill → [(situation, state dict, expected)]; expected is an exception type or a check(batch) -> None (asserts).
 COMMANDS = {
+    # plant_farm: the plot chain (farming.plot_commands) — dig, pour, then till + sow per ring cell
+    "plant_farm": [
+        ("grass, a hoe, 8 seeds, water: the whole plot, 18 tasks", body(world(block="grass_block"),
+         inv=inventory(stone_hoe=1, wheat_seeds=8, water_bucket=1)),
+         lambda t, b: t.assertEqual((len(b), b[0]["type"], b[1]["item"]), (18, "mine", "minecraft:water_bucket"))),
+        ("the best hoe carried is the one used", body(world(block="grass_block"),
+         inv=inventory(stone_hoe=1, diamond_hoe=1, wheat_seeds=8, water_bucket=1)),
+         lambda t, b: t.assertEqual(b[2]["item"], "minecraft:diamond_hoe")),
+        ("must fail: no hoe", body(world(block="grass_block"), inv=inventory(wheat_seeds=8, water_bucket=1)),
+         NotAvailable),
+        ("must fail: stone, no soil", body(world(), inv=inventory(stone_hoe=1, wheat_seeds=8, water_bucket=1)),
+         NotAvailable),
+    ],
+    # breed: both animals of a pair fed, back to back (farming.feed_commands)
+    "breed": [
+        ("two cows, wheat: both fed", body(inv=inventory(wheat=2), entities=[
+            {"id": 1, "type": "minecraft:cow", "x": 0, "y": 64, "z": 0},
+            {"id": 2, "type": "minecraft:cow", "x": 2, "y": 64, "z": 0}]),
+         lambda t, b: t.assertEqual([(x["entity"], x["item"]) for x in b], [(1, "minecraft:wheat"), (2, "minecraft:wheat")])),
+        ("one wheat: not enough to breed", body(inv=inventory(wheat=1), entities=[
+            {"id": 1, "type": "minecraft:cow", "x": 0, "y": 64, "z": 0},
+            {"id": 2, "type": "minecraft:cow", "x": 2, "y": 64, "z": 0}]), lambda t, b: t.assertEqual(b, [])),
+        ("a breeding still cooling there: none", body(inv=inventory(wheat=2), cooling=[(1, 64, 0)], entities=[
+            {"id": 1, "type": "minecraft:cow", "x": 0, "y": 64, "z": 0},
+            {"id": 2, "type": "minecraft:cow", "x": 2, "y": 64, "z": 0}]), lambda t, b: t.assertEqual(b, [])),
+        ("a calf is no adult: none", body(inv=inventory(wheat=2), entities=[
+            {"id": 1, "type": "minecraft:cow", "x": 0, "y": 64, "z": 0},
+            {"id": 2, "type": "minecraft:cow", "x": 2, "y": 64, "z": 0, "baby": True}]),
+         lambda t, b: t.assertEqual(b, [])),
+    ],
+    # fill_bottles: one fill per bottle wanted and carried, aimed at the source
+    "fill_bottles": [
+        ("3 wanted, 5 carried: 3", body(inv=inventory(glass_bottle=5), source=(3, 63, 0), _args=(3,)),
+         lambda t, b: t.assertEqual((len(b), b[0]["x"]), (3, 3.5))),
+        ("3 wanted, 2 carried: 2", body(inv=inventory(glass_bottle=2), source=(3, 63, 0), _args=(3,)),
+         lambda t, b: t.assertEqual(len(b), 2)),
+        ("must fail: no bottles", body(source=(3, 63, 0), _args=(3,)), NotAvailable),
+        ("must fail: no water source", body(inv=inventory(glass_bottle=3), _args=(3,)), NotAvailable),
+    ],
+    # repair_tool: the one 2×2 craft of two worn tools of the kind
+    "repair_tool": [
+        ("two worn stone pickaxes: combined", body(inv=inventory(
+            {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 100, "maxDamage": 131},
+            {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 110, "maxDamage": 131}), _args=("pickaxe",)),
+         lambda t, b: t.assertEqual(b, [{"type": "craft", "pattern": ["minecraft:stone_pickaxe"] * 2 + [None, None],
+                                         "count": 1}])),
+        ("must fail: one pickaxe", body(inv=inventory(
+            {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 100, "maxDamage": 131}), _args=("pickaxe",)),
+         NotAvailable),
+        ("must fail: two of different tiers", body(inv=inventory(
+            {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 100, "maxDamage": 131},
+            {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 200, "maxDamage": 250}), _args=("pickaxe",)),
+         NotAvailable),
+        ("must fail: axes asked, pickaxes carried", body(inv=inventory(
+            {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 100, "maxDamage": 131},
+            {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 110, "maxDamage": 131}), _args=("axe",)),
+         NotAvailable),
+    ],
     # break_caged_crystal at the tower base: pillars to the crystal's height, then every bar still standing
     "break_caged_crystal": [
         ("six below a caged crystal: six pillars, the eight bars",

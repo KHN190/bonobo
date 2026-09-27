@@ -2281,6 +2281,19 @@ for _name, _row_ in {
                     "skills": list(_skills_), "point": "A", "tags": {"base": _skills_[0], "terrain": "real"},
                     **({"stochastic": True} if _name == "explore_for_animals_real" else {})}
 
+# A batched skill interrupted mid-chain (G): the interrupt lands at the first bottle filled (progress, not the
+# clock); the resume fills what the bag still lacks, recomputed from it — never the chain's index, never a cooling.
+SHEET["fill_bottles_interrupted"] = {
+    "doc": "a pond, 3 glass bottles, interrupted at the first water bottle → resumed for the 2 left: exactly 3",
+    "module": "skills", "point": "A", "skills": ["fill_bottles"], "tags": {"base": "fill_bottles", "surprise": "interrupt_mid_chain"},
+    "setup": list(SHEET["fill_bottles_at_pond"]["setup"]),
+    "before": _hooks(_start("fill_bottles_interrupted"), _interrupt_when("minecraft:potion", 1)),
+    "run": _resume("fill_bottles_interrupted", lambda ctx: _skill("fill_bottles")(ctx, 3),
+                   lambda ctx: _skill("fill_bottles")(
+                       ctx, 3 - (_inv_now().count("minecraft:potion") - _base_count("minecraft:potion")))),
+    "check": _gain("minecraft:potion", 3, at_most=3), "budget": 30,
+}
+
 SHEET["dead_flicker_on_respawn"] = {
     "doc": "Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
            "respawn, not call every skill dead, and still chop its 4 logs",

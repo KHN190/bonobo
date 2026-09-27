@@ -21,6 +21,7 @@ def _mod_at_least(version):
 
 
 def _open_container(pos):
+    # closed loop: the caller reads the opened container's slots next
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60)
     if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
         raise McError(f"could not open the container at {pos}: {r['message']}")
@@ -250,6 +251,7 @@ def place_oriented(ctx, pos, token, facing=None, against=None, either_way=False)
         task["against"] = {"x": against[0], "y": against[1], "z": against[2]}
     elif facing is not None:
         task["facing"] = facing
+    # closed loop: the placed block's `facing` is read back before the next part (a mirrored stair is re-done)
     r = api.run(task, wait=90)
     if r["status"] != "succeeded":
         raise McError(f"placing {bare(item)} at {pos} failed: {r['message']}")
@@ -364,6 +366,7 @@ def _build_parts(ctx, bp, origin, turns):
                if (n.endswith("_leaves") or n in ("vine", "glow_lichen")) and p not in ctx.policy.protected]
     if foliage:
         log(f"   clearing {len(foliage)} leaves/vines around the {bp.name} build")
+        # one mine_many task: every leaf in one send already
         api.run({"type": "mine_many", "collect": False, "requireDrops": False,
                  "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in foliage]}, wait=180)
     for pos, part, facing, against in cells:
@@ -379,12 +382,15 @@ def _build_parts(ctx, bp, origin, turns):
             # left the eye at 121.6 under a face at 122: still "no reachable face".)
             f = feet()
             if (f[0], f[2]) != (access[0], access[2]):
+                # closed loop: the pillar below starts from where this step left the feet
                 api.run({"type": "goto", "x": access[0], "y": f[1], "z": access[2], "range": 0.3, "partial": False},
                         wait=20)
             for _ in range(6):
                 if pos[1] - feet()[1] < 2:
                     break
                 block = resolve_item("building")
+                # closed loop: each pillar step's height and "headroom" answer decide the next (the fallback after
+                # blueprint_commands' batch, for what the batch could not place)
                 r = api.run({"type": "pillar", "item": block}, wait=20)
                 if r["status"] != "succeeded" and "headroom" in r["message"]:
                     # Leaves or a branch over the pillar spot: clear the cell above the head (never a protected or
