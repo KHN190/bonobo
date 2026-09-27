@@ -3020,21 +3020,40 @@ LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `b
 DRAIN_POLL_S = 0.05
 
 
-def drain_done(food, level):
-    """Pure: stop the drain now — food at `level` + 1 or below (the exhaustion left over takes about one more point
-    once the effect is cleared). Saturation goes first on its own: the bar only moves once it is empty."""
-    return food <= level + 1
+DRAIN_FAST, DRAIN_SLOW = 255, 30     # hunger amplifiers: ~6 points a second; ~0.8 (≤ 1 point between two polls)
+DRAIN_SLOW_FROM = 4                  # the last points above the stop are taken slowly
+
+
+def drain_step(food, saturation, level):
+    """Pure: the drain's next move from /state — "fast" while saturation is left or food is more than
+    DRAIN_SLOW_FROM above `level` + 1, "slow" for the last points, "stop" at `level` + 1 or below (clearing the
+    effect leaves at most one point of stored exhaustion). At full strength all the way the poll could not keep up:
+    the bar ended at 0 and 4, three setups refused."""
+    if food <= level + 1:
+        return "stop"
+    if saturation >= 2 or food > level + 1 + DRAIN_SLOW_FROM:
+        return "fast"
+    return "slow"
 
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
-    """`before` hook: hunger at full strength (~6 points a second: saturation first, then food), read from /state
-    every 50 ms, cleared at `level` + 1 — a few seconds, not the 19 s a slow drain took (saturation absorbed the
-    first 12.5 s). The bar must end inside `window` (default: hungry, not starving — STARVE < food < EAT_BELOW)."""
+    """`before` hook: hunger fast while saturation is left and the bar is high, slow for its last points, cleared
+    at `level` + 1 (drain_step), read from /state every 50 ms. The bar must end inside `window` (default: hungry, not
+    starving — STARVE < food < EAT_BELOW)."""
     def hook(ctx):
         from . import api
-        _chat("effect give @p minecraft:hunger 30 255 true")
-        t0 = time.time()
-        while time.time() - t0 < max_s and not drain_done(api.get("/state").get("food", 20), level):
+        t0, now_amp = time.time(), None
+        while time.time() - t0 < max_s:
+            s = api.get("/state")
+            step = drain_step(s.get("food", 20), s.get("saturation", 0), level)
+            if step == "stop":
+                break
+            amp = DRAIN_FAST if step == "fast" else DRAIN_SLOW
+            if amp != now_amp:
+                # A weaker effect does not replace a stronger one: clear, then give.
+                _chat("effect clear @p minecraft:hunger")
+                _chat(f"effect give @p minecraft:hunger 30 {amp} true")
+                now_amp = amp
             time.sleep(DRAIN_POLL_S)
         _chat("effect clear @p minecraft:hunger")
         time.sleep(1.0)                   # what exhaustion was left takes its last point, if any

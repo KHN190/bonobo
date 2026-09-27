@@ -685,15 +685,20 @@ class FurnaceSlots(unittest.TestCase):
 
 
 class Drain(unittest.TestCase):
-    """scenarios.drain_done: the hunger drain stops at the level + 1 (one more point follows the clear)."""
+    """scenarios.drain_step: fast while saturation is left or the bar is high, slow for the last points, stop at
+    the level + 1 — at full strength all the way it overshot to 0 and 4."""
 
     def test_table(self):
-        rows = [("full: on", 20, 10, False), ("one above the stop: on", 12, 10, False),
-                ("at level + 1: stop", 11, 10, True), ("overshot to the level: stop", 10, 10, True),
-                ("well below: stop", 7, 10, True)]
-        for name, food, level, want in rows:
+        rows = [("full, saturation left: fast", 20, 5.0, 10, "fast"),
+                ("no saturation, high: fast", 16, 0.0, 10, "fast"),
+                ("four above the stop: slow (the overshoot zone)", 15, 0.0, 10, "slow"),
+                ("one above the stop: slow", 12, 0.0, 10, "slow"),
+                ("saturation left though low: fast (the bar cannot move before it is gone)", 13, 3.0, 10, "fast"),
+                ("at level + 1: stop", 11, 0.0, 10, "stop"),
+                ("overshot below the level: stop", 8, 0.0, 10, "stop")]
+        for name, food, sat, level, want in rows:
             with self.subTest(name):
-                self.assertIs(sc.drain_done(food, level), want)
+                self.assertEqual(sc.drain_step(food, sat, level), want)
 
 
 class Chance(unittest.TestCase):
