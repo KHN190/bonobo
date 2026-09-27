@@ -317,8 +317,9 @@ class Maintain:
             if nav.moved(nav.go_to(target, b.policy(snap, snap.night), range_=3, attempts=1)):
                 b.retry.succeeded(name)
                 return
+            # the next way in this same call: the stuck clock was just cleared, so a refusal here waited another
+            # STUCK_LIMIT before sideways was tried (open ground: "up" resolves to the feet's own column)
             b.failed(name, NotAvailable(f"could not get {label} to {target}"))
-            raise NotAvailable(f"unstuck {label} failed")
         self.escalate("stuck", f"every unstuck method failed at {snap.feet}")
         raise NotAvailable("every unstuck method failed here")
 
