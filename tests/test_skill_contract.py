@@ -363,6 +363,30 @@ def exception_types():
     return found
 
 
+class NothingQueued(unittest.TestCase):
+    """api.refused: a post that queued nothing while a fight holds the body is an interruption (no count, no cooling),
+    not "unavailable" cooled 180 s — resume_after_combat never went back to its chop."""
+
+    def test_over_the_table(self):
+        rows = [("the arbiter refused the post (a fight owns the body)",
+                 {"status": "failed", "message": "body owned by the arbiter", "tasks": []}, False, False, "interrupt"),
+                ("nothing queued, a fight engaged", {"tasks": []}, False, True, "interrupt"),
+                ("nothing queued, nobody holds the body: the world declined", {"tasks": []}, False, False,
+                 "unavailable"),
+                ("something queued: no answer needed", {"tasks": [{"id": 1}]}, True, True, None)]
+        for name, r, queued, engaged, want in rows:
+            with self.subTest(name):
+                body = arbiter.Motion()
+                body.engaged = engaged
+                with mock.patch.object(arbiter, "BODY", body):
+                    try:
+                        api.refused(r, queued)
+                        got = None
+                    except api.McError as e:
+                        got = retry.cause_of(e)
+                self.assertEqual(got, want)
+
+
 class Outcomes(unittest.TestCase):
     def test_every_exception_maps_to_one_cause_and_one_class(self):
         for err, cause, cls in OUTCOMES:

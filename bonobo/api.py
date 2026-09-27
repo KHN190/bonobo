@@ -117,6 +117,19 @@ class PlayerTookControl(Exception):
     """The player holds control. Automation must stop touching the game until handed back."""
 
 
+def refused(r, queued):
+    """A post that queued nothing: an interruption while the body is held — a fight owns it (arbiter.BODY: a
+    holder, engaged, or post's own "body owned by the arbiter") — else the world declining the work (NotAvailable).
+    Counted as "unavailable" and cooled 180 s, a chop cut short by a zombie never resumed (resume_after_combat)."""
+    if queued:
+        return
+    from . import arbiter
+    if "owned by the arbiter" in str(r.get("message", "")) or arbiter.BODY.holder() is not None \
+            or arbiter.BODY.engaged:
+        raise BodyContested(f"the body is held ({r.get('message') or 'a fight'}): nothing queued")
+    raise NotAvailable("the game queued none of the posted tasks")
+
+
 class BodyContested(McError):
     """A task we were waiting on was replaced by one we did not post: someone else (an operator command, a second
     process) is driving the body. Standing down beats cycling through fallbacks against it — one burst of this
@@ -389,6 +402,7 @@ def run(task, wait=900):
         log(f"  !! {why}")
     began = time.time()
     r = post("/task?wait=0", task)
+    refused(r, queued=r.get("id") is not None or r.get("status") != "failed")
     if r["status"] == "running":
         r = await_task(r["id"], wait)
     # Sequences (mine_many/build) report per-step failures in result.failures: surface the first reason so
@@ -485,11 +499,7 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
         else:
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
             queued = r.get("tasks") or []
-            if not queued:
-                # The mod took the post and queued nothing — the body is held by another commander, or the tasks
-                # were refused. That is the world declining the work, not a bug in the caller: say so in the one
-                # language every skill already understands, instead of an IndexError that kills the round.
-                raise NotAvailable("the game queued none of the posted tasks")
+            refused(r, queued=bool(queued))
             LAST_POSTED = (chain_signature(part), queued[-1]["id"])
             await_task(queued[-1]["id"], wait)
             done = [get(f"/task?id={t['id']}") for t in queued]
