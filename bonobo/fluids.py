@@ -116,8 +116,6 @@ def _use(item, aim, on_block):
        budget=300, stall=120, per_unit=60, provides={"fill": lambda ctx, s: ()})
 def fill_water_bucket(ctx):
     """Fill an empty bucket at the nearest reachable still water."""
-    if not Inventory().count("minecraft:bucket"):
-        raise NotAvailable("no empty bucket to fill")
     here = skillcore.feet()
     hits = sorted((h for h in find(["water"], radius=48, limit=60) if not ctx.blocked((h["x"], h["y"], h["z"]))),
                   key=lambda h: h["distance"])

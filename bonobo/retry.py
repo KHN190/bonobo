@@ -27,7 +27,7 @@ def cause_of(err):
         return "interrupt"   # a danger or another commander stopped it: not the skill's fault
     if "GameUnreachable" in names:
         return "game"        # the game is down or restarting: nothing about the place or the task
-    if "ToolMissing" in names:
+    if "ToolMissing" in names or "NeedMissing" in names:
         return "tool"
     if "NavFailed" in names or "Unreachable" in names or any(m in text for m in UNREACHABLE):
         return "nav"

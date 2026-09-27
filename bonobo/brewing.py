@@ -47,8 +47,6 @@ def bottle_commands(state, args):
 def fill_bottles(ctx, count=3):
     """Fill glass bottles at water (use the bottle while looking at a water source)."""
     from . import fluids
-    if Inventory().count("minecraft:glass_bottle") < 1:
-        raise NotAvailable("no glass bottles")
     here = skillcore.feet()
     hits = sorted(find(["water"], radius=32, limit=30), key=lambda h: h["distance"])
     for h in hits[:4]:

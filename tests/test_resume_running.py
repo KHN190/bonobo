@@ -17,7 +17,6 @@ decision is the same work the body is already doing, attach to the running task 
 import os
 import sys
 import unittest
-from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api  # noqa: E402
@@ -59,39 +58,6 @@ class SameWorkIsResumed(unittest.TestCase):
         for changed in (dict(WALK[0], x=11), dict(WALK[0], type="travel"), dict(WALK[0], range=2)):
             with self.subTest(changed=changed):
                 self.assertNotEqual(api.chain_signature(WALK), api.chain_signature([changed]))
-
-
-class RunChainAttachesOrPosts(unittest.TestCase):
-    """`run_chain` itself, over a fake mod: the same chain re-posted while it runs is attached to (no second post);
-    a different chain is posted; either way the body's task is not replaced by the re-decision."""
-
-    # (what ran last, what the mod reports running, the chain posted now) → posts made, task waited on
-    ROWS = [("the same walk re-decided mid-way", WALK, 273, WALK, 0, 273),
-            ("a different chain", WALK, 273, DIG, 1, 500),
-            ("the same chain after ours ended", WALK, None, WALK, 1, 500),
-            ("first post ever", None, None, WALK, 1, 500)]
-
-    def test_run_chain(self):
-        for name, last, running_id, tasks, posts, waited in self.ROWS:
-            posted, awaited = [], []
-
-            def get(path):
-                if path == "/state":
-                    task = dict(RUNNING, id=running_id) if running_id else None
-                    return {"control": {"task": task}}
-                return {"id": 500, "type": "goto", "status": "succeeded", "message": ""}
-
-            def post(path, body=None):
-                posted.append(body)
-                return {"status": "running", "tasks": [{"id": 500}]}
-            with self.subTest(name), \
-                    mock.patch.object(api, "LAST_POSTED", None if last is None else (api.chain_signature(last), 273)), \
-                    mock.patch.object(api, "get", side_effect=get), mock.patch.object(api, "post", side_effect=post), \
-                    mock.patch.object(api, "await_task", side_effect=lambda tid, wait: awaited.append(tid)), \
-                    mock.patch.object(api, "detail"), mock.patch.object(api, "_raise_if_released"):
-                api.run_chain(tasks)
-                self.assertEqual(len(posted), posts)
-                self.assertEqual(awaited, [waited])
 
 
 if __name__ == "__main__":

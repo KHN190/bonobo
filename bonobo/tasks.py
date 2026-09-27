@@ -1,5 +1,14 @@
-"""The task queue (L3): what the cerebrum wants done, in the order it wants it. One file, MC_DATA/tasks.json. A task is {id, goal, args, state, reason, created, expires, source, plan}. State is one of STATES; several tasks may be pending, and the first live one in the list is the one worked on. The brain may put upkeep tasks at the front (a bed before dark, food before it runs out); everything else is ordered by whoever wrote the file. `plan` is the plan the brain holds for the task, as step dicts: it is saved with the task so work half done survives a restart, and it is only ever a hint — on resume the brain checks it against the bag and repairs it (steps are amounts to hold, not "chop this tree"). One door in, and it is a queue."""
+"""The task queue (L3): what the cerebrum wants done, in the order it wants it. One file, MC_DATA/tasks.json.
 
+A task is {id, goal, args, state, reason, created, expires, source, plan}. State is one of STATES; several tasks may
+be pending, and the first live one in the list is the one worked on. The brain may put upkeep tasks at the front
+(a bed before dark, food before it runs out); everything else is ordered by whoever wrote the file.
+
+`plan` is the plan the brain holds for the task, as step dicts: it is saved with the task so work half done
+survives a restart, and it is only ever a hint — on resume the brain checks it against the bag and repairs it
+(steps are amounts to hold, not "chop this tree").
+One door in, and it is a queue.
+"""
 import json
 import os
 import time
@@ -10,12 +19,14 @@ FILE = paths.data("tasks.json", env="MC_TASKS")
 STATES = ("pending", "running", "done", "failed", "cancelled")
 LIVE = ("pending", "running")
 
+
 def load(path=None):
     try:
         with open(path or FILE) as f:
             return json.load(f).get("tasks", [])
     except (OSError, ValueError):
         return []
+
 
 def save(items, path=None):
     path = path or FILE
@@ -24,6 +35,7 @@ def save(items, path=None):
     with open(tmp, "w") as f:
         json.dump({"tasks": items}, f, indent=1)
     os.replace(tmp, path)
+
 
 def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=None):
     """Queue a goal (goals.make / goals.have). Returns the task. An identical live goal is not queued twice."""
@@ -39,6 +51,7 @@ def add(goal, expires_s=None, front=False, source="cerebrum", path=None, now=Non
     save(items, path)
     return task
 
+
 def expire(items, now=None):
     """Pure: live tasks past their expiry become cancelled ("expired"). Returns whether anything changed."""
     now = time.time() if now is None else now
@@ -49,9 +62,11 @@ def expire(items, now=None):
             changed = True
     return changed
 
+
 def head(items):
     """Pure: the first live task, or None."""
     return next((t for t in items if t["state"] in LIVE), None)
+
 
 def update(task_id, path=None, **fields):
     """Change one task's fields in the file (state, reason, plan). Returns the task, or None when it is gone."""
@@ -63,13 +78,20 @@ def update(task_id, path=None, **fields):
             return t
     return None
 
-def mark(task_id, state, reason="", path=None):
+
+def marked(state, reason=""):
+    """Pure: the fields a task in `state` gets (`reason`, and no plan once it is not live)."""
     if state not in STATES:
         raise ValueError(f"unknown task state {state!r}")
     fields = {"state": state, "reason": reason}
     if state not in LIVE:
         fields["plan"] = None
-    return update(task_id, path=path, **fields)
+    return fields
+
+
+def mark(task_id, state, reason="", path=None):
+    return update(task_id, path=path, **marked(state, reason))
+
 
 def cancel(task_id=None, path=None, reason="cancelled"):
     """Cancel one task, or every live one."""
@@ -79,12 +101,15 @@ def cancel(task_id=None, path=None, reason="cancelled"):
             t["state"], t["reason"], t["plan"] = "cancelled", reason, None
     save(items, path)
 
+
 def clear(path=None):
     """Drop everything that is no longer live."""
     save([t for t in load(path) if t["state"] in LIVE], path)
 
+
 def goal_of(task):
     return {"goal": task["goal"], "args": task.get("args", {})}
+
 
 def describe(task):
     extra = f" ({task['reason']})" if task.get("reason") else ""

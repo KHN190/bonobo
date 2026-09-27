@@ -26,9 +26,11 @@ PAIRS = [(slow, fast) for i, slow in enumerate(ORDER) for fast in ORDER[:i]]
 FASTER = tuple(fast for slow, fast in PAIRS if slow == "plan")
 
 
-def body_with(running, now=0.0):
-    """A fresh body about to defend `running` (the intent each row names; the Motion holds nothing of it)."""
-    return arbiter.Motion()
+def body_with(running):
+    """A body `running` is driving (what Motion._run holds while ordinary play's action runs on its thread)."""
+    body = arbiter.Motion()
+    body.driving = running
+    return body
 
 
 class LayeringIsHard(unittest.TestCase):

@@ -1,5 +1,28 @@
-"""Skill contracts: every skill declares what it is for and how to judge it, and one runner enforces that. A skill is a function (usually a generator) plus a contract: doc       what it does (first docstring line) pre       preconditions, each raises ToolMissing / NotAvailable before anything is touched start     baseline measured before running (e.g. how many logs we hold) done      goal reached — checked before starting (skip) and after every step (stop early) verify    postcondition after the body returns (defaults to `done`); failing it raises McError budget    max seconds for the whole skill stall     max seconds without progress; progress = the value the body yields changed, or, when it yields None, the inventory/position signature changed provides  {effect: adapter}: what running this skill makes true, and how a plan step asks for it. An effect is "<step kind>:<token>", "item:<token>" or "<step kind>" (most specific first, see `step_keys`); the adapter is (ctx, step) -> the arguments after ctx, or None when this skill cannot serve that step here. Adding a skill is one decorated function in any imported module: the brain finds it here (`provider`), never through a switch of its own. prefer    order among skills that provide the same effect (higher first) commands  optional, pure: (state, args) -> [task]. The whole command batch an OPEN-LOOP skill would send, built from a state dict and executed by nobody. The skill's own body runs that batch (`api.run_chain`) and then its verify, so a fight can take the same batch and post it itself — append to it, or /stop and post again — without a second definition of the skill. Closed-loop skills (seek, chop, hunt: they look as they go) leave it None. Two levels of stuck detection: api.await_task watches one mod task (10 s without visible movement), the runner watches the skill's own goal metric across tasks (a hunt that walks around forever without closing in)."""
+"""Skill contracts: every skill declares what it is for and how to judge it, and one runner enforces that.
 
+A skill is a function (usually a generator) plus a contract:
+  doc       what it does (first docstring line)
+  pre       preconditions, each raises ToolMissing / NotAvailable before anything is touched
+  start     baseline measured before running (e.g. how many logs we hold)
+  done      goal reached — checked before starting (skip) and after every step (stop early)
+  verify    postcondition after the body returns (defaults to `done`); failing it raises McError
+  budget    max seconds for the whole skill
+  stall     max seconds without progress; progress = the value the body yields changed, or, when it yields
+            None, the inventory/position signature changed
+  provides  {effect: adapter}: what running this skill makes true, and how a plan step asks for it. An effect is
+            "<step kind>:<token>", "item:<token>" or "<step kind>" (most specific first, see `step_keys`); the adapter
+            is (ctx, step) -> the arguments after ctx, or None when this skill cannot serve that step here. Adding a
+            skill is one decorated function in any imported module: the brain finds it here (`provider`), never
+            through a switch of its own.
+  prefer    order among skills that provide the same effect (higher first)
+  commands  optional, pure: (state, args) -> [task]. The whole command batch an OPEN-LOOP skill would send, built
+            from a state dict and executed by nobody. The skill's own body runs that batch (`api.run_chain`) and
+            then its verify, so a fight can take the same batch and post it itself — append to it, or /stop and
+            post again — without a second definition of the skill. Closed-loop skills (seek, chop, hunt: they look
+            as they go) leave it None.
+
+Two levels of stuck detection: api.await_task watches one mod task (10 s without visible movement), the runner
+watches the skill's own goal metric across tasks (a hunt that walks around forever without closing in)."""
 import functools
 import inspect
 import time
@@ -10,6 +33,7 @@ from .api import McError, TaskStuck
 REGISTRY = {}
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
 
+
 class Call:
     """What contract callables see: the call's args, the baseline and (for verify) the result."""
 
@@ -17,6 +41,7 @@ class Call:
         self.args, self.kwargs, self.base, self.result = args, kwargs, None, None
         self.want = None            # an item skill's desired bag, fixed at its start (skill.wanted)
         self.keep = {}              # what the skill fixed at its first start (an anchor: a column, a direction)
+
 
 # An interrupted call's desired state — its base, the bag it wants, its anchors — kept for the same call's resume:
 # the rest is then read off the world against it (`remaining_of`), never a step index. Stale after RESUME_TTL_S.
@@ -27,13 +52,16 @@ CALLS = []
 # kept across an interruption, so its resume is rebuilt from the world against the same anchor.
 ANCHORS = {}
 
-def current():
-    """The call running now (innermost): its `keep` holds what it fixed at its first start, kept across an interruption for its resume."""
 
+def current():
+    """The call running now (innermost): its `keep` holds what it fixed at its first start, kept across an
+    interruption for its resume."""
     return CALLS[-1] if CALLS else None
+
 
 def _resume_key(contract, args):
     return contract.name, repr(args[1:])
+
 
 def _resumed(contract, args):
     """(base, want, keep) this call left when interrupted, if fresh; else None. Taken: one resume per interruption."""
@@ -42,9 +70,11 @@ def _resumed(contract, args):
         return None
     return kept[1:]
 
+
 def body_now():
     """The body's reading this round (one /state): the runner's own seam for death and a dimension change."""
     return api.get("/state")
+
 
 def world_signature():
     from .world import Inventory
@@ -52,6 +82,7 @@ def world_signature():
     inv = Inventory()
     return ((s["blockX"], s["blockY"], s["blockZ"]),
             tuple(sorted((x["id"], x.get("count", 1), x.get("damage", 0)) for x in inv.slots)))
+
 
 class Contract:
     def __init__(self, name, fn, pre, start, done, verify, budget, stall, per_unit, units, key, soft=False,
@@ -78,14 +109,16 @@ class Contract:
         est = f"~{self.per_unit:g}s/unit" + (f" (measured {learned:.1f}s)" if learned is not None else "")
         return f"{self.name:<18} {est:<30} budget {self.budget:>4}s  stall {self.stall:>3}s  {self.doc}"
 
+
 # Set by the brain to the memory object: record_duration(key, seconds, units) / duration(key).
 STATS = None
 LAST_S = {}     # skill name → seconds its last verified run took, preconditions and planning excluded
 MIN_SAMPLES = 3
 
-def expected(fn, *args, **kwargs):
-    """Expected seconds for a skill call: measured seconds per unit once there are MIN_SAMPLES runs of that key, otherwise the contract's prior."""
 
+def expected(fn, *args, **kwargs):
+    """Expected seconds for a skill call: measured seconds per unit once there are MIN_SAMPLES runs of that key,
+    otherwise the contract's prior. Used to decide when a skill is worth doing."""
     contract = fn.contract
     c = Call(args, kwargs)
     try:
@@ -96,9 +129,14 @@ def expected(fn, *args, **kwargs):
     per = STATS.duration(key) if STATS is not None else None
     return (per if per is not None else contract.per_unit) * units
 
-def can_run(fn, *args, **kwargs):
-    """Would this skill's preconditions pass right now?"""
 
+def can_run(fn, *args, **kwargs):
+    """Would this skill's preconditions pass right now? (ok, why not).
+
+    The same `pre` the runner checks, asked BEFORE the planner offers the work rather than after it fails. A skill
+    that says "no torches to spare" already knew it could not run; nobody asked, so the pool priced it, chose it,
+    and learned by failing — ninety times in four minutes, because the idle rule kept thawing it.
+    """
     contract = getattr(fn, "contract", None)
     if contract is None:
         return True, None
@@ -110,23 +148,28 @@ def can_run(fn, *args, **kwargs):
             return False, str(e) or type(e).__name__
     missing = unmet(contract, args, skillcore.Inventory)
     if missing:
-        return False, f"{contract.name} needs {', '.join(f'{k} {v}' for k, v in sorted(missing.items()))}"
+        return False, f"{contract.name}: {skillcore.NeedMissing(missing)}"
     return True, None
 
-def unmet(contract, args, bag):
-    """Pure given the bag: what of this call's hard needs (needs_of) the bag (`bag()`, read only when there are needs) does not hold — {} when it can start."""
 
+def unmet(contract, args, bag):
+    """Pure given the bag: what of this call's hard needs (needs_of) the bag (`bag()`, read only when there are
+    needs) does not hold — {} when it can start. The one start check of `needs`: the runner refuses the call on it
+    (NeedMissing, whoever calls), can_run asks it before the work is offered (dispatch.can_start)."""
     from .knowledge import have_remainder, needs_rows
     needs = needs_of(contract, args)
     return have_remainder(bag(), needs_rows(needs)) if needs else {}
+
 
 def step_keys(step):
     """The effects a plan step asks for, most specific first."""
     return [f"{step.kind}:{step.token}", f"item:{step.token}", step.kind]
 
+
 def providers(effect):
     """Contracts that provide `effect`, preferred first."""
     return sorted((c for c in REGISTRY.values() if effect in c.provides), key=lambda c: -c.prefer)
+
 
 def provider(ctx, step):
     """(runner, args) of the skill that carries out `step` here, or None when no registered skill can."""
@@ -137,17 +180,23 @@ def provider(ctx, step):
                 return contract.runner, tuple(args)
     return None
 
+
 def handles(step):
     """Does any registered skill provide what this step asks for? (No world read: decompose asks it.)"""
     return step.kind == "skill" and step.token in REGISTRY or any(providers(e) for e in step_keys(step))
+
 
 def needs_of(contract, args):
     """The hard prerequisites of this call: the static `needs`, or the function of the call's args."""
     return dict(contract.needs_fn(args)) if getattr(contract, "needs_fn", None) else dict(contract.needs)
 
-def step_call(step):
-    """Pure: (needs, speed) of what carries out a planned `step` — every skill that provides it (step_keys, first effect anyone provides), merged: the needs of the call each would make (needs_of; a need that depends on the call reads the args its `provides` builds from the step, with no context — None: it would not take this step), the most per dimension; its speed tools that help this call, the most saved per unit."""
 
+def step_call(step):
+    """Pure: (needs, speed) of what carries out a planned `step` — every skill that provides it (step_keys, first
+    effect anyone provides), merged: the needs of the call each would make (needs_of; a need that depends on the call
+    reads the args its `provides` builds from the step, with no context — None: it would not take this step), the
+    most per dimension; its speed tools that help this call, the most saved per unit. The planner's and the cost
+    model's one reading of both (knowledge.step_call)."""
     if step.kind == "skill" and step.token in REGISTRY:
         # A skill asked for by name (goals' "skill" template): that skill, called with the goal's args.
         c = REGISTRY[step.token]
@@ -179,23 +228,32 @@ def step_call(step):
         return needs, speed
     return {}, {}
 
+
 class _Blank(dict):
     def __missing__(self, key):
         return None
 
-def _lenient(step):
-    """The step as a provider reads it for its needs: a detail it lacks reads None (the need is the call's; a missing argument is decompose."""
 
+def _lenient(step):
+    """The step as a provider reads it for its needs: a detail it lacks reads None (the need is the call's; a missing
+    argument is decompose.missing_detail's refusal, not this one's)."""
     import types
     return types.SimpleNamespace(kind=step.kind, token=step.token, count=step.count, detail=_Blank(step.detail))
+
 
 def _wire_planner():
     from . import knowledge
     knowledge.STEP_CALL = step_call
 
-def declared(name, needs, speed, gives=(), remaining=None):
-    """Every skill states its hard prerequisites (`needs`, {dimension: minimum}) and the optional tools that speed it up (`speed`, {tool kind: seconds saved per unit}) — written out, `{}` when there are none."""
 
+def declared(name, needs, speed, gives=(), remaining=None):
+    """Every skill states its hard prerequisites (`needs`, {dimension: minimum}) and the optional tools that speed
+    it up (`speed`, {tool kind: seconds saved per unit}) — written out, `{}` when there are none. A skill that says
+    neither is refused at import: an unstated need is one the planner can never price.
+
+    A skill whose product lands in the world rather than the bag (`world_effect`: a state in its gives) also states
+    how what is left of it is measured (`remaining`, a pure fn (state, call) → {what: missing}, {} when met): after
+    any interruption the rest is read off the world, and a skill that cannot say what is left would redo it."""
     missing = [k for k, v in (("needs", needs), ("speed", speed), ("gives", gives)) if v is None]
     if missing:
         raise TypeError(f"skill {name!r} declares no {' and no '.join(missing)} (write {{}} when there are none)")
@@ -209,19 +267,23 @@ def declared(name, needs, speed, gives=(), remaining=None):
         raise TypeError(f"skill {name!r} gives no item and declares no remaining= (a state it leaves in gives, and a "
                         f"pure fn (state, call) → what is still missing, {{}} when met)")
 
+
 def world_effect(gives):
     """Does this skill's product land in the world (a state it leaves: "state:sheltered"), not in the bag?"""
     return any(isinstance(g, str) for g in gives_of(gives))
 
-def wanted(contract, state, args):
-    """The bag an item skill's call wants, fixed when it starts: {token: held then + the count asked} — from its gives (producing tables) and its args: the token is the first argument a table produces (else the table's only key), the count the first whole number after it (else 1)."""
 
+def wanted(contract, state, args):
+    """The bag an item skill's call wants, fixed when it starts: {token: held then + the count asked} — from its
+    gives (producing tables) and its args: the token is the first argument a table produces (else the table's only
+    key), the count the first whole number after it (else 1). None for a skill that produces no item."""
     from .knowledge import held
     asked = _asked(contract, args)
     if asked is None:
         return None
     token, _at, n = asked
     return {token: held(state["inv"], token) + n}
+
 
 def _asked(contract, args):
     """(token, index of the count in args or None, count) an item skill's call asks for; None for no item."""
@@ -241,9 +303,10 @@ def _asked(contract, args):
     i = next((j for j in range(start, len(rest)) if isinstance(rest[j], int) and not isinstance(rest[j], bool)), None)
     return token, (None if i is None else i + 1), (1 if i is None else rest[i])
 
-def with_rest(contract, args, rest):
-    """Pure: the call's args with its count set to what is left of its item (`rest`, remaining_of), so a resumed call asks only for the rest; the args unchanged when the count is not an argument."""
 
+def with_rest(contract, args, rest):
+    """Pure: the call's args with its count set to what is left of its item (`rest`, remaining_of), so a resumed
+    call asks only for the rest; the args unchanged when the count is not an argument."""
     asked = _asked(contract, args)
     if asked is None or asked[1] is None or asked[0] not in rest:
         return tuple(args)
@@ -251,9 +314,11 @@ def with_rest(contract, args, rest):
     out[asked[1]] = rest[asked[0]]
     return tuple(out)
 
-def remaining_of(contract, state, call):
-    """What is left of this call, read off `state` (skillcore."""
 
+def remaining_of(contract, state, call):
+    """What is left of this call, read off `state` (skillcore.body_state's shape) — {what: missing}, {} when done,
+    None when the world cannot say (only the skill running can): the skill's own `remaining`, else for an item
+    skill the bag it wants (`call.want`, `wanted`) less what the bag holds (knowledge.have_remainder)."""
     if contract.remaining is not None:
         return contract.remaining(state, call)
     want = getattr(call, "want", None)
@@ -262,17 +327,23 @@ def remaining_of(contract, state, call):
     from .knowledge import have_remainder
     return have_remainder(state["inv"], [[t, n] for t, n in want.items()])
 
+
 def gives_of(gives):
     """A skill's `gives` as a list: producing tables (knowledge.Produces) and states it leaves ("state:sheltered")."""
     if isinstance(gives, dict):
         return [f"state:{k}" if not str(k).startswith("state:") else k for k in gives] if gives else []
     return list(gives) if isinstance(gives, (list, tuple)) else [gives]
 
+
 def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, done=None, verify=None, budget=300, stall=45,
           per_unit=None, units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
           fills_bag=False, remaining=None):
-    """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check."""
+    """`needs` is the same preconditions stated as STATE — {dimension: minimum} — instead of as a check.
 
+    A check can only answer "no". A dimension can be priced: `solve.reach_cost` walks the requirement graph and
+    says what it costs to get there, so "no torches" stops being a refusal and becomes "three torches first, about
+    forty seconds". The checks in `pre` stay as the runtime guard; `needs` is what the planner reads.
+    """
     def wrap(fn):
         declared(name or fn.__name__, needs, speed, gives, remaining)
         contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, per_unit, units,
@@ -297,6 +368,9 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
         def runner(*args, **kwargs):
             key = _resume_key(contract, args)
             c = Call(args, kwargs)
+            missing = unmet(contract, args, skillcore.Inventory)     # every caller: a plan step, a reflex, a direct call
+            if missing:
+                raise skillcore.NeedMissing(missing)
             for check in contract.pre:
                 check(c)
             kept = _resumed(contract, args)
@@ -364,16 +438,20 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
 
     return wrap
 
-def bag_full_reason(message, free):
-    """Pure: a failure said again with its cause named when the bag had no free slot (`free` = 0) — a gatherer that could not pick up what it made failed "for no reason" (chop, hunt, mine, loot on a full bag)."""
 
+def bag_full_reason(message, free):
+    """Pure: a failure said again with its cause named when the bag had no free slot (`free` = 0) — a gatherer
+    that could not pick up what it made failed "for no reason" (chop, hunt, mine, loot on a full bag). None when
+    the bag had room (the failure is its own) or the message already names the bag."""
     if free is None or free > 0 or message.lower().startswith("bag full"):
         return None
     return f"bag full (no free slot): {message}"
 
-def bag_check(contract, c):
-    """A gatherer with nowhere to put what it gathers stops now, saying so: a full-bag chop broke logs it could not pick up, found the trunk empty and moved on to the next tree until its time ran out."""
 
+def bag_check(contract, c):
+    """A gatherer with nowhere to put what it gathers stops now, saying so: a full-bag chop broke logs it could not
+    pick up, found the trunk empty and moved on to the next tree until its time ran out. One check for every
+    gatherer (`fills_bag`), before it starts and between its batches — none of them re-checks it."""
     if not contract.fills_bag:
         return
     from .bag import has_room
@@ -386,11 +464,13 @@ def bag_check(contract, c):
         what = ", ".join(sorted(i.split(":")[-1] for i in ids)[:3]) or "anything"
         raise McError(bag_full_reason(f"{contract.name}: no room for {what}", 0))
 
+
 def _free_slots():
     try:
         return skillcore.Inventory().free_slots()
     except McError:
         return None
+
 
 def _same_shape(e):
     """The failure's own type can carry the new message (a one-argument McError subclass)."""
@@ -400,16 +480,19 @@ def _same_shape(e):
     except TypeError:
         return False
 
+
 HEARTBEAT = paths.data("skill-heartbeat")
 
-def _heartbeat(name):
-    """Skills that work on the Python side (watching a furnace) run no mod task; the supervisor reads this file so it doesn't mistake them for an idle agent."""
 
+def _heartbeat(name):
+    """Skills that work on the Python side (watching a furnace) run no mod task; the supervisor reads this file so it
+    doesn't mistake them for an idle agent."""
     try:
         with open(HEARTBEAT, "w") as f:
             f.write(f"{time.time():.0f} {name}\n")
     except OSError:
         pass
+
 
 def _drive(contract, c, gen):
     t0 = time.time()
@@ -443,5 +526,6 @@ def _drive(contract, c, gen):
                 raise TaskStuck(f"{contract.name}: over its {contract.budget}s budget")
     finally:
         gen.close()
+
 
 _wire_planner()

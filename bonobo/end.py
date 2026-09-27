@@ -1,5 +1,5 @@
-"""The stronghold and the End: fill the end portal frame with eyes of ender and go through; the dragon fight is in combat.py. Pure `frames_missing_eye` / `portal_centre` are offline-tested."""
-
+"""The stronghold and the End: fill the end portal frame with eyes of ender and go through; the dragon fight is in
+combat.py. Pure `frames_missing_eye` / `portal_centre` are offline-tested."""
 import math
 import time
 
@@ -10,9 +10,11 @@ from .skill import skill
 from .data import bare
 from .world import Inventory, Region, away_from, cells_with, entities, find
 
+
 def frames_missing_eye(region):
     """Pure: end portal frame blocks without an eye (block state eye=false)."""
     return cells_with(region, "end_portal_frame", "eye", "true", want=False)
+
 
 def portal_centre(frames):
     """Pure: the centre of the 3×3 opening surrounded by the 12 frame blocks (x, y, z)."""
@@ -21,15 +23,19 @@ def portal_centre(frames):
     xs, zs = [p[0] for p in frames], [p[2] for p in frames]
     return (min(xs) + max(xs)) // 2, frames[0][1], (min(zs) + max(zs)) // 2
 
-def eye_plan(missing, centre, floor_solid, lit, have_block):
-    """Pure: (floor cell to fill first or None, where to stand, frames to fill) — the speedrun way: a block over the lava in the ring's middle, stand on it, every missing eye from there without moving (each frame's top is within 2."""
 
+def eye_plan(missing, centre, floor_solid, lit, have_block):
+    """Pure: (floor cell to fill first or None, where to stand, frames to fill) — the speedrun way: a block over the
+    lava in the ring's middle, stand on it, every missing eye from there without moving (each frame's top is within
+    2.3 blocks of the middle). A lit portal, or no frame missing, is nothing to do; no block and no floor to stand on
+    is a reason, not a walk around the ring."""
     if lit or not missing:
         return None, None, []
     floor = (centre[0], centre[1] - 1, centre[2])
     if not floor_solid and not have_block:
         raise NotAvailable("no block to put over the ring's middle to stand on")
     return (None if floor_solid else floor), centre, sorted(missing)
+
 
 def outside_spot(frame, centre):
     """Pure: the floor cell just outside the ring next to a frame block (away from the 3×3 opening)."""
@@ -38,11 +44,12 @@ def outside_spot(frame, centre):
         return frame[0] + (1 if dx > 0 else -1), frame[1], frame[2]
     return frame[0], frame[1], frame[2] + (1 if dz > 0 else -1)
 
+
 @skill(gives=["state:end_portal_open"], remaining=_k.blocks_there("end_portal"), needs={"minecraft:ender_eye": 1}, speed={}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
        budget=600, stall=180, per_unit=60, provides={"activate:end_portal": lambda ctx, s: ()})
 def activate_end_portal(ctx):
-    """At the stronghold's portal room: a block over the middle's lava, stand on it, every missing eye from there in one chain (`eye_plan`); the portal opens under the feet."""
-
+    """At the stronghold's portal room: a block over the middle's lava, stand on it, every missing eye from there in
+    one chain (`eye_plan`); the portal opens under the feet."""
     from .skillcore import place
     hits = find(["end_portal_frame"], radius=32, limit=12)
     if not hits:
@@ -79,11 +86,14 @@ def activate_end_portal(ctx):
         raise McError("some frames still have no eye")
     log("end portal activated")
 
+
 BRICKS = ["minecraft:stone_bricks", "minecraft:mossy_stone_bricks", "minecraft:cracked_stone_bricks"]
 ROOM_Y = 30          # strongholds sit around y 0–50; the portal room is usually within 30 blocks of the estimate
 
+
 SCAN = 48            # the mod's /find maximum: every search point scans the widest box it can
 # Points 40 apart: each one costs a 40–60 s tunnel at depth (bench: 24 apart with a 32 scan found nothing in 3 min).
+
 
 def search_points(centre, y=ROOM_Y, rings=3, step=40):
     """Pure: where to look for the portal room — the estimate first, then square rings `step` apart at depth y."""
@@ -95,18 +105,21 @@ def search_points(centre, y=ROOM_Y, rings=3, step=40):
         pts += [(cx + dx * step, y, cz + dz * step) for dx, dz in sorted(ring, key=lambda d: (abs(d[0]) + abs(d[1]), d))]
     return pts
 
+
 def next_brick(bricks, visited, radius=12):
     """Pure: the nearest stronghold brick not near a place already visited (corridors lead to the room)."""
     fresh = [b for b in bricks if all(math.dist(b[:3], v[:3]) > radius for v in visited)]
     return min(fresh, key=lambda b: b[3]) if fresh else None
 
+
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
+
 
 @skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, speed={}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240, per_unit=300,
        provides={"seek:portal_room": lambda ctx, s: ()})
 def find_portal_room(ctx):
-    """From the triangulated estimate: dig down to stronghold depth, follow stronghold bricks toward unexplored parts, otherwise search rings around the estimate, until an end portal frame is within 32 blocks."""
-
+    """From the triangulated estimate: dig down to stronghold depth, follow stronghold bricks toward unexplored parts,
+    otherwise search rings around the estimate, until an end portal frame is within 32 blocks."""
     sites = ctx.mem.sites("minecraft:overworld", kinds=["stronghold"])
     if not sites:
         raise NotAvailable("no stronghold estimate yet (locate_stronghold first)")
@@ -147,11 +160,13 @@ def find_portal_room(ctx):
         yield target
     raise NotAvailable("no end portal frame around the stronghold estimate")
 
+
 PERCH_PHASES = {5, 6, 7}      # 3 is "landing": running in while it still comes down met the head on the way
 # The attack window is narrower than "sitting": 5 is sitting *flaming*, i.e. the breath is pouring out over the
 # fountain, so stepping in then means eating it. 6 (scanning) and 7 (attacking) are the safe halves of the perch.
 BOMB_PHASES = {6, 7}
 combat_ENDERMAN = "minecraft:enderman"
+
 
 def bombable(dragon):
     """Pure: the window is open — it sits, and it is not breathing right now."""
@@ -164,6 +179,7 @@ EYE = 1.62
 REACH = 4.5
 BED_TOP = 0.5625
 
+
 def choose_side(here, centre=(0, 0)):
     """Pure: the axis side of the portal the player is on (the dragon's head turns toward the player)."""
     dx, dz = here[0] - centre[0], here[2] - centre[1]
@@ -171,23 +187,27 @@ def choose_side(here, centre=(0, 0)):
         return (1 if dx >= 0 else -1, 0)
     return (0, 1 if dz >= 0 else -1)
 
-def dragon_entry(near):
-    """Pure: the ender dragon itself from an /entities list."""
 
+def dragon_entry(near):
+    """Pure: the ender dragon itself from an /entities list. Its body parts share the type but carry no health, and
+    their ids aren't in the client's entity table: attacking one returned "target not found" 100 times."""
     return next((e for e in near if e["type"] == "minecraft:ender_dragon" and e.get("health") is not None), None)
+
 
 def pillar_top(bedrock):
     """Pure: the standing height on the exit-portal pillar — one above the highest bedrock near the island centre."""
     tops = [b[1] for b in bedrock if abs(b[0]) <= 3 and abs(b[2]) <= 3]
     return max(tops) + 1 if tops else None
 
+
 def find_pillar_top():
     hits = find(["bedrock"], radius=48, limit=80)
     return pillar_top([(h["x"], h["y"], h["z"]) for h in hits])
 
-def perched(dragon, top=None, centre=(0, 0)):
-    """Pure: the dragon sits on the exit portal — near the island centre AND down at the pillar top (a dragon hovering above the centre counted as perched and the bed went into the air)."""
 
+def perched(dragon, top=None, centre=(0, 0)):
+    """Pure: the dragon sits on the exit portal — near the island centre AND down at the pillar top (a dragon
+    hovering above the centre counted as perched and the bed went into the air)."""
     if dragon.get("phase") is not None:
         # mod ≥0.1.31 reports the synced phase: landing (3) or sitting (5 flaming, 6 scanning, 7 attacking).
         return dragon["phase"] in PERCH_PHASES
@@ -196,32 +216,41 @@ def perched(dragon, top=None, centre=(0, 0)):
     near = math.hypot(dragon["x"] - centre[0], dragon["z"] - centre[1]) <= 8
     return near and (top is None or dragon["y"] <= top + 6)
 
+
+
+
 def _bed_item():
     from .data import GROUPS
     inv = Inventory()
     return next((b for b in GROUPS["bed"] if inv.count(b)), None)
+
 
 PIT_R = _GEO["mouth_r"]
 PIT_DEPTH = _GEO["pit_depth"]
 WAIT_BAND = (16, 22)
 PREP_MIN_R = 16      # never build anything closer than this while the dragon is down
 
-def bed_cell(side, top, centre=(0, 0)):
-    """Pure: where the bed goes — on the bedrock of the fountain, 2 from the centre on the chosen side, at the pillar top."""
 
+def bed_cell(side, top, centre=(0, 0)):
+    """Pure: where the bed goes — on the bedrock of the fountain, 2 from the centre on the chosen side, at the pillar
+    top. The perched head hangs directly above it (mcmod 2197: 引爆时龙头在床的正上方; 4 beds suffice when every blast
+    lands under the head). A bed on the island floor 3 blocks out left the head outside the blast and every window
+    reported the dragon still at 200 hp."""
     # One block ABOVE the bedrock: human runners put an obsidian block on the highest bedrock of the fountain and
     # bed on top of it, which lifts the blast into the perched head's hitbox instead of under it.
     return (centre[0] + side[0] * 2, top + 1, centre[1] + side[1] * 2)
 
-def breath_near(near, here, radius=8.0):
-    """Pure: a dragon breath cloud within `radius`."""
 
+def breath_near(near, here, radius=8.0):
+    """Pure: a dragon breath cloud within `radius`. The clouds spread along the floor as a string of entities, so any
+    one of them close by means the floor around us is burning."""
     return any(e["type"] == "minecraft:area_effect_cloud"
                and math.dist((e["x"], e["y"], e["z"]), here) <= radius for e in near)
 
-def breath_escape(here, near, centre=(0, 0), run=10):
-    """Pure: where to run when the breath lands on us — straight away from the cloud along the axis we are on, never a search for "the most open cell" (that walked along the cloud)."""
 
+def breath_escape(here, near, centre=(0, 0), run=10):
+    """Pure: where to run when the breath lands on us — straight away from the cloud along the axis we are on, never
+    a search for "the most open cell" (that walked along the cloud)."""
     clouds = [(e["x"], e["y"], e["z"]) for e in near if e["type"] == "minecraft:area_effect_cloud"]
     if not clouds:
         return None
@@ -230,27 +259,31 @@ def breath_escape(here, near, centre=(0, 0), run=10):
     x, _y, z = away_from(here, (cx, here[1], cz), run)
     return (round(x), here[1], round(z))
 
-def in_pit(feet, pit_feet, floor_y=None):
-    """Pure, with tolerance: the same column and low enough that the head is under the floor."""
 
+def in_pit(feet, pit_feet, floor_y=None):
+    """Pure, with tolerance: the same column and low enough that the head is under the floor. Exact equality made the
+    skill walk back into the open every time the player stood one block off."""
     if (feet[0], feet[2]) != (pit_feet[0], pit_feet[2]):
         return False
     if floor_y is None:
         return abs(feet[1] - pit_feet[1]) <= 1
     return feet[1] + EYE < floor_y
 
-def prep_safe(dragon, here, centre=(0, 0), floor_y=None):
-    """Pure: may we spend seconds standing in the open (digging the pit, placing the lip)?"""
 
+def prep_safe(dragon, here, centre=(0, 0), floor_y=None):
+    """Pure: may we spend seconds standing in the open (digging the pit, placing the lip)? Only while the dragon is
+    not perched, or while we are still far outside its breath. Walking to the pit during a perch took 20 hp to 0."""
     if dragon is None:
         return True
     r = math.hypot(here[0] - centre[0], here[2] - centre[1])
     return not perched(dragon, floor_y, centre) or r >= PREP_MIN_R
 
-def exit_portal_open(centre=(0, 0)):
-    """The exit portal's end_portal blocks only appear when the dragon dies: the one truth for "it's over"."""
 
+def exit_portal_open(centre=(0, 0)):
+    """The exit portal's end_portal blocks only appear when the dragon dies: the one truth for "it's over". A dragon
+    that flew out of entity range was declared dead once after 5 s of not being seen."""
     return bool(find(["end_portal"], radius=32, limit=1))
+
 
 def dragon_dead(near=None, centre=(0, 0)):
     """Pure-ish: the dragon is gone AND the exit portal is open (or its health reached 0)."""
@@ -259,10 +292,12 @@ def dragon_dead(near=None, centre=(0, 0)):
         return False
     return exit_portal_open(centre)
 
-@skill(gives=["state:in_pit"], remaining=_k.walled_sides, needs={"tool:pickaxe:0": 1}, speed={}, budget=240, stall=90, soft=True)
-def build_bed_pit(ctx):
-    """Prepare the fight before the dragon lands: dig the 1×2 pit beside the exit portal and stand in it."""
 
+# needs: none — end stone breaks by hand (slower without a pickaxe, but the pit gets dug).
+@skill(gives=["state:in_pit"], remaining=_k.walled_sides, needs={}, speed={}, budget=240, stall=90, soft=True)
+def build_bed_pit(ctx):
+    """Prepare the fight before the dragon lands: dig the 1×2 pit beside the exit portal and stand in it. Speedruns
+    do this while the dragon still circles; the old code placed its cover mid-fight and died waiting."""
     from .skillcore import place
     from .world import Region
     if api.get("/state")["dimension"] != "minecraft:the_end":
@@ -370,16 +405,23 @@ def build_bed_pit(ctx):
         nav.arrived(pit_feet, ctx.policy, range_=0.6, attempts=2, min_hp=15)
     return True
 
+
 PIT = []      # [mouth, firing cell, retreat cell, bed, floor y] from the last build_bed_pit
 
-def _soft_interrupt():
-    """Take perception's interrupt without raising: a fight skill answers danger by retreating into the pit and trying again, not by failing."""
 
+def _soft_interrupt():
+    """Take perception's interrupt without raising: a fight skill answers danger by retreating into the pit and
+    trying again, not by failing. Four "dragon breath close" interrupts in a row killed a whole bench run."""
     return api.consume_interrupt()     # one reader/clearer for the message channel, next to its one writer
 
-def _recover(ctx, reason):
-    """Carry out the recovery table's answer for an interrupt."""
 
+def _recover(ctx, reason):
+    """Carry out the recovery table's answer for an interrupt. One lookup, one fixed action, always an answer.
+
+    Every fight skill used to classify interrupts itself with its own if/elif chain. The chains disagreed with each
+    other about the same danger, and anything none of them enumerated fell through to "carry on" — which is standing
+    still while being hit. The table decides; this function only executes.
+    """
     from . import arbiter, recovery
     act, why = recovery.explain(reason)
     log(f"   {reason} → {act} ({why})")
@@ -387,6 +429,7 @@ def _recover(ctx, reason):
     # anything slower already queued is dropped. Inline, it would be one more place that drives the body.
     arbiter.BODY.preempt("safety", lambda: _recover_body(ctx, act), f"{act}: {reason}")
     return act
+
 
 def _recover_body(ctx, act):
     if act == "shake_enderman":
@@ -403,10 +446,11 @@ def _recover_body(ctx, act):
     else:                                                 # retreat_to_cover, and every unrecognised danger
         _retreat(ctx)                                     # never an empty branch: see _retreat
 
+
 @skill(gives=["state:dragon_perched"], remaining=_k.dragon_phase(PERCH_PHASES), needs={}, speed={}, budget=180, stall=120, soft=True)
 def await_perch(ctx):
-    """Sit in the pit until the dragon is really perched (mod ≥0."""
-
+    """Sit in the pit until the dragon is really perched (mod ≥0.1.31 reports DragonPhase) and health is full enough
+    to survive the bed's own blast. Never judged by height and distance again."""
     if not PIT:
         raise NotAvailable("no bed pit built yet")
     pit_feet, fire_cell, retreat_cell, bed, floor_y = PIT
@@ -514,10 +558,11 @@ def await_perch(ctx):
         yield (d.get("phase") if d else None, round(s["health"]))
     raise McError("the dragon never perched")
 
+
 @skill(gives=["state:window_used"], remaining=_k.window_over(BOMB_PHASES), needs={"bed": 1}, speed={}, budget=120, stall=60, soft=True)
 def bed_bomb_window(ctx):
-    """One bomb, then straight back into the pit."""
-
+    """One bomb, then straight back into the pit. An attack window does exactly one thing: the old loop kept standing
+    outside between bombs."""
     if not PIT:
         raise NotAvailable("no bed pit built yet")
     pit_feet, stand, retreat_cell, bed, floor_y = PIT
@@ -596,11 +641,14 @@ def bed_bomb_window(ctx):
     yield round((after or {}).get("health", 0))
     return True
 
+
 CAGE_STAND_R = 2      # melee reach is ~3 blocks and the bars eat one: at 3 the attack task got 0 hits in 10 s
 
-def cage_plan(crystal, here, floor_y):
-    """Pure: (tower base, stand cell, bars between us and the crystal) for breaking a caged end crystal."""
 
+def cage_plan(crystal, here, floor_y):
+    """Pure: (tower base, stand cell, bars between us and the crystal) for breaking a caged end crystal. Without a bow
+    the speedrun way is to tower up beside the pillar on the side we come from, break the iron bars, stand in a water
+    source and hit the crystal — the blast is what kills an unarmored player, water takes most of it."""
     dx, dz = here[0] - crystal[0], here[2] - crystal[2]
     n = math.hypot(dx, dz) or 1.0
     ux, uz = dx / n, dz / n
@@ -613,9 +661,10 @@ def cage_plan(crystal, here, floor_y):
             for bx, bz in ((1, 0), (-1, 0), (0, 1), (0, -1)) for dy in (0, 1)]
     return base, stand, bars
 
-def crystal_commands(state, args):
-    """`commands` for break_caged_crystal, standing at the tower base: pillar up to the crystal's height, then break every bar still standing (`cage_plan`) — one chain."""
 
+def crystal_commands(state, args):
+    """`commands` for break_caged_crystal, standing at the tower base: pillar up to the crystal's height, then break
+    every bar still standing (`cage_plan`) — one chain. The hits stay closed loop (the crystal gone after each)."""
     from .data import GROUPS
     crystal = args[0]
     pos = (crystal["x"], crystal["y"], crystal["z"])
@@ -631,20 +680,24 @@ def crystal_commands(state, args):
     return [{"type": "pillar", "item": block} for _ in range(rise)] + \
         [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False} for c in standing]
 
+
 def unreachable(results):
     """Pure: the cells a chain's results name as "cannot reach x, y, z" — the only ones a partial failure bans."""
     import re
     return {tuple(int(g) for g in m.groups()) for t in results if t["status"] != "succeeded"
             for m in re.finditer(r"cannot reach (-?\d+), (-?\d+), (-?\d+)", t.get("message") or "")}
 
+
 def caged(crystal, here):
     """Pure: the crystal sits on a tall caged pillar (the open ones are at island level and can be hit from there)."""
     return crystal[1] - here[1] > 8
 
+
 @skill(gives=["state:enderman_off"], remaining=_k.none_of("minecraft:enderman", within=8.0), needs={}, speed={}, budget=90, stall=45, soft=True)
 def shake_enderman(ctx):
-    """Get an angry enderman off us without fighting it, in this order: drop into the wait pit (3 blocks tall, they can't follow), else stand in a water source (endermen teleport away from water), else walk away without turning to look at it."""
-
+    """Get an angry enderman off us without fighting it, in this order: drop into the wait pit (3 blocks tall, they
+    can't follow), else stand in a water source (endermen teleport away from water), else walk away without turning
+    to look at it. Looking is what provokes them, so nothing here aims at the enderman."""
     from .skillcore import place
     from .combat import angry_endermen
     from .world import entities as _entities
@@ -691,6 +744,7 @@ def shake_enderman(ctx):
     api.run({"type": "goto", "x": away[0], "y": away[1], "z": away[2], "range": 2, "partial": True}, wait=3, awaits="one short leg, then the chase is read again (a lone task, nothing to chain)")
     yield "away"
     return True
+
 
 @skill(gives=["state:crystal_broken"], remaining=_k.entity_gone(lambda c: c.args[1]["id"]), needs={"building": 1}, speed={}, budget=300, stall=120, soft=True,
        commands=lambda state, args: crystal_commands(state, args))
@@ -751,9 +805,14 @@ def break_caged_crystal(ctx, crystal):
         yield "hitting"
     raise McError("the crystal survived the hits")
 
-def fight_state(near, s, ctx):
-    """The planner's view of one perception round: {self, boss, threats, resources, terrain}."""
 
+def fight_state(near, s, ctx):
+    """The planner's view of one perception round: {self, boss, threats, resources, terrain}.
+
+    Perception fusion lives here and nowhere else. The planner is a pure function of what this returns, so the same
+    structure can be built by hand in a test or replayed from a tape; what it must never do is summarise — the
+    threat rows go through whole, and the safety layer asks them its own question.
+    """
     from . import fight_plan
     d = dragon_entry(near)
     inv = Inventory()
@@ -779,9 +838,10 @@ def fight_state(near, s, ctx):
                                        and not caged((e["x"], e["y"], e["z"]), here)])},
     )
 
-def _reinforced(pit):
-    """Pure-ish: is the bunker's mouth already blast-proofed?"""
 
+def _reinforced(pit):
+    """Pure-ish: is the bunker's mouth already blast-proofed? Hardcoded False before, so the planner believed
+    reinforcing was still worth doing after it had been done, and would have done it again every cycle."""
     if not pit:
         return False
     from . import bunker
@@ -791,23 +851,32 @@ def _reinforced(pit):
     cells = bunker.reinforce_cells(side, pit[4])
     return all(_solid(c) for c in cells)
 
+
 _LAST_SEEN = {}          # entity id -> (position, when), for differencing velocity between rounds
 
-def _threats(near, dragon, now=None):
-    """The perception round as (centre, radius, velocity, kind) hazards — one row per hostile, no special cases."""
 
+def _threats(near, dragon, now=None):
+    """The perception round as (centre, radius, velocity, kind) hazards — one row per hostile, no special cases.
+
+    A new enemy needs a radius in combat_model.HAZARD_R and nothing here: describing threats by reach rather than by
+    name keeps the planner free of per-monster branches. Differencing (threat.rows) is shared with ordinary play.
+    """
     from . import combat_model, threat
     now = time.time() if now is None else now
     live = [e for e in near or [] if not (e.get("type") == combat_ENDERMAN and not e.get("angry"))]
     return threat.rows(live, _LAST_SEEN, now, combat_model.HAZARD_R)
 
+
 def _solid(cell):
     from .world import Region
     return Region(cell, cell).solid(cell)
 
-def dragon_view(near, s):
-    """What fight_loop."""
 
+def dragon_view(near, s):
+    """What fight_loop.dragon_answer turns an intent into, read off one perception round: the dragon, the open
+    crystals, the bed and its cell, a bomb window that can be taken from here (the pit dug, a bed carried, the
+    dragon sitting, no breath on the bombing spot, health for the blast), the cells still to blast-proof, where
+    to run from breath, and the cover."""
     from . import bunker
     from .combat import crystal_order
     d = dragon_entry(near)
@@ -827,9 +896,14 @@ def dragon_view(near, s):
             "escape": breath_escape(here, near) if breath_near(near, here) else None,
             "cover": tuple(PIT[2]) if PIT else None}
 
-def _retreat(ctx, near=None):
-    """Get away from whatever is hurting us."""
 
+def _retreat(ctx, near=None):
+    """Get away from whatever is hurting us. Always does something.
+
+    The old version walked into the corridor when one existed and called `wait` when one did not — so on the run
+    that mattered, with no corridor dug yet, "retreat" meant standing still for half a second and then standing
+    still again. A default action that can be a no-op turns every upstream bug into the same silent death.
+    """
     if PIT:
         nav.arrived(PIT[2], ctx.policy, range_=0.6, attempts=1)
         return "corridor"
@@ -851,11 +925,13 @@ def _retreat(ctx, near=None):
     api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the next threat reading decides the next move")         # nothing nearby: waiting really is the answer
     return "clear"
 
+
 _ASSUMPTIONS_LOGGED = []      # say it once per fight, not every round
 LAST_ROUND = [None, None]     # (state, intent) of the latest planning round, for incident capture
 PHASE_SINCE = [None, time.time()]   # (phase, when it started) — the planner needs elapsed time, not just the
                                     # phase. Never 0.0: that is the epoch, and the elapsed time it yields
                                     # vetoes every action for having no time left.
+
 
 def _track_phase(near):
     d = dragon_entry(near)
@@ -864,12 +940,17 @@ def _track_phase(near):
         PHASE_SINCE[:] = [phase, time.time()]
     return phase
 
+
 DRAGON_PASSES = 2400     # passes of the fight loop (≈0.5 s each while waiting) before the fight is given up
 
-@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={"tool:sword:1": 1}, speed={}, budget=1800, stall=300, soft=True)
-def slay_dragon(ctx):
-    """The fight is the fight loop's (fight_loop."""
 
+# needs: none — beds do the damage and the fight loop hits with whatever is held (sword tier 0 is a fist).
+@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={}, speed={}, budget=1800, stall=300, soft=True)
+def slay_dragon(ctx):
+    """The fight is the fight loop's (fight_loop.carry), like any threat: each pass the phase model
+    (fight_plan.Fight.plan) picks one intent, fight_loop.dragon_answer turns it into a batch, and the loop keeps
+    the posted batch running while the answer holds or /stops it and posts the new one. This skill only holds the
+    body, reads the round, runs the two preparations that are skills of their own, and says when it is over."""
     if api.get("/state")["dimension"] != "minecraft:the_end":
         raise NotAvailable("not in the End")
     from . import arbiter, fight_loop, fight_plan
@@ -915,6 +996,7 @@ def slay_dragon(ctx):
             api.post("/stop")
         motion.disengage()
 
+
 def _say(intent, state):
     """The round in the log: the plan, and loudly a fault or the unmeasured numbers it rests on."""
     if intent.get("assumptions") and not _ASSUMPTIONS_LOGGED:
@@ -931,7 +1013,9 @@ def _say(intent, state):
         log(f"   plan: {intent['intent']} (worth {intent.get('benefit_s')}s, phase {boss.get('phase')}, "
             f"{boss.get('hp', 0):.0f} hp left)")
 
+
 LAST_SAID = [None]
+
 
 def _floor_under(x, z, y_hint):
     """The standing height at column (x, z): one above the highest solid block from y_hint+3 down 12 blocks."""
@@ -942,10 +1026,12 @@ def _floor_under(x, z, y_hint):
             return y + 1
     return None
 
+
 def _building_block():
     from .data import GROUPS
     inv = Inventory()
     return next((b for b in GROUPS["building"] if inv.count(b)), "minecraft:cobblestone")
+
 
 def _frame_region():
     hits = find(["end_portal_frame"], radius=32, limit=12)
@@ -953,6 +1039,7 @@ def _frame_region():
         return Region((0, 0, 0), (0, 0, 0), props=True)
     xs, ys, zs = [h["x"] for h in hits], [h["y"] for h in hits], [h["z"] for h in hits]
     return Region((min(xs) - 2, min(ys), min(zs) - 2), (max(xs) + 2, max(ys), max(zs) + 2), props=True)
+
 
 @skill(gives=["state:in_the_end"], remaining=_k.in_dimension(lambda c: "minecraft:the_end"), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
 def enter_end(ctx):

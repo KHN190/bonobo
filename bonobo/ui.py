@@ -64,8 +64,6 @@ def enchant_item(ctx, item):
     xp = api.get("/state").get("xpLevel", 0)
     if xp < 1:
         raise NotAvailable("no experience levels to enchant with")
-    if not Inventory().count("minecraft:lapis_lazuli"):
-        raise NotAvailable("no lapis lazuli")
     with Station(ctx, "minecraft:enchanting_table") as station:
         _open_container(station.pos)
         try:
