@@ -2468,10 +2468,8 @@ def _queue(goal):
 
 # -- where things come from (decompose.SOURCES): the plan, not the skill, is under test ---------------------------
 SHEET["portal_from_cast"] = {
-    # The plan's choice is under test, not the whole cast (cast_portal is that row): cut at the second obsidian
-    # cell cast from the pool — none is carried, so obsidian in the box is the plan casting — to fit 30 s.
     "doc": "The queue asks for a portal: no obsidian, no diamond pickaxe, buckets, blocks and flint, a lava pool "
-           "memory knows 3 blocks off → the plan casts it in place (two frame cells cast)",
+           "memory knows 3 blocks off → the plan casts it in place, and it is lit",
     "module": "decompose", "point": "C", "skills": ["cast:nether_portal"], "tier_fixed": "exception",
     "tags": {"base": "sources"},
     "setup": list(SCENARIOS["cast_portal"]["setup"]),
@@ -2479,9 +2477,8 @@ SHEET["portal_from_cast"] = {
     "before": _hooks(_start("portal_from_cast"),
                      lambda ctx: ctx.mem.note_seen("lava", at(3, -1, 0), "minecraft:overworld"),
                      _queue(__import__("bonobo.goals", fromlist=["make"]).make("build", bp="nether_portal"))),
-    "run": _brain_rounds(25, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "obsidian") >= 2),
-    "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "obsidian") >= 2
-    and not inv.count("minecraft:obsidian"),
+    "run": _brain_rounds(28, lambda: _count_blocks(None, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1),
+    "check": lambda api, inv: _count_blocks(api, at(-8, -1, -8), at(8, 6, 8), "nether_portal") >= 1,
     "budget": 30,
 }
 SHEET["pearls_from_barter"] = {
