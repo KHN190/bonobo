@@ -8,7 +8,7 @@ import re
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 _INDEX = {}
-NOT_PRODUCTION = ("scenarios",)          # and every bench module: the row's own definition covers what it uses
+NOT_PRODUCTION = ()          # the bench lives in bonobo/bench (not indexed): the row's own definition covers what it uses
 
 def code_index(pkg_dir=PKG):
     """{name: [source]} of every production function, method and class (a name defined twice counts both: over-reaching is safe)."""

@@ -103,8 +103,8 @@ class RulesAreWired(unittest.TestCase):
         writers = {m: n for m in sorted(f[:-3] for f in os.listdir(PKG) if f.endswith(".py"))
                    if (n := interrupt_writes(source(m)))}
         # perception may still hand a message to a soft skill without stopping it; every stop-and-tell goes
-        # through the arbiter. scenarios is the bench, which plays the interrupting player.
-        self.assertEqual(sorted(set(writers) - {"perception", "scenarios"}), ["arbiter"], f"writers: {writers}")
+        # through the arbiter (the bench, which plays the interrupting player, lives in bonobo/bench).
+        self.assertEqual(sorted(set(writers) - {"perception"}), ["arbiter"], f"writers: {writers}")
         self.assertLessEqual(writers.get("perception", 0), 1)
 
     # Every funnel that drives the body asks the arbiter, by name, before the game hears of it.

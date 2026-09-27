@@ -13,53 +13,24 @@ Data conventions, one each:
   attribute of the context, ("$call", name, *args) a helper called at run time (its args may hold these markers).
 """
 import importlib
-import operator
-import sys
-
 import json
-
 import math
-
+import operator
 import os
-
 import re
-
+import sys
 import time
 
 from . import core, runner
-
 from ..data import POD_BLOCKS
-
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
-
 from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
-
 from .runner import *        # noqa: F403
-
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
-from .bench_bases import BASES, TARGET_S, TARGET_SLACK   # the bases' data: one home
+from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 
-def _lava_lake(width):
-    """Variant: a `width`-block lava strip between two stone platforms (one layout passing can be luck)."""
-    far = 2 + width
-    return {
-        "doc": f"A {width}-block lava strip between two stone platforms; cobblestone → reach the far side alive.",
-        "module": "nav",
-        "setup": [f"fill {_c(at(-3, -3, -4))} {_c(at(far + 4, -3, 4))} stone",
-                  f"fill {_c(at(-2, -2, -3))} {_c(at(far + 3, -1, 3))} lava",
-                  f"fill {_c(at(-2, -1, -3))} {_c(at(1, -1, 3))} stone",
-                  f"fill {_c(at(far, -1, -3))} {_c(at(far + 3, -1, 3))} stone",
-                  f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p cobblestone 64", "give @p diamond_pickaxe"],
-        "expect": [(at(2, -1, -3), at(far - 1, -1, 3), "lava", width * 7, width * 7),
-                   (at(-2, -1, -3), at(1, -1, 3), "stone", 28, 28),
-                   (at(-2, 0, -3), at(far + 3, 4, 3), "*", 0, 0)],
-        "run": lambda ctx: __import__("bonobo.nav", fromlist=["go_to"]).go_to(at(far + 1, 0, 0), ctx.policy,
-                                                                               range_=1.5),
-        "check": lambda api, inv: _near(api, at(far + 1, 0, 0), 2.5) and api.get("/state")["health"] > 10,
-        "budget": 10 + 4 * width,
-    }
 
 # real structures in the test world (seed 1234): no box; /locate gives the truth
 LEG_START = (10400, 200, 10400)
@@ -592,7 +563,6 @@ def _alive(min_hp=1.0):
 def _at(pos, r):
     return lambda api, inv: _near(api, pos, r)
 
-TORCHES = ("torch", "wall_torch")          # a torch on a wall is the same light, and reads as another block
 
 def _blocks(lo, hi, name, least, most=None):
     """`name` blocks (or any of a tuple of names) in the box: at least `least`, at most `most`."""
@@ -1014,11 +984,6 @@ def _kept(token):
 def _product(base):
     return (base.get("effect") or ("minecraft:cobblestone", 1))[0]
 
-def _stack_room_setup(base):
-    """A stack of the base's product with room for exactly what the base makes (64 − n), then the bag full."""
-    token, n = _product(base), (base.get("needs") or [(None, 4)])[0][1]
-    item = "oak_log" if token == "log" else token.split(":")[-1]
-    return [f"give @p {item} {64 - n}"]
 
 def cover(conditions, bases, pinned=()):
     """Pure: the (condition, base) pairs the sheet runs — coverage, not the full product."""
@@ -1059,8 +1024,6 @@ def _found_near(blocks, r=6):
         return bool(find(blocks, radius=r, limit=1))
     return check
 
-# a batched build interrupted at 4 of 10 obsidian: the resume builds only what the frame lacks, each placed once
-PORTAL_BOX = (at(-8, 0, -8), at(8, 6, 8))
 
 def _on_rim(top):
     """Standing dry on the rim at `top` (the block under the feet is the rim, not water)."""
@@ -1081,7 +1044,6 @@ def _surfaced(top, hold_s=2.0):
         return _breathing(300)(api, inv) or _on_rim(top)(api, inv)
     return check
 
-PIT_TOP = 4
 
 # -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × FIGHT_POLL_S)
 FIGHT_LOG = {"bids": []}
@@ -1159,9 +1121,7 @@ def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESO
             api.get("/state")["health"] >= start_hp - hp_loss
     return check
 
-CRYSTAL_AT = at(5, 6, 0)     # on a 6-high obsidian pillar, iron bars around it: one caged tower of the End
 
-_cr = lambda dx, dy, dz: _c(at(5 + dx, 6 + dy, dz))   # noqa: E731  (a cell beside the crystal)
 
 def _one_crystal(ctx):
     rows = __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
@@ -1226,7 +1186,6 @@ def _growing(run):
             _checked("execute in minecraft:overworld run gamerule random_tick_speed 0", [])
     return go
 
-TRADER = at(3, 0, 0)
 
 # -- tier "brain": the whole brain on a private queue, the world set to the deciding moment, judged by the world and its log
 BRAIN_LOG = {"replans": 0}
@@ -1602,9 +1561,7 @@ def _machine_due(origin, n):
 
 _st = lambda api: api.get("/state")     # noqa: E731
 
-UPKEEP_FURNACE = at(2, 0, 0)
 
-BRIDGE_ACROSS = 9       # needs.bridge_stock from the start to at(9, 0, 0)
 
 def _regen_fed(api, inv):
     """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
@@ -1618,7 +1575,6 @@ _NIGHT_FLOOR = [f"fill {_c(at(-8, -6, -8))} {_c(at(8, -1, 8))} stone", _tp(), "t
 # no pickaxe in a fight: the "no pickaxe" row waits until it ends; a dirt patch on this ground is dug into by hand, one across a drop never
 DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
 
-DIRT_FLOOR = (at(7, -4, -1), at(8, -4, 1))      # the stone the dirt lies on
 
 def _in_the_patch_underground(api, inv):
     s = api.get("/state")
@@ -1706,20 +1662,6 @@ CREEPER_AT = at(4, 0, 0)
 
 HOME_BED, HOME_FURNACE = (at(4, 0, 2), at(5, 0, 2)), at(4, 0, -2)
 
-def _creeper_row(name, extra_setup=(), before=(), check=()):
-    return {
-        "doc": "Iron sword, a creeper 4 blocks off" + (", a bed and a furnace of ours within 3 of it" if extra_setup
-                                                      else "") + " → the creeper gone (dead or blown up in the air), "
-               "health ≥ 16" + (", the bed and the furnace still standing" if extra_setup else ""),
-        "module": "fight_loop", "point": "B", "skills": [], "combat": True, "stochastic": True,
-        "tags": {"base": "fight", "enemy": "creeper", "ground": "home" if extra_setup else "open"},
-        "setup": list(_ARENA) + list(extra_setup) + [f"summon creeper {_c(CREEPER_AT)} {{PersistenceRequired:1b}}"],
-        "expect_entities": [("minecraft:creeper", 1)],
-        "before": _hooks(_start(name), _record_bids, *before),
-        "run": _fight_until(["minecraft:creeper"], 25, True),
-        "check": _all(_gone(["minecraft:creeper"]), _hp_kept(16), *check),
-        "budget": 30,
-    }
 
 def _home_is_ours(ctx):
     """`before` hook: the bed and furnace are a site of ours and the furnace a station — to be kept out of the blast."""
@@ -2291,7 +2233,7 @@ def _grid_cell(key):
 
 
 def brain_rule(fam, *key):
-    """A grid family's rule for one cell (scenarios.BRAIN_FAMILIES): its check."""
+    """A grid family's rule for one cell (vocab.BRAIN_FAMILIES): its check."""
     return _scen().BRAIN_FAMILIES[fam][2](_grid_cell(key))[0]
 
 

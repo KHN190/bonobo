@@ -1,6 +1,6 @@
 """Layering. A test, because the damage is silent.
 
-`scenarios.module_deps` is the bench's re-run key: a scenario is re-run when one of the modules its skill actually
+`runner.module_deps` is the bench's re-run key: a scenario is re-run when one of the modules its skill actually
 depends on changes. When a low module reaches upward — perception importing the brain to ask whether a mob is
 hostile, the transport layer importing a fight skill to check an aim, the tape importing the four modules whose
 state it records — every closure becomes the whole package. Nothing fails. The bench simply re-runs everything,
@@ -15,14 +15,14 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import scenarios  # noqa: E402
+from bonobo.bench import runner  # noqa: E402
 
 PKG = pathlib.Path(__file__).resolve().parent.parent / "bonobo"
 
 # The two modules that decide things. Nothing may import them: they are where the wiring is done, not a library.
-TOP = {"brain", "scenarios"}
+TOP = {"brain"}
 # Replaying and reviewing a decision means building the decider — that is the whole job, not a layering slip.
-MAY_IMPORT_TOP = {"brain", "scenarios", "review"}
+MAY_IMPORT_TOP = {"brain", "review"}
 
 # How many modules each one drags in, frozen. A ratchet, not a target: these may fall, never rise. When one rises
 # the bench's re-run key has just got coarser, and this is the only place that will say so. Rebased when the belief
@@ -72,7 +72,6 @@ CLOSURE = {
     "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
     "review": 16,
     "roads": 1,
-    "scenarios": 56,                # upkeep→needs+reflexes split (4b61683)
     "skill": 13,
     "skillcore": 12,
     "skills": 25,
@@ -106,7 +105,7 @@ def modules():
 
 
 class Direction(unittest.TestCase):
-    """Asked of the bench's own key (`scenarios.module_deps`), which is what an upward edge damages."""
+    """Asked of the bench's own key (`runner.module_deps`), which is what an upward edge damages."""
 
     # fixture: (situation, {module: source} of a package, the module asked) → its key's closure
     KEYS = [("a fact alone", {"data": "X = 1\n"}, "data", ["data"]),
@@ -126,20 +125,20 @@ class Direction(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
                 for m, src in files.items():
                     (pathlib.Path(tmp) / f"{m}.py").write_text(src)
-                self.assertEqual(scenarios.module_deps(asked, tmp), want)
+                self.assertEqual(runner.module_deps(asked, tmp), want)
 
     def test_nothing_imports_the_deciders(self):
         for m in modules():
             if m in MAY_IMPORT_TOP:
                 continue
             with self.subTest(m):
-                self.assertEqual(sorted(set(scenarios.module_deps(m)) & TOP), [],
+                self.assertEqual(sorted(set(runner.module_deps(m)) & TOP), [],
                                  f"{m}'s key reaches deciders; move the fact down, or wire it from the top")
 
     def test_facts_import_only_facts(self):
         for m in sorted(FACTS):
             with self.subTest(m):
-                self.assertEqual(sorted(set(scenarios.module_deps(m)) - FACTS), [], f"{m} is a fact module")
+                self.assertEqual(sorted(set(runner.module_deps(m)) - FACTS), [], f"{m} is a fact module")
 
 
 class ReRunKey(unittest.TestCase):
@@ -148,14 +147,14 @@ class ReRunKey(unittest.TestCase):
     def test_no_closure_has_grown(self):
         for m in modules():
             self.assertIn(m, CLOSURE, f"new module {m}: add it to CLOSURE with its size")
-            self.assertLessEqual(len(scenarios.module_deps(m)), CLOSURE[m],
+            self.assertLessEqual(len(runner.module_deps(m)), CLOSURE[m],
                                  f"{m} now drags in more of the package; the bench will re-run more than it must")
 
     def test_a_skill_does_not_depend_on_the_whole_package(self):
         """The failure this file exists for: every closure equal to the package means no scenario is ever skipped."""
         whole = len(modules())
         for m in ("fluids", "nav", "perception", "api", "tape"):
-            self.assertLess(len(scenarios.module_deps(m)), whole // 2, m)
+            self.assertLess(len(runner.module_deps(m)), whole // 2, m)
 
 
 if __name__ == "__main__":

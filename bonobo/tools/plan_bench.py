@@ -7,7 +7,8 @@ import random
 import sys
 import time
 
-from .. import api, nav, paths, scenarios
+from .. import api, nav, paths
+from ..bench.core import FLAG
 from ..world import Snapshot
 
 OUT = paths.data("plan-bench.jsonl")
@@ -45,7 +46,7 @@ def main():
     for t in targets(here, n):
         row = {"mode": mode, "from": here, "dist": round(math.dist(here, t)), **plan(t)}
         if mode == "walk":
-            if not os.path.exists(scenarios.FLAG):
+            if not os.path.exists(FLAG):
                 raise SystemExit("walk mode moves the player: test world only (mc.py scenario enable)")
             snap = Snapshot()
             from bonobo.brain import Brain

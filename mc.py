@@ -131,48 +131,49 @@ def _need_starts(rest):
 def cmd_scenario(a):
     """Scenario bench (test world only): enable | disable | list | run NAME... | all | table."""
     import os
-    from bonobo import scenarios, skills
+    from bonobo import skills
+    from bonobo.bench import table as sheet
     from bonobo.brain import Brain
     from bonobo.world import Snapshot
     if a.action == "enable":
-        open(scenarios.FLAG, "w").write("test world confirmed by the user\n")
+        open(sheet.FLAG, "w").write("test world confirmed by the user\n")
         print("scenario commands enabled for this world — never enable in the real world")
         return
     if a.action == "disable":
-        if os.path.exists(scenarios.FLAG):
-            os.remove(scenarios.FLAG)
+        if os.path.exists(sheet.FLAG):
+            os.remove(sheet.FLAG)
         print("scenario commands disabled")
         return
     point = getattr(a, "point", None)
-    selected = set(_scenario_selection(a, scenarios))
+    selected = set(_scenario_selection(a, sheet))
     if a.action == "list":
-        for name, sc in scenarios.SCENARIOS.items():
+        for name, sc in sheet.SCENARIOS.items():
             if (point and sc.get("point", "A") != point) or name not in selected:
                 continue
             print(f"{name:20} budget {sc['budget']:>3}s  {sc['doc']}")
         return
     if a.action == "migrate":
-        _scenario_migrate(scenarios)
+        _scenario_migrate(sheet)
         return
     if a.action == "table":
-        table = scenarios.load_table()
-        for name in scenarios.SCENARIOS:
-            code = scenarios.code_for(name)
-            st, med = scenarios.status(table, name, code)
+        table = sheet.load_table()
+        for name in sheet.SCENARIOS:
+            code = sheet.code_for(name)
+            st, med = sheet.status(table, name, code)
             print(f"{name:20} {code} {st:9} {'' if med is None else f'median {med}s'}")
         return
     from bonobo import perception
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
     # `all` skips release-only rows (minutes each) unless a tier was named: a tier's rows are the tier, all of them.
     tiered = getattr(a, "tier", "core") not in (None, "all")
-    names = [n for n, sc in scenarios.SCENARIOS.items() if (tiered or not sc.get("release")) and n in selected] \
+    names = [n for n, sc in sheet.SCENARIOS.items() if (tiered or not sc.get("release")) and n in selected] \
         if a.action == "all" else a.names
     if point:
-        names = [n for n in names if scenarios.SCENARIOS[n].get("point", "A") == point]
+        names = [n for n in names if sheet.SCENARIOS[n].get("point", "A") == point]
     brain = Brain()
-    scenarios.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
+    sheet.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
     perception.start()   # same danger interrupts as a real run
-    same, running, built = scenarios.jar_matches_source()
+    same, running, built = sheet.jar_matches_source()
     if not same:
         raise McError(f"game runs mod {running} but the sources are {built}: install the jar and restart first")
     # A scenario that SWEEPS (the arena) is its own sample: one pass writes dozens of rows, and running it three
@@ -181,32 +182,32 @@ def cmd_scenario(a):
     # Each row runs once; a failure is re-run, three runs at most, ≥ 2 of 3 passes (runner.verdict_of). A row the
     # current code already has a verdict for is not run again (unless --force, once).
     runs = [(name, attempt) for name in names
-            for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else scenarios.MAX_RUNS)]
+            for attempt in range(1 if sheet.SCENARIOS[name].get("sweep") else sheet.MAX_RUNS)]
     for i, (name, attempt) in enumerate(runs):
         # The row after this one, so its world is built at site B while this one runs (runner.prebuild).
-        scenarios.NEXT_ROW[0] = next((n for n, _a in runs[i + 1:] if n != name), None)
-        table = scenarios.load_table()
-        code = scenarios.code_for(name)
-        cached = scenarios.cached_timeout(table, name, code)
+        sheet.NEXT_ROW[0] = next((n for n, _a in runs[i + 1:] if n != name), None)
+        table = sheet.load_table()
+        code = sheet.code_for(name)
+        cached = sheet.cached_timeout(table, name, code)
         if cached and not (a.force and attempt == 0):
             if attempt == 0:
                 print(f"FAIL {name} 0s {cached}")      # stopped at its limit last time, nothing changed since
             continue
-        decided = scenarios.verdict(table, name, code)
+        decided = sheet.verdict(table, name, code)
         if decided and not (a.force and attempt == 0):
             continue
         # Fresh memory per scenario: the real world's remembered pools/builds must not steer the test, and the
         # test must not write into the real world's notes.
-        if os.path.exists(scenarios.NOTES):
-            os.remove(scenarios.NOTES)
-        scenarios.reset_brain(brain, Memory(scenarios.NOTES))
+        if os.path.exists(sheet.NOTES):
+            os.remove(sheet.NOTES)
+        sheet.reset_brain(brain, Memory(sheet.NOTES))
         def make_ctx():
             snap = Snapshot()
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
             # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
             return skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
                                   prices=brain.price_table)
-        ok, seconds, note, cls, code = scenarios.run(name, make_ctx)
+        ok, seconds, note, cls, code = sheet.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
 
 
@@ -218,7 +219,7 @@ spec = importlib.util.spec_from_file_location("rowkey_now", rowkey)
 rk = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rk)
 from bonobo import brain  # noqa: F401  (every skill registers)
-from bonobo import scenarios as sc
+from bonobo.bench import table as sc
 from bonobo import skill
 pkg = os.path.join(wt, "bonobo")
 index = rk.code_index(pkg)
@@ -226,7 +227,7 @@ print(json.dumps({n: rk.reach_hash(r, index, skill.REGISTRY, pkg) + rk.row_hash(
 """
 
 
-def _scenario_migrate(scenarios):
+def _scenario_migrate(sheet):
     """Carry the readiness table's old verdicts over to the current key format (runner.migrate): each old record's
     code — the commit that was HEAD when it ran, checked out in a temporary worktree — keyed the new way. Reusable
     whenever the key format changes."""
@@ -239,7 +240,7 @@ def _scenario_migrate(scenarios):
     here = os.path.dirname(os.path.abspath(__file__))
     rowkey = os.path.join(here, "bonobo", "bench", "rowkey.py")
     rel = os.path.relpath(here, root)
-    current = {n: scenarios.code_for(n) for n in scenarios.SCENARIOS}
+    current = {n: sheet.code_for(n) for n in sheet.SCENARIOS}
     if any(k.endswith("jar-unknown") for k in current.values()):
         # The game is down: the mod part is the version the sources build (the bench demands jar == source).
         props = os.path.expanduser("~/minecraft-claude-bridge/anaka/gradle.properties")
@@ -272,29 +273,29 @@ def _scenario_migrate(scenarios):
                 subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=root, capture_output=True)
         return keys_at[commit].get(name)
 
-    table = scenarios.load_table()
+    table = sheet.load_table()
     moved = runner.migrate(table, current, key_then)
-    scenarios.save_table(table)
+    sheet.save_table(table)
     pend = set(runner.pending(table, current))
     by = {}
-    for n, sc in scenarios.SCENARIOS.items():
-        tier = sc.get("tier") or scenarios.tier_of(n, sc)
+    for n, sc in sheet.SCENARIOS.items():
+        tier = sc.get("tier") or sheet.tier_of(n, sc)
         total, left = by.get(tier, (0, 0))
         by[tier] = (total + 1, left + (n in pend))
     print(f"migrated {len(moved)} rows over {len(keys_at)} commits; pending: "
           + ", ".join(f"{t} {left}/{total}" for t, (total, left) in sorted(by.items())))
 
 
-def _scenario_selection(a, scenarios):
-    """The rows `--tier` / `--changed` name (scenarios.select): the diff against the merge-base with main, mapped to
+def _scenario_selection(a, sheet):
+    """The rows `--tier` / `--changed` name (sheet.select): the diff against the merge-base with main, mapped to
     the skills whose functions it touched."""
     import subprocess
     # Acceptance is its own run; a tier narrows --failed and --pending alike when one is named.
-    in_tier = set(scenarios.tier_rows(scenarios.SCENARIOS, a.tier, "--tier" in sys.argv))
+    in_tier = set(sheet.tier_rows(sheet.SCENARIOS, a.tier, "--tier" in sys.argv))
     if getattr(a, "failed", False):
-        return [n for n in scenarios.failed_last(scenarios.load_table()) if n in in_tier]
+        return [n for n in sheet.failed_last(sheet.load_table()) if n in in_tier]
     if getattr(a, "pending", False):
-        return scenarios.pending(scenarios.load_table(), {n: scenarios.code_for(n) for n in scenarios.SCENARIOS
+        return sheet.pending(sheet.load_table(), {n: sheet.code_for(n) for n in sheet.SCENARIOS
                                                            if n in in_tier})
     changed = None
     if getattr(a, "changed", False):
@@ -303,12 +304,12 @@ def _scenario_selection(a, scenarios):
         root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
         base = subprocess.run(["git", "merge-base", "HEAD", "main"], capture_output=True, text=True).stdout.strip()
         diff = subprocess.run(["git", "diff", "-U0", base or "HEAD"], capture_output=True, text=True, cwd=root).stdout
-        changed = scenarios.touched_skills(scenarios.diff_hunks(diff), scenarios.skill_spans(REGISTRY, root))
+        changed = sheet.touched_skills(sheet.diff_hunks(diff), sheet.skill_spans(REGISTRY, root))
         print(f"changed skills: {', '.join(sorted(changed)) or 'none (core rows)'}")
         from bonobo.skill import REGISTRY as registry
     else:
         registry = None
-    return scenarios.select(scenarios.SCENARIOS, getattr(a, "tier", "core") or "core", changed, registry)
+    return sheet.select(sheet.SCENARIOS, getattr(a, "tier", "core") or "core", changed, registry)
 
 
 def cmd_interrupt(a):
@@ -327,8 +328,8 @@ def cmd_review(a):
     except McError:
         state, inv = None, None
     try:
-        from bonobo import scenarios
-        readiness = scenarios.readiness_lines()
+        from bonobo.bench import table as sheet
+        readiness = sheet.readiness_lines()
     except Exception as e:      # the review must never fail because of the bench table
         readiness = [f"  unavailable: {e}"]
     print(review.packet(a.minutes, state, inv, Memory(), readiness=readiness))

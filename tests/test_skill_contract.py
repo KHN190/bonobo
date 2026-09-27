@@ -10,7 +10,7 @@ Pure functions fed readings (tests/world.py), one table per rule, every row a su
              rows here (a new open-loop skill cannot go untested), blueprints swept over REGISTRY × turns × progress
 
 Nothing here talks to the game. `settle` and `arrive` see a sequence of answers the game gave; that is replay of the
-judgment, not a simulation of the world. The in-game half of test point A is the scenario sheet (bonobo/scenarios.py).
+judgment, not a simulation of the world. The in-game half of test point A is the bench tables (bonobo/bench/bench_<tier>.py).
 """
 import itertools
 import time

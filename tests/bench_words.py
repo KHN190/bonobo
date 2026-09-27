@@ -534,7 +534,7 @@ def _sheet_lists():
     """The old sheet's shared command lists (NAME → commands), longest first."""
     import bonobo.bench.core as core_mod
     import bonobo.bench.fight as fight_mod
-    scen = sys.modules["bonobo.scenarios"]
+    scen = _scen()
     out = {}
     for mod, prefix in ((scen, ""), (fight_mod, "bonobo.bench.fight:"), (core_mod, "bonobo.bench.core:")):
         for k, v in vars(mod).items():
