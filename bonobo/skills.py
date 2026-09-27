@@ -676,6 +676,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     unreachable = 0
     empty_batches = 0    # batches the mod could not break at all; a few in a row means the seam really is dead
     tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
+    no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
     for _ in range(10):
         have = Inventory().count(drop)
         if have >= target:
@@ -684,13 +685,21 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         require_pickaxe(tier)
         # sealed or exposed alike (the jar's approach digs to buried blocks); remembered first, /find only when no noted cell is left
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
-        noted = noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
+        noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
+                 if (h["x"], h["y"], h["z"]) not in no_cell]
         raw = noted or find(blocks, radius=radius, limit=60)
         digs = "approach_dig" in nav.mod_features()
         exposed_cells = None if digs else {(h["x"], h["y"], h["z"])
                                            for h in find(blocks, radius=radius, limit=60, exposed=True)}
-        hits = seek_hits(blocks, raw, radius, ctx.blocked, ctx.policy.protected)
+        fresh = [h for h in raw if (h["x"], h["y"], h["z"]) not in no_cell]
+        if raw and not fresh:
+            if radius < SEEK_RADII[-1]:
+                radius = SEEK_RADII[-1]
+                continue
+            raise NotAvailable(f"no {blocks[0]} vein mineable from here ({len(no_cell)} seen, none with a cell to break)")
+        hits = seek_hits(blocks, fresh, radius, ctx.blocked, ctx.policy.protected)
         if hits is None:
+            api.detail(f"  mine {bare(drop)}: none within {radius}, looking wider")
             radius = SEEK_RADII[-1]
             continue
         start = feet()
@@ -704,15 +713,20 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
+            api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}, walked closer")
             continue
         if hits[0].get("noted") and bare(region.name(seed)) not in {bare(b) for b in blocks}:
             for b in blocks:
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=0.5)     # gone from where it was noted
+            api.detail(f"  mine {bare(drop)}: noted {seed} is {region.name(seed)} now, note forgotten")
             continue
         vein = set(mineable((p for p in connected(region, seed, blocks) if not ctx.blocked(p)), start,
                             region, nav.SAFE_DROP))
         if not vein:
-            continue      # the whole connected vein is already proven unreachable: next seed
+            # the whole connected vein is already proven unreachable: next seed
+            api.detail(f"  mine {bare(drop)}: vein at {seed} ({region.name(seed)}) has no mineable cell from {start}")
+            no_cell.add(seed)
+            continue
         # never open a block touching lava or water unless the goal wants the fluid; surface blocks keep 2 from any fluid
         want = breaks or max(1, target - have)
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
