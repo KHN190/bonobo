@@ -137,11 +137,6 @@ class Intent:
             return False
         return (now if now is not None else time.time()) - self.at > self.deadline_s
 
-    def spent_s(self, now=None):
-        """Seconds already put into this, for the log and the tape. Never for a comparison."""
-        from . import estimate
-        return estimate.sunk_s(self.cost_rate, (now if now is not None else time.time()) - self.at, self.cost_s)
-
     def __repr__(self):
         return f"Intent({self.layer}, {self.reason!r})"
 

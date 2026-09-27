@@ -147,22 +147,3 @@ def bunker_checks(side, floor_y, bed, centre=(0, 0)):
     return (bed_in_reach(m, bed),
             math.dist(m, r) >= 2,
             bed_in_reach(fire(side, floor_y, centre), bed))
-
-
-def exposure_cells(side, floor_y, centre=(0, 0)):
-    """Pure: the cells where the dragon can actually touch us — the mouth and everything above it.
-
-    The controller needs one number, "how long until I am back in cover", and that is the walk from here to the
-    retreat cell; this names the region that walk has to leave.
-    """
-    m = mouth(side, floor_y, centre)
-    return [m, (m[0], m[1] + 1, m[2]), (m[0], m[1] + 2, m[2])]
-
-
-def time_to_cover(here, side, floor_y, centre=(0, 0), speed=4.3):
-    """Pure: seconds from `here` back to the waiting cell at sprinting speed.
-
-    This is the one quantity the window budget is spent against: with a 4.95 s sitting phase and 0.85 s of take-off
-    warning, a peek is only worth taking while this stays well under the warning.
-    """
-    return round(math.dist(here, retreat(side, floor_y, centre)) / speed, 2)

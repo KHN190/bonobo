@@ -474,32 +474,6 @@ class Bunker(unittest.TestCase):
             with self.subTest(bed=bed, why=why):
                 self.assertEqual(bunker.bunker_checks(side, floor, bed), want)
 
-    def test_exposure_cells(self):
-        rows = [
-            ((1, 0), 64, (0, 0),     [(5, 62, 0), (5, 63, 0), (5, 64, 0)],         "mouth and the column over it"),
-            ((0, -1), 64, (3, 3),    [(3, 62, -2), (3, 63, -2), (3, 64, -2)],      "north, off-centre"),
-            ((1, 0), 0, (0, 0),      [(5, -2, 0), (5, -1, 0), (5, 0, 0)],          "boundary: floor at zero"),
-            ((0, 0), 64, (0, 0),     [(0, 62, 0), (0, 63, 0), (0, 64, 0)],         "negative: no side puts the mouth on the centre"),
-        ]
-        for side, floor, centre, want, why in rows:
-            with self.subTest(side=side, why=why):
-                self.assertEqual(bunker.exposure_cells(side, floor, centre), want)
-
-    def test_time_to_cover(self):
-        rows = [
-            # here            speed  expected  why
-            ((8, 62, 0),      4.3,   0.0,      "boundary: already in the retreat cell"),
-            ((8, 62, 4.3),    4.3,   1.0,      "one second out"),
-            ((0, 62, 0),      4.3,   1.86,     "8 / 4.3 rounded"),
-            ((5, 66, 0),      4.3,   1.16,     "3-4-5: 5 / 4.3"),
-            ((8, 62, 3),      2.0,   1.5,      "slower walk"),
-        ]
-        for here, speed, want, why in rows:
-            with self.subTest(here=here, why=why):
-                self.assertEqual(bunker.time_to_cover(here, (1, 0), 64, speed=speed), want)
-        with self.assertRaises(ZeroDivisionError):     # negative: a body that cannot move never reaches cover
-            bunker.time_to_cover((0, 62, 0), (1, 0), 64, speed=0)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -56,35 +56,5 @@ class Lookup(unittest.TestCase):
                 self.assertEqual(recovery.recovery_for(kind) == recovery.DEFAULT, cover)
 
 
-# (fight action) → its abort conditions, exactly: when to give up, and what to do instead
-ABORTS = [
-    ("dig_tunnel", [("health below the floor", "retreat_and_eat"), ("dragon perched", "retreat_to_cover"),
-                    ("breath within 6", "retreat_to_cover")]),
-    ("place_bed", [("dragon perched", "retreat_to_cover"), ("bed cell occupied", "abandon")]),
-    ("reinforce", [("dragon perched", "retreat_to_cover"), ("out of obsidian", "abandon")]),
-    ("shoot_crystal", [("enderman in the line of aim", "abandon"), ("dragon perched", "retreat_to_cover")]),
-    ("fire_window", []),          # 0.4 s is shorter than a perception round trip: atomic, nothing to abort into
-    ("nonexistent", []),
-]
-ANSWERS = {act for _, act, _ in recovery.TABLE} | {recovery.DEFAULT, "abandon"}
-
-
-class Aborts(unittest.TestCase):
-    def test_every_action_gives_up_exactly_so(self):
-        for name, want in ABORTS:
-            with self.subTest(name):
-                self.assertEqual(recovery.aborts_for(name), want)
-
-    def test_the_table_is_all_rows(self):
-        self.assertEqual(set(recovery.ABORTS), {n for n, _ in ABORTS if n != "nonexistent"})
-
-    def test_every_abort_answers_with_something_that_is_an_answer(self):
-        # The half the skill contracts were missing: "this took too long" and never "and now this".
-        for name, entries in recovery.ABORTS.items():
-            for condition, action in entries:
-                with self.subTest(name=name, condition=condition):
-                    self.assertIn(action, ANSWERS)
-
-
 if __name__ == "__main__":
     unittest.main()

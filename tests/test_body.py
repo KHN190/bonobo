@@ -69,14 +69,12 @@ class NothingAboutTheWorkDefendsIt(unittest.TestCase):
     """What an intent declares about itself — how long it has run, what it would have to redo — is data for the
     log. A judgement that reads it is the arbiter pricing, which is the layer's job."""
 
-    def test_what_has_been_spent_is_reported_and_never_compared(self):
-        """`spent_s` exists for the log and the tape; the arbiter's answer is the same however long the work ran."""
-        # (how long the running plan has been at it) → its reported spend; every challenger gets the answer it gets
-        # against work that has just begun
-        rows = [(0.0, 0.0), (1.0, 1.0), (100.0, 100.0), (3600.0, 600.0)]     # sunk_s tops out at the intent's cost_s
-        for ran, spent in rows:
+    def test_what_has_been_spent_is_never_compared(self):
+        """The arbiter's answer is the same however long the work ran."""
+        # (how long the running plan has been at it): every challenger gets the answer it gets against work that has
+        # just begun
+        for ran in (0.0, 1.0, 100.0, 3600.0):
             with self.subTest(ran=ran):
-                self.assertEqual(intent("walk", at=-ran).spent_s(now=0.0), spent)
                 for layer in ("reflex", "safety", "tactic", "plan"):
                     fresh = body_with(intent("walk", layer="plan", at=0.0)).preempt(
                         layer, lambda: None, "x", worth_s=5.0, now=0.0)

@@ -16,7 +16,6 @@ from bonobo import combat_tape, decompose, dispatch, end, estimate, field, fight
 from bonobo.api import McError, NavFailed, NotAvailable  # noqa: E402
 from bonobo.planner import Step, Unplannable  # noqa: E402
 
-INF = float("inf")
 CLOUD = "minecraft:area_effect_cloud"
 
 
@@ -57,25 +56,6 @@ class PhaseSpans(unittest.TestCase):
         for name, frames, want in rows:
             with self.subTest(name):
                 self.assertEqual(cm.phase_spans(frames), want)
-
-
-class PhaseStats(unittest.TestCase):
-    def test_table(self):
-        rows = [
-            ("empty tape", [], {}),
-            ("one run of two ticks", [frame(0, phase=6), frame(1, phase=6)],
-             {6: {"n": 1, "min_s": 0.1, "max_s": 0.1, "mean_s": 0.1}}),
-            ("two runs of one phase average",
-             [frame(0, phase=6), frame(1, phase=7), frame(2, phase=6), frame(3, phase=6), frame(4, phase=6)],
-             {6: {"n": 2, "min_s": 0.05, "max_s": 0.15, "mean_s": 0.1},
-              7: {"n": 1, "min_s": 0.05, "max_s": 0.05, "mean_s": 0.05}}),
-            # must-fail: an absent dragon is still timed, under None, not dropped
-            ("absent dragon timed as None", [frame(0), frame(1)],
-             {None: {"n": 1, "min_s": 0.1, "max_s": 0.1, "mean_s": 0.1}}),
-        ]
-        for name, frames, want in rows:
-            with self.subTest(name):
-                self.assertEqual(cm.phase_stats(frames), want)
 
 
 class FitDamage(unittest.TestCase):
@@ -146,41 +126,6 @@ class Expand(unittest.TestCase):
         for name, hazards, here, want in rows:
             with self.subTest(name):
                 self.assertEqual(cm.expand(hazards, here), want)
-
-
-class Safest(unittest.TestCase):
-    def test_table(self):
-        cloud = (0, 0, 0, 3)
-        calm = {"type": "minecraft:enderman", "angry": False, "pos": {"x": 1, "y": 0, "z": 0}}
-        rows = [
-            ("no hazards: first option", {}, [(1, 0, 0), (2, 0, 0)], ((1, 0, 0), INF)),
-            ("outside the cloud beats inside", {"breath": [cloud]}, [(0, 0, 0), (10, 0, 0)], ((10, 0, 0), INF)),
-            ("tie on time broken by distance", {"breath": [cloud]}, [(5, 0, 0), (10, 0, 0)], ((10, 0, 0), INF)),
-            ("all inside: the least bad", {"breath": [cloud]}, [(0, 0, 0), (1, 0, 0)], ((0, 0, 0), -0.3)),
-            # must-fail: a neutral enderman is not a hazard
-            ("calm enderman ignored", {"endermen": [calm]}, [(1, 0, 0), (9, 0, 0)], ((1, 0, 0), INF)),
-        ]
-        for name, kw, options, want in rows:
-            with self.subTest(name):
-                self.assertEqual(cm.safest(frame(0, **kw), options=options), want)
-
-
-class CouldHaveLived(unittest.TestCase):
-    def test_table(self):
-        drown = (0, 0, 0, 100)
-        rows = [
-            ("no death", [frame(0), frame(40)], []),
-            ("open ground: escape where we stood", [frame(0), frame(40, hp=0)],
-             [{"tick": 0, "hp": 20, "escape": (0, 0, 0), "margin": INF}]),
-            ("tape starts late: nearest later frame", [frame(40, hp=0)],
-             [{"tick": 40, "hp": 0, "escape": (0, 0, 0), "margin": INF}]),
-            # must-fail: inside a cloud bigger than any step there is no escape
-            ("covered everywhere: no escape", [frame(0, breath=[drown]), frame(40, hp=0)],
-             [{"tick": 0, "hp": 20, "escape": None, "margin": -0.3}]),
-        ]
-        for name, frames, want in rows:
-            with self.subTest(name):
-                self.assertEqual(cm.could_have_lived(frames), want)
 
 
 class Windows(unittest.TestCase):

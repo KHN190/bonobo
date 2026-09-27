@@ -34,7 +34,7 @@ estimate.py
   state_price_s(model, state)
   saved_s(price, before, after, cost_s) = price(before) − price(after) − cost_s     # only scoring rule
   also  burst_hp · fatal_chance(hp, damage, cap) · time_to_die_s · fight_cost · leaving_hp
-        reaches_share(shape, mob) · damage_over(rate, s) · sunk_s(rate, elapsed, cost_s) · horizon_s()
+        reaches_share(shape, mob) · damage_over(rate, s) · horizon_s()
   one account: horizon_s = engage.work_horizon_s; arrival truncates and returns on the same clock
 
 kernel.choose(model, state) → Choice

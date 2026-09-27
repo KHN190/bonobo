@@ -40,26 +40,6 @@ def phase_spans(frames):
     return [tuple(s) for s in spans]
 
 
-def phase_stats(frames):
-    """{phase: {"n", "mean_s", "min_s", "max_s"}} — how long each phase actually lasts in this version.
-
-    The planner needs this and not a wiki number: the attack window's length is the whole budget for placing,
-    detonating and getting back into the hole.
-    """
-    out = {}
-    for phase, a, b in phase_spans(frames):
-        secs = (b - a + 1) * TICK
-        e = out.setdefault(phase, {"n": 0, "total": 0.0, "min_s": secs, "max_s": secs})
-        e["n"] += 1
-        e["total"] += secs
-        e["min_s"] = min(e["min_s"], secs)
-        e["max_s"] = max(e["max_s"], secs)
-    for e in out.values():
-        e["mean_s"] = round(e.pop("total") / e["n"], 2)
-        e["min_s"], e["max_s"] = round(e["min_s"], 2), round(e["max_s"], 2)
-    return out
-
-
 def tti(pos, vel, centre, radius, horizon=HORIZON):
     """Pure: seconds until a point moving at `vel` (blocks per second) enters the sphere at `centre`, inf if it does
     not within `horizon`. Already inside → 0.0.
@@ -258,30 +238,9 @@ def slack_at(spot, hazards, here, speed=4.3, horizon=HORIZON, margin=0.3):
     return round(first - travel - margin, 3)
 
 
-def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3):
-    """Pure: (position, slack) — where to stand, by the rule "first arrival must be later than getting there".
-
-    Ten candidates against a closed-form root: no search, no grid, no simulation. For each option the slack is
-    `min_tti - travel_time - margin`; the best positive one wins, and with none positive the least bad direction is
-    still an answer, because standing still is what killed the runs.
-
-    This replaces a version that scored every reachable option identically unless it was already inside a hazard —
-    which made it blind to anything arriving, and therefore to every moving threat.
-    """
-    p = _xyz(frame["player"]["pos"])
-    hazards = [(t[2][:3], t[2][3], (0.0, 0.0, 0.0)) for t in threats(frame, None, dps, horizon)]
-    best, best_key = None, None
-    for opt in options or step_options(frame):
-        slack = slack_at(opt, hazards, p, speed, horizon, margin)
-        nearest = min((math.dist(opt, h[0]) - h[1] for h in hazards), default=float("inf"))
-        key = (slack, round(nearest, 2))
-        if best_key is None or key > best_key:
-            best, best_key = (opt, slack), key
-    return best
-
-
 def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None):
-    """Pure: (spot, slack) — the same rule against a plain hazard list, for callers that have no tape frame.
+    """Pure: (spot, slack) — where to stand, by the rule "first arrival must be later than getting there": each
+    option's slack is `min_tti - travel_time - margin`, the best one wins, distance from the nearest hazard breaks ties.
 
     `cover` is offered as an extra candidate: a bunker mouth is worth considering even when it is further than a
     sidestep, because arriving there ends the problem rather than postponing it.
@@ -302,27 +261,6 @@ def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None)
         if best_key is None or key > best_key:
             best, best_key = (opt, slack), key
     return best
-
-
-def could_have_lived(frames, lead_s=2.0, **kw):
-    """The postmortem question, and the only one worth asking after a death: `lead_s` before it, was there a step that
-    would have kept us out of every hazard?
-
-    Returns [{"tick", "hp", "escape", "margin"}] per death — `escape` None means the death was already unavoidable at
-    that point and the mistake is earlier, in the plan, not in the controller.
-    """
-    by_tick = {f["tick"]: f for f in frames}
-    out = []
-    for dt in deaths(frames):
-        want = dt - int(lead_s / TICK)
-        f = by_tick.get(want) or next((x for x in frames if x["tick"] >= want), None)
-        if f is None:
-            continue
-        best = safest(f, **kw)
-        out.append({"tick": f["tick"], "hp": f["player"]["hp"],
-                    "escape": best[0] if best and best[1] > 0 else None,
-                    "margin": best[1] if best else None})
-    return out
 
 
 def windows(frames, window_phases=WINDOW_PHASES):
