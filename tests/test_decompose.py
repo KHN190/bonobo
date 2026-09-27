@@ -146,7 +146,7 @@ class Declared(unittest.TestCase):
     def test_the_checker_names_what_is_undeclared(self):
         real = real_table()
         rows = [("the real table and recipes", real, dict(data.RECIPES), []),
-                ("a column that does nothing", real + [Action("craft:nothing", {}, 1.0)], {}, ["craft:nothing"]),
+                ("must fail: a column that does nothing", real + [Action("craft:nothing", {}, 1.0)], {}, ["craft:nothing"]),
                 ("a column whose effect is all zero", [Action("x", {"a": 0}, 1.0)], {}, ["x"]),
                 ("a recipe with no pattern", [], {"minecraft:thing": ([None] * 4, 1)}, ["minecraft:thing"]),
                 ("a recipe with no output", [], {"minecraft:thing": (["log", None, None, None], 0)},
@@ -173,7 +173,7 @@ class Closed(unittest.TestCase):
         roots = [g[0] for g in goals() if g[0] != "tool"] + ["minecraft:iron_pickaxe"]
         cyclic = {"a": ("craft", ["b"], 1), "b": ("craft", ["a"], 1)}
         rows = [("the real knowledge", knowledge.source, roots, set()),
-                ("a cycle with no base entry", lambda t: cyclic.get(t), ["a"], {"a", "b"}),
+                ("must fail: a cycle with no base entry", lambda t: cyclic.get(t), ["a"], {"a", "b"}),
                 ("a craft from nothing known", lambda t: {"a": ("craft", ["zzz"], 1)}.get(t), ["a"], {"a", "zzz"}),
                 ("a chain down to a mine", lambda t: {"a": ("craft", ["b"], 1), "b": ("mine", ["x"], 0)}.get(t),
                  ["a"], set())]
@@ -566,7 +566,7 @@ class RipeFirst(unittest.TestCase):
         due = {"kind": "crop", "item": "minecraft:wheat", "count": 8, "ready_at": 0, "pos": [0, 64, 0]}
         rows = [("nothing remembered: sow", [], 1, ["farm"]),
                 ("a due crop job of 8: harvest", [due], 1, ["take"]),
-                ("a job not yet due: sow", [dict(due, ready_at=9e12)], 1, ["farm"]),
+                ("must fail: a job not yet due: sow", [dict(due, ready_at=9e12)], 1, ["farm"]),
                 ("a due job too small for the need: sow", [dict(due, count=1)], 5, ["farm"])]
         for name, jobs, n, want in rows:
             with self.subTest(name), mock.patch.object(api, "api", side_effect=AssertionError("a world read")):

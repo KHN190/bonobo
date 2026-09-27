@@ -35,7 +35,7 @@ INF = float("inf")
 ROWS = [
     ("dry land", DRY, INF, False, None, None),
     ("full lungs, swimming", wet(300), 9.5, False, None, None),
-    ("air for 8 s: fine inside a task and between", wet(160), 2.5, False, None, None),
+    ("must fail: air for 8 s: fine inside a task and between", wet(160), 2.5, False, None, None),
     ("air for 7.5 s: between tasks it is time", wet(150), 2.0, False, None, "drowning"),
     ("the floor, one tick above it", wet(120), 0.5, False, None, "drowning"),
     ("under the floor while the clock says 0.45 s", wet(119), 0.45, True, "drowning", "drowning"),

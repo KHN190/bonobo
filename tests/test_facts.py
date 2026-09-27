@@ -55,7 +55,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
 
     # (can the body get to it?, where the note is) → at:stone in the state vector
     AT = [("within reach, reachable", True, (1, 64, 1), 1),
-          ("within reach, unreachable (the rim of a flooded pit)", False, (1, 64, 1), None),
+          ("must fail: within reach, unreachable (the rim of a flooded pit)", False, (1, 64, 1), None),
           ("far away, however reachable", True, (300, 64, 300), None),
           ("far away and unreachable", False, (300, 64, 300), None),
           ("no one asked about the route: the radius alone", None, (1, 64, 1), 1)]
@@ -67,7 +67,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
                 self.assertEqual(self.vector(reachable=ask, pos=pos).get(actions.at("stone")), want)
 
     # (where memory has stone, if anywhere) → does the plan for one cobblestone still walk to stone?
-    ARRIVALS = [("nothing known", None, True), ("stone under our feet", (1, 64, 1), False),
+    ARRIVALS = [("nothing known", None, True), ("must fail: stone under our feet", (1, 64, 1), False),
                 ("stone at arm's length", (3, 64, 3), False), ("stone across the valley", (300, 64, 300), True)]
 
     def test_arriving_removes_the_walk_from_the_plan(self):
@@ -90,7 +90,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
     GO_FIND = [("a noted tree, reached, still there", True, True, True, (True, (30, 64, 0), False, True, False)),
                ("a noted tree, reached, felled since: retired, then look around", True, True, False,
                 (True, (30, 64, 0), True, False, False)),
-               ("a noted tree that cannot be reached: the route banned, the note kept", True, False, False,
+               ("must fail: a noted tree that cannot be reached: the route banned, the note kept", True, False, False,
                 (True, (30, 64, 0), True, True, True)),
                ("nothing noted: look around", False, None, None, (True, None, True, False, False))]
 
@@ -140,7 +140,7 @@ class AStationStandingThereIsOneWeHave(unittest.TestCase):
              {"minecraft:furnace": 1, "minecraft:crafting_table": None}),
             ("at the edge of reach (8 blocks)", (8, 64, 0), "minecraft:overworld", ("smelting",),
              {"minecraft:furnace": 1}),
-            ("just past it (9 blocks)", (9, 64, 0), "minecraft:overworld", ("smelting",), {"minecraft:furnace": None}),
+            ("must fail: just past it (9 blocks)", (9, 64, 0), "minecraft:overworld", ("smelting",), {"minecraft:furnace": None}),
             ("across the valley", (300, 64, 300), "minecraft:overworld", ("smelting",), {"minecraft:furnace": None}),
             ("two blocks away, in another world", (2, 64, 0), "minecraft:the_nether", ("smelting",),
              {"minecraft:furnace": None}),
@@ -256,7 +256,7 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
             self.protected = set(protected)
 
     # (what is ours, the cell asked for) → refused, or the one mine task posted to the game
-    DOOR = [("our own wall", {(1, 64, 1)}, (1, 64, 1), None),
+    DOOR = [("must fail: our own wall", {(1, 64, 1)}, (1, 64, 1), None),
             ("the block beside our wall", {(1, 64, 1)}, (2, 64, 1), (2, 64, 1)),
             ("nothing of ours anywhere", set(), (1, 64, 1), (1, 64, 1)),
             ("one of many cells of ours", {(x, 64, 1) for x in range(5)}, (3, 64, 1), None)]
@@ -280,7 +280,7 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
 
     # fixture: (module source) → the lines that build a bare {"type": "mine"} task
     BARE = [("a literal mine task", "t = {'type': 'mine', 'x': 1}\n", [1]),
-            ("another task type", "t = {'type': 'place'}\n", []),
+            ("must fail: another task type", "t = {'type': 'place'}\n", []),
             ("a mine task built by the funnel", "t = nav.mine_task(c)\n", []),
             ("two in one module", "a = {'type': 'mine'}\nb = 2\nc = {'type': 'mine'}\n", [1, 3]),
             ("a key named type with a variable value", "t = {'type': kind}\n", [])]

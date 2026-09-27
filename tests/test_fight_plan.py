@@ -53,7 +53,7 @@ def _short_row(s):
 class StateShape(unittest.TestCase):
     # (dotted path) → what lookup reads from state(beds=3, one enderman, one cloud)
     LOOKUP = [("resources.beds", 3), (f"threats.{ENDERMAN}", 1), (f"threats.{CLOUD}", 1), ("threats.minecraft:zombie", 0),
-              ("terrain.tunnel_ready", 1), ("resources.nothing", 0), ("self.hp", 20.0)]
+              ("terrain.tunnel_ready", 1), ("resources.nothing", 0), ("self.hp", 20.0)]  # must fail: an unknown resource reads 0
 
     def test_lookup_over_the_table(self):
         s = state(beds=3, threats=[threat(ENDERMAN, 5, 0), threat(CLOUD, 4, 4)])
@@ -93,7 +93,7 @@ class StateShape(unittest.TestCase):
 
 class TimeModel(unittest.TestCase):
     # (phase, seconds into it, quantile) → seconds left: conditional on having lasted this long, pessimistic at p10
-    REMAINING = [(6, 0.0, 0.5, 4.95), (6, 4.0, 0.5, 0.95), (6, 10.0, 0.5, 0.0), (6, 0.0, 0.1, 4.95),
+    REMAINING = [(6, 0.0, 0.5, 4.95), (6, 4.0, 0.5, 0.95), (6, 10.0, 0.5, 0.0), (6, 0.0, 0.1, 4.95),  # must fail: past the phase end nothing is left, never negative
                  (0, 0.0, 0.5, 15.3), (0, 0.0, 0.1, 2.0), (4, 0.0, 0.5, 0.85)]
 
     def test_remaining_over_the_table(self):
@@ -107,7 +107,7 @@ class ActionsAreData(unittest.TestCase):
 
     # (state, action) → (admissible, why)
     ADMIT = [("a healthy sitting phase", {}, "fire_window", (True, "")),
-             ("no beds", {"beds": 0}, "fire_window", (False, "needs resources.beds ≥ 1, have 0")),
+             ("must fail: no beds", {"beds": 0}, "fire_window", (False, "needs resources.beds ≥ 1, have 0")),
              ("no tunnel", {"tunnel": False}, "fire_window", (False, "needs terrain.tunnel_ready = True")),
              ("the wrong phase", {"phase": 0}, "fire_window", (False, "wrong phase (0)")),
              ("dead", {"hp": 0.0}, "fire_window", (False, "no health: nothing is admissible until alive again")),
@@ -142,7 +142,7 @@ class Veto(unittest.TestCase):
                (True, "")),
               ("three sides", [(-4.0, 0, (4.0, 0, 0)), (4.0, 0, (-4.0, 0, 0)), (0, -4.0, (0, 0, 4.0))],
                (False, "committing 1.5s, first threat arrives in 1.5s")),
-              ("the ring closed", [(-4.0, 0, (4.0, 0, 0)), (4.0, 0, (-4.0, 0, 0)), (0, -4.0, (0, 0, 4.0)),
+              ("must fail: the ring closed", [(-4.0, 0, (4.0, 0, 0)), (4.0, 0, (-4.0, 0, 0)), (0, -4.0, (0, 0, 4.0)),
                                    (0, 4.0, (0, 0, -4.0))], (False, "committing 1.5s, first threat arrives in 1.4s")),
               ("a still ring twenty out", [(-20, 0, (0, 0, 0)), (20, 0, (0, 0, 0)), (0, -20, (0, 0, 0)),
                                            (0, 20, (0, 0, 0))], (True, ""))]
@@ -161,7 +161,7 @@ class Faults(unittest.TestCase):
     # (state) → (intent, fault kinds); assumptions are always declared and never a fault
     PLANS = [("healthy", {}, ("fire_window", [])),
              ("a clock read in epoch seconds", {"elapsed": 1.8e9}, ("retreat", ["boss.phase_elapsed_s", "no action"])),
-             ("everything refused: the default, and said so",
+             ("must fail: everything refused: the default, and said so",
               {"phase": 4, "elapsed": 0.8, "beds": 0, "tunnel": False, "crystals": 0, "obsidian": 0},
               ("retreat", ["no action"])),
              ("dead: nothing but the default", {"hp": 0.0}, ("retreat", ["no action"]))]

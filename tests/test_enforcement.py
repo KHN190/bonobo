@@ -71,7 +71,7 @@ class RulesAreWired(unittest.TestCase):
     VELOCITY = [("never seen before: at rest", None, (10.0, 64.0, 0.0), (0.0, 0.0, 0.0)),
                 ("moved 2 blocks toward us in 1 s", ((12.0, 64.0, 0.0), 1.0), (10.0, 64.0, 0.0), (-2.0, 0.0, 0.0)),
                 ("fell a block in half a second", ((10.0, 65.0, 0.0), 0.5), (10.0, 64.0, 0.0), (0.0, -2.0, 0.0)),
-                ("the last reading is stale (3 s): at rest", ((20.0, 64.0, 0.0), 3.0), (10.0, 64.0, 0.0),
+                ("must fail: the last reading is stale (3 s): at rest", ((20.0, 64.0, 0.0), 3.0), (10.0, 64.0, 0.0),
                  (0.0, 0.0, 0.0))]
 
     def test_threats_carry_velocity(self):
@@ -112,7 +112,7 @@ class RulesAreWired(unittest.TestCase):
     FUNNELS = [
         ("post /task, the owner", lambda: api.post("/task", {}), True, ["api.post(/task)"], True, {"status": "sent"}),
         ("post /stop, the owner", lambda: api.post("/stop", {}), True, ["api.post(/stop)"], True, {"status": "sent"}),
-        ("post /task, not the owner: refused (run_chain posts it directly)", lambda: api.post("/task", {}), False,
+        ("must fail: post /task, not the owner: refused (run_chain posts it directly)", lambda: api.post("/task", {}), False,
          ["api.post(/task)"], False, POST_REFUSED),
         ("post /stop?wait=1, not the owner: the query is not part of the name", lambda: api.post("/stop?wait=1", {}),
          False, ["api.post(/stop)"], False, POST_REFUSED),
@@ -153,7 +153,7 @@ class RulesAreWired(unittest.TestCase):
                 ({"dimension": "minecraft:the_end"}, {"breath_within": near(True)}, "breath"),
                 ({}, {"enderman_after_us": near(True)}, "enderman"),
                 ({"health": 9}, {"hostiles_within": near(4.0)}, "hostiles"),
-                ({"health": 9}, {"hostiles_within": near(9.0)}, None),
+                ({"health": 9}, {"hostiles_within": near(9.0)}, None),  # must fail: hostiles out of reach, no danger
                 ({"dead": True, "inLava": True}, {}, None),
                 ({"inLava": True, "control": {"paused": True}}, {}, None)]       # the player holds control
         for st, kw, want in rows:
@@ -223,7 +223,7 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
     # (the interrupt reason) → the recovery carried out (recovery.TABLE, else its default)
     RECOVERIES = [("enderman", "shake_enderman"), ("claude: breath", "retreat_to_cover"),
                   ("critical_health", "retreat_and_eat"), ("airborne", "water_clutch"),
-                  ("a kind nobody listed: cover, never carry on", "retreat_to_cover")]
+                  ("must fail: a kind nobody listed: cover, never carry on", "retreat_to_cover")]
 
     def test_a_recovery_is_a_safety_preemption(self):
         from unittest import mock
@@ -293,7 +293,7 @@ class OneDecisionPoint(unittest.TestCase):
 
     LAYERS = ("hazard", "upkeep", "queue", "prepare")
     # (which layers have something to do) → the layers asked, in order, and the one that took the round
-    ROWS = [(set(), ["hazard", "upkeep", "queue", "prepare"], None),
+    ROWS = [(set(), ["hazard", "upkeep", "queue", "prepare"], None),  # must fail: nothing to do, no layer takes the round
             ({"prepare"}, ["hazard", "upkeep", "queue", "prepare"], "prepare"),
             ({"queue", "prepare"}, ["hazard", "upkeep", "queue"], "queue"),
             ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
