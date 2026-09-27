@@ -206,7 +206,7 @@ class Tiers(unittest.TestCase):
 
     def test_core_is_small_and_whole(self):
         core = [n for n, r in rows() if r["tier"] == "core"]
-        self.assertLessEqual(len(core), 16, "core runs on every change: keep it small")
+        self.assertLessEqual(len(core), 17, "core runs on every change: keep it small")
         for base in sc.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", core)
@@ -223,7 +223,7 @@ class Tiers(unittest.TestCase):
 
     # (row, tier it must be in): the rules the tiers exist for, stated per row.
     PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
-              ("chest_or_tree", "common"), ("water_clutch", "common"), ("cross_lava_8", "common"),
+              ("chest_or_tree", "common"), ("water_clutch", "core"), ("cross_lava_8", "common"),
               ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance"),
               
               ("plan_repair_on_event", "brain"), ("brain__tight", "brain"), ("seen_store__noted", "brain"),

@@ -423,16 +423,32 @@ SCENARIOS["loot_chest"] = {
     "check": lambda api, inv: inv.count("minecraft:iron_ingot") >= 5,
     "budget": 20,
 }
+# The bucket sits in the main bag, not the hotbar (nine stacks of dirt fill the hotbar first): the clutch must
+# select it. After landing the water is scooped back up.
+_FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",
+               "give @p dirt 576"]
 SCENARIOS["water_clutch"] = {
-    "doc": "Dropped 30 blocks above stone with a water bucket → the perception thread pours water, no damage.",
-    "module": "perception",
-    "setup": [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone",
-              f"tp @p {_c(at(0, 0, 0))}", "clear @p", "give @p water_bucket"],
+    "doc": "Dropped 30 blocks above stone, a water bucket in the main bag (not the hotbar) → water poured in time "
+           "(health ≥ 16) and scooped back (the bucket full again)",
+    "module": "perception", "stochastic": False,
+    "setup": _FALL_FLOOR + ["give @p water_bucket"],
     "expect": [(at(-6, -1, -6), at(6, -1, 6), "stone", 169, 169)],
     # The fall starts after setup (perception is paused during setup).
     "before": lambda ctx: _chat(f"tp @p {_c(at(0.5, 30, 0.5))}"),
     "run": _wait_landed,
-    "check": lambda api, inv: api.get("/state")["health"] >= 18 and not api.get("/state")["dead"],
+    "check": lambda api, inv: api.get("/state")["health"] >= 16 and not api.get("/state")["dead"]
+    and inv.count("minecraft:water_bucket") >= 1,
+    "budget": 15,
+}
+SCENARIOS["fall_without_bucket"] = {
+    "doc": "The same fall with no bucket (control): the fall hurts — dead, or health ≤ 10 — so water_clutch's pass "
+           "is the bucket's doing",
+    "module": "perception", "stochastic": False,
+    "setup": list(_FALL_FLOOR),
+    "expect": [(at(-6, -1, -6), at(6, -1, 6), "stone", 169, 169)],
+    "before": lambda ctx: _chat(f"tp @p {_c(at(0.5, 30, 0.5))}"),
+    "run": _wait_landed,
+    "check": lambda api, inv: api.get("/state")["dead"] or api.get("/state")["health"] <= 10,
     "budget": 15,
 }
 SCENARIOS["recover_items"] = {
@@ -2992,6 +3008,31 @@ SHEET["combat__low_hp_eat"] = {
 }
 
 
+# Fighting at the edge of a raised platform, knocked off it: a zombie with a strong knockback on a 5×5 platform
+# 20 blocks above the floor. The combat kit's water bucket (every combat row carries one) must catch the fall.
+EDGE_Y = 4
+SHEET["combat__knocked_off_edge"] = {
+    "doc": "A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
+           "knocked off, the fall caught: alive, health within 4 of the start, the bucket back in the bag",
+    "module": "fight_loop", "point": "B", "skills": [], "combat": True, "stochastic": True,
+    "tags": {"base": "fight", "enemy": "zombie", "ground": "edge"},
+    "setup": [f"fill {_c(at(-8, -17, -8))} {_c(at(8, -17, 8))} stone",
+              f"fill {_c(at(-8, -16, -8))} {_c(at(8, EDGE_Y + 3, 8))} air",
+              f"fill {_c(at(-2, EDGE_Y - 1, -2))} {_c(at(2, EDGE_Y - 1, 2))} stone",
+              _tp(2, EDGE_Y, 0), "give @p iron_sword", "give @p water_bucket",
+              "item replace entity @p armor.chest with iron_chestplate",
+              f"summon zombie {_c(at(0, EDGE_Y, 0))} {{PersistenceRequired:1b,"
+              f"attributes:[{{id:\"minecraft:attack_knockback\",base:3.0}}]}}"],
+    "expect_entities": [("minecraft:zombie", 1)],
+    "before": _hooks(_start("combat__knocked_off_edge"), _record_bids),
+    "run": _fight_until(["minecraft:zombie"], 22, False),
+    "check": _all(_alive(1), lambda api, inv: api.get("/state")["y"] < at(0, EDGE_Y - 10, 0)[1],
+                  lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
+                  lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
+    "budget": 30,
+}
+
+
 # -- test point D: acceptance ------------------------------------------------------------------------------------
 SCENARIOS[ACCEPTANCE_D] = {
     "doc": "Acceptance: a fresh spot of a real world, empty-handed, the whole cerebellum → an iron pickaxe within "
@@ -3047,10 +3088,10 @@ COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_befor
 # The chain's first slice (slice_start_tools: minutes on real terrain, a release row) is common, not core: core is
 # what every change can afford to run.
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
-                                             "iron_ingots", "bed_in_nether", "slice_start_tools")
+                                             "iron_ingots", "bed_in_nether", "slice_start_tools", "water_clutch")
 COMMON_CONDITIONS = ("night", "canopy", "cave", "full_bag", "interrupt_mid_work")
 # Upkeep's own rows and the test-point-B hazards: everyday, so common whatever their shape; the chain's last leg too.
-COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "water_clutch", "cross_lava_8", "cave_escape",
+COMMON = ("dig_in_night", "reach_land_swim", "chest_or_tree", "cross_lava_8", "cave_escape",
           "slice_nether_kit")
 ACCEPTANCE = (ACCEPTANCE_D,)
 

@@ -160,6 +160,7 @@ def _build(cell):
               "difficulty normal", "time set day"])
     for name in ("ground", "weapon", "armour", "kit", "blood"):
         out += DIMS[name][cell[name]]
+    out += FIGHT_BUCKET
     kind = ENEMY[cell["enemy"]]
     if kind is None:
         return out
@@ -570,6 +571,8 @@ def _siege_detail_of(name):
 
 _FIGHT_SETUP = (["gamemode survival @p", "difficulty normal", "time set day", "clear @p"]
                 + _platform(reach=ARENA_REACH, walled=True) + ["kill @e[type=!player,type=!item,distance=..48]"])
+# Every fight carries a water bucket: a knock off a ledge is part of fighting (`_build` adds it to every cell).
+FIGHT_BUCKET = ["give @p water_bucket"]
 
 
 def _shards(cells, size):
