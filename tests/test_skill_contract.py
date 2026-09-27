@@ -136,7 +136,7 @@ class Settle(_Clean):
         and asks nothing more of the world.)"""
         rows = [("gained", lambda: skillcore.gained(reader([3, 5]), BEFORE, timeout=0.2, stable_s=0.01), 5),
                 ("lost", lambda: skillcore.lost(reader([3, 1]), BEFORE, timeout=0.2, stable_s=0.01), 1),
-                ("dead: alive reading", lambda: skillcore.dead(state(dead=False)), False),
+                ("must fail: dead: alive reading", lambda: skillcore.dead(state(dead=False)), False),
                 ("dead: no dead field at all", lambda: skillcore.dead({k: v for k, v in state().items() if k != "dead"}),
                  False)]
         with mock.patch.object(api, "api", side_effect=AssertionError("judged an alive reading by asking again")):
@@ -203,7 +203,7 @@ AT_REST = [("in the target cell, on the ground", GROUND, 200.0, True),
            ("in the target cell mid-jump (y 200.18, off the ground)", {**GROUND, "onGround": False}, 200.18, False),
            ("in the target cell, swimming", {**GROUND, "onGround": False, "inWater": True}, 200.3, True),
            ("in the target cell, on a ladder", {**GROUND, "onGround": False, "climbing": True}, 200.5, True),
-           ("one cell below, on the ground", GROUND, 199.0, False),
+           ("must fail: one cell below, on the ground", GROUND, 199.0, False),
            ("cave_escape: travel said arrived, body on the step one below at y 199.25", GROUND, 199.25, False),
            ("travel succeeded but the body is mid-air in the target cell", {**GROUND, "onGround": False}, 200.4,
             False)]
@@ -241,7 +241,7 @@ class Arrive(_Clean):
                 ("exploring: dig and bridge, never over the void", "explore", P(allow_dig=True), (True, True, False)),
                 ("evading: dig into the hill, bridge the ditch, never over the void", "evade", P(allow_dig=True),
                  (True, True, False)),
-                ("evading with building off this round", "evade", P(allow_dig=True, allow_build=False),
+                ("must fail: evading with building off this round", "evade", P(allow_dig=True, allow_build=False),
                  (True, False, False))]
         for name, purpose, policy, want in rows:
             with self.subTest(name):
@@ -269,7 +269,7 @@ class Arrive(_Clean):
                ("a place near it too", {"type": "place", "x": 2, "y": 64, "z": 0, "item": "minecraft:stone"},
                 {"type": "place", "x": 2, "y": 64, "z": 0, "item": "minecraft:stone",
                  "avoid": xyz((1, 64, 0), (1, 65, 0))}),
-               ("a look never approaches: posted as it was", {"type": "look", "x": 3, "y": 64, "z": 0},
+               ("must fail: a look never approaches: posted as it was", {"type": "look", "x": 3, "y": 64, "z": 0},
                 {"type": "look", "x": 3, "y": 64, "z": 0}),
                ("far from the wall: an empty avoid list", {"type": "mine", "x": 500, "y": 64, "z": 0},
                 {"type": "mine", "x": 500, "y": 64, "z": 0, "avoid": []})]
@@ -356,7 +356,7 @@ OUTCOMES = [
     (api.McError("goto failed: 1 positions explored"), "nav", "failure"),
     (NotAvailable("cannot reach the tree"), "nav", "failure"),
     (NotAvailable("no sheep within 48 blocks"), "unavailable", "failure"),
-    (api.TaskStuck("chop: no progress toward its goal for 45s"), "stuck", "failure"),
+    (api.TaskStuck("chop: no progress toward its goal for 45s"), "stuck", "failure"),  # must fail: a real failure: counted and cooled
     (api.McError("chop: finished without reaching its goal"), "error", "failure"),
     (api.McError("could not open the chest"), "error", "failure"),
 ]
@@ -854,7 +854,7 @@ class Runner(unittest.TestCase):
 
     # A skill that keeps going: (situation, the markers it yields, budget s, stall s) → TaskStuck saying which limit
     LIMITS = [("progress forever, but over budget", "rising", 0.15, 5.0, "budget"),
-              ("no progress: the same marker again and again", "flat", 5.0, 0.1, "no progress"),
+              ("must fail: no progress: the same marker again and again", "flat", 5.0, 0.1, "no progress"),
               ("slow progress within both limits finishes", "finite", 5.0, 5.0, None),
               ("no progress and a tiny budget: the budget is hit first", "flat", 0.05, 5.0, "budget")]
 
@@ -1560,7 +1560,7 @@ class Remaining(unittest.TestCase):
     def test_every_item_skill_derives_its_rest_from_the_bag(self):
         # (situation, held at the start, asked, held now) → what is left; generated over every item skill
         rows = [("nothing yet", 0, 2, 0, 2), ("half way", 0, 2, 1, 1), ("all of it", 0, 2, 2, 0),
-                ("held before the call: not credited to it", 3, 2, 3, 2), ("more than asked: met", 0, 2, 5, 0)]
+                ("must fail: held before the call: not credited to it", 3, 2, 3, 2), ("more than asked: met", 0, 2, 5, 0)]
         items = {n: c for n, c in skillkit.REGISTRY.items()
                  if not skillkit.world_effect(c.gives) and any(not isinstance(g, str) for g in c.gives)}
         self.assertGreaterEqual(len(items), 4)
@@ -1812,7 +1812,7 @@ class ResumeFromTheWorld(unittest.TestCase):
                 ("state: fed while away, finished", fed, knowledge.fed, {"n": 0, "food": 20}, [3]),
                 ("state: half fed, runs again for the rest", fed, knowledge.fed, {"n": 0, "food": 14}, [3, 3]),
                 ("state: nothing done yet, runs again", fed, knowledge.fed, {"n": 0, "food": 5}, [3, 3]),
-                ("state: a reading the runner does not take (no region) is not a done", fed, knowledge.walled_sides,
+                ("must fail: state: a reading the runner does not take (no region) is not a done", fed, knowledge.walled_sides,
                  {"n": 0, "food": 20}, [3, 3])]
         for source in api.INTERRUPTIONS:
             for situation, gives, remaining, cut_off, want in rows:
@@ -1853,7 +1853,7 @@ class BagRules(unittest.TestCase):
             ("loot, nothing carried away, bag full", "loot_chest: finished without reaching its goal", 0,
              "bag full (no free slot): loot_chest: finished without reaching its goal"),
             ("mine, already said", "bag full: 12 stone left on the ground", 0, None),
-            ("the bag could not be read", "could not hunt enough beef", None, None)]
+            ("must fail: the bag could not be read", "could not hunt enough beef", None, None)]
 
     def test_reason_over_the_table(self):
         for name, msg, free, want in self.ROWS:
@@ -1866,7 +1866,7 @@ class BagRules(unittest.TestCase):
              {"minecraft:cobblestone"}, True),
             ("full, the cobblestone stack at 64", [{"id": "minecraft:cobblestone", "count": 64}], 0,
              {"minecraft:cobblestone"}, False),
-            ("full of dirt, mining stone", [{"id": "minecraft:dirt", "count": 64}], 0, {"minecraft:cobblestone"}, False)]
+            ("must fail: full of dirt, mining stone", [{"id": "minecraft:dirt", "count": 64}], 0, {"minecraft:cobblestone"}, False)]
 
     def test_room_over_the_table(self):
         from bonobo import bag
@@ -1960,7 +1960,7 @@ class BagRules(unittest.TestCase):
     # (situation, cells refused now, refused before, jar digs its own approach) → (asked again, dropped)
     REFUSED = [
         ("first refusal, old jar: ask again after making a way", [(1, 2, 3)], set(), False, ({(1, 2, 3)}, set())),
-        ("the same block refused twice: dropped (the mine_stone loop)", [(9999, 199, 10000)], {(9999, 199, 10000)},
+        ("must fail: the same block refused twice: dropped (the mine_stone loop)", [(9999, 199, 10000)], {(9999, 199, 10000)},
          False, (set(), {(9999, 199, 10000)})),
         ("mixed batch: only the repeat is dropped", [(1, 2, 3), (4, 5, 6)], {(4, 5, 6)}, False,
          ({(1, 2, 3)}, {(4, 5, 6)})),
@@ -1980,7 +1980,7 @@ class BagRules(unittest.TestCase):
         a stack of it not yet full they run."""
         from tests.world import bag, inventory
         full_dirt = [("dirt", 64)] * 36
-        rows = [("chop, full of dirt", lambda c: ["minecraft:oak_log"], full_dirt, "no room for oak_log"),
+        rows = [("must fail: chop, full of dirt", lambda c: ["minecraft:oak_log"], full_dirt, "no room for oak_log"),
                 ("mine, full of dirt", lambda c: ["minecraft:cobblestone"], full_dirt, "no room for cobblestone"),
                 ("hunt, full of dirt", lambda c: ["minecraft:beef"], full_dirt, "no room for beef"),
                 ("loot, full of dirt: room for anything needed", True, full_dirt, "no room for anything"),
@@ -2033,7 +2033,7 @@ class PortalCast(unittest.TestCase):
         rows = [
             ("open air: first cell walled on its 3 open sides + below", lambda c: False,
              0, ((0, 64, 1), [(1, 64, 1), (-1, 64, 1), (0, 64, 2), (0, 63, 1)]), 10),
-            ("the corner below is part of the frame: never mould", lambda c: False,
+            ("must fail: moulding the corner — the corner below is part of the frame: never mould", lambda c: False,
              2, ((0, 65, 0), [(1, 65, 0), (-1, 65, 0), (0, 65, 1), (0, 65, -1)]), 10),
             ("a solid neighbour needs no mould", lambda c: c == (1, 64, 1),
              0, ((0, 64, 1), [(-1, 64, 1), (0, 64, 2), (0, 63, 1)]), 10),
@@ -2068,7 +2068,7 @@ class PortalCast(unittest.TestCase):
                 ("a stray obsidian is no frame", 1, False, (9, True, False)),
                 ("8 of 10: cast the 2, light", 8, False, (2, True, True)),
                 ("all cast, unlit: light only", 10, False, (0, True, True)),
-                ("lit: leave it be", 10, True, (0, False, True))]
+                ("must fail: lit: leave it be", 10, True, (0, False, True))]
         for name, cast, lit, want in rows:
             with self.subTest(name):
                 region = self.frame(cast, lit)
@@ -2141,7 +2141,7 @@ class PureHelpers(unittest.TestCase):
                  {"type": "mine", "x": 0, "y": 64, "z": 0, "avoid": cell}),
                 ("mine_many: near any of its blocks", {"type": "mine_many", "blocks": [{"x": 2, "y": 64, "z": 0}]},
                  {"type": "mine_many", "blocks": [{"x": 2, "y": 64, "z": 0}], "avoid": cell}),
-                ("a task that names its own avoid is left alone", {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []},
+                ("must fail: a task that names its own avoid is left alone", {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []},
                  {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []}),
                 ("a non-approaching task is left alone", {"type": "look", "x": 0, "y": 64, "z": 0},
                  {"type": "look", "x": 0, "y": 64, "z": 0})]
@@ -2265,7 +2265,7 @@ class AttemptPolicy(unittest.TestCase):
     def test_success_clears_the_count(self):
         br = brain.Brain()
         rows = [("one failure counts 1", api.McError("x"), 1), ("a second counts 2", api.McError("x"), 2),
-                ("an interruption leaves it at 2", api.Interrupted("lava"), 2), ("a success clears it", None, 0)]
+                ("must fail: an interruption leaves it at 2", api.Interrupted("lava"), 2), ("a success clears it", None, 0)]
         for name, err, n in rows:
             with self.subTest(name):
                 self.run_attempt(br, err)
@@ -2291,7 +2291,7 @@ class BagFull(unittest.TestCase):
                 ("full, but a stack of it has room (63)", self.bag_of(("cobblestone", 64, 35), ("cobblestone", 63, 1)), 0,
                  True),
                 ("full, every stack of it at 64", self.bag_of(("cobblestone", 64, 36)), 0, False),
-                ("full, only other items have room", self.bag_of(("cobblestone", 64, 35), ("dirt", 10, 1)), 0, False)]
+                ("must fail: full, only other items have room", self.bag_of(("cobblestone", 64, 35), ("dirt", 10, 1)), 0, False)]
         for name, slots, free, want in rows:
             with self.subTest(name):
                 self.assertEqual(bag.has_room(slots, free, {self.COBBLE}), want)
@@ -2301,7 +2301,7 @@ class BagFull(unittest.TestCase):
         rows = [("no free slot: the cause is named", "chop: finished without reaching its goal", 0,
                  "bag full (no free slot): chop: finished without reaching its goal"),
                 ("room left: the failure is its own", "no trees", 3, None),
-                ("already says it", "bag full: nothing picked up", 0, None),
+                ("must fail: already says it", "bag full: nothing picked up", 0, None),
                 ("the bag could not be read", "no trees", None, None)]
         for name, message, free, want in rows:
             with self.subTest(name):
