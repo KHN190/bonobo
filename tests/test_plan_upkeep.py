@@ -415,7 +415,7 @@ class EffectGoals(unittest.TestCase):
                 self.assertIn(effect, skillkit.step_keys(steps[0]))
                 self.assertTrue(skillkit.providers(effect))
                 self.assertIsNone(goals.done(goal, snapshot(), None), "done when its plan ran")
-                self.assertTrue(goals.describe(goal).startswith(f"effect {effect}"))
+                self.assertEqual(goals.describe(goal), f"effect {effect} ×2")
 
     def test_effects_missing_their_detail(self):
         """An effect whose provider needs an argument the goal did not give is refused, and the refusal names it."""
@@ -1549,7 +1549,7 @@ class GoalsAsData(unittest.TestCase):
                 self.assertEqual(goals.describe(goal), want)
                 t = tasks.add(goal, path=os.path.join(tmp, "t.json"))
                 self.assertEqual(tasks.goal_of(t), goal)
-                self.assertTrue(tasks.describe(t).startswith(f"{t['id']} [pending] {want}"))
+                self.assertEqual(tasks.describe(t), f"t1 [pending] {want}")
 
 
 class Queue(unittest.TestCase):
