@@ -501,6 +501,7 @@ def fluids_near(cells, margin=2, radius=24):
             if any(abs(c[0] - h[0]) <= m and -1 <= h[1] - c[1] <= m and abs(c[2] - h[2]) <= m for h in hazards)}
 
 
+MINE_BATCH = 32         # blocks one mine_many takes: a batch of 12 re-planned every 12 blocks (1.4 s each time)
 BESIDE = 0.5            # travel range that ends face to face with a block (the walker's arrival: range + 0.5)
 REACH_BUDGET = 3         # ways of not getting there, per call, before the place itself is the problem
 
@@ -575,7 +576,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 ctx.ban(seed)
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             continue
-        vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)} - {supports(start)}
+        vein = {p for p in connected(region, seed, blocks) if not ctx.blocked(p)} - supports(start)
         if not vein:
             continue      # the whole connected vein is already proven unreachable: next seed
         # Never open a block that touches lava or water (it floods the tunnel) unless the goal wants the fluid.
@@ -632,7 +633,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # Only blocks with an open face go to mine_many: a buried one has no stand spot for the walker to reach
         # ("no path found (1 positions explored)" from a sealed hole, 277 from the platform floor). Travel digs a
         # way up to the nearest one instead — beside it, a face opened — and the next pass finds it exposed.
-        open_faced = [p for p in in_reach if p in exposed_cells and p != supports(here_now)]
+        open_faced = [p for p in in_reach if p in exposed_cells and p not in supports(here_now)]
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
@@ -640,7 +641,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {buried}: buried, and no way dug to it")
             continue
-        vein = set(open_faced[:12])
+        vein = set(open_faced[:MINE_BATCH])
         before = Inventory().count(drop)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900)

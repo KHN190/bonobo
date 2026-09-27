@@ -1058,10 +1058,13 @@ class BagFull(unittest.TestCase):
 
     def test_the_floor_is_not_mined(self):
         from bonobo import bag
-        for feet, want in (((0, 64, 0), (0, 63, 0)), ((10003, 200, 9999), (10003, 199, 9999)),
-                           ((-5, -60, 7), (-5, -61, 7)), ((1, 0, 1), (1, -1, 1))):
+        ring = lambda x, y, z: {(x + dx, y, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}   # noqa: E731
+        for feet, want in (((0, 64, 0), ring(0, 63, 0)), ((10003, 200, 9999), ring(10003, 199, 9999)),
+                           ((-5, -60, 7), ring(-5, -61, 7)), ((1, 0, 1), ring(1, -1, 1))):
             with self.subTest(feet=feet):
                 self.assertEqual(bag.supports(feet), want)
+        self.assertNotIn((0, 62, 0), bag.supports((0, 64, 0)))       # two below is not the floor
+        self.assertNotIn((2, 63, 0), bag.supports((0, 64, 0)))       # two aside is not either
 
     def test_a_gatherer_checks_the_bag_before_it_starts(self):
         """chop/mine/hunt/loot on a bag with no room for what they gather fail before the body does anything; with

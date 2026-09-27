@@ -172,8 +172,9 @@ def has_room(slots, free, ids):
 
 
 def supports(feet):
-    """Pure: the cell the body stands on — never mined by a skill that is not digging down on purpose (a full-bag
-    miner broke its own floor and fell through the platform)."""
+    """Pure: the cells the body stands on — the one under the feet and the ring around it the body's edge can rest
+    on — never mined by a skill that is not digging down on purpose (a full-bag miner broke its own floor and fell
+    through the platform; a stone batch dug the floor ring at its feet)."""
     x, y, z = feet
-    return (x, y - 1, z)
+    return {(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
 
