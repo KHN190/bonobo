@@ -2015,5 +2015,25 @@ class EatOnTheWay(unittest.TestCase):
         self.assertNotIn("minecraft:beef", p["foods"])          # raw meat is the standing row's, when starving
         self.assertNotIn("minecraft:rotten_flesh", p["foods"])
 
+
+class TrunkBatch(unittest.TestCase):
+    """wood.trunk_batch: a trunk is one submission (no round trip per log)."""
+
+    def test_batch_over_the_table(self):
+        from bonobo import wood
+        mine = lambda c: {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False,   # noqa: E731
+                          "requireDrops": False}
+        pick = {"type": "collect", "radius": 4, "only": ["log"]}
+        into = {"type": "travel", "x": 3, "y": 64, "z": 0, "range": 0.3}
+        up = [(3, 65, 0), (3, 66, 0), (3, 67, 0)]
+        rows = [("four wanted, three overhead: all of it", up, 4,
+                 [mine((3, 64, 0)), into] + [mine(c) for c in up] + [pick]),
+                ("two wanted: the base and one overhead", up, 2, [mine((3, 64, 0)), into, mine(up[0]), pick]),
+                ("one wanted: the base only, no walk in", up, 1, [mine((3, 64, 0)), pick]),
+                ("a stump (nothing overhead)", [], 5, [mine((3, 64, 0)), pick])]
+        for name, overhead, want, batch in rows:
+            with self.subTest(name):
+                self.assertEqual(wood.trunk_batch((3, 64, 0), overhead, want), batch)
+
 if __name__ == "__main__":
     unittest.main()

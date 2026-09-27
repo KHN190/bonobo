@@ -10,6 +10,22 @@ from .skillcore import _collect_only, feet, gained, settle
 from .world import Inventory, find
 
 
+def trunk_batch(base, overhead, want):
+    """Pure: one trunk as one batch — the base log from outside, into its cell (travel: the canopy may start one up,
+    and travel breaks what is over the head), the logs overhead from below (every bottom face right over the eye),
+    one pickup for all of them. Only as many overhead logs as are still wanted."""
+    x, y, z = base
+    mine = lambda c: {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False,   # noqa: E731
+                      "requireDrops": False}
+    out = [mine(base)]
+    up = [c for c in overhead][:max(0, want - 1)]
+    if up:
+        out.append({"type": "travel", "x": x, "y": y, "z": z, "range": 0.3})
+        out += [mine(c) for c in up]
+    out.append({"type": "collect", "radius": 4, "only": ["log"]})
+    return out
+
+
 def felled(trunk, still):
     """Pure: none of this trunk's logs still stands (`still`: the log cells the world lists after chopping)."""
     return not any((t["x"], t["y"], t["z"]) in still for t in trunk)
@@ -55,33 +71,17 @@ def chop(ctx, n):
         # Base log from outside, then stand in its cell and take the logs overhead: every bottom face is right above
         # the eye, no approach search. From outside, logs 1–2 up behind leaves failed "no path found (267 positions)"
         # after a 3 s walk (bench 05:14), and mine_many's top-down order hit the canopy first (bench 03:43).
-        try:
-            r = api.run({"type": "mine", "x": base["x"], "y": base["y"], "z": base["z"], "collect": False,
-                         "requireDrops": False}, wait=60)
-        except api.Unreachable as out:
-            if not nav.way_to(ctx, out.cells or [(base["x"], base["y"], base["z"])]):
-                raise
-            r = api.run({"type": "mine", "x": base["x"], "y": base["y"], "z": base["z"], "collect": False,
-                         "requireDrops": False}, wait=60)
         overhead = sorted((t for t in trunk if t["x"] == base["x"] and t["z"] == base["z"]
                            and base["y"] < t["y"] <= base["y"] + 4), key=lambda t: t["y"])
-        if overhead and Inventory().count("log") + 1 < target:
-            # travel, not goto: with the canopy starting one block up the trunk cell is only 1 high, and goto found
-            # "no path" (bench 05:26). travel breaks the log over the head on the way in — that log is harvest too.
-            nav.arrived((base["x"], base["y"], base["z"]), ctx.policy, range_=0.3, attempts=1)
-            for t in overhead:
-                if Inventory().count("log") + 1 >= target:
-                    break
-                try:
-                    r = api.run({"type": "mine", "x": t["x"], "y": t["y"], "z": t["z"], "collect": False,
-                                 "requireDrops": False}, wait=30)
-                except api.Unreachable:
-                    break                  # the canopy closed over that column: the next tree
-
-                if r["status"] != "succeeded":
-                    break
-        # One pickup sweep for the whole trunk (the drops fall to the base cell).
-        nav.sweep(ctx, radius=4, only=["log"], wait=15)
+        # The whole trunk as ONE submission (trunk_batch): the jar runs it through without a round trip per log.
+        tasks = trunk_batch(base_pos, [(t["x"], t["y"], t["z"]) for t in overhead], target - before)
+        try:
+            results = api.run_chain(tasks, stop_on_failure=False, wait=90)
+        except api.Unreachable as out:
+            if not nav.way_to(ctx, out.cells or [base_pos]):
+                raise
+            results = api.run_chain(tasks, stop_on_failure=False, wait=90)
+        r = next((x for x in results if x.get("status") != "succeeded"), results[-1] if results else {"message": ""})
         # What is still standing: asked of the world rather than read off a region snapshot taken before the
         # chopping. A cell we just broke is not "left over", and one the canopy dropped into is.
         still = {(t["x"], t["y"], t["z"]) for t in find(GROUPS["log"], radius=8, limit=60)}
