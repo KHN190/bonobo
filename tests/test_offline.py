@@ -451,17 +451,6 @@ check("portal: light aim is the top face of an inner bottom obsidian (rotated)",
 # -- perception: when a running task must be interrupted
 from bonobo import perception as PC  # noqa: E402
 
-_ok = {"health": 20, "food": 20, "air": 300, "control": {"paused": False}}
-check("perception: healthy → no interrupt", PC.danger(_ok, lambda r: 2) is None)
-same("perception: lava interrupts", PC.danger({**_ok, "inLava": True}), "lava")
-check("perception: drowning is a clock, and standing on the bottom counts",
-      PC.drowning({**_ok, "inWater": True, "air": 60, "onGround": True})
-      and not PC.drowning({**_ok, "inWater": True, "air": 300, "onGround": False}))
-check("perception: hurt + hostile close interrupts, hurt alone doesn't",
-      PC.danger({**_ok, "health": 9}, lambda r: 4) == "hostiles"
-      and PC.danger({**_ok, "health": 9}, lambda r: None) is None)
-check("perception: never while the player holds control",
-      PC.danger({**_ok, "inLava": True, "control": {"paused": True}}) is None)
 same("perception: an interrupt is its own cause, never a failure",
      __import__("bonobo.retry", fromlist=["cause_of"]).cause_of(
           __import__("bonobo.api", fromlist=["Interrupted"]).Interrupted("lava")), "interrupt")

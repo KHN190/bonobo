@@ -194,7 +194,8 @@ class RulesAreWired(unittest.TestCase):
                 ({}, {"enderman_after_us": near(True)}, "enderman"),
                 ({"health": 9}, {"hostiles_within": near(4.0)}, "hostiles"),
                 ({"health": 9}, {"hostiles_within": near(9.0)}, None),
-                ({"dead": True, "inLava": True}, {}, None)]
+                ({"dead": True, "inLava": True}, {}, None),
+                ({"inLava": True, "control": {"paused": True}}, {}, None)]       # the player holds control
         for st, kw, want in rows:
             with self.subTest(state=st, **{k: True for k in kw}):
                 got = perception.danger({**base, **st}, **kw)

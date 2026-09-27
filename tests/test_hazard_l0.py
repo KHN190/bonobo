@@ -60,6 +60,7 @@ HOSTILE = [
      {"health": 9.0, "control": {"active": True, "paused": False, "allowed": True, "task": {"type": "attack"},
                                  "queued": 0}}, {"hostiles_within": lambda r: 3.0}, None),
     ("healthy, a zombie at 3", {"health": 20.0}, {"hostiles_within": lambda r: 3.0}, None),
+    ("hurt, nothing hostile about", {"health": 9.0}, {"hostiles_within": lambda r: None}, None),
     ("dead: nothing to interrupt for", {"dead": True, "health": 0.0}, {}, None),
     ("the player holds control", {"health": 3.0, "control": {"paused": True}}, {}, None),
 ]
