@@ -950,7 +950,7 @@ def _not_in_water(c):
         raise NotAvailable("standing in water: no strip mining here")
 
 
-@skill(gives=["state:tunnelled"], remaining=_k.tunnelled(lambda c: c.args[1] if len(c.args) > 1 else 16), speed={}, pre=[lambda c: require_pickaxe(0), _not_in_water], needs={"tool:pickaxe:0": 1},
+@skill(gives=["state:tunnelled"], remaining=_k.tunnelled(lambda c: c.args[1] if len(c.args) > 1 else 16), speed={}, pre=[_not_in_water], needs={"tool:pickaxe:0": 1},
        start=lambda c: (feet()[1], _stone_held()),
        verify=lambda c: feet()[1] != c.base[0] or _stone_held() > c.base[1], budget=300, stall=60)
 def strip_mine_step(ctx, length=16):
@@ -1229,7 +1229,8 @@ def _fed_as_planned(c):
     return isinstance(target, int) and not isinstance(target, bool) and api.get("/state")["food"] >= target
 
 
-@skill(gives=["state:fed"], remaining=_k.fed, needs={"food": 1}, speed={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
+# needs: none the bag can state — a cooked meal, or raw meat when starving (the body says which, and says so).
+@skill(gives=["state:fed"], remaining=_k.fed, needs={}, speed={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
        commands=lambda state, args: eat_commands(state, args), budget=30, stall=30,
        provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
 def eat(ctx=None, raw_ok=False):
@@ -1585,7 +1586,8 @@ def wait_for_day(ctx):
         yield api.get("/state")["timeOfDay"]
 
 
-@skill(gives=["state:day"], remaining=_k.daytime, needs={"bed": 1}, speed={}, verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
+# needs: none the bag can state — a bed carried or one standing nearby (the body looks for either).
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
        provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):
     """Sleep through the night: carried bed first (placed next to us, picked up after), then a nearby site bed."""

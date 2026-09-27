@@ -59,6 +59,14 @@ class StationMissing(McError):
         self.block = block
 
 
+class NeedMissing(McError):
+    """A call whose hard needs (skill.needs_of) the bag does not hold: refused before it starts, "missing <need>"."""
+
+    def __init__(self, missing):
+        super().__init__("missing " + ", ".join(f"{k} {v}" for k, v in sorted(missing.items())))
+        self.missing = dict(missing)
+
+
 class ToolMissing(McError):
     def __init__(self, kind, tier):
         super().__init__(f"need a tier-{tier} {kind}")

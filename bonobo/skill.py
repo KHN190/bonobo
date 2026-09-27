@@ -148,14 +148,14 @@ def can_run(fn, *args, **kwargs):
             return False, str(e) or type(e).__name__
     missing = unmet(contract, args, skillcore.Inventory)
     if missing:
-        return False, f"{contract.name} needs {', '.join(f'{k} {v}' for k, v in sorted(missing.items()))}"
+        return False, f"{contract.name}: {skillcore.NeedMissing(missing)}"
     return True, None
 
 
 def unmet(contract, args, bag):
     """Pure given the bag: what of this call's hard needs (needs_of) the bag (`bag()`, read only when there are
-    needs) does not hold — {} when it can start. The one start check of `needs`: can_run, asked before the work is
-    offered (dispatch.can_start)."""
+    needs) does not hold — {} when it can start. The one start check of `needs`: the runner refuses the call on it
+    (NeedMissing, whoever calls), can_run asks it before the work is offered (dispatch.can_start)."""
     from .knowledge import have_remainder, needs_rows
     needs = needs_of(contract, args)
     return have_remainder(bag(), needs_rows(needs)) if needs else {}
@@ -368,6 +368,9 @@ def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, 
         def runner(*args, **kwargs):
             key = _resume_key(contract, args)
             c = Call(args, kwargs)
+            missing = unmet(contract, args, skillcore.Inventory)     # every caller: a plan step, a reflex, a direct call
+            if missing:
+                raise skillcore.NeedMissing(missing)
             for check in contract.pre:
                 check(c)
             kept = _resumed(contract, args)

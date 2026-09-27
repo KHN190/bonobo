@@ -551,9 +551,6 @@ def build_shelter(ctx):
     """Put up the SHELTER hut (door, torch, room for a bed) near here and register it as a shelter site: one more
     safe place to sleep in the area being worked."""
     bp = blueprints.SHELTER
-    missing = materials_missing(bp)
-    if missing:
-        raise NotAvailable(f"missing for a shelter: {missing}")
     origin, turns, prepare = plan_machine_spot(bp, feet(), ctx.policy, radius=6)
     prepare_spot(ctx, prepare)
     if not nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
@@ -584,13 +581,7 @@ def cast_portal(ctx):
     water back; break the mould inside the frame, light it. The lava comes from a carried lava bucket or the nearest
     source (`fluids._lava_bucket`)."""
     from . import fluids
-    inv = Inventory()
-    for item in ("minecraft:water_bucket", "minecraft:flint_and_steel"):
-        if not inv.count(item):
-            raise NotAvailable(f"casting a portal needs a {item.split(':')[1]}")
-    block = nav.building_item()
-    if not block:
-        raise NotAvailable("no blocks to mould the frame with")
+    block = nav.building_item()          # its needs (water, flint and steel, 16 blocks) held: the runner checked
     bp = blueprints.NETHER_PORTAL
     here = feet()
     # A frame already standing in part is picked first (spot_options → started_builds), and only its missing

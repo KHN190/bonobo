@@ -348,6 +348,7 @@ OUTCOMES = [
     (api.CommitmentExpired("a faster layer took the body"), "replan", "interrupted"),
     (api.GameUnreachable("game not reachable (connection refused)"), "game", "waits"),
     (skillcore.ToolMissing("pickaxe", 1), "tool", "failure"),
+    (skillcore.NeedMissing({"tool:pickaxe": 2}), "tool", "failure"),
     (skillcore.StationMissing("minecraft:crafting_table"), "replan", "repair"),
     (api.NavFailed("could not get to (1, 2, 3)"), "nav", "failure"),
     (api.Unreachable("the item landed where nothing can stand"), "nav", "failure"),
@@ -1589,6 +1590,43 @@ class Remaining(unittest.TestCase):
                 self.assertEqual(got, ok, why)
                 if not ok:
                     self.assertIn("tool:pickaxe", why)
+
+    def test_the_runner_refuses_a_call_whose_needs_are_not_held(self):
+        # (situation, the bag, how it is called) → refused ("missing <need>", before any command reaches the game) or
+        # run. Every entry is the runner: a direct call, a plan step through dispatch.run_step, a registered body.
+        from types import SimpleNamespace
+        from bonobo import dispatch
+        from bonobo.planner import Step
+        mine = skillkit.REGISTRY["mine"]
+        ran = []
+        body = skillkit.skill("_dummy_needs", needs=mine.needs_fn, speed={},
+                              gives=skillkit.REGISTRY["chop"].gives[:1])(lambda *a: ran.append(a[1]))
+        diamond = (None, "minecraft:diamond", 1, ["diamond_ore"], 2)
+        rows = [("an iron pickaxe, diamonds: runs", inventory(("iron_pickaxe", 1)), lambda: body(*diamond), None),
+                ("bare hands, dirt (no need): runs", inventory(), lambda: body(None, "minecraft:dirt", 1, ["dirt"], None),
+                 None),
+                ("must fail: a stone pickaxe, diamonds (tier 2 this call)", inventory(("stone_pickaxe", 1)),
+                 lambda: mine.runner(*diamond), "missing tool:pickaxe 2"),
+                ("must fail: bare hands, coal, as a plan step", inventory(),
+                 lambda: dispatch.run_step(SimpleNamespace(night=False), Step("mine", "minecraft:coal", 1, {
+                     "blocks": ["coal_ore"], "tier": 0}), False), "missing tool:pickaxe 0"),
+                ("must fail: no bucket, filling one called directly", inventory(),
+                 lambda: skillkit.REGISTRY["fill_water_bucket"].runner(None), "missing minecraft:bucket 1")]
+        try:
+            for name, inv, call, refused in rows:
+                ran.clear()
+                with self.subTest(name), mock.patch.object(skillcore, "Inventory", lambda inv=inv: bag(inv)), \
+                        mock.patch.object(api, "api", side_effect=AssertionError("a command reached the game")):
+                    if refused is None:
+                        call()
+                        self.assertEqual(len(ran), 1)
+                    else:
+                        with self.assertRaises(skillcore.NeedMissing) as caught:
+                            call()
+                        self.assertEqual(str(caught.exception), refused)
+                        self.assertEqual(ran, [])
+        finally:
+            skillkit.REGISTRY.pop("_dummy_needs", None)
 
     def test_a_skill_must_say_what_is_left(self):
         # skill.declared: an item in its gives (the rest derived from the bag) or its own remaining=, else refused

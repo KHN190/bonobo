@@ -293,7 +293,8 @@ def dragon_dead(near=None, centre=(0, 0)):
     return exit_portal_open(centre)
 
 
-@skill(gives=["state:in_pit"], remaining=_k.walled_sides, needs={"tool:pickaxe:0": 1}, speed={}, budget=240, stall=90, soft=True)
+# needs: none — end stone breaks by hand (slower without a pickaxe, but the pit gets dug).
+@skill(gives=["state:in_pit"], remaining=_k.walled_sides, needs={}, speed={}, budget=240, stall=90, soft=True)
 def build_bed_pit(ctx):
     """Prepare the fight before the dragon lands: dig the 1×2 pit beside the exit portal and stand in it. Speedruns
     do this while the dragon still circles; the old code placed its cover mid-fight and died waiting."""
@@ -943,7 +944,8 @@ def _track_phase(near):
 DRAGON_PASSES = 2400     # passes of the fight loop (≈0.5 s each while waiting) before the fight is given up
 
 
-@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={"tool:sword:1": 1}, speed={}, budget=1800, stall=300, soft=True)
+# needs: none — beds do the damage and the fight loop hits with whatever is held (sword tier 0 is a fist).
+@skill(gives=["state:dragon_dead"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={}, speed={}, budget=1800, stall=300, soft=True)
 def slay_dragon(ctx):
     """The fight is the fight loop's (fight_loop.carry), like any threat: each pass the phase model
     (fight_plan.Fight.plan) picks one intent, fight_loop.dragon_answer turns it into a batch, and the loop keeps
