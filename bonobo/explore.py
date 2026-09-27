@@ -168,7 +168,14 @@ SCAN_MOBS = ("minecraft:sheep", "minecraft:cow", "minecraft:pig", "minecraft:chi
 def unknown(mem, dimension, names):
     """Of `names`, those memory holds no live note of here: the only ones a look around asks the world about (a
     noted diamond scanned again every 20 s was a search the bench counted: seen_store__noted)."""
-    return [n for n in names if not mem.seen(n, dimension)]
+    return [n for n in names if not any(mem.seen(v, dimension) for v in variants(n))]
+
+
+def variants(block):
+    """Pure: the blocks that are the same find as `block` — the ore and its deepslate form (knowledge.MINE's one
+    row). A noted diamond_ore made deepslate_diamond_ore look unknown, and the look around scanned for it."""
+    from .knowledge import MINE
+    return next((list(blocks) for blocks, _tier in MINE.values() if block in blocks), [block])
 
 
 def note_around(mem, dimension):

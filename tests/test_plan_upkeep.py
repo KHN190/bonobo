@@ -2451,3 +2451,25 @@ class ANoteIsCheckedByReadingItsCell(unittest.TestCase):
                     mock.patch("bonobo.world.Region", lambda lo, hi, props=False: FakeRegion(lo, hi, blocks)), \
                     mock.patch.object(api, "api", side_effect=AssertionError("a /find was asked")):
                 self.assertIs(dispatch.still_there(kinds, (4, 60, 0)), want)
+
+
+class AnOreNotedIsEveryFormOfIt(unittest.TestCase):
+    """explore.unknown: a noted diamond_ore covers deepslate_diamond_ore — the look around asked /find for the
+    deepslate form (seen_store__noted's one diamond scan, pinned by a run: brain.py:258 → explore.py:188)."""
+
+    def test_over_the_table(self):
+        from bonobo import explore
+        rows = [("diamond_ore noted: neither form asked", [("diamond_ore", (4, 60, 0))],
+                 ["diamond_ore", "deepslate_diamond_ore", "obsidian"], ["obsidian"]),
+                ("the deepslate form noted: neither asked", [("deepslate_diamond_ore", (4, 0, 0))],
+                 ["diamond_ore", "deepslate_diamond_ore"], []),
+                ("nothing noted: both asked", [], ["diamond_ore", "deepslate_diamond_ore"],
+                 ["diamond_ore", "deepslate_diamond_ore"]),
+                ("a block with no variants: itself only", [("obsidian", (1, 60, 0))], ["obsidian", "ancient_debris"],
+                 ["ancient_debris"])]
+        for name, notes, names, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                m = Memory(os.path.join(tmp, "notes.json"))
+                for kind, pos in notes:
+                    m.note_seen(kind, pos, OVER)
+                self.assertEqual(explore.unknown(m, OVER, names), want)
