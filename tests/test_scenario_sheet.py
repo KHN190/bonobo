@@ -416,6 +416,16 @@ class Changed(unittest.TestCase):
              (True, 46, 45, False, False, "over budget"), (False, 10, 45, False, False, "not reached"),  # must fail: one second over the budget
              (True, 10, 45, True, False, "crash"), (False, 500, 45, True, False, "not reached")]
 
+    def test_a_run_that_raised_is_never_a_pass(self):
+        # (situation, reached?, what it raised) → ok
+        rows = [("reached, nothing raised: a pass", True, None, True),
+                ("must fail: reached, but the run raised a NotAvailable on the way", True, "NotAvailable: no path", False),
+                ("must fail: reached, the run raised a McError", True, "McError: chop failed", False),
+                ("not reached and raised: no pass", False, "TaskStuck", False)]
+        for name, reached, raised, want in rows:
+            with self.subTest(name):
+                self.assertEqual(sc.judge(reached, 5, 45, False, raised=raised)[0], want)
+
     def test_budget_and_crash_judgment(self):
         for reached, seconds, budget, crashed, ok, why in self.JUDGE:
             with self.subTest(reached=reached, seconds=seconds, crashed=crashed):

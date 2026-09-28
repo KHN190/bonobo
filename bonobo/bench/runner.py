@@ -80,13 +80,16 @@ def _watchdog(limit, fired):
     t.start()
     return t
 
-def judge(reached, seconds, budget, crashed=False, run_s=None, target_s=None):
-    """Pure: (ok, why not) for a finished row."""
+def judge(reached, seconds, budget, crashed=False, run_s=None, target_s=None, raised=None):
+    """Pure: (ok, why not) for a finished row. `raised`: what the run raised, if it raised anything — never a pass,
+    whatever the world looks like after (an expected failure is caught by its row's own expect_failure word)."""
 
     if not reached:
         return False, "outcome not reached"
     if crashed:
         return False, "crashed on the way (a bug of ours)"
+    if raised:
+        return False, f"the run raised ({raised}): the world after it is not its outcome"
     if target_s is not None and (run_s is None or run_s > target_s):
         took = "never timed" if run_s is None else f"{run_s:.1f}s"
         return False, f"outcome reached but slow: its own run {took} > target {target_s:.1f}s"
@@ -658,7 +661,8 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
         # a crash of ours is never a pass
         from . import vocab as _rows
         ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
-                          _rows.BASE.get("target_s") or sc.get("target_s"))   # a row's own, measured at start
+                        _rows.BASE.get("target_s") or sc.get("target_s"),    # a row's own, measured at start
+                        raised=(note or type(exc).__name__) if exc is not None else None)
         ok = ok and not fired.is_set()
         if reached and not ok:
             # the outcome came too slowly (or via our crash): say so
