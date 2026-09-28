@@ -541,7 +541,7 @@ def _fight_until(kinds, seconds, clear=True):
         try:
             while time.time() - t0 < seconds:
                 alive = _hostiles(24, set(kinds))
-                FIGHT_LOG["alive"].append((len(alive), fight_loop.engaged() is not None))
+                FIGHT_LOG["alive"].append((time.time(), len(alive)))
                 if clear and not alive:
                     return True
                 core.BRAIN.round()
@@ -556,15 +556,18 @@ def engaged_gaps(bids):
     return [b[0] - a[0] for a, b in zip(bids, bids[1:]) if a[1] and b[1]]
 
 
-def kills_while_engaged(samples):
-    """Pure: the mobs that went while a fight held the body — `samples` [(alive count, engaged)] in order; a drop
-    between two samples counts when either was engaged (a kill by the plan layer or the sun is not the fight's)."""
-    return sum(max(0, a[0] - b[0]) for a, b in zip(samples, samples[1:]) if a[1] or b[1])
+def kills_while_engaged(samples, bids=()):
+    """Pure: the mobs that went while a fight held the body — `samples` [(when, alive count)] in order, `bids` the
+    threat layer's [(when, engaged, kind)]: a drop between two samples counts when the fight was engaged at some bid
+    in between. Engaged-ness read only at the samples missed a fight that started and ended inside one brain round
+    (fight_zombie_1 20260928-223140: killed, 'without the outcome'); a kill by the plan layer or the sun is not it."""
+    return sum(max(0, a[1] - b[1]) for a, b in zip(samples, samples[1:])
+               if any(e and a[0] <= t <= b[0] for t, e, *_k in bids))
 
 
 def _kills_by_the_fight(n):
     """Check: `n` mobs went while the fight was engaged (the fight's own kills, not a burn or the plan's swing)."""
-    return lambda api, inv: kills_while_engaged(FIGHT_LOG.get("alive", [])) >= n
+    return lambda api, inv: kills_while_engaged(FIGHT_LOG.get("alive", []), FIGHT_LOG.get("bids", [])) >= n
 
 
 def _answered_with(*kinds):

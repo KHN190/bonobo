@@ -47,14 +47,15 @@ class EngagedGaps(unittest.TestCase):
 
 class KillsWhileEngaged(unittest.TestCase):
     def test_rows(self):
-        # (situation, samples [(alive, engaged)]) → the fight's kills
-        rows = [("three killed while engaged", [(3, True), (2, True), (0, True)], 3),
-                ("a kill as the engagement ends still counts", [(1, True), (0, False)], 1),
-                ("must fail: the sun burned them while nothing was engaged", [(3, False), (0, False)], 0),
-                ("a mob that came back is no negative kill", [(1, True), (2, True), (1, True)], 1)]
-        for name, samples, want in rows:
+        # (situation, samples [(when, alive)], bids [(when, engaged, kind)]) → the fight's kills
+        fought = [(0.5, True, "fight"), (1.5, True, "fight")]
+        rows = [("three killed while engaged", [(0, 3), (1, 2), (2, 0)], fought, 3),
+                ("a fight begun and ended inside one round still counts", [(0, 1), (5, 0)], [(2.0, True, "fight")], 1),
+                ("must fail: the sun burned them, nothing engaged", [(0, 3), (5, 0)], [(2.0, False, None)], 0),
+                ("a mob that came back is no negative kill", [(0, 1), (1, 2), (2, 1)], fought, 1)]
+        for name, samples, bids, want in rows:
             with self.subTest(name):
-                self.assertEqual(fight.kills_while_engaged(samples), want)
+                self.assertEqual(fight.kills_while_engaged(samples, bids), want)
 
 
 class KeptOff(unittest.TestCase):
