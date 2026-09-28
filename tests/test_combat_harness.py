@@ -57,7 +57,6 @@ class KillsWhileEngaged(unittest.TestCase):
                 self.assertEqual(fight.kills_while_engaged(samples), want)
 
 
-
 class KeptOff(unittest.TestCase):
     """low_hp_eat's end: every hostile 3 or more off, or the body walled in."""
 
@@ -68,6 +67,19 @@ class KeptOff(unittest.TestCase):
         for name, gaps, enclosed, want in rows:
             with self.subTest(name):
                 self.assertEqual(fight.kept_off(gaps, enclosed), want)
+
+
+
+class GapOpen(unittest.TestCase):
+    """block_gap's scene proof: the corridor's gap open before the run."""
+
+    def test_rows(self):
+        g = fight.GAP
+        rows = [("nothing solid: open", [], True), ("solid elsewhere only: open", [(0, 0, 0)], True),
+                ("must fail: one gap cell solid", [g[0]], False), ("must fail: the gap filled", list(g), False)]
+        for name, solid, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.gap_open(solid), want)
 
 
 if __name__ == "__main__":

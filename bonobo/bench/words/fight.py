@@ -458,6 +458,25 @@ def _less_hurt_than(row, control):
 
 START_Y = at(0, 0, 0)[1]
 
+
+def gap_open(solid_cells):
+    """Pure: the corridor's gap stands open before the run (none of GAP solid) — else closing it proves nothing."""
+    return not any(c in set(solid_cells) for c in GAP)
+
+
+def _gap_is_open(ctx):
+    """`before` hook: block_gap's scene proven — the gap is open (the build ran), else SetupInvalid."""
+    from ...world import Region
+    from ..core import SetupInvalid
+    region = Region(tuple(min(c[i] for c in GAP) for i in range(3)), tuple(max(c[i] for c in GAP) for i in range(3)))
+    solid = [c for c in GAP if region.solid(c)]
+    if not gap_open(solid):
+        raise SetupInvalid(f"block_gap: the corridor's gap is already closed at {solid[:3]}")
+
+
+# behaviours whose scene is proven by a hook before the run, beyond the build's replies and the line-up count
+PROVEN = {"block_gap": {"before": [("&_gap_is_open",)]}}
+
 # name: (cell off ARMED, what must hold, why); a control runs before the cell compared to it
 BEHAVIOURS = {
     "block_gap": (dict(ground="corridor", kit="blocks", distance="across"),
@@ -693,12 +712,18 @@ def escape_row(name, enemy, ground, kit, seed=None):
                       detail=("escape_detail", name), tick_rate=60)
 
 def behaviour_row(name, behaviour):
-    """One fight behaviour: a cell moved off ARMED so that one answer is worth the most; chosen and working."""
+    """One fight behaviour: a cell moved off ARMED so that one answer is worth the most; chosen and working. The cell
+    is built in setup (each command's reply checked), so the run is the fight's window alone (≤ 25 s)."""
     moved, _rule, why = BEHAVIOURS[behaviour]
     cell = dict(dict(ARMED, **moved), run=0, seed=0)
-    row = _fight_row(name, f"Fight behaviour: {why}", [("sheet", "_FIGHT_SETUP")], [cell], ("&_build",),
-                     ("!_record_with_start", _fought_for(BEHAVIOUR_SECONDS)), "bench/behaviour.jsonl", 0.6, (),
-                     stochastic=True, variant=sorted(cell.items()), expect=FIGHT_EXPECT, tick_rate=60)
+    kind = ENEMY[cell["enemy"]]
+    proof = PROVEN.get(behaviour, {})
+    row = _fight_row(name, f"Fight behaviour: {why}", [("sheet", "_FIGHT_SETUP"), ("built", "_build", cell)], [cell],
+                     ("!constant", []), ("!_record_with_start", _fought_for(BEHAVIOUR_SECONDS)),
+                     "bench/behaviour.jsonl", 0.6, (), stochastic=True, variant=sorted(cell.items()),
+                     expect=FIGHT_EXPECT, tick_rate=60,
+                     **({"expect_entities": [(kind, COUNT[cell["count"]], COUNT[cell["count"]])]} if kind else {}),
+                     **({"before": proof["before"]} if "before" in proof else {}))
     return dict(row, check=[("behaviour", behaviour)])
 
 def fight_cell_row(name, mob, n, tier, secs, hp, clear):
@@ -746,4 +771,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
