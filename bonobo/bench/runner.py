@@ -776,6 +776,10 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
                 from .vocab import GHAST, ghast_readout
                 if GHAST:
                     CHECK_READOUT["ghast"] = ghast_readout(GHAST)      # what the ghast watch saw
+                try:
+                    CHECK_READOUT["reflex"] = api.get("/reflex")        # the jar's policy as it holds it
+                except McError as e:
+                    CHECK_READOUT["reflex"] = f"{type(e).__name__}: {e}"
         # a crash of ours is never a pass
         from . import vocab as _rows
         ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),

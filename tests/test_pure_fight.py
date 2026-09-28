@@ -581,6 +581,31 @@ class EngagementOver(unittest.TestCase):
                 self.assertEqual(fight_loop.engagement_over(rows_, here, chased_at, now, hit_s), want)
 
 
+class ReflexPolicyEveryLife(unittest.TestCase):
+    """The jar's reflex policy is posted again at every reset (row setup, death, dimension), not only at wire."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api, lifecycle
+        policy = dict(counter=False, **fight_loop.ALWAYS)
+        # (the fight wired, how the jar answers) → the posts made by a reset
+        rows = [("wired: posted again", object(), None, [("/reflex", policy)]),
+                ("must fail: never wired (no brain) — nothing posted", None, None, []),
+                ("a jar without /reflex: tried, said, no crash", object(), api.McError("404"), [("/reflex", policy)])]
+        for name, answer, err, want in rows:
+            with self.subTest(name):
+                posts = []
+
+                def post(path, body=None):
+                    posts.append((path, body))
+                    if err is not None:
+                        raise err
+                with mock.patch.object(fight_loop, "ANSWER", answer), mock.patch.object(api, "post", post), \
+                        mock.patch.object(api, "swallowed", lambda *a: None):
+                    lifecycle.reset_all()
+                self.assertEqual([p for p in posts if p[0] == "/reflex"], want)
+
+
 class StillWorth(unittest.TestCase):
     def test_table(self):
         def opt(kind, leaves=0.0, blast=0.0, seconds=0.0, hp=0.0, target=None):

@@ -88,6 +88,15 @@ def reflex(**policy):
         api.swallowed("fight: reflex policy", e)
 
 
+def _reflex_again():
+    """Every new life, dimension and bench row: the jar's reflex policy posted again (wire posted it once)."""
+    if ANSWER is not None:
+        reflex(counter=False, **ALWAYS)
+
+
+lifecycle.on_reset(_reflex_again)
+
+
 def wired():
     return ANSWER is not None
 
