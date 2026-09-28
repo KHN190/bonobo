@@ -1,15 +1,17 @@
 """Renewable food and wood: replant saplings after chopping, a 3×3 wheat plot around a water source, harvest when ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collected later by upkeep. Pure planners (`farm_plot`, `ripe_cells`, `breeding_pair`) are offline-tested; skills only execute them."""
 
 import math
+import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
 from . import api, jobs, nav, skillcore
 from .api import McError, NotAvailable, log
+from .data import bare
 from .skill import skill
 from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD
-from .world import Inventory, Region, add, entities, find, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
+from .world import Inventory, Region, add, entities, find, job_ready, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
 
 SOIL = ("grass_block", "dirt", "coarse_dirt", "rooted_dirt")
 SAPLINGS = ("oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling",
@@ -274,6 +276,38 @@ def plant_farm(ctx):
     jobs.start(ctx.mem, "crop", centre, ctx.dimension, item="minecraft:wheat", count=sown)
     log(f"planted a wheat plot of {sown} at {centre}")
     return centre
+
+AWAIT_MAX_S = 45        # longest an await step waits in place for a job; longer, it steps aside (NotAvailable)
+
+def job_due(job, tick=None):
+    """A job's output can be taken now: a crop when ripe wheat stands on its plot (the world, not the clock: crops
+    ripen by random ticks), anything else by its clock."""
+    if job.get("kind") == "crop":
+        c = tuple(job["pos"])
+        return bool(ripe_cells(Region(add(c, (-1, 1, -1)), add(c, (1, 1, 1)), props=True)))
+    return job_ready(job, tick)
+
+@skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]),
+       needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]),
+       verify=lambda c: Inventory().count(c.args[1]) > c.base, budget=120, stall=60,
+       provides={"await": lambda ctx, s: (s.token, s.count)})
+def await_job(ctx, item, count):
+    """What the plan takes from a running job (a sown crop, a furnace): waited for in place while it is near — then
+    collected (jobs.collect) — or stepped aside from (NotAvailable) when it is not."""
+    began = time.time()
+    while True:
+        mine = [j for j in ctx.mem.jobs(ctx.dimension) if j.get("item") == item]
+        if not mine:
+            raise NotAvailable(f"no job is making {bare(item)}")
+        tick = api.get("/state").get("gameTime")
+        due = next((j for j in mine if job_due(j, tick)), None)
+        if due is not None:
+            jobs.collect(ctx, due)
+            return
+        if time.time() - began > AWAIT_MAX_S:
+            raise NotAvailable(f"{bare(item)} not ready yet")
+        api.run({"type": "wait", "ticks": 20}, wait=5, awaits="one second more for the job's output")
+        yield round(time.time() - began)      # waiting on a clock is the progress here
 
 HOES = tuple(f"minecraft:{m}_hoe" for m in ("netherite", "diamond", "iron", "golden", "stone", "wooden"))
 RIPE_LOOK = 16          # how far a farm step looks for a crop already grown before it sows
