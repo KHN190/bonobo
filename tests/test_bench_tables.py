@@ -652,14 +652,17 @@ class DeflectCells(unittest.TestCase):
 
     def test_fireball_end(self):
         from bonobo.bench.words import fight as wf
-        # (situation, its distances to the eye as read, gone) → (resolved, end)
-        rows = [("burst at the eye: resolved near", [12, 8, 4, 1.5], True, (True, 1.5)),
-                ("punched: came close, now moving away past RECEDED_AT", [12, 5, 3, 5, 7], False, (True, 7)),
-                ("must fail: still coming, not resolved", [12, 10, 8], False, (False, None)),
-                ("must fail: never came close, drifting: not a punch", [12, 13], False, (False, None))]
-        for name, ds, gone, want in rows:
+        eye = wf.deflect_eye()
+        ball, m = wf.shot_from(wf.VOLLEY[0][1], wf.VOLLEY[0][2])
+        coming, away = (ball, m), (ball, tuple(-c for c in m))      # the shot as fired, and turned back
+        # (situation, its (pos, velocity) reads, gone) → (resolved, deflected)
+        rows = [("velocity turned away after coming: deflected", [coming, away], False, (True, True)),
+                ("must fail: exploded without turning", [coming, coming], True, (True, False)),
+                ("must fail: still coming, not resolved", [coming, coming], False, (False, None)),
+                ("must fail: never came at the eye: not a punch", [away], False, (False, None))]
+        for name, reads, gone, want in rows:
             with self.subTest(name):
-                self.assertEqual(wf.fireball_end(ds, gone), want)
+                self.assertEqual(wf.fireball_end(reads, gone, eye), want)
 
     def test_done(self):
         from bonobo.bench.words import fight as wf
@@ -674,12 +677,14 @@ class DeflectCells(unittest.TestCase):
 
     def test_verdict(self):
         from bonobo.bench.words import fight as wf
-        # (situation, start hp, end hp, fired, end distances) → passed
-        rows = [("all three punched away, unhurt", 20.0, 20.0, 3, [9.0, 7.5, 12.0], True),
-                ("must fail: idle — one burst on us", 20.0, 14.0, 3, [9.0, 1.2, 12.0], False),
-                ("must fail: unhurt but one burst at the eye", 20.0, 20.0, 3, [9.0, 1.2, 12.0], False),
-                ("must fail: two fired", 20.0, 20.0, 2, [9.0, 7.5], False),
-                ("must fail: no health read", 20.0, None, 3, [9.0, 7.5, 12.0], False)]
+        n = len(wf.VOLLEY)
+        every, one_missed = [True] * n, [True] * (n - 1) + [False]
+        # (situation, start hp, end hp, fired, deflected per fireball) → passed
+        rows = [("every one turned away, unhurt", 20.0, 20.0, n, every, True),
+                ("must fail: idle — one burst on us", 20.0, 14.0, n, one_missed, False),
+                ("must fail: unhurt but one not turned", 20.0, 20.0, n, one_missed, False),
+                ("must fail: not all fired", 20.0, 20.0, n - 1, every[:-1], False),
+                ("must fail: no health read", 20.0, None, n, every, False)]
         for name, h0, h1, fired, ends, want in rows:
             with self.subTest(name):
                 self.assertEqual(wf.volley_verdict(h0, h1, fired, ends), want)
