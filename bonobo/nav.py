@@ -41,6 +41,27 @@ def use_on_top(item, cell, top=1.0):
     y = cell[1] + (1.0 if top >= 1.0 else top - 0.15)
     return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": y, "z": cell[2] + 0.5, "onBlock": True}
 
+def use_on_face(item, cell, face):
+    """Pure: the task that uses `item` on the side face of `cell` that points along `face` ((dx, dz)): aimed at that
+    face's centre — a bucket used there pours into the cell beside it."""
+    return {"type": "use_item", "item": item, "x": cell[0] + 0.5 + 0.5 * face[0], "y": cell[1] + 0.5,
+            "z": cell[2] + 0.5 + 0.5 * face[1], "onBlock": True}
+
+def first_solid(region, eye, point, step=0.05, past=0.3):
+    """Pure: the first solid cell a straight look from `eye` through `point` meets (a little past the point: the
+    point sits on a face), or None — what the jar's click raycast would hit, from the blocks read."""
+    import math as _m
+    d = [p - e for p, e in zip(point, eye)]
+    length = _m.sqrt(sum(v * v for v in d)) or 1.0
+    u = [v / length for v in d]
+    t = 0.0
+    while t <= length + past:
+        c = tuple(int(_m.floor(e + v * t)) for e, v in zip(eye, u))
+        if region.inside(c) and region.solid(c):
+            return c
+        t += step
+    return None
+
 def mine_task(c, collect=False, down=False):
     """A mine task; `down`: the block is under the feet on purpose (a dig down) — the jar (≥ 0.1.58) then may stand
     on its own column, which ordinary mining never does."""

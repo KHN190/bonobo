@@ -71,8 +71,30 @@ def plot_commands(centre, hoe, region=None, stand=None):
             out.append({"type": "goto", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.5})
         out += pair
     if name(centre) != "water":
-        out.append(nav.use_on_top("minecraft:water_bucket", below))
+        out.append(water_task(centre, stand, region))
     return out
+
+EYE = 1.62
+
+def water_task(centre, stand=None, region=None):
+    """Pure: the pour into the centre hole. From a stand beside the plot the rim hides the hole's floor (the ray met
+    the ring's top: water on the ring, bread_from_a_farm 13268), so the aim is the far inner wall — the ring block past
+    the centre on the side away from the stand, its face toward the hole: a bucket used there pours into the hole.
+    With the blocks read, the aim must be the first solid thing the stand's eye meets; else the floor's top."""
+    below = add(centre, (0, -1, 0))
+    if stand is None:
+        return nav.use_on_top("minecraft:water_bucket", below)
+    dx, dz = centre[0] - stand[0], centre[2] - stand[2]
+    step = ((1 if dx > 0 else -1), 0) if abs(dx) >= abs(dz) else (0, (1 if dz > 0 else -1))
+    wall = (centre[0] + step[0], centre[1], centre[2] + step[1])
+    task = nav.use_on_face("minecraft:water_bucket", wall, (-step[0], -step[1]))
+    if region is not None:
+        eye = (stand[0] + 0.5, stand[1] + EYE, stand[2] + 0.5)
+        if nav.first_solid(region, eye, (task["x"], task["y"], task["z"])) != wall:
+            floor = nav.use_on_top("minecraft:water_bucket", below)
+            if nav.first_solid(region, eye, (floor["x"], floor["y"], floor["z"])) == below:
+                return floor
+    return task
 
 def water_contained(region, cell):
     """Pure: water at `cell` stays a source there — solid under it and on its four sides at its own level, so it

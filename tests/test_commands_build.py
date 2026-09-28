@@ -67,6 +67,25 @@ class WaterLast(unittest.TestCase):
         self.assertEqual((kinds[0], kinds[-1], kinds.count("goto")), ("mine", "water_bucket", 8))
         self.assertTrue(all(kinds[i] == "goto" for i in range(1, len(kinds) - 1, 3)))
 
+    def test_the_pour_aims_where_the_eye_reaches(self):
+        """water_task: from a stand beside the plot the rim hides the hole's floor; the far inner wall's face is aimed."""
+        from bonobo import nav
+        from tests.world import FakeRegion
+        c = (10000, 199, 10000)
+        blocks = {(x, y, z): "farmland" if y == 199 else "grass_block"
+                  for x in range(9995, 10006) for y in (197, 198, 199) for z in range(9995, 10006) if (x, y, z) != c}
+        region = FakeRegion((9990, 190, 9990), (10010, 210, 10010), blocks)
+        aim = lambda t: (t["x"], t["y"], t["z"])       # noqa: E731
+        rows = [("stand west: the east block's west face", (9998, 200, 10000), (10001.0, 199.5, 10000.5)),
+                ("stand south: the north block's south face", (10000, 200, 9998), (10000.5, 199.5, 10001.0)),
+                ("no stand (a resume computed offline): the floor's top", None, (10000.5, 199.0, 10000.5))]
+        for name, stand, want in rows:
+            with self.subTest(name):
+                self.assertEqual(aim(farming.water_task(c, stand, region)), want)
+        with self.subTest("must fail: the floor aimed from the west stand meets the rim first"):
+            self.assertEqual(nav.first_solid(region, (9998.5, 201.62, 10000.5), (10000.5, 199.0, 10000.5)),
+                             (9999, 199, 10000))
+
     def test_contained(self):
         from tests.world import FakeRegion
         ground = {(x, y, z): "grass_block" for x in range(-3, 4) for y in (61, 62, 63) for z in range(-3, 4)}
