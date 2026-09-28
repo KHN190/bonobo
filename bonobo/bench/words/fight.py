@@ -467,7 +467,10 @@ def _gap_is_open(ctx):
 
 
 # behaviours whose scene is proven by a hook before the run, beyond the build's replies and the line-up count
-PROVEN = {"block_gap": {"before": [("&_gap_is_open",)]}}
+# block_gap: the walker held still (NoAI) where it was summoned, across the gap, and woken as the window opens —
+# left free it wandered 14 → 20 blocks off for 14 s and nothing came at the gap to be closed
+PROVEN = {"block_gap": {"scene": [("cmd", "data merge entity @e[type=minecraft:zombie,limit=1,sort=nearest] {NoAI:1b}")],
+                        "before": [("&_gap_is_open",), ("loose", "zombie")]}}
 
 # name: (cell off ARMED, what must hold, why); a control runs before the cell compared to it
 BEHAVIOURS = {
@@ -785,7 +788,8 @@ def behaviour_row(name, behaviour):
     cell = dict(dict(ARMED, **moved), run=0, seed=0)
     kind = ENEMY[cell["enemy"]]
     proof = PROVEN.get(behaviour, {})
-    row = _fight_row(name, f"Fight behaviour: {why}", [("sheet", "_FIGHT_SETUP"), ("built", "_build", cell)], [cell],
+    row = _fight_row(name, f"Fight behaviour: {why}",
+                     [("sheet", "_FIGHT_SETUP"), ("built", "_build", cell)] + list(proof.get("scene", ())), [cell],
                      ("!constant", []), ("!_record_with_start", _fought_for(BEHAVIOUR_SECONDS)),
                      "bench/behaviour.jsonl", 0.6, (), stochastic=True, variant=sorted(cell.items()),
                      expect=FIGHT_EXPECT, tick_rate=60,
