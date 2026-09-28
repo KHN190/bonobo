@@ -1063,15 +1063,26 @@ class ACreeperIsStruckOnlyWhileItWalks(unittest.TestCase):
                 "ids": [0], "field": field.Field(bucket="underground"), "dig_ok": True, "lit": lit}
 
     def test_columns_over_the_table(self):
-        # (distance, fuse lit) → (fight offered, a wall or a hole offered)
-        rows = [("4 off, walking: strike", 4, set(), (True, False)),
-                ("must fail: 4 off, hissing — no strike, out first", 4, {0}, (False, False)),
-                ("a hissing one 6 off: still inside its fuse, no strike", 6, {0}, (False, False))]
-        for name, d, lit, want in rows:
+        """One rule, in the jar: the fight is hit-and-back (keepoff), lit or not; no wall, no hole."""
+        for name, d, lit in [("4 off, walking", 4, set()), ("4 off, hissing", 4, {0}), ("6 off, hissing", 6, {0})]:
             with self.subTest(name):
                 opts = threat.options(self.state(d, lit))
                 shaped = any(o.kind == "reshape" and o.target[0] in ("between", "down") for o in opts)
-                self.assertEqual(("fight" in {o.kind for o in opts}, shaped), want)
+                self.assertEqual(("fight" in {o.kind for o in opts}, shaped), (True, False))
+
+    def test_no_strike_while_hissing(self):
+        """The fight's attack carries keepoff out to keep_out: the jar never swings at a creeper swelling (or ignited)
+        inside it (AttackTask keepoff; the reflex skips a lit one) — out first, strike again once it walks."""
+        from bonobo import fight_loop
+        from tests.world import bag, inventory
+        keep = float(threat.MOBS["minecraft:creeper"]["keep_out"])
+        creeper = row("minecraft:creeper", 4, 0)
+        st = {"feet": (0, 64, 0), "inv": bag(inventory(("iron_sword", 1))), "threats": [creeper],
+              "threat_ids": [0], "protected": set()}
+        (task,) = fight_loop.batch(type("O", (), {"kind": "fight", "target": 0})(), st)
+        self.assertEqual((task["type"], task.get("footwork"), task.get("keepOff")), ("attack", "keepoff", keep))
+        with self.subTest("must fail: a plain attack (no keepoff) would swing into the swell"):
+            self.assertNotEqual(task.get("footwork"), None)
 
     def test_a_zombie_still_gets_walls(self):
         opts = threat.options(self.state(8, set(), "minecraft:zombie"))
