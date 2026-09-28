@@ -42,7 +42,9 @@ class Ground(unittest.TestCase):
             with self.subTest(why):
                 fresh()
                 got = perception.ground(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
-                self.assertEqual((type(got), got.bucket, got.blocks), (field.Field, bucket, 0))
+                # blocks: those already walling the passage we stand in (a pod walls it both ways: sealed)
+                walled = 2 if bucket == "enclosed" else 0
+                self.assertEqual((type(got), got.bucket, got.blocks), (field.Field, bucket, walled))
                 self.assertEqual((perception.STATE.region.lo, perception.STATE.region.hi, perception.STATE.region.blocks),
                                  ((-8, 56, -8), (8, 72, 8), blocks), "the region read is kept for evade's footing")
 

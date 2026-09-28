@@ -145,7 +145,9 @@ class TheDecisionIsTheRuleAtItsBest(unittest.TestCase):
             if threat.saves(best, options, price, horizon) > 0:
                 self.assertEqual(held, best.kind, f"{cell}: decide and saves disagree")
             else:
-                self.assertEqual(held, "ignore", f"{cell}: answered when nothing paid")
+                # nothing pays: carry on — unless a melee follower closes, then the fallback (never still under it)
+                forced = threat.fallback(options, state)
+                self.assertEqual(held, forced.kind if forced else "ignore", f"{cell}: answered when nothing paid")
 
     def test_a_fight_intends_the_best_admitted_action_or_its_default(self):
         for cell in fights():
