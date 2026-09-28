@@ -280,8 +280,8 @@ class NightUnderCover(unittest.TestCase):
     """arbiter.viable with the surface closed (night in the Overworld): speedrun style — the night is worked under
     cover (a tunnel, crafting, smelting), a surface walk (a tree, an animal, stocking out in the open) waits for
     morning, and waiting for day is only the last resort."""
-    P = lambda k, key, surface=False: arbiter.Intent("plan", lambda: None, key, at=0.0, kind=k, key=key,  # noqa: E731
-                                                     surface=surface)
+    P = staticmethod(lambda k, key, surface=False: arbiter.Intent("plan", lambda: None, key, at=0.0, kind=k,
+                                                                  key=key, surface=surface))
 
     def test_rows(self):
         P = self.P

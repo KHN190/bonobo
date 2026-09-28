@@ -41,6 +41,12 @@ def surface_closed(night, dimension):
     """Pure: surface work waits for morning at night in the Overworld, sheltered or not (caught in the open, it walked out to chop)."""
     return bool(night) and dimension == "minecraft:overworld"
 
+def act_on_surface(act):
+    """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
+    skill) is judged by what it runs elsewhere: not flagged."""
+    step = getattr(act, "step", None)
+    return step is not None and arbiter.on_surface(step.kind)
+
 def craft_run(steps, first):
     """Pure: `first` and the crafts straight after it: one table sitting, not one per round."""
     if first.kind != "craft" or first not in steps:
@@ -329,7 +335,7 @@ class Brain:
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:
                     out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}",
-                                              surface=arbiter.on_surface(act.step.kind)))
+                                              surface=act_on_surface(act)))
             return out
 
         # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
@@ -368,7 +374,7 @@ class Brain:
             write(task, update)
             if act is not None:
                 queued = arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}",
-                                        surface=arbiter.on_surface(act.step.kind))
+                                        surface=act_on_surface(act))
                 if arbiter.viable(queued, {"surface_closed": closed}):
                     return [queued]     # a surface step at night: the next task's, or the night's own work
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
