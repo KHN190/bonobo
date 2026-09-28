@@ -238,7 +238,7 @@ def settled(table, name):
                   key=lambda r: r.get("t", 0))
     return bool(runs) and runs[-1]["ok"]
 
-MAX_RUNS = 3      # a row runs once; a failure is re-run, three runs at most, and passes on ≥ 2 of 3
+MAX_RUNS = 3      # a chance row runs until decided, three runs at most: passes on ≥ 2 of 3 (one pass alone is none)
 
 # rows the world decides by chance; everything else is decided by one run
 STOCHASTIC_MARKS = ("summon ", "place feature", "spreadplayers", "barter", "locate ")
@@ -280,7 +280,7 @@ def verdict_of(oks, chance=True):
     if not oks:
         return None
     if len(oks) == 1:
-        return "pass" if oks[0] else None
+        return None                    # one run of a chance row decides nothing: a lucky pass is not a verdict
     if len(oks) == 2:
         return "pass" if all(oks) else ("fail" if not any(oks) else None)
     return "pass" if sum(oks) >= 2 else "fail"

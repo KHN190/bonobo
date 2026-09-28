@@ -431,13 +431,15 @@ class Changed(unittest.TestCase):
                 self.assertEqual(sc.generic_failure(note), want)
 
     def test_run_verdicts(self):
-        """Once; a failure re-runs; three at most; ≥ 2 of 3 passes."""
-        for oks, want in (([], None), ([True], "pass"), ([False], None), ([False, True], None),
+        """A chance row: never decided by one run; three at most; ≥ 2 of 3 passes."""
+        for oks, want in (([], None), ([True], None), ([False], None), ([False, True], None),
                           ([False, False], "fail"), ([True, True], "pass"), ([False, True, True], "pass"),
                           ([False, True, False], "fail"), ([True, False, False], "fail"),
                           ([False, False, True, True, True], "pass"),
                           # stopped at the limit: slow every time, never re-run
-                          ([sc.TIMEOUT], "fail"), ([False, sc.TIMEOUT], "fail"), ([sc.TIMEOUT, True], None)):
+                          ([sc.TIMEOUT], "fail"), ([False, sc.TIMEOUT], "fail"), ([sc.TIMEOUT, True], None),
+                          # must fail: one lucky pass is not a verdict — run again
+                          ([True, False], None)):
             with self.subTest(oks=oks):
                 self.assertEqual(sc.verdict_of(oks), want)
         self.assertEqual(sc.MAX_RUNS, 3)
