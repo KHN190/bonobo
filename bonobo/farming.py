@@ -51,9 +51,8 @@ def sow_commands(cells, seeds="minecraft:wheat_seeds"):
 
 def plot_commands(centre, hoe, region=None, stand=None):
     """Pure: the plot as one chain — dig the centre, till and sow the ring, then pour the water into the centre hole.
-    Water last: no click is made beside moving water. `stand`: each ring cell's pair is preceded by a walk back onto
-    it — the body drifted 4 blocks west during one chain (bread_from_a_farm 10:23:34: eye x 9999.6 → 9995.6) and
-    every far cell ran out of reach."""
+    Water last: no click is made beside moving water. Every ring cell is within reach of `stand` (the caller stands
+    there first and re-checks it at each segment boundary); `stand` also picks the pour's aim (water_task)."""
 
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
     below = add(centre, (0, -1, 0))
@@ -67,8 +66,6 @@ def plot_commands(centre, hoe, region=None, stand=None):
             pair.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
             pair.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
-        if pair and stand is not None:
-            out.append({"type": "goto", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.5})
         out += pair
     if name(centre) != "water":
         out.append(water_task(centre, stand, region))
@@ -253,7 +250,11 @@ def plant_farm(ctx):
     if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
-    done = api.run_chain(tasks, stop_on_failure=False)
+    def on_stand(_segment):
+        # a segment boundary: back onto the stand only if the body moved off it (the drift, bread_from_a_farm 10:23:34)
+        if math.dist(skillcore.feet(), stand) > 0.5:
+            nav.arrived(stand, ctx.policy, range_=0.5, attempts=1)
+    done = api.run_chain(tasks, stop_on_failure=False, before_segment=on_stand)
     api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
     for t, r in zip(tasks, done):
         if t.get("type") == "use_item":

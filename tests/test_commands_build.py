@@ -62,10 +62,11 @@ class WaterLast(unittest.TestCase):
     ring cell's clicks are preceded by a walk back onto it."""
 
     def test_order_and_stand(self):
+        """Dig, then every till and sow in one run (no walk between: all within reach of the stand), water last."""
         full = farming.plot_commands(CENTRE, HOE, stand=(-2, 64, 0))
         kinds = [t["type"] if t["type"] != "use_item" else t["item"].split(":")[-1] for t in full]
-        self.assertEqual((kinds[0], kinds[-1], kinds.count("goto")), ("mine", "water_bucket", 8))
-        self.assertTrue(all(kinds[i] == "goto" for i in range(1, len(kinds) - 1, 3)))
+        self.assertEqual((kinds[0], kinds[-1], kinds.count("goto"), len(kinds)), ("mine", "water_bucket", 0, 18))
+        self.assertEqual(kinds[1:-1], ["stone_hoe", "wheat_seeds"] * 8)
 
     def test_the_pour_aims_where_the_eye_reaches(self):
         """water_task: from a stand beside the plot the rim hides the hole's floor; the far inner wall's face is aimed."""
