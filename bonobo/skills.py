@@ -790,6 +790,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")
         except api.Unreachable as out:
+            around = {c: region.name(c) for c in out.cells or ()}
+            api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
+                       + "; ".join(f"{c} {n} faces {[region.name(add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))
             # "cannot reach": make a standing spot and ask again; a way that changed nothing counts against the budget (from jar 0.1.40 its approach already dug)
             if "approach_dig" not in nav.mod_features() and nav.way_to(ctx, out.cells or vein):
                 unreachable += 1

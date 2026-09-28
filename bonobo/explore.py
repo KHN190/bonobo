@@ -57,6 +57,10 @@ def _search(ctx, kinds, look, radius, legs):
             log(f"   looking for {bare(kinds[0])}: heading to section {section} ({tx}, {ty}, {tz})")
             if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")):
                 target = (tx, ty, tz)          # looking: walk, never dig
+                if abs(feet()[1] - sy) > radius:
+                    # stood over the section but its band lies past a look's reach (coal's y 48 under a y 200 floor):
+                    # answered from here — else the look below never covers it and the next leg re-picks it (×6, 20 s)
+                    ctx.mem.see_sections(ctx.dimension, (tx, sy, tz), 0, {}, kinds)
                 break
             # out of reach from here (walled in: the frontier lies past the walls) — the next candidate, never the
             # same one again next leg (a sealed bench arena walked into its walls six times, 20 s)
