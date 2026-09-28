@@ -679,10 +679,17 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
     no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
     opened = set()       # cells the jar could not hold a stand at, given a side face once (then banned if refused again)
+    sent = set()         # cells sent to the jar: their notes are retired once the count is met
     dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
     for _ in range(10):
         have = Inventory().count(drop)
         if have >= target:
+            # the count met: the notes of what was mined are spent (only a whole pass's end retired them — a count met
+            # at the top of the next pass kept a mined diamond's note: seen_store__noted 10:16 "the note retired" False)
+            if ctx.mem is not None:
+                for p in sent:
+                    for b in blocks:
+                        ctx.mem.forget_seen(b, p, ctx.dimension, radius=0.5)
             return
         yield None
         require_pickaxe(tier)
@@ -828,6 +835,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if openers:
             api.run_chain([nav.mine_task(op, down=op[1] < here_now[1]) for op in openers], stop_on_failure=True, wait=60)
         before = Inventory().count(drop)
+        sent |= set(vein)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")
         except api.Unreachable as out:
