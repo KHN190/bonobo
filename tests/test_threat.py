@@ -1045,6 +1045,18 @@ class MeleeOnlyWhatWeCanReach(unittest.TestCase):
                 kinds = {o.kind for o in threat.options(state)}
                 self.assertEqual(("fight" in kinds, "shoot" in kinds), want)
 
+    def test_not_from_a_pillar_or_a_hole(self):
+        """From where a mob can't reach us (Field.shape_now) no sword fight is on: we don't step down to trade."""
+        from bonobo import estimate, field
+        z = self.up("minecraft:zombie", 2, -2)
+        rows = [("on flat ground", field.Field(), True),
+                ("must fail: 2 up a pillar", field.Field(shape_now=(("under", 2),)), False),
+                ("2 down a hole", field.Field(shape_now=(("down", 2),)), False),
+                ("1 up: still in its reach", field.Field(shape_now=(("under", 1),)), True)]
+        for name, ground, want in rows:
+            with self.subTest(name):
+                self.assertEqual(estimate.melee_reachable(HERE, z, ground=ground), want)
+
     def test_reachable(self):
         from bonobo import estimate
         rows = [("level", 0, True), ("a block above the eyes and reach", 4.5, True),

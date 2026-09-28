@@ -124,8 +124,12 @@ def _row_dps(row):
     """A threat row's damage rate: its own (`threat.row` puts it at [5]) where it carries one, else the table's."""
     return float(row[5]) if len(row) > 5 and row[5] is not None else float(MOBS[row[3]]["dps"])
 
-def melee_reachable(here, hazard):
-    """Pure: a sword reaches it from the ground (its feet within reach of our eyes): reachability, not ranged."""
+def melee_reachable(here, hazard, ground=None):
+    """Pure: a sword fight with it is on from where we stand — its feet within reach of our eyes, and the shape we
+    stand in now (a pillar, a hole: Field.shape_now) not keeping it off us: we don't step down to trade blows."""
+    mob = MOBS.get(hazard[3], {})
+    if share_of(getattr(ground, "shape_now", ()), mob) <= 0.0:
+        return False
     dy = float(hazard[0][1]) - float(here[1])
     reach = float(PLAYER["melee_reach"])
     return -reach <= dy <= reach + float(PLAYER["eye_height"])

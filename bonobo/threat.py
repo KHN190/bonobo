@@ -414,7 +414,7 @@ def options(state):
     if bait is not None:
         out.append(bait)
     # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)
-    reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h)]
+    reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h, ground=grid)]
     above = [hazards[i] for i in range(len(hazards)) if i not in reach]
     if reach and not any(MOBS[h[3]].get("burst") for h in hazards):
         t_fight, lost = fight_cost(here, [hazards[i] for i in reach], sword, prot)
