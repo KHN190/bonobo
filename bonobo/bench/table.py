@@ -82,6 +82,31 @@ def _pred(kind, args):
         return lambda api, inv: f(api, inv, *vals, resolve=resolve)
     return lambda api, inv: f(api, inv, *vals)
 
+RESUMES_AFTER = (None, "fight")     # the arbiter's "what first" for which a run word calls its work again
+
+
+def resuming(call, holder=None, sleep=None, poll=0.1):
+    """Run `call` to its end as the brain would (Brain.attempt): a McError the arbiter resumes — a faster layer took
+    the body (a fight: CommitmentExpired, an interrupt) — waits for the body to be handed back and calls again, until
+    the row's own limit stops it; the row judges the world at the end. Anything else is raised as before.
+    collect_blaze_rods ended at 0 s on the fight's first bid ('a faster layer took the body'), no rod collected."""
+    from .. import arbiter, retry
+    from ..api import McError
+    import time
+    holder = holder or arbiter.BODY.holder
+    sleep = sleep or time.sleep
+    while True:
+        try:
+            return call()
+        except McError as e:
+            source = retry.source_of(e)
+            resumes, first = arbiter.resume_of(source) if source in arbiter.RESUME_OF else (False, None)
+            if not resumes or first not in RESUMES_AFTER:
+                raise
+            while holder() is not None:
+                sleep(poll)
+
+
 def _run(kind, args):
     if kind == "seq":
         at_, steps = args[0], [dec(a) for a in args[1:]]
@@ -98,11 +123,12 @@ def _run(kind, args):
         def skill_run(ctx):
             fn = resolve("_skill")(name)
             vals = [_arg(a, ctx) for a in rest]
-            return fn(ctx, *vals) if kind == "skill" else fn(*vals)
+            return resuming(lambda: fn(ctx, *vals) if kind == "skill" else fn(*vals))
         return skill_run
     target, pargs, kwargs = args
     def do(ctx):
-        return resolve(target)(*[_arg(a, ctx) for a in pargs], **{k: _arg(v, ctx) for k, v in kwargs.items()})
+        return resuming(lambda: resolve(target)(*[_arg(a, ctx) for a in pargs],
+                                                **{k: _arg(v, ctx) for k, v in kwargs.items()}))
     return do
 
 def make(item):

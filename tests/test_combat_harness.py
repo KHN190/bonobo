@@ -144,6 +144,36 @@ class GhastAnswered(unittest.TestCase):
                 self.assertEqual(vocab.ghast_was_answered(seen, ghp, fb, start, worst), want)
 
 
+class RunWordsResume(unittest.TestCase):
+    """A run word calls its work again after a faster layer took the body (the brain's Brain.attempt rule)."""
+
+    def test_rows(self):
+        from bonobo import api
+        from bonobo.bench import table
+        # (what each call does in turn, raise or return) → the result, or the error that ends the run
+        rows = [("the fight took the body, then the work ran", [api.CommitmentExpired("fight"), "rods"], "rods"),
+                ("an interrupt, a preemption, then done", [api.Interrupted("x"), api.CommitmentExpired("y"), 7], 7),
+                ("must fail: the work's own failure is no preemption", [api.NotAvailable("no blaze")], api.NotAvailable),
+                ("the game lost is not resumed by a run word", [api.GameUnreachable("gone")], api.GameUnreachable)]
+        for name, script, want in rows:
+            with self.subTest(name):
+                calls, waited = list(script), []
+                busy = iter([object(), None] * 5)
+
+                def work():
+                    step = calls.pop(0)
+                    if isinstance(step, Exception):
+                        raise step
+                    return step
+                run = lambda: table.resuming(work, holder=lambda: next(busy), sleep=waited.append)  # noqa: E731
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        run()
+                else:
+                    self.assertEqual(run(), want)
+                    self.assertTrue(waited, "it waited for the body to be handed back")
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 
