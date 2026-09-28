@@ -286,3 +286,19 @@ def set_brain(brain):
     """`mc.py scenario` hands the bench the brain: plan-driven scenarios execute steps exactly as it does."""
     global BRAIN
     BRAIN = brain
+    _wire_farm_probe()                 # the bench's server-side reads for the farm's instrumentation
+
+
+def _wire_farm_probe():
+    """The farm's instrumentation (farming.PROBE): the server's view of a cell (an `execute if block` reply) and the
+    random_tick_speed in effect (a `gamerule` reply) — the client's reads cannot tell a ghost block."""
+    from .. import farming
+
+    def server_air(pos):
+        lines = _command(f"execute if block {pos[0]} {pos[1]} {pos[2]} minecraft:air", [])
+        return any("passed" in str(l).lower() for l in lines)
+
+    def tick_speed():
+        return " / ".join(str(l) for l in _command("gamerule random_tick_speed", []))
+    farming.PROBE.update(server_air=server_air, tick_speed=tick_speed)
+

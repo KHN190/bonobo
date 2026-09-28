@@ -298,7 +298,25 @@ def plant_farm(ctx):
     # the pour sent on its own after the ring, the centre read right before it (instrumented: the evidence for 15:58)
     pour = [t for t in tasks if t.get("item") == "minecraft:water_bucket"]
     ring = [t for t in tasks if t.get("item") != "minecraft:water_bucket"]
-    done = api.run_chain(ring, stop_on_failure=False, before_segment=on_stand) if ring else []
+    # instrumented (16:03:19 air → 16:03:25 grass with only ring clicks between): one click per segment, the centre
+    # read before each — the client's view (Region) and, when a probe is wired (the bench), the server's
+    def watched(segment):
+        on_stand(segment)
+        api.detail(f"  plot ring: before {segment[0].get('item', segment[0].get('type'))} "
+                   f"({segment[0].get('x')}, {segment[0].get('y')}, {segment[0].get('z')}): {column()}{server_view()}")
+
+    def server_view():
+        probe = PROBE.get("server_air")
+        if probe is None:
+            return ""
+        try:
+            return f"; server says centre air: {probe(centre)}"
+        except Exception as e:           # a probe failing must not cost the plot
+            return f"; server probe failed: {e}"
+    done = api.run_chain(ring, stop_on_failure=False, before_segment=watched, segment=1) if ring else []
+    api.detail(f"  plot ring done: {column()}{server_view()}")
+    time.sleep(1.0)
+    api.detail(f"  plot ring done +1 s: {column()}{server_view()}")
     if pour:
         # the pour from the stand only: back on it first (walking off the plot), the centre read, dug again if it
         # was filled, then dig + pour as one send with no walk between (the pour once came from wherever the body was)
@@ -339,6 +357,17 @@ def plant_farm(ctx):
     log(f"planted a wheat plot of {sown} at {centre}")
     return centre
 
+# instrumentation hooks the bench wires (production leaves them empty): {"server_air": fn(pos) → bool from a server
+# command, "tick_speed": fn() → the random_tick_speed in effect}
+PROBE = {}
+
+def crop_ages(centre):
+    """The ring's crop layer, read with block states: [(cell, block, age)] (the await's evidence)."""
+    x, y, z = centre
+    region = Region((x - 1, y + 1, z - 1), (x + 1, y + 1, z + 1), props=True)
+    return [((x + dx, y + 1, z + dz), region.name((x + dx, y + 1, z + dz)), region.prop((x + dx, y + 1, z + dz), "age"))
+            for dx, dz in RING]
+
 AWAIT_MAX_S = 45        # longest an await step waits in place for a job; longer, it steps aside (NotAvailable)
 
 def job_due(job, tick=None):
@@ -368,6 +397,18 @@ def await_job(ctx, item, count):
             return
         if time.time() - began > AWAIT_MAX_S:
             raise NotAvailable(f"{bare(item)} not ready yet")
+        for j in mine:                     # instrumented: each wait's crop ages, the tick speed once
+            if j.get("kind") == "crop":
+                speed = ""
+                if "tick_speed" in PROBE and not getattr(await_job, "_speed_logged", False):
+                    try:
+                        speed = f"; random_tick_speed in effect: {PROBE['tick_speed']()}"
+                    except Exception as e:
+                        speed = f"; tick speed probe failed: {e}"
+                    await_job._speed_logged = True
+                api.detail(f"  await {bare(item)} at {tuple(j['pos'])}: tick {tick}, ages "
+                           + ", ".join(f"{c[0] - j['pos'][0]:+d}{c[2] - j['pos'][2]:+d} {bare(n or '-')} {a}"
+                                       for c, n, a in crop_ages(tuple(j["pos"]))) + speed)
         api.run({"type": "wait", "ticks": 20}, wait=5, awaits="one second more for the job's output")
         yield round(time.time() - began)      # waiting on a clock is the progress here
 
