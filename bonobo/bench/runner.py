@@ -832,10 +832,11 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
                                           "last": looks[-12:]}
                 if WINDOW_PROBE:
                     CHECK_READOUT["probe"] = dict(WINDOW_PROBE)
-                try:
-                    CHECK_READOUT["reflex"] = api.get("/reflex")        # the jar's policy as it holds it
-                except McError as e:
-                    CHECK_READOUT["reflex"] = f"{type(e).__name__}: {e}"
+            try:
+                # every failed row: the jar's policy, its last act and recent acts (a mob can find any row)
+                CHECK_READOUT["reflex"] = api.get("/reflex")
+            except McError as e:
+                CHECK_READOUT["reflex"] = f"{type(e).__name__}: {e}"
         # a crash of ours is never a pass
         from . import vocab as _rows
         ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),

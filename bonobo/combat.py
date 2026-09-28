@@ -76,11 +76,15 @@ def _rods_on_floor():
 def collect_blaze_rods(ctx, rods):
     """The rod-collecting step of "have blaze_rod" (L2 puts the fortress first: decompose)."""
 
-    quiet_since = None
+    quiet_since, seen = None, None
     end = budget_end()
     while time.time() < end:     # waits on blaze deaths: bounded by time
         blazes = [e for e in entities(24, ["minecraft:blaze"]) if not ctx.blocked((e["id"], 0, 0))]
         floor = _rods_on_floor()
+        now_seen = (len(blazes), len(floor), round(min((e["distance"] for e in blazes), default=0)))
+        if now_seen != seen:     # a readout: what the step waits on (it never attacks: a fight must)
+            api.detail(f"collect_blaze_rods: {now_seen[0]} blazes (nearest {now_seen[2]}), {now_seen[1]} rods on the floor")
+            seen = now_seen
         if not blazes and not floor:
             quiet_since = quiet_since or time.time()
             if time.time() - quiet_since >= BLAZE_QUIET_S:
