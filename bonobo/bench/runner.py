@@ -477,10 +477,10 @@ RESPAWN_TRIES = 10          # half a second apart: a respawn loads the spawn are
 
 
 def _respawn(api):
-    """Respawn until the body is alive with health, or SetupInvalid — never a row begun dead."""
-    for _ in range(RESPAWN_TRIES):
+    """Respawn until the body is alive with health, or SetupInvalid — never a row begun dead. True: it respawned."""
+    for i in range(RESPAWN_TRIES):
         if not needs_respawn(api.get("/state")):
-            return
+            return i > 0
         api.post("/respawn")
         time.sleep(0.5)
     raise SetupInvalid(f"still dead after {RESPAWN_TRIES} respawns")
@@ -493,7 +493,7 @@ LEFTOVER_R = 64             # blocks round the site cleared of the last row's mo
 def _setup(name, sc, feedback):
     from .. import api
     SETUP_S.clear()
-    _respawn(api)                # the last row may have died (fight rows do)
+    died = _respawn(api)         # the last row may have died (fight rows do)
     s0 = api.get("/state")
     if s0.get("screen") == PAUSE_SCREEN:
         api.post("/resume")      # a pause menu freezes the integrated server: commands would do nothing
@@ -508,6 +508,11 @@ def _setup(name, sc, feedback):
     if sc.get("raw"):
         _setup_raw(sc, dim, moved, lo, hi, ex, feedback)
         return
+    if died and not moved:
+        # respawned at world spawn: back over the site at once (its chunks stay force-loaded), so the client loads
+        # it while the rest of the setup runs — the settled reads waited seconds on it
+        top = _c(at(0, BOX[1][1] + 2, 0))
+        _batch([ex(f"fill {top} {top} glass"), ex(f"tp @p {_c(at(0, BOX[1][1] + 3, 0))}")], feedback)
 
     # global state in one batch: empty bag, difficulty (its reply read back), no chance left in the world
     want = difficulty_of(sc)
@@ -636,12 +641,12 @@ def _setup_settled(sc, lo, hi, ex, feedback):
     from .. import api
     from ..world import Region
     bad, ents, s = [], [], {}
-    for i in range(10):
+    for i in range(SETTLE_TRIES):
         bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", [])) if sc.get("expect") else []
         if not bad:
             break
-        time.sleep(0.5)          # read again only when it did not hold yet (a fixed 0.5 s first cost every row)
-    for _ in range(12):          # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
+        time.sleep(SETTLE_POLL_S)    # the client's copy lags the build: read again soon (the cap is unchanged)
+    for _ in range(SETTLE_TRIES):    # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
         # count on the server: the client's entity list misses far summons
         ents = [m for t, want, *most in sc.get("expect_entities", [])
                 for n in [server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..40]"),
@@ -655,8 +660,12 @@ def _setup_settled(sc, lo, hi, ex, feedback):
             break
         if s.get("health", 0) < 18:
             _command(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
-        time.sleep(0.25)
+        time.sleep(SETTLE_POLL_S)
     return bad + ents, s
+
+
+SETTLE_POLL_S = 0.1     # the settled reads poll this often (were 0.5 / 0.25: a ready scene waited out the step)
+SETTLE_TRIES = 50       # ≤ 5 s, the old cap
 
 def _trace(stop, out):
     from .. import api
