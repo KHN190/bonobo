@@ -411,6 +411,7 @@ NOT_ROW_TESTED = {
     "food_up": "bite_plan over the knowledge tables (fed_as_needed has its own tests)",
     "now": "a read of the live bag and /state (the api module), the inner words are row-tested",
     "&_answers_are_closed": "a fight sweep's recorded rows (its own tests: test_pure_fight)",
+    "&_escaped": "an escape sweep's recorded outcomes (its rule: test_combat_harness.Escaped)",
     "&_shapes_fit_the_enemy": "a fight sweep's recorded rows",
     "&_more_of_them_costs_more": "a fight sweep's recorded rows",
     "&_wave_cleared": "a fight sweep's recorded rows",

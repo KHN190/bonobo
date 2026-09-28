@@ -335,6 +335,22 @@ class MissingColumnsOnceEngaged(unittest.TestCase):
                 self.assertEqual(fight.missing_columns(cell, s0, eng), want)
 
 
+class Escaped(unittest.TestCase):
+    """An escape cell is judged on what the bot achieved — alive, health kept — whatever it chose."""
+
+    def test_rows(self):
+        def cell(hp, before=20.0, missing=("wall_in",)):
+            return {"enemy": "walker", "outcome": {"hp": hp, "hp_before": before},
+                    "intent": {"missing_column": list(missing)}}
+        rows = [("alive, 1 hp lost, a column never offered: passes", [cell(19.0)], 0),
+                ("must fail: died", [cell(0.0)], 1),
+                ("alive but past the loss allowed", [cell(20.0 - fight.RESOLVE_HP_LOSS - 1)], 1),
+                ("two cells, one lost", [cell(20.0), cell(0.0)], 1)]
+        for name, cells, n_bad in rows:
+            with self.subTest(name):
+                self.assertEqual(len(fight.escaped(cells)), n_bad)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 
