@@ -290,15 +290,15 @@ def set_brain(brain):
 
 
 def _wire_farm_probe():
-    """The farm's instrumentation (farming.PROBE): the server's view of a cell (an `execute if block` reply) and the
+    """The farm's instrumentation (farming.PROBE): the server's view of a cell's block (an `execute if block` reply) and the
     random_tick_speed in effect (a `gamerule` reply) — the client's reads cannot tell a ghost block."""
     from .. import farming
 
-    def server_air(pos):
-        lines = _command(f"execute if block {pos[0]} {pos[1]} {pos[2]} minecraft:air", [])
-        return any("passed" in str(l).lower() for l in lines)
+    def server_block(pos, block):
+        lines = _command(f"execute if block {pos[0]} {pos[1]} {pos[2]} minecraft:{block.split(':')[-1]}", [])
+        return any("passed" in str(line).lower() for line in lines)
 
     def tick_speed():
         return " / ".join(str(l) for l in _command("gamerule random_tick_speed", []))
-    farming.PROBE.update(server_air=server_air, tick_speed=tick_speed)
+    farming.PROBE.update(server_block=server_block, tick_speed=tick_speed)
 

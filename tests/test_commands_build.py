@@ -62,11 +62,25 @@ class WaterLast(unittest.TestCase):
     ring cell's clicks are preceded by a walk back onto it."""
 
     def test_order_and_stand(self):
-        """Dig, then every till and sow in one run (no walk between: all within reach of the stand), water last."""
+        """The ring first (from on the centre: each cell tilled then sown at once), then the centre dug and the water
+        poured (from the stand, one send)."""
         full = farming.plot_commands(CENTRE, HOE, stand=(-2, 64, 0))
         kinds = [t["type"] if t["type"] != "use_item" else t["item"].split(":")[-1] for t in full]
-        self.assertEqual((kinds[0], kinds[-1], kinds.count("goto"), len(kinds)), ("mine", "water_bucket", 0, 18))
-        self.assertEqual(kinds[1:-1], ["stone_hoe", "wheat_seeds"] * 8)
+        self.assertEqual(kinds, ["stone_hoe", "wheat_seeds"] * 8 + ["mine", "water_bucket"])
+
+    def test_the_ring_from_the_centre(self):
+        """ring_commands: every ring cell's top within 1.5 of the centre's column (the eye stands over it, no rim
+        between); finish_commands: dig then pour, the dig left out when the centre is open already."""
+        ring = farming.ring_commands(CENTRE, HOE)
+        self.assertEqual(len(ring), 16)
+        self.assertTrue(all(abs(t["x"] - 0.5) <= 1.0 and abs(t["z"] - 0.5) <= 1.0 for t in ring))
+        from tests.world import FakeRegion
+        open_ = FakeRegion((-3, 60, -3), (3, 66, 3), {c: n for c, n in grass().blocks.items() if c != CENTRE})
+        rows = [("the centre solid: dig, then pour", grass(), ["mine", "use_item"]),
+                ("must fail: the centre open already: no dig", open_, ["use_item"])]
+        for name, world, want in rows:
+            with self.subTest(name):
+                self.assertEqual([t["type"] for t in farming.finish_commands(CENTRE, (-2, 64, 0), world)], want)
 
     def test_the_pour_aims_where_the_eye_reaches(self):
         """water_task: from a stand beside the plot the rim hides the hole's floor; the far inner wall's face is aimed."""
@@ -122,16 +136,17 @@ class WaterLast(unittest.TestCase):
 
 class PartialChain(unittest.TestCase):
     def test_only_out_of_reach_cells_are_banned(self):
-        tasks = farming.plot_commands(CENTRE, HOE)[:4]      # mine, till (-1,-1), sow (-1,-1), till (-1,0)
+        full = farming.plot_commands(CENTRE, HOE)
+        tasks = full[:3] + [full[-2]]      # till (-1,-1), sow (-1,-1), till (-1,0), the centre's dig
         ok, far, other = {"status": "succeeded"}, {"status": "failed", "message": "cannot reach (-1, 63, -1)"}, \
             {"status": "failed", "message": "no seeds"}
         # (situation, results) → the cells banned
         rows = [("must fail: all done: none", [ok] * 4, []),
-                ("the till out of reach: its cell", [ok, far, ok, ok], [(-1.0, 63.0, -1.0)]),
-                ("a failure that is not reach: asked again, not banned", [ok, ok, other, ok], []),
-                ("the dig out of reach: the centre", [far, ok, ok, ok], [(0, 63, 0)]),
+                ("the till out of reach: its cell", [far, ok, ok, ok], [(-1.0, 63.0, -1.0)]),
+                ("a failure that is not reach: asked again, not banned", [ok, other, ok, ok], []),
+                ("the dig out of reach: the centre", [ok, ok, ok, far], [(0, 63, 0)]),
                 ("the sow out of reach: its cell (aimed under the farmland's top, still that cell)",
-                 [ok, ok, far, ok], [(-1.0, 63.0, -1.0)])]
+                 [ok, far, ok, ok], [(-1.0, 63.0, -1.0)])]
         for name, results, want in rows:
             with self.subTest(name):
                 self.assertEqual(farming.unreachable_cells(tasks, results), want)

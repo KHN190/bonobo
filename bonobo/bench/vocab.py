@@ -1578,17 +1578,33 @@ def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
             f'type:"minecraft:plains"}},Offers:{{Recipes:[{{buy:{{id:"minecraft:{buy}",count:{n_buy}}},'
             f'sell:{{id:"minecraft:{sell}",count:{n_sell}}},maxUses:12}}]}}}}')
 
-FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket"]
+FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket",
+            "give @p diamond_shovel"]      # the centre's dig at once (dirt and grass: a shovel's)
 FARM_TICK_SPEED = 4096      # random ticks per section per tick: every block ticked ~once a tick — a sown crop ripe in ~2-4 s (1000 left the 8 cells unripe 16 s after sowing: bread_from_a_farm 10:43 TIMEOUT); the bench keeps 0
 RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
 
 def _growing(run):
-    """The run with fast crop ticks, reset to 0 however it ends: the plan's own plot ripens within the row."""
+    """The run with fast crop ticks once the plot is watered — the plot is built at the normal tick speed (sped-up
+    ticks turned the dug centre's dirt to grass and the break lagged the server by seconds) — reset to 0 however it
+    ends: the plan's own plot ripens within the row."""
     def go(ctx):
-        _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
+        from ..world import find
+        stop = _threading.Event()
+
+        def watered():
+            while not stop.is_set():
+                try:
+                    if find(["water"], radius=10, limit=1):
+                        _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
+                        return
+                except Exception:
+                    pass
+                stop.wait(0.25)
+        _threading.Thread(target=watered, daemon=True).start()
         try:
             return run(ctx)
         finally:
+            stop.set()
             _checked("execute in minecraft:overworld run gamerule random_tick_speed 0", [])
     return go
 

@@ -52,31 +52,32 @@ def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
     return [nav.use_on_top(seeds, c, top=nav.FARMLAND_TOP) for c in cells]      # seeds go on farmland: 15/16 high
 
-def plot_commands(centre, hoe, region=None, stand=None):
-    """Pure: the plot as one chain — dig the centre, till and sow the ring, then pour the water into the centre hole.
-    Water last: no click is made beside moving water. Every ring cell is within reach of `stand` (the caller stands
-    there first and re-checks it at each segment boundary); `stand` also picks the pour's aim (water_task)."""
-
+def ring_commands(centre, hoe, region=None):
+    """Pure: the ring worked from ON the centre block, turning 45° a cell (every cell within 1.5, nothing between the
+    eye and a cell's top): each cell tilled, then sown at once — what the world already shows is skipped."""
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
-    below = add(centre, (0, -1, 0))
     out = []
-    if name(centre) not in ("water", "air"):
-        out.append(nav.mine_task(centre))
-    # far cells first: a sown crop's outline stands a hair over its farmland and a look at a cell past it met the
-    # crop (bread_from_a_farm 13358: seeds aimed at the far corner hit 10000,200,9999, the near crop)
-    ring = sorted(RING, key=lambda d: -math.dist((centre[0] + d[0], centre[2] + d[1]), (stand[0], stand[2]))) \
-        if stand is not None else RING
-    for dx, dz in ring:
+    for dx, dz in RING:
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
-        pair = []
         if name(cell) != "farmland":
-            pair.append(nav.use_on_top(hoe, cell))
+            out.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
-            pair.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
-        out += pair
+            out.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
+    return out
+
+def finish_commands(centre, stand, region=None):
+    """Pure: from the stand beside the plot, one send — the centre dug (the jar picks the best tool: a shovel takes
+    dirt and grass at once) unless it is open already, then the water aimed at the far inner wall."""
+    name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
+    out = [] if name(centre) in ("air", "water") else [nav.mine_task(centre)]
     if name(centre) != "water":
         out.append(water_task(centre, stand, region))
     return out
+
+def plot_commands(centre, hoe, region=None, stand=None):
+    """Pure: the whole plot as the tasks it takes, in order — the ring from the centre block (ring_commands), then
+    the centre dug and watered from the stand (finish_commands); a resume computes the rest from the world."""
+    return ring_commands(centre, hoe, region) + finish_commands(centre, stand, region)
 
 EYE = 1.62
 
@@ -124,10 +125,14 @@ def started_plot(region, here, radius=8):
     """Pure: the centre of a plot begun and unfinished here, nearest first, or None."""
 
     best = None
+    farmland = {c for c, n in region.blocks.items() if n == "farmland"}
     centres = {c for c, n in region.blocks.items() if n == "water"} | \
         {(r[0] - dx, r[1], r[2] - dz) for r, n in region.blocks.items() if n in SOIL + ("farmland",)
          for dx, dz in RING if region.name((r[0] - dx, r[1], r[2] - dz)) in ("air", None)
-         and region.solid((r[0] - dx, r[1] - 1, r[2] - dz))}
+         and region.solid((r[0] - dx, r[1] - 1, r[2] - dz))} | \
+        {c for c in {(r[0] - dx, r[1], r[2] - dz) for r in farmland for dx, dz in RING}      # ring begun, centre not dug
+         if region.name(c) in SOIL and all(max(abs(f[0] - c[0]), abs(f[2] - c[2])) <= 1 for f in farmland
+                                          if f[1] == c[1] and max(abs(f[0] - c[0]), abs(f[2] - c[2])) <= 2)}
     for c in sorted(centres):
         if math.dist(c, here) > radius:
             continue
@@ -264,82 +269,50 @@ def plant_farm(ctx):
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
-    tasks = plant_farm_commands(state, (), stand=stand)
-    # every walk here keeps off the plot: the walk back to the stand filled the dug centre with the grass the dig
-    # had picked up (a floor over a hole on its path: centre air at 16:00:57, grass again at 16:01:03, before the pour)
+    hoe = next((h for h in HOES if state["inv"].count(h)), None)
+    if hoe is None:
+        raise NotAvailable("no hoe")
+    # every walk here keeps off the plot's cells (no dig, no floor block: a walk once filled the dug centre)
     policy = dataclasses.replace(ctx.policy, protected=set(ctx.policy.protected) | plot_cells(centre))
-    # on the stand, not a block off it: the ring's far side is 3 away and a sow aimed there from 4 ran past the
-    # jar's 4.5 reach ("no block under the crosshair")
-    if not nav.arrived(stand, policy, range_=0.5, attempts=1):
-        raise api.NavFailed(f"farm spot {centre} not reachable")
-    # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
-    def on_stand(_segment):
-        # a segment boundary: back onto the stand only if the body really left it (the walker's own measure, its
-        # slack included — a whole-block reading of the feet one cell over walked it back every segment)
-        if not nav.there(api.get("/state"), stand, 0.5):
-            api.detail(f"  plot: off the stand at a segment boundary, walked back")
-            nav.arrived(stand, policy, range_=0.5, attempts=1)
-    # the centre dug on its own and read back: the pour needs the hole (a dig the jar called done left it solid, and
-    # the water went on it: 13360 — jar 0.1.60 no longer takes a changed id for a break)
     below = add(centre, (0, -1, 0))
 
     def column():
-        """The centre and the cell under it, read now (the log's evidence for the pour)."""
         r = Region(below, centre)
         return f"centre {centre} {r.name(centre)}, under {below} {r.name(below)}"
-    if Region(centre, centre).name(centre) not in ("air", "water"):
-        dig = nav.mine_task(centre)
-        r = api.run(dig, wait=20, awaits="the centre cell read after the dig")
-        api.detail(f"  plot dig: task at ({dig['x']}, {dig['y']}, {dig['z']}) → {r.get('status')} {r.get('message')}; "
-                   f"then {column()}")
-        if Region(centre, centre).name(centre) not in ("air", "water"):
-            raise McError(f"the plot's centre at {centre} is still {Region(centre, centre).name(centre)} after its dig")
-    tasks = [t for t in tasks if not (t.get("type") == "mine" and (t["x"], t["y"], t["z"]) == tuple(centre))]
-    # the pour sent on its own after the ring, the centre read right before it (instrumented: the evidence for 15:58)
-    pour = [t for t in tasks if t.get("item") == "minecraft:water_bucket"]
-    ring = [t for t in tasks if t.get("item") != "minecraft:water_bucket"]
-    # instrumented (16:03:19 air → 16:03:25 grass with only ring clicks between): one click per segment, the centre
-    # read before each — the client's view (Region) and, when a probe is wired (the bench), the server's
-    def watched(segment):
-        on_stand(segment)
-        api.detail(f"  plot ring: before {segment[0].get('item', segment[0].get('type'))} "
-                   f"({segment[0].get('x')}, {segment[0].get('y')}, {segment[0].get('z')}): {column()}{server_view()}")
 
-    def server_view():
-        probe = PROBE.get("server_air")
-        if probe is None:
-            return ""
-        try:
-            return f"; server says centre air: {probe(centre)}"
-        except Exception as e:           # a probe failing must not cost the plot
-            return f"; server probe failed: {e}"
-    done = api.run_chain(ring, stop_on_failure=False, before_segment=watched, segment=1) if ring else []
-    api.detail(f"  plot ring done: {column()}{server_view()}")
-    time.sleep(1.0)
-    api.detail(f"  plot ring done +1 s: {column()}{server_view()}")
-    if pour:
-        # the pour from the stand only: back on it first (walking off the plot), the centre read, dug again if it
-        # was filled, then dig + pour as one send with no walk between (the pour once came from wherever the body was)
-        if not nav.there(api.get("/state"), stand, 0.5):
-            nav.arrived(stand, policy, range_=0.5, attempts=1)
-        centre_now = Region(centre, centre).name(centre)
-        api.detail(f"  plot before the pour: stand {stand}, feet {skillcore.feet()}, {column()}")
-        pour = pour_commands(centre, centre_now, stand, region)
-        done = done + api.run_chain(pour, stop_on_failure=False)
-        api.detail(f"  plot after the pour: {column()}")
-    tasks = ring + pour
-    api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
-    for t, r in zip(tasks, done):
-        if t.get("type") == "use_item":
-            res = r.get("result") or {}
-            hit = (res.get("hitX"), res.get("hitY"), res.get("hitZ"))
-            now = Region(hit, hit).name(hit) if None not in hit else "-"
-            api.detail("  " + click_line(t, r) + f" | hit block now: {now}")
-    for cell in unreachable_cells(tasks, done):
+    # 1. the ring from ON the centre block, turning: every cell within 1.5, no rim between the eye and a top
+    on_centre = (centre[0], centre[1] + 1, centre[2])
+    if not nav.arrived(on_centre, policy, range_=0.3, attempts=1):
+        raise api.NavFailed(f"the plot's centre {centre} not reachable to stand on")
+    ring = ring_commands(centre, hoe, Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1))))
+    # one send for the whole ring (a segment is a round trip and an idle queue between): its time logged
+    t0 = time.time()
+    done = api.run_chain(ring, stop_on_failure=False, segment=max(1, len(ring))) if ring else []
+    api.detail(f"  plot ring: {len(ring)} clicks in {time.time() - t0:.2f} s")
+    for t, r in zip(ring, done):
+        res = r.get("result") or {}
+        hit = (res.get("hitX"), res.get("hitY"), res.get("hitZ"))
+        api.detail("  " + click_line(t, r) + f" | hit block now: {Region(hit, hit).name(hit) if None not in hit else '-'}")
+    top = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1)))
+    api.detail("  plot ring after: " + ", ".join(
+        f"{dx:+d}{dz:+d} {top.name((centre[0] + dx, centre[1], centre[2] + dz))}/"
+        f"{top.name((centre[0] + dx, centre[1] + 1, centre[2] + dz))}" for dx, dz in RING))
+    for cell in unreachable_cells(ring, done):
         ctx.ban(tuple(int(round(v)) for v in cell), 600)
+
+    # 2. off the plot to the stand, walking; then dig the centre and pour in one send
+    if not nav.arrived(stand, policy, range_=0.5, attempts=1):
+        raise api.NavFailed(f"the plot's stand {stand} not reachable")
+    seen = Region(add(centre, (-3, -1, -2)), add(centre, (2, 3, 2)))
+    finish = finish_commands(centre, stand, seen)
+    api.detail(f"  plot finish: stand {stand}, feet {skillcore.feet()}, {column()}")
+    done += api.run_chain(finish, stop_on_failure=False) if finish else []
+    tasks = ring + finish
+
+    # 3. one read-back: water held (the server's view when the bench asks it, else a client read that holds)
+    if not centre_holds(centre, "water"):
+        raise McError(f"could not pour the plot's water: {column()}{server_view(centre)}")
     after = Region(add(centre, (-1, -1, -1)), add(centre, (1, 1, 1)))
-    if after.name(centre) != "water":
-        raise McError(f"could not pour the plot's water at {centre}")
     if not water_contained(after, centre):
         raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot")
     # read again until the world shows what the clicks did (a read right after the chain lagged: "a plot of 3")
@@ -357,8 +330,32 @@ def plant_farm(ctx):
     log(f"planted a wheat plot of {sown} at {centre}")
     return centre
 
-# instrumentation hooks the bench wires (production leaves them empty): {"server_air": fn(pos) → bool from a server
-# command, "tick_speed": fn() → the random_tick_speed in effect}
+HOLD_S = 0.25            # a block read the same for 5 ticks is the server's, not the client's prediction
+
+def centre_holds(pos, block):
+    """The server holds `block` at `pos`: the bench's probe asks it (an `execute if block`); else the client's read
+    held for HOLD_S (a broken block reads air on the client before the server agrees, and may come back)."""
+    probe = PROBE.get("server_block")
+    if probe is not None:
+        try:
+            return probe(pos, block)
+        except Exception:
+            pass
+    got = skillcore.settle(lambda: Region(pos, pos).name(pos), lambda n: n == bare(block), timeout=2.0, stable_s=HOLD_S)
+    return got == bare(block)
+
+def server_view(pos):
+    """'; server: <block?>' for the log when the bench's probe is wired, else ''."""
+    probe = PROBE.get("server_block")
+    if probe is None:
+        return ""
+    try:
+        return "; server: " + ", ".join(f"{b} {probe(pos, b)}" for b in ("air", "water"))
+    except Exception as e:
+        return f"; server probe failed: {e}"
+
+# hooks the bench wires (production leaves them empty): {"server_block": fn(pos, block) → bool, the server's answer to
+# an `execute if block`; "tick_speed": fn() → the random_tick_speed in effect}
 PROBE = {}
 
 def crop_ages(centre):
