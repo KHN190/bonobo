@@ -1,4 +1,5 @@
 """Fluids and the Nether portal: fill a water bucket, cast a portal frame in place, light it. Route (the speedrun way): no diamond pickaxe and no mining of obsidian — the frame is cast where it stands. Each frame cell is walled in by a mould of throwaway blocks, filled with lava from a bucket and turned to obsidian with water, bottom-up; the water is taken back, the mould inside the frame broken, and the frame lit with flint and steel. Pure planners (`fill_spot`, `cast_frame_plan`, `portal_light_aim`) are offline-tested; the skills only execute them."""
+from __future__ import annotations
 
 import math
 
@@ -10,6 +11,10 @@ from .data import EYE_HEIGHT, GROUPS, bare
 from .skill import skill
 from .skillcore import body_state, feet, gained
 from .world import Inventory, Region, add, find
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Task
 
 REACH = nav.WORK_REACH        # the reach holds uses: the jar's range less its margin
 
@@ -270,7 +275,7 @@ def seal_plan(region, cells, inv, own=(), cave=False):
     return fill_with_blocks(wet, inv, ("an opening" if cave else "fluid")
                             + " beside the cells to break and nothing to seal it with")
 
-def contain_lava_commands(state, args=()):
+def contain_lava_commands(state, args=()) -> "list[Task]":
     """Pure: one place task per open lava cell, nearest first, blocks taken from the bag in turn."""
     open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
     return fill_with_blocks(open_lava, state["inv"], "lava exposed and no blocks to cover it", partial=True)

@@ -1,4 +1,5 @@
 """Terrain reading: pure planners over a Region — where land is, where to shelter or burrow, how to get out of an enclosure or up to air, where there is room to sort the bag. No game access; skills.py and brain.py execute."""
+from __future__ import annotations
 
 import math
 
@@ -6,8 +7,12 @@ from . import nav
 from .bag import throw_direction
 from .world import add, is_enclosed, openings  # noqa: F401  (the walls: world's, re-exported)
 from .data import HAND_MINEABLE_SUFFIX, bare
+from typing import TYPE_CHECKING
 
-def standing_cells(region, here, radius):
+if TYPE_CHECKING:
+    from .shapes import Cell
+
+def standing_cells(region, here: Cell, radius):
     """Pure: cells within `radius` of `here` one could stand in — solid harmless floor, two free cells up — in region order."""
 
     for (x, y, z), _name in region.blocks.items():
@@ -150,14 +155,14 @@ def choose_exit(region, inside, protected=()):
             best = (score, [c for c in walls if region.solid(c)], out)
     return None if best is None else (best[1], best[2])
 
-def stands(region, feet_c):
+def stands(region, feet_c: Cell) -> bool:
     """Pure: a cell a body can stand in on dry land — a LAND floor and two non-water free cells up."""
 
     head_c, floor = (feet_c[0], feet_c[1] + 1, feet_c[2]), (feet_c[0], feet_c[1] - 1, feet_c[2])
     return region.inside(head_c) and region.inside(floor) and region.name(floor) in LAND \
         and region.name(feet_c) in ("air", "cave_air") and region.name(head_c) in ("air", "cave_air")
 
-def soft_below(region, feet, depth):
+def soft_below(region, feet: Cell, depth) -> bool:
     """Pure: the `depth` cells under the feet all dig by hand with something solid below — no pickaxe needed to hide."""
 
     x, y, z = feet
@@ -167,7 +172,7 @@ def soft_below(region, feet, depth):
 
 SOFT_RADIUS = 16          # how far along the ground a spot to dig in by hand is looked for
 
-def nearest_soft(region, feet, depth, radius=SOFT_RADIUS):
+def nearest_soft(region, feet: Cell, depth, radius=SOFT_RADIUS) -> "tuple[Cell, int] | None":
     """Pure: (cell, steps) of the nearest connected spot whose `depth` cells below dig by hand; (feet, 0) here; None when none."""
 
     from collections import deque

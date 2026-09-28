@@ -1,4 +1,5 @@
 """Gathering: mining a vein, strip mining a tunnel, hunting, taking a block."""
+from __future__ import annotations
 
 import math
 import re
@@ -14,6 +15,10 @@ from .world import Inventory, Region, add, connected, entities, find, region_aro
 from .skillcore import ToolMissing, feet, mine_cell, gained
 from .explore import surface_first, explore_for, approach_policy
 from .fluids import CAVE_AIR, fluid_faces, seal_plan, swimming
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Cell
 
 def require_pickaxe(tier, min_left=K.TOOL_WORKING):
     if tier is None:
@@ -69,7 +74,7 @@ def mine_segment_commands(state, args):
     only = pickup_whitelist(state["inv"].used_slots(), [drop])
     return nav.mine_batch(cells, state.get("feet"), require_drops=tier is not None, collect=True, only=only or None)
 
-def spent_cells(sent, name_at, blocks):
+def spent_cells(sent, name_at, blocks) -> list[Cell]:
     """Pure: the sent cells whose block is gone in a fresh read (`name_at(cell)`) — their notes are spent; a cell
     still standing (sent, not broken) keeps its note. No read (`name_at` None): nothing is judged spent."""
     if name_at is None:
@@ -78,25 +83,25 @@ def spent_cells(sent, name_at, blocks):
     return sorted(c for c in sent if bare(name_at(c) or "air") not in kinds)
 
 
-def deep_below(cell, feet_at):
+def deep_below(cell: Cell, feet_at: Cell) -> bool:
     """Pure: `cell` lies more than 2 below the feet: a staircase down, not a walk."""
     return cell[1] < feet_at[1] - 2
 
-def stair_leg_end(start, target):
+def stair_leg_end(start: Cell, target: Cell) -> Cell:
     """Pure: where one staircase segment from `start` toward `target` ends (nav.stair_dir, nav.STAIR_STEPS down)."""
     d = nav.stair_dir(start, target)
     return (start[0] + d[0] * nav.STAIR_STEPS, start[1] - nav.STAIR_STEPS, start[2] + d[1] * nav.STAIR_STEPS)
 
-def reach_cells(vein, at):
+def reach_cells(vein, at: Cell) -> list[Cell]:
     """Pure: the vein cells within nav.REACH of the stand at `at`, nearest first."""
     return sorted((p for p in vein if math.dist(p, at) <= nav.REACH), key=lambda p: math.dist(p, at))
 
-def sight_box(at):
+def sight_box(at: Cell) -> tuple[Cell, Cell]:
     """Pure: the corners of the read nav.holds needs around the stand at `at`."""
     x0, y0, z0 = at
     return (x0 - 5, y0 - 4, z0 - 5), (x0 + 5, y0 + 6, z0 + 5)
 
-def held_cells(sight, at, cells, vein):
+def held_cells(sight, at: Cell, cells, vein) -> set[Cell]:
     """Pure: the cells the jar can break from `at` (nav.holds: sight, not distance), the vein's other cells not in the way."""
     return {p for p in cells if nav.holds(sight, at, p, through=set(vein))}
 

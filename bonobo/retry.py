@@ -1,6 +1,11 @@
 """One failure policy for every attempt the brain makes (task steps, upkeep, rescues). A failure is (task, cause). Two facts, kept apart on purpose: - the COUNT belongs to the pair: "mine iron failed for nav" three times means three sources were tried and none could be reached. After SOURCES_TRIED the task stops retrying and is reported upward (L3: task state + reason); - the COOLDOWN belongs to the cause, at a place: `cause@place`. The same wall stops every task that would walk into it, and is asked about once between them — a body treading water fails to dig, place, build and shelter, one fact. Nothing else cools: there is no per-task timer. An interruption (`api.interrupted`) is not a failure and never reaches this module. Pure (time is passed in): offline-testable."""
+from __future__ import annotations
 
 from .data import EXCEPTIONS, UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Cause, Source
 
 BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
 # the doubling's ceiling by cause: "not here" ages fast (mobs wander, we walk); a bug does not
@@ -12,7 +17,7 @@ NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
 
 
-def row_of(err):
+def row_of(err) -> tuple[Cause, Source]:
     """(cause, source) of an exception: its nearest class with a row. An exception class of ours with no row of its
     own is a KeyError naming it — never read silently as its base's; a foreign class (a builtin) is its base's."""
     for cls in type(err).__mro__:
@@ -22,7 +27,7 @@ def row_of(err):
             raise KeyError(f"exception {cls.__name__} ({cls.__module__}) has no row in retry.EXCEPTIONS")
     raise KeyError(f"exception {type(err).__name__} is no Exception")
 
-def cause_of(err):
+def cause_of(err) -> Cause:
     """The cause a failure is counted and cooled under (EXCEPTIONS; a bare mod failure by its text)."""
 
     cause = row_of(err)[0]
@@ -30,7 +35,7 @@ def cause_of(err):
         return "nav"
     return cause
 
-def source_of(err):
+def source_of(err) -> Source:
     """The interrupt source an exception stands for (EXCEPTIONS): what is done about it is arbiter.RESUME_OF's."""
     return row_of(err)[1]
 

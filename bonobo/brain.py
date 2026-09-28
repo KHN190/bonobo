@@ -2,6 +2,8 @@
 reflexes and needs, then the queue's held plan, then idle stocking).
 
 Failures go through retry.py (counted per task and cause, cooled per cause at a place); interruptions are not failures."""
+from __future__ import annotations
+
 import collections
 import json
 import os
@@ -20,6 +22,10 @@ from .data import EYE_HEIGHT, HAND_MINEABLE_SUFFIX, bare
 from .memory import Memory
 from . import memory as _memory
 from . import knowledge as _k
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Outcome, Source
 _memory.TICK_READER = skillcore.game_time      # a look or note outside a round (bench achieve, CLI) reads the game's tick
 api.ARM = skillcore.arm                       # every task that breaks or fights names the item it holds (the jar picks none)
 from .planner import Unplannable, runnable
@@ -630,7 +636,7 @@ def write(task, fields):
     if fields:
         tasks.update(task["id"], **fields)
 
-def outcome_of(err):
+def outcome_of(err) -> "tuple[Outcome, Source | None]":
     """Pure: (outcome, interrupt source); "interrupted" when the source's rule resumes the work — no count, no /stop, no cooldown."""
     if err is None:
         return "ok", None

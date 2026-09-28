@@ -1,12 +1,18 @@
 """HTTP client for the Agent Bridge mod: requests, task submission, progress watching. No strategy here."""
+from __future__ import annotations
+
 import json
 import os
 import time
 import urllib.error
 import urllib.request
+from typing import TYPE_CHECKING, Any, Mapping, Sequence, cast
 
 from . import lifecycle, paths, tape
 from .data import EXCEPTIONS, TASK_WAIT_S, item_ids
+
+if TYPE_CHECKING:
+    from .shapes import Task, TaskResult
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -152,8 +158,9 @@ class Died(McError):
 class DimensionChanged(McError):
     """The body left the task's dimension: the task resumes only back in its own (maps and notes are per dimension)."""
 
-INTERRUPTIONS = tuple(c for n, c in list(globals().items())
-                      if isinstance(c, type) and EXCEPTIONS.get(n, ("",))[0] in ("interrupt", "replan"))
+INTERRUPTIONS = cast("tuple[type[Exception], ...]",
+                     tuple(c for n, c in list(globals().items())
+                           if isinstance(c, type) and EXCEPTIONS.get(n, ("",))[0] in ("interrupt", "replan")))
 
 def interrupted(err):
     """Was this an interruption rather than a failure?"""
@@ -257,7 +264,7 @@ def api(method, path, body=None, timeout=1200):
     except (ConnectionError, TimeoutError, OSError) as e:
         raise GameUnreachable(f"connection to the game lost ({e.__class__.__name__})")
 
-def get(path):
+def get(path) -> Any:
     return api("GET", path)
 
 BODY_PATHS = ("/task", "/stop")
@@ -474,11 +481,13 @@ def resume_id(tasks, running, last_posted):
         return None
     return task_id
 
-def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segment=None):
+# tasks: a shapes.Task each (a builder not typed yet hands plain dicts)
+def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=False, wait=1800, segment=6,
+              before_segment=None) -> "list[TaskResult]":
     """Queue tasks in segments so the game never idles, calling `before_segment(segment_tasks)` before each."""
 
     global LAST_SEGMENT_S
-    results = []
+    results: list[TaskResult] = []
     chain_began = time.time()
     for start in range(0, len(tasks), segment):
         if start:

@@ -134,8 +134,11 @@ def _imports_of(module, pkg_dir):
     with open(path) as f:
         tree = ast.parse(f.read())
     out = []
+    # an `if TYPE_CHECKING:` import is for the type checker only: no run-time edge, no re-run
+    typed = {id(n) for g in ast.walk(tree) if isinstance(g, ast.If) and "TYPE_CHECKING" in ast.unparse(g.test)
+             for b in g.body for n in ast.walk(b)}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.level == 1:
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and id(node) not in typed:
             if node.module:
                 out.append(node.module.split(".")[0])
             else:

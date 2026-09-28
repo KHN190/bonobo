@@ -1,4 +1,5 @@
 """Staying alive: light, food, water and bridges, burrows and digging out, air, sleep, shelter."""
+from __future__ import annotations
 
 import math
 import time
@@ -16,6 +17,10 @@ from .terrain import (choose_burrow, choose_exit, air_route, is_enclosed, openin
 from .skillcore import feet, free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
 from .fluids import AIR_FULL, swimming
 from .craft import run_split
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Task
 
 @skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45,
        verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
@@ -150,7 +155,7 @@ def bridge_region(feet_, target):
     tz = z + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[2] - z))
     return Region((min(x, tx) - 1, y - 2, min(z, tz) - 1), (max(x, tx) + 1, y + BRIDGE_CLIMB + 2, max(z, tz) + 1))
 
-def bridge_commands(state, args):
+def bridge_commands(state, args) -> "list[Task]":
     """Pure: a way made toward `args[0]`: pillar up if above, then cell by cell — dig feet and head, lay a floor, step on."""
 
     target, region, inv, protected = args[0], state["region"], state["inv"], state["protected"]
@@ -459,7 +464,7 @@ def dig_in_start(region, feet):
         top += 1
     return x, top, z
 
-def dig_in_commands(state, args=()):
+def dig_in_commands(state, args=()) -> "list[Task]":
     """Pure: dig DIG_IN_DEPTH straight down, stand at the bottom, and seal the first dug cell."""
 
     region, inv = state["region"], state["inv"]
@@ -584,7 +589,7 @@ def _pod_region(feet_at):
     x, y, z = feet_at
     return Region((x - 2, y - 3, z - 2), (x + 2, y + 2, z + 2))
 
-def pod_commands(state, args=()):
+def pod_commands(state, args=()) -> "list[Task]":
     """Pure: the tasks that wall the body in — feet level first, head level next, the roof last."""
 
     x, y, z = state["feet"]

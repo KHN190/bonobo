@@ -3,6 +3,7 @@
 import math
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Any
 
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
@@ -17,10 +18,10 @@ class Unplannable(McError):
 
 @dataclass
 class Step:
-    kind: str            # craft | smelt | mine | gather | hunt
+    kind: str            # craft | smelt | mine | gather | hunt | ... — or any effect a skill provides (skill.providers)
     token: str           # item id or group token produced
     count: int           # units of `token` to end up with (craft: output items)
-    detail: dict = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict)    # the call's arguments: pos, types, blocks, args, ...
     est: int = 0         # estimated ticks
 
     def key(self):

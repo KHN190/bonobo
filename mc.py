@@ -21,7 +21,7 @@ def cmd_state(_):
 
 def cmd_inv(_):
     inv = Inventory()
-    print(", ".join(f"{bare(s['id'])}×{s['count']}" + (f"({s['maxDamage'] - s['damage']})" if "damage" in s else "")
+    print(", ".join(f"{bare(s['id'])}×{s['count']}" + (f"({s.get('maxDamage', 0) - s.get('damage', 0)})" if "damage" in s else "")
                     for s in inv.slots))
     print("worn:", {k: bare(v["id"]) for k, v in inv.equipment.items() if v["count"]})
 

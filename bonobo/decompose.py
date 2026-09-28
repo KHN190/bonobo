@@ -260,7 +260,7 @@ def _action(kind, token, cost, **detail):
     step.est = cost.estimate(step)
     return step
 
-def decompose(inv, goal, cost, solver=None, pending=None):
+def decompose(inv, goal, cost, solver=None, pending=None) -> list[Step]:
     """Ordered steps for `goal` from this bag."""
 
     steps = _decompose(inv, goal, cost, solver, pending)
@@ -269,7 +269,7 @@ def decompose(inv, goal, cost, solver=None, pending=None):
         raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     return steps
 
-def _decompose(inv, goal, cost, solver, pending):
+def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
     template, args = goal["goal"], goal.get("args", {})
     jobs = dict(pending or {})           # what the caller passed: running jobs' outputs (memory.pending_outputs)
     if template in goals.ITEM_GOALS:
@@ -322,10 +322,10 @@ def _prepared(inv, step, cost, solver, pending):
     needs, _speed = knowledge.step_call(step)
     return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]
 
-def to_dict(step):
+def to_dict(step: Step) -> dict:
     return {"kind": step.kind, "token": step.token, "count": step.count, "detail": step.detail, "est": step.est}
 
-def from_dict(d):
+def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
 def night_facts(soft, cooled=(), dig_site=True):
@@ -333,7 +333,7 @@ def night_facts(soft, cooled=(), dig_site=True):
     the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
     finish here (`dig_site`, survive.dig_in_site: False → dig in is not offered)."""
 
-    out = {"soft_ground": False} if soft is None or soft is False else \
+    out: dict = {"soft_ground": False} if soft is None or soft is False else \
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
     if not dig_site:
         out["no_dig_site"] = True

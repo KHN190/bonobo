@@ -1,4 +1,5 @@
 """Renewable food and wood: replant saplings after chopping, a 3×3 wheat plot around a water source, harvest when ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collected later by upkeep. Pure planners (`farm_plot`, `ripe_cells`, `breeding_pair`) are offline-tested; skills only execute them."""
+from __future__ import annotations
 
 import dataclasses
 import math
@@ -13,6 +14,10 @@ from .skill import skill
 from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD
 from .world import Inventory, Region, add, entities, find, job_ready, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Task
 
 SOIL = ("grass_block", "dirt", "coarse_dirt", "rooted_dirt")
 SAPLINGS = ("oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling",
@@ -52,7 +57,7 @@ def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
     return [nav.use_on_top(seeds, c, top=nav.FARMLAND_TOP) for c in cells]      # seeds go on farmland: 15/16 high
 
-def ring_commands(centre, hoe, region=None):
+def ring_commands(centre, hoe, region=None) -> "list[Task]":
     """Pure: the ring worked from ON the centre block, turning 45° a cell (every cell within 1.5, nothing between the
     eye and a cell's top): each cell tilled, then sown at once — what the world already shows is skipped."""
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)

@@ -1,4 +1,5 @@
 """Getting from A to B: ASKING THE GAME to, and pricing what it answers. There is no pathfinder here any more. There were two — the mod's, which moves the body (walking, digging, bridging, pillaring, ladders), and one in this file, which planned routes the body then did not take. Every disagreement between them became a bug: water in the floor priced as flat ground, ore two blocks inside rock "unreachable", a village room behind a door the walker would have opened. Physics is the world's, so: route_s(cell, policy)   /plan — is there a way, and how many seconds go_to(pos, policy)      travel — the mod walks, digs and bridges its own way there way_to(ctx, cells)      the answer to "could not get to it": walk with digging allowed, then check What stays on this side is the decision: what is worth walking to, what a walk is worth, and when to give up."""
+from __future__ import annotations
 
 import math
 import re
@@ -9,6 +10,10 @@ from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
 from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Cell
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
@@ -33,7 +38,7 @@ def waypoints(here, target, leg=40):
 
 FARMLAND_TOP = 0.9375      # farmland is 15/16 of a block: its top face is below the cell's top
 
-def use_on_top(item, cell, top=1.0):
+def use_on_top(item, cell: Cell, top=1.0):
     """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour, light a portal); `top`: that face's
     height in the cell — aimed inside it, so a block lower than a full cube (farmland) is hit, not the air above."""
     # under a lower face, aimed well inside it: 0.02 under the farmland's top left the look's own error sailing over
@@ -41,7 +46,7 @@ def use_on_top(item, cell, top=1.0):
     y = cell[1] + (1.0 if top >= 1.0 else top - 0.15)
     return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": y, "z": cell[2] + 0.5, "onBlock": True}
 
-def use_on_face(item, cell, face):
+def use_on_face(item, cell: Cell, face):
     """Pure: the task that uses `item` on the side face of `cell` that points along `face` ((dx, dz)): aimed at that
     face's centre — a bucket used there pours into the cell beside it."""
     return {"type": "use_item", "item": item, "x": cell[0] + 0.5 + 0.5 * face[0], "y": cell[1] + 0.5,
@@ -52,14 +57,14 @@ def first_solid(region, eye, point, past=0.3):
     point sits on a face), or None — what the jar's click raycast would hit (ray_first)."""
     return ray_first(region, eye, point, past)
 
-def mine_task(c, collect=False, down=False):
+def mine_task(c: Cell, collect=False, down=False):
     """A mine task; `down`: the block is under the feet on purpose (a dig down) — the jar (≥ 0.1.58) then may stand
     on its own column, which ordinary mining never does."""
     return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False,
             **({"down": True} if down else {})}
 
 # -- batches: many cells as one chain of single tasks (the jar's SequenceTask, now planned here) ------------------
-def mine_order(cells, start=None):
+def mine_order(cells, start=None) -> list[Cell]:
     """Pure: the order a batch mines `cells` — the columns nearest `start` (else the first cell given) first, each
     top down (never a cell while another of the batch sits above it). A sort, not a walk: what is left after any
     step keeps its order, so a batch rebuilt from the world after an interruption is the rest of the first."""
@@ -91,7 +96,7 @@ def batch_sweep(cells, only=None):
             "idle": SWEEP_IDLE, **({"only": list(only)} if only else {})}
 
 
-def mine_batch(cells, start=None, require_drops=False, collect=True, only=None):
+def mine_batch(cells: list[Cell], start=None, require_drops=False, collect=True, only=None):
     """Pure: many cells to break as one chain — single mines in mine_order, the closing sweep (batch_sweep) last when `collect`."""
     order = mine_order(cells, start)
     tasks = [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": require_drops}

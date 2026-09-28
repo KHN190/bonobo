@@ -599,5 +599,16 @@ TEMPLATES = merged([fight.TEMPLATES, brain.TEMPLATES, TEMPLATES], "templates")
 NAMES = merged([fight.NAMES, brain.NAMES, NAMES], "template names")
 _OWN = set(globals()) - _BEFORE - {"TEMPLATES", "NAMES", "NAMED", "WORD_MODULES", "merged", "_BEFORE"}
 merged([dict.fromkeys(m.__all__) for m in WORD_MODULES] + [dict.fromkeys(_OWN)], "words")    # one home each
-__all__ = [n for n in dir() if not n.startswith("__")]      # the tables write in every word here
-REGISTRY.update({n: globals()[n] for n in __all__})
+# pyright's view of the words: a static __all__ it can follow; at run time every name here is a word (below)
+__all__ = ["BASES", "FLAG", "MAX_RUNS", "NEXT_ROW", "NOTES", "PORTAL_8_OF_10", "ROAD_TIMES", "SCENARIOS", "_achieve", "_c",
+           "_chat", "_count_blocks", "_drain", "_inv_has", "_queue", "_road_reuse", "_worn_head", "at", "base_row",
+           "cached_timeout", "code_for", "core", "diff_hunks", "failed_last", "jar_matches_source", "load_table",
+           "one_row", "pending", "real_row", "reset_brain", "run", "save_table", "select", "set_brain", "skill_spans",
+           "status", "tier_of", "time", "touched_skills", "verdict"]
+__all__ += _scene_words.__all__
+__all__ += checks.__all__
+__all__ += runs.__all__
+__all__ += fight.__all__
+__all__ += brain.__all__
+globals()["__all__"] = [n for n in dir() if not n.startswith("__")]      # the tables write in every word here
+REGISTRY.update({n: globals()[n] for n in globals()["__all__"]})

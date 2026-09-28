@@ -1,16 +1,22 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
+from __future__ import annotations
+
 import time
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from . import api, lifecycle
 from .data import (DAY_END, DAY_TICKS, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
+
+if TYPE_CHECKING:
+    from .shapes import Cell, EntityReading, Equipment, InventoryReading, Slot, StateReading
 
 # the round's route answers ({key: (found, seconds)}), kept here so the cost model prices a route without importing movement
 ROUTES = {}
 
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
 
-def add(p, d):
+def add(p, d) -> Cell:
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 
 
@@ -19,7 +25,7 @@ def is_enclosed(region, inside):
 
     return not openings(region, inside)
 
-def openings(region, inside):
+def openings(region, inside: Cell):
     """Pure: what an enclosure around `inside` lacks — {cell: "wall"} per 2-high gap and the roof; {} when enclosed."""
 
     x, y, z = inside
@@ -40,10 +46,13 @@ def screen_slot(slot):
     return 36 + slot if slot < 9 else slot
 
 class Inventory:
-    def __init__(self, data=None):
-        data = data or api.get("/inventory")
-        self.slots = data["slots"]
-        self.equipment = data["equipment"]
+    slots: list[Slot]
+    equipment: Equipment
+
+    def __init__(self, data: InventoryReading | Mapping[str, Any] | None = None):
+        got: Mapping[str, Any] = data or api.get("/inventory")
+        self.slots = got["slots"]
+        self.equipment = got["equipment"]
 
     def _stacks(self, include_worn):
         yield from self.slots
@@ -98,17 +107,19 @@ def ticks_until_dusk(time_of_day):
 
 class Snapshot:
     """One consistent read of the player: state + inventory, built from readings the caller took."""
+    state: StateReading
+    inv: Inventory
 
     @classmethod
-    def from_readings(cls, state, inventory):
+    def from_readings(cls, state: Mapping[str, Any], inventory: "Mapping[str, Any] | Inventory") -> "Snapshot":
         """A snapshot of recorded readings (/state dict, /inventory dict or Inventory): no world read."""
         snap = cls.__new__(cls)
-        snap.state = dict(state)
+        snap.state = cast("StateReading", dict(state))
         snap.inv = inventory if isinstance(inventory, Inventory) else Inventory(inventory)
         return snap
 
     @property
-    def feet(self):
+    def feet(self) -> Cell:
         s = self.state
         return s["blockX"], s["blockY"], s["blockZ"]
 
@@ -194,7 +205,7 @@ def find(blocks, radius=32, limit=50, exposed=False):
     ids = ",".join(mid(b) for b in blocks)
     return api.get(f"/find?blocks={ids}&radius={radius}&limit={limit}" + ("&exposed=true" if exposed else ""))["blocks"]
 
-def entities(radius=16, types=None):
+def entities(radius=16, types=None) -> list[EntityReading]:
     out = api.get(f"/entities?radius={radius}")["entities"]
     return [e for e in out if types is None or e["type"] in types]
 
@@ -221,7 +232,8 @@ class Region:
 
     def __init__(self, lo, hi, props=False):
         self.lo, self.hi = tuple(lo), tuple(hi)
-        self.blocks, self.props = {}, {}
+        self.blocks: dict[Cell, str] = {}
+        self.props: dict[Cell, dict[str, str]] = {}
         for a, b in slabs(lo, hi):
             query = f"/blocks?from={a[0]},{a[1]},{a[2]}&to={b[0]},{b[1]},{b[2]}" + ("&props=1" if props else "")
             data = api.get(query)
@@ -261,7 +273,7 @@ def region_around(points, pad=3, max_volume=32768):
         return None
     return Region(lo, hi)
 
-def connected(region, seed, ids):
+def connected(region, seed: Cell, ids) -> set[Cell]:
     """Flood-fill a vein of the given block ids from a seed position."""
     names = {bare(i) for i in ids}
     out, todo = set(), [seed]
@@ -280,7 +292,7 @@ def job_ready(job, tick=None, now=None):
         return tick >= job["ready_tick"]
     return job["ready_at"] <= (time.time() if now is None else now)
 
-def feet():
+def feet() -> Cell:
     """The block the feet are in, (x, y, z): one /state read."""
 
     s = api.get("/state")

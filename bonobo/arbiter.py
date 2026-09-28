@@ -1,9 +1,14 @@
 """One body, one exit, priority by time scale. The survey found 124 places that issue movement and no one adjudicating between them. Most of them do not need rewriting, because HOW to move already funnels through nav.go_to and api.run; what had no funnel was WHO may move the body right now. In a multi-threat fight that is where it breaks: the perception thread stops a task, the dispatcher starts an action, a recovery walks somewhere else, all inside one second. Subsumption, not scoring. Layers run at their own time scale and a faster layer overrides a slower one unconditionally — a reflex is not weighed against a plan, it vetoes it: REFLEX   (tick, in the jar)   lava, drowning, a fireball already in the air SAFETY   (~0.2 s, here)       stop what is running, leave a hazard, get into cover TACTIC   (~1 s)               take position, retreat, shake pursuit PLAN     (~10 s)              dig, place, reinforce, fire a window Two channels, kept distinct on purpose: * BODY (this module) is the ONLY thing that drives the body. Slow layers `submit` and wait for `step`; fast layers `preempt`, which runs at once and marks the slow layers stale until they re-plan. * api.INTERRUPT is a message, not a command: "a faster layer has spoken". A slow action that is already running reads it and abandons itself. It never moves the body. The body is a singleton — one process, one player — so BODY is module state. Actions are per fight; the body is not."""
+from __future__ import annotations
 
 import threading
 import time
 from .data import NIGHT_WORK
 from . import api
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Rule, Source
 
 REFLEX, SAFETY, TACTIC, MAINTAIN, PLAN = 0.05, 0.2, 1.0, 3.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
@@ -57,7 +62,7 @@ class Intent:
         return f"Intent({self.layer}, {self.reason!r})"
 
 # PLAN_ORDER ranks every planned proposal here only; RESUME_RULES: one declared rule per interrupt source (the offline sweep refuses a source without one)
-RESUME_RULES = {
+RESUME_RULES: dict[Rule, tuple[bool, str | None]] = {
     "same": (True, None),             # the same target, the next frontier; nothing cooled, nothing banned
     "recheck": (True, "recheck"),     # the bag changed under it: re-read the remaining amount first
     "recover": (True, "recover"),     # died: recover the items first, then replan from where we stand (target kept)
@@ -71,7 +76,7 @@ RESUME_RULES = {
     "cooled": (False, "cool"),        # a real failure, not an interrupt: counted, /stop, cooled under the retry policy
     "crashed": (False, "hold"),       # a bug of ours: held a while, the trace logged
 }
-RESUME_OF = {
+RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_types)
     **{f"layer:{k}": "same" for k in ("reflex", "safety", "maintain", "plan")}, "layer:tactic": "fight",
     **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "falling")},
     **{f"row:{k}": "same" for k in ("eat", "reach land", "dig out", "sleep", "shelter", "collect job",
@@ -82,7 +87,7 @@ RESUME_OF = {
     "dimension change": "dimension", "night": "night", "user cancel": "none", "stuck": "cooled", "crash": "crashed",
 }
 
-def resume_of(source):
+def resume_of(source: Source) -> tuple[bool, str | None]:
     """Pure: (resumes, what first) for work interrupted by `source` — KeyError for a source nobody declared."""
     return RESUME_RULES[RESUME_OF[source]]
 

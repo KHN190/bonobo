@@ -1,4 +1,8 @@
 """Static game knowledge (Minecraft Java 1.21). Pure data, no I/O."""
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Cause, Source
 
 # memoised: tens of millions of calls a session (9 s of a 129 s replay unmemoised)
 _MID, _BARE = {}, {}
@@ -267,7 +271,7 @@ ROUTE_FACTOR = 1.5            # real route length / straight line
 
 # every exception an attempt can end in, by class name (this module imports nothing): (cause it is counted and
 # cooled under, interrupt source — arbiter.RESUME_OF says what that source means: resumed, or failed)
-EXCEPTIONS = {
+EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "Exception": ("error", "crash"),                       # a bug of ours: anything not declared below
     "McError": ("error", "stuck"),                         # a mod task failed (its text may say "nav": cause_of)
     "GameUnreachable": ("game", "game lost"),

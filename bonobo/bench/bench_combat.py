@@ -2,7 +2,13 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
+from typing import TYPE_CHECKING
+
 from .core import BEST_TOOLS
+
+if TYPE_CHECKING:   # CODE_ROWS pulls vocab's words in at run time; pyright reads them here
+    from .vocab import (BASE, EDGE_Y, FIRST, SHEET_EXPECT, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
+                        _first_times, _gone, _hooks, _hostiles, _hp_kept, _near, _record_bids, _start, _tp, at, limit)
 # -- the dimensions of a fight cell (the combat table's own data; vocab's `_build` turns a cell into commands) -------
 # enemies named by what they do ("pack" is walker × count=three: the same world under another name)
 ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skeleton", "climber": "minecraft:spider",

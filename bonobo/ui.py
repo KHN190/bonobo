@@ -123,7 +123,7 @@ def _anvil_args(ctx, step):
     tools = [s for s in inv.slots if s["id"].endswith("_" + step.token) and s.get("damage")]
     if not tools:
         return None
-    item = max(tools, key=lambda s: s["damage"])["id"]
+    item = max(tools, key=lambda s: s.get("damage", 0))["id"]
     token = MATERIAL_TOKEN.get(item.split(":")[-1].rpartition("_")[0])
     material = next((m for m in members(token) if inv.count(m)), None) if token else None
     return (item, material) if material else None

@@ -74,6 +74,7 @@ CLOSURE = {
     "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
     "review": 7,
     "roads": 1,
+    "shapes": 1,                    # types only (TypedDicts, Literals): imported under TYPE_CHECKING
     "skill": 13,
     "skillcore": 12,
     "skills": 26,
@@ -103,7 +104,7 @@ CLOSURE = {
 # read from wherever it is needed, rather than re-derived by each caller.
 
 # The bottom: pure facts and pure functions over them. Anything here that grows an import has stopped being a fact.
-FACTS = {"data", "kernel", "solve", "combat_model", "retry", "roads", "blueprints",
+FACTS = {"data", "shapes", "kernel", "solve", "combat_model", "retry", "roads", "blueprints",
          "paths", "beliefs", "field", "estimate", "lifecycle"}
 
 
@@ -121,6 +122,9 @@ class Direction(unittest.TestCase):
             ("a deferred import is still an edge", {"a": "def f():\n    from . import brain\n", "brain": ""}, "a",
              ["a", "brain"]),
             ("a cycle ends", {"a": "from . import b\n", "b": "from . import a\n"}, "a", ["a", "b"]),
+            ("must fail: a type-only import is no edge",
+             {"a": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from .shapes import Cell\n", "shapes": ""},
+             "a", ["a"]),
             ("a fact reaching a decider: the key shows it (what the tests below fail on)",
              {"data": "from .brain import decide\n", "brain": ""}, "data", ["brain", "data"]),
             ("must fail: not edges: the standard library, a module that is not there", {"a": "import os\nfrom .gone import X\n"},

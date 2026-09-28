@@ -525,7 +525,7 @@ def _record_with_start(record):
     return rec
 
 # -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × FIGHT_POLL_S)
-FIGHT_LOG = {"bids": []}
+FIGHT_LOG: dict = {"bids": []}        # also keeps the real fight_loop.bid
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "FIGHT_LOG")     # a row's own record
 

@@ -1,4 +1,6 @@
 """Machines from blueprints: spot finding, oriented placing, bottom-up builds (portal frames, shelters)."""
+from __future__ import annotations
+
 import math
 import re
 
@@ -11,6 +13,10 @@ from .knowledge import members
 from .skill import ANCHORS, skill
 from .skillcore import body_state, feet, snapshot, mine_cell, place
 from .world import Inventory, Region, add
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Task
 
 def _mod_at_least(version):
     def check(c):
@@ -247,7 +253,7 @@ def blueprint_wrong(bp, origin, turns):
     region = Region(lo, hi)
     return [(pos, bare(part.item)) for pos, part, *_ in cells if not block_matches(region.name(pos), part.item)]
 
-def blueprint_commands(state, args):
+def blueprint_commands(state, args) -> "list[Task]":
     """Pure: the whole build as one batch from the access spot — clear foliage, then missing parts bottom-up, pillaring where needed."""
 
     bp, origin, turns = args

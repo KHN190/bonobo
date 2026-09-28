@@ -55,7 +55,7 @@ def _bench_machine(ctx, origin):
     return next(m for m in ctx.mem.machines("minecraft:overworld") if m["name"] == name)
 
 # -- tier "brain": the whole brain on a private queue, the world set to the deciding moment, judged by the world and its log
-BRAIN_LOG = {"replans": 0}
+BRAIN_LOG: dict = {"replans": 0}      # also keeps the real brain.replan (a fn): not an int table
 
 
 def furnace_slots(reply):
@@ -349,7 +349,7 @@ def _bag_rule(cell):
                 "a bag past BAG_FULL, junk: junk thrown, then the task done")
     return _gain("log", LOG_GOAL - KIT_LOG), "room for it: the task done as usual"
 
-FINDS = {"diamond": 0}
+FINDS: dict = {"diamond": 0}          # also keeps the real api.get
 
 def is_diamond_scan(path):
     """Pure: a /find that looks for diamond ore — not the estimates' one look per round (world.nearest's perBlock=1

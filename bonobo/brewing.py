@@ -1,4 +1,5 @@
 """Potions for the Nether and the End: water bottles, awkward potions (nether wart), fire resistance (magma cream). A brewing stand's slots: 0–2 bottles, 3 ingredient, 4 fuel (blaze powder). Pure `brew_steps` is offline-tested."""
+from __future__ import annotations
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore, fluids
@@ -8,6 +9,10 @@ from .skillcore import settle
 from .world import Inventory, find
 from .building import _open_container
 from .craft import Station
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .shapes import Task
 
 FIRE_RES_CHAIN = [("minecraft:nether_wart", "awkward"), ("minecraft:magma_cream", "fire_resistance")]
 
@@ -29,7 +34,7 @@ def brew_steps(have):
     steps.append("minecraft:magma_cream")
     return steps
 
-def bottle_commands(state, args):
+def bottle_commands(state, args) -> "list[Task]":
     """`commands` for fill_bottles: one fill per bottle wanted and carried, aimed at `state["source"]`, back to back."""
 
     count = args[0] if args else 3
