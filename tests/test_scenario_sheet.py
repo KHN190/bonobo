@@ -1201,6 +1201,23 @@ class SleptBefore(unittest.TestCase):
                 self.assertEqual(dict(vocab.FIRST), want)
 
 
+class ServerProbe(unittest.TestCase):
+    """The bench's server probe: a test command's own reply (the lines before its numbered marker), read exactly."""
+
+    def test_rows(self):
+        from bonobo.bench import core
+        rows = [("passed before the marker", ["Test passed", "[knh190] probe-3"], "probe-3", True),
+                ("failed before the marker", ["Test failed", "[knh190] probe-3"], "probe-3", False),
+                ("must fail: a 'Test passed' after the marker is another command's", ["Test failed",
+                 "[knh190] probe-3", "Test passed"], "probe-3", False),
+                ("must fail: no test line at all: no answer", ["[knh190] probe-3"], "probe-3", None),
+                ("must fail: a line that only mentions 'passed' is not the answer",
+                 ["the ore passed the test", "[knh190] probe-3"], "probe-3", None)]
+        for name, lines, mark, want in rows:
+            with self.subTest(name):
+                self.assertIs(core.probe_answer(core.reply_before(lines, mark)), want)
+
+
 class DiamondScan(unittest.TestCase):
     """is_diamond_scan: _no_scan counts a search for the ore, not the estimates' one look per round."""
 

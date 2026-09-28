@@ -289,14 +289,40 @@ def set_brain(brain):
     _wire_farm_probe()                 # the bench's server-side reads for the farm's instrumentation
 
 
+PROBE_SEQ = [0]
+
+def _probe(cmd):
+    """One test command's own reply: sent with a numbered `say` after it, the reply is the chat line before that
+    marker — never a line from another command (both farm probes once read the same 'Test passed')."""
+    PROBE_SEQ[0] += 1
+    mark = f"probe-{PROBE_SEQ[0]}"
+    lines = _send([cmd, f"say {mark}"], 2, 1.5)
+    return reply_before(lines, mark)
+
+def reply_before(lines, mark):
+    """Pure: the chat lines that came before the line carrying `mark` (all of them when it never came)."""
+    for k, line in enumerate(lines):
+        if mark in line:
+            return lines[:k]
+    return list(lines)
+
+def probe_answer(lines):
+    """Pure: True for an exact 'Test passed', False for 'Test failed', None when neither is there (no answer)."""
+    for line in lines:
+        text = line.strip()
+        if text.startswith("Test passed"):
+            return True
+        if text.startswith("Test failed"):
+            return False
+    return None
+
 def _wire_farm_probe():
     """The farm's instrumentation (farming.PROBE): the server's view of a cell's block (an `execute if block` reply) and the
     random_tick_speed in effect (a `gamerule` reply) — the client's reads cannot tell a ghost block."""
     from .. import farming
 
     def server_block(pos, block):
-        lines = _command(f"execute if block {pos[0]} {pos[1]} {pos[2]} minecraft:{block.split(':')[-1]}", [])
-        return any("passed" in str(line).lower() for line in lines)
+        return probe_answer(_probe(f"execute if block {pos[0]} {pos[1]} {pos[2]} minecraft:{block.split(':')[-1]}"))
 
     def tick_speed():
         return " / ".join(str(l) for l in _command("gamerule random_tick_speed", []))

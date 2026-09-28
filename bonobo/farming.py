@@ -153,7 +153,8 @@ def click_line(task, reply):
             f"{reply.get('status')} {reply.get('message') or ''} | eye ({f('eyeX')}, {f('eyeY')}, {f('eyeZ')}) "
             f"yaw {f('yaw')} pitch {f('pitch')} reach {f('reach')} aimDist {f('aimDist')} "
             f"ray end ({f('rayEndX')}, {f('rayEndY')}, {f('rayEndZ')}) hit {res.get('hitX', '-')},{res.get('hitY', '-')},"
-            f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')}")
+            f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')} "
+            f"ticks {reply.get('startTick', '-')}→{reply.get('endTick', '-')}")
 
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
@@ -338,7 +339,9 @@ def centre_holds(pos, block):
     probe = PROBE.get("server_block")
     if probe is not None:
         try:
-            return probe(pos, block)
+            said = probe(pos, block)
+            if said is not None:               # no answer from the server: the client's held read decides
+                return said
         except Exception:
             pass
     got = skillcore.settle(lambda: Region(pos, pos).name(pos), lambda n: n == bare(block), timeout=2.0, stable_s=HOLD_S)
