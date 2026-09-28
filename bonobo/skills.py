@@ -889,20 +889,21 @@ def strip_mine_step(ctx, length=16):
             if not nav.arrived((t["x"], t["y"] + 1, t["z"]), ctx.policy, range_=2, attempts=1):
                 raise NotAvailable("can't reach safe ground to dig down")
         return
-    dx, dz = [(0, 1), (-1, 0), (0, -1), (1, 0)][int(((s["yaw"] % 360) + 45) // 90) % 4]
-    region = Region((fx + min(0, dx * length) - 1, fy - 1, fz + min(0, dz * length) - 1),
-                    (fx + max(0, dx * length) + 1, fy + 2, fz + max(0, dz * length) + 1))
-    tasks, end = [], 0
-    for i in range(1, length + 1):
-        cells = [(fx + dx * i, fy + 1, fz + dz * i), (fx + dx * i, fy, fz + dz * i)]
-        floor = (fx + dx * i, fy - 1, fz + dz * i)
-        if (not region.solid(floor) or any(region.unbreakable(c) for c in cells)
-                or any(region.hazard(c) or region.hazard(add(c, d))
-                                           for c in cells for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)])
-                or any(c in ctx.policy.protected for c in cells)):
-            break
-        tasks += [nav.mine_task(c) for c in cells if region.solid(c)]
-        end = i
+    facing = TUNNEL_DIRS[int(((s["yaw"] % 360) + 45) // 90) % 4]
+    region = Region((fx - length - 1, fy - 1, fz - length - 1), (fx + length + 1, fy + 2, fz + length + 1))
+    # mobs and caves are read through the walls: the tunnel goes where neither is
+    hostiles = [(e["x"], e["y"], e["z"]) for e in entities(24) if beliefs.fights_back([e["type"]])]
+    (dx, dz), end, cave = plan_tunnel(region, (fx, fy, fz), length, ctx.policy.protected, hostiles, facing)
+    tasks = []
+    if cave:
+        # every way opens onto a cave at once: its faces sealed first (the one sealing rule), then the step dug
+        own = {(fx, fy, fz), (fx, fy + 1, fz)}
+        tasks = seal_plan(region, cave, Inventory(), own=own, cave=True) + [nav.mine_task(c) for c in cave
+                                                                         if region.solid(c)]
+        end = 1
+    for i in range(1 if not cave else 2, end + 1):
+        tasks += [nav.mine_task(c) for c in [(fx + dx * i, fy + 1, fz + dz * i), (fx + dx * i, fy, fz + dz * i)]
+                  if region.solid(c)]
     if end == 0:
         # turning in place is not progress: say so and let the retry policy decide
         api.run({"type": "look", "yaw": (s["yaw"] + 90) % 360, "pitch": 0}, awaits="the next sight line read")
@@ -1007,26 +1008,78 @@ def fill_with_blocks(cells, inv, why, partial=False):
 
 FLUID_NAMES = ("water", "lava", "flowing_water", "flowing_lava")
 
-def fluid_faces(region, cell, breaking=()):
-    """Pure: the fluid cells touching `cell` face to face (below, beside, above) — what pours in once it is broken."""
+CAVE_AIR = ("air", "cave_air")
+
+
+def fluid_faces(region, cell, breaking=(), names=FLUID_NAMES):
+    """Pure: the cells of `names` (fluids; with cave air, openings) touching `cell` face to face (below, beside,
+    above) — what pours or walks in once it is broken. `breaking` (the cells broken with it) are not faces."""
 
     out = []
     for d in ((0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0)):
         n = add(cell, d)
-        if n not in breaking and region.inside(n) and bare(region.name(n)) in FLUID_NAMES:
+        if n not in breaking and region.inside(n) and bare(region.name(n)) in names:
             out.append(n)
     return out
 
-def seal_plan(region, cells, inv):
-    """Pure: before breaking `cells`, a block into every fluid cell touching one — the one fluid rule of mining."""
+def seal_plan(region, cells, inv, own=(), cave=False):
+    """Pure: before breaking `cells`, a block into every fluid cell touching one — the one sealing rule of mining;
+    with `cave`, cave air too (an opening a tunnel would break into), the tunnel's own space (`own`) excepted."""
 
     cells = [tuple(c) for c in cells]
+    names = FLUID_NAMES + (CAVE_AIR if cave else ())
     wet = []
     for c in cells:
-        for f in fluid_faces(region, c, set(cells)):
+        for f in fluid_faces(region, c, set(cells) | set(own), names):
             if f not in wet:
                 wet.append(f)
-    return fill_with_blocks(wet, inv, "fluid beside the cells to break and nothing to seal it with")
+    return fill_with_blocks(wet, inv, ("an opening" if cave else "fluid")
+                            + " beside the cells to break and nothing to seal it with")
+
+
+TUNNEL_DIRS = [(0, 1), (-1, 0), (0, -1), (1, 0)]
+
+
+def tunnel_run(region, feet_at, d, length, protected=()):
+    """Pure: (end, cave_cells) — how many steps a 2-high tunnel goes from `feet_at` toward `d` before it stops
+    (no floor, unbreakable, a hazard beside, ours) or would break into a cave: `cave_cells`, the step's two cells
+    that open onto air not the tunnel's own (read through the walls, before a block is broken), else None."""
+
+    fx, fy, fz = feet_at
+    dx, dz = d
+    own = {(fx, fy, fz), (fx, fy + 1, fz)}
+    end = 0
+    for i in range(1, length + 1):
+        cells = [(fx + dx * i, fy + 1, fz + dz * i), (fx + dx * i, fy, fz + dz * i)]
+        floor = (fx + dx * i, fy - 1, fz + dz * i)
+        if (not region.solid(floor) or any(region.unbreakable(c) for c in cells)
+                or any(region.hazard(c) or region.hazard(add(c, n))
+                       for c in cells for n in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)])
+                or any(c in protected for c in cells)):
+            break
+        own |= set(cells)
+        if any(fluid_faces(region, c, own, CAVE_AIR) for c in cells):
+            return end, cells
+        end = i
+    return end, None
+
+
+def plan_tunnel(region, feet_at, length, protected=(), hostiles=(), facing=None):
+    """Pure: (direction, end, cave_cells) of the tunnel to dig — the direction running longest before a cave, ties
+    to the one ending farthest from the hostiles seen through the walls, then the facing. A tunnel never breaks into
+    a cave it could have avoided; when every way opens onto one at once, its cells come back to be sealed first."""
+
+    order = sorted(TUNNEL_DIRS, key=lambda d: d != facing)
+    best = None
+    for d in order:
+        end, cave = tunnel_run(region, feet_at, d, length, protected)
+        tip = (feet_at[0] + d[0] * end, feet_at[1], feet_at[2] + d[1] * end)
+        away = min((math.dist(tip, h) for h in hostiles), default=math.inf)
+        score = (end, away)
+        if best is None or score > best[0]:
+            best = (score, d, end, cave)
+    _score, d, end, cave = best
+    return d, end, (cave if end == 0 else None)
 
 def contain_lava_commands(state, args=()):
     """Pure: one place task per open lava cell, nearest first, blocks taken from the bag in turn."""
