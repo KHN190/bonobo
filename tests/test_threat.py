@@ -694,7 +694,8 @@ class EvadeOnlyPostpones(unittest.TestCase):
              "fight"),
             ("a creeper 4 off, a stone sword: fight (keep off)", [row("minecraft:creeper", 4, 0)], dict(sword=1),
              "fight"),
-            ("a creeper 4 off, bare hands: leave", [row("minecraft:creeper", 4, 0)], dict(sword=0), "evade"),
+            ("a creeper 4 off, bare hands: bait it (it fuses out away from us)", [row("minecraft:creeper", 4, 0)],
+             dict(sword=0), "bait"),
             ("a creeper 2 off at 4 hp: one late step is the end, leave", [row("minecraft:creeper", 2, 0)],
              dict(sword=2, hp=4), "evade"),
             ("a creeper and a zombie, an iron sword: the fight, creeper first",
@@ -1058,6 +1059,36 @@ class ACreeperIsStruckOnlyWhileItWalks(unittest.TestCase):
         for name, e, want in rows:
             with self.subTest(name):
                 self.assertEqual(threat.fuse_lit(e), want)
+
+
+class BaitACreeper(unittest.TestCase):
+    """No timed hit (no sword, or it hisses inside 7.5): out to 7.5, hold while it closes, a short step to 6 once lit."""
+
+    def test_spot_over_the_table(self):
+        c = (4.0, 64.0, 0.0)
+        rows = [("walking, 4 off: out to 7.5", HERE, c, False, (-4, 64, 0)),
+                ("walking, 8 off: hold", (-4.0, 64.0, 0.0), c, False, (-4, 64, 0)),
+                ("lit, 4 off: a short step to 6", HERE, c, True, (-2, 64, 0)),
+                ("must fail: lit and we hold at 4", HERE, c, True, (-2, 64, 0))]
+        for name, here, creeper, lit, want in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.bait_spot(here, creeper, lit, 7.5), want)
+
+    def test_column(self):
+        rows = [("no sword: bait", 0, set(), True), ("a sword, it hisses: bait", 2, {0}, True),
+                ("must fail: a sword, it walks — strike, no bait", 2, set(), False)]
+        for name, sword, lit, want in rows:
+            with self.subTest(name):
+                st = {"here": HERE, "hp": 20, "sword": sword, "protection": 0.3, "blocks": 0,
+                      "hazards": [row("minecraft:creeper", 4, 0)], "ids": [0], "lit": lit}
+                self.assertEqual("bait" in {o.kind for o in threat.options(st)}, want)
+
+    def test_blast(self):
+        rows = [("at 6: nothing", 6.0, 0.0), ("at 3: a quarter", 3.0, 10.75), ("at 0: all", 0.0, 43.0),
+                ("past 6: nothing", 9.0, 0.0)]
+        for name, d, want in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.bait_blast(d, 43.0, 0.0), want)
 
 
 class EatingInAFight(unittest.TestCase):

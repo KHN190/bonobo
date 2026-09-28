@@ -97,6 +97,33 @@ def hostile_rows(near, memory, now, here=None, context=None):
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
     return rows(near or [], memory, now, kinds, here=here, context=context)
 
+BAIT_R = 6.0      # blocks: inside the fuse's range (7), outside most of the blast
+
+def bait_spot(here, creeper, lit, clear):
+    """Pure: where to stand baiting a creeper — out to `clear` while it walks, hold there, then a short step to
+    BAIT_R once lit (still inside 7: it blows, we are past the blast)."""
+    d = math.dist(here, creeper) or 1e-6
+    want = BAIT_R if lit else clear
+    if not lit and d >= clear:
+        return tuple(round(c) for c in here)               # hold: let it close to lit
+    if lit and d >= BAIT_R:
+        return tuple(round(c) for c in here)
+    k = want / d
+    return (round(creeper[0] + (here[0] - creeper[0]) * k), round(here[1]), round(creeper[2] + (here[2] - creeper[2]) * k))
+
+def bait_blast(d, attack, prot):
+    """Pure: a creeper's blast at `d` blocks (falls off to nothing at 6)."""
+    return round(float(attack) * max(0.0, 1.0 - d / 6.0) ** 2 * (1.0 - prot), 2)
+
+def bait_option(here, hazards, ids, creepers, lit, clear, prot):
+    first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
+    h = hazards[first]
+    is_lit = ids[first] in lit
+    spot = bait_spot(here, h[0], is_lit, clear)
+    walk_s = math.dist(here, spot) / float(PLAYER["speed"])
+    return Option("bait", spot, bait_blast(BAIT_R, MOBS[h[3]]["attack"], prot), round(walk_s + float(ENGAGE["fuse_s"]), 2),
+                  "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come"))
+
 def fuse_lit(e):
     """Pure: the jar reads this creeper's fuse as lit (`ignited`)."""
     return bool(e.get("ignited"))
@@ -371,6 +398,10 @@ def options(state):
         out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
+    # bait: the hit can't be timed (no sword, or it hisses inside its fuse range) — it fuses out away from us
+    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and (sword < 1 or hissing) else None
+    if bait is not None:
+        out.append(bait)
     # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)
     reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h)]
     above = [hazards[i] for i in range(len(hazards)) if i not in reach]

@@ -454,7 +454,9 @@ def _attack(option, state, **extra):
             out.append({"type": "travel", "x": spot[0], "y": spot[1], "z": spot[2], "range": 2, "break": brk,
                         "place": plc, "voidBridge": void, "placeBudget": int(state["inv"].count("building")),
                         "avoid": nav.avoid_cells(state.get("protected", ()), spot, state["feet"])})
-    return out + [dict(task, footwork=step)]
+    keep = {"keepOff": float(MOBS["minecraft:creeper"]["keep_out"])} \
+        if step == "keepoff" and "keep_off" in nav.mod_features() else {}      # the jar's field (a46)
+    return out + [dict(task, footwork=step, **keep)]
 
 def _fight(option, state):
     return _attack(option, state)
@@ -494,7 +496,13 @@ def _place(option, state):
         return []
     return [{"type": "place", "item": item, "x": x, "y": y, "z": z} for x, y, z in cells]
 
-BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "reshape": _reshape,
+def _bait(option, state):
+    x, y, z = option.target
+    if (x, y, z) == tuple(state["feet"]):
+        return [{"type": "wait", "ticks": 4}]          # hold: it closes to lit
+    return _evade(option, state)
+
+BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "reshape": _reshape, "bait": _bait,
          "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # what a batch reads around the body, by kind; skills register theirs so this module never imports the skill library
 REGION = {}
