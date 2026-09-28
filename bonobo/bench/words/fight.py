@@ -562,6 +562,30 @@ def _answered_with(*kinds):
     return lambda api, inv: any(k in kinds for _t, _e, k in FIGHT_LOG["bids"])
 
 
+def _loose(mob):
+    """`before` hook: the `mob` summoned still (NoAI) wakes now — the scene counted it, and the setup before this
+    (a food drain) ran with nothing hitting the body."""
+    def hook(ctx):
+        _chat(f"data merge entity @e[type=minecraft:{mob},limit=1,sort=nearest] {{NoAI:0b}}")
+    return hook
+
+
+def kept_off(gaps, enclosed, gap=3.0):
+    """Pure: kept off — every hostile at least `gap` away (`gaps`: their distances), or the body walled in."""
+    return enclosed or all(g >= gap for g in gaps)
+
+
+def _away_or_walled(kinds, gap=3.0):
+    """Check: at the end every `kinds` is `gap` or more off, or the body is walled in (world.is_enclosed)."""
+    def check(api, inv):
+        from ...world import Region, feet, is_enclosed
+        x, y, z = feet()
+        gaps = [math.dist((x, y, z), (e["x"], e["y"], e["z"])) for e in _hostiles(24, set(kinds))]
+        return kept_off(gaps, is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z)),
+                              gap)
+    return check
+
+
 def _shield_kept():
     """Check: the shield is still in the offhand at the end."""
     return lambda api, inv: _offhand_shield()
@@ -722,4 +746,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

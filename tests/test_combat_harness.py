@@ -57,5 +57,18 @@ class KillsWhileEngaged(unittest.TestCase):
                 self.assertEqual(fight.kills_while_engaged(samples), want)
 
 
+
+class KeptOff(unittest.TestCase):
+    """low_hp_eat's end: every hostile 3 or more off, or the body walled in."""
+
+    def test_rows(self):
+        rows = [("backed off: 4 blocks", [4.0], False, True), ("walled in beside it", [1.0], True, True),
+                ("nothing left in reach", [], False, True),
+                ("must fail: stood still, the zombie at 1.5", [1.5], False, False)]
+        for name, gaps, enclosed, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.kept_off(gaps, enclosed), want)
+
+
 if __name__ == "__main__":
     unittest.main()

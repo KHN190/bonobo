@@ -112,14 +112,21 @@ ROWS = [
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
          expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='combat__low_hp_eat', module='fight_loop',
-         doc=('6 hp, one zombie 2 blocks off, blocks and cooked beef → away from it or walled in first, then fed: '
-              'health ends above 6'),
+         doc=('6 hp, food 6 with no saturation (no natural regen), one zombie 2 blocks off, blocks and cooked beef → '
+              'away from it or walled in first, then fed: the beef eaten, the zombie 3 or more off (or walled in), '
+              'health above 6'),
+         # the zombie summoned still (NoAI) so the food drain runs unhurt; it wakes once the bar is at 6
          scene=[('sheet', '_ARENA'), ('cmd', 'damage @p 14 minecraft:magic'),
-                ('summon', 'zombie', ('@', 2, 0, 0), '{PersistenceRequired:1b}')],
-         run=('fight_until', ['minecraft:zombie'], 22, False),
-         before=[('start', 'combat__low_hp_eat'), ('&record_bids',)], check=[('state', 'health', '>', 6), ('alive',)],
+                ('summon', 'zombie', ('@', 2, 0, 0), '{PersistenceRequired:1b,NoAI:1b}')],
+         run=('fight_until', ['minecraft:zombie'], 20, False),
+         before=[('start', 'combat__low_hp_eat'), ('drain_to', 6, 20, (4, 8)), ('loose', 'zombie'), ('&record_bids',)],
+         check=[('state', 'health', '>', 6), ('alive',), ('count', 'minecraft:cooked_beef', '<', 16),
+                ('away_or_walled', ['minecraft:zombie'])],
          budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie', 'blood': 'low'},
-         expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         expect_entities=[('minecraft:zombie', 1, 1)],
+         expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
+                 (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)],      # the _ARENA: floor, roof, walls
+         expect_gear={'items': [['minecraft:iron_sword', 1]], 'offhand': 'minecraft:shield'}),
     dict(name='fight_creeper_sword', module='fight_loop',
          doc='Iron sword, a creeper 4 blocks off → the creeper gone (dead or blown up in the air), health ≥ 16',
          scene=[('sheet', '_ARENA'), ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
