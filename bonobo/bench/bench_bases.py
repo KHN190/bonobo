@@ -119,12 +119,13 @@ CONDITIONS = {
                        scene=[('cmd', 'clear @p'), ('give', 'wooden_pickaxe[damage=58]'),
                               ('give', 'stone_pickaxe[damage=130]')],
                        fails='pickaxe|tier',
-                       fails_check={'mine_iron': ('blocks', ('@', 4, 0, 0), ('@', 4, 1, 0), ('iron_ore',), 1),
+                       # the ore left where the base put it (a box at x 4 held none: failed right, judged wrong)
+                       fails_check={'mine_iron': ('blocks', ('@', 2, 0, 0), ('@', 2, 0, 0), ('iron_ore',), 1),
                                     'mine_stone': ('gain', 'minecraft:cobblestone', 0, 2)}),
     'wrong_tool': dict(axis='inventory', doc='only a wooden pickaxe for iron ore', bases=['mine_iron'],
                      scene=[('cmd', 'clear @p'), ('give', 'wooden_pickaxe')], fails='tier-1 pickaxe|tier 1|pickaxe',
                      fails_check={'mine_iron': ('all', ('!same_bag',),
-                                                ('!blocks', ('@', 4, 0, 0), ('@', 4, 1, 0), ('iron_ore',), 2))}),
+                                                ('!blocks', ('@', 2, 0, 0), ('@', 2, 0, 0), ('iron_ore',), 1))}),
     'goal_met': dict(axis='inventory', doc='the bag already holds the goal: plan nothing, do nothing',
                    bases=['chop', 'craft', 'hunt', 'mine_iron', 'mine_stone', 'smelt'], goal_met=True),
 }
