@@ -600,6 +600,42 @@ class ARowIsPlainData(unittest.TestCase):
             wf._plain(dict(live, footing=lambda spot: spot))
 
 
+class AFailedMineJudgesItsOwnOre(unittest.TestCase):
+    """A mine_iron condition that must fail checks the ore is still there — at the cell the base puts it
+    (mine_iron__tool_one_use failed as expected at 0 s, then its check read a box at x 4 that held no ore)."""
+
+    @staticmethod
+    def ore_cells():
+        from bonobo.bench.bench_bases import BASES
+        return {tuple(p[1:]) for kind, p, *rest in (s for s in BASES["mine_iron"]["scene"] if len(s) >= 3)
+                if kind == "setblock" and rest and rest[0] == "iron_ore"}
+
+    @staticmethod
+    def boxes(word, out):
+        if isinstance(word, tuple) and word and isinstance(word[0], str):
+            if word[0].lstrip("!") == "blocks" and "iron_ore" in word[3]:
+                out.append((tuple(word[1][1:]), tuple(word[2][1:])))
+            for w in word[1:]:
+                AFailedMineJudgesItsOwnOre.boxes(w, out)
+        return out
+
+    @staticmethod
+    def inside(c, lo, hi):
+        return all(lo[i] <= c[i] <= hi[i] for i in range(3))
+
+    def test_rows(self):
+        from bonobo.bench.bench_bases import CONDITIONS
+        ores = self.ore_cells()
+        self.assertEqual(ores, {(2, 0, 0)})
+        for cond in ("tool_one_use", "wrong_tool"):
+            with self.subTest(cond):
+                boxes = self.boxes(CONDITIONS[cond]["fails_check"]["mine_iron"], [])
+                self.assertTrue(boxes)
+                self.assertTrue(all(any(self.inside(c, lo, hi) for c in ores) for lo, hi in boxes))
+        with self.subTest("must fail: the old box at x 4 holds no ore of the base"):
+            self.assertFalse(any(self.inside(c, (4, 0, 0), (4, 1, 0)) for c in ores))
+
+
 class DeflectCells(unittest.TestCase):
     """The deflect rows' words: a volley of 3 fireballs at the eye, each tracked to its end, judged on server health."""
 
