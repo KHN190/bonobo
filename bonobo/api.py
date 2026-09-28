@@ -509,7 +509,8 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
     if not isinstance(awaits, str) or not awaits.strip():
         raise ValueError("api.run: `awaits` must name the world result waited for (else send a chain)")
     if not arbiter.BODY.owns(f"api.run({task.get('type')})"):
-        return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}
+        # one funnel with run_chain and go_to: the skill driver waits the fight out and resumes (never a spent try)
+        raise FightHolds(f"the body is held: {task.get('type')} not sent")
     at_boundary()          # nightfall: a single send is a boundary too (mine's mine_many went out after the request)
     task = DRESS(task) if DRESS else task
     task = ARM([task])[0] if ARM else task
