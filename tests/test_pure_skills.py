@@ -233,6 +233,56 @@ class SealPlan(unittest.TestCase):
                 self.assertTrue(all(t["type"] == "place" for t in got))
 
 
+class TunnelAroundCaves(unittest.TestCase):
+    """skills.plan_tunnel / tunnel_run: the night's tunnel is planned through the walls — never into a cave it could
+    avoid, away from hostiles seen through the rock; boxed in by caves, the opening is sealed first (seal_plan)."""
+
+    @staticmethod
+    def rock(air=()):
+        from tests.world import FakeRegion
+        blocks = {(x, y, z): "stone" for x in range(-6, 7) for y in range(63, 67) for z in range(-6, 7)}
+        for c in [(0, 64, 0), (0, 65, 0), *air]:
+            blocks.pop(c, None)
+        return FakeRegion((-7, 62, -7), (7, 67, 7), blocks)
+
+    def test_the_way_chosen(self):
+        feet, east = (0, 64, 0), (1, 0)
+        boxed = [(1, 64, 1), (-1, 64, -1)]          # one pocket beside each first step
+        # (situation, cave air, hostiles through the walls) → (direction, steps, cells to seal first)
+        rows = [("solid all round: the facing, the whole length", [], [], ((1, 0), 4, None)),
+                ("a cave two steps east: another way, the whole length", [(2, 64, 1)], [], ((0, 1), 4, None)),
+                ("a zombie behind the east wall: the way ending farthest from it", [], [(5, 64, 0)], ((-1, 0), 4, None)),
+                ("boxed in by caves: the facing's first step, sealed first", boxed, [],
+                 ((1, 0), 0, [(1, 65, 0), (1, 64, 0)]))]
+        for name, air, hostiles, want in rows:
+            with self.subTest(name):
+                self.assertEqual(skills.plan_tunnel(self.rock(air), feet, 4, hostiles=hostiles, facing=east), want)
+        with self.subTest("must fail: the cave the facing would break into is not dug into"):
+            d, end, cave = skills.plan_tunnel(self.rock([(2, 64, 1)]), feet, 4, facing=east)
+            self.assertNotEqual(d, east)
+
+    def test_the_opening_sealed_first(self):
+        region = self.rock([(1, 64, 1), (-1, 64, -1)])
+        own, cave = {(0, 64, 0), (0, 65, 0)}, [(1, 65, 0), (1, 64, 0)]
+        # (situation, bag) → cells placed into, or NotAvailable
+        rows = [("cobblestone: the pocket beside the step sealed", inventory(("cobblestone", 8)), [(1, 64, 1)]),
+                ("dirt will do", inventory(("dirt", 2)), [(1, 64, 1)]),
+                ("fluids only (the old rule): the pocket is not a fluid", None, []),
+                ("must fail: nothing to seal with", inventory(), NotAvailable)]
+        for name, inv, want in rows:
+            with self.subTest(name):
+                if inv is None:
+                    got = skills.seal_plan(region, cave, bag(inventory(("cobblestone", 8))), own=own)
+                    self.assertEqual(got, [])
+                    continue
+                if want is NotAvailable:
+                    with self.assertRaises(NotAvailable):
+                        skills.seal_plan(region, cave, bag(inv), own=own, cave=True)
+                    continue
+                got = skills.seal_plan(region, cave, bag(inv), own=own, cave=True)
+                self.assertEqual([(t["x"], t["y"], t["z"]) for t in got], want)
+
+
 class OnlyIsItemIds(unittest.TestCase):
     """data.item_ids / api.with_item_ids: every "only" the jar gets is exact item ids (it matched "log" to nothing)."""
 
