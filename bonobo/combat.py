@@ -98,3 +98,7 @@ def collect_blaze_rods(ctx, rods):
         yield Inventory().count("minecraft:blaze_rod"), len(blazes)
     raise McError("no rods collected")
 
+
+def shoot_bow(ctx, entity_id):
+    """Shell, never planned: draw full, loose at `entity_id`, leading it."""
+    raise NotImplementedError("shoot_bow: a shell")

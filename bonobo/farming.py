@@ -478,3 +478,8 @@ def breed(ctx):
     return kind
 
 jobs.COLLECT.update(crop=harvest, sapling=check_sapling)
+
+
+def fish(ctx, seconds):
+    """Shell, never planned: cast into water near, reel in bites for `seconds`."""
+    raise NotImplementedError("fish: a shell")

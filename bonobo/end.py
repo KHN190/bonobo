@@ -161,3 +161,8 @@ def enter_end(ctx):
         if api.get("/state")["dimension"] == "minecraft:the_end":
             return True
     raise McError("stood in the end portal but didn't arrive in the End")
+
+
+def throw_ender_pearl(ctx, target):
+    """Shell, never planned: throw a pearl at `target`, land there."""
+    raise NotImplementedError("throw_ender_pearl: a shell")

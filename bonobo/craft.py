@@ -618,3 +618,8 @@ def collect_machine(ctx, machine):
     got = {item: gained(lambda item=item: Inventory().count(item), n) - n for item, n in before.items()}
     ctx.mem.settle_pending(machine["name"], got)
     log(f"collected from {machine['name']}: {got}")
+
+
+def equip(ctx, item, slot):
+    """Shell, never planned: `item` from the bag into equipment `slot`."""
+    raise NotImplementedError("equip: a shell")
