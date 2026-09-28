@@ -27,6 +27,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, arbiter, craft, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, survive, tasks  # noqa: E402
+from bonobo.data import DAY_END  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import bare  # noqa: E402
@@ -1081,7 +1082,7 @@ class HeldPlans(unittest.TestCase):
 
 # -------------------------------------------------------------------------------------------------------- upkeep
 PLACE = retry.place_signature((0, 64, 0), False)
-DAY, DUSK, NIGHT = 2000, 11500, 18000
+DAY, DUSK, NIGHT = 2000, DAY_END - 25 * 20, 18000     # DUSK: 25 s before the one dusk (data.DAY_END)
 WELL_FED = [("cooked_beef", 8), ("white_bed", 1), ("stone_pickaxe", 1)]      # fixture: the default bag
 HERD = {"cow": 12, "sheep": 20, "oak_log": 10, "stone": 2}
 
