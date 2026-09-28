@@ -29,6 +29,7 @@ from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
+from ...api import McError
 from .scene import *  # noqa: F401,F403
 from .checks import *  # noqa: F401,F403
 from .runs import *  # noqa: F401,F403
@@ -111,14 +112,14 @@ def _first_times(ctx):
     def furnace_beef():
         try:
             return _furnace_holds(("minecraft:beef", "minecraft:cooked_beef"))    # beef in a furnace, read from the world
-        except Exception:
+        except McError:
             return False
 
     def morning():
         try:
             from ... import api
             return slept_through(BASE["state"]["timeOfDay"], api.get("/state")["timeOfDay"])
-        except Exception:
+        except McError:
             return False
 
     def watch():
@@ -126,7 +127,7 @@ def _first_times(ctx):
         while time.time() - t0 < 70:
             try:
                 inv = Inventory()
-            except Exception:
+            except McError:
                 time.sleep(0.5)
                 continue
             if not first_step(gen, t0, inv, _base_count, furnace_beef, time.time(), morning):
@@ -177,7 +178,7 @@ def _remove_table_when_placed(ctx):
         while time.time() - t0 < 60:
             try:
                 hit = find(["crafting_table"], radius=6, limit=1)
-            except Exception:
+            except McError:
                 hit = []
             if hit:
                 h = hit[0]
@@ -594,7 +595,7 @@ def _interrupt_once_loaded(ctx):
                 if _inv_now().count("minecraft:raw_iron") < _base_count("minecraft:raw_iron"):
                     _inject_interrupt()
                     return
-            except Exception:
+            except McError:
                 pass
             time.sleep(0.05)
     _threading.Thread(target=watch, daemon=True).start()

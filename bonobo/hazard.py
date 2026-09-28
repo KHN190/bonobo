@@ -76,7 +76,7 @@ class Watch:
         self._buried_t = now
         try:
             self._buried = bool(head_buried(state))
-        except Exception:
+        except api.McError:
             self._buried = False
         return self._buried
 

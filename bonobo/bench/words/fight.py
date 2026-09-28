@@ -30,6 +30,7 @@ from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
+from ...api import McError
 from .scene import *  # noqa: F401,F403
 from .checks import *  # noqa: F401,F403
 from .runs import *  # noqa: F401,F403
@@ -128,7 +129,7 @@ def _revive():
         if _api.get("/state").get("dead"):
             _api.post("/respawn")
             time.sleep(1.0)
-    except Exception:
+    except McError:
         pass
     return ["gamemode survival @p", "effect clear @p"]
 
@@ -150,7 +151,7 @@ def _combat_intent(state: dict[str, Any]):
     try:
         state = dict(state, field=perception.ground(state),
                      **perception.kit(str(state.get("selected", "")) + str(state.get("screen"))))
-    except Exception:
+    except McError:
         pass
     sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
     price = lambda dhp: threat.hp_seconds(sstate, dhp)
@@ -185,7 +186,7 @@ def _sampler(stop, out, began):
                     for e in entities(24) if e.get("type") in kinds]
             out.append({"t": round(time.time() - began, 2), "hp": state["health"],
                         "pos": [round(state[k], 2) for k in ("x", "y", "z")], "near": near})
-        except Exception:
+        except McError:
             pass
         stop.wait(TRACE_EVERY_S)
 
@@ -559,7 +560,7 @@ def _fight_until(kinds, seconds, clear=True):
                     alive = _hostiles(24, set(kinds))
                     FIGHT_LOG["alive"].append((time.time(), [(e.get("id"), float(e.get("health", 0)),
                                                               round(float(e.get("distance", 99)), 2)) for e in alive]))
-                except Exception:
+                except McError:
                     pass
                 stop.wait(TRACE_EVERY_S)
         sampler = _threading.Thread(target=sample, daemon=True, name="fight-samples")

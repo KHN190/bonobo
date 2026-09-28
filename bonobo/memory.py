@@ -90,10 +90,7 @@ class Memory:
         cached = getattr(self, "_tick_read", None)
         if cached is not None and time.time() - cached[0] < TICK_READ_S:
             return cached[1]                 # one read serves a burst (seen() judges every note)
-        try:
-            value = TICK_READER()
-        except Exception:        # no game to ask (an offline test): unstamped, as before
-            value = None
+        value = TICK_READER()                # None when there is no game to ask (skillcore.game_time_or_none)
         self._tick_read = (time.time(), value)
         return value
 

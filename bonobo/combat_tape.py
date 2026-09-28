@@ -18,7 +18,7 @@ def available():
     try:
         frames(1 << 30)
         return True
-    except Exception:
+    except (api.McError, OSError):
         return False
 
 class Tape:
@@ -36,7 +36,7 @@ class Tape:
 
         try:
             got = frames(self._last).get("frames") or []
-        except Exception as e:
+        except (api.McError, OSError) as e:
             self.errors.append(str(e))
             return 0
         if got and self._last >= 0 and got[0]["tick"] > self._last + 1:
@@ -96,7 +96,7 @@ class EventStream:
         """The events since the last call, oldest first. Empty on a timeout — that is a keep-alive, not an error."""
         try:
             data = events(self.seq, timeout_ms)
-        except Exception:
+        except (api.McError, OSError):
             return []
         oldest = data.get("oldest", 0)
         if self.seq and oldest > self.seq + 1:

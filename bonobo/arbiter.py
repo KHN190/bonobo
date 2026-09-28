@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import traceback
 import time
 from .data import NIGHT_WORK
 from . import api
@@ -238,9 +239,10 @@ class Motion:
             intent, release, _worth = self.lease
             try:
                 done = bool(release())
-            except Exception as e:
+            except Exception as e:  # guard: the lease must end on a judgement we cannot make, not hold the body
                 done = True       # a judgement we cannot make is not a reason to keep the body — said, not silent
-                self._log(f"   motion: {intent.layer} '{intent.reason}' release check failed: {type(e).__name__}: {e}")
+                self._log(f"   motion: {intent.layer} '{intent.reason}' release check failed: {type(e).__name__}: {e}\n"
+                          + traceback.format_exc(limit=4))
             if done:
                 self.lease = None
                 self._log(f"   motion: {intent.layer} '{intent.reason}' hands the body back")

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import time
+import traceback
 from . import paths
 
 FILE = paths.data("rounds.jsonl", env="MC_TAPE")
@@ -67,8 +68,9 @@ def _extras():
     for name, fn in SOURCES.items():
         try:
             out[name] = fn()
-        except Exception:
+        except Exception:  # guard: a registered snapshot that raises must not stop the tape; its frames go on the tape
             out[name] = None
+            out[f"{name}_error"] = traceback.format_exc(limit=3)
     return out
 
 _events = []

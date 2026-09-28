@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sys
+import traceback
 
 from .. import fight_plan as fp, paths
 
@@ -50,6 +51,6 @@ def main():
             inc, plan = replay(os.path.join(DIR, n))
             print(f"{n}\n   then: {(inc.get('intent') or {}).get('intent')}   now: {plan['intent']}   "
                   f"fault: {plan['fault'] or '-'}\n   {inc.get('note', '')[:110]}")
-        except Exception as e:
-            print(f"{n}\n   unreplayable: {e}")
+        except Exception as e:  # guard: one unreplayable incident file must not stop the listing of the rest
+            print(f"{n}\n   unreplayable: {e}\n" + traceback.format_exc(limit=3))
     return 0

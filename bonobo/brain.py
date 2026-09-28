@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .shapes import Outcome, Source
-_memory.TICK_READER = skillcore.game_time      # a look or note outside a round (bench achieve, CLI) reads the game's tick
+_memory.TICK_READER = skillcore.game_time_or_none      # a look or note outside a round (bench achieve, CLI) reads the game's tick
 api.ARM = skillcore.arm                       # every task that breaks or fights names the item it holds (the jar picks none)
 from .planner import Unplannable, runnable
 from .needs import bag_signature
@@ -201,7 +201,7 @@ class Brain:
         try:
             fn()
             err = None
-        except Exception as e:
+        except Exception as e:  # guard: any failure of a step is the failure policy's to count, with its traceback
             err, trace = e, traceback.format_exc()
         outcome, source = outcome_of(err)
         first = arbiter.resume_of(source)[1] if source is not None else None
@@ -689,7 +689,7 @@ def autoplay(hours):
         except McError as e:
             log(f"!! round: {e}")
             time.sleep(2)
-        except Exception:
+        except Exception:  # guard: the main loop must not die on a bug in one round; the crash is logged with frames
             log("!! crash in round\n" + traceback.format_exc())
             time.sleep(10)
     try:

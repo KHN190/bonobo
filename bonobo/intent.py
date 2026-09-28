@@ -58,11 +58,11 @@ def publish():
     try:
         api.post("/hud", {"lines": out})
         return
-    except Exception:
+    except api.McError:
         pass          # no /hud route on this jar: fall back to the chat line, which scrolls and holds several
     try:
         # the chat line is the only screen channel: the stack in one short message, only when it changed
         text = "[plan] " + " | ".join(out)
         api.post("/chat", {"message": text[:MAX_CHAT] + ("…" if len(text) > MAX_CHAT else "")})
-    except Exception:
+    except api.McError:
         pass          # the game is away: the file still says what we meant

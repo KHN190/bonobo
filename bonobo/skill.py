@@ -140,7 +140,7 @@ def can_run(fn, *args, **kwargs):
     for check in contract.pre:
         try:
             check(c)
-        except Exception as e:
+        except McError as e:
             return False, str(e) or type(e).__name__
     missing = unmet(contract, args, skillcore.Inventory)
     if missing:

@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 
+from ..api import McError
 from .core import (BENCH, BOX, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
 
@@ -73,7 +74,7 @@ def _watchdog(limit, fired):
         from .. import api
         try:
             api.post("/stop")
-        except Exception:
+        except api.McError:
             pass
         _thread.interrupt_main()
     t = threading.Timer(limit, fire)
@@ -194,12 +195,18 @@ def mod_hash(tags=None, java=JAVA):
         return "jar-" + _mod_version()
     return h.hexdigest()[:6]
 
+def traceback_of(e, depth=4):
+    """Pure: the innermost frames of `e` as 'file:line fn < …' — what a guard that records a failure writes."""
+    import traceback
+    return " < ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno} {f.name}"
+                      for f in reversed(traceback.extract_tb(e.__traceback__)[-depth:]))
+
 def _mod_version():
     """The running mod's version, or "unknown" when the game is not up (readiness is then simply not trusted)."""
     from .. import api
     try:
         return str(api.get("/status").get("version") or "unknown")
-    except Exception:
+    except api.McError:
         return "unknown"
 
 def jar_matches_source():
@@ -436,8 +443,8 @@ def prebuild(name):
                 time.sleep(0.5)
             _batch([ow + f"fill {lo} {hi} air"] + [ow + shift(c) for c in world], fb, settle=1.0)
             PREBUILT["ok"] = True
-        except Exception as e:                      # the old way still works: say why this one did not
-            PREBUILT["why"] = str(e)
+        except Exception as e:  # guard: a prebuild thread's failure must not kill the bench; the old way still works
+            PREBUILT["why"] = f"{e} @ {traceback_of(e)}"
         finally:
             done.set()
     threading.Thread(target=work, daemon=True, name=f"prebuild {name}").start()
@@ -655,7 +662,7 @@ def _trace(stop, out):
             out.append({"t": round(time.time(), 1), **{k: s.get(k) for k in
                         ("x", "y", "z", "health", "food", "dead", "inWater", "inLava", "onGround", "screen")},
                         "task": (s.get("control") or {}).get("task")})
-        except Exception as e:
+        except api.McError as e:
             out.append({"t": round(time.time(), 1), "error": str(e)})
         stop.wait(0.2)
 
@@ -665,7 +672,7 @@ def _report(name, data):
         data["inventory"] = [(s["id"], s["count"]) for s in Inventory().slots]
         lo, hi = at(*BOX[0]), at(*BOX[1])
         data["region"] = [[*p, n] for p, n in Region(lo, hi).blocks.items()]
-    except Exception as e:
+    except McError as e:
         data["report_error"] = str(e)
     folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S"))
     os.makedirs(folder, exist_ok=True)
@@ -703,14 +710,11 @@ def _run_row(sc, make_ctx, fired):
             raise                      # the user's ^C, not the limit
         exc = McError(f"{TIMEOUT}: stopped at the {limit}s limit")
         note = str(exc)
-    except Exception as e:     # the skill's own failure is a result, not a crash of the bench
+    except Exception as e:  # guard: the skill's own failure is a result the bench records, not a crash of the bench
         exc, note = e, f"{type(e).__name__}: {e}"
         if not isinstance(e, (api.McError, api.NotAvailable, SetupInvalid)):
             crashed = True      # a bug in our own code is never a pass, whatever the world looks like after
-            # a crash says nothing without its frames
-            import traceback as _tb
-            note += " @ " + " < ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno} {f.name}"
-                                       for f in reversed(_tb.extract_tb(e.__traceback__)[-4:]))
+            note += " @ " + traceback_of(e)       # a crash says nothing without its frames
     return result, exc, note, crashed, t0
 
 RESPAWN_JUMP = 32.0      # blocks between two trace samples 0.2 s apart: no walk does that — a respawn did
@@ -737,8 +741,8 @@ def check_parts(check, api, inv):
         word = getattr(part, "__table__", None) or getattr(part, "__name__", "?")
         try:
             out.append((str(word), bool(part(api, inv))))
-        except Exception as e:
-            out.append((str(word), f"{type(e).__name__}: {e}"))
+        except Exception as e:  # guard: a check word that raised is a readout of the failed row, not a bench crash
+            out.append((str(word), f"{type(e).__name__}: {e} @ {traceback_of(e)}"))
     return out
 
 
@@ -764,8 +768,8 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
                 try:
                     from .words.fight import fight_readout
                     CHECK_READOUT["fight"] = fight_readout()
-                except Exception as e:
-                    CHECK_READOUT["fight"] = f"{type(e).__name__}: {e}"
+                except Exception as e:  # guard: the fight readout is evidence for a failed row; it never fails the bench
+                    CHECK_READOUT["fight"] = f"{type(e).__name__}: {e} @ {traceback_of(e)}"
         # a crash of ours is never a pass
         from . import vocab as _rows
         ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
@@ -780,9 +784,9 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
             note = (note + " " if note else "") + sc["detail"](inv_after)   # what a pass really produced
         if ok and sc.get("fails"):
             note = (note + " " if note else "") + f"(failed as expected: /{sc['fails']}/)"
-    except Exception as e:
+    except Exception as e:  # guard: a check of ours that raised is recorded as the row's harness error, never a pass
         exc = exc or type("HarnessError", (Exception,), {})(f"check failed: {e}")
-        note = note or f"check failed: {e}"
+        note = note or f"check failed: {e} @ {traceback_of(e)}"
     return ok, exc, note
 
 def _begin(name, sc, feedback):
@@ -916,8 +920,8 @@ def run_idle(name, make_ctx):
             time.sleep(sc["budget"])
         except SetupInvalid as e:
             note = f"SETUP_INVALID: {e}"
-        except Exception as e:             # a hook of ours broke: the row says nothing either way
-            verdict_, note = IDLE_ERROR, f"{type(e).__name__}: {e}"
+        except Exception as e:  # guard: a hook of ours broke — the idle row records it and says nothing either way
+            verdict_, note = IDLE_ERROR, f"{type(e).__name__}: {e} @ {traceback_of(e)}"
         else:
             from .words.checks import BASE, FAILED_AS_EXPECTED
             if sc.get("fails"):
@@ -925,8 +929,8 @@ def run_idle(name, make_ctx):
             inv = Inventory()
             try:
                 reached = bool(sc["check"](_api, inv))
-            except Exception as e:
-                reached, note = False, f"check raised {type(e).__name__}: {e}"
+            except Exception as e:  # guard: a check that raised is no pass, and the idle row records why
+                reached, note = False, f"check raised {type(e).__name__}: {e} @ {traceback_of(e)}"
             died = died_during(trace)
             verdict_ = idle_verdict(reached, died)
             parts = check_parts(sc["check"], _api, inv)

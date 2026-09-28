@@ -152,7 +152,11 @@ class CheckParts(unittest.TestCase):
                 ("must fail: a check with no parts names nothing", no, [])]
         for name, check, want in rows:
             with self.subTest(name):
-                self.assertEqual(runner.check_parts(check, None, None), want)
+                got = runner.check_parts(check, None, None)
+                # a raised part also says where (its frames after ' @ ')
+                self.assertEqual([(w, v.split(" @ ")[0] if isinstance(v, str) else v) for w, v in got], want)
+        with self.subTest("the raised part's frames name the function that raised"):
+            self.assertIn(" boom", runner.check_parts(_all(boom), None, None)[0][1].split(" @ ")[1])
 
 
 

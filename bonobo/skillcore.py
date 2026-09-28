@@ -18,6 +18,14 @@ def game_time():
     it into memory.TICK_READER — memory stays below the skills)."""
     return api.get("/state").get("gameTime")
 
+def game_time_or_none():
+    """game_time, or None when there is no game to ask (an offline test): memory's TICK_READER — memory stays below
+    the api and catches nothing itself."""
+    try:
+        return game_time()
+    except McError:
+        return None
+
 def _collect_only(wanted):
     """{"only": [...]} for mine/collect tasks when the bag is nearly full, else {}."""
     only = pickup_whitelist(Inventory().used_slots(), wanted)
@@ -257,7 +265,7 @@ def arm(tasks, inv=None, read_blocks=True):
                 names = {c: region.name(c) for c in cells}
             else:
                 names = {c: Region(c, c).name(c) for c in cells}
-    except Exception as e:              # no world to read (an offline test): the tasks go as they were — said, never silent
+    except McError as e:              # no world to read (an offline test): the tasks go as they were — said, never silent
         api.detail(f"  arm: {type(e).__name__}: {e} — {[t.get('type') for t in tasks]} sent without naming what they hold")
         return tasks
     out = []

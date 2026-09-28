@@ -342,7 +342,7 @@ def centre_holds(pos, block):
             said = probe(pos, block)
             if said is not None:               # no answer from the server: the client's held read decides
                 return said
-        except Exception:
+        except McError:
             pass
     got = skillcore.settle(lambda: Region(pos, pos).name(pos), lambda n: n == bare(block), timeout=2.0, stable_s=HOLD_S)
     return got == bare(block)
@@ -354,7 +354,7 @@ def server_view(pos):
         return ""
     try:
         return "; server: " + ", ".join(f"{b} {probe(pos, b)}" for b in ("air", "water"))
-    except Exception as e:
+    except McError as e:
         return f"; server probe failed: {e}"
 
 # hooks the bench wires (production leaves them empty): {"server_block": fn(pos, block) → bool, the server's answer to
@@ -403,7 +403,7 @@ def await_job(ctx, item, count):
                 if "tick_speed" in PROBE and not getattr(await_job, "_speed_logged", False):
                     try:
                         speed = f"; random_tick_speed in effect: {PROBE['tick_speed']()}"
-                    except Exception as e:
+                    except McError as e:
                         speed = f"; tick speed probe failed: {e}"
                     await_job._speed_logged = True
                 api.detail(f"  await {bare(item)} at {tuple(j['pos'])}: tick {tick}, ages "

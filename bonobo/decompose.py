@@ -3,6 +3,7 @@
 import math
 
 from . import blueprints, goals, knowledge, actions as act, skill
+from .api import McError
 from .cost import TICKS_PER_S
 from .data import POD_BLOCKS, mid
 from .planner import Planner, Step, Unplannable
@@ -119,7 +120,7 @@ def missing_detail(step):
                 return None                  # one provider can serve it from what the step carries
             except LookupError as e:
                 missing = missing or str(e.args[0])
-            except Exception:
+            except (AttributeError, TypeError, McError):
                 return None                  # it needs the world (ctx) to say: not refusable offline
     return missing
 

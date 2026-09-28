@@ -942,10 +942,16 @@ class Runner(unittest.TestCase):
         for pre, want in (([], (True, None)), ([ok], (True, None)),
                           ([_missing_pick], (False, "need a tier-1 pickaxe")),
                           ([ok, _missing_pick], (False, "need a tier-1 pickaxe")),
-                          ([lambda c: (_ for _ in ()).throw(RuntimeError())], (False, "RuntimeError"))):
+                          ([lambda c: (_ for _ in ()).throw(NotAvailable("closed"))], (False, "closed")),
+                          # must fail: a precondition's bug is no "cannot run" — it raises (the broad catch hid it)
+                          ([lambda c: (_ for _ in ()).throw(RuntimeError())], RuntimeError)):
             with self.subTest(pre=pre), mock.patch.dict(skillkit.REGISTRY):
                 runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=NOTHING_LEFT, name=f"can_run_{len(pre)}", pre=pre)(lambda ctx: None)
-                self.assertEqual(skillkit.can_run(runner, None), want)
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        skillkit.can_run(runner, None)
+                else:
+                    self.assertEqual(skillkit.can_run(runner, None), want)
 
     def test_step_keys_most_specific_first(self):
         from bonobo.planner import Step

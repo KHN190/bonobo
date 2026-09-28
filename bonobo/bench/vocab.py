@@ -32,6 +32,7 @@ import re
 import sys
 import time
 from . import core, runner
+from ..api import McError
 from ..data import DAY_TICKS, POD_BLOCKS
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
@@ -368,7 +369,7 @@ def _growing(run):
                     if find(["water"], radius=10, limit=1):
                         _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
                         return
-                except Exception:
+                except (McError, SetupInvalid):
                     pass
                 stop.wait(0.25)
         _threading.Thread(target=watered, daemon=True).start()
