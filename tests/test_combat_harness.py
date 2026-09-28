@@ -140,5 +140,21 @@ class CheckParts(unittest.TestCase):
                 self.assertEqual(runner.check_parts(check, None, None), want)
 
 
+
+class DiedDuring(unittest.TestCase):
+    """runner.died_during: any death in the run fails it, whatever hp reads after the respawn."""
+
+    def test_rows(self):
+        s = lambda x, hp=20.0, dead=False: {"x": x, "z": 0.0, "health": hp, "dead": dead}      # noqa: E731
+        rows = [("fought and lived", [s(0.5), s(1.5, 14.0), s(2.0, 12.0)], False),
+                ("must fail: read dead once", [s(0.5), s(0.5, 0.0, True), s(-527.0)], True),
+                ("must fail: never read dead, but back at spawn (a jump no walk makes)", [s(0.5, 4.0), s(-527.0)],
+                 True),
+                ("a sprint is no jump", [s(0.5), s(4.0)], False)]
+        for name, trace, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.died_during(trace), want)
+
+
 if __name__ == "__main__":
     unittest.main()

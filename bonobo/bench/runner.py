@@ -4,6 +4,7 @@ import ast
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -704,6 +705,19 @@ def _run_row(sc, make_ctx, fired):
                                        for f in reversed(_tb.extract_tb(e.__traceback__)[-4:]))
     return result, exc, note, crashed, t0
 
+RESPAWN_JUMP = 32.0      # blocks between two trace samples 0.2 s apart: no walk does that — a respawn did
+
+
+def died_during(trace):
+    """Pure: did the body die during the run — a sample reading dead or no health, or a jump between two samples
+    no walk makes (the respawn at world spawn)? A check reading hp after the respawn (20) passed a dead bot
+    (fight_zombie_3: 3 kills, then dead, back at spawn, 'hp kept')."""
+    samples = [s for s in trace if "x" in s and s.get("x") is not None]
+    if any(s.get("dead") or (s.get("health") is not None and s["health"] <= 0) for s in samples):
+        return True
+    return any(math.dist((a["x"], a["z"]), (b["x"], b["z"])) > RESPAWN_JUMP for a, b in zip(samples, samples[1:]))
+
+
 def check_parts(check, api, inv):
     """[(the word, its answer)] of a check made of parts (words.checks._all): which part said no, and each value —
     a failed row whose note only says 'without the outcome' named nothing."""
@@ -799,6 +813,9 @@ def run(name, make_ctx):
             seconds = time.time() - t0
             LAST_LINES[:] = console.lines          # slices read the cerebellum's own log for loops
             ok, exc, note = _row_verdict(sc, seconds, crashed, fired, exc, note)
+            if ok and died_during(trace):
+                # a death in the run fails it, whatever the world reads after the respawn
+                ok, exc, note = False, McError("died during the run"), "died during the run (respawned)"
             from .. import skillcore as _sc
             if not ok and type(exc).__name__ != "SetupInvalid" and _sc.dead():
                 # died is the result, whatever the skill did after
