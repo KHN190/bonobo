@@ -36,3 +36,21 @@ class AnIdleRoundWakesOnTheOutcome(unittest.TestCase):
             with self.subTest(name), mock.patch.object(api, "run", return_value={"status": "succeeded"}):
                 me = SimpleNamespace(just_finished=False, wake=wake)
                 self.assertEqual(brain.Brain.idle_wait(me, lambda: False), want)
+
+
+class APrebuildIsNeverWaitedOn(unittest.TestCase):
+    def test_rows(self):
+        import threading
+        import time
+        from bonobo.bench import runner
+        # (situation, its prebuild finished) → cloned
+        for name, finished, want in [("finished: cloned", True, True),
+                                     ("must fail (no wait): not finished yet — built in place at once", False, False)]:
+            with self.subTest(name):
+                done = threading.Event()
+                if finished:
+                    done.set()
+                runner.PREBUILT.update(name="r", done=done, ok=True)
+                t0 = time.time()
+                self.assertIs(runner.take_prebuilt("r"), want)
+                self.assertLess(time.time() - t0, 0.5)

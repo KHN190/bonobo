@@ -456,11 +456,9 @@ def prebuilt_ready(prebuilt, name):
     done = prebuilt.get("done")
     return prebuilt.get("name") == name and done is not None and done.is_set() and bool(prebuilt.get("ok"))
 
-def take_prebuilt(name, wait_s=120):
-    """Was row `name`'s world built ahead at site B?"""
+def take_prebuilt(name):
+    """Was row `name`'s world built ahead at site B, and is it ready now? Never waited on: not ready, built in place."""
 
-    if PREBUILT["done"] is not None:
-        PREBUILT["done"].wait(wait_s)
     if PREBUILT["name"] != name:
         return False
     ok = prebuilt_ready(PREBUILT, name)
