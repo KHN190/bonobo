@@ -48,7 +48,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
              
               "attack_s", "speed", "exists_prior",
              
-              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp", "arrow_hp", "bow_hit_p", "shot_s"]
+              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp", "arrow_hp", "bow_hit_p", "shot_s", "fuse_stop_blocks"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
@@ -64,7 +64,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 "minecraft:stray" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 3.5, ranged = true }
 "minecraft:pillager" = { hp = 24, attack = 4.0, notice_r = 16.0, attack_s = 1.6, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }
 "minecraft:witch" = { hp = 26, attack = 3.0, notice_r = 16.0, attack_s = 1.5, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }
-"minecraft:creeper" = { hp = 20, attack = 43.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 5.0, speed = 2.5, burst = true }
+"minecraft:creeper" = { hp = 20, attack = 43.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, speed = 2.5, burst = true }   # keep_out: fuse_stop_blocks + 0.5 (beliefs)
 "minecraft:spider" = { hp = 16, attack = 3.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.0, squeezes = true }
 "minecraft:cave_spider" = { hp = 12, attack = 2.0, notice_r = 16.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 3.0, squeezes = true }
 "minecraft:phantom" = { hp = 20, attack = 6.0, notice_r = 64.0, attack_s = 3.0, reach = 3.0, keep_out = 3.0, speed = 6.0, squeezes = true }
@@ -103,6 +103,7 @@ work_horizon_s = 20.0      # how long we would stay in their reach if we simply 
 react_s = 3.0              # a threat further out than this is the next decision's: nothing is owed to it yet
 no_go_margin = 2.0         # blocks added to a mob's reach before ordinary planning refuses to route through it
 fuse_s = 1.5               # a creeper's fuse: how long we have to be out of its blast
+fuse_stop_blocks = 7.0     # a lit creeper's fuse runs on while we are this near
 swing_s = 0.625            # a sword's swing refilling (attack speed 1.6/s): one hit per swing
 keepoff_risk = 0.05        # of a creeper's blast a hit-and-back-off fight still takes, per hit (a late step back)
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after

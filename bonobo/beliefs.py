@@ -22,6 +22,8 @@ def _with_dps(row):
     return out
 
 MOBS = {kind: _with_dps(row) for kind, row in CONFIG["mobs"].items()}
+# a creeper is kept off past where its fuse stops (fight_creeper_1: backed to 6.9, blew)
+MOBS["minecraft:creeper"]["keep_out"] = float(CONFIG["engage"]["fuse_stop_blocks"]) + 0.5
 PLAYER = CONFIG["player"]
 # named so a ranking built on them is never mistaken for a measurement
 UNMEASURED = tuple(CONFIG["tools"].get("unmeasured", ()))

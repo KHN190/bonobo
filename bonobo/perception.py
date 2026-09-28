@@ -92,6 +92,7 @@ def note_threats(near, now=None, here=None, context=None):
     now = now if now is not None else _t.time()
     threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context)
     threat.THREAT_IMPACTS = threat.impacts_of(near)
+    threat.THREAT_LIT = {e.get("id") for e in near or [] if e.get("type") == "minecraft:creeper" and threat.fuse_lit(e)}
     threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
     threat.THREAT_ALIVE = threat.alive_ids(near)
     threat.THREAT_HIT_S = threat.soonest_hit_s(near)

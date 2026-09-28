@@ -33,7 +33,7 @@ def aggro(e, context=None):
     unless we wear gold; every other neutral (enderman, zombified piglin, wolf …) only when provoked.
     `context`: {"day": the sun is up where we are, "gold_worn": a golden armour piece on}."""
     kind = e.get("type")
-    if e.get("angry") or kind not in NEUTRAL_MOBS:
+    if e.get("angry") or e.get("attacking") or kind not in NEUTRAL_MOBS:     # the jar's flags
         return True
     ctx = context or {}
     if kind in ("minecraft:spider", "minecraft:cave_spider"):
@@ -96,6 +96,10 @@ def hostile_rows(near, memory, now, here=None, context=None):
 
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
     return rows(near or [], memory, now, kinds, here=here, context=context)
+
+def fuse_lit(e):
+    """Pure: the jar reads this creeper's fuse as lit (`ignited`)."""
+    return bool(e.get("ignited"))
 
 def impacts_of(near):
     """Pure: [(point, seconds, radius)] — where and when each projectile or lunge the jar predicts lands (its
@@ -252,6 +256,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
 
     carried = int(state.get("blocks", 0))
     cap = int(ENGAGE.get("block_max", 4))
+    creeper = any(h[3] == "minecraft:creeper" for h in hazards)     # a blast breaks a wall and a hole
     # digging down spends no blocks, only diggable ground; the other two shapes spend what is carried
     most_of = {"between": min(carried, cap), "under": min(carried, cap),
                "down": cap if state.get("dig_ok") else 0}
@@ -262,6 +267,8 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
     out = []
     for where in SHAPES:
         if where == "between" and (cell is None or not grid.blocks_worth_placing()):
+            continue
+        if creeper and where in ("between", "down"):
             continue
         each_s = float(ENGAGE["dig_s"] if where == "down" else ENGAGE["block_s"])
         if where == "under":
@@ -351,8 +358,12 @@ def options(state):
     # fight: kill them and nothing is coming; a creeper with a sword is fought hit-and-back first (walking away only postpones it)
     sword = int(state.get("sword", 0))
     creepers = [i for i, h in enumerate(hazards) if MOBS[h[3]].get("burst") and h[3] == "minecraft:creeper"]
-    if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
-                                       for i, h in enumerate(hazards)):
+    clear = float(MOBS["minecraft:creeper"]["keep_out"])
+    lit = set(state.get("lit") or ())
+    # never stand within the fuse's range of a hissing creeper: out first, strike when it walks again
+    hissing = any(ids[i] in lit and math.dist(here, hazards[i][0]) < clear for i in creepers)
+    if creepers and sword >= 1 and not hissing and all(MOBS[h[3]].get("burst") is None or i in creepers
+                                                        for i, h in enumerate(hazards)):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
         t_c, lost_c = keepoff_cost(here, hazards[first], sword, prot)
         rest = [h for i, h in enumerate(hazards) if i != first]
@@ -634,6 +645,7 @@ def hp_seconds(s, dhp):
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 THREAT_ALIVE: set = set()   # every living entity id the last reading listed (x-ray: an occluded mob is still there)
 THREAT_IMPACTS: list = []   # the jar's predicted impacts in the last reading (impacts_of)
+THREAT_LIT: set = set()     # ids of creepers whose fuse the last reading shows lit
 # seconds until the soonest hit on the body lands, as the JAR predicts it (/entities tti_ticks: every projectile and
 # melee mob stepped as the game ticks them, anaka combat.Impact), or None: no hit coming. Never re-derived here.
 THREAT_HIT_S = None
@@ -641,12 +653,13 @@ THREAT_HIT_S = None
 
 def _forget_threats():
     """The last life's threats (their ids, their rows, the hit it predicted) are nobody's now."""
-    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S
+    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S, THREAT_LIT
     THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S = [], [], 0.0, set(), [], None
+    THREAT_LIT = set()
 
 
 lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE",
-                                            "THREAT_IMPACTS", "THREAT_HIT_S"))
+                                            "THREAT_IMPACTS", "THREAT_HIT_S", "THREAT_LIT"))
 
 def alive_ids(near):
     """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""

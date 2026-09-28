@@ -296,7 +296,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok")),
           "footing": state.get("footing"),
           "alive": set(threat.THREAT_ALIVE) | {i for i in ids if i is not None},
-          "impacts": list(threat.THREAT_IMPACTS)}
+          "impacts": list(threat.THREAT_IMPACTS), "lit": set(threat.THREAT_LIT)}
     if work_s is not None:
         st["work_s"] = work_s
     return st

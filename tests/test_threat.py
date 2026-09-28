@@ -938,6 +938,7 @@ class WhoIsAfterUs(unittest.TestCase):
                 ("must fail: an enderman provoked is no neutral", {"type": "minecraft:enderman", "angry": True},
                  self.DAY, True),
                 ("a piglin, no gold on", {"type": "minecraft:piglin"}, self.DAY, True),
+                ("a spider attacking us, in daylight", {"type": "minecraft:spider", "attacking": True}, self.DAY, True),
                 ("a piglin, gold worn", {"type": "minecraft:piglin"}, self.GOLD, False),
                 ("must fail: a piglin provoked, gold or not", {"type": "minecraft:piglin", "angry": True}, self.GOLD,
                  True),
@@ -1022,6 +1023,41 @@ class MeleeOnlyWhatWeCanReach(unittest.TestCase):
         for name, dy, want in rows:
             with self.subTest(name):
                 self.assertEqual(estimate.melee_reachable(HERE, self.up("minecraft:zombie", 2, dy)), want)
+
+
+class ACreeperIsStruckOnlyWhileItWalks(unittest.TestCase):
+    """Hit, then out past where its fuse stops (fuse_stop_blocks + 0.5); strike again only once the fuse is off."""
+
+    def state(self, d, lit, kind="minecraft:creeper"):
+        from bonobo import field
+        return {"here": HERE, "hp": 20, "sword": 2, "protection": 0.3, "blocks": 64, "hazards": [row(kind, d, 0)],
+                "ids": [0], "field": field.Field(bucket="underground"), "dig_ok": True, "lit": lit}
+
+    def test_columns_over_the_table(self):
+        # (distance, fuse lit) → (fight offered, a wall or a hole offered)
+        rows = [("4 off, walking: strike", 4, set(), (True, False)),
+                ("must fail: 4 off, hissing — no strike, out first", 4, {0}, (False, False)),
+                ("a hissing one 6 off: still inside its fuse, no strike", 6, {0}, (False, False))]
+        for name, d, lit, want in rows:
+            with self.subTest(name):
+                opts = threat.options(self.state(d, lit))
+                shaped = any(o.kind == "reshape" and o.target[0] in ("between", "down") for o in opts)
+                self.assertEqual(("fight" in {o.kind for o in opts}, shaped), want)
+
+    def test_a_zombie_still_gets_walls(self):
+        opts = threat.options(self.state(8, set(), "minecraft:zombie"))
+        self.assertTrue(any(o.kind == "reshape" and o.target[0] in ("between", "down") for o in opts))
+
+    def test_keep_out_is_the_fuse_constant(self):
+        self.assertEqual(threat.MOBS["minecraft:creeper"]["keep_out"], float(threat.ENGAGE["fuse_stop_blocks"]) + 0.5)
+
+    def test_fuse_lit(self):
+        rows = [("lit", {"ignited": True, "fuse_ticks": 12}, True), ("walking", {"ignited": False}, False),
+                ("must fail: a fuse count alone is no lit fuse", {"fuse_ticks": 30}, False),
+                ("an old jar: no field", {}, False)]
+        for name, e, want in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.fuse_lit(e), want)
 
 
 class EatingInAFight(unittest.TestCase):
