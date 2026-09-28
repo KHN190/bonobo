@@ -82,5 +82,19 @@ class GapOpen(unittest.TestCase):
                 self.assertEqual(fight.gap_open(solid), want)
 
 
+
+class NeedsRespawn(unittest.TestCase):
+    """runner.needs_respawn: a row begins alive — the dead flag or no health means respawn first."""
+
+    def test_rows(self):
+        rows = [("alive", {"dead": False, "health": 20.0}, False), ("hurt but alive", {"dead": False, "health": 3.0}, False),
+                ("dead", {"dead": True, "health": 0.0}, True),
+                ("must fail to start: the death screen reads not dead with no health", {"dead": False, "health": 0.0},
+                 True)]
+        for name, state, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.needs_respawn(state), want)
+
+
 if __name__ == "__main__":
     unittest.main()

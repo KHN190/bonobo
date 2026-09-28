@@ -449,12 +449,29 @@ def take_prebuilt(name, wait_s=120):
     PREBUILT.update(name=None, done=None, ok=False)
     return ok
 
+def needs_respawn(state):
+    """Pure: is the body still dead for a new row — the dead flag, or no health (the death screen can read dead
+    False with health 0: fight_skeleton_1's second run, 'hp 0.0 after setup' after the first run died)."""
+    return bool(state.get("dead")) or float(state.get("health", 0) or 0) <= 0
+
+
+RESPAWN_TRIES = 10          # half a second apart: a respawn loads the spawn area first
+
+
+def _respawn(api):
+    """Respawn until the body is alive with health, or SetupInvalid — never a row begun dead."""
+    for _ in range(RESPAWN_TRIES):
+        if not needs_respawn(api.get("/state")):
+            return
+        api.post("/respawn")
+        time.sleep(0.5)
+    raise SetupInvalid(f"still dead after {RESPAWN_TRIES} respawns")
+
+
 def _setup(name, sc, feedback):
     from .. import api
     SETUP_S.clear()
-    if api.get("/state").get("dead"):
-        api.post("/respawn")
-        time.sleep(2)
+    _respawn(api)                # the last row may have died (fight rows do)
     api.post("/resume")          # a pause menu freezes the integrated server: commands would do nothing
     time.sleep(0.5)
     lo, hi = at(*BOX[0]), at(*BOX[1])
