@@ -49,6 +49,10 @@ def rows(near, memory, now, kinds, here=None):
         kind = e.get("type")
         if kind not in kinds:
             continue
+        if e.get("health") is not None and float(e["health"]) <= 0:
+            # dying: listed through its death animation (~1 s), no longer a target — as the nearest row it was
+            # chosen again and again, 'target not found' with a live zombie beside us (fight_zombie_3 23:46:01)
+            continue
         pos = (e["x"], e["y"], e["z"])
         vel = (0.0, 0.0, 0.0)
         key = e.get("id")

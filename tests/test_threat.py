@@ -47,6 +47,10 @@ class Rows(unittest.TestCase):
             ("the last reading is 3 s old: at rest, not a teleport", ((20.0, 64.0, 0.0), 98.0),
              {"type": "minecraft:zombie", "x": 8.0}, ZOMBIE, [((8.0, 64.0, 0.0), (0.0, 0.0, 0.0))]),
             ("must fail: a kind nobody asked about is not a row", None, {"type": "minecraft:cow", "x": 1.0}, ZOMBIE, []),
+            ("must fail: a dying zombie (health 0) is no row", None, {"type": "minecraft:zombie", "x": 1.0,
+                                                                     "health": 0.0}, ZOMBIE, []),
+            ("a hurt zombie (health 3) is", None, {"type": "minecraft:zombie", "x": 1.0, "health": 3.0}, ZOMBIE,
+             [((1.0, 64.0, 0.0), (0.0, 0.0, 0.0))]),
             ("nothing asked for, nothing built", None, {"type": "minecraft:zombie", "x": 1.0}, {}, [])]
 
     def test_rows_over_the_table(self):

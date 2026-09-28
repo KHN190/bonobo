@@ -110,7 +110,7 @@ def carry(want_of, answer, going, held, again=False, stale=None):
                 # nothing left no trace (fight_zombie_1: the zombie 2 blocks off at 20 hp every sample)
                 api.detail(f"  fight {want.kind}: task {r.get('status')} — {r.get('message')} {r.get('result') or ''}")
                 held["task_id"] = None
-                if stale is not None and STALE in str(r.get("message") or ""):
+                if stale is not None and any(w in str(r.get("message") or "") for w in STALE):
                     stale(want)          # the held choice is stale: decided again now, the next post carries it
                 if again:
                     held["done"] = None
@@ -204,7 +204,9 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
 
 _LAST_BID = {}         # the state and price the last bid was made on: a stale answer is re-decided on them
 
-STALE = "target not found"
+# the jar's word that the named mob is no target any more: dead ("defeated or gone" — the kill) or not found; the
+# next target is decided at once, not after one more post at the dead id (fight_zombie_3 23:45:58: 0.4 s idle)
+STALE = ("target not found", "target defeated or gone")
 
 def redecide(gone):
     """The held answer named a mob the jar cannot find (`gone`: its entity id): drop the held choice and decide
