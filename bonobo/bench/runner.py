@@ -679,19 +679,39 @@ def _trace(stop, out):
             out.append({"t": round(time.time(), 1), "error": str(e)})
         stop.wait(0.2)
 
+REPORTING = []          # the failure report still being written (a thread): the next row's setup waits on it
+
+
 def _report(name, data):
-    from ..world import Inventory, Region
-    try:
-        data["inventory"] = [(s["id"], s["count"]) for s in bag_now().slots]
-        lo, hi = at(*BOX[0]), at(*BOX[1])
-        data["region"] = [[*p, n] for p, n in Region(lo, hi).blocks.items()]
-    except McError as e:
-        data["report_error"] = str(e)
+    """The failed row's report, written on a thread (its world reads and the file); the folder named at once."""
     folder = os.path.join(BENCH, name, time.strftime("%Y%m%d-%H%M%S"))
-    os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, "report.json"), "w") as f:
-        json.dump(data, f, indent=1, default=str)
+
+    def write():
+        from ..world import Region
+        try:
+            data["inventory"] = [(s["id"], s["count"]) for s in bag_now().slots]
+            lo, hi = at(*BOX[0]), at(*BOX[1])
+            data["region"] = [[*p, n] for p, n in Region(lo, hi).blocks.items()]
+        except McError as e:
+            data["report_error"] = str(e)
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "report.json"), "w") as f:
+            json.dump(data, f, indent=1, default=str)
+    th = threading.Thread(target=write, daemon=True, name=f"report {name}")
+    th.start()
+    REPORTING[:] = [th]
     return folder
+
+
+def report_written(timeout=30.0):
+    """The last failure report done: its world reads must not see the next row's setup."""
+    for th in REPORTING:
+        th.join(timeout)
+    REPORTING[:] = []
+
+
+import atexit  # noqa: E402
+atexit.register(report_written)      # the last row's report is written before the bench exits
 
 def _run_row(sc, make_ctx, fired):
     """(result, exc, note, crashed, when the clock started): the row's `before` hooks, then its run under the limit."""
@@ -817,6 +837,7 @@ def _begin(name, sc, feedback, idle=False):
     then the setup, which respawns a body the last row left dead (_setup → _respawn). Raises SetupInvalid.
     Idle: the jar's reflex off and the body at 1 hp — any harm the row holds ends the window at once."""
     from .. import lifecycle, perception
+    report_written()             # the last row's report read its world: done before this one rebuilds it
     perception.pause(True)
     lifecycle.reset_all()
     _setup(name, sc, feedback)
