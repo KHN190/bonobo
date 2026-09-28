@@ -386,7 +386,7 @@ def await_job(ctx, item, count):
     """What the plan takes from a running job (a sown crop, a furnace): waited for in place while it is near — then
     collected (jobs.collect) — or stepped aside from (NotAvailable) when it is not."""
     began = time.time()
-    while True:
+    while True:     # bound: AWAIT_MAX_S below
         mine = [j for j in ctx.mem.jobs(ctx.dimension) if j.get("item") == item]
         if not mine:
             raise NotAvailable(f"no job is making {bare(item)}")

@@ -404,12 +404,18 @@ def _day_now():
     t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
     return not DAY_END <= t <= NIGHT_END
 
+DAY_WAIT_TICKS = 200      # one wait while sitting the night out
+
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
 def wait_for_day(ctx):
     """Sit the night out where we are, in ten-second waits, until the sun is up."""
-
-    while True:
-        api.run({"type": "wait", "ticks": 200}, wait=15, awaits="the time of day")
+    t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
+    # bound: the night left on the clock plus one wait
+    deadline = time.time() + ((NIGHT_END - t) % DAY_TICKS + DAY_WAIT_TICKS) / beliefs.TICKS_PER_S
+    while not _day_now():
+        if time.time() > deadline:
+            raise NotAvailable("the night outlasted its clock (daylight cycle stopped?)")
+        api.run({"type": "wait", "ticks": DAY_WAIT_TICKS}, wait=15, awaits="the time of day")
         yield api.get("/state")["timeOfDay"]
 
 # needs: none the bag can state — a bed carried or one standing nearby
