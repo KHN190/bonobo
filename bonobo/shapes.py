@@ -138,6 +138,7 @@ class AttackTask(TypedDict):
     entity: int
     footwork: NotRequired[Any]
     item: NotRequired[str]
+    keepOff: NotRequired[float]
     shield: NotRequired[bool]
 
 

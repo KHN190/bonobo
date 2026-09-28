@@ -4,6 +4,7 @@ import json
 import math
 import os
 import time
+from typing import Any
 from . import beliefs, paths, blueprints
 from .data import GROUPS, VOLATILITY, bare, mid, seen_class
 
@@ -81,6 +82,25 @@ SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, 
 TICK_READ_S = 1.0       # a tick read outside a round serves this long (a burst of stamps and judgements)
 TICK_READER = None      # fn() → the game's tick now (skillcore wires /state gameTime): a look outside a round reads it
 
+def read_notes(path: str) -> "dict[str, Any]":
+    """The notes file's top level; {} when missing or unreadable."""
+    try:
+        with open(path) as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def write_notes(path: str, data: "dict[str, Any]") -> None:
+    """Write the notes atomically (a tmp file, then a rename)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)
+
+
 class Memory:
     def tick(self):
         """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
@@ -96,11 +116,7 @@ class Memory:
 
     def __init__(self, path=NOTES_FILE):
         self.path = path
-        try:
-            with open(path) as f:
-                self.data = json.load(f)
-        except (OSError, ValueError):
-            self.data = {}
+        self.data: dict[str, Any] = read_notes(path)
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
@@ -168,11 +184,7 @@ class Memory:
         return bool(old) or had_veins
 
     def save(self):
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(self.data, f, indent=1)
-        os.replace(tmp, self.path)
+        write_notes(self.path, self.data)
 
     # -- sites
     def sites(self, dimension=None, kinds=None):

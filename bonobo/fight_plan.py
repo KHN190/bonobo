@@ -132,13 +132,13 @@ class Action:
         return f"Action({self.name})"
 
     @property
-    def commitment_s(self):
+    def commitment_s(self) -> float:
         """kernel's contract: what cannot be abandoned half-way — one segment of interruptible work, all of an atomic one."""
 
         return self.segment_s if self.segment_s else self.duration_s
 
     @property
-    def cost_s(self):
+    def cost_s(self) -> float:
         """kernel's contract: seconds this action adds to the fight."""
 
         return 0.0 if self.in_cycle else self.duration_s + self.return_s
@@ -249,27 +249,27 @@ class Fight:
 
     # -- statistics ---------------------------------------------------------------------------------------------
 
-    def dragon_dps(self, in_cover):
+    def dragon_dps(self, in_cover: bool) -> float:
         """Health per second the dragon takes off while a window is open."""
 
         rate = float(self.cfg["combat"]["death_risk_per_exposed_s"]) * float(PLAYER_HP)
         return rate * float(self.cfg["combat"]["cover_lets_through"]) if in_cover else rate
 
-    def death_risk(self, exposure_s, in_cover, hp=None):
+    def death_risk(self, exposure_s: float, in_cover: bool, hp: "float | None" = None) -> float:
         """p(death) over one window: the damage those seconds imply at this rate, through the one curve."""
 
         spare = float(PLAYER_HP if hp is None else hp)
         damage = estimate.damage_over(self.dragon_dps(in_cover), exposure_s)
         return estimate.fatal_chance(spare, damage, cap=0.9)
 
-    def dps_here(self, state):
+    def dps_here(self, state) -> float:
         """Health per second we take now: only what already covers us counts."""
 
         pos = state["self"]["pos"]
         rows = [estimate.row(t[0], t[1], t[2], t[3], dps=self.dps.get(t[3], 0.0)) for t in state["threats"]]
         return estimate.pressure_hp_s(pos, rows, horizon=NOW_S)
 
-    def immediate_risk(self, state):
+    def immediate_risk(self, state) -> float:
         """p(death) from what hits us now: the damage a reaction time lets through, against the health we can spare."""
 
         spare = max(state["self"]["hp"] - state["self"]["hp_floor"], 1.0)
@@ -280,7 +280,7 @@ class Fight:
 
     # kernel's model contract (price, actions, admissible, default, fault, assumptions): the planner is kernel.choose
 
-    def price(self, state):
+    def price(self, state) -> float:
         """kernel: what the future costs from here, in seconds."""
 
         return self.objective(state)
@@ -292,7 +292,7 @@ class Fight:
     def assumptions(self):
         return list(UNMEASURED)
 
-    def objective(self, state):
+    def objective(self, state) -> float:
         """Expected seconds from here to a finished fight, risk included."""
 
         work = self.profile.work(state)
@@ -304,7 +304,7 @@ class Fight:
         risk += self.immediate_risk(state)
         return n * cycle_seconds() + exposure + min(1.0, risk) * self.cfg["combat"]["death_cost_s"]
 
-    def benefit(self, state, action):
+    def benefit(self, state, action) -> float:
         """Seconds saved by this action: the one scoring rule (`estimate.saved_s`) over this model's price."""
         return round(estimate.saved_s(self.objective, state, action.effect(state)), 2)
 

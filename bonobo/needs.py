@@ -3,6 +3,7 @@
 import json
 import math
 import time
+from typing import TYPE_CHECKING
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, decompose, goals, survive, beliefs
@@ -11,6 +12,8 @@ from .api import McError, NotAvailable, log
 from .bag import bag_signature
 from .cost import Cost
 from .decompose import cooled_ways, night_facts, way_key  # noqa: F401
+if TYPE_CHECKING:
+    from .shapes import BodyState, Task
 from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS
 from .knowledge import food_count, food_points, FIND_AT
 from .planner import NullCost, Planner, Unplannable
@@ -266,7 +269,7 @@ def _kind_of(c):
 def _tools_of(kind):
     return sum(1 for s in Inventory().slots if s["id"].endswith("_" + kind))
 
-def repair_commands(state, args):
+def repair_commands(state: "BodyState", args) -> "list[Task]":
     """`commands` for repair_tool: the one 2×2 craft of the two most worn tools of the kind (`repair_pair`)."""
     kind = args[0] if args else "pickaxe"
     pair = repair_pair(state["inv"].slots, kind)

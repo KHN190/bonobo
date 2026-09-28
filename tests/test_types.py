@@ -44,7 +44,9 @@ class Vocabulary(unittest.TestCase):
 class Ratchet(unittest.TestCase):
     def test_errors_never_grow(self):
         out = subprocess.run(PYRIGHT + ["--outputjson"], cwd=ROOT, capture_output=True, text=True, timeout=600)
-        n, baseline = error_count(out.stdout), int(open(BASELINE).read().split()[0])
+        with open(BASELINE) as f:
+            baseline = int(f.read().split()[0])
+        n = error_count(out.stdout)
         self.assertLessEqual(n, baseline, f"pyright: {n} errors, baseline {baseline} (pyrightconfig.json): fix the new "
                                           f"ones; the baseline only goes down")
         if n < baseline:

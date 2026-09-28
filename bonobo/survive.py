@@ -53,7 +53,7 @@ def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
     return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
 
-def torch_commands(state, args=(4, 1)):
+def torch_commands(state: "BodyState", args=(4, 1)) -> "list[Task]":
     """Pure: place tasks for up to `limit` of the darkest floor spots within `radius`, never the body's cells; [] when none."""
 
     radius, limit = (tuple(args) + (4, 1)[len(args):])[:2]
@@ -92,7 +92,7 @@ def bite_plan(food, carried, raw_ok=False):
         left[item] -= 1
         food = min(FULL_BAR, food + NUTRITION[item.split(":")[-1]])
 
-def eat_commands(state, args):
+def eat_commands(state: "BodyState", args) -> "list[Task]":
     """`commands` for eat: one eat task per planned bite, back to back (one bite a round left the bar hungry)."""
 
     raw_ok = bool(args[0]) if args else False

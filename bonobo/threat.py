@@ -1,6 +1,7 @@
 """Ordinary play's threat layer: who can hurt us, how soon, and whether to fight, walk away or wall in. Pure. The old rule was two if-statements — "hostile within 5 blocks and hp > 10 → attack it", "hp ≤ 10 and hostile within 6 → run straight away" — so a skeleton twelve blocks out shot the agent dead while it kept mining, and a zombie was punched bare-handed for thirty seconds. Neither statement knew what the enemy does, only where it stands. Same shape as the fight planner: threats are (centre, reach, velocity, kind) rows with several futures each (combat_model.hypotheses), the state is a dict, the currency is seconds and hit points, and the answer is the cheapest option — fight when the expected damage of killing everything leaves a reserve, otherwise leave its reach, or wall in when leaving costs more than building does. Numbers live in play.toml under [mobs], [player], [engage]."""
 
 import math
+from typing import Any
 
 from . import beliefs, estimate, kernel, lifecycle
 
@@ -216,7 +217,8 @@ def evade_cost(here, spot, hazards, prot):
 class Option:
     """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind."""
 
-    def __init__(self, kind, target, hp, seconds, why, leaves=0.0, heals=0.0, blast_after=0.0):
+    def __init__(self, kind: str, target: Any, hp: float, seconds: float, why: str, leaves: float = 0.0,
+                 heals: float = 0.0, blast_after: float = 0.0):
         self.kind, self.target, self.hp, self.seconds, self.why = kind, target, hp, seconds, why
         self.heals = heals
         self.leaves = leaves          # hp/s still coming at us after this answer (fleeing does not kill anything)
