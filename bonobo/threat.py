@@ -254,9 +254,12 @@ class Option:
 SHAPES = ("between", "under", "down", "roof")      # roof: a 3×3 lid 2 up, too low for a tall mob
 ROOF_BLOCKS = 9     # one block over the head is not enough: a tall mob hits from the next cell, diagonals too
 
-def _sealed_off(ground, h):
-    """Pure: the ground shuts this mob out for good (a sealed passage: its slowdown is infinite)."""
-    return ground is not None and ground.slowdown(bool(MOBS[h[3]].get("squeezes"))) == float("inf")
+def _sealed_off(ground, h, here=None):
+    """Pure: the ground shuts this mob out for good (a sealed passage on its side: its slowdown is infinite)."""
+    if ground is None:
+        return False
+    side = ground.side_of(here, h[0]) if here is not None and hasattr(ground, "side_of") else None
+    return ground.slowdown(bool(MOBS[h[3]].get("squeezes")), side) == float("inf")
 
 DETOUR_BLOCKS = 2.0     # a block that seals nothing is walked round: about two blocks more of the mob's walk
 
@@ -269,7 +272,7 @@ def delayed_pressure(here, hazards, prot, before, after, work_s):
     total = 0.0
     for h in hazards:
         rate = pressure(here, [h], prot, ground=before)
-        if rate <= 0.0 or _sealed_off(after, h):
+        if rate <= 0.0 or _sealed_off(after, h, here):
             continue
         t = arrival(here, h, ground=before, horizon=work_s)
         if t == float("inf"):
@@ -333,7 +336,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             # shaping kills nothing: what can still come at us afterwards follows as walking away's does (else a pillar
             # outbid killing a zombie) — but what the shape shuts out for good (a sealed passage: arrival inf over the
             # ground after) follows no one, and leaves nothing
-            coming = [h for h in hazards if not _sealed_off(after, h)]
+            coming = [h for h in hazards if not _sealed_off(after, h, here)]
             if where == "between":
                 # blocks in the way buy time, they kill nothing: what still comes is the pressure from its new, later
                 # arrival to the end of the work — a seal buys it all (0), a delay part of it (neither 0 nor full; a

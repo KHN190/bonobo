@@ -32,7 +32,8 @@ def arrival_s(here, hazard, ground=None, horizon=None):
 
     mob = MOBS.get(hazard[3], {})
     horizon = horizon_s(horizon)
-    slower = 1.0 if ground is None else ground.slowdown(bool(mob.get("squeezes")))
+    side = ground.side_of(here, hazard[0]) if ground is not None and hasattr(ground, "side_of") else None
+    slower = 1.0 if ground is None else ground.slowdown(bool(mob.get("squeezes")), side)
     if slower == float("inf"):
         return slower                # the way is sealed: it never arrives
     if not mob.get("burst") and share_of(getattr(ground, "shape_now", ()), mob) <= 0.0:

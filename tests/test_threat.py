@@ -1288,7 +1288,9 @@ class APassageWalledBeforeWeLook(unittest.TestCase):
         walker = estimate.row((5.5, 64.0, 0.5), 3.0, (-4.0, 0.0, 0.0), "minecraft:zombie", 1.0, 6.25)
         # (blocks already in the passage) → the walker arrives?
         rows = [("open", {}, True), ("one block (it jumps it)", {(2, 64, 0): "stone"}, True),
-                ("must fail: feet and head walled — read as open", {(2, 64, 0): "stone", (2, 65, 0): "stone"}, False)]
+                ("must fail: feet and head walled — read as open", {(2, 64, 0): "stone", (2, 65, 0): "stone"}, False),
+                ("must fail: a plug BEHIND us seals nothing in front (combat__block_gap)",
+                 {(-2, 64, 0): "stone", (-2, 65, 0): "stone"}, True)]
         for name, plug, arrives in rows:
             with self.subTest(name):
                 ground = field.from_region(FakeRegion((-8, 56, -8), (8, 72, 8), {**base, **plug}), (0.5, 64.0, 0.5), 6)

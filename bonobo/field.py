@@ -32,7 +32,7 @@ TERRAIN = Terrain()
 class Field:
 
     def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None, cover=None, shape_now=(),
-                 floor=()):
+                 floor=(), plugs=None):
         self.speed = float(speed)
         self.bucket = bucket
         self.blocks = int(blocks)
@@ -41,32 +41,42 @@ class Field:
         self.cover = cover     # the nearest 2-high space (a cell), or None
         self.shape_now = tuple(shape_now)     # the shapes we stand in now (shape_at): priced like a planned reshape
         self.floor = tuple(floor)             # the blocks under our feet, top first (a dig down breaks these)
+        self.plugs = dict(plugs or {})        # blocks already in our passage, per side (a unit step along it → n)
 
-    def slowdown(self, squeezes=False):
-        """How much longer anything takes over this ground than a straight line: learned per bucket times our placed blocks' cost."""
+    def slowdown(self, squeezes=False, side=None):
+        """How much longer anything takes over this ground than a straight line: learned per bucket times the blocks
+        in its way (ours, and those already on its `side` of our passage)."""
 
-        return self.terrain.of(self.bucket) * self.delay_ratio(squeezes)
+        return self.terrain.of(self.bucket) * self.delay_ratio(squeezes, side)
+
+    def side_of(self, here, point):
+        """The side of our passage `point` is on (a key of plugs), or None off a passage."""
+        for side in self.plugs:
+            if (point[0] - here[0]) * side[0] + (point[2] - here[2]) * side[1] > 0:
+                return side
+        return None
 
     def arrival_s(self, src, dst, squeezes=False, speed=None, now=None):
         straight = math.dist(tuple(src), tuple(dst)) / float(speed or self.speed)
         return straight * self.slowdown(squeezes)
 
-    def delay_ratio(self, squeezes=False):
-        """What the blocks in the way (there when read, and ours) do to how soon something arrives."""
+    def delay_ratio(self, squeezes=False, side=None):
+        """What the blocks in the way (ours, and those already on the mob's side) do to how soon it arrives."""
 
-        if not self.blocks:
+        blocks = self.blocks + (self.plugs.get(side, 0) if side is not None else 0)
+        if not blocks:
             return 1.0
         # the way sealed: a walker never arrives (a squeezer — spider, climber — still does, a little later)
-        if not squeezes and self.seal is not None and self.blocks >= self.seal:
+        if not squeezes and self.seal is not None and blocks >= self.seal:
             return float("inf")
-        return SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR ** self.blocks
+        return SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR ** blocks
 
     def blocks_worth_placing(self):
         return self.bucket != "open" or self.seal is not None
 
     def with_block(self, cell=None):
         return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal, self.cover, self.shape_now,
-                     self.floor)
+                     self.floor, self.plugs)
 
     def choke(self, src, dst, within=3.0):
         if math.dist(src, dst) < 2.0:
@@ -177,24 +187,25 @@ def shape_at(region, here):
 
 
 def blocks_in_passage(region, here, reach=4):
-    """Pure: blocks already filling our 1-wide passage (feet and head of its first non-empty cell either way, the
-    most of the two sides) — a passage walled before we look is as sealed as one we wall; 0 elsewhere."""
+    """Pure: blocks already filling our 1-wide passage, per side ({unit step along it: feet + head of its first
+    filled cell}) — a plug behind us seals nothing in front (combat__block_gap died to that); {} elsewhere."""
     x, y, z = (int(math.floor(v)) for v in here)
     solid = region.solid
     for dx, dz in ((1, 0), (0, 1)):
         if not all(solid((x + s * dx, yy, z + s * dz)) for s in (1, -1) for yy in (y, y + 1)):
             continue
         ax, az = dz, dx          # the passage runs across the walls
-        best = 0
+        sides = {}
         for s in (1, -1):
             for k in range(1, reach + 1):
                 c = (x + s * k * ax, y, z + s * k * az)
                 n = int(solid(c)) + int(solid((c[0], y + 1, c[2])))
                 if n:
-                    best = max(best, n)
+                    sides[(s * ax, s * az)] = n
                     break
-        return best
-    return 0
+            sides.setdefault((s * ax, s * az), 0)
+        return sides
+    return {}
 
 def floor_at(region, here, depth=4):
     """Pure: the block names under our feet, top first, `depth` deep (what a dig down breaks)."""
@@ -205,5 +216,5 @@ def floor_at(region, here, depth=4):
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
     return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here),
-                 blocks=blocks_in_passage(region, here), cover=low_cover_at(region, here),
+                 plugs=blocks_in_passage(region, here), cover=low_cover_at(region, here),
                  shape_now=shape_at(region, here), floor=floor_at(region, here))
