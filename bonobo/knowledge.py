@@ -252,6 +252,55 @@ def tool_ok(inv, kind, tier, min_left=TOOL_MIN_DURABILITY):
         return False
     return any(t >= tier and d >= min_left for t, d, _ in inv.tools(kind))
 
+# -- what to hold: the one choice of tool and weapon (the jar holds exactly the item a task names)
+AXE_BLOCKS = ("log", "wood", "planks", "crafting_table", "chest", "barrel", "_door", "ladder", "bookshelf", "fence",
+              "melon", "pumpkin", "stem")
+SHOVEL_BLOCKS = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_block", "mud", "farmland", "dirt_path",
+                 "mycelium", "podzol", "soul_sand", "soul_soil", "concrete_powder")
+HAND_BLOCKS = ("leaves", "wool", "torch", "_bed", "air", "water", "lava", "short_grass", "tall_grass", "fern", "wheat",
+               "carpet", "flower", "sapling", "vine")
+WEAPON_RANK = ("netherite_sword", "diamond_sword", "iron_sword", "stone_sword", "netherite_axe", "diamond_axe",
+               "iron_axe", "golden_sword", "wooden_sword", "stone_axe")
+
+def tool_kind(block):
+    """Pure: the tool kind that breaks `block` fastest — "axe", "shovel", "pickaxe", or None (the hand does)."""
+    name = bare(block or "")
+    if not name or any(name.endswith(h) or name == h.strip("_") for h in HAND_BLOCKS):
+        return None
+    if any(name.endswith(a) for a in AXE_BLOCKS):
+        return "axe"
+    if any(name.endswith(sv) for sv in SHOVEL_BLOCKS):
+        return "shovel"
+    return "pickaxe"
+
+def tool_for(inv, block, tier=None, min_left=2):
+    """Pure: the item a task that breaks `block` holds — the best tier of its tool kind carried with wear left (a
+    `tier` asked: at least that), else "hand" (named, never a guess: a block that needs a tool then fails the drop)."""
+    kind = tool_kind(block)
+    if kind is None or not hasattr(inv, "tools"):
+        return "hand"
+    for t, left, item in inv.tools(kind):          # best tier first
+        if left >= min_left and (tier is None or t >= tier):
+            return item
+    return "hand"
+
+def route_tool(inv):
+    """Pure: what a walk that may dig holds — a pickaxe (stone and ore on the way), else a shovel, else the hand."""
+    for kind in ("pickaxe", "shovel"):
+        tools = [item for _t, left, item in inv.tools(kind) if left >= 2] if hasattr(inv, "tools") else []
+        if tools:
+            return tools[0]
+    return "hand"
+
+def weapon_for(inv, mob=None):
+    """Pure: the weapon an attack holds — the strongest carried with wear left (swords, then axes), else "hand"."""
+    have = {}
+    for s in getattr(inv, "slots", ()):
+        if s.get("maxDamage") and s["maxDamage"] - s.get("damage", 0) <= 1:
+            continue
+        have.setdefault(bare(s["id"]), s["id"])
+    return next((have[w] for w in WEAPON_RANK if w in have), "hand")
+
 def held(inv, token):
     """How many of `token` the bag holds, groups and "food" (cooked meals) included."""
     if token == "food":

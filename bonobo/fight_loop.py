@@ -346,7 +346,7 @@ def engage(decision, s, ctx):
     tasks = batch(decision, state)
     if not tasks:
         raise NotAvailable(f"{decision.kind}: nothing to do it with from here")
-    r = api.post("/task?wait=0", {"tasks": tasks})
+    r = api.post("/task?wait=0", {"tasks": api.ARM(tasks) if api.ARM else tasks})
     queued = r.get("tasks") or []
     if not queued:
         raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")

@@ -229,3 +229,47 @@ def snapshot(center, half=2, down=1, up=2):
     region = Region(lo, hi)
     return {"lo": list(lo), "hi": list(hi),
             "blocks": {f"{x},{y},{z}": n for (x, y, z), n in region.blocks.items() if region.solid((x, y, z))}}
+
+
+ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mines break; larger: a read per cell
+
+def arm(tasks):
+    """The item each task that breaks or fights holds, named where none is (knowledge.tool_for / route_tool /
+    weapon_for): one bag read and one read of the blocks a chain's mines break. The jar holds exactly that item."""
+    from . import knowledge as _know
+    mines = [t for t in tasks if t.get("type") in ("mine", "mine_many") and "item" not in t]
+    if not mines and not any(t.get("type") in ("travel", "attack") and "item" not in t for t in tasks):
+        return tasks
+    try:
+        inv = Inventory()
+        cells = [(t["x"], t["y"], t["z"]) if t["type"] == "mine" else
+                 (t["blocks"][0]["x"], t["blocks"][0]["y"], t["blocks"][0]["z"]) for t in mines
+                 if t["type"] == "mine" or t.get("blocks")]
+        names = {}
+        if cells:
+            lo = tuple(min(c[i] for c in cells) for i in range(3))
+            hi = tuple(max(c[i] for c in cells) for i in range(3))
+            if (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1) <= ARM_REGION_MAX:
+                region = Region(lo, hi)
+                names = {c: region.name(c) for c in cells}
+            else:
+                names = {c: Region(c, c).name(c) for c in cells}
+    except Exception:                   # no world to read (an offline test): the tasks go as they were
+        return tasks
+    out = []
+    for t in tasks:
+        kind = t.get("type")
+        if "item" in t or kind not in ("mine", "mine_many", "travel", "attack"):
+            out.append(t)
+        elif kind == "mine":
+            out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
+        elif kind == "mine_many":
+            first = t.get("blocks") or [{}]
+            cell = (first[0].get("x"), first[0].get("y"), first[0].get("z"))
+            out.append({**t, "item": _know.tool_for(inv, names.get(cell))})
+        elif kind == "travel":
+            out.append({**t, "item": _know.route_tool(inv)})
+        else:
+            out.append({**t, "item": _know.weapon_for(inv)})
+    return out
+

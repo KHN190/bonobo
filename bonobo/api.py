@@ -381,6 +381,7 @@ def vet_aim(task):
 
 # How a task is dressed before it is posted (brain: nav.with_avoid over the protected cells), or None.
 DRESS = None
+ARM = None       # fn(tasks) → the tasks with the item each holds named (skillcore.arm, wired by brain)
 
 def run(task, *, awaits, wait=900):
     """Run one task to completion; returns its JSON (status may be failed — callers decide)."""
@@ -392,6 +393,7 @@ def run(task, *, awaits, wait=900):
         return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}
     at_boundary()          # nightfall: a single send is a boundary too (mine's mine_many went out after the request)
     task = DRESS(task) if DRESS else task
+    task = ARM([task])[0] if ARM else task
     why = vet_aim(task)
     if why:
         log(f"  !! {why}")
@@ -466,6 +468,7 @@ def run_chain(tasks, *, stop_on_failure=False, wait=1800, segment=6, before_segm
             check_interrupt(chain_began, SOFT)
         at_boundary()          # nightfall: before any segment, the first too — between tasks, never inside one
         part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
+        part = ARM(part) if ARM else part
         began = time.time()
         if before_segment:
             before_segment(part)
