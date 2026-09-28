@@ -65,7 +65,9 @@ class PartialChain(unittest.TestCase):
         rows = [("must fail: all done: none", [ok] * 4, []),
                 ("the till out of reach: its cell", [ok, ok, far, ok], [(-1.0, 63.0, -1.0)]),
                 ("a failure that is not reach: asked again, not banned", [ok, ok, ok, other], []),
-                ("the dig out of reach: the centre", [far, ok, ok, ok], [(0, 63, 0)])]
+                ("the dig out of reach: the centre", [far, ok, ok, ok], [(0, 63, 0)]),
+                ("the sow out of reach: its cell (aimed under the farmland's top, still that cell)",
+                 [ok, ok, ok, far], [(-1.0, 63.0, -1.0)])]
         for name, results, want in rows:
             with self.subTest(name):
                 self.assertEqual(farming.unreachable_cells(tasks, results), want)
@@ -82,6 +84,8 @@ class Sow(unittest.TestCase):
                 got = farming.sow_commands(cells)
                 self.assertEqual((len(got), {t["item"] for t in got} or {"minecraft:wheat_seeds"}),
                                  (n, {"minecraft:wheat_seeds"}))
+                # aimed at the farmland's own top (15/16), not the air above a full block's top
+                self.assertTrue(all(c[1] + 0.9 < t["y"] < c[1] + 0.9375 for c, t in zip(cells, got)))
 
 
 if __name__ == "__main__":

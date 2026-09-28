@@ -47,7 +47,7 @@ def breeding_pair(animals, kind, max_gap=8):
 
 def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
-    return [nav.use_on_top(seeds, c) for c in cells]
+    return [nav.use_on_top(seeds, c, top=nav.FARMLAND_TOP) for c in cells]      # seeds go on farmland: 15/16 high
 
 def plot_commands(centre, hoe, region=None):
     """Pure: the plot as one chain — dig the centre, pour water, then till and sow the ring."""
@@ -64,7 +64,7 @@ def plot_commands(centre, hoe, region=None):
         if name(cell) != "farmland":
             out.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
-            out.append(nav.use_on_top("minecraft:wheat_seeds", cell))
+            out.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
     return out
 
 def started_plot(region, here, radius=8):
@@ -89,7 +89,8 @@ def started_plot(region, here, radius=8):
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
 
-    return sorted({(t["x"] - 0.5, t["y"] - 1.0, t["z"] - 0.5) if isinstance(t["x"], float) else (t["x"], t["y"], t["z"])
+    return sorted({(t["x"] - 0.5, float(math.floor(t["y"] - 0.05)), t["z"] - 0.5) if isinstance(t["x"], float)
+                   else (t["x"], t["y"], t["z"])
                    for t, r in zip(tasks, results)
                    if r.get("status") != "succeeded" and "reach" in str(r.get("message", "")).lower()})
 
