@@ -111,9 +111,13 @@ def carry(want_of, answer, going, held, again=False):
                 held["task_id"] = None
                 if again:
                     held["done"] = None
-                    time.sleep(POLL_S)          # then post it again, not in a tight loop
+                    # posted again at once: the body never idles on the decision (a POLL_S sleep here left it
+                    # standing half a second after every attack ended); only a refusal backs off a poll, so a
+                    # task the jar turns down at once is not a tight loop
+                    if r.get("status") == "failed":
+                        time.sleep(FIGHT_POLL_S)
         else:
-            time.sleep(POLL_S)
+            time.sleep(FIGHT_POLL_S)
         yield want.kind
 
 def _engagement(intent, failure):
