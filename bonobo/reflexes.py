@@ -4,7 +4,7 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav, nether, skills, tape
+from . import api, building, craft, fluids, nav, nether, store, survive, tape, world
 from .api import McError, NotAvailable, log
 from .data import BASE_MARKERS, FULL_BAR, MAX_HP
 from .estimate import eat_due
@@ -58,17 +58,17 @@ def pit_due(v):
 TABLE = [
     ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
     ("eat", lambda v: eat_due(v["food"], v.get("hp", MAX_HP), EAT_BELOW, MAX_HP, FULL_BAR) and v["meal"] is not None,
-     lambda m, v: skills.eat(raw_ok=v["meal"])),
-    ("reach land", lambda v: v["swimming"], lambda m, v: skills.reach_land(v["ctx"])),
+     lambda m, v: survive.eat(raw_ok=v["meal"])),
+    ("reach land", lambda v: v["swimming"], lambda m, v: survive.reach_land(v["ctx"])),
     ("leave the pit", pit_due, lambda m, v: m.leave_pit(v["snap"], v["ctx"])),
     ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
-    ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: skills.dig_out(v["ctx"])),
+    ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: survive.dig_out(v["ctx"])),
     ("sleep", lambda v: v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"]),
-     lambda m, v: skills.sleep(v["ctx"], m.brain.policy(v["snap"], True))),
+     lambda m, v: survive.sleep(v["ctx"], m.brain.policy(v["snap"], True))),
     ("shelter", lambda v: v["shelter_ready"], lambda m, v: m.shelter(v["snap"], v["ctx"], v["night_way"])),
     ("collect job", lambda v: v["job_ready"], lambda m, v: m.collect_job(v["snap"], v["ctx"])),
     ("collect machine", lambda v: v["machine_ready"],
-     lambda m, v: skills.collect_machine(v["ctx"], m.ready_machine(v["snap"]))),
+     lambda m, v: craft.collect_machine(v["ctx"], m.ready_machine(v["snap"]))),
     ("empty the bag", lambda v: v["used_slots"] >= BAG_FULL, lambda m, v: m.empty_bag(v["snap"], v["ctx"])),
     ("path blocked", lambda v: v["blocked"] and v["building"] >= BRIDGE_MIN,
      lambda m, v: m.bridge(v["ctx"], v["blocked_at"])),
@@ -131,11 +131,11 @@ def nether_retreat(snap):
 def ground(reads=None):
     """The two ground readings needs and reflexes ask, each read once when first asked: enclosed, and hand-diggable ground."""
 
-    both = _once(None, "night_ground", skills.night_ground)          # one region read answers the two below
+    both = _once(None, "night_ground", survive.night_ground)          # one region read answers the two below
     soft = _once(reads, "soft_ground", lambda: both()[0])
     # given readings without the dig-in site say nothing against it (a test's round reads no world)
     site = (lambda: reads.get("dig_in_site", True)) if reads is not None else (lambda: both()[1])
-    return _once(reads, "enclosed", skills.enclosed), soft, site
+    return _once(reads, "enclosed", survive.enclosed), soft, site
 
 def _once(reads, key, read):
     """A zero-argument reader: `reads[key]` when given, else `read()` on first use, kept for the round."""
@@ -150,8 +150,8 @@ def _once(reads, key, read):
     return get
 
 # a shelter step's token → the skill that makes it
-SHELTER_RUN = {"dig_in": lambda ctx: skills.dig_in(ctx), "pod": lambda ctx: skills.pod(ctx),
-               "hut": lambda ctx: skills.build_shelter(ctx)}
+SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
+               "hut": lambda ctx: building.build_shelter(ctx)}
 
 class Maintain:
     """The reflex table's executor, remembering where the body has been (stuck) and where the last path failed (blocked)."""
@@ -193,10 +193,10 @@ class Maintain:
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
             "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
                 "furnace" in st["block"] for st in b.mem.stations(snap.dimension, near=snap.feet, within=STATION_R)))),
-            "swimming": lambda: skills.swimming(s),
+            "swimming": lambda: fluids.swimming(s),
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
-            "bed_works": lambda: skills.can_sleep(s) is None,
+            "bed_works": lambda: survive.can_sleep(s) is None,
             "bed_near": _once(reads, "bed_near", lambda: in_sight(snap, BASE_MARKERS["bed"], 48)),
             "night_way": night_way,
             "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
@@ -207,7 +207,7 @@ class Maintain:
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
-            "in_pit": lambda: s.get("skyLight", 0) >= 14 and not skills.swimming(s)
+            "in_pit": lambda: s.get("skyLight", 0) >= 14 and not fluids.swimming(s)
             and _once(reads, "in_pit", lambda: self.in_pit(snap.feet))(),
         }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night, overworld=over,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
@@ -237,10 +237,10 @@ class Maintain:
         return bl
 
     def bridge(self, ctx, blocked):
-        """Make the way by hand (skills.bridge_toward) toward where the failed walk was going."""
+        """Make the way by hand (survive.bridge_toward) toward where the failed walk was going."""
         self.blocked = None
         log(f"   path to {blocked['pos']} blocked → bridging toward it")
-        return skills.bridge_toward(ctx, blocked["pos"])
+        return survive.bridge_toward(ctx, blocked["pos"])
 
     # -- night
     def shelter(self, snap, ctx, night_way):
@@ -265,7 +265,7 @@ class Maintain:
         """knowledge.sheltered over this round: under rock, walled in, or inside a site's interior."""
         def walled():
             try:
-                return (enclosed or skills.enclosed)()
+                return (enclosed or survive.enclosed)()
             except (tape.ReplayMiss, McError):
                 return False
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
@@ -277,13 +277,13 @@ class Maintain:
     # -- jobs and the bag
     def ready_job(self, snap):
         near = [j for j in self.brain.mem.jobs(snap.dimension)
-                if skills.job_ready(j, snap.state.get("gameTime")) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
+                if world.job_ready(j, snap.state.get("gameTime")) and math.dist(j["pos"], snap.feet) <= JOB_RANGE]
         return min(near, key=lambda j: math.dist(j["pos"], snap.feet), default=None)
 
     def ready_machine(self, snap):
         """The nearest machine (auto smelter) whose loaded order is due, within JOB_RANGE."""
         near = [m for m in self.brain.mem.machines(snap.dimension)
-                if skills.pending_ready(m) and math.dist(m["origin"], snap.feet) <= JOB_RANGE]
+                if craft.pending_ready(m) and math.dist(m["origin"], snap.feet) <= JOB_RANGE]
         return min(near, key=lambda m: math.dist(m["origin"], snap.feet), default=None)
 
     def collect_job(self, snap, ctx):
@@ -299,7 +299,7 @@ class Maintain:
         need = max(1, snap.inv.used_slots() - (BAG_SLOTS - FREE_SLOTS_TARGET))
         lava = in_sight(snap, ["lava"], 3)
         how = empty_how(snap.inv.slots, need, ctx.prices().get, self.chest_seconds(snap, ctx), lava)
-        return skills.deposit(ctx, local_only=snap.night) if how == "deposit" else skills.tidy_inventory(ctx)
+        return store.deposit(ctx, local_only=snap.night) if how == "deposit" else store.tidy_inventory(ctx)
 
     def chest_seconds(self, snap, ctx):
         """Seconds to an existing chest (in reach, or a remembered site's; at night only in reach), or None."""
@@ -309,7 +309,7 @@ class Maintain:
             return 2.0
         if snap.night:
             return None
-        sites = [s for s in ctx.mem.sites(ctx.dimension) if skills.site_trek_ok(ctx, s)
+        sites = [s for s in ctx.mem.sites(ctx.dimension) if store.site_trek_ok(ctx, s)
                  and math.dist(s["pos"], snap.feet) <= 96]
         if not sites:
             return None

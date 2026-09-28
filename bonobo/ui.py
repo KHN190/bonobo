@@ -60,7 +60,8 @@ def _enchanted(item):
 def enchant_item(ctx, item):
     """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option, take the item back."""
 
-    from .skills import Station, _open_container
+    from .building import _open_container
+    from .craft import Station
     xp = api.get("/state").get("xpLevel", 0)
     if xp < 1:
         raise NotAvailable("no experience levels to enchant with")
@@ -133,7 +134,8 @@ def _anvil_args(ctx, step):
 def anvil_repair(ctx, item, material):
     """At an anvil: item + repair material (e.g. diamond pickaxe + diamonds), take the result when the level cost is affordable."""
 
-    from .skills import Station, _open_container
+    from .building import _open_container
+    from .craft import Station
     xp = api.get("/state").get("xpLevel", 0)
     with Station(ctx, "minecraft:anvil") as station:
         _open_container(station.pos)

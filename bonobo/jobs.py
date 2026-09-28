@@ -20,10 +20,10 @@ def start(mem, kind, pos, dimension, item=None, count=0, seconds=None, **extra):
 
 def collect(ctx, job):
     """Finish a ready job by kind. Kinds without a pickup (breeding cooldown) just expire."""
-    from . import farming, skills
+    from . import craft, farming
     kind = job["kind"]
     if kind == "furnace":
-        return skills.collect_job(ctx, job)
+        return craft.collect_job(ctx, job)
     if kind == "crop":
         return farming.harvest(ctx, job)
     if kind == "sapling":

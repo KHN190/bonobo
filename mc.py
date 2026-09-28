@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from bonobo import api, skills
+from bonobo import api, skillcore, skills, store
 from bonobo.api import McError, log
 from bonobo.brain import Brain, autoplay
 from bonobo.data import bare
@@ -57,10 +57,10 @@ def cmd_autoplay(a):
 def cmd_home(a):
     """Record the base as the home site (with a structure snapshot for repairs)."""
     mem = Memory()
-    pos = tuple(a.pos) if a.pos else skills.find_base()
+    pos = tuple(a.pos) if a.pos else store.find_base()
     if pos is None:
         raise McError("no base found nearby; stand at home or pass --pos x y z")
-    snap = skills.snapshot(pos, half=a.half, down=4, up=6)
+    snap = skillcore.snapshot(pos, half=a.half, down=4, up=6)
     site = mem.add_site("home", pos, api.get("/state")["dimension"], snapshot=snap, name="home")
     log(f"home recorded at {site['pos']} with {len(snap['blocks'])} structure blocks")
 
@@ -131,7 +131,6 @@ def _need_starts(rest):
 def cmd_scenario(a):
     """Scenario bench (test world only): enable | disable | list | run NAME... | all | table."""
     import os
-    from bonobo import skills
     from bonobo.bench import table as sheet
     from bonobo.brain import Brain
     from bonobo.world import Snapshot
@@ -205,7 +204,7 @@ def cmd_scenario(a):
             snap = Snapshot()
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
             # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
-            return skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
+            return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
                                   prices=brain.price_table)
         ok, seconds, note, cls, code = sheet.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")

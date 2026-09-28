@@ -20,7 +20,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, arbiter, blueprints, brain, nav, retry, skillcore, skills, tape  # noqa: E402,F401  (brain: every skill module)
+from bonobo import api, arbiter, blueprints, brain, gather, nav, retry, skillcore, survive, tape  # noqa: E402,F401  (brain: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 from bonobo.knowledge import members  # noqa: E402
@@ -208,9 +208,9 @@ THERE = [("on the platform, the target's cell", (3.5, 201.0, 3.5), (3, 201, 3), 
          ("one cell diagonally off at range 0.6 (the old range + 1 accepted it)", (4.5, 201.0, 4.5), (3, 201, 3), 0.6,
           False),
          ("one cell off at range 1.5", (4.5, 64.0, 3.5), (3, 64, 3), 1.5, True),
-         ("face to face with a block, at the far edge of the cell (skills.BESIDE)", (4.95, 64.0, 3.05), (3, 64, 3),
-          skills.BESIDE, True),
-         ("must fail: two cells off at BESIDE: not beside", (5.5, 64.0, 3.5), (3, 64, 3), skills.BESIDE, False),
+         ("face to face with a block, at the far edge of the cell (gather.BESIDE)", (4.95, 64.0, 3.05), (3, 64, 3),
+          gather.BESIDE, True),
+         ("must fail: two cells off at BESIDE: not beside", (5.5, 64.0, 3.5), (3, 64, 3), gather.BESIDE, False),
          ("a point target (an entity's position), exactly there", (10.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, True),
          ("a point target 2 blocks away at range 1", (12.2, 64.0, -3.7), (10.2, 64.0, -3.7), 1.0, False)]
 GROUND = {"onGround": True, "inWater": False, "climbing": False}
@@ -415,7 +415,7 @@ class NothingQueued(unittest.TestCase):
 
 class AWalkCutShortIsNotAFailure(unittest.TestCase):
     """nav.arrived under a fight holding the body raises the interruption instead of answering False: the caller's
-    "no way there" branch (skills.mine bans the vein) is for failures only."""
+    "no way there" branch (gather.mine bans the vein) is for failures only."""
 
     def test_over_the_table(self):
         rows = [("must fail: a fight engaged, the walk not its intent", True, api.FightHolds)]
@@ -438,7 +438,7 @@ class AWalkCutShortIsNotAFailure(unittest.TestCase):
 
 
 class DigInSeals(unittest.TestCase):
-    """skills.dig_in_commands: the hole is always lidded — with a carried block, else with what the dig brings up
+    """survive.dig_in_commands: the hole is always lidded — with a carried block, else with what the dig brings up
     (an empty bag dug a lidless hole: night_dig_in_dirt)."""
 
     def test_over_the_table(self):
@@ -461,9 +461,9 @@ class DigInSeals(unittest.TestCase):
                 st = {"feet": feet, "region": region, "inv": bag(inv), "protected": set()}
                 if want is NotAvailable:
                     with self.assertRaises(NotAvailable):
-                        skills.dig_in_commands(st)
+                        survive.dig_in_commands(st)
                     continue
-                tasks = skills.dig_in_commands(st)
+                tasks = survive.dig_in_commands(st)
                 self.assertEqual((tasks[-1]["type"], tasks[-1]["item"]), ("place", want))
                 self.assertEqual({t["collect"] for t in tasks if t["type"] == "mine"}, {collects})
 
@@ -618,7 +618,7 @@ class Readings:
     whether the body is walled in, the free spots around. Patched where each module reads them (readings, not a
     game); the skill's own `start` and `verify` run unchanged."""
 
-    MODULES = ("skills", "skillcore", "loot", "explore", "nether", "reflexes", "needs", "fluids", "brewing", "farming", "ui",
+    MODULES = ("craft", "gather", "survive", "store", "skillcore", "loot", "explore", "nether", "reflexes", "needs", "fluids", "brewing", "farming", "ui",
                "combat")
 
     def __init__(self, inv=None, feet=(0, 30, 0), st=None, found=(), enclosed=False, spots=(), items=(),
@@ -1274,7 +1274,7 @@ COMMANDS = {
          lambda t, b: t.assertEqual(b, [])),
         ("never further than its reach", body(world(*[((x, 63, 0), "air") for x in range(1, 60)]),
                                               inv=inventory(cobblestone=64), _args=((60, 64, 0),)),
-         lambda t, b: t.assertLessEqual(len(cells(b, "goto")), skills.BRIDGE_REACH)),
+         lambda t, b: t.assertLessEqual(len(cells(b, "goto")), survive.BRIDGE_REACH)),
     ],
 }
 

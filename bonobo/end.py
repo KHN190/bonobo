@@ -352,9 +352,9 @@ def _recover_body(ctx, act):
         api.run({"type": "wait", "ticks": 5}, wait=5, awaits="the fall's landing (onGround) before the next recovery act")     # mid-air: the mod pours water under us
     elif act == "retreat_and_eat":
         _retreat(ctx)
-        from . import skills
+        from . import survive
         try:
-            skills.eat(raw_ok=True)
+            survive.eat(raw_ok=True)
         except McError:
             pass
     else:                                                 # retreat_to_cover, and every unrecognised danger
@@ -449,9 +449,9 @@ def await_perch(ctx):
             continue
         if s["health"] < 19 and s.get("food", 20) < 20:
             # only when a bite helps: at a full bar eat fails its own verify
-            from . import skills
+            from . import survive
             try:
-                skills.eat(raw_ok=True)
+                survive.eat(raw_ok=True)
             except McError as e:
                 log(f"   no bite ({e})")
         # wait on the stream, not a timer: a timed wait sleeps through a landing

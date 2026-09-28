@@ -1121,7 +1121,7 @@ class BuriedFirst(unittest.TestCase):
     """buried_by_sand's setup holds only when the sand buried the head: pushed clear, head_clear passes with no round."""
 
     def test_buried_first(self):
-        from bonobo import skills
+        from bonobo import skillcore
         from bonobo.bench import vocab
         from bonobo.bench.core import SetupInvalid
         rows = [("buried at once", [True], None),
@@ -1129,7 +1129,7 @@ class BuriedFirst(unittest.TestCase):
                 ("must fail: pushed clear of the sand", [False] * 5, SetupInvalid),
                 ("must fail: never buried in the looks allowed", [False] * 9, SetupInvalid)]
         for name, looks, raises in rows:
-            with self.subTest(name), mock.patch.object(skills, "head_buried", side_effect=looks), \
+            with self.subTest(name), mock.patch.object(skillcore, "head_buried", side_effect=looks), \
                     mock.patch.object(vocab.time, "sleep"):
                 if raises:
                     with self.assertRaises(raises):

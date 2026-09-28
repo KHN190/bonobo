@@ -5,7 +5,7 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, decompose, goals, skills
+from . import api, decompose, goals, survive
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
@@ -45,7 +45,7 @@ def dusk_s(snap):
 def night_facts(soft, cooled=(), dig_site=True):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
     the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
-    finish here (`dig_site`, skills.dig_in_site: False → dig in is not offered)."""
+    finish here (`dig_site`, survive.dig_in_site: False → dig in is not offered)."""
 
     out = {"soft_ground": False} if soft is None or soft is False else \
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
@@ -217,7 +217,7 @@ class Needs:
         """Night in the Overworld, no bed carried, and a bed whose plan needs no sun is the cheapest way through."""
 
         if not (snap.dimension == "minecraft:overworld" and snap.night and snap.inv.count("bed") == 0
-                and skills.can_sleep(snap.state) is None):
+                and survive.can_sleep(snap.state) is None):
             return False
         way, _secs, steps = self.overnight(snap)
         return way == "bed" and all(st.kind in NIGHT_WORK for st in steps)

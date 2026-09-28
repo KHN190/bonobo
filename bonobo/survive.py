@@ -1,0 +1,707 @@
+"""Staying alive: light, food, water and bridges, burrows and digging out, air, sleep, shelter."""
+
+import math
+import time
+from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import api, beliefs, nav
+from .api import McError, NotAvailable, log
+from .skill import ANCHORS, skill, current as current_call
+from .data import BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid
+from .knowledge import DIG_SHOVEL_S, RAW_MEAT
+from .world import Inventory, Region, add, dark_spots, find
+from .bag import throw_direction
+from .terrain import choose_burrow, choose_exit, air_route, is_enclosed, openings, find_open_spot
+from .skillcore import feet, free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
+from .fluids import AIR_FULL, swimming
+from .craft import run_split
+
+@skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45,
+       verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
+       and len(free_spots_here(limit=2)) >= 2,
+       provides={"reach:open": lambda ctx, s: ()})
+def move_to_open_space(ctx):
+    """Full bag in a shaft or tunnel: walk to the nearest spot with room to throw and to put down a chest."""
+    x, y, z = feet()
+    spot = find_open_spot(Region((x - 12, y - 6, z - 12), (x + 12, y + 8, z + 12)), (x, y, z))
+    if spot is None:
+        raise NotAvailable("no open space within 12 blocks")
+    if spot == (x, y, z):
+        return spot
+    log(f"   moving to open space at {spot} to sort the inventory")
+    if not nav.arrived(spot, ctx.policy, range_=0.8, attempts=2):
+        raise api.NavFailed(f"open space at {spot} not reachable")
+    yield feet()
+    return spot
+
+def _night_policy(ctx):
+    import dataclasses
+    return dataclasses.replace(ctx.policy, allow_surface=False)
+
+def require_pickaxe_ok():
+    return any(d >= 3 for _, d, _ in Inventory().tools("pickaxe"))
+
+# -- light, food, night
+
+def dark_here(s):
+    """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
+    return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
+
+def torch_commands(state, args=(4, 1)):
+    """Pure: place tasks for up to `limit` of the darkest floor spots within `radius`, never the body's cells; [] when none."""
+
+    radius, limit = (tuple(args) + (4, 1)[len(args):])[:2]
+    s = state["state"]
+    if state["inv"].usable("minecraft:torch") == 0:   # a torch in the offhand can't be placed by tasks
+        return []
+    here = state["feet"]
+    spots = [p for p in state.get("spots") or ()
+             if math.dist((p["x"], p["y"], p["z"]), here) <= radius
+             and not (p["y"] in (here[1], here[1] + 1) and abs(p["x"] + 0.5 - s["x"]) < 0.8
+                      and abs(p["z"] + 0.5 - s["z"]) < 0.8)]
+    return [{"type": "place", "item": "minecraft:torch", "x": p["x"], "y": p["y"], "z": p["z"]}
+            for p in spots[:limit]]
+
+def bites_to_full(food, carried, raw_ok=False):
+    """Pure: (item, bites) to fill the bar from `food`: the best fit for the gap, raw meat only when `raw_ok`."""
+
+    from .knowledge import ALL_FOOD
+    gap = FULL_BAR - food
+    allowed = [f for f in ALL_FOOD + (RAW_MEAT if raw_ok else []) if carried.get(f, 0) > 0]
+    if gap <= 0 or not allowed:
+        return None, 0
+    points = lambda f: NUTRITION[f.split(":")[-1]]      # noqa: E731
+    fits = [f for f in allowed if points(f) <= gap]
+    item = max(fits, key=points) if fits else min(allowed, key=points)
+    return item, math.ceil(gap / points(item))
+
+def bite_plan(food, carried, raw_ok=False):
+    """Pure: the bites, in order, to fill the bar from `food`, no more of an item than is carried."""
+
+    left, out = dict(carried), []
+    while True:
+        item, _n = bites_to_full(food, left, raw_ok)
+        if item is None:
+            return out
+        out.append(item)
+        left[item] -= 1
+        food = min(FULL_BAR, food + NUTRITION[item.split(":")[-1]])
+
+def eat_commands(state, args):
+    """`commands` for eat: one eat task per planned bite, back to back (one bite a round left the bar hungry)."""
+
+    from .knowledge import ALL_FOOD
+    raw_ok = bool(args[0]) if args else False
+    inv = state["inv"]
+    carried = {f: inv.count(f) for f in ALL_FOOD + RAW_MEAT}
+    return [{"type": "eat", "item": item}
+            for item in bite_plan(state["state"].get("food", 0), carried, raw_ok)]
+
+def _fed_as_planned(c):
+    """The bar rose by the points of the bites eaten (capped at a full bar)."""
+    target = c.result
+    return isinstance(target, int) and not isinstance(target, bool) and api.get("/state")["food"] >= target
+
+# needs: none the bag can state — a cooked meal, or raw meat when starving
+@skill(gives=["state:fed"], remaining=_k.fed, needs={}, speed={}, start=lambda c: api.get("/state")["food"], verify=_fed_as_planned,
+       commands=lambda state, args: eat_commands(state, args), budget=30, stall=30,
+       provides={"eat": lambda ctx, s: (bool(s.detail.get("raw_ok")),)})
+def eat(ctx=None, raw_ok=False):
+    """Eat until the bar is full, every planned bite as one chain; an interruption stops it where it is."""
+
+    from .knowledge import ALL_FOOD
+    st = body_state(ctx) if ctx is not None else {"state": api.get("/state"), "inv": Inventory()}
+    tasks = eat_commands(st, (raw_ok,))
+    carried = {f: st["inv"].count(f) for f in ALL_FOOD + (RAW_MEAT if raw_ok else [])}
+    if not tasks:
+        if any(carried.values()):
+            return False                    # full: nothing to eat for
+        raise NotAvailable("nothing edible carried" + ("" if raw_ok else " (raw meat not allowed: not starving)"))
+    food = st["state"].get("food", 0)
+    target = min(FULL_BAR, food + sum(NUTRITION[t["item"].split(":")[-1]] for t in tasks))
+    started = time.time()
+    api.run_chain(tasks, stop_on_failure=True)
+    took = (time.time() - started) / len(tasks)
+    if 0.05 <= took <= 30.0:            # a queued or interrupted bite times the queue, not the bite
+        beliefs.note("engage.eat_s", round(took, 3), where="eat")
+    return target
+
+def _on_land():
+    return not swimming(api.get("/state"))
+
+@skill(gives=["state:footing"], remaining=_k.standing, needs={"building": 1}, speed={}, done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
+       provides={"reach:footing": lambda ctx, s: ()})
+def stand_on_a_block(ctx):
+    """Footing, made rather than travelled to: one block under the feet."""
+
+    block = nav.building_item()
+    if not block:
+        raise NotAvailable("nothing to stand on and nothing to place")
+    x, y, z = feet()
+    place(block, (x, y - 1, z))
+    return bool(api.get("/state").get("onGround"))
+
+BRIDGE_REACH = 12      # cells one bridge call lays toward its target
+
+BRIDGE_CLIMB = 4       # blocks one call pillars up toward a target above the feet
+
+def bridge_region(feet_, target):
+    """The box `bridge_commands` reads: the lane toward the target, its floor and the climb above it."""
+    x, y, z = feet_
+    tx = x + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[0] - x))
+    tz = z + max(-BRIDGE_REACH, min(BRIDGE_REACH, target[2] - z))
+    return Region((min(x, tx) - 1, y - 2, min(z, tz) - 1), (max(x, tx) + 1, y + BRIDGE_CLIMB + 2, max(z, tz) + 1))
+
+def bridge_commands(state, args):
+    """Pure: a way made toward `args[0]`: pillar up if above, then cell by cell — dig feet and head, lay a floor, step on."""
+
+    target, region, inv, protected = args[0], state["region"], state["inv"], state["protected"]
+    block = next((b for b in GROUPS["building"] if inv.count(b)), None)
+    if block is None:
+        return []
+    x, y, z = state["feet"]
+    tasks = []
+    for _ in range(max(0, min(BRIDGE_CLIMB, int(target[1]) - y))):
+        tasks.append({"type": "pillar", "item": block})
+        y += 1
+    for _ in range(BRIDGE_REACH):
+        dx, dz = int(target[0]) - x, int(target[2]) - z
+        if dx == 0 and dz == 0:
+            break
+        if abs(dx) >= abs(dz):
+            x += 1 if dx > 0 else -1
+        else:
+            z += 1 if dz > 0 else -1
+        for cell in ((x, y, z), (x, y + 1, z)):
+            if region.solid(cell):
+                if cell in protected:
+                    return tasks
+                tasks.append(nav.mine_task(cell))
+        if not region.solid((x, y - 1, z)):
+            tasks.append({"type": "place", "item": block, "x": x, "y": y - 1, "z": z})
+        tasks.append({"type": "goto", "x": x, "y": y, "z": z, "range": 0.5, "partial": True})
+    return tasks
+
+def _bridged_nearer(c):
+    target = c.args[1]
+    return math.dist(feet(), target) < math.dist(c.base, target) - 1
+
+@skill(gives=["state:bridged"], remaining=_k.near(lambda c: c.args[1], lambda c: BRIDGE_REACH), needs={"building": 1}, speed={}, start=lambda c: feet(), verify=_bridged_nearer, commands=bridge_commands, budget=120, stall=45)
+def bridge_toward(ctx, target):
+    """Path blocked: make the way toward `target` by hand instead of asking the walker again."""
+
+    target = tuple(target)
+    tasks = bridge_commands(body_state(ctx, bridge_region(feet(), target)), (target,))
+    if not tasks:
+        raise NotAvailable("path blocked and nothing to bridge with")
+    api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
+    return feet()
+
+@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, speed={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
+def reach_land(ctx):
+    """Night in the water: swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
+
+    x, y, z = feet()
+    # the land a swim reaches (terrain.air_route), not the nearest dry block (once behind a tank wall)
+    route = air_route(Region((x - 24, y - 6, z - 24), (x + 24, y + 10, z + 24)), (x, y, z))
+    if route is None or route[0] != "land":
+        raise NotAvailable(route[2] if route else "no water to swim through and no land within 24 blocks")
+    land = route[1]
+    api.run({"type": "goto", "x": land[0], "y": land[1], "z": land[2], "range": nav.ASHORE_RANGE, "partial": True,
+             "useBoat": True}, wait=120, awaits="ashore or not (nav.ashore) decides the climb out")
+    # judged by where the body is: the walker calls a body beside the bank arrived
+    if not nav.ashore(api.get("/state"), land) and not nav.climb_out(land):
+        # the walker can't climb out: dig or pillar out instead
+        nav.arrived(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
+        if not nav.ashore(api.get("/state"), land):
+            raise api.NavFailed(f"land at {land} not reachable")
+    yield feet()
+
+def _burrow_here(ctx):
+    """A solid hillside beside the body to tunnel into (terrain.choose_burrow), or None."""
+    x, y, z = feet()
+    return choose_burrow(Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4)), (x, y, z), ctx.policy.protected)
+
+def burrow_anchor(state, args=()):
+    """Pure: {"anchor": (feet, direction)} a burrow fixes at its first start."""
+
+    x, y, z = state["feet"]
+    d = args[0] if args else choose_burrow(state["region"], (x, y, z), state["protected"])
+    if d is None:
+        raise NotAvailable("no solid hillside to burrow into here")
+    return {"anchor": ((x, y, z), tuple(d))}
+
+ANCHORS["burrow"] = burrow_anchor
+
+def burrow_commands(state, args=()):
+    """Pure: the burrow as one chain — two cells into the hillside, a step to the end, the entrance sealed behind."""
+
+    (x, y, z), (dx, dz) = (state.get("anchor") or burrow_anchor(state, args)["anchor"])
+    block = next((b for b in GROUPS["building"] if state["inv"].usable(b)), None)
+    if block is None:
+        raise NotAvailable("no blocks to seal the burrow")
+    region = state.get("region")
+    end = (x + dx * 2, y, z + dz * 2)
+    seal = [{"type": "place", "item": block, "x": x + dx, "y": y + dy, "z": z + dz} for dy in (0, 1)]
+    if region is not None and tuple(state["feet"]) == end:
+        # inside at the end: only entrance cells still open are sealed (a sealed one is never dug again)
+        return [t for t in seal if not region.solid((t["x"], t["y"], t["z"]))]
+    # only what still stands: resumed, the chain is rebuilt from the world
+    dig = [nav.mine_task(c) for c in ((x + dx * k, y + dy, z + dz * k) for k in (1, 2) for dy in (1, 0))
+           if region is None or region.solid(c)]
+    return dig + [{"type": "goto", "x": end[0], "y": end[1], "z": end[2], "range": 0.4, "partial": False}] + seal
+
+@skill(gives=["state:sheltered"], needs={"tool:pickaxe:0": 1}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), budget=90, stall=40, commands=lambda st, a: burrow_commands(st, a),
+       provides={"state:sheltered": lambda ctx, s: () if _burrow_here(ctx) else None,
+                 "shelter:burrow": lambda ctx, s: ()})
+def burrow(ctx):
+    """Night shelter in a hillside: tunnel 2 in, step to the end, seal the entrance (both faces visible from inside), one chain."""
+
+    keep = current_call().keep
+    if "anchor" not in keep:
+        d = _burrow_here(ctx)
+        if d is None:
+            raise NotAvailable("no solid hillside to burrow into here")
+        keep["anchor"] = (feet(), d)
+    (x, y, z), d = keep["anchor"]
+    run_split(burrow_commands(body_state(ctx, Region((x - 4, y - 2, z - 4), (x + 4, y + 3, z + 4)),
+                                         anchor=keep["anchor"])), wait=60)
+    yield feet()
+    log(f"burrowed into the hillside at {feet()}")
+
+def dig_out_commands(state, args=()):
+    """Pure: out of a sealed pod as one chain — the exit side's cells (terrain.choose_exit), then a step out."""
+
+    exit_ = choose_exit(state["region"], tuple(state["feet"]), state["protected"])
+    if exit_ is None:
+        raise NotAvailable("no safe side to dig out of")
+    cells, out = exit_
+    return [nav.mine_task(c) for c in cells] + [{"type": "goto", "x": out[0], "y": out[1], "z": out[2],
+                                                 "range": 0.6, "partial": True}]
+
+@skill(gives=["state:outside"], remaining=lambda st, c: outside_left(st, c), needs={}, speed={}, done=lambda c: not enclosed(), budget=90, stall=45, commands=lambda st, a: dig_out_commands(st, a),
+       provides={"reach:outside": lambda ctx, s: ()})
+def dig_out(ctx):
+    """Morning in a sealed pod: open one side (by hand if no pickaxe) and step out, one chain."""
+
+    x, y, z = feet()
+    tasks = dig_out_commands(body_state(ctx, Region((x - 3, y - 2, z - 3), (x + 3, y + 3, z + 3))))
+    run_split(tasks, wait=60)
+    yield feet()
+    log(f"dug out of the shelter toward {tuple(tasks[-1][k] for k in 'xyz')}")
+
+@skill(gives=["state:head_clear"], remaining=_k.head_clear, needs={}, speed={}, done=lambda c: not head_buried(), budget=30, stall=15)
+def unbury(ctx):
+    """Suffocating in a block: break the block at eye level, then the one above it if sand/gravel keeps falling."""
+    for _ in range(4):
+        s = api.get("/state")
+        eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
+        api.run(nav.mine_task(eye), wait=15, awaits="the eye cell read again (sand keeps falling)")
+        yield eye
+
+BREATH_HOLD_S = 2.0     # the head out of the water this long, lungs full: breathing, not a surfacing that sinks back
+
+BREATH_WAIT_S = 8.0     # how long the verify watches for that (lungs refill in about 4 s)
+
+def breathed(samples):
+    """Pure: the head has been out unbroken for BREATH_HOLD_S up to the last sample, which reads full lungs."""
+
+    if not samples:
+        return False
+    t_end, under, air = samples[-1]
+    if under or air < AIR_FULL:
+        return False
+    out_since = t_end
+    for t, under, _ in reversed(samples):
+        if under:
+            break
+        out_since = t
+    return t_end - out_since >= BREATH_HOLD_S
+
+def _breathing():
+    """Watch the body up to BREATH_WAIT_S: True once `breathed`, False the moment the head goes back under."""
+    samples, end = [], time.time() + BREATH_WAIT_S
+    while True:
+        s = api.get("/state")
+        samples.append((time.time(), head_underwater(s), s.get("air", AIR_FULL)))
+        if breathed(samples):
+            return True
+        if samples[-1][1] or time.time() >= end:
+            return False
+        time.sleep(0.25)
+
+def _breathing_now():
+    """One reading: head out with full lungs (`done` must not wait; the 2 s hold is the verify's)."""
+
+    s = api.get("/state")
+    return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
+
+@skill(gives=["state:air"], remaining=_k.breathing, needs={}, speed={}, done=lambda c: _breathing_now(), verify=lambda c: _breathing(), budget=45, stall=12,
+       provides={"reach:air": lambda ctx, s: ()})
+def find_air(ctx):
+    """Out of breath underwater: swim to the nearest dry cell (surfacing in place sank back), else a block at the surface, else dig the cap."""
+
+    for _ in range(4):
+        x, y, z = feet()
+        region = Region((x - 8, y - 2, z - 8), (x + 8, y + 16, z + 8))
+        route = air_route(region, (x, y + 1, z))
+        if route is None:
+            raise NotAvailable("no air within reach: no land, no surface, no cap to dig")
+        kind, c, why = route
+        if why:
+            log(f"   find_air: {why}")
+        if kind == "dig":
+            api.run(nav.mine_task(c), wait=15, awaits="the air route read again after each step")
+        else:
+            api.run({"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5, "partial": True,
+                     "useBoat": False}, wait=20, awaits="the air route read again after each step")
+            if kind == "land":
+                nav.climb_out(c)                   # beside the rim or the shore: onto it
+            if kind == "pillar" and nav.building_item():
+                fx, fy, fz = feet()
+                place(nav.building_item(), (fx, fy - 1, fz))
+        yield kind
+
+def bed_spot():
+    s = api.get("/state")
+    fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
+    region = Region((fx - 4, fy - 2, fz - 4), (fx + 4, fy + 2, fz + 4))
+    for dist in (1, 2, 3):
+        for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            for dy in (0, 1, -1):
+                foot = (fx + dist * dx, fy + dy, fz + dist * dz)
+                head = (foot[0] + dx, foot[1], foot[2] + dz)
+                if all(region.name(c) == "air" and region.solid(add(c, (0, -1, 0))) for c in (foot, head)):
+                    return foot
+    return None
+
+# when a bed works (Mojang's rule): outside it using a bed does nothing
+SLEEP_FROM_TICKS, SLEEP_TO_TICKS = 12541, 23458
+
+def _morning(timeout=7.0):
+    """Lain in a bed: read the clock until it is morning (the night skipped, ~5 s), at most `timeout` s."""
+    day = lambda t: int(t) % 24000 < 12500      # noqa: E731
+    return day(settle(lambda: api.get("/state")["timeOfDay"], day, timeout=timeout, stable_s=0.0, soft=True))
+
+def can_sleep(state):
+    """None when a bed would work now, else why it would not."""
+
+    if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
+        return "a bed explodes outside the Overworld"
+    if state.get("thundering"):
+        return None
+    t = int(state.get("timeOfDay", 0)) % 24000
+    if SLEEP_FROM_TICKS <= t <= SLEEP_TO_TICKS:
+        return None
+    return "a bed only works at night (or in a thunderstorm)"
+
+def _day_now():
+    from .data import DAY_END, NIGHT_END
+    t = int(api.get("/state")["timeOfDay"]) % 24000
+    return not DAY_END <= t <= NIGHT_END
+
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})
+def wait_for_day(ctx):
+    """Sit the night out where we are, in ten-second waits, until the sun is up."""
+
+    while True:
+        api.run({"type": "wait", "ticks": 200}, wait=15, awaits="the time of day")
+        yield api.get("/state")["timeOfDay"]
+
+# needs: none the bag can state — a bed carried or one standing nearby
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
+       provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
+def sleep(ctx, night_policy):
+    """Sleep through the night: carried bed first (placed next to us, picked up after), then a nearby site bed."""
+    why = can_sleep(api.get("/state"))
+    if why:
+        raise NotAvailable(why)
+    inv = Inventory()
+    bed = next((b for b in GROUPS["bed"] if inv.count(b)), None)
+    if bed:
+        spot = bed_spot()
+        if spot is None:
+            raise NotAvailable("no flat 2-block spot for the bed")
+        use = {"type": "use", "x": spot[0], "y": spot[1], "z": spot[2]}
+        try:
+            # placed and lain in as one chain; morning is read, not waited for
+            chain = [{"type": "place", "item": bed, "x": spot[0], "y": spot[1], "z": spot[2]}, use]
+            for _ in range(3):
+                api.run_chain(chain, stop_on_failure=True, wait=30)
+                if _morning():
+                    ctx.mem.slept()
+                    log("slept (carried bed)")
+                    return
+                chain = [use]
+            raise NotAvailable("could not fall asleep (monsters nearby?)")
+        finally:
+            mine_cell(ctx.policy, spot, wait=60)
+    beds = find(BASE_MARKERS["bed"], radius=48, limit=1)
+    if not beds:
+        raise NotAvailable("no bed carried or nearby")
+    b = (beds[0]["x"], beds[0]["y"], beds[0]["z"])
+    if not nav.arrived(b, night_policy, range_=2.5, attempts=2):
+        raise NotAvailable("bed not walkable tonight")
+    for _ in range(3):
+        api.run_chain([{"type": "use", "x": b[0], "y": b[1], "z": b[2]}], wait=30)
+        if _morning():
+            ctx.mem.slept()
+            log("slept (site bed)")
+            return
+    raise NotAvailable("could not fall asleep in the site bed")
+
+DIG_IN_DEPTH = 3
+
+def dig_in_start(region, feet):
+    """Pure: where a dig-in began: one above the top of the walled shaft the body stands in, else the feet."""
+
+    x, y, z = feet
+    top = y
+    while top - y < DIG_IN_DEPTH and not region.solid((x, top, z)) and \
+            all(region.solid((x + dx, top, z + dz)) for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]):
+        top += 1
+    return x, top, z
+
+def dig_in_commands(state, args=()):
+    """Pure: dig DIG_IN_DEPTH straight down, stand at the bottom, and seal the first dug cell."""
+
+    region, inv = state["region"], state["inv"]
+    x, y, z = start = dig_in_start(region, tuple(state["feet"]))
+    tasks, safe = nav.dig_down_tasks(region, start, DIG_IN_DEPTH, state["protected"], False, dug_to=state["feet"][1])
+    if safe < DIG_IN_DEPTH:
+        raise NotAvailable(f"only {safe} of {DIG_IN_DEPTH} safe to dig here: no lid below the ground line")
+    block = next((b for b in GROUPS["building"] if inv.count(b)), None)
+    if block is None:
+        # nothing to seal with: the roof is what the dig brings up (an empty bag dug a hole with no lid)
+        dug = [t for t in tasks if t["type"] == "mine"]
+        if not dug:
+            raise NotAvailable("nothing to seal the hole with: no block carried, none dug")
+        if inv.free_slots() < 1:
+            raise NotAvailable("nothing to seal the hole with, and no room in the bag for the block dug")
+        for t in dug:
+            t["collect"] = True
+        name = bare(region.name((dug[0]["x"], dug[0]["y"], dug[0]["z"])))
+        block = mid(PLACEABLE_AS.get(name, name))
+    tasks.append({"type": "place", "item": block, "x": x, "y": y - 1, "z": z})      # the first dug cell
+    return tasks
+
+def soft_spot():
+    """(cell, steps) of the nearest hand-diggable ground to DIG_IN_DEPTH on our ground, or None."""
+
+    from .terrain import SOFT_RADIUS, nearest_soft
+    x, y, z = feet()
+    region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
+    return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
+
+def soft_ground_here():
+    """Seconds' walk to hand-diggable ground (0: underfoot), or None when none near."""
+
+    return night_ground()[0]
+
+def dig_in_site(region, feet_at, protected=()):
+    """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.dig_down_tasks, from
+    where a started dig began: dig_in_start), so its lid sits below the ground line? A 3-thick floor over air
+    gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe')."""
+    start = dig_in_start(region, tuple(feet_at))
+    try:
+        _tasks, safe = nav.dig_down_tasks(region, start, DIG_IN_DEPTH, protected, False, dug_to=feet_at[1])
+    except NotAvailable:
+        return False
+    return safe >= DIG_IN_DEPTH
+
+def night_ground():
+    """One region read around the feet for the night's pricing: (seconds' walk to hand-diggable ground or None,
+    whether a dig-in can finish right here)."""
+
+    from .data import WALK_BLOCKS_PER_TICK
+    from .terrain import SOFT_RADIUS, nearest_soft
+    x, y, z = feet()
+    region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
+    spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
+    return (None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)), dig_in_site(region, (x, y, z))
+
+@skill(gives=["state:sheltered"], needs={}, speed={"shovel": DIG_SHOVEL_S}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
+       provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
+                 "shelter:dig in": lambda ctx, s: ()}, prefer=1,
+       budget=60, stall=30)
+def dig_in(ctx):
+    """On the surface at night without a bed: dig up to 3 down under the feet and seal the opening overhead."""
+
+    if not require_pickaxe_ok():
+        spot = soft_spot()
+        if spot is None:
+            raise NotAvailable("no pickaxe and no ground near that digs by hand")
+        # the exact cell (range 0): at 0.5 the dig started a block off
+        if tuple(feet()) != tuple(spot[0]):
+            nav.arrived(spot[0], ctx.policy, range_=0, attempts=1)
+        if tuple(feet()) != tuple(spot[0]):
+            raise api.NavFailed(f"not on the soft ground at {spot[0]} (at {feet()})")
+    x, y, z = feet()
+    shaft = Region((x - 1, y - 1, z - 1), (x + 1, y + DIG_IN_DEPTH + 1, z + 1))
+    y = dig_in_start(shaft, (x, y, z))[1]                  # resumed after a fall: the same column, from its top
+    tasks = dig_in_commands(body_state(ctx, nav.dig_down_region((x, y, z), DIG_IN_DEPTH)))
+    api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
+    fx, fy, fz = feet()
+    if fy >= y:
+        raise NotAvailable("digging down stopped: a block couldn't be reached")
+    log("dug in for the night")
+
+def enclosed():
+    """True when the body has no way out: every side blocked at feet or head height, and covered overhead."""
+    s = api.get("/state")
+    x, y, z = s["blockX"], s["blockY"], s["blockZ"]
+    return is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z))
+
+def open_room_left(st, c):
+    """`remaining` of move_to_open_space: an open side to throw into (bag.throw_direction) where the body stands."""
+    region = st.get("region")
+    ok = region is not None and throw_direction(region, tuple(st["feet"])) is not None
+    return {} if ok else {"state:open_room": 1}
+
+def outside_left(state, call=None):
+    """`remaining` of dig_out: out of the sealed shelter — some side opens (terrain.openings), read off the region."""
+    if state.get("region") is None:
+        return {"unread:shelter": 1}
+    return {} if openings(state["region"], tuple(state["feet"])) else {"state:outside": 1}
+
+def shelter_left(state, call=None):
+    """`remaining` of a body shelter: its openings around the feet ({} walled in; everything when no region read)."""
+
+    if state.get("region") is None:
+        return {"state:sheltered": 1}
+    return openings(state["region"], tuple(state["feet"]))
+
+def dug_in_left(state, call=None):
+    """`remaining` of dig_in: the openings, and the dig itself while the feet are not yet below where it began."""
+    left = shelter_left(state, call)
+    base = getattr(call, "base", None)
+    if base is not None and state["feet"][1] >= base[1]:
+        left["down"] = 1
+    return left
+
+def _pod_cells(feet_at):
+    """The walls at feet and head height on four sides, then the roof."""
+    x, y, z = feet_at
+    cells = [(x + dx, y + dy, z + dz) for dy in (0, 1) for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
+    cells.append((x, y + 2, z))
+    return cells
+
+def _pod_region(feet_at):
+    x, y, z = feet_at
+    return Region((x - 2, y - 3, z - 2), (x + 2, y + 2, z + 2))
+
+def pod_commands(state, args=()):
+    """Pure: the tasks that wall the body in — feet level first, head level next, the roof last."""
+
+    x, y, z = state["feet"]
+    region, inv = state["region"], state["inv"]
+    placed = set()
+
+    def solid(c):
+        return c in placed or region.solid(c)
+
+    cells = _pod_cells((x, y, z))
+    todo = sorted((c for c in cells if not region.solid(c)), key=lambda c: c[1])
+    blocks = [b for b in GROUPS["building"] + GROUPS["planks"] if inv.count(b)]
+    carried = sum(inv.count(b) for b in blocks)
+    # planned against unlimited stock first so the supports count (a roof on open ground needs a cap: 10 blocks, not 9)
+    stock = [[b, inv.count(b)] for b in blocks] + [["?", 1 << 30]]
+    tasks = []
+
+    def put(cell):
+        while stock and stock[0][1] == 0:
+            stock.pop(0)
+        if not stock:
+            return False             # ran out: what is left open is the verify's to report
+        stock[0][1] -= 1
+        tasks.append({"type": "place", "item": stock[0][0], "x": cell[0], "y": cell[1], "z": cell[2]})
+        placed.add(cell)
+        return True
+
+    def has_support(cell):
+        return any(solid(add(cell, d)) for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)])
+
+    for c in todo:
+        if solid(c):
+            continue
+        name = region.name(c)
+        if not name.endswith(("air", "water")) and not region.hazard(c) and c not in state["protected"]:
+            # something non-solid occupies the cell: break it first
+            tasks.append(nav.mine_task(c, collect=True))
+        if not has_support(c) and c == (x, y + 2, z):
+            # the roof has nothing to click: cap a side wall first, then the roof goes against the cap
+            for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                wall, cap = (x + dx, y + 1, z + dz), (x + dx, y + 2, z + dz)
+                if solid(wall) and not solid(cap):
+                    put(cap)
+                    break
+        if not has_support(c):
+            # nothing to click against: build a support column up first
+            below = add(c, (0, -1, 0))
+            stack = []
+            while not solid(below) and below[1] > y - 3:
+                stack.append(below)
+                below = add(below, (0, -1, 0))
+            for s_cell in reversed(stack):
+                put(s_cell)
+        put(c)
+    placed_n = sum(1 for t in tasks if t["type"] == "place")
+    if placed_n > carried:
+        raise NotAvailable(f"need {placed_n} blocks to wall in (supports included), {carried} carried")
+    return tasks
+
+@skill(gives=["state:sheltered"], needs={"building": POD_BLOCKS}, speed={}, remaining=lambda st, c: shelter_left(st, c), done=lambda c: enclosed(), commands=pod_commands, budget=120, stall=40,
+       provides={"state:sheltered": lambda ctx, s: (), "shelter:wall in": lambda ctx, s: ()}, prefer=-1)
+def pod(ctx):
+    """Night fallback where digging in is unsafe (water/caves below): wall in the body — four sides at feet and head, a roof."""
+
+    x, y, z = feet()
+    tasks = pod_commands(body_state(ctx, _pod_region((x, y, z))))
+    for r in api.run_chain(tasks):
+        if r["status"] != "succeeded":
+            log(f"pod: {r['type']} failed: {r.get('message')}")
+    cells = _pod_cells((x, y, z))
+    region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
+    open_cells = [c for c in cells if not region.solid(c)]
+    if open_cells:
+        raise McError(f"pod left {len(open_cells)} openings")
+    log("walled in for the night")
+
+
+def _has_torches_to_spare(c):
+    if Inventory().usable("minecraft:torch") <= 2:
+        raise NotAvailable("no torches to spare")
+
+def _torches_standing(radius=12):
+    return len(find(["torch", "wall_torch"], radius=radius, limit=64) or ())
+
+@skill(gives=["state:lit"], remaining=_k.few_dark, speed={}, pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, start=lambda c: _torches_standing(),
+       verify=lambda c: _torches_standing() > c.base, commands=torch_commands, budget=180, stall=60,
+       provides={"light": lambda ctx, s: (int(s.detail.get("radius", 10)), max(1, s.count))})
+def light_area(ctx, radius=10, limit=6):
+    """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2."""
+
+    if enclosed():
+        raise NotAvailable("sealed in: nothing outside to light")
+    spots = [p for p in dark_spots(radius=radius, max_light=0, limit=40) if not ctx.blocked((p["x"], p["y"], p["z"]))]
+    tasks = torch_commands(body_state(ctx, spots=spots), (radius, limit * 2))
+    if not tasks:
+        raise NotAvailable("nothing dark nearby")
+    lit, misses = 0, 0
+    for task in tasks:
+        if lit >= limit or Inventory().usable("minecraft:torch") <= 2 or misses >= 3:
+            break   # three unreachable spots in a row: the rest are behind walls too
+        pos = (task["x"], task["y"], task["z"])
+        try:
+            r = api.run(task, wait=40, awaits="the torch placed or the spot unreachable decides the next spot")
+        except api.Unreachable:
+            misses += 1                    # a dark spot behind a wall: the next one, as before
+            continue
+        if r["status"] == "succeeded":
+            lit, misses = lit + 1, 0
+        else:
+            misses += 1
+            ctx.ban(pos, 900)
+        yield lit
+    if not lit:
+        raise NotAvailable("no dark spot could be lit")
+    log(f"lit {lit} dark spots")

@@ -103,7 +103,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
     """Wait out a fight at a safe distance from `anchor`, inside the band so the target stays reachable, eating when hurt."""
 
     from .world import Region
-    from . import skills
+    from . import survive
     for _ in range(rounds):
         if until is not None and until():
             return True
@@ -129,7 +129,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
             nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
         elif safe and s["health"] <= 14 and s.get("food", 20) < 20:
             try:
-                skills.eat(raw_ok=True)  # a full bar can't be eaten
+                survive.eat(raw_ok=True)  # a full bar can't be eaten
             except McError as e:
                 log(f"   station: no bite ({e})")
         elif spot is not None and math.dist(here, spot) > 1.5:
