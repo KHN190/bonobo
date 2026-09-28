@@ -485,7 +485,8 @@ def _reshape(option, state):
     if where == "under":
         return [{"type": "pillar", "item": item} for _ in range(n)]
     if where == "roof":
-        return [{"type": "place", "item": item, "x": x, "y": y + 2, "z": z}]
+        return [{"type": "place", "item": item, "x": x + dx, "y": y + 2, "z": z + dz}
+                for dx in (-1, 0, 1) for dz in (-1, 0, 1)]
     near = state.get("threats") or []
     toward = min(near, key=lambda h: math.dist((x, y, z), h[0]))[0] if near else (x + 1, y, z)
     # by block, not by centre: a mob in the same row stands at x.5 > x, and its "+1" put the block diagonal (a wall)

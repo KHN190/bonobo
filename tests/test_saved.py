@@ -237,7 +237,8 @@ class WhatAnAnswerIsFor(unittest.TestCase):
 
     def test_shaping_the_ground_buys_nothing_against_what_the_beliefs_say_it_cannot_stop(self):
         """Again from the table: a mob that squeezes past walks over every shape, so no shape may come out worth
-        anything. Stated as the saving, never as the pick — which column wins is an outcome."""
+        anything — save a roof over a tall one (the table's `tall`: an enderman can't come under 2 high). Stated as
+        the saving, never as the pick — which column wins is an outcome."""
         for cell in dangers():
             rows = cell.rows()
             if not rows or not all(cell.mob_of(r).get("squeezes") for r in rows):
@@ -245,7 +246,8 @@ class WhatAnAnswerIsFor(unittest.TestCase):
             state, price = cell.threat_state(), cell.price()
             options, horizon = threat.options(state), threat.horizon_for(state)
             for option in options:
-                if option.kind in SHAPES:
+                tall = all(cell.mob_of(r).get("tall") for r in rows)
+                if option.kind in SHAPES and not (option.kind == "reshape" and option.target[0] == "roof" and tall):
                     self.assertLessEqual(threat.saves(option, options, price, horizon), 0.0,
                                          f"{cell}: {option.kind} {option.target}")
 

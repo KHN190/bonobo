@@ -251,7 +251,8 @@ class Option:
 
         return dict(state, pending_hp=self.leaves * state["work_s"] + self.blast_after)
 
-SHAPES = ("between", "under", "down", "roof")      # roof: a block 2 over the head, too low for a tall mob
+SHAPES = ("between", "under", "down", "roof")      # roof: a 3×3 lid 2 up, too low for a tall mob
+ROOF_BLOCKS = 9     # one block over the head is not enough: a tall mob hits from the next cell, diagonals too
 
 def _sealed_off(ground, h):
     """Pure: the ground shuts this mob out for good (a sealed passage: its slowdown is infinite)."""
@@ -296,7 +297,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
     # digging down spends no blocks, only diggable ground; the other two shapes spend what is carried
     most_of = {"between": min(carried, cap), "under": min(carried, cap),
                "down": cap if state.get("dig_ok") else 0,
-               "roof": 1 if carried and any(MOBS[h[3]].get("tall") for h in hazards) else 0}
+               "roof": ROOF_BLOCKS if carried >= ROOF_BLOCKS and any(MOBS[h[3]].get("tall") for h in hazards) else 0}
     if not any(most_of.values()):
         return []
     nearest = min(hazards, key=lambda h: math.dist(here, h[0]))
@@ -313,7 +314,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             # 1.2 s, ran 4 s rising nothing, died) — the price is the knocked-back one
             each_s = round(block_under_hits_s(each_s, knockback_rate(here, hazards, each_s)), 2)
         after = grid
-        for n in range(1, most_of[where] + 1):
+        for n in ((most_of[where],) if where == "roof" and most_of[where] else range(1, most_of[where] + 1)):
             if where == "between":
                 after = after.with_block()
             seconds = each_s * n

@@ -1127,7 +1127,7 @@ class AProvokedEndermanIsEvaded(unittest.TestCase):
         from bonobo import field
         e = [row("minecraft:enderman", 2, 0)]
         rows = [("a 2-high space 4 off: walk under it", (0, 64, -4), 0, ("cover", (0, 64, -4))),
-                ("none near, blocks: a roof over the head", None, 64, ("reshape", ("roof", 1))),
+                ("none near, blocks: a 3×3 roof over the head", None, 64, ("reshape", ("roof", 9))),
                 ("must fail: a zombie gets no roof", None, 64, None)]
         for name, cover, blocks, want in rows:
             with self.subTest(name):
@@ -1136,7 +1136,7 @@ class AProvokedEndermanIsEvaded(unittest.TestCase):
                       "ids": [0], "field": field.Field(), "low_cover": cover}
                 got = {(o.kind, o.target) for o in threat.options(st)}
                 if want is None:
-                    self.assertNotIn(("reshape", ("roof", 1)), got)
+                    self.assertNotIn(("reshape", ("roof", 9)), got)
                 else:
                     self.assertIn(want, got)
 
