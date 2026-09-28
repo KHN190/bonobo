@@ -68,6 +68,15 @@ def mine_segment_commands(state, args):
     return [{"type": "mine_many", "collect": True, "requireDrops": tier is not None, **({"only": only} if only else {}),
              "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}]
 
+def spent_cells(sent, name_at, blocks):
+    """Pure: the sent cells whose block is gone in a fresh read (`name_at(cell)`) — their notes are spent; a cell
+    still standing (sent, not broken) keeps its note. No read (`name_at` None): nothing is judged spent."""
+    if name_at is None:
+        return []
+    kinds = {bare(b) for b in blocks}
+    return sorted(c for c in sent if bare(name_at(c) or "air") not in kinds)
+
+
 @skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
        start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
@@ -85,10 +94,18 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
     no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
     opened = set()       # cells the jar could not hold a stand at, given a side face once (then banned if refused again)
+    sent = set()         # cells sent to the jar: their notes are retired once the count is met
     dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
     for _ in range(10):
         have = Inventory().count(drop)
         if have >= target:
+            # the count met: the notes of what was mined are spent (only a whole pass's end retired them — a count met
+            # at the top of the next pass kept a mined diamond's note: seen_store__noted 10:16 "the note retired" False)
+            if ctx.mem is not None and sent:
+                seen_now = region_around(sorted(sent), pad=0)
+                for p in spent_cells(sent, (lambda c: seen_now.name(c)) if seen_now is not None else None, blocks):
+                    for b in blocks:
+                        ctx.mem.forget_seen(b, p, ctx.dimension, radius=0.5)
             return
         yield None
         require_pickaxe(tier)
@@ -234,6 +251,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if openers:
             api.run_chain([nav.mine_task(op, down=op[1] < here_now[1]) for op in openers], stop_on_failure=True, wait=60)
         before = Inventory().count(drop)
+        sent |= set(vein)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")
         except api.Unreachable as out:

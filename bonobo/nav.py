@@ -41,6 +41,17 @@ def use_on_top(item, cell, top=1.0):
     y = cell[1] + (1.0 if top >= 1.0 else top - 0.15)
     return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": y, "z": cell[2] + 0.5, "onBlock": True}
 
+def use_on_face(item, cell, face):
+    """Pure: the task that uses `item` on the side face of `cell` that points along `face` ((dx, dz)): aimed at that
+    face's centre — a bucket used there pours into the cell beside it."""
+    return {"type": "use_item", "item": item, "x": cell[0] + 0.5 + 0.5 * face[0], "y": cell[1] + 0.5,
+            "z": cell[2] + 0.5 + 0.5 * face[1], "onBlock": True}
+
+def first_solid(region, eye, point, past=0.3):
+    """Pure: the first solid cell a straight look from `eye` through `point` meets (a little past the point: the
+    point sits on a face), or None — what the jar's click raycast would hit (ray_first)."""
+    return ray_first(region, eye, point, past)
+
 def mine_task(c, collect=False, down=False):
     """A mine task; `down`: the block is under the feet on purpose (a dig down) — the jar (≥ 0.1.58) then may stand
     on its own column, which ordinary mining never does."""
@@ -196,14 +207,13 @@ _OFFS = ((0, 0), (0.3, 0), (-0.3, 0), (0, 0.3), (0, -0.3))      # where the body
 _FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
-def _ray_hits(region, eye, point, cell, reach, through=()):
-    """Pure: the jar's rayTo — from `eye` toward `point` (0.1 past it), is `cell` the first solid block met, within
-    `reach`? Cells in `through` (broken in the same batch) do not block."""
-    if math.dist(eye, point) > reach:
-        return False
+def ray_first(region, eye, point, past=0.1, through=(), target=None):
+    """Pure: the jar's raycast from `eye` toward `point` (`past` beyond it) — the first cell met that is solid (or is
+    `target`), None when the ray ends in air. Cells in `through` (broken in the same batch) do not block. The one ray
+    walk: holds (a mine's sight) and first_solid (a click's aim) both read it."""
     d = [point[i] - eye[i] for i in range(3)]
     n = math.sqrt(sum(v * v for v in d)) or 1.0
-    end = [point[i] + d[i] / n * 0.1 for i in range(3)]
+    end = [point[i] + d[i] / n * past for i in range(3)]
     d = [end[i] - eye[i] for i in range(3)]
     c = [math.floor(v) for v in eye]
     step = [1 if v > 0 else -1 for v in d]
@@ -218,15 +228,18 @@ def _ray_hits(region, eye, point, cell, reach, through=()):
             t_delta.append(abs(1 / d[i]))
     while True:
         here = tuple(c)
-        if here == tuple(cell):
-            return True
-        if here not in through and region.solid(here):
-            return False
+        if (target is not None and here == tuple(target)) or (here not in through and region.solid(here)):
+            return here
         i = min(range(3), key=lambda k: t_max[k])
         if t_max[i] > 1.0:
-            return False
+            return None
         c[i] += step[i]
         t_max[i] += t_delta[i]
+
+def _ray_hits(region, eye, point, cell, reach, through=()):
+    """Pure: the jar's rayTo — from `eye` toward `point` (0.1 past it), is `cell` the first solid block met, within
+    `reach`?"""
+    return math.dist(eye, point) <= reach and ray_first(region, eye, point, 0.1, through, target=cell) == tuple(cell)
 
 
 def holds(region, feet_at, cell, down=False, reach=REACH, through=()):

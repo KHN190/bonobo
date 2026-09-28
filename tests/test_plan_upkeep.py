@@ -552,6 +552,27 @@ ESTIMATES = [
 ]
 
 
+class AwaitWhatIsOnItsWay(unittest.TestCase):
+    """What a plan takes from a running job (a sown crop, a furnace) is collected first: an await step before its
+    consumer — counted as held, the bread was crafted before the wheat existed (bread_from_a_farm)."""
+    # (situation, carried, on its way, the plan's steps as (kind, token, count))
+    ROWS = [("the crop's wheat on its way: await it, then bake", [("crafting_table", 1)], {"minecraft:wheat": 9},
+             [("await", "minecraft:wheat", 3), ("craft", "minecraft:bread", 1)]),
+            ("one carried, two awaited", [("crafting_table", 1), ("wheat", 1)], {"minecraft:wheat": 9},
+             [("await", "minecraft:wheat", 2), ("craft", "minecraft:bread", 1)]),
+            ("must fail: all carried: no await", [("crafting_table", 1), ("wheat", 3)], {"minecraft:wheat": 9},
+             [("craft", "minecraft:bread", 1)]),
+            ("must fail: nothing on its way: no await step", [("crafting_table", 1), ("wheat", 3)], {},
+             [("craft", "minecraft:bread", 1)])]
+
+    def test_rows(self):
+        for name, carried, pending, want in self.ROWS:
+            with self.subTest(name):
+                snap = snapshot(inv=inventory(*carried))
+                steps = decompose.decompose(snap.inv, goals.have(("minecraft:bread", 1)), cost(snap), pending=pending)
+                self.assertEqual([(s.kind, s.token, s.count) for s in steps], want)
+
+
 class CostModel(unittest.TestCase):
     # (situation, carried, chest blocks away, tree blocks away, the step planned first): 4 logs, 4 in a remembered chest
     CHEST_OR_TREE = [

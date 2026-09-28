@@ -1102,10 +1102,10 @@ COMMANDS = {
     "plant_farm": [
         ("grass, a hoe, 8 seeds, water: the whole plot, 18 tasks", body(world(block="grass_block"),
          inv=inventory(stone_hoe=1, wheat_seeds=8, water_bucket=1)),
-         lambda t, b: t.assertEqual((len(b), b[0]["type"], b[1]["item"]), (18, "mine", "minecraft:water_bucket"))),
+         lambda t, b: t.assertEqual((len(b), b[0]["type"], b[-1]["item"]), (18, "mine", "minecraft:water_bucket"))),
         ("the best hoe carried is the one used", body(world(block="grass_block"),
          inv=inventory(stone_hoe=1, diamond_hoe=1, wheat_seeds=8, water_bucket=1)),
-         lambda t, b: t.assertEqual(b[2]["item"], "minecraft:diamond_hoe")),
+         lambda t, b: t.assertEqual(b[1]["item"], "minecraft:diamond_hoe")),
         ("must fail: no hoe", body(world(block="grass_block"), inv=inventory(wheat_seeds=8, water_bucket=1)),
          NotAvailable),
         ("must fail: stone, no soil", body(world(), inv=inventory(stone_hoe=1, wheat_seeds=8, water_bucket=1)),

@@ -153,3 +153,47 @@ class OneNameOneDefinition(unittest.TestCase):
         for path in sorted(glob.glob(os.path.join(root, "**", "*.py"), recursive=True)):
             with self.subTest(os.path.relpath(path, root)), open(path, encoding="utf-8") as f:
                 self.assertEqual(duplicate_defs(f.read()), [])
+
+
+def misplaced_skills(source):
+    """Pure: the functions wearing @skill that are not skills — a skill's first parameter is the context (`ctx`);
+    a helper slipped between a decorator and its def (skills.spent_cells above `def mine`, bbe599d) took the
+    registration, and "mine" vanished from REGISTRY. Also any explicit name= that differs from the def's name."""
+    import ast
+    out = []
+    for n in ast.parse(source).body:
+        if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for d in n.decorator_list:
+            call = d if isinstance(d, ast.Call) else None
+            fn = call.func if call else d
+            if not (isinstance(fn, ast.Name) and fn.id == "skill"):
+                continue
+            first = n.args.args[0].arg if n.args.args else None
+            named = next((k.value.value for k in (call.keywords if call else [])
+                          if k.arg == "name" and isinstance(k.value, ast.Constant)), None)
+            if first != "ctx" or (named is not None and named != n.name):
+                out.append(n.name)
+    return out
+
+
+class SkillsWearTheirOwnDecorator(unittest.TestCase):
+    ROWS = [("a skill", "@skill(needs={})\ndef mine(ctx, token):\n    pass\n", []),
+            ("a helper above the decorator: fine", "def spent(a):\n    pass\n@skill(needs={})\ndef mine(ctx):\n    pass\n",
+             []),
+            ("must fail: a helper between the decorator and its skill",
+             "@skill(needs={})\ndef spent(sent, name_at):\n    pass\ndef mine(ctx):\n    pass\n", ["spent"]),
+            ("must fail: a name= that is not the def's", "@skill(name='chop')\ndef mine(ctx):\n    pass\n", ["mine"])]
+
+    def test_rows(self):
+        for name, source, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(misplaced_skills(source), want)
+
+    def test_the_package(self):
+        import glob
+        import os
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
+        for path in sorted(glob.glob(os.path.join(root, "**", "*.py"), recursive=True)):
+            with self.subTest(os.path.relpath(path, root)), open(path, encoding="utf-8") as f:
+                self.assertEqual(misplaced_skills(f.read()), [])

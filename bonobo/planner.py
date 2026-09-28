@@ -32,10 +32,12 @@ class Step:
 class VirtualInventory:
     """Counts what we'd hold after the planned steps run."""
 
-    def __init__(self, counts, tools):
-        self.counts = Counter(counts)       # item id -> count
+    def __init__(self, counts, tools, pending=None):
+        self.counts = Counter(counts)       # item id -> count (held, and `pending` on its way)
         self.produced = Counter()           # group token -> count produced by planned steps
         self.tools = list(tools)            # [(kind, tier, durability)]
+        self.pending = Counter(pending or {})   # item id -> of `counts`, what a job is still making (not in the bag)
+        self.awaited = Counter()            # item id -> pending the plan uses: to be collected before it is used
 
     def available(self, token):
         return sum(self.counts[m] for m in members(token)) + self.produced[token]
@@ -48,6 +50,11 @@ class VirtualInventory:
             if n <= 0:
                 break
             take = min(n, self.counts[m])
+            held = self.counts[m] - self.pending[m]
+            if take > held:                  # the rest comes from a job not yet collected: await it first
+                late = take - max(0, held)
+                self.pending[m] -= late
+                self.awaited[m] += late
             self.counts[m] -= take
             n -= take
 
@@ -71,8 +78,8 @@ def cooked_from_carried(options, available, n):
     return out
 
 class Planner:
-    def __init__(self, counts, tools, cost):
-        self.inv = VirtualInventory(counts, tools)
+    def __init__(self, counts, tools, cost, pending=None):
+        self.inv = VirtualInventory(counts, tools, pending)
         self.cost = cost
         self.probing = False       # a craftable_tier probe: plans the tier asked, never upgrades it again
         self.steps = []
@@ -94,7 +101,7 @@ class Planner:
             if s.get("count"):
                 counts[s["id"]] += 1
         tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)] if hasattr(inv, "tools") else []
-        return cls(counts, tools, cost)
+        return cls(counts, tools, cost, {mid(k): v for k, v in (extra or {}).items()})
 
     # -- public
     def plan(self, needs):
@@ -103,7 +110,12 @@ class Planner:
                 self.need_tool(need[1], need[2])
             else:
                 self.need(need[0], need[1])
-        return self.merged()
+        # what the plan takes from a job still running (a sown crop, a furnace) is collected first — counted as held,
+        # it was crafted from before it existed (bread_from_a_farm: sown, then "missing 3× wheat for crafting")
+        awaits = [Step("await", item, n) for item, n in sorted(self.inv.awaited.items()) if n > 0]
+        for st in awaits:
+            st.est = self.cost.estimate(st)
+        return awaits + self.merged()
 
     # -- resolution
     def need_tool(self, kind, tier, depth=0):

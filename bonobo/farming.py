@@ -1,15 +1,17 @@
 """Renewable food and wood: replant saplings after chopping, a 3×3 wheat plot around a water source, harvest when ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collected later by upkeep. Pure planners (`farm_plot`, `ripe_cells`, `breeding_pair`) are offline-tested; skills only execute them."""
 
 import math
+import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
 from . import api, jobs, nav, skillcore
 from .api import McError, NotAvailable, log
+from .data import bare
 from .skill import skill
 from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD
-from .world import Inventory, Region, add, entities, find, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
+from .world import Inventory, Region, add, entities, find, job_ready, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
 
 SOIL = ("grass_block", "dirt", "coarse_dirt", "rooted_dirt")
 SAPLINGS = ("oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling",
@@ -49,23 +51,56 @@ def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
     return [nav.use_on_top(seeds, c, top=nav.FARMLAND_TOP) for c in cells]      # seeds go on farmland: 15/16 high
 
-def plot_commands(centre, hoe, region=None):
-    """Pure: the plot as one chain — dig the centre, pour water, then till and sow the ring."""
+def plot_commands(centre, hoe, region=None, stand=None):
+    """Pure: the plot as one chain — dig the centre, till and sow the ring, then pour the water into the centre hole.
+    Water last: no click is made beside moving water. Every ring cell is within reach of `stand` (the caller stands
+    there first and re-checks it at each segment boundary); `stand` also picks the pour's aim (water_task)."""
 
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
     below = add(centre, (0, -1, 0))
     out = []
     if name(centre) not in ("water", "air"):
         out.append(nav.mine_task(centre))
-    if name(centre) != "water":
-        out.append(nav.use_on_top("minecraft:water_bucket", below))
     for dx, dz in RING:
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
+        pair = []
         if name(cell) != "farmland":
-            out.append(nav.use_on_top(hoe, cell))
+            pair.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
-            out.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
+            pair.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
+        out += pair
+    if name(centre) != "water":
+        out.append(water_task(centre, stand, region))
     return out
+
+EYE = 1.62
+
+def water_task(centre, stand=None, region=None):
+    """Pure: the pour into the centre hole. From a stand beside the plot the rim hides the hole's floor (the ray met
+    the ring's top: water on the ring, bread_from_a_farm 13268), so the aim is the far inner wall — the ring block past
+    the centre on the side away from the stand, its face toward the hole: a bucket used there pours into the hole.
+    With the blocks read, the aim must be the first solid thing the stand's eye meets; else the floor's top."""
+    below = add(centre, (0, -1, 0))
+    if stand is None:
+        return nav.use_on_top("minecraft:water_bucket", below)
+    dx, dz = centre[0] - stand[0], centre[2] - stand[2]
+    step = ((1 if dx > 0 else -1), 0) if abs(dx) >= abs(dz) else (0, (1 if dz > 0 else -1))
+    wall = (centre[0] + step[0], centre[1], centre[2] + step[1])
+    task = nav.use_on_face("minecraft:water_bucket", wall, (-step[0], -step[1]))
+    if region is not None:
+        eye = (stand[0] + 0.5, stand[1] + EYE, stand[2] + 0.5)
+        if nav.first_solid(region, eye, (task["x"], task["y"], task["z"])) != wall:
+            floor = nav.use_on_top("minecraft:water_bucket", below)
+            if nav.first_solid(region, eye, (floor["x"], floor["y"], floor["z"])) == below:
+                return floor
+    return task
+
+def water_contained(region, cell):
+    """Pure: water at `cell` stays a source there — solid under it and on its four sides at its own level, so it
+    flows nowhere (the plot's centre hole: the ring's blocks hold it). Water poured onto the ground, not into a hole,
+    is not contained: it runs over the ring."""
+    x, y, z = cell
+    return region.solid((x, y - 1, z)) and all(region.solid((x + dx, y, z + dz)) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
 
 def started_plot(region, here, radius=8):
     """Pure: the centre of a plot begun and unfinished here, nearest first, or None."""
@@ -80,11 +115,22 @@ def started_plot(region, here, radius=8):
             continue
         ring = [(c[0] + dx, c[1], c[2] + dz) for dx, dz in RING]
         if all(region.name(r) in SOIL + ("farmland",) for r in ring) and \
-                any(region.name(add(r, (0, 1, 0))) != "wheat" for r in ring):
+                (any(region.name(add(r, (0, 1, 0))) != "wheat" for r in ring) or region.name(c) != "water"):
             d = math.dist(c, here)
             if best is None or d < best[0]:
                 best = (d, c)
     return None if best is None else best[1]
+
+def click_line(task, reply):
+    """Pure: one use_item's detail line — the item, the aim sent, the jar's reply and what the click saw (jar ≥ 0.1.59:
+    the eye, yaw/pitch, reach, where the ray ended, the block hit)."""
+    res = reply.get("result") or {}
+    f = lambda k: f"{res[k]:.2f}" if isinstance(res.get(k), (int, float)) else "-"     # noqa: E731
+    return (f"click {task['item'].split(':')[-1]} aim ({task['x']:.2f}, {task['y']:.2f}, {task['z']:.2f}) → "
+            f"{reply.get('status')} {reply.get('message') or ''} | eye ({f('eyeX')}, {f('eyeY')}, {f('eyeZ')}) "
+            f"yaw {f('yaw')} pitch {f('pitch')} reach {f('reach')} aimDist {f('aimDist')} "
+            f"ray end ({f('rayEndX')}, {f('rayEndY')}, {f('rayEndZ')}) hit {res.get('hitX', '-')},{res.get('hitY', '-')},"
+            f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')}")
 
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
@@ -94,7 +140,7 @@ def unreachable_cells(tasks, results):
                    for t, r in zip(tasks, results)
                    if r.get("status") != "succeeded" and "reach" in str(r.get("message", "")).lower()})
 
-def plant_farm_commands(state, args):
+def plant_farm_commands(state, args, stand=None):
     """`commands` for plant_farm: the plot chain at the nearest flat 3×3 soil with the best hoe; NotAvailable names what is missing."""
 
     inv = state["inv"]
@@ -109,7 +155,7 @@ def plant_farm_commands(state, args):
         raise NotAvailable("no flat 3×3 soil nearby for a farm")
     if region.name(centre) != "water" and not inv.count("minecraft:water_bucket"):
         raise NotAvailable("need a water bucket for the plot")          # poured already: the bucket is not asked again
-    return plot_commands(centre, hoe, region)
+    return plot_commands(centre, hoe, region, stand)
 
 def feed_commands(pair, food):
     """Pure: feed both animals of a breeding pair, back to back (the second needs nothing from the first)."""
@@ -199,19 +245,29 @@ def plant_farm(ctx):
     state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
-    tasks = plant_farm_commands(state, ())
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
+    tasks = plant_farm_commands(state, (), stand=stand)
     # on the stand, not a block off it: the ring's far side is 3 away and a sow aimed there from 4 ran past the
     # jar's 4.5 reach ("no block under the crosshair")
     if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
-    done = api.run_chain(tasks, stop_on_failure=False)
+    def on_stand(_segment):
+        # a segment boundary: back onto the stand only if the body moved off it (the drift, bread_from_a_farm 10:23:34)
+        if math.dist(skillcore.feet(), stand) > 0.5:
+            nav.arrived(stand, ctx.policy, range_=0.5, attempts=1)
+    done = api.run_chain(tasks, stop_on_failure=False, before_segment=on_stand)
+    api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
+    for t, r in zip(tasks, done):
+        if t.get("type") == "use_item":
+            api.detail("  " + click_line(t, r))
     for cell in unreachable_cells(tasks, done):
         ctx.ban(tuple(int(round(v)) for v in cell), 600)
-    after = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1)))
+    after = Region(add(centre, (-1, -1, -1)), add(centre, (1, 1, 1)))
     if after.name(centre) != "water":
         raise McError(f"could not pour the plot's water at {centre}")
+    if not water_contained(after, centre):
+        raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot")
     sown = sum(1 for dx, dz in RING if after.name((centre[0] + dx, centre[1] + 1, centre[2] + dz)) == "wheat")
     yield sown
     if not sown:
@@ -220,6 +276,38 @@ def plant_farm(ctx):
     jobs.start(ctx.mem, "crop", centre, ctx.dimension, item="minecraft:wheat", count=sown)
     log(f"planted a wheat plot of {sown} at {centre}")
     return centre
+
+AWAIT_MAX_S = 45        # longest an await step waits in place for a job; longer, it steps aside (NotAvailable)
+
+def job_due(job, tick=None):
+    """A job's output can be taken now: a crop when ripe wheat stands on its plot (the world, not the clock: crops
+    ripen by random ticks), anything else by its clock."""
+    if job.get("kind") == "crop":
+        c = tuple(job["pos"])
+        return bool(ripe_cells(Region(add(c, (-1, 1, -1)), add(c, (1, 1, 1)), props=True)))
+    return job_ready(job, tick)
+
+@skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]),
+       needs={}, speed={}, start=lambda c: Inventory().count(c.args[1]),
+       verify=lambda c: Inventory().count(c.args[1]) > c.base, budget=120, stall=60,
+       provides={"await": lambda ctx, s: (s.token, s.count)})
+def await_job(ctx, item, count):
+    """What the plan takes from a running job (a sown crop, a furnace): waited for in place while it is near — then
+    collected (jobs.collect) — or stepped aside from (NotAvailable) when it is not."""
+    began = time.time()
+    while True:
+        mine = [j for j in ctx.mem.jobs(ctx.dimension) if j.get("item") == item]
+        if not mine:
+            raise NotAvailable(f"no job is making {bare(item)}")
+        tick = api.get("/state").get("gameTime")
+        due = next((j for j in mine if job_due(j, tick)), None)
+        if due is not None:
+            jobs.collect(ctx, due)
+            return
+        if time.time() - began > AWAIT_MAX_S:
+            raise NotAvailable(f"{bare(item)} not ready yet")
+        api.run({"type": "wait", "ticks": 20}, wait=5, awaits="one second more for the job's output")
+        yield round(time.time() - began)      # waiting on a clock is the progress here
 
 HOES = tuple(f"minecraft:{m}_hoe" for m in ("netherite", "diamond", "iron", "golden", "stone", "wooden"))
 RIPE_LOOK = 16          # how far a farm step looks for a crop already grown before it sows
