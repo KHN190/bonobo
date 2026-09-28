@@ -996,6 +996,18 @@ class DodgeThePredictedImpact(unittest.TestCase):
                            impacts=impacts)
                 self.assertEqual((d.kind, d.target), want)
 
+    def test_hold_against_a_fireball(self):
+        """ghast_fireball: evade walked into the fireball — no walk unless a dodge clears it in time."""
+        fb = [threat.row((6.0, 64.0, 0.0), 6.0, (-12.0, 0.0, 0.0), "minecraft:fireball")]
+        rows = [("must fail: 0.5 s to impact, 7 blocks to clear — no evade, hold", [((0.0, 64.0, 0.0), 0.5, 6.0)], False),
+                ("5 s to impact: a dodge out of it", [((0.0, 64.0, 0.0), 5.0, 6.0)], True),
+                ("no prediction (an old jar): hold", [], False)]
+        for name, impacts, evade in rows:
+            with self.subTest(name):
+                st = {"here": HERE, "hp": 20, "sword": 2, "protection": 0.3, "blocks": 0, "hazards": fb, "ids": [1],
+                      "impacts": impacts}
+                self.assertEqual("evade" in {o.kind for o in threat.options(st)}, evade)
+
     def test_dodge_spot(self):
         here = (0.0, 64.0, 0.0)
         near_spot, far_spot = (4.0, 64.0, 0.0), (20.0, 64.0, 0.0)

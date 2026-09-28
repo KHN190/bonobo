@@ -174,6 +174,8 @@ hide_ratio = estimate.reaches_share
 
 # -- the model
 
+FIREBALLS = ("minecraft:fireball", "minecraft:small_fireball", "minecraft:dragon_fireball")
+
 def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=None):
     """Where to leave every threat's reach: `blocks` away from their dps-weighted centre, under the fight's slack rule; `cover` a candidate."""
 
@@ -206,6 +208,8 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=No
         spot = dodge_spot(here, impacts, ring + options, speed)
         if spot is not None:
             return tuple(round(c) for c in spot)
+    if any(h[3] in FIREBALLS for h in hazards):
+        return None      # a fireball not outrun in time: hold, the jar's reflex swings (ghast_fireball: walked into it)
     if not options:
         return None
     best, best_key = None, None
