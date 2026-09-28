@@ -704,6 +704,22 @@ def _run_row(sc, make_ctx, fired):
                                        for f in reversed(_tb.extract_tb(e.__traceback__)[-4:]))
     return result, exc, note, crashed, t0
 
+def check_parts(check, api, inv):
+    """[(the word, its answer)] of a check made of parts (words.checks._all): which part said no, and each value —
+    a failed row whose note only says 'without the outcome' named nothing."""
+    out = []
+    for part in getattr(check, "parts", ()):
+        word = getattr(part, "__table__", None) or getattr(part, "__name__", "?")
+        try:
+            out.append((str(word), bool(part(api, inv))))
+        except Exception as e:
+            out.append((str(word), f"{type(e).__name__}: {e}"))
+    return out
+
+
+CHECK_READOUT = {}      # the last failed row's parts and, for a fight, its numbers (the report carries them)
+
+
 def _row_verdict(sc, seconds, crashed, fired, exc, note):
     """(ok, exc, note) of a row that ran: its check over the world, the time it took, a crash of ours never a pass."""
     from .. import api
@@ -713,6 +729,15 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
     try:
         inv_after = Inventory()
         reached = bool(sc["check"](api, inv_after))
+        CHECK_READOUT.clear()
+        if not reached:
+            CHECK_READOUT["parts"] = check_parts(sc["check"], api, inv_after)
+            if sc.get("combat"):
+                try:
+                    from .words.fight import fight_readout
+                    CHECK_READOUT["fight"] = fight_readout()
+                except Exception as e:
+                    CHECK_READOUT["fight"] = f"{type(e).__name__}: {e}"
         # a crash of ours is never a pass
         from . import vocab as _rows
         ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
@@ -798,7 +823,7 @@ def run(name, make_ctx):
     if not ok:
         folder = _report(name, {"scenario": name, "code": code, "cls": cls, "note": note, "seconds": seconds,
                                 "feedback": feedback, "trace": trace, "log": console.lines[-200:],
-                                "setup_s": dict(SETUP_S)})
+                                "setup_s": dict(SETUP_S), "check": dict(CHECK_READOUT)})
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
 

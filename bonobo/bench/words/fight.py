@@ -565,6 +565,18 @@ def kills_while_engaged(samples, bids=()):
                if any(e and a[0] <= t <= b[0] for t, e, *_k in bids))
 
 
+def fight_readout():
+    """What the fight rows' checks read, as numbers (a failed row's report names them): the fight's kills, the
+    engaged bids and their widest gap, the answer kinds carried, the shield in the offhand, the mobs left."""
+    bids = FIGHT_LOG.get("bids", [])
+    gaps = engaged_gaps(bids)
+    alive = FIGHT_LOG.get("alive", [])
+    return {"kills_while_engaged": kills_while_engaged(alive, bids), "bids": len(bids),
+            "engaged_bids": sum(1 for b in bids if b[1]), "engaged_gap_max": round(max(gaps, default=0.0), 3),
+            "kinds_carried": sorted({b[2] for b in bids if b[2]}), "alive_samples": alive[-3:],
+            "shield_kept": _offhand_shield()}
+
+
 def _kills_by_the_fight(n):
     """Check: `n` mobs went while the fight was engaged (the fight's own kills, not a burn or the plan's swing)."""
     return lambda api, inv: kills_while_engaged(FIGHT_LOG.get("alive", []), FIGHT_LOG.get("bids", [])) >= n

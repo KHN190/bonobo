@@ -115,5 +115,25 @@ class OneRunPerFight(unittest.TestCase):
             self.assertEqual(runner.verdict_of([True], chance=False), "pass")
 
 
+
+class CheckParts(unittest.TestCase):
+    """runner.check_parts: a failed check made of parts says which part said no."""
+
+    def test_rows(self):
+        from bonobo.bench.words.checks import _all
+        yes, no = (lambda a, i: True), (lambda a, i: False)
+        yes.__table__, no.__table__ = ("gone",), ("kills_by_the_fight", 1)
+
+        def boom(a, i):
+            raise ValueError("bad")
+        boom.__table__ = ("decision_gaps_ok",)
+        rows = [("all parts said", _all(yes, no), [("('gone',)", True), ("('kills_by_the_fight', 1)", False)]),
+                ("a part that raised names its error", _all(boom), [("('decision_gaps_ok',)", "ValueError: bad")]),
+                ("must fail: a check with no parts names nothing", no, [])]
+        for name, check, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.check_parts(check, None, None), want)
+
+
 if __name__ == "__main__":
     unittest.main()

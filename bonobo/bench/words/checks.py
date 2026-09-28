@@ -182,7 +182,9 @@ def _failed_as_expected():
     return lambda api, inv: BASE.get("name") in FAILED_AS_EXPECTED
 
 def _all(*checks):
-    return lambda api, inv: all(c(api, inv) for c in checks)
+    check = lambda api, inv: all(c(api, inv) for c in checks)      # noqa: E731
+    check.parts = checks            # read back part by part when the whole says no (runner.check_parts)
+    return check
 
 def _named_all(named):
     """`_all` over (check, why) pairs that logs which part failed, once."""
