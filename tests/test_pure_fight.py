@@ -606,6 +606,34 @@ class ReflexPolicyEveryLife(unittest.TestCase):
                 self.assertEqual([p for p in posts if p[0] == "/reflex"], want)
 
 
+class HazardsAndStandableSpots(unittest.TestCase):
+    """A calm neutral is no hazard; a hazard's safe spot is one a body stands on, never inside a wall."""
+
+    def test_hazard_points(self):
+        from bonobo import threat
+        e = lambda kind, **kw: dict({"type": kind, "x": 0.0, "y": 64.0, "z": 0.0}, **kw)  # noqa: E731
+        rows = [("a zombie", [e("minecraft:zombie")], 1), ("a calm enderman: none", [e("minecraft:enderman")], 0),
+                ("must fail: a provoked enderman is one", [e("minecraft:enderman", provoked=True)], 1),
+                ("a fireball", [e("minecraft:fireball")], 1)]
+        for name, near, want in rows:
+            with self.subTest(name):
+                self.assertEqual(len(cm.hazard_points(near, hostile=threat.aggro)), want)
+
+    def test_safe_spot_is_standable(self):
+        """fight_enderman_1 05:07:32, as logged: four endermen as hazards moved the target into the glass wall."""
+        from bonobo import nav
+        solid = lambda c: c[1] == 199 or c[0] >= 10009  # noqa: E731  (floor, and the wall from x 10009)
+        hz = [((9997.5, 200.0, 10003.5), 3.0), ((10000.5, 200.0, 9997.5), 3.0), ((10003.5, 200.0, 10003.5), 3.0),
+              ((10005.5, 200.0, 9998.5), 3.0)]
+        target = (10007, 200, 10000)
+        rows = [("must fail: without the ground, the spot lands in the wall", None, True),
+                ("with it, never in the wall", lambda p: nav.standable_at(solid, p), False)]
+        for name, standable, in_wall in rows:
+            with self.subTest(name):
+                spot = nav.safe_destination(target, hz, standable=standable)
+                self.assertEqual(spot is not None and solid((int(spot[0] // 1), 200, 0)), in_wall)
+
+
 class StillWorth(unittest.TestCase):
     def test_table(self):
         def opt(kind, leaves=0.0, blast=0.0, seconds=0.0, hp=0.0, target=None):

@@ -191,14 +191,17 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
             best, best_key = (opt, slack), key
     return best
 
-def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None) -> tuple[Any, float]:
-    """Pure: (spot, slack): each option's slack is `min_tti - travel_time - margin`; best wins, distance from hazards breaks ties."""
+def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None, standable=None) -> tuple[Any, float]:
+    """Pure: (spot, slack): each option's slack is `min_tti - travel_time - margin`; best wins, distance from hazards
+    breaks ties. `standable(spot)`: only spots a body can stand on (never inside a wall)."""
 
     frame = {"player": {"pos": {"x": here[0], "y": here[1], "z": here[2]},
                         "vel": {"x": 0, "y": 0, "z": 0}, "hp": 20}}
     options = step_options(frame)
     if cover is not None:
         options = list(options) + [tuple(cover)]
+    if standable is not None:
+        options = [here] + [o for o in options[1:] if standable(o)]     # standing still stays an option
     # safe against every future, not the single differenced one
     best = safest(frame, options, speed, horizon, None, margin, hazards=expand(hazards, here))
     assert best is not None, "step_options is never empty"
@@ -267,11 +270,13 @@ from . import beliefs, lifecycle
 # a view of the belief table, not a copy (two copies disagreed for months)
 HAZARD_R = beliefs.keep_out()
 
-def hazard_points(near, radii=None):
-    """Pure: [(point, radius)] for everything that can hurt us here."""
+def hazard_points(near, radii=None, hostile=None):
+    """Pure: [(point, radius)] for everything that can hurt us here — `hostile(e)` says which are after us (a calm
+    enderman is no hazard: fight_enderman_1's walk target was moved into a wall around one)."""
 
     radii = radii or HAZARD_R
-    return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near if e["type"] in radii]
+    return [((e["x"], e["y"], e["z"]), radii[e["type"]]) for e in near
+            if e["type"] in radii and (hostile is None or hostile(e))]
 
 # the current hazard set: written by perception, read by movement, kept here beside its points
 HAZARDS = []          # [(point, radius)], newest perception round wins
@@ -285,11 +290,11 @@ def _forget_hazards():
 
 lifecycle.on_reset(_forget_hazards, covers=("HAZARDS", "HAZARDS_AT"))
 
-def note_hazards(near, now=None):
+def note_hazards(near, now=None, hostile=None):
     """Record what can hurt us right now. Pure apart from the clock; called from the perception round."""
     global HAZARDS, HAZARDS_AT
     import time as _t
-    HAZARDS = hazard_points(near or [])
+    HAZARDS = hazard_points(near or [], hostile=hostile)
     HAZARDS_AT = now if now is not None else _t.time()
     return HAZARDS
 

@@ -225,13 +225,13 @@ def place_budget(stock):
 # below this, walking on ends runs: no regeneration, and the next hit is the last
 MIN_WALK_HP = 6.0
 
-def safe_destination(pos, hazards=None, clear=1.0):
-    """Pure: `pos`, or a nearby spot clear of every hazard when `pos` sits inside one."""
+def safe_destination(pos, hazards=None, clear=1.0, standable=None):
+    """Pure: `pos`, or a nearby standable spot clear of every hazard when `pos` sits inside one."""
 
     hazards = [h if len(h) > 2 else (h[0], h[1], (0.0, 0.0, 0.0)) for h in (hazards or [])]
     if not hazards or combat_model.min_tti(pos, hazards) == float("inf"):
         return pos
-    spot, slack = combat_model.best_step(pos, hazards)
+    spot, slack = combat_model.best_step(pos, hazards, standable=standable)
     return spot if slack is not None and slack > 0 else None
 
 PLAYER_SPEED = 4.3
@@ -472,12 +472,26 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp: float | None = MIN_WALK_H
             return _arrived(_from, pos, _began, True)
     return _arrived(_from, pos, _began, False)
 
+def standable_in(pos, r=6):
+    """spot → can a body stand there (floor under, feet and head clear), over the blocks read around `pos`."""
+    x, y, z = (int(math.floor(v)) for v in pos)
+    try:
+        region = Region((x - r, y - 1, z - r), (x + r, y + 2, z + r))
+    except McError:
+        return None
+    return lambda p: standable_at(region.solid, p)
+
+def standable_at(solid, p):
+    """Pure: floor under `p`, feet and head clear."""
+    x, y, z = (int(math.floor(v)) for v in p)
+    return solid((x, y - 1, z)) and not solid((x, y, z)) and not solid((x, y + 1, z))
+
 def _clear_of_hazards(pos):
     """The target, or the nearest spot outside every hazard (combat_model.hazards); None when there is none."""
     hz = combat_model.hazards()
     if not hz:
         return pos
-    safe = safe_destination(pos, hz)
+    safe = safe_destination(pos, hz, standable=standable_in(pos))
     if safe is None:
         log(f"   every spot near {pos} is inside something dangerous: not walking there")
         return None
@@ -523,6 +537,7 @@ def _long_trip(here, pos, policy, min_hp, purpose, _from, _began):
 def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     """The mod plans and runs the whole route, so Python never plans moves the walker can't make."""
     here = feet()
+    asked = pos
     if ROAD_MEM is not None and math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
         here = _known_roads(here, pos, policy, purpose)
     if math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
@@ -537,9 +552,15 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     for _ in range(max(attempts, LEGS)):
         api.at_boundary()                # nightfall between legs: never inside a walk
         was = feet()
-        r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                     "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                     "avoid": avoid}, wait=TASK_WAIT_S, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+        try:
+            r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
+                         "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+                         "avoid": avoid}, wait=TASK_WAIT_S, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+        except api.TaskStuck as e:
+            # stuck: decide again from where we stand (the target may sit by a hazard that moved), never stand still
+            log(f"   travel stuck ({e}): deciding again from {feet()}")
+            pos = _clear_of_hazards(asked) or pos
+            continue
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
         if walked_closer(was, feet(), pos):

@@ -260,7 +260,7 @@ class Watcher(threading.Thread):
             near = api.get("/entities?radius=24").get("entities", []) or []
         except (api.McError, KeyError):
             return None
-        note_hazards(near)
+        note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         here = STATE.last_here = (s["x"], s["y"], s["z"])
         return note_threats(near, time.time(), here=here, context=threat.context_of(s, STATE.kit))
 
@@ -306,7 +306,7 @@ class Watcher(threading.Thread):
         self._breath_t = now
         try:
             near = api.get(f"/entities?radius={int(radius)}").get("entities", [])
-            note_hazards(near)
+            note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         except api.McError:
             return False
         self._breath_seen = any(e["type"] == "minecraft:area_effect_cloud" for e in near)
@@ -321,7 +321,7 @@ class Watcher(threading.Thread):
         self._ender_t = now
         try:
             near = api.get(f"/entities?radius={int(radius)}").get("entities", [])
-            note_hazards(near)
+            note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         except api.McError:
             return False
         self._ender_seen = any(e["type"] == "minecraft:enderman" and e.get("angry") for e in near)
