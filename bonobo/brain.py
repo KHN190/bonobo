@@ -328,12 +328,15 @@ class Brain:
             for kind, goal, _why in self.needs.needs_now:
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:
-                    out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}"))
+                    out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}",
+                                              surface=arbiter.on_surface(act.step.kind)))
             return out
 
-        # the gate's one fact: what is cooling (met and unplannable needs are judged where proposed, never intents)
+        # the gate's facts: what is cooling, and whether the surface is closed (met and unplannable needs are judged
+        # where proposed, never intents)
         def facts_of(intents):
-            return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)}}
+            return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)},
+                    "surface_closed": surface_closed(snap.night, snap.dimension)}
 
         def timed(name, ask):
             def run():
@@ -363,14 +366,17 @@ class Brain:
             act, update = self.task_act(task, snap, ctx, Cost(snap, self.mem, self.blacklist,
                                                               policy=self.policy_cache))
             write(task, update)
-            if act is not None and (not closed or act.step.kind in NIGHT_WORK):
-                return [arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}")]
+            if act is not None:
+                queued = arbiter.Intent("plan", act, kind="queue", seq=seq, key=f"task {task['id']}",
+                                        surface=arbiter.on_surface(act.step.kind))
+                if arbiter.viable(queued, {"surface_closed": closed}):
+                    return [queued]     # a surface step at night: the next task's, or the night's own work
         if self.just_finished and not any(t["state"] in tasks.LIVE for t in tasks.load()):
             # the round that finished the last task proposes nothing: stocking in the same breath was momentum, not a decision
             return []
         if not closed:
             act = self.prepare(snap, ctx)
-            return [arbiter.Intent("plan", act, kind="idle", key=act.name)] if act else []
+            return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
         out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: skills.wait_for_day(ctx)),
                               kind="wait for day")]
         if "pickaxe" in self.needs.working:
@@ -390,7 +396,8 @@ class Brain:
         except Unplannable:
             return None
         closed = surface_closed(snap.night, snap.dimension)
-        step = next((st for st in steps if self.valid(st, snap, ctx) and (not closed or st.kind in NIGHT_WORK)), None)
+        step = next((st for st in steps if self.valid(st, snap, ctx) and not (closed and arbiter.on_surface(st.kind))),
+                    None)
         if step is None:
             return None
         return Act("upkeep", name, lambda: dispatch.execute(ctx, step, snap.night), step=step)

@@ -276,6 +276,36 @@ class OnlyUsefulProposals(unittest.TestCase):
                 self.assertEqual(chosen_with(intents, facts), want)
 
 
+class NightUnderCover(unittest.TestCase):
+    """arbiter.viable with the surface closed (night in the Overworld): speedrun style — the night is worked under
+    cover (a tunnel, crafting, smelting), a surface walk (a tree, an animal, stocking out in the open) waits for
+    morning, and waiting for day is only the last resort."""
+    P = lambda k, key, surface=False: arbiter.Intent("plan", lambda: None, key, at=0.0, kind=k, key=key,  # noqa: E731
+                                                     surface=surface)
+
+    def test_rows(self):
+        P = self.P
+        logs = P("queue", "gather logs", surface=True)
+        tunnel, wait = P("night stock", "strip mine"), P("wait for day", "wait for day")
+        smelt = P("queue", "smelt iron")
+        # (situation, intents, surface closed) → the one chosen
+        rows = [("night: the tunnel, not the tree", [logs, tunnel, wait], True, "strip mine"),
+                ("night: indoor work in the queue goes on", [smelt, tunnel, wait], True, "smelt iron"),
+                ("day: unchanged, the queue's tree", [logs, tunnel], False, "gather logs"),
+                ("night, nothing under cover to do: wait for day", [logs, wait], True, "wait for day"),
+                ("must fail: a surface walk alone at night is not offered", [logs], True, None)]
+        for name, intents, closed, want in rows:
+            with self.subTest(name):
+                self.assertEqual(chosen_with(intents, {"surface_closed": closed}), want)
+
+    def test_on_surface(self):
+        rows = [("mine", False), ("craft", False), ("smelt", False), ("gather", True), ("hunt", True),
+                ("seek", True)]
+        for kind, want in rows:
+            with self.subTest(kind):
+                self.assertIs(arbiter.on_surface(kind), want)
+
+
 class GroupsAskedInTurn(unittest.TestCase):
     """arbiter.first_live: the next group is asked only when every earlier one gated to nothing — plan_without_events
     idled every round with the queue never asked, its needs all cooling."""

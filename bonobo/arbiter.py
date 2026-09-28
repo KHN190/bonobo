@@ -20,7 +20,7 @@ class Intent:
     """What a layer would like the body to do; the arbiter decides."""
 
     def __init__(self, layer, action, reason="", deadline_s=None, at=None, commit_s=None,
-                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, key=None):
+                 cost_rate=0.0, cost_s=None, resumable=True, redo_s=0.0, kind=None, seq=0, key=None, surface=False):
         if layer not in SCALES:
             raise ValueError(f"unknown layer {layer!r}: expected one of {sorted(SCALES)}")
         self.layer = layer
@@ -29,6 +29,8 @@ class Intent:
         self.kind, self.seq = kind, seq
         # What the round's facts know this proposal by (a need's or a task's retry name): `viable` reads it.
         self.key = key if key is not None else (reason or None)
+        # walks the surface (on_surface): not offered while the surface is closed (night in the Overworld)
+        self.surface = bool(surface)
         self.reason = reason
         self.deadline_s = deadline_s
         # how long the body may stay on this before the planner is asked again (deadline_s is when it is too old to start)
@@ -89,10 +91,19 @@ LAST_RESORT = ("wait for day", "idle")
 # rounds that did nothing, the waste the bench counts (idle stocking is work)
 WAIT_KINDS = ("wait for day", "wait")
 
-def viable(intent, facts):
-    """Pure: may this proposal be offered at all — not while its key is cooling. Met and unplannable needs are judged
-    once, where they are proposed (needs.propose, brain.need_act): they never become intents."""
+def on_surface(step_kind):
+    """Pure: does a step of this kind walk the surface? Everything but the work done under cover (data.NIGHT_WORK:
+    digging, crafting, smelting) — a tree, an animal, a search out in the open."""
+    from .data import NIGHT_WORK
+    return step_kind not in NIGHT_WORK
 
+def viable(intent, facts):
+    """Pure: may this proposal be offered at all — not while its key is cooling, nor a surface walk while the surface
+    is closed (night in the Overworld: speedrun style, the night is worked under cover, never sat out while there is
+    work). Met and unplannable needs are judged once, where proposed (needs.propose, brain.need_act)."""
+
+    if facts.get("surface_closed") and intent.surface:
+        return False
     key = intent.key
     return key is None or key not in facts.get("cooling", ())
 
