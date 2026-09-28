@@ -38,6 +38,10 @@ def engaged():
     t = _ENG["thread"]
     return _ENG["intent"] if t is not None and t.is_alive() else None
 
+def carrying():
+    """The answer (a threat.Option) the running engagement is carrying out now, or None when none runs."""
+    return _ENG["want"] if engaged() is not None else None
+
 def offer(option, worth, key, now, release, held, seen_at):
     """Answer a threat now."""
 

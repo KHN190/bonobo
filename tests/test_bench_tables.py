@@ -264,6 +264,9 @@ class FakeRegion:
     def name(self, p):
         return self.BLOCKS.get(tuple(p), "air")
 
+    def solid(self, p):
+        return self.name(p) != "air"
+
 
 A0 = ("@", 0, 0, 0)
 LOG2 = bag(("oak_log", 2))
@@ -283,6 +286,18 @@ PRED_ROWS = [
     ("all no", ("all", ("!state", "onGround"), ("!count", "log", ">=", 5)), None, LOG2, {}, False),
     ("any yes", ("any", ("!state", "dead"), ("!count", "log", ">=", 1)), None, LOG2, {}, True),
     ("any no", ("any", ("!state", "dead"), ("!count", "log", ">=", 5)), None, LOG2, {}, False),
+    # the fight's own record (FIGHT_LOG) and the bag's offhand: the combat rows' words
+    ("kills by the fight yes", ("kills_by_the_fight", 1), None, None,
+     {"FIGHT_LOG": {"bids": [], "alive": [(1, True), (0, True)]}}, True),
+    ("must fail: kills by the fight no — the mob went while nothing was engaged", ("kills_by_the_fight", 1), None, None,
+     {"FIGHT_LOG": {"bids": [], "alive": [(1, False), (0, False)]}}, False),
+    ("answered with yes", ("answered_with", "shield", "fight_shielded"), None, None,
+     {"FIGHT_LOG": {"bids": [(0.0, True, "fight_shielded")]}}, True),
+    ("must fail: answered with no — swung, never raised the shield", ("answered_with", "shield", "fight_shielded"),
+     None, None, {"FIGHT_LOG": {"bids": [(0.0, True, "fight")]}}, False),
+    ("shield kept yes", ("shield_kept",), None,
+     {"slots": [], "equipment": {"offhand": {"id": "minecraft:shield", "count": 1}}}, {}, True),
+    ("must fail: shield kept no — the offhand empty", ("shield_kept",), None, bag(), {}, False),
     ("not yes", ("not", ("!state", "dead")), None, None, {}, True),
     ("not no", ("not", ("!state", "onGround")), None, None, {}, False),
     ("constant yes", ("constant", True), None, None, {}, True),
@@ -351,6 +366,14 @@ WORLD_ROWS = [
     ("dropped nothing no", ("dropped_nothing",), {}, [{"type": "minecraft:item"}], False),
     ("gone yes", ("gone", ["minecraft:zombie"]), {}, [{"type": "minecraft:cow"}], True),
     ("gone no", ("gone", ["minecraft:zombie"]), {}, [{"type": "minecraft:zombie", "health": 5}], False),
+    ("away or walled yes: the zombie 5 off", ("away_or_walled", ["minecraft:zombie"]), {},
+     [{"type": "minecraft:zombie", "x": 10005.5, "y": 200.0, "z": 10000.5, "health": 20}], True),
+    ("away or walled yes: 1 off but walled in", ("away_or_walled", ["minecraft:zombie"]),
+     {**{(10000 + dx, 200 + dy, 10000 + dz): "cobblestone" for dy in (0, 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))},
+      (10000, 202, 10000): "cobblestone"},
+     [{"type": "minecraft:zombie", "x": 10001.5, "y": 200.0, "z": 10000.5, "health": 20}], True),
+    ("must fail: away or walled no — stood beside it in the open", ("away_or_walled", ["minecraft:zombie"]), {},
+     [{"type": "minecraft:zombie", "x": 10001.5, "y": 200.0, "z": 10000.5, "health": 20}], False),
 ]
 # Words used in checks whose yes/no needs more than a state, a bag, blocks or entities recorded (the brain's
 # decision log, the slice's trace, a fight's recorded rows, the memory file): each named, with what it reads.

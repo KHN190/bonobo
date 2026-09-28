@@ -535,9 +535,8 @@ def _record_bids(ctx):
     real = FIGHT_LOG.setdefault("real_bid", fight_loop.bid)
     def bid(*a, **k):
         # (when, engaged, its kind): the gaps judged are the ones while a fight holds the body, not the walk-in
-        eng = fight_loop.engaged()
-        want = fight_loop._ENG.get("want") if eng is not None else None      # the answer the fight is carrying out
-        FIGHT_LOG["bids"].append((time.time(), eng is not None, getattr(want, "kind", None)))
+        want = fight_loop.carrying()          # the answer the running engagement carries out, None when none runs
+        FIGHT_LOG["bids"].append((time.time(), fight_loop.engaged() is not None, getattr(want, "kind", None)))
         return real(*a, **k)
     fight_loop.bid = bid
 
@@ -597,8 +596,9 @@ def kept_off(gaps, enclosed, gap=3.0):
 def _away_or_walled(kinds, gap=3.0):
     """Check: at the end every `kinds` is `gap` or more off, or the body is walled in (world.is_enclosed)."""
     def check(api, inv):
-        from ...world import Region, feet, is_enclosed
-        x, y, z = feet()
+        from ...world import Region, is_enclosed
+        s = api.get("/state")
+        x, y, z = s["blockX"], s["blockY"], s["blockZ"]
         gaps = [math.dist((x, y, z), (e["x"], e["y"], e["z"])) for e in _hostiles(24, set(kinds))]
         return kept_off(gaps, is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z)),
                               gap)
@@ -606,8 +606,9 @@ def _away_or_walled(kinds, gap=3.0):
 
 
 def _shield_kept():
-    """Check: the shield is still in the offhand at the end."""
-    return lambda api, inv: _offhand_shield()
+    """Check: the shield is still in the offhand at the end (the bag the check is handed)."""
+    from ...data import bare
+    return lambda api, inv: bare((inv.equipment.get("offhand") or {}).get("id", "") or "") == "shield"
 
 
 def _decision_gaps_ok(factor=1.5):
