@@ -323,7 +323,10 @@ class FightBatches(unittest.TestCase):
                         fight_loop.engage(option, state(), None)
                 else:
                     self.assertEqual(fight_loop.engage(option, state(), None), {"id": want})
-                    self.assertEqual(posted, [{"tasks": fight_loop.batch(option, fight_body(_inv(cobblestone=4)))}])
+                    # an attack names what it holds (api.ARM): no weapon in this bag, the hand
+                    batch = [dict(t, item="hand") if t.get("type") == "attack" and "item" not in t else t
+                             for t in fight_loop.batch(option, fight_body(_inv(cobblestone=4)))]
+                    self.assertEqual(posted, [{"tasks": batch}])
 
 
 def _until(cond, s=2.0):

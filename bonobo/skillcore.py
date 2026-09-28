@@ -239,14 +239,12 @@ def arm(tasks, inv=None, read_blocks=True):
     and the blocks a chain's mines break (unless `read_blocks` is off: the fight path, where a mine holds the route
     tool and a weapon wants no block). The jar holds exactly that item."""
     from . import knowledge as _know
-    mines = [t for t in tasks if t.get("type") in ("mine", "mine_many") and "item" not in t]
+    mines = [t for t in tasks if t.get("type") == "mine" and "item" not in t]
     if not mines and not any(t.get("type") in ("travel", "attack") and "item" not in t for t in tasks):
         return tasks
     try:
         inv = inv if inv is not None else Inventory()
-        cells = [(t["x"], t["y"], t["z"]) if t["type"] == "mine" else
-                 (t["blocks"][0]["x"], t["blocks"][0]["y"], t["blocks"][0]["z"]) for t in mines
-                 if t["type"] == "mine" or t.get("blocks")] if read_blocks else []
+        cells = [(t["x"], t["y"], t["z"]) for t in mines] if read_blocks else []
         names = {}
         if cells:
             lo = tuple(min(c[i] for c in cells) for i in range(3))
@@ -261,16 +259,12 @@ def arm(tasks, inv=None, read_blocks=True):
     out = []
     for t in tasks:
         kind = t.get("type")
-        if "item" in t or kind not in ("mine", "mine_many", "travel", "attack"):
+        if "item" in t or kind not in ("mine", "travel", "attack"):
             out.append(t)
-        elif kind in ("mine", "mine_many") and not read_blocks:
+        elif kind == "mine" and not read_blocks:
             out.append({**t, "item": _know.route_tool(inv)})
         elif kind == "mine":
             out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
-        elif kind == "mine_many":
-            first = t.get("blocks") or [{}]
-            cell = (first[0].get("x"), first[0].get("y"), first[0].get("z"))
-            out.append({**t, "item": _know.tool_for(inv, names.get(cell))})
         elif kind == "travel":
             out.append({**t, "item": _know.route_tool(inv)})
         else:
