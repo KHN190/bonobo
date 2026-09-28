@@ -8,13 +8,11 @@ from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import bare
 from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
-from . import memory as _memory  # noqa: E402
 
 def game_time():
-    """The game's tick now (/state gameTime): what a look made outside a brain round is stamped with."""
+    """The game's tick now (/state gameTime): what a look made outside a brain round is stamped with (brain wires
+    it into memory.TICK_READER — memory stays below the skills)."""
     return api.get("/state").get("gameTime")
-
-_memory.TICK_READER = game_time
 
 def _collect_only(wanted):
     """{"only": [...]} for mine/collect tasks when the bag is nearly full, else {}."""

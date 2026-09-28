@@ -848,8 +848,9 @@ class Frontier(unittest.TestCase):
         for name, reader, want in [("the game answers: its tick", lambda: 7777, 7777),
                                    ("must fail: no game to ask: unstamped", None, None)]:
             with self.subTest(name), mock.patch.object(memory, "TICK_READER", reader):
-                m.see_sections("minecraft:overworld", self.HERE, 0, {}, [self.S])
-                row = m.section_map("minecraft:overworld")[memory.section_of(self.HERE)]
+                sec = memory.section_of(self.HERE)
+                m.see_sections("minecraft:overworld", memory.section_centre(sec), 0, {}, [self.S])
+                row = m.section_map("minecraft:overworld")[sec]
                 self.assertEqual(row["looked"]["sheep"], want)
 
     def test_resume_and_shared(self):

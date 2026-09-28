@@ -520,7 +520,7 @@ class Memory:
                 items[s["id"]] = items.get(s["id"], 0) + int(s.get("count", 1))
         key = ",".join(str(int(c)) for c in pos)
         self.data.setdefault("containers", {})[key] = {"pos": [int(c) for c in pos], "dimension": dimension,
-                                                      "items": items, "t": self.clock}
+                                                      "items": items, "t": self.tick()}
         self.save()
 
     def forget_container(self, pos):
