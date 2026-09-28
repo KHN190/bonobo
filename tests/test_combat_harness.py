@@ -96,5 +96,23 @@ class NeedsRespawn(unittest.TestCase):
                 self.assertEqual(runner.needs_respawn(state), want)
 
 
+
+class OneRunPerFight(unittest.TestCase):
+    """runner.decided_by_chance: a combat-tier row runs once and that run is its verdict; other chance rows wait."""
+
+    def test_rows(self):
+        rows = [("a combat row, however random", {"tier": "combat", "combat": True}, False),
+                ("a deterministic row", {"tier": "core", "setup": ["fill 0 0 0 1 1 1 stone"], "doc": "a wall"}, False),
+                ("a chance row outside combat waits for more runs", {"tier": "common", "setup": ["summon cow 1 2 3"],
+                                                                   "doc": ""}, True),
+                ("must fail: a combat row re-run until it passes", {"tier": "combat", "stochastic": True}, False)]
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runner.decided_by_chance(row), want)
+        with self.subTest("its one run decides"):
+            self.assertEqual(runner.verdict_of([False], chance=False), "fail")
+            self.assertEqual(runner.verdict_of([True], chance=False), "pass")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -296,12 +296,18 @@ def cached_timeout(table, name, code):
         return f"{TIMEOUT} (cached): {counted[-1]['note']}"
     return None
 
+def decided_by_chance(row):
+    """Pure: does this row's verdict wait for more runs (a chance row, MAX_RUNS)? A combat-tier row never does:
+    it runs once and that run is its verdict (the user's rule: a fight is not re-rolled until it passes)."""
+    return row.get("tier") != "combat" and stochastic(row)
+
+
 def verdict(table, name, code):
     """Pure: 'pass' / 'fail' for the current code's counted runs (`verdict_of`), else None."""
     counted = [r for r in table.get(name, {}).get(code, []) if r.get("cls", "skill") not in UNCOUNTED]
     row = SCENARIOS.get(name)
     return verdict_of([TIMEOUT if r.get("note", "").startswith(TIMEOUT) else r["ok"] for r in counted],
-                      chance=True if row is None else stochastic(row))
+                      chance=True if row is None else decided_by_chance(row))
 
 # -- readiness table
 
