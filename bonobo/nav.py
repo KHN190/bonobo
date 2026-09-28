@@ -36,8 +36,11 @@ def use_on_top(item, cell):
     return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
             "onBlock": True}
 
-def mine_task(c, collect=False):
-    return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False}
+def mine_task(c, collect=False, down=False):
+    """A mine task; `down`: the block is under the feet on purpose (a dig down) — the jar (≥ 0.1.58) then may stand
+    on its own column, which ordinary mining never does."""
+    return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False,
+            **({"down": True} if down else {})}
 
 _features = None
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
@@ -419,7 +422,7 @@ def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=
     for i in range(1, safe + 1):
         cell = (x, y - i, z)
         if region.solid(cell):
-            tasks.append(mine_task(cell))
+            tasks.append(mine_task(cell, down=True))
         tasks.append({"type": "wait", "ticks": 6})
         if use_ladders:
             wall = next(((x + dx, y - i + 2, z + dz) for dx, dz in DIRS4 if region.solid((x + dx, y - i + 2, z + dz))),

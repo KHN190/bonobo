@@ -298,7 +298,7 @@ def _reshape(option, state):
     where, n = option.target
     x, y, z = state["feet"]
     if where == "down":
-        return [nav.mine_task((x, y - 1 - i, z)) for i in range(n)]
+        return [nav.mine_task((x, y - 1 - i, z), down=True) for i in range(n)]
     item = next((b for b in GROUPS["building"] if state["inv"].count(b)), None)
     if item is None:
         return []
