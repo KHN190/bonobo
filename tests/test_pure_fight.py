@@ -592,10 +592,18 @@ class StillWorth(unittest.TestCase):
             ("answer gone", "fight", model(ignore, opt("evade", seconds=1)), False),
             ("no do-nothing column", "fight", model(opt("fight", seconds=1)), False),
         ]
-        with self.subTest("must fail: the held answer's target is not this reading's (a stale entity id)"):
-            held = SimpleNamespace(name="fight", action=SimpleNamespace(option=opt("fight", target=41)))
-            self.assertFalse(fight_loop.still_worth(held, model(ignore, opt("fight", seconds=2, hp=1, target=42)),
-                                                    price, 10.0))
+        # the held answer's target against this reading's ids: gone → decide again; still here → kept, though the
+        # nearest is another now (switching left the body idle between the /stop and the next post)
+        targets = [("must fail: the held target is gone from the reading (a stale entity id)", [42], False),
+                   ("the held target still here, another nearest now: kept", [42, 41], True),
+                   ("the held target the only one: kept", [41], True),
+                   ("no ids read: gone", [], False)]
+        for name, ids, want in targets:
+            with self.subTest(name):
+                held = SimpleNamespace(name="fight", action=SimpleNamespace(option=opt("fight", target=41)))
+                fm = model(ignore, opt("fight", seconds=2, hp=1, target=ids[0] if ids else None))
+                fm.field = {"ids": ids}
+                self.assertEqual(fight_loop.still_worth(held, fm, price, 10.0), want)
         for name, choice, fm, want in rows:
             with self.subTest(name):
                 # the held choice as kernel.Held keeps it: its name and the action carrying the option it chose

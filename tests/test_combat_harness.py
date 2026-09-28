@@ -57,10 +57,25 @@ class KillsWhileEngaged(unittest.TestCase):
                 ("must fail: hurt and gone but nothing engaged", [(0, [(7, 20.0, 2.0)]), (1, [(7, 6.0, 2.0)]), (2, [])],
                  [(0.5, False, None), (1.5, False, None)], 0),
                 ("must fail: hurt but gone far off (fled or despawned)", [(0, [(7, 20.0, 2.0)]), (1, [(7, 6.0, 12.0)]),
-                                                                          (2, [])], fought, 0)]
+                                                                          (2, [])], fought, 0),
+                ("a short first reading (0) is no baseline: 20, hurt to 6, gone — a kill",
+                 [(0, [(7, 0.0, 2.0)]), (0.4, [(7, 20.0, 2.0)]), (1, [(7, 6.0, 2.0)]), (2, [])], fought, 1)]
         for name, samples, bids, want in rows:
             with self.subTest(name):
                 self.assertEqual(fight.kills_while_engaged(samples, bids), want)
+
+
+class LastSeen(unittest.TestCase):
+    """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
+
+    def test_rows(self):
+        rows = [("one killed in reach", [(0, [(7, 20.0, 2.0)]), (1, [(7, 3.0, 2.5)]), (2, [])], {7: [3.0, 2.5, 20.0]}),
+                ("two, one went", [(0, [(1, 20.0, 2), (2, 20.0, 6)]), (1, [(2, 20.0, 6)])], {1: [20.0, 2, 20.0]}),
+                ("must fail: none went — nothing listed", [(0, [(7, 20.0, 2.0)]), (1, [(7, 9.0, 2.0)])], {}),
+                ("no samples", [], {})]
+        for name, samples, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.last_seen(samples), want)
 
 
 class KeptOff(unittest.TestCase):

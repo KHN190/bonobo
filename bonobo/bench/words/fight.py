@@ -546,17 +546,31 @@ def _fight_until(kinds, seconds, clear=True):
         from ... import fight_loop
         t0 = time.time()
         FIGHT_LOG["alive"] = []
+        stop = _threading.Event()
+
+        def sample():
+            # the kill's evidence at the trace's cadence, off the round loop: sampled once a round (~0.85 s), the
+            # last reading of a mob could be a second before it died and blocks off (kills_while_engaged)
+            while not stop.is_set():
+                try:
+                    alive = _hostiles(24, set(kinds))
+                    FIGHT_LOG["alive"].append((time.time(), [(e.get("id"), float(e.get("health", 0)),
+                                                              round(float(e.get("distance", 99)), 2)) for e in alive]))
+                except Exception:
+                    pass
+                stop.wait(TRACE_EVERY_S)
+        sampler = _threading.Thread(target=sample, daemon=True, name="fight-samples")
+        sampler.start()
         try:
             while time.time() - t0 < seconds:
-                alive = _hostiles(24, set(kinds))
-                FIGHT_LOG["alive"].append((time.time(), [(e.get("id"), float(e.get("health", 0)),
-                                                          round(float(e.get("distance", 99)), 2)) for e in alive]))
-                if clear and not alive:
+                if clear and not _hostiles(24, set(kinds)):
                     return True
                 core.BRAIN.round(plan=False)     # a fight row runs no plan work: reflexes (eat) and the fight only
                 time.sleep(TRACE_EVERY_S)        # a plan-less round with nothing to do returns at once: no hot loop
             return not clear or not _hostiles(24, set(kinds))
         finally:
+            stop.set()
+            sampler.join(1.0)
             fight_loop.bid = FIGHT_LOG.get("real_bid", fight_loop.bid)
     return run
 
@@ -578,7 +592,7 @@ def kills_while_engaged(samples, bids=()):
     first, kills = {}, 0
     for a, b in zip(samples, samples[1:]):
         for mid, hp, _d in a[1]:
-            first.setdefault(mid, hp)
+            first[mid] = max(first.get(mid, hp), hp)      # its most health seen: one short reading is no baseline
         gone = {m for m, _h, _d in a[1]} - {m for m, _h, _d in b[1]}
         fought = any(e and a[0] <= t <= b[0] for t, e, *_k in bids)
         for mid, hp, dist in a[1]:
@@ -594,6 +608,18 @@ def _stall_now():
     return longest_stall(trace, FIGHT_LOG.get("bids", []), FIGHT_LOG.get("alive", []))
 
 
+def last_seen(samples):
+    """Pure: each mob that went, as last read — {id: [hp, distance, most hp seen]}: why a kill was or was not credited."""
+    most, last, out = {}, {}, {}
+    for a, b in zip(samples, samples[1:]):
+        for mid, hp, dist in a[1]:
+            most[mid] = max(most.get(mid, hp), hp)
+            last[mid] = [hp, dist]
+        for mid in {m for m, _h, _d in a[1]} - {m for m, _h, _d in b[1]}:
+            out[mid] = last[mid] + [most[mid]]
+    return out
+
+
 def fight_readout():
     """What the fight rows' checks read, as numbers (a failed row's report names them): the fight's kills, the
     engaged bids and their widest gap, the answer kinds carried, the shield in the offhand, the mobs left."""
@@ -603,6 +629,7 @@ def fight_readout():
     return {"kills_while_engaged": kills_while_engaged(alive, bids), "bids": len(bids),
             "engaged_bids": sum(1 for b in bids if b[1]), "engaged_gap_max": round(max(gaps, default=0.0), 3),
             "kinds_carried": sorted({b[2] for b in bids if b[2]}), "alive_samples": alive[-3:],
+            "last_seen": last_seen(alive),
             "longest_stall": _stall_now(),
             "shield_kept": _offhand_shield()}
 
@@ -849,4 +876,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

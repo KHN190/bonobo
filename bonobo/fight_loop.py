@@ -268,10 +268,12 @@ def still_worth(choice, field_model, price, horizon):
     if same is None:
         return False
     held = getattr(choice.action, "option", None)
-    if held is not None and held.target is not None and held.target != same.target:
-        # the held answer names a target this reading no longer has (the mob it chose died, a new one stands
-        # there): the same kind against a stale entity id is 'target not found' every half second, hitting
-        # nothing (fight_zombie_1 20260928-230218: 0 hits, the zombie at 1.3 blocks, 20 hp) — decide again
+    ids = (getattr(field_model, "field", None) or {}).get("ids") or []
+    if held is not None and held.target is not None and held.target not in ids:
+        # the held answer names a mob this reading no longer has (it died): the same kind against a stale entity
+        # id is 'target not found' every half second (fight_zombie_1 20260928-230218) — decide again. A mob still
+        # here is kept though another is nearer now: switching on "nearest" /stopped the attack on a hurt zombie
+        # and left the body idle between the stop and the next post (fight_zombie_3 23:49:29-33, 0.4 s)
         return False
     return threat.saves(same, options, price, horizon) > 0
 
