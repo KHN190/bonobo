@@ -655,12 +655,12 @@ def noted_hits(notes, blocks, blocked, protected):
     return out
 
 def mine_segment_commands(state, args):
-    """Pure: one open-loop mining segment — one `mine_many` over `cells`, with the pickup filter a nearly full bag needs."""
+    """Pure: one open-loop mining segment — the cells as single mines in the batch's order (nav.mine_batch: top of a
+    column first, the nearest next), then one sweep with the pickup filter a nearly full bag needs."""
 
     cells, drop, tier = args
     only = pickup_whitelist(state["inv"].used_slots(), [drop])
-    return [{"type": "mine_many", "collect": True, "requireDrops": tier is not None, **({"only": only} if only else {}),
-             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}]
+    return nav.mine_batch(cells, state.get("feet"), require_drops=tier is not None, collect=True, only=only or None)
 
 def spent_cells(sent, name_at, blocks):
     """Pure: the sent cells whose block is gone in a fresh read (`name_at(cell)`) — their notes are spent; a cell
@@ -847,7 +847,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         before = Inventory().count(drop)
         sent |= set(vein)
         try:
-            r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")
+            batch = mine_segment_commands({"inv": Inventory(), "feet": here_now}, (vein, drop, tier))
+            r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=900)
         except api.Unreachable as out:
             around = {c: region.name(c) for c in out.cells or ()}
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
@@ -2171,7 +2172,7 @@ def repair_site(ctx, site):
         if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=3, attempts=2):
             raise NotAvailable(f"{site['name']} not reachable")
         log(f"repairing {site['name']}: {len(blocks)} blocks")
-        api.run({"type": "build", "blocks": blocks}, wait=600, awaits="one build task: the site read back after")
+        nav.run_cells("build", nav.build_batch(blocks, feet()), wait=600)     # the site is read back after
     remaining = _site_missing(site)
     ctx.mem.update_site(site["name"], dirty=remaining > 0)
     if remaining:

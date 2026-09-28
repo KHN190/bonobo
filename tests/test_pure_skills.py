@@ -458,20 +458,23 @@ class Sittings(unittest.TestCase):
 
 
 class MineSegmentCommands(unittest.TestCase):
+    @staticmethod
+    def mines(cells, rd):
+        return [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": rd} for c in cells]
+
+    from bonobo import nav as _nav
     TABLE = [
         ("one cell, tool tier: drops required", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal", 0)),
-         [{"type": "mine_many", "collect": True, "requireDrops": True, "blocks": [{"x": 1, "y": 2, "z": 3}]}]),
-        ("no tier: drops not required", ({"inv": slots(3)}, ([(0, 60, 0), (-1, 59, 4)], "minecraft:dirt", None)),
-         [{"type": "mine_many", "collect": True, "requireDrops": False,
-           "blocks": [{"x": 0, "y": 60, "z": 0}, {"x": -1, "y": 59, "z": 4}]}]),
+         mines.__func__([(1, 2, 3)], True) + [_nav.batch_sweep([(1, 2, 3)])]),
+        ("no tier: drops not required, in the batch's order", ({"inv": slots(3)},
+                                                                 ([(0, 60, 0), (-1, 59, 4)], "minecraft:dirt", None)),
+         mines.__func__([(0, 60, 0), (-1, 59, 4)], False) + [_nav.batch_sweep([(0, 60, 0), (-1, 59, 4)])]),
         ("boundary: 27 used slots, still no filter", ({"inv": slots(27)}, ([(1, 2, 3)], "minecraft:coal", 0)),
-         [{"type": "mine_many", "collect": True, "requireDrops": True, "blocks": [{"x": 1, "y": 2, "z": 3}]}]),
-        ("boundary: 28 used slots, filtered to the whitelist",
+         mines.__func__([(1, 2, 3)], True) + [_nav.batch_sweep([(1, 2, 3)])]),
+        ("boundary: 28 used slots, the sweep filtered to the whitelist",
          ({"inv": slots(28)}, ([(1, 2, 3)], "minecraft:raw_iron", 1)),
-         [{"type": "mine_many", "collect": True, "requireDrops": True,
-           "only": pickup_whitelist(28, ["minecraft:raw_iron"]), "blocks": [{"x": 1, "y": 2, "z": 3}]}]),
-        ("no cells: an empty batch, not no batch", ({"inv": slots(0)}, ([], "minecraft:coal", 0)),
-         [{"type": "mine_many", "collect": True, "requireDrops": True, "blocks": []}]),
+         mines.__func__([(1, 2, 3)], True) + [_nav.batch_sweep([(1, 2, 3)], pickup_whitelist(28, ["minecraft:raw_iron"]))]),
+        ("no cells: the sweep alone", ({"inv": slots(0)}, ([], "minecraft:coal", 0)), [_nav.batch_sweep([])]),
         ("must fail: args short of (cells, drop, tier)", ({"inv": slots(0)}, ([(1, 2, 3)], "minecraft:coal")),
          ValueError),
     ]
@@ -480,7 +483,7 @@ class MineSegmentCommands(unittest.TestCase):
         run_table(self, skills.mine_segment_commands, self.TABLE)
 
     def test_filtered_batch_keeps_the_drop(self):
-        only = skills.mine_segment_commands({"inv": slots(36)}, ([(1, 2, 3)], "minecraft:raw_iron", 1))[0]["only"]
+        only = skills.mine_segment_commands({"inv": slots(36)}, ([(1, 2, 3)], "minecraft:raw_iron", 1))[-1]["only"]
         self.assertIn("minecraft:raw_iron", only)
         self.assertNotIn("minecraft:dirt", only)
 

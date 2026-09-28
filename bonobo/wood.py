@@ -14,14 +14,13 @@ from .world import Inventory, find
 TRUNK_REACH = 4        # logs this far above the base are in reach from beside the trunk (eye 1.62, reach 4.5)
 
 def trunk_batch(base, overhead, want):
-    """Pure: one trunk as one batch — one mine_many of every log in reach up to TRUNK_REACH, then one pickup."""
+    """Pure: one trunk as one batch — every log in reach up to TRUNK_REACH as single mines in the batch's order
+    (nav.mine_batch: the top of the column first), then one pickup."""
 
     x, y, z = base
     logs = [tuple(base)] + [tuple(c) for c in overhead if y < c[1] <= y + TRUNK_REACH]
     logs = logs[:max(1, want)]
-    return [{"type": "mine_many", "collect": False, "requireDrops": False,
-             "blocks": [{"x": c[0], "y": c[1], "z": c[2]} for c in logs]},
-            {"type": "collect", "radius": 4, "only": ["log"]}]
+    return nav.mine_batch(logs, collect=False) + [{"type": "collect", "radius": 4, "only": ["log"]}]
 
 def felled(trunk, still):
     """Pure: none of this trunk's logs still stands (`still`: the log cells the world lists after chopping)."""
@@ -91,12 +90,11 @@ def chop(ctx, n):
         # the whole trunk as one submission
         tasks = trunk_batch(base_pos, [(t["x"], t["y"], t["z"]) for t in overhead], target - before)
         try:
-            results = api.run_chain(tasks, stop_on_failure=False, wait=90)
+            r = nav.run_cells("mine_many", tasks[:-1], then=tasks[-1], wait=90)
         except api.Unreachable as out:
             if not nav.way_to(ctx, out.cells or [base_pos]):
                 raise
-            results = api.run_chain(tasks, stop_on_failure=False, wait=90)
-        r = next((x for x in results if x.get("status") != "succeeded"), results[-1] if results else {"message": ""})
+            r = nav.run_cells("mine_many", tasks[:-1], then=tasks[-1], wait=90)
         # what still stands is asked of the world, not read off a snapshot taken before chopping
         still = {(t["x"], t["y"], t["z"]) for t in find(GROUPS["log"], radius=8, limit=60)}
         for t in trunk:
