@@ -78,6 +78,7 @@ class Brain:
         skillkit.STATS = self.mem     # skills record measured durations; the cost model reads them back
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
+        self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))
         self.picks = collections.Counter()      # what the arbiter chose, by kind (arbiter.note_pick)
         self.blacklist = {}           # unreachable targets, shared by every round's Context and the cost model
         self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
@@ -226,11 +227,16 @@ class Brain:
         return outcome
 
     # -- one round
-    def round(self):
+    def round(self, plan=True):
+        """One round. `plan=False`: reflexes and safety only (the upkeep reflexes — eat, reach land — and the yield to
+        the fight), no needs' goals and no queue or idle stocking: a fight row's rounds (bench fight_until), where the
+        plan layer took the body after the fight and mined coal for 14 s (combat__low_hp_eat 23:33:02)."""
         intent.clear()
+        self.planning = plan
         try:
             self._round()
         finally:
+            self.planning = True
             intent.publish()
 
     def _round(self):
@@ -333,7 +339,7 @@ class Brain:
             self.needs.propose(snap, ctx)
             out = [arbiter.Intent("maintain", Act("upkeep", name, run), seq=seq, key=name)
                    for seq, name, run in self.reflexes.proposals(snap, ctx)]
-            for kind, goal, _why in self.needs.needs_now:
+            for kind, goal, _why in (self.needs.needs_now if getattr(self, "planning", True) else ()):
                 act = self.need_act(kind, goal, snap, ctx)
                 if act is not None:
                     out.append(arbiter.Intent("plan", act, kind=kind, key=f"{kind}: {goals.describe(goal)}",
@@ -353,8 +359,9 @@ class Brain:
                 return out
             return run
 
-        intents, facts = arbiter.first_live((timed("fast", fast), timed("upkeep", upkeep),
-                                             timed("plan", lambda: self.plan_proposals(snap, ctx))), facts_of)
+        layers = (timed("fast", fast), timed("upkeep", upkeep)) + \
+            ((timed("plan", lambda: self.plan_proposals(snap, ctx)),) if getattr(self, "planning", True) else ())
+        intents, facts = arbiter.first_live(layers, facts_of)
         chosen = arbiter.arbitrate(intents, facts=facts)
         self._mark("arb")
         arbiter.note_pick(self.__dict__.setdefault("picks", collections.Counter()), chosen)

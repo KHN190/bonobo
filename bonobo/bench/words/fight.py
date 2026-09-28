@@ -540,7 +540,8 @@ def _record_bids(ctx):
     fight_loop.bid = bid
 
 def _fight_until(kinds, seconds, clear=True):
-    """Brain rounds (which yield while the fight holds the body) until the line-up is gone, or `seconds`."""
+    """Brain rounds without the plan layer (they yield while the fight holds the body; reflexes like eating still
+    run) until the line-up is gone, or `seconds`."""
     def run(ctx):
         from ... import fight_loop
         t0 = time.time()
@@ -552,7 +553,7 @@ def _fight_until(kinds, seconds, clear=True):
                                                           round(float(e.get("distance", 99)), 2)) for e in alive]))
                 if clear and not alive:
                     return True
-                core.BRAIN.round()
+                core.BRAIN.round(plan=False)     # a fight row runs no plan work: reflexes (eat) and the fight only
             return not clear or not _hostiles(24, set(kinds))
         finally:
             fight_loop.bid = FIGHT_LOG.get("real_bid", fight_loop.bid)

@@ -244,13 +244,26 @@ class OneDecisionPoint(unittest.TestCase):
             ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
             ({"hazard", "upkeep", "queue", "prepare"}, ["hazard"], "hazard")]
 
+    # a fight row's round (Brain.round(plan=False)): reflexes and safety only — the queue and idle stocking never
+    # asked (combat__low_hp_eat mined coal for 14 s after the fight)
+    NO_PLAN = [({"queue", "prepare"}, ["hazard", "upkeep"], None),   # must fail: plan work would take the round
+               ({"prepare"}, ["hazard", "upkeep"], None),
+               ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
+               ({"hazard", "queue"}, ["hazard"], "hazard")]
+
     def test_decide_asks_the_layers_in_their_fixed_order(self):
+        self.over(self.ROWS, planning=True)
+
+    def test_a_round_without_the_plan_layer(self):
+        self.over(self.NO_PLAN, planning=False)
+
+    def over(self, rows, planning):
         from unittest import mock
         from bonobo import api, brain, retry, tasks
         from bonobo.world import Snapshot
         snap = Snapshot.from_readings({"dimension": "minecraft:overworld", "timeOfDay": 2000},
                                       {"slots": [], "equipment": {}})
-        for busy, want_asked, want_taker in self.ROWS:
+        for busy, want_asked, want_taker in rows:
             asked = []
 
             def layer(name, result):
@@ -259,7 +272,7 @@ class OneDecisionPoint(unittest.TestCase):
                     return result if name in busy else None
                 return ask
             b = brain.Brain.__new__(brain.Brain)
-            b.retry, b.place = retry.Retry(), None
+            b.retry, b.place, b.planning = retry.Retry(), None, planning
             ask_upkeep = layer("upkeep", [(0, "u", None)])
             b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
                                          "propose": lambda self, *a, **k: None})()
