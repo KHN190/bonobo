@@ -167,7 +167,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
           "golden_apples": int(state.get("golden_apples", 0)), "hunger": float(state.get("food", 20)),
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok")),
-          "footing": state.get("footing")}
+          "footing": state.get("footing"), "hold_use": "hold_use" in nav.mod_features()}
     if work_s is not None:
         st["work_s"] = work_s
     return st

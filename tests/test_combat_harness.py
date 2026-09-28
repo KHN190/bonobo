@@ -192,5 +192,26 @@ class LongestStall(unittest.TestCase):
                 self.assertEqual(fight.longest_stall(trace, b, alive), want)
 
 
+
+class ShieldOnlyWhereTheJarHoldsUse(unittest.TestCase):
+    """threat.options offers the shield-alone answer only where the jar can hold the use key (state hold_use)."""
+
+    def test_rows(self):
+        from bonobo import threat
+        zombie = ((2.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie", 1.0, 6.25)
+        base = {"here": (0.0, 64.0, 0.0), "hp": 20.0, "sword": 2, "protection": 0.0, "hazards": [zombie],
+                "shield": True, "ids": [7], "blocks": 0, "food_items": 0, "hunger": 20.0}
+        kinds = lambda st: {o.kind for o in threat.options(st)}      # noqa: E731
+        rows = [("a jar that holds use: the shield alone on offer", dict(base, hold_use=True), True),
+                ("no word from the jar (pure callers): offered as before", dict(base), True),
+                ("must fail: 0.1.62 cannot hold use — never offered", dict(base, hold_use=False), False),
+                ("no shield: never offered", dict(base, shield=False, hold_use=True), False)]
+        for name, st, offered in rows:
+            with self.subTest(name):
+                self.assertEqual("shield" in kinds(st), offered)
+        with self.subTest("the fight behind the shield stays either way (the attack's own)"):
+            self.assertIn("fight_shielded", kinds(dict(base, hold_use=False)))
+
+
 if __name__ == "__main__":
     unittest.main()

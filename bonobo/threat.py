@@ -274,7 +274,9 @@ def options(state):
         out.append(_evade_option(here, spot, hazards, prot, press, out))
     for option in eat_options(state, hp, press, blast_here):
         out.append(option)
-    if state.get("shield") and prot < float(PLAYER["protection_cap"]):
+    # the shield alone is the use key held: offered only where the jar can hold it (state "hold_use", the jar's
+    # feature list — 0.1.62 cannot: the answer did nothing); a fight behind the shield is the attack's own
+    if state.get("shield") and state.get("hold_use", True) and prot < float(PLAYER["protection_cap"]):
         up = float(ENGAGE["shield_protects"])
         shield_s = float(ENGAGE["shield_s"])
         out.append(Option("shield", None, round(press * shield_s, 2), shield_s,
