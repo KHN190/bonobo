@@ -763,18 +763,16 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         # only blocks within reach of where travel left us, a dozen at a time
         here_now = feet()
-        # distance is not sight: a body in a pit (the night's pod left it 2 down) is "in reach" of an ore at the
-        # rim it cannot see, and the jar's stand never holds from there — climb out first (search_night_resume
-        # 09:46:50: feet (10012,198,10005), ore (10014,199,10003) 3 off, NO_STAND ×3, then banned)
-        x0, y0, z0 = here_now
-        around = Region((x0 - 1, y0 - 1, z0 - 1), (x0 + 1, y0 + 3, z0 + 1))
-        if nav.in_pit(around, here_now) and not any(p[1] < y0 + 1 for p in vein):
-            out = nav.pit_exit_tasks(around, here_now, nav.building_item())
-            if out:
-                api.detail(f"  mine {bare(drop)}: in a pit at {here_now}, the vein above its rim: one level up first")
-                api.run_chain(out, stop_on_failure=True, wait=30)
-                continue
-        in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
+
+        def workable(at):
+            """The vein cells the stand at `at` can break — the jar's own rule (nav.holds: sight, not distance; a pit
+            2 down cannot see an ore at its rim, search_night_resume 09:46:50 NO_STAND ×3), the vein's other cells
+            not in the way (they break in the same batch)."""
+            x0, y0, z0 = at
+            sight = Region((x0 - 5, y0 - 4, z0 - 5), (x0 + 5, y0 + 6, z0 + 5))
+            return sorted((p for p in vein if nav.holds(sight, at, p, through=set(vein))),
+                          key=lambda p: math.dist(p, at))
+        in_reach = workable(here_now)
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
             if not nav.arrived(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
@@ -784,7 +782,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
                 continue
             here_now = feet()
-            in_reach = sorted((p for p in vein if math.dist(p, here_now) <= 4.5), key=lambda p: math.dist(p, here_now))
+            in_reach = workable(here_now)
             if not in_reach and not nav.way_to(ctx, vein):
                 for p in vein:
                     ctx.ban(p)
