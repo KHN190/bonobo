@@ -35,7 +35,8 @@ def jar_schema(source):
 
 def mismatches(schema, tree, where=""):
     """Pure: [(where:line, type, unknown keys, missing keys)] for every dict literal naming a jar task type. A dict
-    spread with ** is not judged missing anything (its keys come from elsewhere)."""
+    spread with ** is not judged missing anything (its keys come from elsewhere). A required key given None is
+    missing too ("entity=None"): the jar read it as JsonNull and answered 500 (combat__dig_in 01:03:09)."""
     out = []
     for n in ast.walk(tree):
         if not isinstance(n, ast.Dict):
@@ -48,6 +49,8 @@ def mismatches(schema, tree, where=""):
         req, opt = schema[typed]
         unknown = sorted(keys - req - opt - {"type"})
         missing = sorted(req - keys) if None not in n.keys else []
+        missing += sorted(f"{k.value}=None" for k, v in zip(n.keys, n.values) if isinstance(k, ast.Constant)
+                          and k.value in req and isinstance(v, ast.Constant) and v.value is None)
         if unknown or missing:
             out.append((f"{where}:{n.lineno}", typed, unknown, missing))
     return out
@@ -71,7 +74,10 @@ class TaskSchema(unittest.TestCase):
                  '{"type": "use_item", "hand": "offhand", "hold_ms": 1500}', True),
                 ("must fail: a pillar with no item", '{"type": "pillar"}', True),
                 ("must fail: a misspelled field", '{"type": "mine", "x": 1, "y": 2, "z": 3, "requireDrop": False}', True),
-                ("a spread dict is not judged missing", '{"type": "place", **extra}', False)]
+                ("a spread dict is not judged missing", '{"type": "place", **extra}', False),
+                ("must fail: an attack naming no entity (None)", '{"type": "attack", "entity": None}', True),
+                ("an optional key given None is its default", '{"type": "attack", "entity": 5, "footwork": None}',
+                 False)]
         for name, src, caught in rows:
             with self.subTest(name):
                 self.assertEqual(bool(mismatches(schema, ast.parse(src))), caught)

@@ -350,7 +350,25 @@ def api(method, path, body=None, timeout=1200):
     except urllib.error.URLError as e:
         raise GameUnreachable(f"game not reachable ({e.reason})")
     except (ConnectionError, TimeoutError, OSError) as e:
+        if isinstance(e, ConnectionResetError) and _game_up():
+            # the game is up and closed THIS request unanswered (RemoteDisconnected is a ConnectionResetError): the
+            # jar's error on this request, not a lost game — combat__dig_in's attack(entity=None) 500s read as
+            # "connection to the game lost" ×3 (jar ≥ 0.1.63 answers them as a 400/500 with the reason)
+            raise McError(f"{path}: the game closed the request without an answer ({e.__class__.__name__}): "
+                          "the jar's error, its log names it")
         raise GameUnreachable(f"connection to the game lost ({e.__class__.__name__})")
+
+
+def _game_up(timeout=1.0):
+    """Does the game answer at all (/status, any HTTP reply)? Tells a request the jar dropped from a lost game."""
+    req = urllib.request.Request(BASE + "/status", method="GET", headers={"Authorization": "Bearer " + _token()})
+    try:
+        with _DIRECT.open(req, timeout=timeout):
+            return True
+    except urllib.error.HTTPError:
+        return True                  # an answer, whatever it said: the game is there
+    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError, ValueError):
+        return False
 
 def get(path) -> Any:
     return api("GET", path)

@@ -29,6 +29,7 @@ class FightState(lifecycle.State):
     held: Any = None               # the threat layer's held decision (kernel.Held): kept while it pays
     last_bid: dict = _dc_field(default_factory=dict)   # the state and price the last bid was made on
     chase_at: Any = None           # when a threat was last seen chasing, in this engagement
+    failed: dict = _dc_field(default_factory=dict)     # (kind, target) → until when an answer that failed is refused
     # the engagement: its own thread's while it runs; forgotten on a reset only when none runs
     thread: Any = None
     want: Any = None               # the answer (a threat.Option) perception wants carried out now
@@ -36,7 +37,7 @@ class FightState(lifecycle.State):
     intent: Any = None
     lock: Any = _dc_field(default_factory=threading.Lock, repr=False, compare=False)
 
-    LIFE = ("held", "last_bid", "chase_at")
+    LIFE = ("held", "last_bid", "chase_at", "failed")
 
     def reset(self):
         """Forget the held decision, the last bid (a stale answer re-decided on the last row's state) and the chase
@@ -122,8 +123,10 @@ def same(a, b):
     return (isinstance(pa, tuple) and isinstance(pb, tuple) and len(pa) == len(pb) == 3
             and all(isinstance(v, (int, float)) for v in pa + pb) and math.dist(pa, pb) <= SAME_R)
 
-def carry(want_of, answer, going, held, again=False, stale=None):
-    """The one loop carrying answers: while `going()`, the same answer keeps the posted task, a new one /stops it and posts its own."""
+def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
+    """The one loop carrying answers: while `going()`, the same answer keeps the posted task, a new one /stops it and
+    posts its own. `failed(want, err)`: an answer that raised is decided again at once (without it) instead of
+    ending the loop; without it the error ends the loop as before."""
 
     if not going():
         api.detail("  fight: the lease was gone before the first answer (nothing posted)")
@@ -134,7 +137,18 @@ def carry(want_of, answer, going, held, again=False, stale=None):
         if not same(want, held["done"]):
             if held["task_id"] is not None:
                 api.post("/stop")
-            got = answer(want)
+            try:
+                got = answer(want)
+            except api.INTERRUPTIONS:
+                raise
+            except Exception as e:  # guard: a failed answer is re-decided, said with its traceback (failed → `_refail`)
+                if failed is None:
+                    raise
+                failed(want, e)
+                held["task_id"], held["done"] = None, None
+                time.sleep(FIGHT_POLL_S)         # a decision that fails at once is not a tight loop
+                yield want.kind
+                continue
             held["task_id"] = got.get("id") if isinstance(got, dict) else None
             held["done"] = want
         elif held["task_id"] is not None:
@@ -163,11 +177,13 @@ def _engagement(intent, failure):
     try:
         def loop():
             for _ in carry(lambda: STATE.want, ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True,
-                           stale=_restale):
+                           stale=_restale, failed=_refail):
                 pass
         arbiter.BODY.carry(intent, loop)
     except Exception as e:  # guard: the engagement's own thread: whatever ends it is said, the body handed back
         failure["failed"] = f"{type(e).__name__}: {e}"
+        # and the answer it carried is not bid again as it was: refused a while, the held choice dropped
+        _mark_failed(STATE.want or held.get("done"))
         # said, not only recorded: an engagement that dies at once re-bid every round with nothing reaching the jar
         # (fight_zombie_1 20260928-224501: four 'threat: fight_shielded … worth 194s', no task posted, no step taken)
         # broad on purpose: the engagement's own thread, whatever ends it the body is handed back (finally) — and the
@@ -176,6 +192,43 @@ def _engagement(intent, failure):
         api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
     finally:
         disengage(intent, stop=held["task_id"] is not None)
+
+FAILED_S = 3.0         # an answer that failed is refused this long: re-deciding at once must not pick it again
+
+
+def _failed_key(option):
+    target = option.target
+    return option.kind, target if isinstance(target, (int, str, tuple, type(None))) else repr(target)
+
+
+def _mark_failed(option, now=None):
+    """Refuse `option` (its kind and target) for FAILED_S and drop the held choice: the next decision is a fresh one
+    without it. A failed fight was bid again as the same fight each second (combat__dig_in 01:03:09-11, ×3)."""
+    if option is None:
+        return
+    STATE.failed[_failed_key(option)] = (now if now is not None else time.time()) + FAILED_S
+    STATE.held = None
+
+
+def refused(option, now=None):
+    """Why `option` may not be chosen now (it failed within FAILED_S), or None."""
+    until = STATE.failed.get(_failed_key(option))
+    if until is not None and (now if now is not None else time.time()) < until:
+        return "failed just now"
+    return None
+
+
+def _refail(want, err):
+    """The engagement's answer to a failed answer (it raised): said with its traceback, refused a while, and what is
+    wanted now decided again at once without it — the same path as a stale target (`_restale`)."""
+    api.log(f"!! fight: {want.kind} failed: {type(err).__name__}: {err} → decided again without it")
+    api.detail("".join(traceback.format_exception(type(err), err, err.__traceback__)).rstrip())
+    _mark_failed(want)
+    fresh = redecide(None)
+    with STATE.lock:
+        if STATE.want is want:
+            STATE.want = fresh
+
 
 def _restale(want):
     """The engagement's answer to 'target not found': what is wanted now, decided again without the gone target."""
@@ -225,7 +278,7 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
         return None
     STATE.last_bid.update(state=state, price=price)
     st = threat_state(state, rows, work_s, ids)
-    field_model = threat.Field(st, price)
+    field_model = threat.Field(st, price, refused=refused)
     with STATE.lock:
         if STATE.held is None:
             STATE.held = kernel.Held()
@@ -250,7 +303,7 @@ def redecide(gone):
     0 hits, many times a second (detail.log 23:32:53)."""
     STATE.held = None
     rows, ids = threat.threats_seen()
-    kept = [(r, i) for r, i in zip(rows, ids) if i != gone] if ids else [(r, None) for r in rows]
+    kept = [(r, i) for r, i in zip(rows, ids) if gone is None or i != gone] if ids else [(r, None) for r in rows]
     last = STATE.last_bid          # one read: a reset may rebind it meanwhile
     if not kept or "state" not in last:
         return None
@@ -309,7 +362,13 @@ def still_worth(choice, field_model, price, horizon):
         # here is kept though another is nearer now: switching on "nearest" /stopped the attack on a hurt zombie
         # and left the body idle between the stop and the next post (fight_zombie_3 23:49:29-33, 0.4 s)
         return False
+    if held is not None and held.target is None and held.kind in TARGETED:
+        # an attack naming no mob cannot be posted (the jar needs its entity id): never kept, decided again on a
+        # reading that names them (combat__dig_in 01:03:09: attack(entity=None) three times, a 500 each)
+        return False
     return threat.saves(same, options, price, horizon) > 0
+
+TARGETED = ("fight", "fight_shielded")     # the answers whose batch names the mob by its entity id (`_attack`)
 
 # -- the batches
 
@@ -344,6 +403,8 @@ def lure_spot(here, creeper, protected, blast):
     return (round(here[0] + LURE_BLOCKS * dx / n), int(here[1]), round(here[2] + LURE_BLOCKS * dz / n))
 
 def _attack(option, state, **extra):
+    if option.target is None:
+        return []           # no entity id, no attack: refused here (NotAvailable), never posted as entity=None
     task = {"type": "attack", "entity": option.target, **extra}
     step = footwork(option.target, state)
     if step is None:

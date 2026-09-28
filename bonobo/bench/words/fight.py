@@ -157,10 +157,13 @@ def _combat_intent(state: dict[str, Any]):
         pass
     sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
     price = lambda dhp: threat.hp_seconds(sstate, dhp)
-    st = fight_loop.threat_state(state, rows)
+    # the entity ids with the rows, as perception bids: without them every fight option named no target, and the
+    # held decision this seeds posted attack(entity=None) into the live fight (combat__dig_in 01:03:09, a 500 ×3)
+    ids = threat.ids_by_row(near, rows)
+    st = fight_loop.threat_state(state, rows, ids=ids)
     horizon, opts = threat.horizon_for(st), threat.options(st)
     fight_loop.STATE.held = None
-    chosen = fight_loop.bid(state, rows, price, now=now)
+    chosen = fight_loop.bid(state, rows, price, now=now, ids=ids)
     return {"rows": len(rows),
             "options": {o.kind: {"hp": round(o.hp, 2), "seconds": round(o.seconds, 2),
                                  "leaves": round(o.leaves, 3), "why": o.why,

@@ -26,8 +26,9 @@ KEPT = {
     ("bonobo/perception.py", "ground"): "a field we cannot build keeps the last one",
     ("bonobo/fight_loop.py", "_engagement"): "the engagement's thread: said, and the body handed back",
     ("bonobo/fight_loop.py", "lease_done"): "a release judgement we cannot make keeps the body",
+    ("bonobo/fight_loop.py", "carry"): "a failed answer is decided again without it (_refail), not the fight's end",
 }
-MAX_SITES = 20          # broad catches in the package now (a kept function may hold two); only goes down
+MAX_SITES = 21         # broad catches in the package now (a kept function may hold two); only goes down
 
 
 def broad_excepts(source, path):

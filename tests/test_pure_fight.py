@@ -606,9 +606,16 @@ class StillWorth(unittest.TestCase):
                 self.assertEqual(fight_loop.still_worth(held, fm, price, 10.0), want)
         for name, choice, fm, want in rows:
             with self.subTest(name):
-                # the held choice as kernel.Held keeps it: its name and the action carrying the option it chose
-                held = SimpleNamespace(name=choice, action=SimpleNamespace(option=opt(choice)))
+                # the held choice as kernel.Held keeps it: its name and the action carrying the option it chose (an
+                # attack names its mob, 41, and this reading still has it)
+                held = SimpleNamespace(name=choice, action=SimpleNamespace(option=opt(choice, target=41)))
+                fm.field = {"ids": [41]}
                 self.assertEqual(fight_loop.still_worth(held, fm, price, 10.0), want)
+        with self.subTest("must fail: a held fight naming no mob is never kept (attack(entity=None) cannot post)"):
+            held = SimpleNamespace(name="fight", action=SimpleNamespace(option=opt("fight")))
+            fm = model(ignore, opt("fight", seconds=2, hp=1))
+            fm.field = {"ids": [41]}
+            self.assertFalse(fight_loop.still_worth(held, fm, price, 10.0))
 
 
 class Lend(unittest.TestCase):
