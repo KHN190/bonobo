@@ -38,6 +38,7 @@ KIT = {"nothing": [], "blocks": _BLOCKS, "food": [("give", "cooked_beef", 8)], "
 NEEDS = {"blocks": ("reshape", "wall_in"), "food": ("eat",), "shield": (),
          "full": ("reshape", "wall_in", "eat"), "nothing": ()}
 DISTANCE = {"near": 5, "across": 10}
+
 DIMS = {"enemy": ENEMY, "count": COUNT, "ground": GROUND, "weapon": WEAPON, "armour": ARMOUR, "blood": BLOOD,
         "kit": KIT, "distance": DISTANCE}
 ARMED = {"enemy": "walker", "count": "one", "ground": "open", "weapon": "iron", "armour": "iron",
@@ -72,6 +73,9 @@ FAMILIES = [
          ('walker', 'open', 'food'), ('walker', 'open', 'shield'), ('walker', 'open', 'full')]),
     ('behaviour', [('block_gap',), ('dig_in',), ('pillar',), ('shield_arrows',), ('fight_without_shield',), ('fight_and_block',),
          ('wall_in',), ('surrounded_low',)]),
+    # (name, where the volley comes from (a direction from the player), how far, what is carried)
+    ('deflect', [('deflect__front_12', (0, 0, -1), 12, 'sword'), ('deflect__behindleft_8', (-1, 0, 1), 8, 'shield'),
+                 ('deflect__aboveright_20', (1, 0.75, 0), 20, 'sword')]),
     ('fight_cell', [('fight_zombie_1', 'zombie', 1, 'common', 25, 12, True),
          ('fight_zombie_3', 'zombie', 3, 'exception', 25, 6, True),
          ('fight_skeleton_1', 'skeleton', 1, 'common', 25, 10, True),

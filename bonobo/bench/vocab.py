@@ -165,17 +165,12 @@ def _snap_survival(ctx, seconds=20):
 _FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",
                "give @p dirt 576"]
 
-GHAST_MAX_HP = 10.0
+GHAST_MAX_HP = fight.GHAST_HP
 GHAST = {}              # the ghast row's watch: its fireballs, the player's start and worst health, the ghast's last read
 
 def ghast_health(lines):
-    """Pure: the ghast's health from '/data get entity … Health' feedback ('… has the following entity data: 7.5f'),
-    or None when no ghast answered (dead, or never there)."""
-    for line in lines:
-        m = re.search(r"entity data: ([0-9.]+)f?", line)
-        if m:
-            return float(m.group(1))
-    return None
+    """Pure: the ghast's health from '/data get entity … Health' feedback, or None (dead, or never there)."""
+    return fight.data_health(lines)
 
 def ghast_readout(watch):
     """Pure: the ghast watch as the report reads it — seen, its last Health, fireballs seen, our start and worst hp."""
@@ -641,7 +636,7 @@ def start_row(name, what, start_scene, stand):
 TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "one", "real", "place", "start")}
 NAMES = {"base": lambda base, cond=None, surprise=None: surprise or f"{base}__{cond or 'base'}",
          **{t: (lambda name, *p: name) for t in ("one", "real", "place", "start")}}
-NAMED = {"arena", "fight_cell", "one", "real", "place", "start", "brain", "dirt"}  # templates whose first parameter is only the row's name
+NAMED = {"arena", "fight_cell", "deflect", "one", "real", "place", "start", "brain", "dirt"}  # templates whose first parameter is only the row's name
 WORD_MODULES = (_scene_words, checks, runs, fight, brain)
 
 

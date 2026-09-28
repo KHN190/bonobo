@@ -5,6 +5,7 @@ scenarios.py was deleted, and every row built now must equal its record. Names a
 and every word says yes and no on recorded data."""
 import importlib
 import json
+import math
 import os
 import re
 import sys
@@ -72,7 +73,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 269)
+        self.assertEqual(len(rec), 272)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -402,6 +403,7 @@ NOT_ROW_TESTED = {
     "not_remembered": "the memory file",
     "threat_resolved": "a hold over time of hostiles, gap and health",
     "ghast_answered": "the server's ghast health and the watch's fireballs (its rule: test_combat_harness.GhastAnswered)",
+    "deflected": "the server's health and the volley's tracked fireballs (its rule: DeflectCells)",
     "room_to_work": "free_spots_here over the live region",
     "found_near": "find() over the live world",
     "food_up": "bite_plan over the knowledge tables (fed_as_needed has its own tests)",
@@ -594,4 +596,46 @@ class ARowIsPlainData(unittest.TestCase):
         with self.subTest("must fail: a callable is named, never written"), \
                 self.assertRaisesRegex(TypeError, r"state\.footing"):
             wf._plain(dict(live, footing=lambda spot: spot))
+
+
+class DeflectCells(unittest.TestCase):
+    """The deflect rows' words: a volley of 3 fireballs at the eye, each tracked to its end, judged on server health."""
+
+    def test_shot(self):
+        from bonobo.bench.words import fight as wf
+        eye = wf.deflect_eye()
+        ball, m = wf.shot_from((0, 0, -1), 12, 0.0)
+        self.assertAlmostEqual(math.dist(ball, eye), 12.0, places=6)
+        self.assertAlmostEqual(math.hypot(*m), wf.FIREBALL_SPEED, places=9)
+        self.assertGreater(m[2], 0, "aimed back at the eye")
+        turned, _m = wf.shot_from((0, 0, -1), 12, 15.0)
+        self.assertNotAlmostEqual(turned[0], ball[0], msg="each shot from its own angle")
+
+    def test_fireball_end(self):
+        from bonobo.bench.words import fight as wf
+        # (situation, its distances to the eye as read, gone) → (resolved, end)
+        rows = [("burst at the eye: resolved near", [12, 8, 4, 1.5], True, (True, 1.5)),
+                ("punched: came close, now moving away past RECEDED_AT", [12, 5, 3, 5, 7], False, (True, 7)),
+                ("must fail: still coming, not resolved", [12, 10, 8], False, (False, None)),
+                ("must fail: never came close, drifting: not a punch", [12, 13], False, (False, None))]
+        for name, ds, gone, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wf.fireball_end(ds, gone), want)
+
+    def test_verdict(self):
+        from bonobo.bench.words import fight as wf
+        # (situation, start hp, end hp, fired, end distances) → passed
+        rows = [("all three punched away, unhurt", 20.0, 20.0, 3, [9.0, 7.5, 12.0], True),
+                ("must fail: idle — one burst on us", 20.0, 14.0, 3, [9.0, 1.2, 12.0], False),
+                ("must fail: unhurt but one burst at the eye", 20.0, 20.0, 3, [9.0, 1.2, 12.0], False),
+                ("must fail: two fired", 20.0, 20.0, 2, [9.0, 7.5], False),
+                ("must fail: no health read", 20.0, None, 3, [9.0, 7.5, 12.0], False)]
+        for name, h0, h1, fired, ends, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wf.volley_verdict(h0, h1, fired, ends), want)
+
+    def test_health_read(self):
+        from bonobo.bench.words import fight as wf
+        self.assertEqual(wf.data_health(["knh190 has the following entity data: 17.5f"]), 17.5)
+        self.assertIsNone(wf.data_health(["No entity was found"]), "must fail: no entity, no health")
 

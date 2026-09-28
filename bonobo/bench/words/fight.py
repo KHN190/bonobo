@@ -943,9 +943,152 @@ WORDS.update(siege_detail=siege_detail, escape_detail=escape_detail, behaviour=b
 from ..bench_combat import (ARMED, ARMOUR, BLOOD, COUNT, DIMS, DISTANCE, ENEMY, GROUND, KIT, NEEDS,  # noqa: E402
                            UNARMED, WAVES, WEAPON)     # combat's dimensions, its data; last: its rows use these words
 
-TEMPLATES = {t: globals()[f"{t}_row"] for t in ("arena", "siege", "escape", "behaviour", "fight_cell")}
+# -- deflect rows: a volley of 3 ghast fireballs at the eye on a fixed schedule; the jar's reflex punches each back -----
+DEFLECT = {}            # the running volley: start hp, eye, fired, each fireball's end distance, done
+EYE_Y = 1.62
+FIREBALL_SPEED = 0.1    # a ghast's shot leaves at acceleration_power along its aim
+GHAST_HP = 10.0         # a ghast's max health
+VOLLEY = ((0.5, -15.0), (2.0, 0.0), (3.5, 15.0))     # (seconds after the hook, yaw off the row's line)
+DEFLECTED_AT = 4.0      # a fireball that ends farther than this from the eye was punched away
+RECEDED_AT = 6.0        # past this and moving away after coming close: punched, resolved
+
+
+def data_health(lines):
+    """Pure: the Health from '/data get entity … Health' feedback ('… entity data: 7.5f'), or None (no entity)."""
+    for line in lines:
+        m = re.search(r"entity data: ([0-9.]+)f?", line)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def deflect_eye():
+    o = at(0, 0, 0)
+    return (o[0] + 0.5, o[1] + EYE_Y, o[2] + 0.5)
+
+
+def shot_from(direction, dist, yaw):
+    """Pure: (fireball centre, its motion) for a shot `dist` out along `direction` turned `yaw`° about y, at the eye."""
+    x, y, z = direction
+    c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    x, z = x * c - z * s, x * s + z * c
+    n = math.sqrt(x * x + y * y + z * z)
+    u = (x / n, y / n, z / n)
+    eye = deflect_eye()
+    ball = tuple(eye[i] + u[i] * dist for i in range(3))
+    return ball, tuple(-c_ * FIREBALL_SPEED for c_ in u)
+
+
+def fireball_end(dists, gone):
+    """Pure: (resolved, end distance) of one fireball from its distances to the eye as read: gone (exploded), or
+    past RECEDED_AT and moving away after coming within it (punched)."""
+    if not dists:
+        return False, None
+    if gone:
+        return True, dists[-1]
+    came = min(dists) < RECEDED_AT
+    if came and dists[-1] > RECEDED_AT and len(dists) > 1 and dists[-1] > dists[-2]:
+        return True, dists[-1]
+    return False, None
+
+
+def volley_verdict(start_hp, end_hp, fired, ends):
+    """Pure: all shots fired, each ended > DEFLECTED_AT from the eye, and the body unhurt."""
+    if start_hp is None or end_hp is None or end_hp < start_hp:
+        return False
+    return fired == len(VOLLEY) and len(ends) == len(VOLLEY) and all(e > DEFLECTED_AT for e in ends)
+
+
+def _server_hp():
+    from ..core import _command
+    return data_health(_command("data get entity @p Health", []))
+
+
+def _deflect_volley(direction, dist):
+    """`before` hook: the ghast behind the line, then 3 shots on VOLLEY's schedule, each tracked to its end (idle too:
+    no shot waits for a deflect)."""
+    def hook(ctx):
+        from ..core import _command
+        from ...world import entities
+        eye = deflect_eye()
+        g, _m = shot_from(direction, dist + 3.5, 0.0)
+        _command(f"summon minecraft:ghast {g[0]:.2f} {g[1] - 2:.2f} {g[2]:.2f} {{NoAI:1b,PersistenceRequired:1b}}", [])
+        DEFLECT.clear()
+        DEFLECT.update(start=_server_hp(), eye=eye, fired=0, ends=[], done=False)
+
+        def volley():
+            t0, series, closed = time.time(), {}, set()
+            while time.time() - t0 < 20 and not DEFLECT["done"]:
+                now = time.time() - t0
+                while DEFLECT["fired"] < len(VOLLEY) and now >= VOLLEY[DEFLECT["fired"]][0]:
+                    ball, m = shot_from(direction, dist, VOLLEY[DEFLECT["fired"]][1])
+                    _command(f"summon minecraft:fireball {ball[0]:.3f} {ball[1] - 0.5:.3f} {ball[2]:.3f} "
+                             f"{{Motion:[{m[0]:.4f}d,{m[1]:.4f}d,{m[2]:.4f}d],acceleration_power:0.1d,"
+                             "ExplosionPower:1b}", [])
+                    DEFLECT["fired"] += 1
+                try:
+                    near = {e["id"]: math.dist((e["x"], e["y"] + 0.5, e["z"]), eye)
+                            for e in entities(64, ["minecraft:fireball"])}
+                except McError:
+                    near = {}
+                for i, d in near.items():
+                    series.setdefault(i, []).append(d)
+                for i, ds in series.items():
+                    if i in closed:
+                        continue
+                    done, end = fireball_end(ds, i not in near)
+                    if done:
+                        closed.add(i)
+                        DEFLECT["ends"].append(end)
+                DEFLECT["done"] = DEFLECT["fired"] == len(VOLLEY) and len(closed) == len(series) > 0
+                time.sleep(0.05)
+            DEFLECT["done"] = True
+        _threading.Thread(target=volley, daemon=True, name="deflect-volley").start()
+    return hook
+
+
+def _deflect_watch():
+    """The reflex policy on, the agent driving; ends as soon as the last fireball resolves (≤ 20 s)."""
+    def run(ctx):
+        from ... import api
+        api.post("/reflex", {"deflect": True, "shield": True, "counter": False})
+        api.post("/takeover", {})               # the reflex runs only while the agent drives
+        t0 = time.time()
+        while not DEFLECT.get("done") and time.time() - t0 < 20:
+            time.sleep(0.05)
+        time.sleep(0.5)                          # the last blast lands
+        return True
+    return run
+
+
+def _deflected():
+    """Check (the server's health read): all 3 fireballs punched away and the body unhurt (volley_verdict)."""
+    def check(api_, inv):
+        return volley_verdict(DEFLECT.get("start"), _server_hp(), DEFLECT.get("fired", 0), DEFLECT.get("ends", []))
+    return check
+
+
+def deflect_row(name, direction, dist, kit):
+    """Open platform, a sword (a shield too): 3 fireballs from `direction` × `dist` → each punched back, unhurt."""
+    scene = [("cmd", c) for c in _platform(4)] + [
+        ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword")]
+    if kit == "shield":
+        scene.append(("cmd", "item replace entity @p weapon.offhand with shield"))
+    return _row(name, f"3 ghast fireballs {dist} blocks out, 1.5 s apart, a sword{' and shield' if kit == 'shield' else ''}"
+                      ": each punched back by the reflex, unhurt", "fight_loop",
+                scene, ("deflect_watch",), [("deflected",)], budget=25,
+                before=[("&deflect_volley", tuple(direction), dist)], combat=True, tier_fixed="exception",
+                tags={"base": "deflect", "distance": dist, "kit": kit})
+
+
+from ... import lifecycle as _deflect_lifecycle  # noqa: E402
+_deflect_lifecycle.in_place(__name__, "DEFLECT")     # a row's own record
+
+
+TEMPLATES = {t: globals()[f"{t}_row"] for t in ("arena", "siege", "escape", "behaviour", "fight_cell", "deflect")}
 NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"siege__w{w}",
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
-         "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
+         "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
+         "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', '_walled', '_wave_cleared', '_went_out', '_blocked', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
