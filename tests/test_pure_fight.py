@@ -726,6 +726,8 @@ class Footwork(unittest.TestCase):
                 task = fight_loop.batch(SimpleNamespace(kind=kind, target=target), state)[-1]
                 self.assertEqual(task.get("footwork"), want)
                 self.assertEqual(task["entity"], target)
+                # a creeper's keep-off distance goes to the jar (keepOff: past where its fuse stops)
+                self.assertEqual(task.get("keepOff"), 7.5 if want == "keepoff" else None)
 
     def test_a_creeper_by_our_builds_is_led_away_first(self):
         """fight_loop: a creeper whose blast would reach a protected cell is led LURE_BLOCKS away from it, then fought."""

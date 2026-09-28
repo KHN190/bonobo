@@ -454,8 +454,7 @@ def _attack(option, state, **extra):
             out.append({"type": "travel", "x": spot[0], "y": spot[1], "z": spot[2], "range": 2, "break": brk,
                         "place": plc, "voidBridge": void, "placeBudget": int(state["inv"].count("building")),
                         "avoid": nav.avoid_cells(state.get("protected", ()), spot, state["feet"])})
-    keep = {"keepOff": float(MOBS["minecraft:creeper"]["keep_out"])} \
-        if step == "keepoff" and "keep_off" in nav.mod_features() else {}      # the jar's field (a46)
+    keep = {"keepOff": float(MOBS["minecraft:creeper"]["keep_out"])} if step == "keepoff" else {}   # jar default 5
     return out + [dict(task, footwork=step, **keep)]
 
 def _fight(option, state):
