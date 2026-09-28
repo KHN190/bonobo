@@ -668,6 +668,15 @@ def mine_segment_commands(state, args):
        units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
                                           s.detail.get("breaks"))}, fills_bag=lambda c: members(c.args[1]))
+def spent_cells(sent, name_at, blocks):
+    """Pure: the sent cells whose block is gone in a fresh read (`name_at(cell)`) — their notes are spent; a cell
+    still standing (sent, not broken) keeps its note. No read (`name_at` None): nothing is judged spent."""
+    if name_at is None:
+        return []
+    kinds = {bare(b) for b in blocks}
+    return sorted(c for c in sent if bare(name_at(c) or "air") not in kinds)
+
+
 def mine(ctx, token, count, blocks, tier, breaks=None):
     """Tunnel to the nearest reachable vein of `blocks` and mine it until `count` more `token` are held."""
     drop = token
@@ -686,8 +695,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         if have >= target:
             # the count met: the notes of what was mined are spent (only a whole pass's end retired them — a count met
             # at the top of the next pass kept a mined diamond's note: seen_store__noted 10:16 "the note retired" False)
-            if ctx.mem is not None:
-                for p in sent:
+            if ctx.mem is not None and sent:
+                seen_now = region_around(sorted(sent), pad=0)
+                for p in spent_cells(sent, (lambda c: seen_now.name(c)) if seen_now is not None else None, blocks):
                     for b in blocks:
                         ctx.mem.forget_seen(b, p, ctx.dimension, radius=0.5)
             return

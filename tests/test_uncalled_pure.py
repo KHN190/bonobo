@@ -109,5 +109,25 @@ class ReviewPlans(unittest.TestCase):
                 self.assertEqual(review.plans(tape, 30, now), want)
 
 
+
+class SpentCells(unittest.TestCase):
+    """skills.spent_cells: a mined vein's notes are retired only for cells a fresh read shows gone."""
+
+    def test_rows(self):
+        from bonobo import skills
+        ores = ["diamond_ore", "deepslate_diamond_ore"]
+        a, b = (0, 60, 0), (1, 60, 0)
+        # (situation, sent, the fresh read) → the cells whose notes are spent
+        rows = [("broken: air now", {a}, {a: "air"}, [a]),
+                ("broken and the other kind of the same ore still there", {a, b},
+                 {a: "air", b: "minecraft:deepslate_diamond_ore"}, [a]),
+                ("filled with something else since (lava, a block): gone as ore", {a}, {a: "lava"}, [a]),
+                ("must fail: sent but still ore — the note kept", {a}, {a: "minecraft:diamond_ore"}, []),
+                ("must fail: no fresh read — nothing judged spent", {a}, None, [])]
+        for name, sent, read, want in rows:
+            with self.subTest(name):
+                self.assertEqual(skills.spent_cells(sent, None if read is None else read.get, ores), want)
+
+
 if __name__ == "__main__":
     unittest.main()
