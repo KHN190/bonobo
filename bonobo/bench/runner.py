@@ -781,6 +781,15 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
         note = note or f"check failed: {e}"
     return ok, exc, note
 
+def _begin(name, sc, feedback):
+    """Every row's one entry, normal or idle: perception paused (commands rebuild the world), per-life state reset
+    (lifecycle.reset_all: nothing the last row left — a pending boundary, a held target id, a sweep — leaks in),
+    then the setup, which respawns a body the last row left dead (_setup → _respawn). Raises SetupInvalid."""
+    from .. import lifecycle, perception
+    perception.PAUSED = True
+    lifecycle.reset_all()
+    _setup(name, sc, feedback)
+
 def run(name, make_ctx):
     """Set up and run one scenario (test world only)."""
 
@@ -805,11 +814,8 @@ def run(name, make_ctx):
         if rate:
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
             _command(f"tick rate {rate}", feedback)
-        perception.PAUSED = True
-        from .. import lifecycle
-        lifecycle.reset_all()      # nothing the last row left (a pending boundary, a held target id, a sweep) leaks in
         try:
-            _setup(name, sc, feedback)
+            _begin(name, sc, feedback)
         except SetupInvalid as e:
             exc, note = e, f"SETUP_INVALID: {e}"
         finally:
@@ -895,11 +901,8 @@ def run_idle(name, make_ctx):
     try:
         if rate:
             _command(f"tick rate {rate}", feedback)
-        from .. import lifecycle
-        lifecycle.reset_all()              # as `run`: nothing the last row left leaks in
-        perception.PAUSED = True           # stays paused through the idle window: nothing answers for the body
         try:
-            _setup(name, sc, feedback)
+            _begin(name, sc, feedback)     # run's own entry; perception stays paused through the idle window
             if NEXT_ROW[0] and NEXT_ROW[0] != name:
                 prebuild(NEXT_ROW[0])
             threading.Thread(target=_trace, args=(stop, trace), daemon=True).start()
