@@ -479,6 +479,7 @@ def kit(signature):
             "blocks": inv.count("building"),
             "dig_ok": any(usable(d) for _t, d, _ in inv.tools("pickaxe")),
             "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple"),
+            "bow": inv.count("minecraft:bow") > 0 and inv.count("minecraft:arrow") > 0,
             "gold_worn": any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")
                              for k in ("head", "chest", "legs", "feet"))}     # a piglin leaves the gold-clad alone
     with STATE.lock:

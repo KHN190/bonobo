@@ -360,12 +360,26 @@ def options(state):
         out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
-    t_fight, lost = fight_cost(here, hazards, sword, prot)
-    # a fight we expect to lose is not an answer: `survivable` below, the same for every column
-    if not any(MOBS[h[3]].get("burst") for h in hazards):
-        nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))
+    # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)
+    reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h)]
+    above = [hazards[i] for i in range(len(hazards)) if i not in reach]
+    if reach and not any(MOBS[h[3]].get("burst") for h in hazards):
+        t_fight, lost = fight_cost(here, [hazards[i] for i in reach], sword, prot)
+        nearest = min(reach, key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
-                          f"kill {len(hazards)} in ~{t_fight}s for ~{lost} hp"))
+                          f"kill {len(reach)} in ~{t_fight}s for ~{lost} hp",
+                          leaves=pressure(here, above, prot, ground=grid) if above else 0.0))
+    if above and state.get("bow"):
+        # out of reach: the bow; else evade or hold (the jar deflects)
+        first = min(above, key=lambda h: math.dist(here, h[0]))
+        t_shoot = estimate.shoot_cost(here, above, prot)
+        i = hazards.index(first)
+        out.append(Option("shoot", {"id": ids[i], "x": first[0][0], "y": first[0][1], "z": first[0][2],
+                                    "height": 1.0},
+                          round(press * t_shoot + blast_here, 2), t_shoot,
+                          f"shoot {len(above)} out of reach in ~{t_shoot}s",
+                          leaves=pressure(here, [h for i2, h in enumerate(hazards) if i2 in reach], prot, ground=grid)
+                          if reach else 0.0))
     # no shield column: the jar's reflex raises the shield for every predicted hit, whatever the answer (a shield in
     # the offhand is protection, `state["protection"]`), so it is never an answer of its own
     spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"),

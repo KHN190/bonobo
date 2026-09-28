@@ -991,6 +991,39 @@ class DodgeThePredictedImpact(unittest.TestCase):
                 self.assertEqual(threat.dodge_spot(here, impacts, cands), want)
 
 
+class MeleeOnlyWhatWeCanReach(unittest.TestCase):
+    """A sword fight is offered against a mob the body can reach — reachability, not ranged or melee: a skeleton or
+    a blaze is closed in on, a ghast in the air is not (the bow, cover, or hold while the jar deflects)."""
+
+    @staticmethod
+    def up(kind, x, dy):
+        return threat.row((float(x), HERE[1] + dy, 0.0), threat.MOBS[kind]["reach"], STILL, kind)
+
+    def test_columns_over_the_table(self):
+        # (situation, hazards, a bow carried) → (a fight offered?, a shot offered?)
+        rows = [("a skeleton on the ground 8 off: closed in on", [self.up("minecraft:skeleton", 8, 0)], False,
+                 (True, False)),
+                ("a blaze hovering 2 up: closed in on", [self.up("minecraft:blaze", 6, 2)], False, (True, False)),
+                ("must fail: a ghast 18 off, 6 up — no sword fight", [self.up("minecraft:ghast", 18, 6)], False,
+                 (False, False)),
+                ("the same ghast, a bow and arrows: shoot it", [self.up("minecraft:ghast", 18, 6)], True,
+                 (False, True))]
+        for name, hazards, bow, want in rows:
+            with self.subTest(name):
+                state = {"here": HERE, "hp": 20, "sword": 3, "protection": 0.3, "blocks": 0, "hazards": hazards,
+                         "ids": list(range(len(hazards))), "bow": bow}
+                kinds = {o.kind for o in threat.options(state)}
+                self.assertEqual(("fight" in kinds, "shoot" in kinds), want)
+
+    def test_reachable(self):
+        from bonobo import estimate
+        rows = [("level", 0, True), ("a block above the eyes and reach", 4.5, True),
+                ("must fail: 6 up is out of the sword's reach", 6, False), ("4 below", -4, False)]
+        for name, dy, want in rows:
+            with self.subTest(name):
+                self.assertEqual(estimate.melee_reachable(HERE, self.up("minecraft:zombie", 2, dy)), want)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 

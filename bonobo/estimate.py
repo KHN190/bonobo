@@ -114,6 +114,18 @@ def _row_dps(row):
     """A threat row's damage rate: its own (`threat.row` puts it at [5]) where it carries one, else the table's."""
     return float(row[5]) if len(row) > 5 and row[5] is not None else float(MOBS[row[3]]["dps"])
 
+def melee_reachable(here, hazard):
+    """Pure: a sword reaches it from the ground (its feet within reach of our eyes): reachability, not ranged."""
+    dy = float(hazard[0][1]) - float(here[1])
+    reach = float(PLAYER["melee_reach"])
+    return -reach <= dy <= reach + float(PLAYER["eye_height"])
+
+def shoot_cost(here, hazards, prot, speed=None):
+    """Pure: seconds to shoot `hazards` down with a bow."""
+    shots = sum(math.ceil(float(MOBS[h[3]]["hp"]) / float(ENGAGE["arrow_hp"])) / float(ENGAGE["bow_hit_p"])
+                for h in hazards if h[3] in MOBS)
+    return round(shots * float(ENGAGE["shot_s"]), 2)
+
 def keepoff_cost(here, hazard, sword, prot, speed=None):
     """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat."""
 

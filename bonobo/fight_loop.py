@@ -291,7 +291,7 @@ def threat_state(state, rows, work_s=None, ids=()):
           # a shield in the offhand is protection: the jar's reflex raises it for every predicted hit (`reflex`)
           "protection": threat.protection(state.get("armor", 0), bool(state.get("shield"))),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
-          "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
+          "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")), "bow": bool(state.get("bow")),
           "golden_apples": int(state.get("golden_apples", 0)), "hunger": float(state.get("food", 20)),
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok")),
           "footing": state.get("footing"),

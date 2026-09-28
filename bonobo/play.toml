@@ -48,7 +48,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
              
               "attack_s", "speed", "exists_prior",
              
-              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp"]
+              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp", "arrow_hp", "bow_hit_p", "shot_s"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
@@ -85,6 +85,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 [player]
 speed = 4.3                 # sprinting, blocks per second
 melee_reach = 3.0
+eye_height = 1.62
 dps = { "0" = 3.0, "1" = 12.0, "2" = 18.0, "3" = 24.0 }   # by sword tier: fist, wood/stone, iron, diamond
 protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
@@ -113,6 +114,9 @@ dig_s = 0.9                # digging one block down, out of sight
 hide_per_block = 0.45      # of an archer's fire that a block of depth takes out of the line
 melee_stop_blocks = 2      # blocks of height or depth that put us out of a walking mob's reach entirely
 survive_margin_hp = 1.0    # an answer must leave at least this much health after what it expects to lose while under way
+arrow_hp = 6.0             # a fully drawn arrow's damage
+bow_hit_p = 0.6            # of full draws that hit a mob at range
+shot_s = 1.1               # one full draw and loose (22 ticks)
 shape_min_gain = 0.1       # a shape must cut this share of the pressure to be worth offering at all      # of what is coming at us that a block of height or depth takes out of the line
 interrupt_ttd_s = 4.0      # perception stops a task only when death is closer than one planning round      # perception interrupts a task when death is this close at the current pressure
 
