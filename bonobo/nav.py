@@ -297,6 +297,8 @@ def ashore(state, land, range_=ASHORE_RANGE):
     return bool(state.get("onGround")) and not state.get("inWater") and there(state, land, range_)
 
 REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
+HOLD_MARGIN = 0.5      # the jar's MineTask.holds works within the reach less this
+WORK_REACH = REACH - HOLD_MARGIN     # how far a block is worked from a stand (holds; fluids' fill spot)
 EYE_HEIGHT = 1.62      # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
 _OFFS = ((0, 0), (0.3, 0), (-0.3, 0), (0, 0.3), (0, -0.3))      # where the body may settle in its cell
 _FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
@@ -350,7 +352,7 @@ def holds(region, feet_at, cell, down=False, reach=REACH, through=()):
     points = [centre] + [(centre[0] + d[0] * 0.45, centre[1] + d[1] * 0.45, centre[2] + d[2] * 0.45) for d in _FACES]
     for ox, oz in _OFFS:
         eye = (fx + 0.5 + ox, fy + EYE_HEIGHT, fz + 0.5 + oz)
-        if not any(_ray_hits(region, eye, p, cell, reach - 0.5, through) for p in points):
+        if not any(_ray_hits(region, eye, p, cell, reach - HOLD_MARGIN, through) for p in points):
             return False
     return True
 
