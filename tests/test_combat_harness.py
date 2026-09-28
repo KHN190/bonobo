@@ -276,6 +276,18 @@ class DerivedScenes(unittest.TestCase):
                 self.assertEqual(bool(cells), depth > 1)
 
 
+class UnarmedCellsGetNoSword(unittest.TestCase):
+    """A behaviour cell with a fist is not handed a sword by the kit rule (combat__dig_in fought with one)."""
+
+    def test_rows(self):
+        from bonobo.bench import bench_bases
+        fist = [f"combat__{b}" for b, (cell, _r, _w) in fight.BEHAVIOURS.items() if cell.get("weapon") == "fist"]
+        self.assertTrue(fist, "at least one unarmed behaviour (dig_in)")
+        for name in fist:
+            with self.subTest(name):
+                self.assertNotIn("sword", bench_bases.KIT.get(name, []))
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 
