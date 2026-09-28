@@ -61,7 +61,11 @@ def plot_commands(centre, hoe, region=None, stand=None):
     out = []
     if name(centre) not in ("water", "air"):
         out.append(nav.mine_task(centre))
-    for dx, dz in RING:
+    # far cells first: a sown crop's outline stands a hair over its farmland and a look at a cell past it met the
+    # crop (bread_from_a_farm 13358: seeds aimed at the far corner hit 10000,200,9999, the near crop)
+    ring = sorted(RING, key=lambda d: -math.dist((centre[0] + d[0], centre[2] + d[1]), (stand[0], stand[2]))) \
+        if stand is not None else RING
+    for dx, dz in ring:
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
         pair = []
         if name(cell) != "farmland":
@@ -256,6 +260,16 @@ def plant_farm(ctx):
         # a segment boundary: back onto the stand only if the body moved off it (the drift, bread_from_a_farm 10:23:34)
         if math.dist(skillcore.feet(), stand) > 0.5:
             nav.arrived(stand, ctx.policy, range_=0.5, attempts=1)
+    # the centre dug on its own, judged by the world: a mine of grass "succeeded" while random ticks turned it to dirt
+    # (the jar's mine ends when the block's id changes), the hole stayed solid and the water went on it (13360)
+    for _try in range(3):
+        if Region(centre, centre).name(centre) in ("air", "water"):
+            break
+        api.run(nav.mine_task(centre), wait=20, awaits="the centre cell read after the dig")
+    else:
+        if Region(centre, centre).name(centre) not in ("air", "water"):
+            raise McError(f"could not dig the plot's centre at {centre}")
+    tasks = [t for t in tasks if not (t.get("type") == "mine" and (t["x"], t["y"], t["z"]) == tuple(centre))]
     done = api.run_chain(tasks, stop_on_failure=False, before_segment=on_stand)
     api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
     for t, r in zip(tasks, done):
@@ -268,7 +282,13 @@ def plant_farm(ctx):
         raise McError(f"could not pour the plot's water at {centre}")
     if not water_contained(after, centre):
         raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot")
-    sown = sum(1 for dx, dz in RING if after.name((centre[0] + dx, centre[1] + 1, centre[2] + dz)) == "wheat")
+    # read again until the world shows what the clicks did (a read right after the chain lagged: "a plot of 3")
+    clicks = sum(1 for t, r in zip(tasks, done) if t.get("item") == "minecraft:wheat_seeds" and r.get("status") == "succeeded")
+
+    def sown_now():
+        top = Region(add(centre, (-1, 1, -1)), add(centre, (1, 1, 1)))
+        return sum(1 for dx, dz in RING if top.name((centre[0] + dx, centre[1] + 1, centre[2] + dz)) == "wheat")
+    sown = skillcore.settle(sown_now, lambda n: n >= clicks, timeout=2.0, stable_s=0)
     yield sown
     if not sown:
         raise McError("no farm cell could be sown")
