@@ -113,6 +113,9 @@ def _engagement(intent, failure):
         arbiter.BODY.carry(intent, loop)
     except Exception as e:
         failure["failed"] = f"{type(e).__name__}: {e}"
+        # said, not only recorded: an engagement that dies at once re-bid every round with nothing reaching the jar
+        # (fight_zombie_1 20260928-224501: four 'threat: fight_shielded … worth 194s', no task posted, no step taken)
+        api.log(f"!! fight: {getattr(_ENG.get('want') or held.get('done'), 'kind', '?')} failed: {failure['failed']}")
     finally:
         disengage(intent, stop=held["task_id"] is not None)
 
@@ -336,7 +339,10 @@ def engage(decision, s, ctx):
     if not tasks:
         raise NotAvailable(f"{decision.kind}: nothing to do it with from here")
     # the fight's bag is the one perception read for this answer; no block read (a weapon wants none)
-    r = api.post("/task?wait=0", {"tasks": api.ARM(tasks, inv=state["inv"], read_blocks=False) if api.ARM else tasks})
+    armed = api.ARM(tasks, inv=state["inv"], read_blocks=False) if api.ARM else tasks
+    api.detail(f"  fight {decision.kind}: posts " + ", ".join(
+        f"{t['type']}{'(' + str(t['item']) + ')' if t.get('item') else ''}" for t in armed))
+    r = api.post("/task?wait=0", {"tasks": armed})
     queued = r.get("tasks") or []
     if not queued:
         raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")

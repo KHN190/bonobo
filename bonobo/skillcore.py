@@ -251,7 +251,8 @@ def arm(tasks, inv=None, read_blocks=True):
                 names = {c: region.name(c) for c in cells}
             else:
                 names = {c: Region(c, c).name(c) for c in cells}
-    except Exception:                   # no world to read (an offline test): the tasks go as they were
+    except Exception as e:              # no world to read (an offline test): the tasks go as they were — said, never silent
+        api.detail(f"  arm: {type(e).__name__}: {e} — {[t.get('type') for t in tasks]} sent without naming what they hold")
         return tasks
     out = []
     for t in tasks:
