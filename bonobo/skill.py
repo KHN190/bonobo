@@ -327,8 +327,11 @@ def skill(name=None, **options):
             while True:
                 try:
                     return once(*args, **kwargs)
-                except api.FightHolds:
-                    if not fight_over(deadline):
+                except api.FightHolds as e:
+                    t0 = time.monotonic()
+                    over = fight_over(deadline)
+                    held(contract.name, str(e), time.monotonic() - t0, over)
+                    if not over:
                         raise
 
         def once(*args, **kwargs):
@@ -414,6 +417,18 @@ def skill(name=None, **options):
     return wrap
 
 FIGHT_POLL_S = 0.5      # how often a paused skill looks whether the fight let the body go
+HELD_WAITS = []         # each fight wait a skill sat out: skill, why, seconds, whether the body came back (a readout)
+HELD_KEEP = 50          # the most recent kept
+lifecycle.on_reset(lambda: HELD_WAITS.clear(), covers=("HELD_WAITS",))
+
+
+def held(name, why, waited_s, over):
+    """Record one fight wait (the report and detail.log read it)."""
+    HELD_WAITS.append({"skill": name, "why": why, "waited_s": round(waited_s, 2), "resumed": over,
+                       "t": round(time.time(), 1)})
+    del HELD_WAITS[:-HELD_KEEP]
+    api.detail(f"skill {name} held by a fight {waited_s:.1f}s: {'resumed' if over else 'over budget'} ({why})")
+
 
 def fight_over(deadline, sleep=time.sleep, now=time.monotonic):
     """Poll until no lease holds the body; False when the deadline came first."""

@@ -38,6 +38,24 @@ class AnIdleRoundWakesOnTheOutcome(unittest.TestCase):
                 self.assertEqual(brain.Brain.idle_wait(me, lambda: False), want)
 
 
+class AReportKeepsItsTrace(unittest.TestCase):
+    """The failed row's report holds copies: the next row clears TRACE_NOW before the report's thread writes."""
+
+    def test_rows(self):
+        from bonobo.bench import runner
+        trace, feedback, lines = [{"t": 1.0}], [{"cmd": "x"}], ["a"]
+        rec = runner.failure_record("r", "c", "skill", "n", 1.0, feedback, trace, lines)
+        trace.clear()          # what the next row's run() does to TRACE_NOW
+        feedback.clear()
+        # (situation, the field) → still what the row saw
+        rows = [("must fail: the trace emptied by the next row", "trace", [{"t": 1.0}]),
+                ("the feedback", "feedback", [{"cmd": "x"}]),
+                ("the log", "log", ["a"])]
+        for name, key, want in rows:
+            with self.subTest(name):
+                self.assertEqual(rec[key], want)
+
+
 class APrebuildIsNeverWaitedOn(unittest.TestCase):
     def test_rows(self):
         import threading

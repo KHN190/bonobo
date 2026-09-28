@@ -701,6 +701,16 @@ def _report(name, data):
     return folder
 
 
+def failure_record(name, code, cls, note, seconds, feedback, trace, lines):
+    """Pure: a failed row's report, every list copied — the trace is TRACE_NOW, which the next row clears before
+    this report's thread writes it (the empty traces)."""
+    from .. import skill as _skill
+    return {"scenario": name, "code": code, "cls": cls, "note": note, "seconds": seconds,
+            "feedback": list(feedback), "trace": list(trace), "log": list(lines[-200:]),
+            "setup_s": dict(SETUP_S), "setup": dict(SETUP_READOUT), "check": dict(CHECK_READOUT),
+            "fight_holds": list(_skill.HELD_WAITS)}
+
+
 def report_written(timeout=30.0):
     """The last failure report done: its world reads must not see the next row's setup."""
     for th in REPORTING:
@@ -785,9 +795,10 @@ def check_parts(check, api, inv):
 
 
 CHECK_READOUT = {}      # the last failed row's parts and, for a fight, its numbers (the report carries them)
+SETUP_READOUT = {}      # what the row's `before` hooks read and did (a drain's plan and its reads)
 # a row's own records: a passing row must not report the last failed row's readout
 from .. import lifecycle as _lifecycle  # noqa: E402
-_lifecycle.in_place(__name__, "CHECK_READOUT", "LAST_FEEDBACK", "LAST_LINES", "SETUP_S", "TRACE_NOW")
+_lifecycle.in_place(__name__, "CHECK_READOUT", "SETUP_READOUT", "LAST_FEEDBACK", "LAST_LINES", "SETUP_S", "TRACE_NOW")
 
 
 def _row_verdict(sc, seconds, crashed, fired, exc, note):
@@ -965,9 +976,7 @@ def run(name, make_ctx):
     if cls not in UNCOUNTED:
         save_table(record(load_table(), name, code, ok, seconds, note, cls))
     if not ok:
-        folder = _report(name, {"scenario": name, "code": code, "cls": cls, "note": note, "seconds": seconds,
-                                "feedback": feedback, "trace": trace, "log": console.lines[-200:],
-                                "setup_s": dict(SETUP_S), "check": dict(CHECK_READOUT)})
+        folder = _report(name, failure_record(name, code, cls, note, seconds, feedback, trace, console.lines))
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
 

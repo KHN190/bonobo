@@ -1038,6 +1038,7 @@ class Runner(unittest.TestCase):
                     mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
                     mock.patch.object(skillkit, "FIGHT_POLL_S", 0.001), mock.patch.object(arbiter, "BODY", Body()), \
                     mock.patch.object(skillcore, "body_state", lambda *a, **k: {}), \
+                    mock.patch.object(skillkit, "HELD_WAITS", []), mock.patch.object(api, "detail", lambda *a: None), \
                     mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
                 runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=lambda st, c, _l=left: _l,
                                         budget=budget)(fn)
@@ -1047,6 +1048,9 @@ class Runner(unittest.TestCase):
                 else:
                     self.assertEqual(runner(None), want)
                 self.assertEqual(len(calls), runs)
+                # each wait recorded: resumed, or over the budget (must fail: a plain failure records none)
+                waits = [w["resumed"] for w in skillkit.HELD_WAITS]
+                self.assertEqual(waits, [] if answers == "fails" else [want is not api.FightHolds])
 
     def test_budget_end(self):
         """The running call's budget deadline: its start + its budget; none running, no deadline."""
