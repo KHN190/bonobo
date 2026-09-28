@@ -392,6 +392,21 @@ def run_word(word, state=None, inv=None, sheet=None):
 
 
 class Predicates(unittest.TestCase):
+    def test_a_sweep_reads_only_this_runs_rows(self):
+        # must fail: no rows this run, an older run's rows in the shared file — no pass on them
+        import json
+        import tempfile
+        from unittest import mock
+        from bonobo.bench import core
+        path = os.path.join(tempfile.mkdtemp(), "sweep.jsonl")
+        with open(path, "w") as f:
+            f.write(json.dumps({"cell": 1}) + "\n")
+        check = core._sweep_check("w", path, [], 1)
+        with mock.patch.dict(core.SWEEP, {}, clear=True):
+            self.assertFalse(check(None, None))
+        with mock.patch.dict(core.SWEEP, {"w": [{"cell": 1}]}, clear=True):
+            self.assertTrue(check(None, None))
+
     def test_state_and_bag_words(self):
         for why, word, state, inv, sheet, want in PRED_ROWS:
             with self.subTest(why):

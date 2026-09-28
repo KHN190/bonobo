@@ -156,9 +156,11 @@ def _sweep(name, cells, build, record, path, settle=0.5):
     return run
 
 def _sweep_check(name, path, rules, least):
-    """The verdict is what the RULES say about the finished table — never which name won a cell."""
+    """The verdict is what the RULES say about the finished table — never which name won a cell. Only this run's rows
+    (SWEEP[name], cleared at each row's setup): the file `path` is shared by every shard and holds older runs, so a
+    run that wrote no rows fails instead of passing on another run's."""
     def check(_api, _inv):
-        rows = SWEEP.get(name) or _sweep_rows(path)[-least:]
+        rows = SWEEP.get(name) or []
         if len(rows) < least:
             return False
         bad = [m for rule in rules for m in (rule(rows) or [])]

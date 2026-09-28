@@ -701,6 +701,8 @@ def run(name, make_ctx):
             _command(f"tick rate {rate}", feedback)
         perception.PAUSED = True
         _api.clear_requests()      # nothing the last row left pending (a nightfall boundary) stops this one
+        from .core import SWEEP
+        SWEEP.pop(name, None)      # a sweep's check reads only the rows this run writes
         try:
             _setup(name, sc, feedback)
         except SetupInvalid as e:
