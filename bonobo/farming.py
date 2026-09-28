@@ -47,7 +47,7 @@ def breeding_pair(animals, kind, max_gap=8):
 
 def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
-    return [nav.use_on_top(seeds, c) for c in cells]
+    return [nav.use_on_top(seeds, c, top=nav.FARMLAND_TOP) for c in cells]      # seeds go on farmland: 15/16 high
 
 def plot_commands(centre, hoe, region=None):
     """Pure: the plot as one chain — dig the centre, pour water, then till and sow the ring."""
@@ -64,7 +64,7 @@ def plot_commands(centre, hoe, region=None):
         if name(cell) != "farmland":
             out.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
-            out.append(nav.use_on_top("minecraft:wheat_seeds", cell))
+            out.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
     return out
 
 def started_plot(region, here, radius=8):
@@ -89,7 +89,8 @@ def started_plot(region, here, radius=8):
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
 
-    return sorted({(t["x"] - 0.5, t["y"] - 1.0, t["z"] - 0.5) if isinstance(t["x"], float) else (t["x"], t["y"], t["z"])
+    return sorted({(t["x"] - 0.5, float(math.floor(t["y"] - 0.05)), t["z"] - 0.5) if isinstance(t["x"], float)
+                   else (t["x"], t["y"], t["z"])
                    for t, r in zip(tasks, results)
                    if r.get("status") != "succeeded" and "reach" in str(r.get("message", "")).lower()})
 
@@ -200,7 +201,9 @@ def plant_farm(ctx):
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
     tasks = plant_farm_commands(state, ())
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
-    if not nav.arrived(stand, ctx.policy, range_=1.0, attempts=1):
+    # on the stand, not a block off it: the ring's far side is 3 away and a sow aimed there from 4 ran past the
+    # jar's 4.5 reach ("no block under the crosshair")
+    if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
     done = api.run_chain(tasks, stop_on_failure=False)

@@ -9,6 +9,11 @@ from .bag import pickup_whitelist
 from .data import bare
 from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
 
+def game_time():
+    """The game's tick now (/state gameTime): what a look made outside a brain round is stamped with (brain wires
+    it into memory.TICK_READER — memory stays below the skills)."""
+    return api.get("/state").get("gameTime")
+
 def _collect_only(wanted):
     """{"only": [...]} for mine/collect tasks when the bag is nearly full, else {}."""
     only = pickup_whitelist(Inventory().used_slots(), wanted)

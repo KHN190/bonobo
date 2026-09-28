@@ -120,3 +120,36 @@ class ReflexesReadTheRoundsLook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def duplicate_defs(source):
+    """Top-level functions and classes a module defines more than once (the later one silently shadows the first)."""
+    import ast
+    import collections
+    names = collections.Counter(n.name for n in ast.parse(source).body
+                                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)))
+    return sorted(k for k, v in names.items() if v > 1)
+
+
+class OneNameOneDefinition(unittest.TestCase):
+    """No module defines a top-level name twice: skills.make_room (a station spot dug in the world) was shadowed by a
+    second make_room (room in the bag), and every one-argument call became a TypeError."""
+
+    ROWS = [("two different names", "def a(x):\n    pass\ndef b(x):\n    pass\n", []),
+            ("must fail: the same function twice", "def a(x):\n    pass\ndef a(x, y):\n    pass\n", ["a"]),
+            ("must fail: a class and a function of one name", "class a:\n    pass\ndef a():\n    pass\n", ["a"]),
+            ("a nested def of the same name is not top level",
+             "def a():\n    def a():\n        pass\n    return a\n", [])]
+
+    def test_rows(self):
+        for name, source, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(duplicate_defs(source), want)
+
+    def test_the_package(self):
+        import glob
+        import os
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
+        for path in sorted(glob.glob(os.path.join(root, "**", "*.py"), recursive=True)):
+            with self.subTest(os.path.relpath(path, root)), open(path, encoding="utf-8") as f:
+                self.assertEqual(duplicate_defs(f.read()), [])

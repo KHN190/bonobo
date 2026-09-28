@@ -10,7 +10,7 @@ from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, find
 from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
 from .skillcore import feet, close_screen, free_spots_here, place, lost
-from .craft import craft, make_room
+from .craft import craft, make_bag_room, make_room
 
 def openable_container(pos):
     """A chest opens only with no solid block right above it (barrels always open)."""
@@ -77,7 +77,7 @@ def _place_cache_chest(ctx):
     if Inventory().usable("minecraft:chest") == 0:
         # the result needs somewhere to go: drop the two least valuable stacks first
         if Inventory().free_slots() <= 1:
-            make_room(ctx, 2)
+            make_bag_room(ctx, 2)
         if Inventory().usable("planks") < 8:
             if Inventory().usable("log") >= 2:
                 craft(ctx, "planks", 2)

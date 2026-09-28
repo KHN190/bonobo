@@ -18,6 +18,8 @@ from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
 from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare
 from .memory import Memory
+from . import memory as _memory
+_memory.TICK_READER = skillcore.game_time      # a look or note outside a round (bench achieve, CLI) reads the game's tick
 from .planner import Unplannable, runnable
 from .needs import bag_signature
 from .world import Inventory, Snapshot, entities

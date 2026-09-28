@@ -31,10 +31,15 @@ def waypoints(here, target, leg=40):
     return [(round(here[0] + dx * k / n), round(here[1] + (target[1] - here[1]) * k / n), round(here[2] + dz * k / n))
             for k in range(1, n)] + [tuple(target)]
 
-def use_on_top(item, cell):
-    """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour, light a portal)."""
-    return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": cell[1] + 1.0, "z": cell[2] + 0.5,
-            "onBlock": True}
+FARMLAND_TOP = 0.9375      # farmland is 15/16 of a block: its top face is below the cell's top
+
+def use_on_top(item, cell, top=1.0):
+    """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour, light a portal); `top`: that face's
+    height in the cell — aimed inside it, so a block lower than a full cube (farmland) is hit, not the air above."""
+    # under a lower face, aimed well inside it: 0.02 under the farmland's top left the look's own error sailing over
+    # the cell (the jar raycasts along the look, not to the point): "no block under the crosshair" on 7 of 8 sows
+    y = cell[1] + (1.0 if top >= 1.0 else top - 0.15)
+    return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": y, "z": cell[2] + 0.5, "onBlock": True}
 
 def mine_task(c, collect=False, down=False):
     """A mine task; `down`: the block is under the feet on purpose (a dig down) — the jar (≥ 0.1.58) then may stand
@@ -184,6 +189,63 @@ def ashore(state, land, range_=ASHORE_RANGE):
     """Pure: the body stands on `land` (its feet cell), dry — on the ground and out of the water."""
 
     return bool(state.get("onGround")) and not state.get("inWater") and there(state, land, range_)
+
+REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
+EYE_HEIGHT = 1.62      # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
+_OFFS = ((0, 0), (0.3, 0), (-0.3, 0), (0, 0.3), (0, -0.3))      # where the body may settle in its cell
+_FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+
+
+def _ray_hits(region, eye, point, cell, reach, through=()):
+    """Pure: the jar's rayTo — from `eye` toward `point` (0.1 past it), is `cell` the first solid block met, within
+    `reach`? Cells in `through` (broken in the same batch) do not block."""
+    if math.dist(eye, point) > reach:
+        return False
+    d = [point[i] - eye[i] for i in range(3)]
+    n = math.sqrt(sum(v * v for v in d)) or 1.0
+    end = [point[i] + d[i] / n * 0.1 for i in range(3)]
+    d = [end[i] - eye[i] for i in range(3)]
+    c = [math.floor(v) for v in eye]
+    step = [1 if v > 0 else -1 for v in d]
+    t_max, t_delta = [], []
+    for i in range(3):
+        if d[i] == 0:
+            t_max.append(math.inf)
+            t_delta.append(math.inf)
+        else:
+            edge = c[i] + (1 if d[i] > 0 else 0)
+            t_max.append((edge - eye[i]) / d[i])
+            t_delta.append(abs(1 / d[i]))
+    while True:
+        here = tuple(c)
+        if here == tuple(cell):
+            return True
+        if here not in through and region.solid(here):
+            return False
+        i = min(range(3), key=lambda k: t_max[k])
+        if t_max[i] > 1.0:
+            return False
+        c[i] += step[i]
+        t_max[i] += t_delta[i]
+
+
+def holds(region, feet_at, cell, down=False, reach=REACH, through=()):
+    """Pure: the jar's MineTask.holds — can the body standing at `feet_at` break `cell`? Never from the block's own
+    column above it (unless `down`: digging down on purpose), and the block in sight — its centre or a face centre,
+    the first solid thing hit — from the eye at the cell's centre and 0.3 off it each way, within the reach less
+    0.5. Distance alone was not it: a pit 2 down is 'within 4.5' of an ore at its rim it cannot see."""
+    fx, fy, fz = feet_at
+    cx, cy, cz = cell
+    if not down and (fx, fz) == (cx, cz) and fy > cy:
+        return False
+    centre = (cx + 0.5, cy + 0.5, cz + 0.5)
+    points = [centre] + [(centre[0] + d[0] * 0.45, centre[1] + d[1] * 0.45, centre[2] + d[2] * 0.45) for d in _FACES]
+    for ox, oz in _OFFS:
+        eye = (fx + 0.5 + ox, fy + EYE_HEIGHT, fz + 0.5 + oz)
+        if not any(_ray_hits(region, eye, p, cell, reach - 0.5, through) for p in points):
+            return False
+    return True
+
 
 CLIMB_REACH = 2.0      # horizontal blocks from the bank's cell within which a swimmer presses into it
 CLIMB_TICKS = 40

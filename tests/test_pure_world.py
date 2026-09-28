@@ -830,6 +830,28 @@ class Frontier(unittest.TestCase):
         for name, kind, age, want in rows:
             with self.subTest(name):
                 self.assertEqual(memory.covered(row, [kind], age), want)
+        # (situation, the look's stamp, the tick now) → covered: an unstamped look is no answer; a stamped one expires
+        for name, stamp, tick, want in [("must fail: a look with no game time is refused", None, 5000, False),
+                                        ("a clocked look, just now: covered", 5000, 5000, True),
+                                        ("the same look past its TTL: expired", 5000, 5000 + memory.absent_ttl(self.S) + 1,
+                                         False),
+                                        ("must fail: never looked for", "absent", 5000, False)]:
+            with self.subTest(name):
+                looked = {} if stamp == "absent" else {"sheep": stamp}
+                self.assertEqual(memory.covered({"t": 0, "kinds": {}, "looked": looked}, [self.S], tick), want)
+
+    def test_a_look_outside_a_round_reads_the_game_time(self):
+        """No brain round set the clock (the bench's achieve, the CLI): see_sections stamps the tick read now."""
+        from bonobo import memory
+        m = self.mem()
+        m.clock = None
+        for name, reader, want in [("the game answers: its tick", lambda: 7777, 7777),
+                                   ("must fail: no game to ask: unstamped", None, None)]:
+            with self.subTest(name), mock.patch.object(memory, "TICK_READER", reader):
+                sec = memory.section_of(self.HERE)
+                m.see_sections("minecraft:overworld", memory.section_centre(sec), 0, {}, [self.S])
+                row = m.section_map("minecraft:overworld")[sec]
+                self.assertEqual(row["looked"]["sheep"], want)
 
     def test_resume_and_shared(self):
         # A search interrupted after one look resumes elsewhere; another task's look counts for the same kind.

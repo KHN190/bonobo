@@ -43,7 +43,7 @@ def covered(row, kinds, tick):
             continue
         t = looked.get(k)
         if t is None:
-            return False
+            return False        # never looked, or a look with no game time: not an answer that can expire
         if tick is not None and tick - t > absent_ttl(k):
             return False
     return True
@@ -78,7 +78,25 @@ def section_centre(section):
 
 SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, farthest go first)
 
+TICK_READ_S = 1.0       # a tick read outside a round serves this long (a burst of stamps and judgements)
+TICK_READER = None      # fn() → the game's tick now (skillcore wires /state gameTime): a look outside a round reads it
+
 class Memory:
+    def tick(self):
+        """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
+        no brain round (the bench's achieve, the CLI) — the game's tick read now (else None: nothing to read)."""
+        if self.clock is not None or TICK_READER is None:
+            return self.clock
+        cached = getattr(self, "_tick_read", None)
+        if cached is not None and time.time() - cached[0] < TICK_READ_S:
+            return cached[1]                 # one read serves a burst (seen() judges every note)
+        try:
+            value = TICK_READER()
+        except Exception:        # no game to ask (an offline test): unstamped, as before
+            value = None
+        self._tick_read = (time.time(), value)
+        return value
+
     def __init__(self, path=NOTES_FILE):
         self.path = path
         try:
@@ -370,15 +388,16 @@ class Memory:
         """Sections within `radius` of `pos` were looked over now for `looked`; each `found` kind marks its own section."""
 
         smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
+        now = self.tick()
         asked = {bare(k) for k in looked} | {bare(k) for k in found}
         for c in sections_within(pos, radius):
-            row = smap.setdefault(",".join(map(str, c)), {"t": self.clock, "kinds": {}, "looked": {}})
-            row["t"] = self.clock
-            row.setdefault("looked", {}).update({k: self.clock for k in asked})
+            row = smap.setdefault(",".join(map(str, c)), {"t": now, "kinds": {}, "looked": {}})
+            row["t"] = now
+            row.setdefault("looked", {}).update({k: now for k in asked})
         for kind, spots in found.items():
             for p in spots:
                 key = ",".join(map(str, section_of(p)))
-                smap.setdefault(key, {"t": self.clock, "kinds": {}, "looked": {}})["kinds"][bare(kind)] = self.clock
+                smap.setdefault(key, {"t": now, "kinds": {}, "looked": {}})["kinds"][bare(kind)] = now
         if len(smap) > SECTION_CAP:
             here = section_of(pos)
             by = sorted(smap, key=lambda k: ((smap[k]["t"] or 0), -math.dist(here, tuple(map(int, k.split(","))))))
@@ -391,12 +410,12 @@ class Memory:
         skips = {tuple(map(int, k.split(","))): t
                  for k, t in self.data.get("out_of_look", {}).get(dimension, {}).items()}
         return [(s, section_centre(s))
-                for s in frontier(self.section_map(dimension), here, kinds, self.clock, band, skips=skips)]
+                for s in frontier(self.section_map(dimension), here, kinds, self.tick(), band, skips=skips)]
 
     def skip_section(self, dimension, section):
         """`section` is out of look range from any reachable stand (a band far under the ground we stand on): the
         search skips it until its absence TTL runs out. Not a look: nothing is recorded as seen or looked over."""
-        self.data.setdefault("out_of_look", {}).setdefault(dimension, {})[",".join(map(str, section))] = self.clock
+        self.data.setdefault("out_of_look", {}).setdefault(dimension, {})[",".join(map(str, section))] = self.tick()
 
     def section_map(self, dimension):
         """{(cx, cy, cz): {"t", "kinds"}} of this dimension (`frontier` reads it)."""
@@ -418,9 +437,9 @@ class Memory:
         for row in self.data["seen"]:
             if row["kind"] == kind and row["dimension"] == dimension \
                     and math.dist(row["pos"], pos) <= max(rule["merge"], 0.5):
-                row.update(t=self.clock, verify=verify)
+                row.update(t=self.tick(), verify=verify)
                 return row
-        row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.clock, "verify": verify}
+        row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.tick(), "verify": verify}
         if cls != seen_class(kind):
             row["cls"] = cls
         self.data["seen"].append(row)
@@ -432,9 +451,10 @@ class Memory:
         if rule is None:
             return False
         limit = min(x for x in (rule["ttl"], within, float("inf")) if x is not None)
-        if limit == float("inf") or row.get("t") is None or self.clock is None:
+        now = self.tick() if limit != float("inf") and row.get("t") is not None else None
+        if now is None:
             return True
-        return self.clock - row["t"] <= limit
+        return now - row["t"] <= limit
 
     def note_seen(self, kind, pos, dimension):
         """One of `kind` is at `pos` (a block or mob name, or an alias: "tree", "herd")."""
@@ -500,7 +520,7 @@ class Memory:
                 items[s["id"]] = items.get(s["id"], 0) + int(s.get("count", 1))
         key = ",".join(str(int(c)) for c in pos)
         self.data.setdefault("containers", {})[key] = {"pos": [int(c) for c in pos], "dimension": dimension,
-                                                      "items": items, "t": self.clock}
+                                                      "items": items, "t": self.tick()}
         self.save()
 
     def forget_container(self, pos):
