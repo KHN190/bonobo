@@ -186,9 +186,18 @@ def ghast_health(lines):
     return fight.data_health(lines)
 
 def ghast_readout(watch):
-    """Pure: the ghast watch as the report reads it — seen, its last Health, fireballs seen, our start and worst hp."""
+    """Pure: the ghast watch as the report reads it — seen, its last Health, fireballs seen, our start and worst hp,
+    and each read of the ghast (ghast_read): why it fired or not."""
     return {"seen": watch.get("seen"), "ghast_hp": watch.get("hp"), "fireballs": len(watch.get("fireballs") or ()),
-            "start_hp": watch.get("start"), "worst_hp": watch.get("worst")}
+            "start_hp": watch.get("start"), "worst_hp": watch.get("worst"), "reads": list(watch.get("reads") or ())}
+
+def ghast_read(ghast, body, t):
+    """Pure: one read of the ghast (a read_combat view) against the body's /state: its height off ours (vanilla
+    targets within GHAST_TARGET_DY), its distance, and whether it is shooting (busy); None when no ghast."""
+    if ghast is None:
+        return None
+    return {"t": round(t, 1), "dy": round(ghast["y"] - body["y"], 2), "dist": round(ghast["distance"], 1),
+            "shooting": bool(ghast.get("busy"))}
 
 def ghast_was_answered(seen, ghast_hp, fireballs, start_hp, worst_hp):
     """Pure: the ghast was answered — it was there and is now hurt or dead, or it fired and nothing hit us."""
@@ -207,14 +216,20 @@ def _ghast_watch(seconds=20):
     fired has resolved (hit, missed or struck back), at most `seconds` — never a fixed wait past the budget."""
     def run(ctx):
         from .. import api
+        from ..perception import read_combat
         from ..world import entities
         t0 = time.time()
         hp0 = float(api.get("/state")["health"])
         GHAST.clear()
-        GHAST.update(fireballs=set(), start=hp0, worst=hp0, seen=False, hp=None)
+        GHAST.update(fireballs=set(), start=hp0, worst=hp0, seen=False, hp=None, reads=[])
         while time.time() - t0 < seconds:
             core.BRAIN.invariants()
-            GHAST["worst"] = min(GHAST["worst"], float(api.get("/state")["health"]))
+            body = api.get("/state")
+            GHAST["worst"] = min(GHAST["worst"], float(body["health"]))
+            ghast = next(iter(read_combat(entities(64, ["minecraft:ghast"]))), None)
+            read = ghast_read(ghast, body, time.time() - t0)
+            if read is not None:
+                GHAST["reads"].append(read)
             flying = {e.get("id") for e in entities(64, ["minecraft:fireball"])}
             resolved = bool(GHAST["fireballs"]) and not flying
             GHAST["fireballs"] |= flying

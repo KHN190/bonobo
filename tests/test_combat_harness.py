@@ -177,16 +177,33 @@ class RunWordsResume(unittest.TestCase):
 class GhastReadout(unittest.TestCase):
     def test_rows(self):
         from bonobo.bench import vocab
-        rows = [("a fireball seen, unhit", {"seen": True, "hp": 10.0, "fireballs": {1}, "start": 20.0, "worst": 20.0},
-                 {"seen": True, "ghast_hp": 10.0, "fireballs": 1, "start_hp": 20.0, "worst_hp": 20.0}),
+        read = {"t": 1.0, "dy": 3.0, "dist": 16.3, "shooting": True}
+        rows = [("a fireball seen, unhit", {"seen": True, "hp": 10.0, "fireballs": {1}, "start": 20.0, "worst": 20.0,
+                                            "reads": [read]},
+                 {"seen": True, "ghast_hp": 10.0, "fireballs": 1, "start_hp": 20.0, "worst_hp": 20.0,
+                  "reads": [read]}),
                 ("must fail: no ghast read", {"seen": False, "hp": None, "fireballs": set(), "start": 20.0,
                                               "worst": 20.0},
-                 {"seen": False, "ghast_hp": None, "fireballs": 0, "start_hp": 20.0, "worst_hp": 20.0}),
+                 {"seen": False, "ghast_hp": None, "fireballs": 0, "start_hp": 20.0, "worst_hp": 20.0, "reads": []}),
                 ("nothing watched", {}, {"seen": None, "ghast_hp": None, "fireballs": 0, "start_hp": None,
-                                         "worst_hp": None})]
+                                         "worst_hp": None, "reads": []})]
         for name, watch, want in rows:
             with self.subTest(name):
                 self.assertEqual(vocab.ghast_readout(watch), want)
+
+    def test_one_read(self):
+        from bonobo.bench import vocab
+        body = {"y": 200.0}
+        up = vocab.GHAST_TARGET_DY - 1.0
+        # (situation, the ghast's read_combat view, t) → the read
+        rows = [("in its target band, charging", {"y": body["y"] + up, "distance": vocab.GHAST_OFF, "busy": True}, 1.0,
+                 {"t": 1.0, "dy": up, "dist": vocab.GHAST_OFF, "shooting": True}),
+                ("drifted over the band, idle", {"y": body["y"] + vocab.GHAST_TARGET_DY + 1, "distance": 20.0}, 2.0,
+                 {"t": 2.0, "dy": vocab.GHAST_TARGET_DY + 1, "dist": 20.0, "shooting": False}),
+                ("must fail: no ghast, no read", None, 3.0, None)]
+        for name, ghast, t, want in rows:
+            with self.subTest(name):
+                self.assertEqual(vocab.ghast_read(ghast, body, t), want)
 
 
 class BehaviourParts(unittest.TestCase):
