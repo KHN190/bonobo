@@ -1,6 +1,7 @@
 """Gathering: mining a vein, strip mining a tunnel, hunting, taking a block."""
 
 import math
+import re
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import knowledge as K
 from . import api, beliefs, nav
@@ -77,6 +78,56 @@ def spent_cells(sent, name_at, blocks):
     return sorted(c for c in sent if bare(name_at(c) or "air") not in kinds)
 
 
+def deep_below(cell, feet_at):
+    """Pure: `cell` lies more than 2 below the feet: a staircase down, not a walk."""
+    return cell[1] < feet_at[1] - 2
+
+def stair_leg_end(start, target):
+    """Pure: where one staircase segment from `start` toward `target` ends (nav.stair_dir, nav.STAIR_STEPS down)."""
+    d = nav.stair_dir(start, target)
+    return (start[0] + d[0] * nav.STAIR_STEPS, start[1] - nav.STAIR_STEPS, start[2] + d[1] * nav.STAIR_STEPS)
+
+def reach_cells(vein, at):
+    """Pure: the vein cells within nav.REACH of the stand at `at`, nearest first."""
+    return sorted((p for p in vein if math.dist(p, at) <= nav.REACH), key=lambda p: math.dist(p, at))
+
+def sight_box(at):
+    """Pure: the corners of the read nav.holds needs around the stand at `at`."""
+    x0, y0, z0 = at
+    return (x0 - 5, y0 - 4, z0 - 5), (x0 + 5, y0 + 6, z0 + 5)
+
+def held_cells(sight, at, cells, vein):
+    """Pure: the cells the jar can break from `at` (nav.holds: sight, not distance), the vein's other cells not in the way."""
+    return {p for p in cells if nav.holds(sight, at, p, through=set(vein))}
+
+def open_faced_cells(cells, at, region, exposed, held):
+    """Pure: the cells sent to the jar: mineable from `at`, exposed when /find says which, and held."""
+    return [p for p in mineable(cells, at, region, nav.SAFE_DROP) if (exposed is None or p in exposed) and p in held]
+
+def opener_pairs(region, cells, at, protected, forced=False):
+    """Pure: (cell, the block to break first so the jar sees it: bag.opener) for each cell needing one, never a protected block."""
+    return [(c, op) for c in cells if (op := opener(region, c, at, nav.SAFE_DROP, forced=forced)) is not None
+            and op not in protected]
+
+def seal_or_wet(region, cells, inv):
+    """Pure: (seal_plan's tasks, set(), None); with nothing to seal with, ([], the cells with a fluid face, the reason)."""
+    try:
+        return seal_plan(region, sorted(cells), inv), set(), None
+    except NotAvailable as e:
+        return [], {c for c in cells if fluid_faces(region, c, cells)}, e
+
+def stand_refused(cells, opened, why):
+    """Pure: the refused cells the jar could hold no stand for ("cannot hold a stand spot"), not opened before."""
+    return [c for c in cells if c not in opened and "cannot hold a stand spot" in why]
+
+def partial_refusal(message):
+    """Pure: the cells a partly failed batch ("k of n steps failed", k < n) names unreachable; None when not partial."""
+    part = re.search(r"(\d+) of (\d+) steps failed", message or "")
+    if part and int(part.group(1)) < int(part.group(2)):
+        return cannot_reach(message)
+    return None
+
+
 @skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
        start=lambda c: Inventory().count(c.args[1]),
        done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
@@ -134,12 +185,10 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # which blocks have an open face is the world's answer (/find exposed), not a second model here
         seed = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
         region = region_around([start, seed], pad=nav.SAFE_DROP + 2)   # deep enough to see a drop (bag.floored)
-        if region is None and seed[1] < start[1] - 2 and ctx.policy.allow_dig:
+        if region is None and deep_below(seed, start) and ctx.policy.allow_dig:
             # too far to read at once and far below: the ground a staircase segment crosses is read, and the segment
             # dug — the seed read again from the foot of it (no blind shaft)
-            d = nav.stair_dir(start, seed)
-            leg_end = (start[0] + d[0] * nav.STAIR_STEPS, start[1] - nav.STAIR_STEPS, start[2] + d[1] * nav.STAIR_STEPS)
-            leg = region_around([start, leg_end], pad=2)
+            leg = region_around([start, stair_leg_end(start, seed)], pad=2)
             stairs = nav.stair_down_tasks(leg, start, seed, ctx.policy.protected) if leg is not None else []
             if stairs:
                 api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}: a staircase segment down")
@@ -169,7 +218,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = min(vein, key=lambda p: math.dist(p, start))
-        if near[1] < start[1] - 2 and ctx.policy.allow_dig:
+        if deep_below(near, start) and ctx.policy.allow_dig:
             # far below: a staircase the body can walk back up, never travel's 1-wide shaft (brain__base: 9 deep,
             # no way out and no sight of the ore 2 blocks off)
             stairs = nav.stair_down_tasks(region, start, near, ctx.policy.protected)
@@ -186,21 +235,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         # only blocks within reach of where travel left us, a dozen at a time
         here_now = feet()
-
-        def workable(at):
-            """The vein cells within reach of the stand at `at`, nearest first: the ones to work from here — sent
-            to the jar when it can hold them (`holdable`), else opened / walked beside by the buried path below."""
-            return sorted((p for p in vein if math.dist(p, at) <= nav.REACH), key=lambda p: math.dist(p, at))
-
-        def holdable(at, cells):
-            """The jar's own rule (nav.holds: sight, not distance — a pit 2 down cannot see an ore at its rim,
-            search_night_resume 09:46:50 NO_STAND ×3; a buried ore has no face to see), the vein's other cells not in
-            the way (they break in the same batch). Distance alone as the reach dropped buried ore before the opener
-            (a2d37ae: the diamond rows never sent theirs)."""
-            x0, y0, z0 = at
-            sight = Region((x0 - 5, y0 - 4, z0 - 5), (x0 + 5, y0 + 6, z0 + 5))
-            return {p for p in cells if nav.holds(sight, at, p, through=set(vein))}
-        in_reach = workable(here_now)
+        in_reach = reach_cells(vein, here_now)
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
             if not nav.arrived(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
@@ -210,7 +245,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {near_cell}: no way there and no tunnel")
                 continue
             here_now = feet()
-            in_reach = workable(here_now)
+            in_reach = reach_cells(vein, here_now)
             if not in_reach and not nav.way_to(ctx, vein):
                 for p in vein:
                     ctx.ban(p)
@@ -218,9 +253,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
         # distance is not reachability: only open-faced blocks go to mine_many; travel digs a way to the nearest buried one
-        held = holdable(here_now, in_reach)
-        open_faced = [p for p in mineable(in_reach, here_now, region, nav.SAFE_DROP)
-                      if (exposed_cells is None or p in exposed_cells) and p in held]
+        held = held_cells(Region(*sight_box(here_now)), here_now, in_reach, vein)
+        open_faced = open_faced_cells(in_reach, here_now, region, exposed_cells, held)
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
@@ -231,23 +265,19 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         vein = set(open_faced[:MINE_BATCH])
         if not ctx.policy.lava_ok:
             # seal every fluid face of what is about to break (seal_plan); with nothing to seal with, ban those cells (unless the goal wants the fluid)
-            try:
-                seal = seal_plan(region, sorted(vein), Inventory())
-            except NotAvailable as e:
-                wet = {c for c in vein if fluid_faces(region, c, vein)}
+            seal, wet, e = seal_or_wet(region, vein, Inventory())
+            if e is not None:
                 log(f"   {len(wet)} {blocks[0]} cells not mined: {e}")
                 for p in wet:
                     ctx.ban(p)
                 vein -= wet
                 if not vein:
                     continue
-                seal = []
             if seal:
                 api.run_chain(seal, stop_on_failure=True, wait=60)
         # a cell open only into pockets no body can stand in: the jar's mine never digs for a line of sight, so the
         # block on the body's side goes first (bag.opener; down-flagged when it lies below the feet)
-        openers = sorted({op for c in vein if (op := opener(region, c, here_now, nav.SAFE_DROP)) is not None
-                          and op not in ctx.policy.protected})
+        openers = sorted({op for _c, op in opener_pairs(region, vein, here_now, ctx.policy.protected)})
         if openers:
             api.run_chain([nav.mine_task(op, down=op[1] < here_now[1]) for op in openers], stop_on_failure=True, wait=60)
         before = Inventory().count(drop)
@@ -262,9 +292,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             # "cannot hold a stand spot": the jar found no spot that keeps the cell in sight (a top face seen only
             # from a pit's rim, search_night_resume 09:17:19) — open a side face once, then ask again; a ban only
             # when the opened cell is refused too
-            held = [c for c in (out.cells or ()) if c not in opened and "cannot hold a stand spot" in str(out)]
-            sides = [(c, op) for c in held if (op := opener(region, c, feet(), nav.SAFE_DROP, forced=True)) is not None
-                     and op not in ctx.policy.protected]
+            held = stand_refused(out.cells or (), opened, str(out))
+            sides = opener_pairs(region, held, feet(), ctx.policy.protected, forced=True)
             if sides:
                 opened.update(c for c, _op in sides)
                 api.run_chain([nav.mine_task(op, down=op[1] < feet()[1]) for _c, op in sides], stop_on_failure=True,
@@ -292,10 +321,8 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if MINE_YIELD.get(mid(drop), 1) < 1 and "failed" not in r["message"]:
                 continue   # a chance drop (grass → seeds ~1 in 8): an empty break is expected, keep breaking
             # partial success is progress: some blocks broke, keep the batch (banning all over one block stalled the kit)
-            import re as _re
-            part = _re.search(r"(\d+) of (\d+) steps failed", r.get("message") or "")
-            if part and int(part.group(1)) < int(part.group(2)):
-                bad = cannot_reach(r.get("message"))
+            bad = partial_refusal(r.get("message"))
+            if bad is not None:
                 # "no path" to a block inside rock: dig one face open and it is ordinary
                 again, _ = refused(bad, tried, "approach_dig" in nav.mod_features())
                 tried |= bad
@@ -318,8 +345,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 if broken:
                     dug_out = True
                     here = feet()
-                    ops = sorted({op for c in broken if (op := opener(now, c, here, nav.SAFE_DROP, forced=True))
-                                  is not None and op not in ctx.policy.protected})
+                    ops = sorted({op for _c, op in opener_pairs(now, broken, here, ctx.policy.protected, forced=True)})
                     api.detail(f"  mine {bare(drop)}: {len(broken)} broken, nothing in the bag: dig-out {ops}, then a sweep")
                     api.run_chain([nav.mine_task(op, down=op[1] < here[1]) for op in ops]
                                   + [{"type": "collect", "radius": 6}], wait=60)

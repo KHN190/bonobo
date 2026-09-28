@@ -488,6 +488,161 @@ class MineSegmentCommands(unittest.TestCase):
         self.assertNotIn("minecraft:dirt", only)
 
 
+class DeepBelow(unittest.TestCase):
+    TABLE = [
+        ("four below: a staircase", ((0, 60, 0), (0, 64, 0)), True),
+        ("boundary: three below", ((0, 61, 0), (0, 64, 0)), True),
+        ("must fail: two below is a walk", ((0, 62, 0), (0, 64, 0)), False),
+        ("must fail: above the feet", ((0, 66, 0), (0, 64, 0)), False),
+    ]
+
+    def test_table(self):
+        run_table(self, gather.deep_below, self.TABLE)
+
+
+class StairLegEnd(unittest.TestCase):
+    TABLE = [
+        ("along x, the longer axis", ((0, 64, 0), (10, 50, 2)), (8, 56, 0)),
+        ("along -z, the longer axis", ((0, 64, 0), (1, 50, -9)), (0, 56, -8)),
+        ("boundary: straight below steps along +x", ((0, 64, 0), (0, 40, 0)), (8, 56, 0)),
+        ("boundary: a tie goes along x", ((0, 64, 0), (-3, 40, 3)), (-8, 56, 0)),
+        ("must fail: a target without its z", ((0, 64, 0), (3, 40)), IndexError),
+    ]
+
+    def test_table(self):
+        run_table(self, gather.stair_leg_end, self.TABLE)
+
+
+class ReachCells(unittest.TestCase):
+    TABLE = [
+        ("within reach, nearest first", ({(3, 64, 0), (1, 64, 0), (5, 64, 0)}, (0, 64, 0)), [(1, 64, 0), (3, 64, 0)]),
+        ("boundary: 4.47 off is in reach", ({(4, 64, 2)}, (0, 64, 0)), [(4, 64, 2)]),
+        ("must fail: 5 off is out of reach", ({(4, 64, 3)}, (0, 64, 0)), []),
+        ("must fail: no vein", (set(), (0, 64, 0)), []),
+    ]
+
+    def test_table(self):
+        run_table(self, gather.reach_cells, self.TABLE)
+
+
+class SightBox(unittest.TestCase):
+    TABLE = [
+        ("around the origin", ((0, 64, 0),), ((-5, 60, -5), (5, 70, 5))),
+        ("around a far stand", ((100, 12, -40),), ((95, 8, -45), (105, 18, -35))),
+        ("boundary: below zero", ((0, -60, 0),), ((-5, -64, -5), (5, -54, 5))),
+        ("must fail: a stand without its z", ((0, 64),), ValueError),
+    ]
+
+    def test_table(self):
+        run_table(self, gather.sight_box, self.TABLE)
+
+
+def _ores(*cells):
+    from tests.world import flat
+    ground = flat()
+    return FakeRegion(ground.lo, ground.hi, {**ground.blocks, **{c: "iron_ore" for c in cells}})
+
+
+class HeldCells(unittest.TestCase):
+    """gather.held_cells: what the jar can break from the stand (nav.holds), the vein's own cells not in the way."""
+
+    def test_table(self):
+        wall = [(2, 64, 0), (3, 64, 0), (2, 65, 0), (3, 65, 0)]
+        rows = [("an ore on the floor in sight", _ores((2, 64, 0)), [(2, 64, 0)], {(2, 64, 0)}, {(2, 64, 0)}),
+                ("behind the vein's own cells: they break first", _ores(*wall), [(3, 64, 0)], set(wall), {(3, 64, 0)}),
+                ("must fail: behind ore that is not the vein's", _ores(*wall), [(3, 64, 0)], {(3, 64, 0)}, set()),
+                ("must fail: buried under the floor", _ores((2, 62, 0)), [(2, 62, 0)], {(2, 62, 0)}, set()),
+                ("must fail: the block under the feet", _ores((0, 63, 0)), [(0, 63, 0)], {(0, 63, 0)}, set()),
+                ("must fail: out of reach", _ores((6, 64, 0)), [(6, 64, 0)], {(6, 64, 0)}, set())]
+        for why, region, cells, vein, want in rows:
+            with self.subTest(why):
+                self.assertEqual(gather.held_cells(region, (0, 64, 0), cells, vein), want)
+
+
+class OpenFacedCells(unittest.TestCase):
+    def test_table(self):
+        two = [(1, 64, 0), (2, 64, 0)]
+        region = _ores(*two)
+        rows = [("mineable and held, no exposure read", two, None, set(two), two),
+                ("only what /find says is exposed", two, {(1, 64, 0)}, set(two), [(1, 64, 0)]),
+                ("must fail: nothing held", two, None, set(), []),
+                ("must fail: the floor under the feet", [(0, 63, 0)], None, {(0, 63, 0)}, [])]
+        for why, cells, exposed, held, want in rows:
+            with self.subTest(why):
+                self.assertEqual(gather.open_faced_cells(cells, (0, 64, 0), region, exposed, held), want)
+
+
+class OpenerPairs(unittest.TestCase):
+    def test_table(self):
+        rows = [("buried: the side face nearest the eye first", _ores((2, 62, 0)), (), False,
+                 [((2, 62, 0), (1, 62, 0))]),
+                ("must fail: that face is protected", _ores((2, 62, 0)), {(1, 62, 0)}, False, []),
+                ("must fail: an open-faced cell needs none", _ores((2, 64, 0)), (), False, []),
+                ("must fail: no region read", None, (), True, [])]
+        for why, region, protected, forced, want in rows:
+            with self.subTest(why):
+                cells = [(2, 62, 0)] if region is None else [c for c in region.blocks if region.name(c) == "iron_ore"]
+                self.assertEqual(gather.opener_pairs(region, cells, (0, 64, 0), protected, forced=forced), want)
+
+
+class SealOrWet(unittest.TestCase):
+    """gather.seal_or_wet: seal_plan's blocks, or with nothing to seal with the wet cells and why."""
+
+    def test_table(self):
+        from tests.world import bag, inventory
+        lo, hi = (-3, 60, -3), (3, 68, 3)
+        stone = {(x, y, z): "stone" for x in range(-3, 4) for y in range(60, 69) for z in range(-3, 4)}
+        a, b = (0, 64, 0), (2, 64, 0)
+        cobble, none = inventory(("cobblestone", 8)), inventory()
+        rows = [("lava below, cobblestone: sealed", {(0, 63, 0): "lava"}, cobble, ([(0, 63, 0)], set(), None)),
+                ("dry: nothing to seal", {}, none, ([], set(), None)),
+                ("must fail: lava below, nothing to seal with", {(0, 63, 0): "lava"}, none, ([], {a}, NotAvailable)),
+                ("must fail: only the wet cell is dropped", {(2, 63, 0): "water"}, none, ([], {b}, NotAvailable))]
+        for why, fluid, inv, want in rows:
+            with self.subTest(why):
+                region = FakeRegion(lo, hi, {**stone, a: "iron_ore", b: "iron_ore", **fluid})
+                seal, wet, e = gather.seal_or_wet(region, {a, b}, bag(inv))
+                self.assertEqual(([(t["x"], t["y"], t["z"]) for t in seal], wet, e and type(e)), want)
+
+
+class StandRefused(unittest.TestCase):
+    TABLE = [
+        ("no stand held: every cell not opened yet", ([(1, 2, 3), (4, 5, 6)], set(), "cannot hold a stand spot"),
+         [(1, 2, 3), (4, 5, 6)]),
+        ("boundary: a cell opened once is not opened again", ([(1, 2, 3), (4, 5, 6)], {(1, 2, 3)},
+                                                              "x: cannot hold a stand spot for 2"), [(4, 5, 6)]),
+        ("must fail: another refusal", ([(1, 2, 3)], set(), "cannot reach 1, 2, 3"), []),
+        ("must fail: no cells named", ([], set(), "cannot hold a stand spot"), []),
+    ]
+
+    def test_table(self):
+        run_table(self, gather.stand_refused, self.TABLE)
+
+
+class PartialRefusal(unittest.TestCase):
+    TABLE = [
+        ("one of three failed: the cell it names", ("1 of 3 steps failed: cannot reach 1, 2, -3",), {(1, 2, -3)}),
+        ("boundary: partial, no cell named", ("2 of 3 steps failed",), set()),
+        ("must fail: every step failed is not partial", ("3 of 3 steps failed: cannot reach 1, 2, 3",), None),
+        ("must fail: no message", (None,), None),
+    ]
+
+    def test_table(self):
+        run_table(self, gather.partial_refusal, self.TABLE)
+
+
+class ReachBudget(unittest.TestCase):
+    TABLE = [
+        ("none spent", (0, ["iron_ore"]), None),
+        ("boundary: one short of the budget", (2, ["iron_ore"]), None),
+        ("must fail: the budget spent", (3, ["iron_ore"], "no way"), api.NavFailed),
+        ("must fail: over the budget", (5, ["iron_ore"]), api.NavFailed),
+    ]
+
+    def test_table(self):
+        run_table(self, gather._reach_budget, self.TABLE)
+
+
 class DarkHere(unittest.TestCase):
     TABLE = [
         ("no light at all, midday underground", (state(blockLight=0, skyLight=0, timeOfDay=6000),), True),
