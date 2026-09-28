@@ -832,6 +832,10 @@ def provoked(ends, now):
     """Pure: the endermen still angry — an anger_end_time past `now`."""
     return [e for e in ends if now is None or e > now]
 
+
+ENDERMEN: dict = {}     # the last calm check's reading: anger ends, the time, places (a failed row's readout)
+_lifecycle.in_place(__name__, "ENDERMEN")
+
 def positions(lines):
     """Pure: [x, y, z] per '/data get entity @s Pos' reply ('… entity data: [1.5d, 64.0d, 2.5d]')."""
     out = []
