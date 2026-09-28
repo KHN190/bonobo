@@ -88,8 +88,10 @@ class Planner:
         self.steps = []
 
     @classmethod
-    def from_inventory(cls, inv, cost, extra=None):
-        """`extra`: items on their way (e.g. smelting) that count as held but not usable yet, so nothing is mined twice."""
+    def from_inventory(cls, inv, cost, extra=None, pending=None):
+        """`extra`: items counted as held beyond the bag (a planned source's output, a running job's output), so
+        nothing is made twice. `pending`: of `extra`, what a running job is still making (a sown crop, a furnace) — a
+        step that takes from it awaits it first; a planned source's output (dirt the plan will dig) never does."""
 
         counts = Counter()
         for item, n in (extra or {}).items():
@@ -104,7 +106,7 @@ class Planner:
             if s.get("count"):
                 counts[s["id"]] += 1
         tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)] if hasattr(inv, "tools") else []
-        return cls(counts, tools, cost, {mid(k): v for k, v in (extra or {}).items()})
+        return cls(counts, tools, cost, {mid(k): v for k, v in (pending or {}).items()})
 
     # -- public
     def plan(self, needs):

@@ -563,14 +563,31 @@ class AwaitWhatIsOnItsWay(unittest.TestCase):
             ("must fail: all carried: no await", [("crafting_table", 1), ("wheat", 3)], {"minecraft:wheat": 9},
              [("craft", "minecraft:bread", 1)]),
             ("must fail: nothing on its way: no await step", [("crafting_table", 1), ("wheat", 3)], {},
-             [("craft", "minecraft:bread", 1)])]
+             [("craft", "minecraft:bread", 1)]),
+            ("must fail: a planned source's output (the cobblestone a mine brings) is no job: no await", [], None, None)]
 
     def test_rows(self):
         for name, carried, pending, want in self.ROWS:
             with self.subTest(name):
+                if pending is None:           # the planned-source row: counted as held, not a job's output
+                    from bonobo.planner import Planner
+                    snap = snapshot(inv=inventory(("crafting_table", 1)))
+                    steps = Planner.from_inventory(snap.inv, cost(snap), {"minecraft:cobblestone": 8}).plan(
+                        [("minecraft:furnace", 1)])          # the 8 cobblestone a planned mine brings, used by a craft
+                    self.assertEqual([s.kind for s in steps], ["craft"])
+                    continue
                 snap = snapshot(inv=inventory(*carried))
                 steps = decompose.decompose(snap.inv, goals.have(("minecraft:bread", 1)), cost(snap), pending=pending)
                 self.assertEqual([(s.kind, s.token, s.count) for s in steps], want)
+
+    def test_a_furnace_job_awaited_before_its_consumer(self):
+        """A furnace's ingots on their way: the plan's other steps first, the await right before the craft."""
+        from bonobo.planner import Planner
+        snap = snapshot(inv=inventory(("crafting_table", 1), ("stick", 2)))
+        steps = Planner.from_inventory(snap.inv, cost(snap), {"minecraft:iron_ingot": 3},
+                                       {"minecraft:iron_ingot": 3}).plan([("minecraft:iron_pickaxe", 1)])
+        kinds = [(s.kind, s.token) for s in steps]
+        self.assertEqual(kinds[-2:], [("await", "minecraft:iron_ingot"), ("craft", "minecraft:iron_pickaxe")])
 
 
 class CostModel(unittest.TestCase):

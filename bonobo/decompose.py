@@ -16,12 +16,12 @@ def register(name, fn):
     if name not in ORDER:
         ORDER.append(name)
 
-def _planner(inv, needs, cost, pending=None):
-    return Planner.from_inventory(inv, cost, pending).plan(needs)
+def _planner(inv, needs, cost, pending=None, jobs=None):
+    return Planner.from_inventory(inv, cost, pending, jobs).plan(needs)
 
 register("planner", _planner)
 
-def _solve(inv, needs, cost, pending=None):
+def _solve(inv, needs, cost, pending=None, jobs=None):
     """The column solver: slower, sees further — where to go, what to take ready-made, which half-done work to finish."""
 
     from . import actions as act
@@ -40,8 +40,9 @@ def _solve(inv, needs, cost, pending=None):
 
 register("solve", _solve)
 
-def solve_needs(inv, needs, cost, solver=None, pending=None):
-    """Steps that make `needs` held. The named solver, else each registered one in turn until one plans."""
+def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None):
+    """Steps that make `needs` held. The named solver, else each registered one in turn until one plans. `pending`:
+    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used)."""
     if not needs:
         return []
     names = [solver] if solver else list(ORDER)
@@ -52,7 +53,7 @@ def solve_needs(inv, needs, cost, solver=None, pending=None):
             last = Unplannable(f"no solver named {name!r}")
             continue
         try:
-            return fn(inv, needs, cost, pending)
+            return fn(inv, needs, cost, pending, **({"jobs": jobs} if jobs else {}))
         except Unplannable as e:
             last = e
     raise last or Unplannable("no solver could plan this")
@@ -275,6 +276,7 @@ def decompose(inv, goal, cost, solver=None, pending=None):
 
 def _decompose(inv, goal, cost, solver, pending):
     template, args = goal["goal"], goal.get("args", {})
+    jobs = dict(pending or {})           # what the caller passed: running jobs' outputs (memory.pending_outputs)
     if template in goals.ITEM_GOALS:
         needs = goals.needs(goal, inv)
         taken, pending = from_containers(inv, needs, cost, solver, pending)
@@ -283,7 +285,7 @@ def _decompose(inv, goal, cost, solver, pending):
         then = [_action(k, t, cost, **d) for k, t, d in (THEN.get(args.get("name"), ()) if template == "milestone"
                                                          else ())
                 if not (k == "seek" and mem is not None and mem.sites(None, kinds=[t]))]    # already found
-        return where_it_lives(taken + sourced + solve_needs(inv, needs, cost, solver, pending) + then, cost)
+        return where_it_lives(taken + sourced + solve_needs(inv, needs, cost, solver, pending, jobs) + then, cost)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":
@@ -297,7 +299,7 @@ def _decompose(inv, goal, cost, solver, pending):
         if bp == "nether_portal":
             materials = dict(materials, **{"minecraft:flint_and_steel": 1})
         def carry_and_build():
-            return (solve_needs(inv, [(t, n) for t, n in materials.items()], cost, solver, pending)
+            return (solve_needs(inv, [(t, n) for t, n in materials.items()], cost, solver, pending, jobs)
                     + [_action("build", bp, cost, at=args.get("at"))])
         chosen, _name = cheapest(f"build:{bp}", 1, carry_and_build, inv, cost, solver, pending)
         return where_it_lives(chosen if chosen is not None else carry_and_build(), cost)
