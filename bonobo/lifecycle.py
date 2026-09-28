@@ -14,6 +14,24 @@ def on_reset(fn, covers=()):
     return fn
 
 
+def in_place(module, *names):
+    """Register a reset putting each named module-level container of `module` back to its contents now (at import),
+    IN PLACE: a name imported elsewhere (`from .runner import LAST_FEEDBACK`, nav's alias of world.ROUTES) keeps
+    seeing the same object. Call it after the containers are defined, with `__name__`."""
+    import copy
+    import sys
+    mod = sys.modules[module]
+    seed = {n: copy.deepcopy(getattr(mod, n)) for n in names}
+
+    def reset():
+        for n, v in seed.items():
+            c = getattr(mod, n)
+            c.clear()
+            (c.update if isinstance(c, (dict, set)) else c.extend)(copy.deepcopy(v))
+    _RESETS.append((module, tuple(names), reset))
+    return reset
+
+
 def reset_all():
     """Every registered reset, once: nothing the last life (row, death, dimension) left carries into the next."""
     for _mod, _names, fn in list(_RESETS):

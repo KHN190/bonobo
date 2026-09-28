@@ -253,6 +253,8 @@ def _road_reuse(ctx):
     return True
 
 ROAD_TIMES = []
+from .. import lifecycle as _lifecycle  # noqa: E402
+_lifecycle.in_place(__name__, "PORTAL_ROOM_OK", "FORTRESS_RUN", "TREK", "ROAD_TIMES")     # a row's own records
 
 ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
 

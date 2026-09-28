@@ -3,7 +3,7 @@ import math
 import re
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, blueprints, nav, world, fluids
+from . import api, blueprints, lifecycle, nav, world, fluids
 from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
@@ -494,6 +494,7 @@ def build_shelter(ctx):
 
 # the portal cast in place (the speedrun way: no obsidian carried, no diamond pickaxe)
 _CAST = {}      # where the last frame was cast: what the verify looks at
+lifecycle.in_place(__name__, "_CAST")      # a frame cast in the last life (another site) verifies nothing here
 
 def _portal_cast(c):
     return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])

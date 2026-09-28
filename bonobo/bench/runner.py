@@ -739,6 +739,9 @@ def check_parts(check, api, inv):
 
 
 CHECK_READOUT = {}      # the last failed row's parts and, for a fight, its numbers (the report carries them)
+# a row's own records: a passing row must not report the last failed row's readout
+from .. import lifecycle as _lifecycle  # noqa: E402
+_lifecycle.in_place(__name__, "CHECK_READOUT", "LAST_FEEDBACK", "LAST_LINES", "SETUP_S", "TRACE_NOW")
 
 
 def _row_verdict(sc, seconds, crashed, fired, exc, note):

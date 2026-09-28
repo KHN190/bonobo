@@ -5,7 +5,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import api, tape, arbiter, combat_model, roads
+from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
 from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet
@@ -642,6 +642,7 @@ def sweep(ctx, radius=6, only=(), wait=30, tries=2):
 from .world import ROUTES as _ROUTES  # noqa: E402  (the round's route answers, read by the cost model too)
 # route questions one round may ask the game: a failing /plan costs seconds, so the rest fall back to "unknown"
 _ROUTE_BUDGET = [0]
+lifecycle.in_place(__name__, "_ROUTE_BUDGET")
 ROUTES_PER_ROUND = 6
 
 def route_s(cell, policy, range_=1.5, nodes=NAV_NODES):

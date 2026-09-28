@@ -486,6 +486,8 @@ def _in_the_patch_underground(api, inv):
 
 # eating on the move by the jar's autoeat, still walking while chewing; control: mining is not interrupted to eat
 WALK = {}
+from ... import lifecycle as _lifecycle  # noqa: E402
+_lifecycle.in_place(__name__, "BRAIN_LOG", "FINDS", "WALK")     # a row's own records (FIRST_WATCH: a generation, kept)
 
 BITE_S = 1.6        # one bite (32 ticks): the window before the bar rises in which the body must keep moving
 

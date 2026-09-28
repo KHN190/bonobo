@@ -228,5 +228,7 @@ LOGIC = ("all", "any", "not", "now")      # composition: all/any of predicates, 
 
 FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
 RESUMED_LEFT = {}          # row → what the resume found still to do (an interrupt after the last load left nothing)
+from ... import lifecycle as _lifecycle  # noqa: E402
+_lifecycle.in_place(__name__, "BASE", "FAILED_AS_EXPECTED", "INTERRUPTS", "FIRST", "RESUMED_LEFT")     # a row's own
 
 __all__ = ['FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', '_at', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']

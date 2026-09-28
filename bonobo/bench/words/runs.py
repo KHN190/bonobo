@@ -34,6 +34,8 @@ from .checks import *  # noqa: F401,F403
 
 # -- slices: the cerebellum itself over a private task queue; measures scheduling and chaining (loops, idle holds, wrong-way unstucks)
 SLICE = {}
+from ... import lifecycle as _lifecycle  # noqa: E402
+_lifecycle.in_place(__name__, "SLICE")     # a row's own record
 
 # rounds given to a waiting kind: with work queued, any is a waste
 MAX_WAITS_WITH_QUEUE = 0
