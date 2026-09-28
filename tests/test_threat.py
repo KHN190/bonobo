@@ -183,6 +183,36 @@ class TheFastLane(unittest.TestCase):
         self.assertAlmostEqual(worth, round(threat.saves(same, opts, price, threat.horizon_for(st)), 1), places=1)
 
 
+class AStaleTargetIsDecidedAgain(unittest.TestCase):
+    """An attack ending 'target not found' means the held choice names a gone mob: fight_loop.redecide drops HELD
+    and decides again at once on the latest reading without it — the next post carries the live target's id."""
+
+    def test_redecide_over_the_table(self):
+        from unittest import mock
+        from bonobo import fight_loop, threat as sv
+        ss = sv.price_state(hp=20, sword=2, armor=8)
+        price = lambda dhp: sv.hp_seconds(ss, dhp)  # noqa: E731
+        state = {"x": 0, "y": 64, "z": 0, "health": 20, "armor": 8, "sword_tier": 2, "blocks": 64}
+        dead, live = row("minecraft:zombie", 1.5, 0), row("minecraft:zombie", 5, 0)
+        # (name, the reading (rows, ids), a bid seen before?) → the target the next post carries, or None
+        rows = [("the gone one still listed, a live one 5 off: the live id", ([dead, live], [7, 9]), True, 9),
+                ("only the live one read: its id", ([live], [9]), True, 9),
+                ("must fail: only the gone one: nothing to post", ([dead], [7]), True, None),
+                ("no bid made yet: nothing to decide on", ([dead, live], [7, 9]), False, None)]
+        for name, reading, seen, want in rows:
+            with self.subTest(name):
+                fight_loop.reset()
+                if seen:
+                    fight_loop.bid(state, [dead], price, ids=[7])      # the held choice: fight 7
+                    self.assertEqual(fight_loop.HELD.choice.action.option.target, 7)
+                stale_held = fight_loop.HELD
+                with mock.patch.object(fight_loop.threat, "threats_seen", return_value=reading):
+                    fresh = fight_loop.redecide(7)
+                self.assertEqual(None if fresh is None else fresh.target, want)
+                if seen:
+                    self.assertIsNot(fight_loop.HELD, stale_held, "the stale HELD was dropped")
+
+
 class TheSkillsBatches(unittest.TestCase):
     """combat's shoot, as the pure batch the skills post."""
 

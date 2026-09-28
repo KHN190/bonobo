@@ -44,6 +44,7 @@ def reset():
     global HELD
     HELD = None
     _CHASE["at"] = None
+    _LAST_BID.clear()
 
 
 def carrying():
@@ -87,7 +88,7 @@ def same(a, b):
     return (isinstance(pa, tuple) and isinstance(pb, tuple) and len(pa) == len(pb) == 3
             and all(isinstance(v, (int, float)) for v in pa + pb) and math.dist(pa, pb) <= SAME_R)
 
-def carry(want_of, answer, going, held, again=False):
+def carry(want_of, answer, going, held, again=False, stale=None):
     """The one loop carrying answers: while `going()`, the same answer keeps the posted task, a new one /stops it and posts its own."""
 
     if not going():
@@ -109,6 +110,8 @@ def carry(want_of, answer, going, held, again=False):
                 # nothing left no trace (fight_zombie_1: the zombie 2 blocks off at 20 hp every sample)
                 api.detail(f"  fight {want.kind}: task {r.get('status')} — {r.get('message')} {r.get('result') or ''}")
                 held["task_id"] = None
+                if stale is not None and STALE in str(r.get("message") or ""):
+                    stale(want)          # the held choice is stale: decided again now, the next post carries it
                 if again:
                     held["done"] = None
                     # posted again at once: the body never idles on the decision (a POLL_S sleep here left it
@@ -125,7 +128,8 @@ def _engagement(intent, failure):
     held = {"done": None, "task_id": None}
     try:
         def loop():
-            for _ in carry(lambda: _ENG["want"], ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True):
+            for _ in carry(lambda: _ENG["want"], ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True,
+                           stale=_restale):
                 pass
         arbiter.BODY.carry(intent, loop)
     except Exception as e:
@@ -135,6 +139,13 @@ def _engagement(intent, failure):
         api.log(f"!! fight: {getattr(_ENG.get('want') or held.get('done'), 'kind', '?')} failed: {failure['failed']}")
     finally:
         disengage(intent, stop=held["task_id"] is not None)
+
+def _restale(want):
+    """The engagement's answer to 'target not found': what is wanted now, decided again without the gone target."""
+    fresh = redecide(want.target)
+    with _ENG_LOCK:
+        if _ENG["want"] is want:
+            _ENG["want"] = fresh
 
 def disengage(intent, stop=True):
     """Always, however the engagement ended: stop what it still has running, hand the body back, forget it."""
@@ -177,6 +188,7 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
     global HELD
     if not rows:
         return None
+    _LAST_BID.update(state=state, price=price)
     st = threat_state(state, rows, work_s, ids)
     field_model = threat.Field(st, price)
     if HELD is None:
@@ -189,6 +201,24 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
         return None
     worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
     return (option, round(worth, 1)) if worth > 0 else None
+
+_LAST_BID = {}         # the state and price the last bid was made on: a stale answer is re-decided on them
+
+STALE = "target not found"
+
+def redecide(gone):
+    """The held answer named a mob the jar cannot find (`gone`: its entity id): drop the held choice and decide
+    again at once on the latest reading without it — the option now wanted, or None when nothing pays. Waiting for
+    perception's next offer (a key repeats once a second) posted the dead id again and again: 'target not found',
+    0 hits, many times a second (detail.log 23:32:53)."""
+    global HELD
+    HELD = None
+    rows, ids = threat.threats_seen()
+    kept = [(r, i) for r, i in zip(rows, ids) if i != gone] if ids else [(r, None) for r in rows]
+    if not kept or "state" not in _LAST_BID:
+        return None
+    chosen = bid(_LAST_BID["state"], [r for r, _ in kept], _LAST_BID["price"], ids=[i for _, i in kept])
+    return chosen[0] if chosen else None
 
 LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end
 CLOSING = 0.3          # blocks/s toward us: a threat coming this fast is following, wherever it is
