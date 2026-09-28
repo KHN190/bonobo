@@ -541,7 +541,8 @@ def _fight_until(kinds, seconds, clear=True):
         try:
             while time.time() - t0 < seconds:
                 alive = _hostiles(24, set(kinds))
-                FIGHT_LOG["alive"].append((time.time(), len(alive)))
+                FIGHT_LOG["alive"].append((time.time(), [(e.get("id"), float(e.get("health", 0)),
+                                                          round(float(e.get("distance", 99)), 2)) for e in alive]))
                 if clear and not alive:
                     return True
                 core.BRAIN.round()
@@ -556,13 +557,25 @@ def engaged_gaps(bids):
     return [b[0] - a[0] for a, b in zip(bids, bids[1:]) if a[1] and b[1]]
 
 
+KILL_REACH = 5.0       # a mob the body killed was last seen within this (melee reach and a step)
+
+
 def kills_while_engaged(samples, bids=()):
-    """Pure: the mobs that went while a fight held the body — `samples` [(when, alive count)] in order, `bids` the
-    threat layer's [(when, engaged, kind)]: a drop between two samples counts when the fight was engaged at some bid
-    in between. Engaged-ness read only at the samples missed a fight that started and ended inside one brain round
-    (fight_zombie_1 20260928-223140: killed, 'without the outcome'); a kill by the plan layer or the sun is not it."""
-    return sum(max(0, a[1] - b[1]) for a, b in zip(samples, samples[1:])
-               if any(e and a[0] <= t <= b[0] for t, e, *_k in bids))
+    """Pure: the mobs the fight is proven to have killed — `samples` [(when, [(id, hp, distance)])] in order, `bids`
+    the threat layer's [(when, engaged, kind)]. A mob counts when it went between two samples, was last seen hurt
+    (hp below the first reading of it) and within KILL_REACH, and the fight was engaged at a bid in between. A mob
+    that vanished at full health, far off, or while nothing fought is no kill (fight_skeleton_1 20260928-225429:
+    'killed' 10 blocks off in 1.3 s)."""
+    first, kills = {}, 0
+    for a, b in zip(samples, samples[1:]):
+        for mid, hp, _d in a[1]:
+            first.setdefault(mid, hp)
+        gone = {m for m, _h, _d in a[1]} - {m for m, _h, _d in b[1]}
+        fought = any(e and a[0] <= t <= b[0] for t, e, *_k in bids)
+        for mid, hp, dist in a[1]:
+            if mid in gone and fought and hp < first[mid] and dist <= KILL_REACH:
+                kills += 1
+    return kills
 
 
 def fight_readout():

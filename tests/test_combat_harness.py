@@ -47,12 +47,17 @@ class EngagedGaps(unittest.TestCase):
 
 class KillsWhileEngaged(unittest.TestCase):
     def test_rows(self):
-        # (situation, samples [(when, alive)], bids [(when, engaged, kind)]) → the fight's kills
+        # (situation, samples [(when, [(id, hp, distance)])], bids [(when, engaged, kind)]) → proven kills
         fought = [(0.5, True, "fight"), (1.5, True, "fight")]
-        rows = [("three killed while engaged", [(0, 3), (1, 2), (2, 0)], fought, 3),
-                ("a fight begun and ended inside one round still counts", [(0, 1), (5, 0)], [(2.0, True, "fight")], 1),
-                ("must fail: the sun burned them, nothing engaged", [(0, 3), (5, 0)], [(2.0, False, None)], 0),
-                ("a mob that came back is no negative kill", [(0, 1), (1, 2), (2, 1)], fought, 1)]
+        rows = [("hurt, in reach, gone while fighting: a kill", [(0, [(7, 20.0, 2.0)]), (1, [(7, 8.0, 2.5)]), (2, [])],
+                 fought, 1),
+                ("three hurt and gone in reach", [(0, [(1, 20.0, 2), (2, 20.0, 3), (3, 20.0, 3)]),
+                                                  (1, [(1, 5.0, 2), (2, 4.0, 3), (3, 3.0, 3)]), (2, [])], fought, 3),
+                ("must fail: vanished at full health 10 off — no kill", [(0, [(7, 20.0, 10.0)]), (1, [])], fought, 0),
+                ("must fail: hurt and gone but nothing engaged", [(0, [(7, 20.0, 2.0)]), (1, [(7, 6.0, 2.0)]), (2, [])],
+                 [(0.5, False, None), (1.5, False, None)], 0),
+                ("must fail: hurt but gone far off (fled or despawned)", [(0, [(7, 20.0, 2.0)]), (1, [(7, 6.0, 12.0)]),
+                                                                          (2, [])], fought, 0)]
         for name, samples, bids, want in rows:
             with self.subTest(name):
                 self.assertEqual(fight.kills_while_engaged(samples, bids), want)
