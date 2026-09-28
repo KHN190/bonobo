@@ -9,7 +9,7 @@ from . import api, decompose, goals, survive, beliefs
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION
+from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS
 from .knowledge import food_count, food_points, FIND_AT
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -39,7 +39,7 @@ def bag_signature(inv):
 
 def dusk_s(snap):
     """Seconds until dark: (12000 − timeOfDay) / 20, 0 once it is dark."""
-    t = int(snap.time) % 24000
+    t = int(snap.time) % DAY_TICKS
     return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
 
 def night_facts(soft, cooled=(), dig_site=True):

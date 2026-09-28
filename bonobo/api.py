@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 
 from . import paths, retry, tape
-from .data import item_ids
+from .data import TASK_WAIT_S, item_ids
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -382,7 +382,7 @@ def vet_aim(task):
 DRESS = None
 ARM = None       # fn(tasks) → the tasks with the item each holds named (skillcore.arm, wired by brain)
 
-def run(task, *, awaits, wait=900):
+def run(task, *, awaits, wait=TASK_WAIT_S):
     """Run one task to completion; returns its JSON (status may be failed — callers decide)."""
 
     if not isinstance(awaits, str) or not awaits.strip():

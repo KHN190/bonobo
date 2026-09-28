@@ -1,7 +1,8 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
 import math
 
-from .data import BASE_MARKERS, COLORS, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS, bare, mid
+from .data import (BASE_MARKERS, COLORS, DAY_TICKS, EYE_HEIGHT, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
+                   bare, mid)
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -371,7 +372,7 @@ def breathing(st, c):
 
 def daytime(st, c):
     t = body(st).get("timeOfDay")
-    return left(t is not None and int(t) % 24000 < 12500, "state:day")
+    return left(t is not None and int(t) % DAY_TICKS < 12500, "state:day")
 
 def fed(st, c):
     food = int(body(st).get("food", 0))
@@ -601,7 +602,7 @@ def head_clear(st, c):
         return {"unread:head": 1}
     s = body(st)
     x, z = st["feet"][0], st["feet"][2]
-    eye = (x, math.floor(float(s.get("y", st["feet"][1])) + 1.62), z)
+    eye = (x, math.floor(float(s.get("y", st["feet"][1])) + EYE_HEIGHT), z)
     return left(not region.solid(eye), "state:head_clear")
 
 

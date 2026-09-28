@@ -6,7 +6,7 @@ from . import knowledge as K
 from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
-from .data import GROUPS, bare
+from .data import EYE_HEIGHT, GROUPS, bare
 from .skill import skill
 from .skillcore import body_state, feet, gained
 from .world import Inventory, Region, add, find
@@ -14,7 +14,7 @@ from .world import Inventory, Region, add, find
 REACH = 4.0
 
 def _eye(cell):
-    return cell[0] + 0.5, cell[1] + 1.62, cell[2] + 0.5
+    return cell[0] + 0.5, cell[1] + EYE_HEIGHT, cell[2] + 0.5
 
 def is_source(region, p, fluid):
     """A still source block of `fluid` (level 0). Regions without block properties count every fluid cell."""
@@ -210,7 +210,7 @@ def _open_lava(region, here):
     """Pure: lava cells within reach of `here` with air beside them, nearest first."""
     x, y, z = here
     return sorted((p for p in region.blocks if region.name(p) == "lava"
-                   and math.dist(p, (x, y + 1, z)) <= 4.5
+                   and math.dist(p, (x, y + 1, z)) <= nav.REACH
                    and any(region.name(add(p, d)) in ("air", "cave_air") for d in nav.NEIGHBOURS6)),
                   key=lambda p: math.dist(p, (x, y, z)))
 

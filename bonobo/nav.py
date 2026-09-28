@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD
+from .data import GROUPS, FOOD, EYE_HEIGHT, NAV_NODES, REACH, TASK_WAIT_S
 from .world import NEIGHBOURS6, Inventory, Region, add, feet
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
@@ -110,7 +110,7 @@ STEP_UNREACHABLE = ("cannot reach", "no line of sight", "no path found", "cannot
 NO_STAND = "cannot hold a stand spot"         # the same spot again is the same flip: never retried
 
 
-def run_cells(kind, tasks, then=None, wait=900):
+def run_cells(kind, tasks, then=None, wait=TASK_WAIT_S):
     """One batch as chains of single tasks (the jar's mine_many / build, planned here): sent in order; a failed
     step retried once at the end (never a no-stand: the same spot is the same flip); two unreachable in a row give
     the rest back as failures; `then` (the closing sweep) after. One result in the shape a batch answered —
@@ -294,8 +294,6 @@ def ashore(state, land, range_=ASHORE_RANGE):
 
     return bool(state.get("onGround")) and not state.get("inWater") and there(state, land, range_)
 
-REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
-EYE_HEIGHT = 1.62      # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
 _OFFS = ((0, 0), (0.3, 0), (-0.3, 0), (0, 0.3), (0, -0.3))      # where the body may settle in its cell
 _FACES = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
@@ -504,7 +502,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
             was = feet()
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                         "avoid": avoid}, wait=900, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+                         "avoid": avoid}, wait=TASK_WAIT_S, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
             if there(api.get("/state"), pos, range_):
                 return _arrived(_from, pos, _began, True)
             if walked_closer(was, feet(), pos):
@@ -523,7 +521,7 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                     pos = (pos[0], fy, pos[2])
                     api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                              "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                             "avoid": avoid}, wait=900, awaits="the retry's arrival is read before anything else is asked")
+                             "avoid": avoid}, wait=TASK_WAIT_S, awaits="the retry's arrival is read before anything else is asked")
                     if there(api.get("/state"), pos, range_):
                         return _arrived(_from, pos, _began, True)
         # a leg that ended nearer is progress; the next round continues from there
@@ -622,7 +620,7 @@ from .world import ROUTES as _ROUTES  # noqa: E402  (the round's route answers, 
 _ROUTE_BUDGET = [0]
 ROUTES_PER_ROUND = 6
 
-def route_s(cell, policy, range_=1.5, nodes=6000):
+def route_s(cell, policy, range_=1.5, nodes=NAV_NODES):
     """(can we get there, seconds it would take) — THE GAME'S answer, not one assembled here."""
 
     key = (tuple(cell), bool(policy.allow_dig), bool(policy.allow_build), float(range_), int(nodes))
@@ -657,7 +655,7 @@ def plainly_below(feet, cell, max_drop=None):
     deep = feet[1] - cell[1]
     return deep > max_drop and math.dist((feet[0], feet[2]), (cell[0], cell[2])) < deep
 
-def reachable(cell, policy, range_=1.5, nodes=6000, feet=None):
+def reachable(cell, policy, range_=1.5, nodes=NAV_NODES, feet=None):
     """Is there a way to `cell` at all?"""
 
     found, seconds = route_s(cell, policy, range_=range_, nodes=nodes)

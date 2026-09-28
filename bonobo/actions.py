@@ -2,7 +2,7 @@
 
 import math
 
-from .data import (DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
+from .data import (DAY_END, DAY_TICKS, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
 from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
                         under_rock)
@@ -142,7 +142,7 @@ def _is_night(snap):
     night = getattr(snap, "night", None)
     if night is not None:
         return bool(night)
-    t = int((getattr(snap, "state", None) or {}).get("timeOfDay", 0)) % 24000
+    t = int((getattr(snap, "state", None) or {}).get("timeOfDay", 0)) % DAY_TICKS
     return DAY_END <= t <= NIGHT_END
 
 def _dawn_s(snap):
@@ -150,8 +150,8 @@ def _dawn_s(snap):
     state = getattr(snap, "state", None) or {}
     if "timeOfDay" not in state:
         return NIGHT_S
-    t = int(state["timeOfDay"]) % 24000
-    return max(1.0, ((NIGHT_END - t) % 24000) / 20.0)
+    t = int(state["timeOfDay"]) % DAY_TICKS
+    return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / 20.0)
 
 # Close enough to work on it without walking: the skills' own reach.
 ARRIVED_R = 5.0

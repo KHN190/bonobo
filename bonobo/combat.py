@@ -6,6 +6,7 @@ import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, survive
 from . import combat_model
+from .data import EYE_HEIGHT
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .world import Inventory, add, entities
@@ -79,7 +80,6 @@ def safe_stand(region, here, hazards, anchor, band=(8, 14), clear=1.0):
     return fallback[0] if fallback else None
 
 ENDERMAN = "minecraft:enderman"
-EYE_HEIGHT = 1.62
 
 def angry_endermen(near, here, radius=16.0):
     """Pure: endermen that are actually after us (mod ≥0.1.33 reports `angry`), nearest first."""
@@ -153,7 +153,7 @@ def shoot(entity, hold_ticks=22, near=None):
     if near is not None and combat_model.aim_hits_enderman((entity["x"], entity["y"], entity["z"]),
                                               (s["x"], s["y"], s["z"]), near):
         raise NotAvailable("an enderman stands in the line of aim")
-    r = api.run(shoot_batch(entity, (s["x"], s["y"] + 1.62, s["z"]), hold_ticks)[0], wait=10, awaits="a moving target: one shot, then aim again from the new reading")
+    r = api.run(shoot_batch(entity, (s["x"], s["y"] + EYE_HEIGHT, s["z"]), hold_ticks)[0], wait=10, awaits="a moving target: one shot, then aim again from the new reading")
     if r["status"] != "succeeded":
         raise McError(f"shooting failed: {r['message']}")
 

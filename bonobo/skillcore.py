@@ -6,7 +6,7 @@ import time
 from . import api, beliefs, knowledge as _know, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
-from .data import bare
+from .data import BAN_MAX_S, EYE_HEIGHT, bare
 from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
 
 def game_time():
@@ -60,7 +60,6 @@ class ToolMissing(McError):
         self.kind, self.tier = kind, tier
 
 _BAN_COUNTS = {}
-BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 
 def banned(blacklist, pos, now=None):
     """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry})?"""
@@ -88,7 +87,7 @@ class Context:
     def blocked(self, pos):
         return banned(self.blacklist, pos)
 
-    def ban(self, pos, seconds=600):
+    def ban(self, pos, seconds=BAN_MAX_S):
         """Ban a cell after a failure (never an interruption); repeats escalate, capped at BAN_MAX_S because the world changes."""
         key = tuple(pos)
         count = self.ban_counts.get(key, 0) + 1
@@ -166,13 +165,13 @@ def head_underwater(s=None):
     s = s or api.get("/state")
     if not s["inWater"]:
         return False
-    eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
+    eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
     return Region(eye, eye).name(eye) == "water"
 
 def head_buried(s=None):
     """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating."""
     s = s or api.get("/state")
-    eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
+    eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
     r = Region(eye, eye)
     return r.solid(eye) and not r.name(eye).endswith(("_slab", "_stairs", "snow", "_carpet"))
 

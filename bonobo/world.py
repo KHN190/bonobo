@@ -3,7 +3,7 @@ import math
 import time
 
 from . import api
-from .data import (DAY_END, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
+from .data import (DAY_END, DAY_TICKS, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
 
 # the round's route answers ({key: (found, seconds)}), kept here so the cost model prices a route without importing movement
@@ -90,11 +90,11 @@ class Inventory:
 
 def ticks_until_dusk(time_of_day):
     """Ticks until the next dusk. 0 during the night; at dawn (after NIGHT_END) a whole day lies ahead."""
-    t = time_of_day % 24000
+    t = time_of_day % DAY_TICKS
     if t < DAY_END:
         return DAY_END - t
     if t > NIGHT_END:
-        return 24000 - t + DAY_END
+        return DAY_TICKS - t + DAY_END
     return 0
 
 class Snapshot:

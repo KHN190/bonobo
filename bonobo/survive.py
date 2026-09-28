@@ -7,7 +7,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
 from .data import (BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
-                   WALK_BLOCKS_PER_TICK)
+                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_TICK)
 from .knowledge import DIG_SHOVEL_S, RAW_MEAT, ALL_FOOD
 from .world import Inventory, Region, add, dark_spots, find
 from .bag import throw_direction
@@ -293,7 +293,7 @@ def unbury(ctx):
     """Suffocating in a block: break the block at eye level, then the one above it if sand/gravel keeps falling."""
     for _ in range(4):
         s = api.get("/state")
-        eye = (s["blockX"], math.floor(s["y"] + 1.62), s["blockZ"])
+        eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
         api.run(nav.mine_task(eye), wait=15, awaits="the eye cell read again (sand keeps falling)")
         yield eye
 
@@ -378,7 +378,7 @@ SLEEP_FROM_TICKS, SLEEP_TO_TICKS = 12541, 23458
 
 def _morning(timeout=7.0):
     """Lain in a bed: read the clock until it is morning (the night skipped, ~5 s), at most `timeout` s."""
-    day = lambda t: int(t) % 24000 < 12500      # noqa: E731
+    day = lambda t: int(t) % DAY_TICKS < 12500      # noqa: E731
     return day(settle(lambda: api.get("/state")["timeOfDay"], day, timeout=timeout, stable_s=0.0, soft=True))
 
 def can_sleep(state):
@@ -388,13 +388,13 @@ def can_sleep(state):
         return "a bed explodes outside the Overworld"
     if state.get("thundering"):
         return None
-    t = int(state.get("timeOfDay", 0)) % 24000
+    t = int(state.get("timeOfDay", 0)) % DAY_TICKS
     if SLEEP_FROM_TICKS <= t <= SLEEP_TO_TICKS:
         return None
     return "a bed only works at night (or in a thunderstorm)"
 
 def _day_now():
-    t = int(api.get("/state")["timeOfDay"]) % 24000
+    t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
     return not DAY_END <= t <= NIGHT_END
 
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, done=lambda c: _day_now(), budget=600, stall=60, provides={"wait:day": lambda ctx, s: ()})

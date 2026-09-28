@@ -4,7 +4,7 @@ import math
 
 from .api import McError
 from .beliefs import CONFIG as _PLAY
-from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .data import GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
 from .knowledge import step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest
@@ -238,7 +238,7 @@ class Cost:
         if where is None:
             return None
         dig, build = (bool(self.policy.allow_dig), bool(self.policy.allow_build)) if self.policy else (True, True)
-        key = (tuple(int(v) for v in where), dig, build, 2.0, 6000)
+        key = (tuple(int(v) for v in where), dig, build, 2.0, NAV_NODES)
         found, seconds = ROUTES.get(key, (None, None))
         return seconds if found else None
 

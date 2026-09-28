@@ -8,7 +8,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import knowledge as K
 from . import api, jobs, nav, skillcore
 from .api import McError, NotAvailable, log
-from .data import bare
+from .data import BAN_MAX_S, EYE_HEIGHT, bare
 from .skill import skill
 from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD
@@ -79,7 +79,6 @@ def plot_commands(centre, hoe, region=None, stand=None):
     the centre dug and watered from the stand (finish_commands); a resume computes the rest from the world."""
     return ring_commands(centre, hoe, region) + finish_commands(centre, stand, region)
 
-EYE = 1.62
 
 def water_task(centre, stand=None, region=None):
     """Pure: the pour into the centre hole. From a stand beside the plot the rim hides the hole's floor (the ray met
@@ -94,7 +93,7 @@ def water_task(centre, stand=None, region=None):
     wall = (centre[0] + step[0], centre[1], centre[2] + step[1])
     task = nav.use_on_face("minecraft:water_bucket", wall, (-step[0], -step[1]))
     if region is not None:
-        eye = (stand[0] + 0.5, stand[1] + EYE, stand[2] + 0.5)
+        eye = (stand[0] + 0.5, stand[1] + EYE_HEIGHT, stand[2] + 0.5)
         if nav.first_solid(region, eye, (task["x"], task["y"], task["z"])) != wall:
             floor = nav.use_on_top("minecraft:water_bucket", below)
             if nav.first_solid(region, eye, (floor["x"], floor["y"], floor["z"])) == below:
@@ -299,7 +298,7 @@ def plant_farm(ctx):
         f"{dx:+d}{dz:+d} {top.name((centre[0] + dx, centre[1], centre[2] + dz))}/"
         f"{top.name((centre[0] + dx, centre[1] + 1, centre[2] + dz))}" for dx, dz in RING))
     for cell in unreachable_cells(ring, done):
-        ctx.ban(tuple(int(round(v)) for v in cell), 600)
+        ctx.ban(tuple(int(round(v)) for v in cell), BAN_MAX_S)
 
     # 2. off the plot to the stand, walking; then dig the centre and pour in one send
     if not nav.arrived(stand, policy, range_=0.5, attempts=1):

@@ -7,7 +7,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, nav, skillcore, arbiter, combat_model, fight_loop, fight_plan, recovery, survive, threat
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .data import bare, GROUPS, cannot_reach
+from .data import bare, GROUPS, cannot_reach, EYE_HEIGHT
 from .world import Inventory, Region, away_from, cells_with, entities, find
 from .combat import angry_endermen, crystal_order, station
 from .combat_tape import EventStream
@@ -152,7 +152,6 @@ def bombable(dragon):
     return dragon is not None and dragon.get("phase") in BOMB_PHASES
 # geometry lives in fight.toml only
 _GEO = __import__("bonobo.fight_plan", fromlist=["fight_plan"]).CONFIG["geometry"]
-EYE = 1.62
 
 def choose_side(here, centre=(0, 0)):
     """Pure: the axis side of the portal the player is on (the head turns toward the player)."""
@@ -218,7 +217,7 @@ def in_pit(feet, pit_feet, floor_y=None):
         return False
     if floor_y is None:
         return abs(feet[1] - pit_feet[1]) <= 1
-    return feet[1] + EYE < floor_y
+    return feet[1] + EYE_HEIGHT < floor_y
 
 def prep_safe(dragon, here, centre=(0, 0), floor_y=None):
     """Pure: may we stand in the open now? Only while the dragon is not perched, or we are far outside its breath."""

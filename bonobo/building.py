@@ -324,7 +324,7 @@ def _build_parts(ctx, bp, origin, turns):
         if block_matches(done_region.name(pos), part.item):
             continue   # resuming an interrupted build: this part is already in place
         # stay at the build: the place task's approach search is short (6 000 nodes)
-        if math.dist(feet(), pos) > 4.5 and not nav.arrived(access, ctx.policy, range_=1.5, attempts=1):
+        if math.dist(feet(), pos) > nav.REACH and not nav.arrived(access, ctx.policy, range_=1.5, attempts=1):
             raise api.NavFailed(f"can't get back to the {bp.name} build at {origin}")
         if pos[1] - feet()[1] >= 2:
             # the face (top of the part below) must be below the eye (feet + 1.62): pillar until the feet are at pos.y - 1

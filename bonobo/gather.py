@@ -7,7 +7,7 @@ from . import knowledge as K
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .data import cannot_reach, bare, mid
+from .data import BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
 from .knowledge import DIG_SHOVEL_S, HUNT_SWORD_S, members, MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
@@ -284,7 +284,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         sent |= set(vein)
         try:
             batch = mine_segment_commands({"inv": Inventory(), "feet": here_now}, (vein, drop, tier))
-            r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=900)
+            r = nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=TASK_WAIT_S)
         except api.Unreachable as out:
             around = {c: region.name(c) for c in out.cells or ()}
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
@@ -483,7 +483,7 @@ def hunt(ctx, token, count, types, night):
             # the drop can land where nothing stands: `sweep` makes a way to it before a kill is written off
             nav.sweep(ctx, radius=6, only=[token], wait=60)
         except api.TaskStuck:
-            ctx.ban((prey[0]["id"], 0, 0), 600)  # unreachable (across water, on a ledge)
+            ctx.ban((prey[0]["id"], 0, 0), BAN_MAX_S)  # unreachable (across water, on a ledge)
             raise api.NavFailed(f"the {bare(types[0])} is out of reach for attacks")
         if gained(lambda: Inventory().count(token), before) <= before:
             ctx.ban((prey[0]["id"], 0, 0), 120)

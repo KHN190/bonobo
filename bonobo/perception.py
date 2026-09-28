@@ -5,7 +5,7 @@ import threading
 import time
 
 from . import api, arbiter, fight_loop, hazard, paths, estimate, field as _field, nav, threat
-from .data import memo_ttl, DAY_END, NIGHT_END
+from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE
@@ -98,7 +98,7 @@ def nightfall(state, enclosed, in_site=lambda: False):
     under rock, walled in, inside a site); None by day or in another dimension."""
     if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
         return None
-    t = int(state.get("timeOfDay", 0)) % 24000
+    t = int(state.get("timeOfDay", 0)) % DAY_TICKS
     if not DAY_END <= t < NIGHT_END or sheltered(state.get("skyLight", 15), enclosed, in_site):
         return None
     return NIGHTFALL

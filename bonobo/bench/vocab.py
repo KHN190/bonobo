@@ -21,7 +21,7 @@ import re
 import sys
 import time
 from . import core, runner
-from ..data import POD_BLOCKS
+from ..data import DAY_TICKS, POD_BLOCKS
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
@@ -1065,7 +1065,7 @@ def _food_up():
     return check
 
 def _is_day():
-    return lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 12500
+    return lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < 12500
 
 def _free_slots(n):
     return lambda api, inv: inv.free_slots() >= n
@@ -1638,7 +1638,7 @@ FIRST_WATCH = {"gen": 0}   # the row whose watcher may write FIRST: a new row's 
 
 def slept_through(start_tod, tod):
     """Pure: the row began at night and the day is back — only a sleep turns it (the arena's clock stands still)."""
-    return int(start_tod) % 24000 >= 12542 and int(tod) % 24000 < 12000
+    return int(start_tod) % DAY_TICKS >= 12542 and int(tod) % DAY_TICKS < 12000
 
 def first_step(gen, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
     """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
@@ -1880,7 +1880,7 @@ def _night_rule(cell):
                 "night on the surface, a bed carried: slept first")
     if cell["dusk"] != "plenty":
         return _before_in_bag("bed", "minecraft:raw_iron", or_never=True), "dusk or night on the surface: a bed first"
-    return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % 24000 < 13000 and inv.count("bed") == 0,
+    return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < 13000 and inv.count("bed") == 0,
             "daylight: no bed made, no sleep (must not)")
 
 def _bag_rule(cell):

@@ -198,10 +198,11 @@ HAZARD = {"lava", "water", "fire", "soul_fire", "magma_block", "powder_snow", "p
 UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")
+DAY_TICKS = 24000
 # what memory keeps of a sighting, by how fast it changes (game ticks): static, slow (ttl), mobile (coarse area), hostile (never), here (two minutes, for at:<kind>), never; `merge` joins close notes, `absent` is how long "looked, none here" holds
 VOLATILITY = {
-    "static": {"ttl": None, "merge": 1, "area": None, "absent": 2 * 24000},
-    "slow": {"ttl": 3 * 24000, "merge": 12, "area": None, "absent": 24000},
+    "static": {"ttl": None, "merge": 1, "area": None, "absent": 2 * DAY_TICKS},
+    "slow": {"ttl": 3 * DAY_TICKS, "merge": 12, "area": None, "absent": DAY_TICKS},
     "mobile": {"ttl": 6000, "merge": 0, "area": 16, "absent": 2400},
     "here": {"ttl": 2400, "merge": 1, "area": None, "absent": 2400},
     "hostile": None,
@@ -255,6 +256,11 @@ MARKER_WEIGHT = {"bed": 10, "chest": 5, "furnace": 5, "crafting_table": 4, "door
 
 DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
+REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
+EYE_HEIGHT = 1.62      # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
+BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
+TASK_WAIT_S = 900
+NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 ROUTE_FACTOR = 1.5            # real route length / straight line
 

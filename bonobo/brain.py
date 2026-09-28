@@ -16,7 +16,7 @@ from . import craft, skillcore, survive
 from . import brewing, combat, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
 from .cost import Cost, Prices
-from .data import HAND_MINEABLE_SUFFIX, bare
+from .data import EYE_HEIGHT, HAND_MINEABLE_SUFFIX, bare
 from .memory import Memory
 from . import memory as _memory
 _memory.TICK_READER = skillcore.game_time      # a look or note outside a round (bench achieve, CLI) reads the game's tick
@@ -31,7 +31,7 @@ from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],
                 region=survive._pod_region)
 fight_loop.lend("shoot", lambda option, state: combat.shoot_batch(
-    option.target, (state["state"]["x"], state["state"]["y"] + 1.62, state["state"]["z"])))
+    option.target, (state["state"]["x"], state["state"]["y"] + EYE_HEIGHT, state["state"]["z"])))
 
 IDLE_WAIT_TICKS = 100
 IDLE_SLICE_TICKS = 20      # the idle wait is cut in 1 s slices: queued work ends it within a slice
