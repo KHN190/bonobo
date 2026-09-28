@@ -251,7 +251,7 @@ class Option:
 
         return dict(state, pending_hp=self.leaves * state["work_s"] + self.blast_after)
 
-SHAPES = ("between", "under", "down")
+SHAPES = ("between", "under", "down", "roof")      # roof: a block 2 over the head, too low for a tall mob
 
 def _sealed_off(ground, h):
     """Pure: the ground shuts this mob out for good (a sealed passage: its slowdown is infinite)."""
@@ -295,7 +295,8 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
     creeper = any(h[3] == "minecraft:creeper" for h in hazards)     # a blast breaks a wall and a hole
     # digging down spends no blocks, only diggable ground; the other two shapes spend what is carried
     most_of = {"between": min(carried, cap), "under": min(carried, cap),
-               "down": cap if state.get("dig_ok") else 0}
+               "down": cap if state.get("dig_ok") else 0,
+               "roof": 1 if carried and any(MOBS[h[3]].get("tall") for h in hazards) else 0}
     if not any(most_of.values()):
         return []
     nearest = min(hazards, key=lambda h: math.dist(here, h[0]))
@@ -439,6 +440,14 @@ def options(state):
         # a fight the veto removes is not "a fight on offer" for leaving to postpone (before the one veto, the fight's
         # own gate kept it out of `out`: evade at low health priced as postponing a fight nobody could take)
         out.append(_evade_option(here, spot, hazards, prot, press, [o for o in out if survivable(o, hp)]))
+    cover = state.get("low_cover")
+    tall = [h for h in hazards if MOBS[h[3]].get("tall")]
+    if tall and cover is not None:
+        # a 2-high space near: under it a tall mob can't reach (fight_enderman_provoked)
+        walk_s = round(math.dist(here, cover) / float(PLAYER["speed"]), 2)
+        rest = [h for h in hazards if not MOBS[h[3]].get("tall")]
+        out.append(Option("cover", tuple(cover), round(press * walk_s, 2), walk_s, f"under a 2-high roof, {walk_s}s off",
+                          leaves=pressure(here, rest, prot, ground=grid) if rest else 0.0))
     for option in eat_options(state, hp, press, blast_here):
         out.append(option)
     if grid is not None:

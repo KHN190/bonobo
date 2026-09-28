@@ -402,6 +402,8 @@ NOT_ROW_TESTED = {
     "surfaced": "a hold over time of the body's height",
     "not_remembered": "the memory file",
     "threat_resolved": "a hold over time of hostiles, gap and health",
+    "endermen_calm": "the server's AngerTime per enderman (its parse: test_combat_harness.Endermen)",
+    "took_cover": "the runner's trace (its rule: test_combat_harness.Endermen)",
     "ghast_answered": "the server's ghast health and the watch's fireballs (its rule: test_combat_harness.GhastAnswered)",
     "deflected": "the server's health and the volley's tracked fireballs (its rule: DeflectCells)",
     "room_to_work": "free_spots_here over the live region",

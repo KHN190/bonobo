@@ -31,12 +31,13 @@ TERRAIN = Terrain()
 
 class Field:
 
-    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None):
+    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None, cover=None):
         self.speed = float(speed)
         self.bucket = bucket
         self.blocks = int(blocks)
         self.terrain = terrain or TERRAIN
         self.seal = None if seal is None else int(seal)   # blocks that seal the way we stand in; None: nothing we carry seals it
+        self.cover = cover     # the nearest 2-high space (a cell), or None
 
     def slowdown(self, squeezes=False):
         """How much longer anything takes over this ground than a straight line: learned per bucket times our placed blocks' cost."""
@@ -61,7 +62,7 @@ class Field:
         return self.bucket != "open" or self.seal is not None
 
     def with_block(self, cell=None):
-        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal)
+        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal, self.cover)
 
     def choke(self, src, dst, within=3.0):
         if math.dist(src, dst) < 2.0:
@@ -97,6 +98,22 @@ def seal_at(region, here):
             return 2
     return None
 
+def low_cover_at(region, here, radius=6):
+    """Pure: the nearest cell within `radius` with floor, feet and head clear, and a block 2 up — room for us, too low
+    for a tall mob; None when there is none."""
+    x, y, z = (int(math.floor(v)) for v in here)
+    best = None
+    for dx in range(-radius, radius + 1):
+        for dz in range(-radius, radius + 1):
+            c = (x + dx, y, z + dz)
+            if (region.solid((c[0], y - 1, c[2])) and not region.solid(c) and not region.solid((c[0], y + 1, c[2]))
+                    and region.solid((c[0], y + 2, c[2]))):
+                d = math.hypot(dx, dz)
+                if d <= radius and (best is None or d < best[0]):
+                    best = (d, c)
+    return None if best is None else best[1]
+
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
-    return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here))
+    return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here),
+                 cover=low_cover_at(region, here))

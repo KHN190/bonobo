@@ -76,7 +76,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 "minecraft:zombified_piglin" = { hp = 20, attack = 5.0, notice_r = 35.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.5 }
 "minecraft:blaze" = { hp = 20, attack = 5.0, notice_r = 48.0, attack_s = 1.7, reach = 12.0, keep_out = 3.0, speed = 2.0, ranged = true, squeezes = true }
 "minecraft:ender_dragon" = { hp = 200, attack = 10.0, notice_r = 64.0, attack_s = 1.0, reach = 8.0, keep_out = 8.0, speed = 8.0, squeezes = true }
-"minecraft:enderman" = { hp = 40, attack = 7.0, notice_r = 64.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 4.3, squeezes = true }
+"minecraft:enderman" = { hp = 40, attack = 7.0, notice_r = 64.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 4.3, squeezes = true, tall = true }
 "minecraft:area_effect_cloud" = { hp = 1, attack = 6.0, notice_r = 0.0, attack_s = 1.0, reach = 6.0, keep_out = 6.0, speed = 0.0, squeezes = true }
 "minecraft:dragon_fireball" = { hp = 1, attack = 6.0, notice_r = 0.0, attack_s = 1.0, reach = 7.0, keep_out = 7.0, speed = 8.0, burst = true, squeezes = true }
 "minecraft:fireball" = { hp = 1, attack = 6.0, notice_r = 0.0, attack_s = 1.0, reach = 6.0, keep_out = 6.0, speed = 12.0, burst = true, squeezes = true }

@@ -46,6 +46,8 @@ def reaches_share(shape, mob):
     if shape is None:
         return 1.0
     where, n = shape
+    if where == "roof":
+        return 0.0 if mob.get("tall") else 1.0      # 2 high: a tall mob (enderman) can't come under
     if where == "between" or mob.get("squeezes"):
         return 1.0
     if mob.get("ranged"):

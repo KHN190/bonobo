@@ -212,6 +212,30 @@ class BehaviourParts(unittest.TestCase):
         fight.SWEEP.pop("combat__dig_in", None)
 
 
+class Endermen(unittest.TestCase):
+    def test_angers(self):
+        rows = [("two calm", ["Enderman has the following entity data: 0"] * 2, [0, 0]),
+                ("must fail: one provoked", ["Enderman has the following entity data: 0",
+                                             "Enderman has the following entity data: 412"], [0, 412]),
+                ("none found", ["No entity was found"], []), ("nothing said", [], [])]
+        for name, lines, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.angers(lines), want)
+
+    def test_covered_in_time(self):
+        cells = [(4, 64, 0)]
+
+        def at(t, x, hp):
+            return {"t": t, "x": x + 0.5, "y": 64.0, "z": 0.5, "health": hp}
+        rows = [("under it at 2 s, no hit after", [at(0, 0, 20), at(2, 4, 18), at(5, 4, 18)], True),
+                ("must fail: never there (idle)", [at(0, 0, 20), at(5, 0, 12)], False),
+                ("too late: 7 s", [at(0, 0, 20), at(7, 4, 18)], False),
+                ("hit after it got there", [at(0, 0, 20), at(2, 4, 18), at(4, 4, 11)], False)]
+        for name, trace, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.covered_in_time(trace, cells, 5.0), want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

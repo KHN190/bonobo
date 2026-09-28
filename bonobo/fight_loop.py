@@ -305,7 +305,8 @@ def threat_state(state, rows, work_s=None, ids=()):
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok")),
           "footing": state.get("footing"),
           "alive": set(threat.THREAT_ALIVE) | {i for i in ids if i is not None},
-          "impacts": list(threat.THREAT_IMPACTS), "lit": set(threat.THREAT_LIT)}
+          "impacts": list(threat.THREAT_IMPACTS), "lit": set(threat.THREAT_LIT),
+          "low_cover": getattr(state.get("field"), "cover", None)}
     if work_s is not None:
         st["work_s"] = work_s
     return st
@@ -483,6 +484,8 @@ def _reshape(option, state):
         return []
     if where == "under":
         return [{"type": "pillar", "item": item} for _ in range(n)]
+    if where == "roof":
+        return [{"type": "place", "item": item, "x": x, "y": y + 2, "z": z}]
     near = state.get("threats") or []
     toward = min(near, key=lambda h: math.dist((x, y, z), h[0]))[0] if near else (x + 1, y, z)
     # by block, not by centre: a mob in the same row stands at x.5 > x, and its "+1" put the block diagonal (a wall)
@@ -495,13 +498,20 @@ def _place(option, state):
         return []
     return [{"type": "place", "item": item, "x": x, "y": y, "z": z} for x, y, z in cells]
 
+def _cover(option, state):
+    x, y, z = option.target
+    brk, plc, void = nav.MOVES["evade"]
+    return [{"type": "travel", "x": x + 0.5, "y": y, "z": z + 0.5, "range": 0.4, "break": brk, "place": plc,
+             "voidBridge": void, "placeBudget": 0, "avoid": nav.avoid_cells(state.get("protected", ()), (x, y, z),
+                                                                          state["feet"])}]
+
 def _bait(option, state):
     x, y, z = option.target
     if (x, y, z) == tuple(state["feet"]):
         return [{"type": "wait", "ticks": 4}]          # hold: it closes to lit
     return _evade(option, state)
 
-BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "reshape": _reshape, "bait": _bait,
+BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "reshape": _reshape, "bait": _bait, "cover": _cover,
          "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # what a batch reads around the body, by kind; skills register theirs so this module never imports the skill library
 REGION = {}

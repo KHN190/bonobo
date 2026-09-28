@@ -1120,6 +1120,39 @@ class BaitACreeper(unittest.TestCase):
                 self.assertEqual(threat.bait_blast(d, 43.0, 0.0), want)
 
 
+class AProvokedEndermanIsEvaded(unittest.TestCase):
+    """A tall mob can't come under a 2-high roof: walk to one near, else place one over the head."""
+
+    def test_columns(self):
+        from bonobo import field
+        e = [row("minecraft:enderman", 2, 0)]
+        rows = [("a 2-high space 4 off: walk under it", (0, 64, -4), 0, ("cover", (0, 64, -4))),
+                ("none near, blocks: a roof over the head", None, 64, ("reshape", ("roof", 1))),
+                ("must fail: a zombie gets no roof", None, 64, None)]
+        for name, cover, blocks, want in rows:
+            with self.subTest(name):
+                hz = e if want is not None else [row("minecraft:zombie", 2, 0)]
+                st = {"here": HERE, "hp": 20, "sword": 0, "protection": 0.0, "blocks": blocks, "hazards": hz,
+                      "ids": [0], "field": field.Field(), "low_cover": cover}
+                got = {(o.kind, o.target) for o in threat.options(st)}
+                if want is None:
+                    self.assertNotIn(("reshape", ("roof", 1)), got)
+                else:
+                    self.assertIn(want, got)
+
+    def test_low_cover_at(self):
+        from bonobo import field
+        from tests.world import FakeRegion
+        floor = {(x, 63, z): "stone" for x in range(-8, 9) for z in range(-8, 9)}
+        rows = [("a block 2 over a cell 3 off", {**floor, (3, 66, 0): "stone"}, (3, 64, 0)),
+                ("must fail: a block 3 up is room for an enderman", {**floor, (3, 67, 0): "stone"}, None),
+                ("nothing overhead anywhere", floor, None)]
+        for name, blocks, want in rows:
+            with self.subTest(name):
+                region = FakeRegion((-8, 56, -8), (8, 72, 8), blocks)
+                self.assertEqual(field.low_cover_at(region, (0.5, 64.0, 0.5)), want)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
