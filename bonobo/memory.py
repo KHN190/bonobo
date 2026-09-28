@@ -48,8 +48,17 @@ def covered(row, kinds, tick):
             return False
     return True
 
-def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12):
-    """Pure: sections to look next for `kinds`, nearest first, at each kind's own height, never or long ago looked over."""
+def out_of_look(skips, section, kinds, tick):
+    """Pure: `section` was found out of look range from any reachable stand, recently enough for `kinds` (the absent
+    TTL): a skip for the search, never a look — the section is not answered."""
+    t = (skips or {}).get(section)
+    if t is None:
+        return False
+    return tick is None or all(tick - t <= absent_ttl(k) for k in kinds)
+
+def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12, skips=None):
+    """Pure: sections to look next for `kinds`, nearest first, at each kind's own height, never or long ago looked
+    over — and not out of look range from any reachable stand lately (`skips`)."""
 
     hx, hy, hz = section_of(here)
     layers = {(hy if band(k) is None else int(band(k)) // SECTION) for k in kinds}
@@ -59,7 +68,7 @@ def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12):
         for dx in range(-radius, radius + 1):
             for dz in range(-radius, radius + 1):
                 s = (hx + dx, cy, hz + dz)
-                if s != (hx, hy, hz) and not covered(smap.get(s), want, tick):
+                if s != (hx, hy, hz) and not covered(smap.get(s), want, tick) and not out_of_look(skips, s, want, tick):
                     out.add(s)
     return sorted(out, key=lambda s: (math.dist(s, (hx, hy, hz)), s))
 
@@ -379,7 +388,15 @@ class Memory:
     def frontier(self, dimension, here, kinds, band=lambda kind: None):
         """[(section, centre)] to look next for `kinds` from `here`, nearest first."""
 
-        return [(s, section_centre(s)) for s in frontier(self.section_map(dimension), here, kinds, self.clock, band)]
+        skips = {tuple(map(int, k.split(","))): t
+                 for k, t in self.data.get("out_of_look", {}).get(dimension, {}).items()}
+        return [(s, section_centre(s))
+                for s in frontier(self.section_map(dimension), here, kinds, self.clock, band, skips=skips)]
+
+    def skip_section(self, dimension, section):
+        """`section` is out of look range from any reachable stand (a band far under the ground we stand on): the
+        search skips it until its absence TTL runs out. Not a look: nothing is recorded as seen or looked over."""
+        self.data.setdefault("out_of_look", {}).setdefault(dimension, {})[",".join(map(str, section))] = self.clock
 
     def section_map(self, dimension):
         """{(cx, cy, cz): {"t", "kinds"}} of this dimension (`frontier` reads it)."""

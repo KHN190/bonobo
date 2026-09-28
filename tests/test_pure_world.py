@@ -789,6 +789,35 @@ class Frontier(unittest.TestCase):
                 got = memory.frontier(smap, self.HERE, kinds, 1000, band=lambda k, b=band: b, radius=1)
                 self.assertEqual(got[0] if got else [], want)
 
+    def test_out_of_look_is_a_skip_not_a_look(self):
+        """A band section out of look range from any reachable stand is skipped for the search, never "looked over";
+        one a stand within look radius reaches is looked at and answered."""
+        from bonobo import explore, memory
+        band = (0, -4, 0)                                  # y -58 under a y 70 stand
+        rows = [("surface stand, the band 128 below: skipped, not answered", 70, -56, "skip", False, True),
+                ("a stand within look radius (a cave floor near the band): looked, answered", -40, -56, "look", True,
+                 False),
+                ("must fail: a skip is not a look — the section stays unanswered for a later search", 70, -56, "skip",
+                 False, True),
+                ("a dig-down stand counts where the search may dig", 70, -56, "dig", True, False)]
+        for name, stand_y, band_y, how, answered, skipped in rows:
+            with self.subTest(name):
+                m = self.mem()
+                reach = explore.stand_in_look_range(stand_y, band_y, 48, can_dig=how == "dig")
+                self.assertEqual(reach, how != "skip")
+                if reach:
+                    m.see_sections("minecraft:overworld", (8, band_y, 8), 0, {}, [self.D])
+                else:
+                    m.skip_section("minecraft:overworld", band)
+                smap = m.section_map("minecraft:overworld")
+                self.assertEqual(memory.covered(smap.get(band), [self.D], m.clock), answered)
+                left = [s for s, _c in m.frontier("minecraft:overworld", self.HERE, [self.D], band=lambda k: -56)]
+                self.assertEqual(band not in left, answered or skipped)
+                if skipped:
+                    self.assertTrue(memory.out_of_look({band: m.clock}, band, [self.D], m.clock))
+                    self.assertFalse(memory.out_of_look({band: m.clock}, band, [self.D],
+                                                        m.clock + memory.absent_ttl(self.D) + 1))    # expires
+
     def test_ttl_by_class(self):
         from bonobo import memory
         row = {"t": 0, "kinds": {}, "looked": {"diamond_ore": 0, "sheep": 0}}

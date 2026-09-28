@@ -38,6 +38,11 @@ def _ground(tx, tz, y):
     col = Region((tx, y - 40, tz), (tx, y + 20, tz))
     return nav.ground_in_column(col.solid, tx, tz, y, span=40)
 
+def stand_in_look_range(stand_y, band_y, radius, can_dig):
+    """Pure: a look can cover a section at `band_y` — from the ground stood on (within `radius`), or from a stand dug
+    down to it (a dig-down stand counts when digging is allowed)."""
+    return abs(stand_y - band_y) <= radius or bool(can_dig)
+
 def _search(ctx, kinds, look, radius, legs):
     """Look, then walk to the nearest section not yet looked over for `kinds` at their own depth, and look again."""
 
@@ -53,14 +58,18 @@ def _search(ctx, kinds, look, radius, legs):
             ty = _ground(tx, tz, sy)          # a cave floor counts: the column's ground near the band's height
             if ty is None:
                 continue
+            if not stand_in_look_range(ty, sy, radius, can_dig=False):     # a search walks, never digs down
+                # the band lies past a look's reach from the column's ground (coal's y 48 under a y 200 floor) and no
+                # stand down there is reachable: a skip for this search, never "looked over" (no look happened) —
+                # before, every leg walked there and re-picked it (×6, 20 s)
+                ctx.mem.skip_section(ctx.dimension, section)
+                log(f"   looking for {bare(kinds[0])}: section {section} lies {abs(ty - sy)} blocks under the ground at "
+                    f"({tx}, {ty}, {tz}), out of a look's reach with no stand down there: skipped")
+                continue
             tried += 1
             log(f"   looking for {bare(kinds[0])}: heading to section {section} ({tx}, {ty}, {tz})")
             if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")):
                 target = (tx, ty, tz)          # looking: walk, never dig
-                if abs(feet()[1] - sy) > radius:
-                    # stood over the section but its band lies past a look's reach (coal's y 48 under a y 200 floor):
-                    # answered from here — else the look below never covers it and the next leg re-picks it (×6, 20 s)
-                    ctx.mem.see_sections(ctx.dimension, (tx, sy, tz), 0, {}, kinds)
                 break
             # out of reach from here (walled in: the frontier lies past the walls) — the next candidate, never the
             # same one again next leg (a sealed bench arena walked into its walls six times, 20 s)
