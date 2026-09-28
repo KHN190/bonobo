@@ -92,6 +92,7 @@ def note_threats(near, now=None, here=None):
     now = now if now is not None else _t.time()
     threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here)
     threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
+    threat.THREAT_ALIVE = threat.alive_ids(near)
     threat.THREAT_AT = now
     return threat.THREAT_ROWS
 

@@ -575,15 +575,21 @@ def hp_seconds(s, dhp):
     return round(p * (_T["death_cost_s"] + reset) + (1.0 - p) * margin, 1)
 
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
+THREAT_ALIVE: set = set()   # every living entity id the last reading listed (x-ray: an occluded mob is still there)
 
 
 def _forget_threats():
     """The last life's threats (their ids, their rows) are nobody's now."""
-    global THREAT_ROWS, THREAT_IDS, THREAT_AT
-    THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
+    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE
+    THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE = [], [], 0.0, set()
 
 
-lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT"))
+lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE"))
+
+def alive_ids(near):
+    """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""
+    return {e.get("id") for e in near or [] if e.get("id") is not None
+            and (e.get("health") is None or float(e["health"]) > 0)}
 
 def threats_seen(max_age_s=3.0, now=None):
     """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""

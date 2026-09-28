@@ -267,7 +267,8 @@ def threat_state(state, rows, work_s=None, ids=()):
           "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
           "golden_apples": int(state.get("golden_apples", 0)), "hunger": float(state.get("food", 20)),
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok")),
-          "footing": state.get("footing"), "hold_use": "hold_use" in nav.mod_features()}
+          "footing": state.get("footing"), "hold_use": "hold_use" in nav.mod_features(),
+          "alive": set(threat.THREAT_ALIVE) | {i for i in ids if i is not None}}
     if work_s is not None:
         st["work_s"] = work_s
     return st
@@ -355,12 +356,13 @@ def still_worth(choice, field_model, price, horizon):
     if same is None:
         return False
     held = getattr(choice.action, "option", None)
-    ids = (getattr(field_model, "field", None) or {}).get("ids") or []
-    if held is not None and held.target is not None and held.target not in ids:
-        # the held answer names a mob this reading no longer has (it died): the same kind against a stale entity
-        # id is 'target not found' every half second (fight_zombie_1 20260928-230218) — decide again. A mob still
-        # here is kept though another is nearer now: switching on "nearest" /stopped the attack on a hurt zombie
-        # and left the body idle between the stop and the next post (fight_zombie_3 23:49:29-33, 0.4 s)
+    alive = (getattr(field_model, "field", None) or {}).get("alive") or set()
+    if held is not None and held.kind in TARGETED and held.target is not None and held.target not in alive:
+        # the held attack names a mob the reading no longer lists alive (dead, despawned, out of radius — the list
+        # is x-ray, so one behind a wall stays): 'target not found' every half second (fight_zombie_1
+        # 20260928-230218) — decide again. A mob still there is kept though another is nearer (fight_zombie_3
+        # 23:49:29-33: the switch left 0.4 s idle). A position target (a reshape, an evade spot) is never an id:
+        # checked against the ids it dropped every held wall and pillar each bid (escape__walker_open_blocks 01:38)
         return False
     if held is not None and held.target is None and held.kind in TARGETED:
         # an attack naming no mob cannot be posted (the jar needs its entity id): never kept, decided again on a

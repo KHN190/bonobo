@@ -592,24 +592,25 @@ class StillWorth(unittest.TestCase):
             ("answer gone", "fight", model(ignore, opt("evade", seconds=1)), False),
             ("no do-nothing column", "fight", model(opt("fight", seconds=1)), False),
         ]
-        # the held answer's target against this reading's ids: gone → decide again; still here → kept, though the
-        # nearest is another now (switching left the body idle between the /stop and the next post)
-        targets = [("must fail: the held target is gone from the reading (a stale entity id)", [42], False),
-                   ("the held target still here, another nearest now: kept", [42, 41], True),
-                   ("the held target the only one: kept", [41], True),
-                   ("no ids read: gone", [], False)]
-        for name, ids, want in targets:
+        # the held answer's target against the entities the reading lists alive: an attack's mob gone → decide again;
+        # still listed (x-ray: behind a wall too) → kept, though another is nearest; a position target is no id
+        targets = [("must fail: the held mob is gone from the reading (dead, despawned)", "fight", 41, {42}, False),
+                   ("the held mob still listed, another nearest now: kept", "fight", 41, {42, 41}, True),
+                   ("behind a wall: out of the rows but listed alive — kept", "fight", 41, {41}, True),
+                   ("a wall's position target is never read as a gone id", "reshape", ("between", 2), set(), True),
+                   ("an evade spot neither", "evade", (3, 64, 0), set(), True)]
+        for name, kind, target, alive, want in targets:
             with self.subTest(name):
-                held = SimpleNamespace(name="fight", action=SimpleNamespace(option=opt("fight", target=41)))
-                fm = model(ignore, opt("fight", seconds=2, hp=1, target=ids[0] if ids else None))
-                fm.field = {"ids": ids}
+                held = SimpleNamespace(name=kind, action=SimpleNamespace(option=opt(kind, target=target)))
+                fm = model(ignore, opt(kind, seconds=2, hp=1, target=target))
+                fm.field = {"alive": alive}
                 self.assertEqual(fight_loop.still_worth(held, fm, price, 10.0), want)
         for name, choice, fm, want in rows:
             with self.subTest(name):
                 # the held choice as kernel.Held keeps it: its name and the action carrying the option it chose (an
                 # attack names its mob, 41, and this reading still has it)
                 held = SimpleNamespace(name=choice, action=SimpleNamespace(option=opt(choice, target=41)))
-                fm.field = {"ids": [41]}
+                fm.field = {"alive": {41}}
                 self.assertEqual(fight_loop.still_worth(held, fm, price, 10.0), want)
         with self.subTest("must fail: a held fight naming no mob is never kept (attack(entity=None) cannot post)"):
             held = SimpleNamespace(name="fight", action=SimpleNamespace(option=opt("fight")))
