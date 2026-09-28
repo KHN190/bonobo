@@ -1528,6 +1528,8 @@ WORLD_LEFT.update({
                                            if x in (0, 3) or y in (64, 68)]))),
     "collect_blaze_rods": (_with(4, base=0), lambda: body(inv=inventory(("blaze_rod", 1))),
                            lambda: body(inv=inventory(("blaze_rod", 4)))),
+    "await_job": (_with("minecraft:wheat", 3, base=0),
+                  lambda: body(inv=inventory(("wheat", 1))), lambda: body(inv=inventory(("wheat", 3)))),
     "collect_job": (_with({"item": "minecraft:iron_ingot", "count": 3}, base=0),
                     lambda: body(inv=inventory(("iron_ingot", 1))), lambda: body(inv=inventory(("iron_ingot", 3)))),
     "collect_machine": (_with({"name": "m1"}), lambda: body(machines=[{"name": "m1", "pending": [{"count": 8}]}]),
