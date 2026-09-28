@@ -657,7 +657,9 @@ def break_caged_crystal(ctx, crystal):
             log(f"   no water under our feet ({e}): hitting the crystal anyway")
     for _ in range(3):
         try:
-            api.run({"type": "attack", "entity": crystal["id"]}, wait=6, awaits="the crystal gone (entity list) after each hit")
+            hit = {"type": "attack", "entity": crystal["id"]}
+            hit = api.ARM([hit], inv=inv, read_blocks=False)[0] if api.ARM else hit      # the bag this fight holds
+            api.run(hit, wait=6, awaits="the crystal gone (entity list) after each hit")
         except api.TaskStuck:
             pass                     # out of reach for a moment: step closer and try again
         api.run({"type": "wait", "ticks": 10}, wait=5, awaits="the dragon's next reading decides the next move")
