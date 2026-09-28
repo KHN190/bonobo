@@ -2,11 +2,12 @@
 
 import math
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import bag as _bag
 from . import api, nav, world
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import BASE_MARKERS, GROUPS, MARKER_WEIGHT, PLACEABLE_AS, bare, mid
-from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, find
+from .world import BAG_SLOTS, Inventory, Region, add, find
 from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
 from .skillcore import feet, close_screen, free_spots_here, place, lost
@@ -48,7 +49,7 @@ def tidy_inventory(ctx):
     yaw = {(1, 0): -90.0, (-1, 0): 90.0, (0, 1): 0.0, (0, -1): 180.0}[direction]
     api.run({"type": "look", "yaw": yaw, "pitch": 0}, wait=5, awaits="facing the open side before the throw clicks (UI, not tasks)")
     for s in throw:
-        api.post("/click", {"slot": screen_slot(s["slot"]), "button": 1, "action": "THROW"})
+        api.post("/click", _bag.throw(s["slot"]))
         yield s["slot"]
     log(f"threw away {len(throw)} stacks toward {direction}: {sorted({bare(s['id']) for s in throw})}")
     # step away from the drops before the pickup delay ends
@@ -149,7 +150,7 @@ def deposit(ctx, local_only=False):
         for s in moving:
             v = view.get(s["slot"])
             if v and v["id"] == s["id"]:
-                api.post("/click", {"slot": v["slot"], "button": 0, "action": "QUICK_MOVE"})
+                api.post("/click", _bag.quick_move(v["slot"]))
         ctx.mem.note_container(c, ctx.dimension, world.container()["slots"])
     finally:
         api.post("/close")
@@ -175,7 +176,7 @@ def withdraw(ctx, item, count, pos):
             if left <= 0:
                 break
             if s["owner"] != "player" and s["id"] == item:
-                api.post("/click", {"slot": s["slot"], "button": 0, "action": "QUICK_MOVE"})
+                api.post("/click", _bag.quick_move(s["slot"]))
                 left -= int(s.get("count", 1))
         ctx.mem.note_container(pos, ctx.dimension, world.container()["slots"])
     finally:

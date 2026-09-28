@@ -1,6 +1,7 @@
 """Screens with buttons (mod ≥ 0.1.23: /button, /trade, /rename and container details): enchanting, villager trades, anvils. Pure choosers (`choose_enchant`, `choose_trade`, `anvil_ok`) are offline-tested; skills open the block/villager, arrange slots with /click and press the buttons. Container JSON extras: enchanting → "enchant": [{"cost", "id", "level"}×3] and "lapis"; merchant → "offers": [{"buy", "buyCount", "buy2", "buy2Count", "sell", "sellCount", "disabled"}]; anvil → "levelCost"."""
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import bag as _bag
 from . import knowledge as K
 from . import api
 from .api import NotAvailable, log
@@ -78,8 +79,8 @@ def enchant_item(ctx, item):
                 raise NotAvailable("no affordable enchantment offered (more bookshelves or levels needed)")
             api.post("/button", {"id": pick})
             yield pick
-            api.post("/click", {"slot": 0, "button": 0, "action": "QUICK_MOVE"})
-            api.post("/click", {"slot": 1, "button": 0, "action": "QUICK_MOVE"})
+            api.post("/click", _bag.quick_move(0))
+            api.post("/click", _bag.quick_move(1))
         finally:
             api.post("/close")
     log(f"enchanted {item.split(':')[1]} (option {pick + 1})")
@@ -107,7 +108,7 @@ def trade(ctx, want):
             raise NotAvailable(f"this villager has no affordable {want.split(':')[1]} trade")
         api.post("/trade", {"index": index})
         yield index
-        api.post("/click", {"slot": 2, "button": 0, "action": "QUICK_MOVE"})
+        api.post("/click", _bag.quick_move(2))
     finally:
         api.post("/close")
     log(f"traded for {want.split(':')[1]}")
@@ -144,9 +145,9 @@ def anvil_repair(ctx, item, material):
             cost = container().get("levelCost", 0)
             if not anvil_ok(cost, xp):
                 raise NotAvailable(f"anvil cost {cost} levels, have {xp}")
-            api.post("/click", {"slot": 2, "button": 0, "action": "QUICK_MOVE"})
+            api.post("/click", _bag.quick_move(2))
             for slot in (0, 1):
-                api.post("/click", {"slot": slot, "button": 0, "action": "QUICK_MOVE"})
+                api.post("/click", _bag.quick_move(slot))
         finally:
             api.post("/close")
     log(f"repaired {item.split(':')[1]} at an anvil ({cost} levels)")

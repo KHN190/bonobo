@@ -12,6 +12,7 @@ import threading
 import time
 
 from ..api import McError
+from .core import bag_now
 from .core import (BENCH, BOX, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
 
@@ -578,7 +579,7 @@ def _setup_raw(sc, dim, moved, lo, hi, ex, feedback):
             raise SetupInvalid(bad)
     if sc.get("expect_gear"):
         from ..world import Inventory
-        bad = gear_mismatches(Inventory(), sc["expect_gear"])
+        bad = gear_mismatches(bag_now(), sc["expect_gear"])
         if bad:
             raise SetupInvalid("; ".join(bad))
 
@@ -645,7 +646,7 @@ def _setup_settled(sc, lo, hi, ex, feedback):
                 for m in [entity_mismatch(t, n, want, most[0] if most else None)] if m]
         if sc.get("expect_gear"):
             from ..world import Inventory
-            ents += gear_mismatches(Inventory(), sc["expect_gear"])
+            ents += gear_mismatches(bag_now(), sc["expect_gear"])
         s = api.get("/state")
         if not ents and s.get("health", 0) >= 18:
             break
@@ -669,7 +670,7 @@ def _trace(stop, out):
 def _report(name, data):
     from ..world import Inventory, Region
     try:
-        data["inventory"] = [(s["id"], s["count"]) for s in Inventory().slots]
+        data["inventory"] = [(s["id"], s["count"]) for s in bag_now().slots]
         lo, hi = at(*BOX[0]), at(*BOX[1])
         data["region"] = [[*p, n] for p, n in Region(lo, hi).blocks.items()]
     except McError as e:
@@ -759,7 +760,7 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
     from ..world import Inventory
     ok = False
     try:
-        inv_after = Inventory()
+        inv_after = bag_now()
         reached = bool(sc["check"](api, inv_after))
         CHECK_READOUT.clear()
         if not reached:
@@ -926,7 +927,7 @@ def run_idle(name, make_ctx):
             from .words.checks import BASE, FAILED_AS_EXPECTED
             if sc.get("fails"):
                 FAILED_AS_EXPECTED[BASE.get("name", name)] = "idle: the expected failure granted"
-            inv = Inventory()
+            inv = bag_now()
             try:
                 reached = bool(sc["check"](_api, inv))
             except Exception as e:  # guard: a check that raised is no pass, and the idle row records why

@@ -1,6 +1,6 @@
 """The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
 
-from .world import add
+from .world import add, screen_slot
 from .knowledge import ALL_FOOD, RAW_MEAT, members
 from .api import NotAvailable
 from .data import VALUABLES
@@ -262,3 +262,14 @@ def refused(cells, refused_before, jar_digs):
 def bag_signature(inv):
     """What the bag holds, exactly: a change the plan did not make is an event."""
     return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
+
+
+# -- the /click bodies that drop a bag stack or move one between the bag and an open container: built here only
+def throw(slot, one=False):
+    """Pure: the /click that throws the stack in bag slot `slot` (0-35) out of the inventory screen — one item of
+    it when `one` (button 0), else the whole stack (button 1)."""
+    return {"slot": screen_slot(slot), "button": 0 if one else 1, "action": "THROW"}
+
+def quick_move(screen):
+    """Pure: the /click that shift-moves the stack at `screen` (the open screen's own slot id) to the other side."""
+    return {"slot": screen, "button": 0, "action": "QUICK_MOVE"}

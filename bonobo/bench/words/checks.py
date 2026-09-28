@@ -11,6 +11,7 @@ import threading as _threading
 import time
 
 from ... import estimate, paths  # noqa: F401
+from ..core import bag_now
 import importlib
 import json
 import math
@@ -49,8 +50,13 @@ def _skill(name):
     return REGISTRY[name].runner
 
 def _inv_now():
+    return bag_now()
+
+def _base_bag():
+    """The bag the run started from (BASE["inv"]): as read by bag_now, or a recorded /inventory answer."""
     from ...world import Inventory
-    return Inventory()
+    got = BASE["inv"]
+    return Inventory(got) if isinstance(got, dict) else got
 
 def _start(name):
     """`before` hook head: forget the last run's verdicts and remember the bag and body this run starts from."""
@@ -60,12 +66,12 @@ def _start(name):
         INTERRUPTS[name] = 0
         RESUMED_LEFT.pop(name, None)
         BASE.clear()
-        BASE.update(name=name, inv=api.get("/inventory"), state=api.get("/state"), t=time.time())
+        BASE.update(name=name, inv=bag_now(), state=api.get("/state"), t=time.time())
     return hook
 
 def _base_count(token):
     from ...world import Inventory
-    return Inventory(BASE["inv"]).count(token) if BASE.get("inv") else 0
+    return _base_bag().count(token) if BASE.get("inv") else 0
 
 # -- checks: what the world must show afterwards
 def _gain(token, n, at_most=None):
@@ -79,7 +85,7 @@ def _same_bag_and_place(r=1.5):
     """Goal already met: nothing taken, nothing spent, the body did not wander off."""
     def check(api, inv):
         from ...world import Inventory
-        before = sorted((s["id"], s["count"]) for s in Inventory(BASE["inv"]).slots)
+        before = sorted((s["id"], s["count"]) for s in _base_bag().slots)
         after = sorted((s["id"], s["count"]) for s in inv.slots)
         s0, s1 = BASE["state"], api.get("/state")
         return before == after and math.dist((s0["x"], s0["y"], s0["z"]), (s1["x"], s1["y"], s1["z"])) <= r
@@ -103,7 +109,7 @@ def _same_bag():
     """Nothing taken, nothing spent: the bag reads as it did at the start."""
     def check(api, inv):
         from ...world import Inventory
-        before = sorted((s_["id"], s_["count"]) for s_ in Inventory(BASE["inv"]).slots)
+        before = sorted((s_["id"], s_["count"]) for s_ in _base_bag().slots)
         return before == sorted((s_["id"], s_["count"]) for s_ in inv.slots)
     return check
 
@@ -163,8 +169,8 @@ def _food_up():
     def check(api, inv):
         from ...knowledge import ALL_FOOD
         from ...world import Inventory
-        inv = inv if inv is not None else Inventory()
-        before = Inventory(BASE["inv"])
+        inv = inv if inv is not None else bag_now()
+        before = _base_bag()
         return fed_as_needed(BASE.get("food_before", BASE["state"]["food"]), {f: before.count(f) for f in ALL_FOOD},
                              api.get("/state")["food"], {f: inv.count(f) for f in ALL_FOOD})
     return check

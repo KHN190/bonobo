@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 from ... import estimate, paths  # noqa: F401
+from ..core import bag_now
 import importlib
 import json
 import math
@@ -210,7 +211,7 @@ def _combat_execute(seconds, until=None, cell=None):
     if not perception.watching():
         raise SetupInvalid("the threat layer is not running: nothing would answer, and nothing would be measured")
     mark = len(perception.ANSWERED)
-    began, worst = time.time(), Snapshot.from_readings(api.get("/state"), Inventory()).state["health"]
+    began, worst = time.time(), Snapshot.from_readings(api.get("/state"), bag_now()).state["health"]
     trace, stop = [], threading.Event()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)
     watcher.start()
@@ -219,7 +220,7 @@ def _combat_execute(seconds, until=None, cell=None):
     # layer answers from the perception thread as always
     try:
         while time.time() - began < seconds and (until is None or until()):
-            state = Snapshot.from_readings(api.get("/state"), Inventory()).state
+            state = Snapshot.from_readings(api.get("/state"), bag_now()).state
             worst = min(worst, state["health"])
             if state["health"] <= 0:
                 break
@@ -262,10 +263,10 @@ def _fought(kinds, seconds):
     def record(cell):
         from ... import api
         from ...world import Inventory, Snapshot
-        before = Snapshot.from_readings(api.get("/state"), Inventory())
+        before = Snapshot.from_readings(api.get("/state"), bag_now())
         intent = _combat_intent(dict(before.state))
         answered, worst, took, trace = _combat_execute(seconds, cell=cell)
-        after = Snapshot.from_readings(api.get("/state"), Inventory())
+        after = Snapshot.from_readings(api.get("/state"), bag_now())
         near = _hostiles(radius=24, kinds=kinds(cell))
         # a window blind too long is not evidence
         dark = blind_s(answered, took)
@@ -445,7 +446,7 @@ def _walled(row):
 def _offhand_shield():
     from ...data import bare
     from ...world import Inventory
-    return bare((Inventory().equipment.get("offhand") or {}).get("id", "")) == "shield"
+    return bare((bag_now().equipment.get("offhand") or {}).get("id", "")) == "shield"
 
 def _less_hurt_than(row, control):
     base = _last(f"combat__{control}")
@@ -522,7 +523,7 @@ def _record_with_start(record):
     def rec(cell):
         from ... import api
         from ...world import Inventory, Snapshot
-        y = Snapshot.from_readings(api.get("/state"), Inventory()).state["y"]
+        y = Snapshot.from_readings(api.get("/state"), bag_now()).state["y"]
         return dict(record(cell), trace_start_y=y)
     return rec
 

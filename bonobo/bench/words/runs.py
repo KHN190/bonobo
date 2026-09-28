@@ -11,6 +11,7 @@ import threading as _threading
 import time
 
 from ... import estimate, paths  # noqa: F401
+from ..core import bag_now
 import importlib
 import json
 import math
@@ -92,7 +93,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
                     core.BRAIN.round()
                 except api.McError as e:
                     api.log(f"!! round: {e}")
-                s = Snapshot.from_readings(api.get("/state"), Inventory())
+                s = Snapshot.from_readings(api.get("/state"), bag_now())
                 positions.append((time.time(), s.feet))
                 if core.BRAIN.idle_since:
                     idle = max(idle, time.time() - core.BRAIN.idle_since)
@@ -148,12 +149,12 @@ def _slice_check(done, max_idle=15, max_loops=0):
 
 def _has_stone_pickaxe():
     from ...world import Inventory
-    return Inventory().count("minecraft:stone_pickaxe") >= 1
+    return bag_now().count("minecraft:stone_pickaxe") >= 1
 
 def _nether_kit_ready():
     from ...knowledge import nether_kit_missing
     from ...world import Inventory
-    return not nether_kit_missing(Inventory())
+    return not nether_kit_missing(bag_now())
 
 def _in_overworld():
     from ... import api
@@ -399,7 +400,7 @@ def _plan_is_empty(needs):
         from ...cost import Cost
         from ... import api
         from ...world import Inventory, Snapshot
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        snap = Snapshot.from_readings(api.get("/state"), bag_now())
         steps = decompose.decompose(snap.inv, goals.have(*needs), Cost(snap, ctx.mem))
         if steps:
             raise api.McError(f"goal already met, but planned {' → '.join(map(str, steps))}")
@@ -452,7 +453,7 @@ def _eat_target(ctx):
     """`before` hook (after the drain): the eat row's target from the bar and the bag it starts with."""
     from ...world import Inventory
     from ...knowledge import ALL_FOOD
-    inv = Inventory()
+    inv = bag_now()
     food = __import__("bonobo.api", fromlist=["get"]).get("/state")["food"]
     BASE["target_s"] = eat_target_s(food, {f: inv.count(f) for f in ALL_FOOD})
 

@@ -92,7 +92,7 @@ def _achieve(ctx, needs, done, rounds=12):
     for _ in range(rounds * 4):
         if done():
             return True
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        snap = Snapshot.from_readings(api.get("/state"), bag_now())
         pending = brain.mem.jobs(snap.dimension)
         from .. import world as _world
         ready = [j for j in pending if _world.job_ready(j, snap.state.get("gameTime"))]
@@ -114,7 +114,7 @@ def _achieve(ctx, needs, done, rounds=12):
 
 def _inv_has(item, n):
     from ..world import Inventory
-    return lambda: Inventory().count(item) >= n
+    return lambda: bag_now().count(item) >= n
 
 # the engine under every sweep bench: cells, their build commands, what a row records, rules over the table
 
@@ -224,6 +224,11 @@ def _send(cmds, expect, wait):
             if len(lines) >= expect:
                 break
     return lines
+
+def bag_now():
+    """The bag as the game reports it now — the bench's one bag read (world.Inventory is the only /inventory caller)."""
+    from ..world import Inventory
+    return Inventory()
 
 def _command(cmd, feedback, timeout=REPLY_WAIT_S):
     """Send one command and wait for its chat feedback in the client log; returns the new chat lines."""

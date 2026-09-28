@@ -5,6 +5,7 @@ helpers') are reached through here too: `from bonobo.bench import table as sheet
 import importlib
 from typing import Any
 from . import core, vocab
+from .core import bag_now
 from .vocab import *  # noqa: F401,F403  (the sheet's names: the runner's, the primitives', the helpers')
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
@@ -73,7 +74,7 @@ def _pred(kind, args):
         def now():
             from .. import api
             from ..world import Inventory
-            return p(api, Inventory())
+            return p(api, bag_now())
         return now
     f = vocab.PREDICATES[kind]
     vals = [dec(a) for a in args]

@@ -4,10 +4,10 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, blueprints, nav, skillcore
+from . import api, bag as _bag, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .world import Inventory, entities, find, screen_slot, container
+from .world import Inventory, entities, find, container
 from .knowledge import food_count
 
 OVERWORLD = "minecraft:overworld"
@@ -197,7 +197,7 @@ def barter_piglin(ctx, ingots=8):
             if slot is None:
                 break
             api.run({"type": "look", "x": p["x"], "y": p["y"] + 0.5, "z": p["z"]}, wait=5, awaits="the throw is a UI click (/click), not a task: look, then click")
-            api.post("/click", {"slot": screen_slot(slot), "button": 0, "action": "THROW"})
+            api.post("/click", _bag.throw(slot, one=True))
             thrown += 1
         if not Inventory().count("minecraft:gold_ingot") and thrown < ingots:
             thrown = ingots

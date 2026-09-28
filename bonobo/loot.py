@@ -3,6 +3,7 @@
 import math
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import bag as _bag
 from . import api, nav, skillcore
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
@@ -62,7 +63,7 @@ def loot_chest(ctx):
     try:
         from .world import container
         for slot in loot_plan(container()["slots"], prices, Inventory().free_slots()):
-            api.post("/click", {"slot": slot, "button": 0, "action": "QUICK_MOVE"})
+            api.post("/click", _bag.quick_move(slot))
             taken += 1
             yield taken
         ctx.mem.note_container(pos, ctx.dimension, container()["slots"])

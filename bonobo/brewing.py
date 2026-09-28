@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import bag as _bag
 from . import api, nav, skillcore, fluids
 from .api import NotAvailable, log
 from .skill import skill
@@ -110,7 +111,7 @@ def brew_fire_resistance(ctx):
                        lambda n: n == 0, timeout=25, stable_s=1.0)
                 yield None
             for i in range(3):
-                api.post("/click", {"slot": i, "button": 0, "action": "QUICK_MOVE"})
+                api.post("/click", _bag.quick_move(i))
         finally:
             api.post("/close")
     log("brewed fire resistance potions")

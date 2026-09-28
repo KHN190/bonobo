@@ -3,6 +3,7 @@
 import math
 import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import bag as _bag
 from . import knowledge as K
 from . import api, nav, world
 from .api import McError, NotAvailable, log
@@ -267,7 +268,7 @@ def craft_commands(state, args):
 def room_clicks(slots, need, price=None):
     """Pure: the /click bodies that throw the `need` least valuable stacks (bag.free_slots_plan: priced by what
     each costs to get again) — room for a result that needs a slot."""
-    return [{"slot": screen_slot(s["slot"]), "button": 1, "action": "THROW"}
+    return [_bag.throw(s["slot"])
             for s in free_slots_plan(slots, need=need, price=price)[:need]]
 
 def make_bag_room(ctx, need):
@@ -377,7 +378,7 @@ def smelt(ctx, output, input_token, count, fuel):
                 api.waiting_for_clock(10 * (loaded - made))     # 10 s an item: only the clock is waited on
                 time.sleep(3)
         finally:
-            api.post("/click", {"slot": 2, "button": 0, "action": "QUICK_MOVE"})
+            api.post("/click", _bag.quick_move(2))
 
 # every smelt runs in the background: standing at a furnace was the iron bench's main time sink
 ASYNC_SMELT_MIN = 1
@@ -508,7 +509,7 @@ def collect_job(ctx, job):
         slots = _furnace_slots()
         still_cooking = slots.get(0, 0)
         for slot in (2, 0, 1) if not still_cooking else (2,):
-            api.post("/click", {"slot": slot, "button": 0, "action": "QUICK_MOVE"})
+            api.post("/click", _bag.quick_move(slot))
         yield slots.get(2, 0)
     finally:
         api.post("/close")
@@ -562,8 +563,7 @@ def equip_armor():
             continue
         worn = bare(inv.worn(ARMOR_SLOTS[piece]))
         if worn == "air" or ARMOR_RANK.get(worn.rpartition("_")[0], -1) < ARMOR_RANK[material]:
-            api.post("/click", {"slot": screen_slot(s["slot"]), "button": 0,
-                                "action": "QUICK_MOVE"})
+            api.post("/click", _bag.quick_move(screen_slot(s["slot"])))
             log(f"equipped {bare(s['id'])}")
             changed = True
     return changed
@@ -612,7 +612,7 @@ def collect_machine(ctx, machine):
     try:
         for s in world.container()["slots"]:
             if s["owner"] != "player" and s["id"] != "minecraft:air":
-                api.post("/click", {"slot": s["slot"], "button": 0, "action": "QUICK_MOVE"})
+                api.post("/click", _bag.quick_move(s["slot"]))
     finally:
         api.post("/close")
     got = {item: gained(lambda item=item: Inventory().count(item), n) - n for item, n in before.items()}

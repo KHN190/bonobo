@@ -32,6 +32,7 @@ import re
 import sys
 import time
 from . import core, runner
+from .core import bag_now
 from ..api import McError
 from ..data import DAY_TICKS, POD_BLOCKS
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
@@ -143,7 +144,7 @@ def _portal_room_found():
 
 def _worn_head():
     from ..world import Inventory
-    return ((Inventory().equipment.get("head") or {}).get("id") or "")
+    return ((bag_now().equipment.get("head") or {}).get("id") or "")
 
 def _wait_landed(ctx, seconds=10):
     from .. import api

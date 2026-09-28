@@ -11,6 +11,7 @@ import threading as _threading
 import time
 
 from ... import estimate, paths  # noqa: F401
+from ..core import bag_now
 import importlib
 import json
 import math
@@ -40,7 +41,7 @@ def _fill_bag(free, item="dirt", stack=64):
     """`before` hook: fill the bag with `item` until `free` slots are left (the kit the setup gave stays)."""
     def hook(ctx):
         from ...world import Inventory
-        room = Inventory().free_slots() - free
+        room = bag_now().free_slots() - free
         if room > 0:
             _chat(f"give @p {item} {room * stack}")
             time.sleep(0.5)
@@ -126,7 +127,7 @@ def _first_times(ctx):
         from ...world import Inventory
         while time.time() - t0 < 70:
             try:
-                inv = Inventory()
+                inv = bag_now()
             except McError:
                 time.sleep(0.5)
                 continue
@@ -443,7 +444,7 @@ def _blocked_toward(pos):
         from ... import retry
         from ... import api
         from ...world import Inventory, Snapshot
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        snap = Snapshot.from_readings(api.get("/state"), bag_now())
         core.BRAIN.reflexes.blocked = {"t": time.time(), "place": retry.place_signature(snap.feet, snap.night),
                                     "pos": pos}
     return hook
@@ -454,7 +455,7 @@ def _stuck_for(seconds):
         from ...needs import bag_signature
         from ... import api
         from ...world import Inventory, Snapshot
-        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        snap = Snapshot.from_readings(api.get("/state"), bag_now())
         core.BRAIN.reflexes.history = [(time.time() - seconds, snap.feet, bag_signature(snap.inv))]
     return hook
 
@@ -470,7 +471,7 @@ _st = lambda api: api.get("/state")     # noqa: E731
 def _regen_fed(api, inv):
     """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
     from ...world import Inventory
-    inv = inv if inv is not None else Inventory()
+    inv = inv if inv is not None else bag_now()
     return inv.count("minecraft:bread") < 4 and api.get("/state")["food"] >= 18
 
 # the night's shelter by what the bag allows; a bed makes none of them (must not)
