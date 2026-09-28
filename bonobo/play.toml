@@ -48,7 +48,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
              
               "attack_s", "speed", "exists_prior",
              
-              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
+              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
@@ -111,6 +111,7 @@ block_s = 0.6              # placing one block in the way
 dig_s = 0.9                # digging one block down, out of sight
 hide_per_block = 0.45      # of an archer's fire that a block of depth takes out of the line
 melee_stop_blocks = 2      # blocks of height or depth that put us out of a walking mob's reach entirely
+survive_margin_hp = 1.0    # an answer must leave at least this much health after what it expects to lose while under way
 shape_min_gain = 0.1       # a shape must cut this share of the pressure to be worth offering at all      # of what is coming at us that a block of height or depth takes out of the line
 interrupt_ttd_s = 4.0      # perception stops a task only when death is closer than one planning round      # perception interrupts a task when death is this close at the current pressure
 

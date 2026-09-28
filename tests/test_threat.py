@@ -589,6 +589,27 @@ class ShieldAndHole(unittest.TestCase):
 
 
 
+class EveryColumnMustBeSurvivable(unittest.TestCase):
+    """One veto for every column (`threat.survivable`): what an answer expects to lose over its own seconds stays
+    under the health we have. Only the fight had it; a 1.2 s pillar at 3.1 hp beside three zombies was offered."""
+
+    def test_offered_over_the_table(self):
+        from bonobo import field
+        crowd = [row("minecraft:zombie", 1.5, 0), row("minecraft:zombie", 0, 1.5), row("minecraft:zombie", -1.5, 0)]
+        one = [row("minecraft:zombie", 4, 0)]
+        # (name, hp, hazards, column, offered?)
+        rows = [("20 hp, three zombies beside: the pillar is on offer", 20, crowd, "reshape", True),
+                ("must fail: 3.1 hp, three zombies beside: the 1.2 s pillar is not", 3.1, crowd, "reshape", False),
+                ("20 hp, one zombie 4 off: the fight is on offer", 20, one, "fight", True),
+                ("4 hp, three zombies beside: no fight either", 4, crowd, "fight", False),
+                ("3.1 hp: carrying on is never vetoed", 3.1, crowd, "ignore", True)]
+        for name, hp, hazards, kind, offered in rows:
+            with self.subTest(name):
+                state = {"here": HERE, "hp": hp, "sword": 2, "protection": 0.0, "blocks": 5, "hazards": hazards,
+                         "ids": list(range(len(hazards))), "field": field.Field()}
+                self.assertEqual(kind in {o.kind for o in threat.options(state)}, offered)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 

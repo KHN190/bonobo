@@ -252,13 +252,12 @@ def options(state):
         t_c, lost_c = keepoff_cost(here, hazards[first], sword, prot)
         rest = [h for i, h in enumerate(hazards) if i != first]
         t_r, lost_r = fight_cost(hazards[first][0], rest, sword, prot) if rest else (0.0, 0.0)
-        if lost_c + lost_r < hp:
-            out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
-                              f"kill the creeper hit-and-back in ~{t_c}s"
-                              + (f", then {len(rest)} more" if rest else "")))
+        out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
+                          f"kill the creeper hit-and-back in ~{t_c}s"
+                          + (f", then {len(rest)} more" if rest else "")))
     t_fight, lost = fight_cost(here, hazards, sword, prot)
-    # a fight we expect to lose is not an answer
-    if not any(MOBS[h[3]].get("burst") for h in hazards) and lost + blast_here < hp:
+    # a fight we expect to lose is not an answer: `survivable` below, the same for every column
+    if not any(MOBS[h[3]].get("burst") for h in hazards):
         nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(hazards)} in ~{t_fight}s for ~{lost} hp"))
@@ -291,7 +290,14 @@ def options(state):
                                          ground=grid)
         out.append(Option("wall_in", None, round(press * wall_s + blast_here, 2), wall_s,
                           f"wall in, ~{wall_s}s exposed", leaves=round(through, 3)))
-    return out
+    return [o for o in out if survivable(o, hp)]
+
+def survivable(option, hp):
+    """Pure: the one veto every column passes — what it expects to lose over its own seconds stays under the health
+    we have, less a margin. Only the fight had it: a 1.2 s pillar at 3.1 hp beside three zombies was offered, taken,
+    and died on (fight_zombie_3). Carrying on is never vetoed: it is the account the others are priced against."""
+
+    return option.kind == "ignore" or float(option.hp) < hp - float(ENGAGE["survive_margin_hp"])
 
 def action_cost(option, price, work_s=None):
     """kernel's `cost_s` for an option: its seconds plus its health spent, priced on top of what it leaves owed — one damage price."""
