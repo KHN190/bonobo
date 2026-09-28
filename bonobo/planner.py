@@ -198,99 +198,121 @@ class Planner:
         """Ensure `n` of token will be held. `fresh` ignores current stock (a worn tool doesn't satisfy a new one)."""
         if depth > MAX_DEPTH:
             raise Unplannable(f"requirement chain too deep at {token}")
+        missing = self._from_stock(token, n, depth, fresh)
+        if missing <= 0:
+            return
+        if token == "food":
+            missing, token = self._food(missing, depth)
+            if missing <= 0:
+                return
+        src = source(token)
+        if src is None:
+            raise Unplannable(f"no known way to obtain {token}")
+        way = {"craft": self._craft, "smelt": self._smelt, "mine": self._mine, "gather": self._gather,
+               "fill": self._fill, "hunt": self._hunt, "farm": self._farm, "trade": self._trade}.get(src[0])
+        if way is None:
+            raise Unplannable(f"{token}: its only source ({src[0]}) is not one the planner plans")
+        way(src, token, missing, depth)
+
+    def _from_stock(self, token, n, depth, fresh):
+        """What is still missing of `n` after the stock is used (0 when it covers all)."""
         have = 0 if fresh else self.inv.available(token)
         if have >= n:
             self.inv.consume(token, n, awaits=depth > 0)
             self.await_first()
-            return
+            return 0
         missing = n - have
         if not fresh:
             self.inv.consume(token, have, awaits=depth > 0)
             self.await_first()
-        if token == "food":
-            # raw meat carried first: smelting is seconds, hunting minutes
-            for cooked, k in cooked_from_carried(COOKABLE_FOOD, self.inv.available, missing):
-                self.need(cooked, k, depth + 1)
-                missing -= k
-            if missing <= 0:
-                return
-            token = self.cost.cheapest_food(COOKABLE_FOOD)
-        src = source(token)
-        if src is None:
-            raise Unplannable(f"no known way to obtain {token}")
-        kind = src[0]
-        if kind == "craft":
-            _, pattern, out = src
-            times = math.ceil(missing / out)
-            for tok, per in Counter(p for p in pattern if p).items():
-                self.need(tok, per * times, depth + 1)
-            if len(pattern) == 9:
-                self.need_station("minecraft:crafting_table", depth)
-            inputs = dict(Counter(p for p in pattern if p))
-            step = Step("craft", token, times * out, {"times": times, "inputs": {t: c * times for t, c in inputs.items()}})
-            self.before(step, depth)
-            self.add_step(step)
-            self.inv.add(token, times * out)
-            self.inv.consume(token, missing)
-        elif kind == "smelt":
-            _, inp = src
-            self.need(inp, missing, depth + 1)
-            fuel = "coal" if self.inv.available("coal") * 8 >= missing or not self.inv.available("planks") else "planks"
-            self.need(fuel, math.ceil(missing / 8) if fuel == "coal" else math.ceil(missing / 1.5), depth + 1)
-            self.need_station("minecraft:furnace", depth)
-            fuel_n = math.ceil(missing / 8) if fuel == "coal" else math.ceil(missing / 1.5)
-            step = Step("smelt", token, missing, {"input": inp, "fuel": fuel, "inputs": {inp: missing, fuel: fuel_n}})
-            self.before(step, depth)
-            self.add_step(step)
-        elif kind == "mine":
-            _, blocks, tier = src
-            per = MINE_YIELD.get(mid(token), 1)
-            step = Step("mine", token, missing, {"blocks": blocks, "tier": tier, "breaks": math.ceil(missing / per)})
-            self.before(step, depth)               # the pickaxe of this tier: mine's own needs
-            self.add_step(step)
-        elif kind == "gather":
-            step = Step("gather", token, missing, {})
-            self.before(step, depth)
-            self.add_step(step)
-        elif kind == "fill":
-            _, container = src
-            step = Step("fill", token, missing, {"container": container})
-            self.before(step, depth)
-            self.need(container, 1, depth + 1)     # the empty bucket first (used up: it becomes the full one)
-            self.add_step(step)
-        elif kind == "hunt":
-            _, types = src
-            per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
-            step = Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
-                                                 "fighter": hunts_a_fighter(types)})
-            self.before(step, depth)               # a mob that hits back: a sword first (hunt's own needs)
-            self.add_step(step)
-        elif kind == "farm" and getattr(self.cost, "ripe", lambda t: 0)(token) * TAKEABLE[token]["gives"][token] \
-                >= missing:
+        return missing
+
+    def _food(self, missing, depth):
+        """(still missing, the food to get): raw meat carried first — smelting is seconds, hunting minutes."""
+        for cooked, k in cooked_from_carried(COOKABLE_FOOD, self.inv.available, missing):
+            self.need(cooked, k, depth + 1)
+            missing -= k
+        if missing <= 0:
+            return missing, "food"
+        return missing, self.cost.cheapest_food(COOKABLE_FOOD)
+
+    def _craft(self, src, token, missing, depth):
+        _, pattern, out = src
+        times = math.ceil(missing / out)
+        for tok, per in Counter(p for p in pattern if p).items():
+            self.need(tok, per * times, depth + 1)
+        if len(pattern) == 9:
+            self.need_station("minecraft:crafting_table", depth)
+        inputs = dict(Counter(p for p in pattern if p))
+        step = Step("craft", token, times * out, {"times": times, "inputs": {t: c * times for t, c in inputs.items()}})
+        self.before(step, depth)
+        self.add_step(step)
+        self.inv.add(token, times * out)
+        self.inv.consume(token, missing)
+
+    def _smelt(self, src, token, missing, depth):
+        _, inp = src
+        self.need(inp, missing, depth + 1)
+        fuel = "coal" if self.inv.available("coal") * 8 >= missing or not self.inv.available("planks") else "planks"
+        self.need(fuel, math.ceil(missing / 8) if fuel == "coal" else math.ceil(missing / 1.5), depth + 1)
+        self.need_station("minecraft:furnace", depth)
+        fuel_n = math.ceil(missing / 8) if fuel == "coal" else math.ceil(missing / 1.5)
+        step = Step("smelt", token, missing, {"input": inp, "fuel": fuel, "inputs": {inp: missing, fuel: fuel_n}})
+        self.before(step, depth)
+        self.add_step(step)
+
+    def _mine(self, src, token, missing, depth):
+        _, blocks, tier = src
+        per = MINE_YIELD.get(mid(token), 1)
+        step = Step("mine", token, missing, {"blocks": blocks, "tier": tier, "breaks": math.ceil(missing / per)})
+        self.before(step, depth)               # the pickaxe of this tier: mine's own needs
+        self.add_step(step)
+
+    def _gather(self, src, token, missing, depth):
+        step = Step("gather", token, missing, {})
+        self.before(step, depth)
+        self.add_step(step)
+
+    def _fill(self, src, token, missing, depth):
+        _, container = src
+        step = Step("fill", token, missing, {"container": container})
+        self.before(step, depth)
+        self.need(container, 1, depth + 1)     # the empty bucket first (used up: it becomes the full one)
+        self.add_step(step)
+
+    def _hunt(self, src, token, missing, depth):
+        _, types = src
+        per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
+        step = Step("hunt", token, missing, {"types": types, "kills": math.ceil(missing / per),
+                                             "fighter": hunts_a_fighter(types)})
+        self.before(step, depth)               # a mob that hits back: a sword first (hunt's own needs)
+        self.add_step(step)
+
+    def _farm(self, src, token, missing, depth):
+        if getattr(self.cost, "ripe", lambda t: 0)(token) * TAKEABLE[token]["gives"][token] >= missing:
             # a crop already grown is harvested before a plot is sown (what is known first)
             step = Step("take", token, missing, {"blocks": list(TAKEABLE[token]["blocks"])})
             self.before(step, depth)
             self.add_step(step)
-        elif kind == "farm":
-            # a plot: a hoe, `per` seeds (given back at the harvest) and a water bucket that stays; one plot yields `per`
-            _, seeds, per = src
-            plots = math.ceil(missing / per)
-            step = Step("farm", token, plots * per, {"plots": plots, "inputs": {"minecraft:water_bucket": plots}})
-            self.before(step, depth)               # the hoe, and a start of seeds and water: plant_farm's own needs
-            self.need(seeds, per, depth + 1)
-            self.need("minecraft:water_bucket", plots, depth + 1)
-            self.add_step(step)
-            self.inv.add(seeds, per)
-            self.inv.add(token, plots * per)
-            self.inv.consume(token, missing)
-        elif kind == "trade":
-            # sold to a villager for what it buys: a villager to find
-            _, types = src
-            step = Step("trade", token, missing, {"types": types})
-            self.before(step, depth)               # what the villager is paid in: trade's own needs
-            self.add_step(step)
-        else:
-            raise Unplannable(f"{token}: its only source ({kind}) is not one the planner plans")
+            return
+        # a plot: a hoe, `per` seeds (given back at the harvest) and a water bucket that stays; one plot yields `per`
+        _, seeds, per = src
+        plots = math.ceil(missing / per)
+        step = Step("farm", token, plots * per, {"plots": plots, "inputs": {"minecraft:water_bucket": plots}})
+        self.before(step, depth)               # the hoe, and a start of seeds and water: plant_farm's own needs
+        self.need(seeds, per, depth + 1)
+        self.need("minecraft:water_bucket", plots, depth + 1)
+        self.add_step(step)
+        self.inv.add(seeds, per)
+        self.inv.add(token, plots * per)
+        self.inv.consume(token, missing)
+
+    def _trade(self, src, token, missing, depth):
+        # sold to a villager for what it buys: a villager to find
+        _, types = src
+        step = Step("trade", token, missing, {"types": types})
+        self.before(step, depth)               # what the villager is paid in: trade's own needs
+        self.add_step(step)
 
     def add_step(self, step):
         step.est = self.cost.estimate(step)

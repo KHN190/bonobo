@@ -49,10 +49,10 @@ class SomethingToStore(unittest.TestCase):
 
 
 class DragonDead(unittest.TestCase):
-    """end.dragon_dead: the dragon gone (or at 0 health) AND the exit portal open."""
+    """dragon.dragon_dead: the dragon gone (or at 0 health) AND the exit portal open."""
 
     def test_rows(self):
-        from bonobo import end
+        from bonobo import dragon
         dragon = lambda hp: {"type": "minecraft:ender_dragon", "health": hp}      # noqa: E731
         part = {"type": "minecraft:ender_dragon"}                                  # a body part: no health
         # (situation, entities near, exit portal open) → dead
@@ -62,15 +62,15 @@ class DragonDead(unittest.TestCase):
                 ("must fail: alive", [dragon(120)], True, False),
                 ("must fail: not seen, the portal closed (out of range is not dead)", [], False, False)]
         for name, near, portal, want in rows:
-            with self.subTest(name), mock.patch.object(end, "exit_portal_open", lambda centre=(0, 0), _p=portal: _p):
-                self.assertEqual(end.dragon_dead(near), want)
+            with self.subTest(name), mock.patch.object(dragon, "exit_portal_open", lambda centre=(0, 0), _p=portal: _p):
+                self.assertEqual(dragon.dragon_dead(near), want)
 
 
 class Reinforced(unittest.TestCase):
-    """end._reinforced: every cell bunker.reinforce_cells names for the pit's side is solid."""
+    """dragon._reinforced: every cell bunker.reinforce_cells names for the pit's side is solid."""
 
     def test_rows(self):
-        from bonobo import bunker, end
+        from bonobo import bunker, dragon
         pit_x = [(3, 60, 0), None, None, None, 60]          # the pit's first cell east of the centre, its floor y
         pit_z = [(0, 60, -3), None, None, None, 60]         # south of the centre: the z side
         cells_x = bunker.reinforce_cells((1, 0), 60)
@@ -82,8 +82,8 @@ class Reinforced(unittest.TestCase):
                 ("must fail: the other side's cells solid, not this one's", pit_x,
                  set(bunker.reinforce_cells((-1, 0), 60)) - set(cells_x), False)]
         for name, pit, solid, want in rows:
-            with self.subTest(name), mock.patch.object(end, "_solid", lambda c, _s=solid: c in _s):
-                self.assertEqual(end._reinforced(pit), want)
+            with self.subTest(name), mock.patch.object(dragon, "_solid", lambda c, _s=solid: c in _s):
+                self.assertEqual(dragon._reinforced(pit), want)
 
 
 class ReviewPlans(unittest.TestCase):

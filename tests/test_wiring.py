@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import (bunker, combat_model, end, fight_loop, fight_plan, nav, perception, threat)  # noqa: E402
+from bonobo import (bunker, combat_model, dragon, fight_loop, fight_plan, nav, perception, threat)  # noqa: E402
 from tests.test_fight_plan import BOMB, DRAGON, view as dragon_view, state as fight_state  # noqa: E402
 
 INF = float("inf")
@@ -166,7 +166,7 @@ class OneLoopCarriesTheFight(unittest.TestCase):
 
 
 class RowsAreDifferencedOnce(unittest.TestCase):
-    """The dragon fight's threat rows are threat.rows's (end._threats): velocity differenced between readings."""
+    """The dragon fight's threat rows are threat.rows's (dragon._threats): velocity differenced between readings."""
 
     def zombie(self, x):
         return {"id": 7, "type": "minecraft:zombie", "x": x, "y": 64.0, "z": 0.0}
@@ -177,14 +177,14 @@ class RowsAreDifferencedOnce(unittest.TestCase):
                 ("the last reading 3 s old: at rest", [(1000.0, 20.0), (1003.0, 10.0)], (0.0, 0.0, 0.0)),
                 ("must fail: a neutral enderman: not a row at all", None, None)]
         for name, readings, want in rows:
-            with self.subTest(name), mock.patch.dict(end._LAST_SEEN, {}, clear=True):
+            with self.subTest(name), mock.patch.dict(dragon._LAST_SEEN, {}, clear=True):
                 if readings is None:
-                    got = end._threats([{"id": 9, "type": "minecraft:enderman", "x": 3.0, "y": 64.0, "z": 0.0}],
+                    got = dragon._threats([{"id": 9, "type": "minecraft:enderman", "x": 3.0, "y": 64.0, "z": 0.0}],
                                        None, now=1000.0)
                     self.assertEqual(got, [])
                     continue
                 for now, x in readings:
-                    got = end._threats([self.zombie(x)], None, now=now)
+                    got = dragon._threats([self.zombie(x)], None, now=now)
                 self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
 
 
@@ -299,7 +299,7 @@ class RecordingApi:
 
 
 class TheBunkerDigIsTheGeometry(unittest.TestCase):
-    """The dragon fight's prep (end.build_bed_pit, run for the planner's "dig_tunnel"), from a snapshot with the body
+    """The dragon fight's prep (dragon.build_bed_pit, run for the planner's "dig_tunnel"), from a snapshot with the body
     on the bunker's rim: the dig it posts covers bunker.dig_plan's corridor for that side. What the world does with it
     afterwards (standing in the pit) is the bench's dragon rows."""
 
@@ -313,10 +313,10 @@ class TheBunkerDigIsTheGeometry(unittest.TestCase):
         fake = RecordingApi((rim[0], self.TOP, rim[2]), pillar)
         with tempfile.TemporaryDirectory() as tmp, mock.patch("bonobo.api.api", side_effect=fake), \
                 mock.patch.object(nav, "_features", None), mock.patch.object(nav, "ROAD_MEM", None), \
-                mock.patch.object(end, "PIT", []):
+                mock.patch.object(dragon, "PIT", []):
             ctx = skillcore.Context(Memory(os.path.join(tmp, "n.json")), nav.Policy(), "minecraft:the_end", {})
             try:
-                end.build_bed_pit(ctx)
+                dragon.build_bed_pit(ctx)
                 fake.error = None
             except Exception as e:                         # judged by what was posted, and by the reason
                 fake.error = e

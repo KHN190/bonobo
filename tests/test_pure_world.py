@@ -113,7 +113,7 @@ class StandingCells(unittest.TestCase):
 
 
 class AwayFrom(unittest.TestCase):
-    """world.away_from: the one "straight away from a point" (end.breath_escape reads it)."""
+    """world.away_from: the one "straight away from a point" (dragon.breath_escape reads it)."""
 
     def test_over_the_table(self):
         from bonobo import world
@@ -126,7 +126,7 @@ class AwayFrom(unittest.TestCase):
                 self.assertEqual(world.away_from(here, point, blocks), want)
 
     def test_breath_escape_answers_as_before(self):
-        from bonobo import end
+        from bonobo import dragon
         cloud = lambda x, z: {"type": "minecraft:area_effect_cloud", "x": x, "y": 64, "z": z}   # noqa: E731
         # (here, what is near, run) → the spot: away from the clouds' centre, rounded; None with no cloud
         rows = [((5, 64, 5), [cloud(0, 0), cloud(4, 4)], 7, (10, 64, 10)),
@@ -135,7 +135,7 @@ class AwayFrom(unittest.TestCase):
                 ((1, 64, -2), [{"type": "minecraft:zombie", "x": 0, "y": 0, "z": 0}], 10, None)]  # must fail: no cloud, no escape
         for here, near, run, want in rows:
             with self.subTest(here=here):
-                self.assertEqual(end.breath_escape(here, near, run=run), want)
+                self.assertEqual(dragon.breath_escape(here, near, run=run), want)
 
 
 class NearestSoft(unittest.TestCase):
@@ -748,7 +748,7 @@ class RetryAndSkill(unittest.TestCase):
         ]
         for why, fn, ver, want_ver, want_doc in rows:
             with self.subTest(why):
-                c = skillkit.Contract("x", fn, None, None, done, ver, 30, 10, None, None)
+                c = skillkit.Contract("x", fn, skillkit.Spec(done=done, verify=ver, budget=30, stall=10))
                 self.assertIs(c.verify, want_ver)
                 self.assertEqual(c.doc, want_doc)
                 self.assertEqual(c.units(object()), 1)

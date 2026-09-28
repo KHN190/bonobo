@@ -100,12 +100,6 @@ def water_task(centre, stand=None, region=None):
                 return floor
     return task
 
-def pour_commands(centre, centre_now, stand, region=None):
-    """Pure: the pour as one send from the stand — the centre dug first when something filled it since its dig
-    (`centre_now`: what stands there, read right before), then the water aimed at the far inner wall."""
-    out = [] if centre_now in ("air", "water") else [nav.mine_task(centre)]
-    return out + [water_task(centre, stand, region)]
-
 def plot_cells(centre):
     """Pure: the cells a walk must neither dig nor build in while the plot is made: the centre hole and the cell under
     it, the ring and the crop layer over it."""

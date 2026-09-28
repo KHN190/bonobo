@@ -112,7 +112,7 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
         angry = angry_endermen(near, here, 12.0)
         if angry:
             # never trade hits with an enderman: shake it off; swinging provokes more
-            from .end import shake_enderman
+            from .dragon import shake_enderman
             shake_enderman(ctx)
             yield (len(angry), round(s["health"]))
             continue

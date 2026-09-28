@@ -14,7 +14,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bonobo import arbiter, bag as BG, blueprints as B, brewing as BW, combat as CB, combat_model as CM  # noqa: E402
-from bonobo import end as END, farming as FM, fluids as FL, loot as LT, nav, needs as UK, nether as NT  # noqa: E402
+from bonobo import dragon as DR, end as END, farming as FM, fluids as FL, loot as LT, nav, needs as UK, nether as NT  # noqa: E402
 from bonobo import explore as EX, review as RV, roads as ROADS, store as ST, survive as SV, terrain as TN, ui as UI, world as WD  # noqa: E402
 from bonobo.bench import table as SC  # noqa: E402
 from bonobo.api import NavFailed  # noqa: E402
@@ -678,52 +678,52 @@ class End(unittest.TestCase):
             ("eyes are placed from outside the ring",
              lambda: (END.outside_spot((10, 60, 8), (10, 60, 10)), END.outside_spot((12, 60, 11), (10, 60, 10))),
              ((10, 60, 7), (13, 60, 11))),
-            ("in the hole: the pit cell", lambda: END.in_pit((5, 62, 0), (5, 62, 0), 64), True),
-            ("boundary: a block of slop below", lambda: END.in_pit((5, 61, 0), (5, 62, 0), 64), True),
-            ("must fail: standing on the floor", lambda: END.in_pit((5, 64, 0), (5, 62, 0), 64), False),
-            ("must fail: the next column", lambda: END.in_pit((6, 62, 0), (5, 62, 0), 64), False),
+            ("in the hole: the pit cell", lambda: DR.in_pit((5, 62, 0), (5, 62, 0), 64), True),
+            ("boundary: a block of slop below", lambda: DR.in_pit((5, 61, 0), (5, 62, 0), 64), True),
+            ("must fail: standing on the floor", lambda: DR.in_pit((5, 64, 0), (5, 62, 0), 64), False),
+            ("must fail: the next column", lambda: DR.in_pit((6, 62, 0), (5, 62, 0), 64), False),
             ("the End fight skills take cover and retry", lambda: [f.__name__ for f in (
-                END.build_bed_pit, END.await_perch, END.bed_bomb_window, END.shake_enderman, END.break_caged_crystal,
-                END.slay_dragon, CB.station) if not f.contract.soft], []),
+                DR.build_bed_pit, DR.await_perch, DR.bed_bomb_window, DR.shake_enderman, DR.break_caged_crystal,
+                DR.slay_dragon, CB.station) if not f.contract.soft], []),
             ("must fail: a plain skill ends on an interrupt", lambda: SV.eat.contract.soft, False),
             ("the bed: one above the bedrock, 2 from the centre",
-             lambda: (END.bed_cell((1, 0), 69), END.bed_cell((0, -1), 69)), ((2, 70, 0), (0, 70, -2))),
-            ("perched: phases 6 and 7", lambda: [END.perched(_dragon(phase=p)) for p in (6, 7)], [True, True]),
+             lambda: (DR.bed_cell((1, 0), 69), DR.bed_cell((0, -1), 69)), ((2, 70, 0), (0, 70, -2))),
+            ("perched: phases 6 and 7", lambda: [DR.perched(_dragon(phase=p)) for p in (6, 7)], [True, True]),
             ("must fail: landing (3) and circling (1) aren't perched",
-             lambda: [END.perched(_dragon(phase=p)) for p in (3, 1)], [False, False]),
+             lambda: [DR.perched(_dragon(phase=p)) for p in (3, 1)], [False, False]),
             ("with a phase, perching is the phase, not the position", lambda: (
-                END.perched({"x": 30.0, "y": 90.0, "z": 0.0, "phase": 6}, 64),
-                END.perched({"x": 0.5, "y": 65.0, "z": 0.5, "phase": 0}, 64)), (True, False)),
+                DR.perched({"x": 30.0, "y": 90.0, "z": 0.0, "phase": 6}, 64),
+                DR.perched({"x": 0.5, "y": 65.0, "z": 0.5, "phase": 0}, 64)), (True, False)),
             ("without a phase: near the island centre only", lambda: [
-                END.perched({"x": x, "z": z}) for x, z in ((1.0, -2.0), (6.0, 3.0), (30.0, 0.0))], [True, True, False]),
+                DR.perched({"x": x, "z": z}) for x, z in ((1.0, -2.0), (6.0, 3.0), (30.0, 0.0))], [True, True, False]),
             # real case 05:40: a dragon at y 70 above the pillar counted as perched
             ("must fail: hovering above the pillar isn't perched", lambda: (
-                END.pillar_top([(0, 60, 0), (0, 62, 1), (1, 63, 0), (20, 70, 0)]),
-                END.perched({"x": 0.5, "y": 65.0, "z": 0.5}, 64), END.perched({"x": 0.5, "y": 75.0, "z": 0.5}, 64)),
+                DR.pillar_top([(0, 60, 0), (0, 62, 1), (1, 63, 0), (20, 70, 0)]),
+                DR.perched({"x": 0.5, "y": 65.0, "z": 0.5}, 64), DR.perched({"x": 0.5, "y": 75.0, "z": 0.5}, 64)),
              (64, True, False)),
             # real case 06:32: the first ender_dragon entry was a body part
-            ("the entity with health is the dragon", lambda: END.dragon_entry(
+            ("the entity with health is the dragon", lambda: DR.dragon_entry(
                 [{"type": "minecraft:ender_dragon", "id": 7}, {"type": "minecraft:end_crystal", "id": 8},
                  {"type": "minecraft:ender_dragon", "id": 3, "health": 147.7}])["id"], 3),
             ("must fail: body parts only, no dragon",
-             lambda: END.dragon_entry([{"type": "minecraft:ender_dragon", "id": 7}]), None),
-            ("breath is spotted as a group", lambda: (END.breath_near(clouds, (5, 64, 0), 8.0),
-                                                      END.breath_near(clouds, (30, 64, 0), 8.0)), (True, False)),
-            ("the escape runs straight away from the breath", lambda: END.breath_escape((7, 64, 0), clouds, run=10),
+             lambda: DR.dragon_entry([{"type": "minecraft:ender_dragon", "id": 7}]), None),
+            ("breath is spotted as a group", lambda: (DR.breath_near(clouds, (5, 64, 0), 8.0),
+                                                      DR.breath_near(clouds, (30, 64, 0), 8.0)), (True, False)),
+            ("the escape runs straight away from the breath", lambda: DR.breath_escape((7, 64, 0), clouds, run=10),
              (17, 64, 0)),
             # real case 08:36: walked to (9,64,-1) while the dragon sat on the portal
             ("must fail: preparation waits inside a perched dragon's reach", lambda: [
-                END.prep_safe(_dragon(phase=6), p, floor_y=64) for p in ((9, 64, -1), (14, 64, 0))], [False, False]),
+                DR.prep_safe(_dragon(phase=6), p, floor_y=64) for p in ((9, 64, -1), (14, 64, 0))], [False, False]),
             ("preparation goes on outside its reach, or while it flies", lambda: (
-                END.prep_safe(_dragon(phase=6), (17, 64, 0), floor_y=64),
-                END.prep_safe(_dragon(phase=1, y=80), (7, 64, 0), floor_y=64)), lambda g: all(g)),
+                DR.prep_safe(_dragon(phase=6), (17, 64, 0), floor_y=64),
+                DR.prep_safe(_dragon(phase=1, y=80), (7, 64, 0), floor_y=64)), lambda g: all(g)),
             ("the cage plan: tower on our side, stand at crystal height, break the whole ring",
-             lambda: END.cage_plan((0, 100, 0), (20, 64, 0), 64),
+             lambda: DR.cage_plan((0, 100, 0), (20, 64, 0), 64),
              lambda p: p[0] == (2, 64, 0) and p[1] == (2, 100, 0) and set(p[2]) == ring),
             ("caged: high above us, not at our level",
-             lambda: (END.caged((0, 100, 0), (20, 64, 0)), END.caged((10, 65, 4), (20, 64, 0))), (True, False)),
+             lambda: (DR.caged((0, 100, 0), (20, 64, 0)), DR.caged((10, 65, 4), (20, 64, 0))), (True, False)),
             ("the bed bomb's side is the player's",
-             lambda: (END.choose_side((-20, 64, 3)), END.choose_side((2, 64, 15))), ((-1, 0), (0, 1))),
+             lambda: (DR.choose_side((-20, 64, 3)), DR.choose_side((2, 64, 15))), ((-1, 0), (0, 1))),
             ("stronghold search: the estimate at room depth, then the first ring of 8",
              lambda: (search[0], len(search), all(max(abs(p[0] - 100), abs(p[2] + 40)) == 40 for p in search[1:9])),
              ((100, 30, -40), 49, True)),

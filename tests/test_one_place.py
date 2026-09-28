@@ -20,10 +20,10 @@ class CannotReach(unittest.TestCase):
                 self.assertEqual(data.cannot_reach(message), want)
 
     def test_every_reader_uses_it(self):
-        from bonobo import end
+        from bonobo import dragon
         failed = [{"status": "failed", "message": "cannot reach 1, 2, 3"},
                   {"status": "succeeded", "message": "cannot reach 9, 9, 9"}]
-        self.assertEqual(end.unreachable(failed), {(1, 2, 3)})
+        self.assertEqual(dragon.unreachable(failed), {(1, 2, 3)})
 
 
 class BagSlots(unittest.TestCase):
