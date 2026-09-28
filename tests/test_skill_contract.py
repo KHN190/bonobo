@@ -240,8 +240,6 @@ AVOID = [("our wall on the straight line to the ore: it goes with the mine, the 
           {"type": "mine", "x": 3, "y": 64, "z": 0}, BOXED, xyz(*sorted(BOXED))),
          ("a build 100 blocks off: not carried", {"type": "place", "x": 3, "y": 64, "z": 0, "item": "stone"},
           {(103, 64, 0)}, []),
-         ("mine_many: near any of its blocks", {"type": "mine_many", "blocks": xyz((50, 64, 0), (3, 64, 0))},
-          {(110, 64, 0), (-70, 64, 0)}, xyz((110, 64, 0))),
          ("a walk-only goto: no digging, nothing added", {"type": "goto", "x": 3, "y": 64, "z": 0}, WALL, None),
          ("a task that names its own avoid keeps it", {"type": "use", "x": 3, "y": 64, "z": 0, "avoid": []}, WALL,
           None)]
@@ -1325,7 +1323,7 @@ def _blueprint_check(missing, canopy, st, facing):
     def check(t, batch):
         t.assertEqual(set(cells(batch)), missing, "one place per missing part, none for a part already standing")
         t.assertEqual(len(cells(batch)), len(missing))
-        t.assertEqual(types(batch)[0] == "mine_many", canopy, "leaves are cleared first, and only when there")
+        t.assertEqual(types(batch)[0] == "mine", canopy, "leaves are cleared first, and only when there")
         carried = {s["id"] for s in st["inv"].slots}
         fy = st["feet"][1]
         for task in batch:
@@ -1710,7 +1708,7 @@ class Remaining(unittest.TestCase):
 
 
 # ---- a chain interrupted at any step k is rebuilt from the world: the rest, nothing redone, nothing skipped
-MOVES = {"goto", "wait", "_close", "use"}          # tasks that change no block and no bag (a walk, a pause)
+MOVES = {"goto", "wait", "_close", "use", "collect"}    # tasks that change no block (a walk, a pause, a sweep)
 
 
 def _effects(batch):
@@ -1740,7 +1738,7 @@ def _apply(task, w):
     collected (as its drop), the body moved (walked, fallen down a dug cell, pillared up)."""
     from bonobo.data import NUTRITION, PLACEABLE_AS
     region, kind = w["region"], task["type"]
-    if kind in ("wait", "_close", "use"):
+    if kind in ("wait", "_close", "use", "collect"):
         return
     if region is None and kind in ("goto", "mine", "mine_many", "place", "pillar"):
         raise Unsimulated("no region")
@@ -2222,8 +2220,8 @@ class PureHelpers(unittest.TestCase):
         cell = [{"x": 1, "y": 64, "z": 0}]
         rows = [("a mine task gets the avoid list", {"type": "mine", "x": 0, "y": 64, "z": 0},
                  {"type": "mine", "x": 0, "y": 64, "z": 0, "avoid": cell}),
-                ("mine_many: near any of its blocks", {"type": "mine_many", "blocks": [{"x": 2, "y": 64, "z": 0}]},
-                 {"type": "mine_many", "blocks": [{"x": 2, "y": 64, "z": 0}], "avoid": cell}),
+                ("a place task too", {"type": "place", "x": 0, "y": 64, "z": 0},
+                 {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": cell}),
                 ("must fail: a task that names its own avoid is left alone", {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []},
                  {"type": "place", "x": 0, "y": 64, "z": 0, "avoid": []}),
                 ("a non-approaching task is left alone", {"type": "look", "x": 0, "y": 64, "z": 0},

@@ -419,10 +419,9 @@ REAPED = "reaped"       # plant_farm's answer when it took a grown crop instead 
 def _reap(cells):
     """Break these ripe wheat cells and collect wheat and seeds; the wheat gained."""
     before = Inventory().count("minecraft:wheat")
-    # one mine_many task: already a batch (every ripe cell, one pickup)
-    api.run({"type": "mine_many", "collect": True, "requireDrops": False,
-             "only": ["minecraft:wheat", "minecraft:wheat_seeds"],
-             "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}, wait=120, awaits="the crops broken before the farmland is read to replant")
+    # one batch: every ripe cell, then one pickup (read before the farmland is replanted)
+    batch = nav.mine_batch(cells, nav.feet(), collect=True, only=["minecraft:wheat", "minecraft:wheat_seeds"])
+    nav.run_cells("mine_many", batch[:-1], then=batch[-1], wait=120)
     got = gained(lambda: Inventory().count("minecraft:wheat"), before) - before
     log(f"reaped {got} wheat from {len(cells)} ripe cells")
     return got

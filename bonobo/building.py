@@ -270,8 +270,7 @@ def blueprint_commands(state, args):
     foliage = [p for p, n in region.blocks.items()
                if (n.endswith("_leaves") or n in ("vine", "glow_lichen")) and p not in protected]
     if foliage:
-        tasks.append({"type": "mine_many", "collect": False, "requireDrops": False,
-                      "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in foliage]})
+        tasks += nav.mine_batch(foliage, state["feet"], collect=False)      # leaves first: the site clear
     fx, fy, fz = state["feet"]
     for pos, part, facing, against in sorted(blueprints.placed(bp, origin, turns), key=lambda t: t[0][1]):
         if block_matches(region.name(pos), part.item):
@@ -319,9 +318,8 @@ def _build_parts(ctx, bp, origin, turns):
                if (n.endswith("_leaves") or n in ("vine", "glow_lichen")) and p not in ctx.policy.protected]
     if foliage:
         log(f"   clearing {len(foliage)} leaves/vines around the {bp.name} build")
-        # one mine_many task: every leaf in one send already
-        api.run({"type": "mine_many", "collect": False, "requireDrops": False,
-                 "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in foliage]}, wait=180, awaits="the site cleared: the build reads the region after")
+        # one batch: every leaf (the build reads the region after)
+        nav.run_cells("mine_many", nav.mine_batch(foliage, feet(), collect=False), wait=180)
     for pos, part, facing, against in cells:
         if block_matches(done_region.name(pos), part.item):
             continue   # resuming an interrupted build: this part is already in place

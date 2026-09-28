@@ -58,6 +58,118 @@ def mine_task(c, collect=False, down=False):
     return {"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": collect, "requireDrops": False,
             **({"down": True} if down else {})}
 
+# -- batches: many cells as one chain of single tasks (the jar's SequenceTask, now planned here) ------------------
+def mine_order(cells, start=None):
+    """Pure: the order a batch mines `cells` — never a cell while another of the batch sits above it in its column
+    (top first), the nearest to where the last one was (from `start`, else the first given)."""
+    pending = [tuple(c) for c in cells]
+    here = tuple(start) if start is not None else (pending[0] if pending else None)
+    out = []
+    while pending:
+        free = [c for c in pending if not any(q[0] == c[0] and q[2] == c[2] and q[1] > c[1] for q in pending)]
+        best = min(free or pending, key=lambda c: (sum((c[i] - here[i]) ** 2 for i in range(3)), pending.index(c)))
+        pending.remove(best)
+        out.append(best)
+        here = best
+    return out
+
+
+def build_order(cells, start=None):
+    """Pure: the order a batch places `cells` — the lowest layer first (every block has support), in it the nearest
+    to where the last one went (from `start`, else the first given)."""
+    pending = [tuple(c) for c in cells]
+    here = tuple(start) if start is not None else (pending[0] if pending else None)
+    out = []
+    while pending:
+        low = min(c[1] for c in pending)
+        best = min((c for c in pending if c[1] == low),
+                   key=lambda c: (sum((c[i] - here[i]) ** 2 for i in range(3)), pending.index(c)))
+        pending.remove(best)
+        out.append(best)
+        here = best
+    return out
+
+
+SWEEP_IDLE = 10        # ticks a batch's closing sweep waits for a drop before it ends (the jar's mine_many used 10)
+
+
+def batch_sweep(cells, only=None):
+    """Pure: a batch's closing pickup — one collect centred on the cells (their rounded mean), reaching the farthest
+    of them + 5: what fell near the batch, not a walk per item."""
+    cells = [tuple(c) for c in cells]
+    if not cells:
+        return {"type": "collect", "radius": 5, "idle": SWEEP_IDLE, **({"only": list(only)} if only else {})}
+    centre = tuple(int(round(sum(c[i] for c in cells) / len(cells))) for i in range(3))
+    reach = 5 + max(math.dist(c, centre) for c in cells)
+    return {"type": "collect", "x": centre[0], "y": centre[1], "z": centre[2], "radius": round(reach, 2),
+            "idle": SWEEP_IDLE, **({"only": list(only)} if only else {})}
+
+
+def mine_batch(cells, start=None, require_drops=False, collect=True, only=None):
+    """Pure: many cells to break as one chain — single mines in mine_order, the closing sweep (batch_sweep) last when `collect`."""
+    order = mine_order(cells, start)
+    tasks = [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": require_drops}
+             for c in order]
+    return tasks + ([batch_sweep(order, only)] if collect else [])
+
+
+def build_batch(blocks, start=None):
+    """Pure: blocks to place ([{x, y, z, item, (against, facing)}]) as one chain of single places in build_order."""
+    by = {(b["x"], b["y"], b["z"]): b for b in blocks}
+    return [dict(by[c], type="place") for c in build_order(list(by), start)]
+
+
+# the jar's answers for "the body cannot get at this block from here" (fail fast after two in a row)
+STEP_UNREACHABLE = ("cannot reach", "no line of sight", "no path found", "cannot hold a stand spot")
+NO_STAND = "cannot hold a stand spot"         # the same spot again is the same flip: never retried
+
+
+def run_cells(kind, tasks, then=None, wait=900):
+    """One batch as chains of single tasks (the jar's mine_many / build, planned here): sent in order; a failed
+    step retried once at the end (never a no-stand: the same spot is the same flip); two unreachable in a row give
+    the rest back as failures; `then` (the closing sweep) after. One result in the shape a batch answered —
+    {status, type, message 'N of M steps failed: …', result: {succeeded, total, failures: [{x, y, z, reason}]}} —
+    and the reach refusal raised as api.Unreachable, as api.run does."""
+    began = time.time()
+    pending, retry, failures = list(tasks), [], []
+    succeeded, in_a_row, retrying = 0, 0, False
+
+    def failed(t, reason):
+        failures.append({"x": t.get("x"), "y": t.get("y"), "z": t.get("z"), "reason": reason})
+    while pending or (retry and not retrying):
+        if not pending:
+            pending, retry, retrying = retry, [], True
+        results = api.run_chain(pending, stop_on_failure=True, wait=wait)
+        k = next((i for i, r in enumerate(results) if r.get("status") != "succeeded"), None)
+        if k is None:
+            succeeded += len(pending)
+            pending, in_a_row = [], 0
+            continue
+        succeeded += k
+        bad, msg = pending[k], results[k].get("message") or ""
+        pending = pending[k + 1:]
+        in_a_row = in_a_row + 1 if any(w in msg for w in STEP_UNREACHABLE) else 0
+        if in_a_row >= 2:
+            for t in pending + retry:
+                failed(t, f"skipped after repeated unreachable blocks: {msg}")
+            pending, retry, retrying = [], [], True
+        if not retrying and not msg.startswith(NO_STAND):
+            retry.append(bad)
+        else:
+            failed(bad, msg)
+    if then is not None:
+        api.run_chain([then], wait=60)
+    total = len(tasks)
+    r = {"type": kind, "status": "failed" if failures else "succeeded",
+         "message": (f"{len(failures)} of {total} steps failed: {failures[0]['reason']}" if failures
+                     else f"{kind} finished"),
+         "seconds": round(time.time() - began, 2),
+         "result": {"succeeded": succeeded, "total": total, "failures": failures}}
+    api.detail(f"  {kind:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
+    api.out_of_reach(r)
+    return r
+
+
 _features = None
 WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (regen stops at 18), `autoeat_policy`
 
@@ -162,7 +274,7 @@ LEGS = 6
 AVOID_RADIUS = 64        # protected cells this near a walk's ends go with it: the jar may not dig or build in them
 AVOID_MAX = 4000
 # task types whose approach may dig and build: each carries the "avoid" list
-APPROACHING = ("mine", "place", "use", "build", "mine_many")
+APPROACHING = ("mine", "place", "use")
 
 def avoid_cells(protected, *near):
     """Pure: the protected cells within AVOID_RADIUS of `near`: the "avoid" list a digging walk carries."""
@@ -175,10 +287,7 @@ def with_avoid(task, protected):
 
     if task.get("type") not in APPROACHING or "avoid" in task:
         return task
-    targets = [(b["x"], b["y"], b["z"]) for b in task.get("blocks", ())]
-    if "x" in task:
-        targets.append((task["x"], task["y"], task["z"]))
-    return {**task, "avoid": avoid_cells(protected, *targets)}
+    return {**task, "avoid": avoid_cells(protected, (task["x"], task["y"], task["z"]))}
 
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 

@@ -2477,17 +2477,18 @@ class TrunkBatch(unittest.TestCase):
     def test_batch_over_the_table(self):
         from bonobo import wood
         def many(*cells):
-            return {"type": "mine_many", "collect": False, "requireDrops": False,
-                    "blocks": [{"x": c[0], "y": c[1], "z": c[2]} for c in cells]}
+            # single mines, the top of the column first (nav.mine_order)
+            return [{"type": "mine", "x": c[0], "y": c[1], "z": c[2], "collect": False, "requireDrops": False}
+                    for c in sorted(cells, key=lambda c: -c[1])]
         pick = {"type": "collect", "radius": 4, "only": ["log"]}
         base = (3, 64, 0)
         up = [(3, 65, 0), (3, 66, 0), (3, 67, 0)]
-        rows = [("four wanted, three overhead: one batch of all of it, no walk in", up, 4, [many(base, *up), pick]),
-                ("two wanted: the base and the log over it", up, 2, [many(base, up[0]), pick]),
-                ("one wanted: the base only", up, 1, [many(base), pick]),
-                ("a stump (nothing overhead)", [], 5, [many(base), pick]),
+        rows = [("four wanted, three overhead: one batch of all of it, no walk in", up, 4, many(base, *up) + [pick]),
+                ("two wanted: the base and the log over it", up, 2, many(base, up[0]) + [pick]),
+                ("one wanted: the base only", up, 1, many(base) + [pick]),
+                ("a stump (nothing overhead)", [], 5, many(base) + [pick]),
                 ("must fail: a log past reach (5 up and more): not in the batch", up + [(3, 69, 0), (3, 70, 0)], 9,
-                 [many(base, *up), pick])]
+                 many(base, *up) + [pick])]
         for name, overhead, want, batch in rows:
             with self.subTest(name):
                 self.assertEqual(wood.trunk_batch((3, 64, 0), overhead, want), batch)

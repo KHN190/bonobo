@@ -366,8 +366,7 @@ class BlueprintCommands(unittest.TestCase):
 
     def test_table(self):
         leaves = {(11, 65, 10): "oak_leaves"}
-        mine_leaves = {"type": "mine_many", "collect": False, "requireDrops": False,
-                       "blocks": [{"x": 11, "y": 65, "z": 10}]}
+        mine_leaves = {"type": "mine", "x": 11, "y": 65, "z": 10, "collect": False, "requireDrops": False}
         pillar = {"type": "pillar", "item": "minecraft:cobblestone"}
         goto = {"type": "goto", "x": 10, "y": 64, "z": 8, "range": 0.3, "partial": False}
         rows = [

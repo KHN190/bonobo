@@ -175,7 +175,7 @@ class ByLayer(unittest.TestCase):
     """building.by_layer: a build's chain cut into one chunk per placed height, bottom-up; what walks or pillars up to
     a layer opens that layer's chunk."""
     P = staticmethod(lambda y: {"type": "place", "y": y})
-    G, U, M = {"type": "goto", "y": 0}, {"type": "pillar"}, {"type": "mine_many"}
+    G, U, M = {"type": "goto", "y": 0}, {"type": "pillar"}, {"type": "mine"}
     # (situation, tasks) → the chunks, as short names
     ROWS = [("clear, two layers with a pillar between", [M, P(0), P(0), G, U, P(1), P(1)],
              [["m", "p0", "p0"], ["g", "p", "p1", "p1"]]),
