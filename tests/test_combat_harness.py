@@ -236,6 +236,21 @@ class Endermen(unittest.TestCase):
                 self.assertEqual(fight.covered_in_time(trace, cells, 5.0), want)
 
 
+class GhastSpawn(unittest.TestCase):
+    """The ghast is summoned where vanilla lets it target us: its height off ours within GHAST_TARGET_DY."""
+
+    def test_within_targeting(self):
+        from unittest import mock
+        from bonobo.bench import vocab
+        said = []
+        with mock.patch.object(vocab, "_chat", said.append):
+            vocab._summon_ghast(None)
+        x, y, z = (float(v) for v in said[0].split("summon ghast ")[1].split()[:3])
+        dy = y - vocab.at(0, 0, 0)[1]
+        self.assertLessEqual(abs(dy), vocab.GHAST_TARGET_DY)
+        self.assertLess(abs(x - vocab.at(0, 0, 0)[0]), vocab.GHAST_FIRE_R)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

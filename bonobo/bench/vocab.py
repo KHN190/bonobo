@@ -171,6 +171,14 @@ _FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_
                "give @p dirt 576"]
 
 GHAST_MAX_HP = fight.GHAST_HP
+GHAST_TARGET_DY = 4.0   # vanilla GhastEntity targets a player only within this height (|dy| ≤ 4.0, its target predicate)
+GHAST_FIRE_R = 64.0     # vanilla ShootFireballGoal: fires within 64 blocks (4096 squared)
+GHAST_OFF = GHAST_FIRE_R / 4    # out: well past melee, well inside its fire range
+
+def _summon_ghast(ctx):
+    """`before` hook: a ghast inside vanilla's targeting rule — its height off ours under GHAST_TARGET_DY."""
+    x, y, z = at(GHAST_OFF, GHAST_TARGET_DY - 1.0, 0)
+    _chat(f"execute in minecraft:the_nether run summon ghast {x} {y} {z} {{PersistenceRequired:1b}}")
 GHAST = {}              # the ghast row's watch: its fireballs, the player's start and worst health, the ghast's last read
 
 def ghast_health(lines):
