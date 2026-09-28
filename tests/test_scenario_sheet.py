@@ -11,6 +11,7 @@ What is checked is what makes the sheet trustworthy before anyone runs it:
   - the named rows of test points A–D exist, in the right order, with the right budgets
 Driven from `skill.REGISTRY` and `table.SCENARIOS`: a new skill or a new row needs no edit here.
 """
+import contextlib
 import os
 import re
 import sys
@@ -1086,9 +1087,11 @@ class HungryRowsTarget(unittest.TestCase):
         from bonobo.bench import vocab
         world = {"/state": {"food": 8, "health": 20.0}, "/inventory": {"slots": [], "selectedSlot": 0, "equipment": {}}}
         for name, row, want in self.ROWS:
-            with self.subTest(name), mock.patch.object(vocab, "_chat"), mock.patch.object(vocab.time, "sleep"), \
+            with self.subTest(name), contextlib.ExitStack() as quiet, mock.patch.object(vocab.time, "sleep"), \
                     mock.patch.object(api, "get", side_effect=lambda path, *a, **k: world[path.split("?")[0]]), \
                     mock.patch.dict(vocab.BASE, clear=True):
+                for m in (vocab,) + vocab.WORD_MODULES:          # every home that sends a command
+                    quiet.enter_context(mock.patch.object(m, "_chat"))
                 sc.SCENARIOS[row]["before"](None)
                 self.assertIs("target_s" in vocab.BASE, want)
 

@@ -192,7 +192,8 @@ def rows(tier):
     """{name: row data} of one tier's table: its families expanded, its rows in words, its rows in code."""
     mod = importlib.import_module(TABLES[tier])
     out = expand(getattr(mod, "FAMILIES", ()))
-    for r in list(getattr(mod, "ROWS", ())) + list(getattr(mod, "CODE_ROWS", ())):
+    code = getattr(mod, "CODE_ROWS", ())
+    for r in list(getattr(mod, "ROWS", ())) + list(code() if callable(code) else code):
         if r["name"] in out:
             raise ValueError(f"{r['name']} made twice in the {tier} table")
         out[r["name"]] = r

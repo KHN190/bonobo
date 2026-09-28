@@ -151,7 +151,7 @@ class Words(unittest.TestCase):
                 ("must fail: both defined, asked bare", {"t_w": f, "_t_w": g}, "t_w", KeyError),
                 ("must fail: neither defined", {}, "t_w", KeyError)]
         for name, defs, word, want in rows:
-            with self.subTest(name), mock.patch.dict(vars(vocab), defs):
+            with self.subTest(name), mock.patch.dict(vocab.REGISTRY, defs):
                 if want is KeyError:
                     with self.assertRaises(KeyError) as e:
                         vocab.resolve(word)
@@ -479,3 +479,36 @@ class Scene(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class WordModules(unittest.TestCase):
+    """vocab gathers the words from words/ (scene → checks → runs → fight → brain): one home each, one direction."""
+    ORDER = ("scene", "checks", "runs", "fight", "brain")
+
+    def test_a_word_defined_twice_is_refused(self):
+        # must fail: two modules defining one word is an error at import, never a silent pick
+        with self.assertRaises(ValueError):
+            vocab.merged([{"gain": 1}, {"gain": 2}], "words")
+        self.assertEqual(vocab.merged([{"gain": 1}, {"kept": 2}], "words"), {"gain": 1, "kept": 2})
+
+    def test_every_word_has_one_home(self):
+        homes = {}
+        for m in vocab.WORD_MODULES:
+            for n in m.__all__:
+                homes.setdefault(n, []).append(m.__name__)
+        self.assertEqual({n: h for n, h in homes.items() if len(h) > 1}, {})
+
+    def test_imports_run_one_way(self):
+        import ast
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo", "bench", "words")
+        for i, name in enumerate(self.ORDER):
+            with self.subTest(name):
+                tree = ast.parse(open(os.path.join(root, f"{name}.py"), encoding="utf-8").read())
+                first_def = next(n.lineno for n in tree.body if isinstance(n, (ast.FunctionDef, ast.Assign)))
+                for n in tree.body:
+                    if not isinstance(n, ast.ImportFrom):
+                        continue
+                    mod = (n.module or "").split(".")[-1]
+                    self.assertNotIn(mod, ("vocab", "table"), "a word module never imports the gatherer")
+                    if mod in self.ORDER and n.lineno < first_def:       # at the top: only the words before it
+                        self.assertLess(self.ORDER.index(mod), i, f"{name} imports {mod} at its top")
+

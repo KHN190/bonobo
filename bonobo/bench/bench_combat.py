@@ -150,52 +150,56 @@ ROWS = [
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
-from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
-CODE_ROWS = [
-    dict(name="fight_dragon",
-         doc="The End's main island, the dragon perched and worn (crystals gone, 8 hp), diamond sword, shield, iron "
-             "armour, food, blocks → dragon dead.",
-         module="dragon", raw=True, combat=True, dimension="minecraft:the_end", release=True, skills=["slay_dragon"],
-         # a dragon spawns once per world: the fight's last phase is built (WORN_DRAGON)
-         setup=["clear @p", "give @p diamond_sword", "item replace entity @p weapon.offhand with shield",
-                "item replace entity @p armor.chest with iron_chestplate",
-                "item replace entity @p armor.head with iron_helmet",
-                "item replace entity @p armor.legs with iron_leggings", "item replace entity @p armor.feet with iron_boots",
-                "give @p cooked_beef 32", "give @p cobblestone 64", "give @p water_bucket"],
-         before=_worn_perched_dragon,
-         run=lambda ctx: __import__("bonobo.dragon", fromlist=["slay_dragon"]).slay_dragon(ctx),
-         check=lambda api, inv: not any(e["type"] == "minecraft:ender_dragon"
-                                        for e in __import__("bonobo.world", fromlist=["entities"]).entities(200)),
-         budget=limit()),
-    dict(name="fight_before_upkeep",
-         doc="Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
-             "before any log is gathered (must not), the player never leaves the arena",
-         module="brain", point="C", skills=[], tier_fixed="brain", combat=True, stochastic=True,
-         tags={"base": "brain", "family": "fight_first"},
-         setup=[c for c in _ARENA if "stone_pickaxe" not in c] + [f"summon zombie {_c(at(4, 0, 0))} {{PersistenceRequired:1b}}"],
-         expect_entities=[("minecraft:zombie", 1)],
-         before=_hooks(_start("fight_before_upkeep"), _first_times, _record_bids),
-         run=_brain_rounds(24, lambda: not _hostiles(24, {"minecraft:zombie"})),
-         check=_all(_gone(["minecraft:zombie"]), _hp_kept(10), lambda api, inv: _near(api, at(0, 0, 0), 9),
-                    lambda api, inv: FIRST.get("log") is None),
-         budget=limit(), expect=SHEET_EXPECT),
-    dict(name="combat__knocked_off_edge",
-         doc="A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
-             "knocked off, the fall caught: alive, health within 4 of the start, the bucket back in the bag",
-         module="fight_loop", point="B", skills=[], combat=True, stochastic=True,
-         tags={"base": "fight", "enemy": "zombie", "ground": "edge"},
-         setup=[f"fill {_c(at(-8, -17, -8))} {_c(at(8, -17, 8))} stone",
-                f"fill {_c(at(-8, -16, -8))} {_c(at(8, EDGE_Y + 3, 8))} air",
-                f"fill {_c(at(-2, EDGE_Y - 1, -2))} {_c(at(2, EDGE_Y - 1, 2))} stone",
-                _tp(2, EDGE_Y, 0), "give @p iron_sword", "give @p water_bucket",
-                "item replace entity @p armor.chest with iron_chestplate",
-                f"summon zombie {_c(at(0, EDGE_Y, 0))} {{PersistenceRequired:1b,"
-                f"attributes:[{{id:\"minecraft:attack_knockback\",base:3.0}}]}}"],
-         expect_entities=[("minecraft:zombie", 1)],
-         before=_hooks(_start("combat__knocked_off_edge"), _record_bids),
-         run=_fight_until(["minecraft:zombie"], 22, False),
-         check=_all(_alive(1), lambda api, inv: api.get("/state")["y"] < at(0, EDGE_Y - 10, 0)[1],
-                    lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
-                    lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
-         budget=limit(), expect=SHEET_EXPECT),
-]
+def CODE_ROWS():
+    """The one-off rows, built when the sheet is (they are written in vocab's words, and vocab reads this table's
+    dimensions at its own import: no import-time cycle)."""
+    from . import vocab
+    globals().update({k: getattr(vocab, k) for k in vocab.__all__ if k not in globals()})
+    return [
+        dict(name="fight_dragon",
+             doc="The End's main island, the dragon perched and worn (crystals gone, 8 hp), diamond sword, shield, iron "
+                 "armour, food, blocks → dragon dead.",
+             module="dragon", raw=True, combat=True, dimension="minecraft:the_end", release=True, skills=["slay_dragon"],
+             # a dragon spawns once per world: the fight's last phase is built (WORN_DRAGON)
+             setup=["clear @p", "give @p diamond_sword", "item replace entity @p weapon.offhand with shield",
+                    "item replace entity @p armor.chest with iron_chestplate",
+                    "item replace entity @p armor.head with iron_helmet",
+                    "item replace entity @p armor.legs with iron_leggings", "item replace entity @p armor.feet with iron_boots",
+                    "give @p cooked_beef 32", "give @p cobblestone 64", "give @p water_bucket"],
+             before=_worn_perched_dragon,
+             run=lambda ctx: __import__("bonobo.dragon", fromlist=["slay_dragon"]).slay_dragon(ctx),
+             check=lambda api, inv: not any(e["type"] == "minecraft:ender_dragon"
+                                            for e in __import__("bonobo.world", fromlist=["entities"]).entities(200)),
+             budget=limit()),
+        dict(name="fight_before_upkeep",
+             doc="Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
+                 "before any log is gathered (must not), the player never leaves the arena",
+             module="brain", point="C", skills=[], tier_fixed="brain", combat=True, stochastic=True,
+             tags={"base": "brain", "family": "fight_first"},
+             setup=[c for c in _ARENA if "stone_pickaxe" not in c] + [f"summon zombie {_c(at(4, 0, 0))} {{PersistenceRequired:1b}}"],
+             expect_entities=[("minecraft:zombie", 1)],
+             before=_hooks(_start("fight_before_upkeep"), _first_times, _record_bids),
+             run=_brain_rounds(24, lambda: not _hostiles(24, {"minecraft:zombie"})),
+             check=_all(_gone(["minecraft:zombie"]), _hp_kept(10), lambda api, inv: _near(api, at(0, 0, 0), 9),
+                        lambda api, inv: FIRST.get("log") is None),
+             budget=limit(), expect=SHEET_EXPECT),
+        dict(name="combat__knocked_off_edge",
+             doc="A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
+                 "knocked off, the fall caught: alive, health within 4 of the start, the bucket back in the bag",
+             module="fight_loop", point="B", skills=[], combat=True, stochastic=True,
+             tags={"base": "fight", "enemy": "zombie", "ground": "edge"},
+             setup=[f"fill {_c(at(-8, -17, -8))} {_c(at(8, -17, 8))} stone",
+                    f"fill {_c(at(-8, -16, -8))} {_c(at(8, EDGE_Y + 3, 8))} air",
+                    f"fill {_c(at(-2, EDGE_Y - 1, -2))} {_c(at(2, EDGE_Y - 1, 2))} stone",
+                    _tp(2, EDGE_Y, 0), "give @p iron_sword", "give @p water_bucket",
+                    "item replace entity @p armor.chest with iron_chestplate",
+                    f"summon zombie {_c(at(0, EDGE_Y, 0))} {{PersistenceRequired:1b,"
+                    f"attributes:[{{id:\"minecraft:attack_knockback\",base:3.0}}]}}"],
+             expect_entities=[("minecraft:zombie", 1)],
+             before=_hooks(_start("combat__knocked_off_edge"), _record_bids),
+             run=_fight_until(["minecraft:zombie"], 22, False),
+             check=_all(_alive(1), lambda api, inv: api.get("/state")["y"] < at(0, EDGE_Y - 10, 0)[1],
+                        lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
+                        lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
+             budget=limit(), expect=SHEET_EXPECT),
+    ]
