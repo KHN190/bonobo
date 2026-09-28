@@ -107,7 +107,7 @@ ROWS = [
          scene=[('sheet', '_ARENA'), ('summon', 'zombie', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
          run=('fight_until', ['minecraft:zombie'], 23),
          before=[('hooks', ('!start', 'fight_zombie_1'), ('&record_bids',)), ('fill_bag', 0)],
-         check=[('hp_kept', 12), ('gone', ['minecraft:zombie']), ('decision_gaps_ok',)], budget=25, combat=True,
+         check=[('hp_kept', 12), ('gone', ['minecraft:zombie']), ('no_stall',)], budget=25, combat=True,
          point='B', tier_fixed='exception',
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
          expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),

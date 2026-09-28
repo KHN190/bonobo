@@ -708,6 +708,9 @@ def _run_row(sc, make_ctx, fired):
 RESPAWN_JUMP = 32.0      # blocks between two trace samples 0.2 s apart: no walk does that — a respawn did
 
 
+TRACE_NOW = []            # the running row's trace (body state and the jar's task, 5 Hz), filled by _trace
+
+
 def died_during(trace):
     """Pure: did the body die during the run — a sample reading dead or no health, or a jump between two samples
     no walk makes (the respawn at world spawn)? A check reading hp after the respawn (20) passed a dead bot
@@ -780,6 +783,8 @@ def run(name, make_ctx):
     sc = SCENARIOS[name]
     code = code_for(name)
     feedback, trace, stop = [], [], threading.Event()
+    TRACE_NOW[:] = []
+    trace = TRACE_NOW          # the run's 5 Hz trace, the same list a row's checks read (the fight's stall check)
     console = _Console(sys.stdout)
     exc, ok, seconds, note = None, False, 0.0, ""
     sys.stdout = console

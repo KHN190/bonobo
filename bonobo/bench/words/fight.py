@@ -578,6 +578,13 @@ def kills_while_engaged(samples, bids=()):
     return kills
 
 
+def _stall_now():
+    """The running row's longest stall — over FIGHT_LOG's own trace when one is recorded there, else the runner's."""
+    from ..runner import TRACE_NOW
+    trace = FIGHT_LOG["trace"] if "trace" in FIGHT_LOG else TRACE_NOW
+    return longest_stall(trace, FIGHT_LOG.get("bids", []), FIGHT_LOG.get("alive", []))
+
+
 def fight_readout():
     """What the fight rows' checks read, as numbers (a failed row's report names them): the fight's kills, the
     engaged bids and their widest gap, the answer kinds carried, the shield in the offhand, the mobs left."""
@@ -587,7 +594,46 @@ def fight_readout():
     return {"kills_while_engaged": kills_while_engaged(alive, bids), "bids": len(bids),
             "engaged_bids": sum(1 for b in bids if b[1]), "engaged_gap_max": round(max(gaps, default=0.0), 3),
             "kinds_carried": sorted({b[2] for b in bids if b[2]}), "alive_samples": alive[-3:],
+            "longest_stall": _stall_now(),
             "shield_kept": _offhand_shield()}
+
+
+IN_REACH = 3.5          # blocks: a mob this close is one the body should be acting on, never standing idle beside
+STALL_OK = 0.25         # seconds with no running task while engaged beside a mob: one trace sample, no more
+
+
+def longest_stall(trace, bids, alive, reach=IN_REACH):
+    """Pure: the longest time the body had NO running task while the fight was engaged with a mob in reach —
+    `trace` [{t, task}] (5 Hz), `bids` [(when, engaged, kind)], `alive` [(when, [(id, hp, distance)])]. A decision
+    gap may exist; the action must not wait on it (an attack ending, then 0.4 s standing until the next post)."""
+    def last(rows, t):
+        prev = None
+        for r in rows:
+            if r[0] > t:
+                break
+            prev = r
+        return prev
+    worst, since = 0.0, None
+    for s in trace:
+        t = s.get("t")
+        if t is None:
+            continue
+        bid, seen = last(bids, t), last(alive, t)
+        stalled = (s.get("task") is None and bid is not None and bid[1] and seen is not None
+                   and any(d <= reach for _m, _h, d in seen[1]))
+        if stalled:
+            since = t if since is None else since
+            worst = max(worst, t - since)
+        else:
+            since = None
+    return round(worst, 2)
+
+
+def _no_stall(limit=STALL_OK):
+    """Check: while engaged beside a mob the body always had a task running (longest_stall ≤ `limit`)."""
+    def check(api, inv):
+        return _stall_now() <= limit
+    return check
 
 
 def _kills_by_the_fight(n):
@@ -756,8 +802,9 @@ def fight_cell_row(name, mob, n, tier, secs, hp, clear):
     nbt = "{PersistenceRequired:1b,Health:10f}" if mob == "blaze" and n > 1 else "{PersistenceRequired:1b}"
     verdict = {True: "all dead", False: "left alone (neutral)",
                "resolved": f"dead, or kept off and not following for {RESOLVE_HOLD_S:.0f} s"}[clear]
-    check = ([("threat_resolved", kinds), ("decision_gaps_ok",)] if clear == "resolved"
-             else [("hp_kept", hp), ("gone", kinds), ("kills_by_the_fight", n), ("decision_gaps_ok",)] if clear
+    # the action never waits on a decision (no_stall); the decision rhythm itself is a readout (fight_readout)
+    check = ([("threat_resolved", kinds), ("no_stall",)] if clear == "resolved"
+             else [("hp_kept", hp), ("gone", kinds), ("kills_by_the_fight", n), ("no_stall",)] if clear
              else [("hp_kept", hp), ("call", "hostiles", [24, ("$set", kinds)])])
     if mob == "skeleton":
         check += [("answered_with", "shield", "fight_shielded"), ("shield_kept",)]   # arrows: shield up, still there
@@ -792,4 +839,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

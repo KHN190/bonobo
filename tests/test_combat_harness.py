@@ -174,5 +174,23 @@ class FightReset(unittest.TestCase):
                 self.assertIs(fight_loop.HELD, marker)
 
 
+
+class LongestStall(unittest.TestCase):
+    """words.fight.longest_stall: the body never stands with no task while engaged beside a mob."""
+
+    def test_rows(self):
+        bids, near = [(0.0, True, "fight")], [(0.0, [(7, 20.0, 2.0)])]
+        run = lambda *tasks: [{"t": round(0.2 * i, 1), "task": t} for i, t in enumerate(tasks)]    # noqa: E731
+        rows = [("a task all the way", run(1, 1, 2, 2), bids, near, 0.0),
+                ("one sample between tasks: within a poll", run(1, None, 2), bids, near, 0.0),
+                ("idle but not engaged: not the fight's stall", run(1, None, None, 2), [(0.0, False, None)], near, 0.0),
+                ("idle but the mob far off: nothing to act on", run(1, None, None, 2), bids, [(0.0, [(7, 20.0, 9.0)])],
+                 0.0),
+                ("must fail: a task ended and 0.4 s idle beside the mob", run(1, None, None, None, 2), bids, near, 0.4)]
+        for name, trace, b, alive, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.longest_stall(trace, b, alive), want)
+
+
 if __name__ == "__main__":
     unittest.main()
