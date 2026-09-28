@@ -293,7 +293,7 @@ class WhatWeBuiltIsNotAResource(unittest.TestCase):
 
     def test_no_module_posts_a_bare_mine_task(self):
         pkg = pathlib.Path(__file__).resolve().parent.parent / "bonobo"
-        allowed = {"building.py", "end.py", "wood.py", "farming.py", "nav.py", "skillcore.py"}
+        allowed = {"building.py", "dragon.py", "wood.py", "farming.py", "nav.py", "skillcore.py"}
         offenders = [f"{p.name}:{line}" for p in sorted(pkg.glob("*.py")) if p.name not in allowed
                      for line in bare_mine_lines(p.read_text())]
         self.assertEqual(offenders, [], f"these break blocks without the protection door: {offenders}")

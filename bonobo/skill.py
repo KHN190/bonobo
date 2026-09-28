@@ -4,6 +4,7 @@ Contract fields: needs/speed/gives (what the planner prices), remaining (what is
 start, done, verify, budget, stall, provides (effect → the call a plan step makes), prefer, and commands — the pure
 batch an open-loop skill sends, so a fight can post the same batch itself. The runner watches the goal metric across
 tasks; api.await_task watches one mod task."""
+import dataclasses
 import functools
 import inspect
 import time
@@ -66,20 +67,40 @@ def world_signature():
     return ((s["blockX"], s["blockY"], s["blockZ"]),
             tuple(sorted((x["id"], x.get("count", 1), x.get("damage", 0)) for x in inv.slots)))
 
+@dataclasses.dataclass(frozen=True)
+class Spec:
+    """What the `skill` decorator declares: the planner's prices and the runner's checks."""
+    pre: tuple = ()
+    needs: object = None
+    speed: object = None
+    gives: object = None
+    start: object = None
+    done: object = None
+    verify: object = None
+    budget: float = 300
+    stall: float = 45
+    units: object = None
+    key: object = None
+    soft: bool = False
+    commands: object = None
+    provides: object = None
+    prefer: float = 0
+    fills_bag: object = False
+    remaining: object = None
+
 class Contract:
-    def __init__(self, name, fn, pre, start, done, verify, budget, stall, units, key, soft=False,
-                 commands=None, provides=None, prefer=0):
-        self.commands = commands
-        self.provides = dict(provides or {})
-        self.prefer = prefer
+    def __init__(self, name, fn, spec):
+        self.commands = spec.commands
+        self.provides = dict(spec.provides or {})
+        self.prefer = spec.prefer
         # soft: perception's interrupt is left for the body to read instead of ending the skill (a fight takes cover and retries)
-        self.soft = soft
-        self.name, self.fn, self.pre, self.start, self.done = name, fn, pre, start, done
-        self.verify = verify if verify is not None else done
-        self.budget, self.stall = budget, stall
+        self.soft = spec.soft
+        self.name, self.fn, self.pre, self.start, self.done = name, fn, tuple(spec.pre), spec.start, spec.done
+        self.verify = spec.verify if spec.verify is not None else spec.done
+        self.budget, self.stall = spec.budget, spec.stall
         # units(c): how many units a call does; key(c): the statistics key
-        self.units = units or (lambda c: 1)
-        self.key = key or (lambda c: name)
+        self.units = spec.units or (lambda c: 1)
+        self.key = spec.key or (lambda c: name)
         self.doc = (inspect.getdoc(fn) or "").split("\n")[0]
 
     def describe(self):
@@ -253,26 +274,25 @@ def gives_of(gives):
         return [f"state:{k}" if not str(k).startswith("state:") else k for k in gives] if gives else []
     return list(gives) if isinstance(gives, (list, tuple)) else [gives]
 
-def skill(name=None, *, pre=(), needs=None, speed=None, gives=None, start=None, done=None, verify=None, budget=300, stall=45,
-          units=None, key=None, soft=False, commands=None, provides=None, prefer=0,
-          fills_bag=False, remaining=None):
+def skill(name=None, **options):
     """`needs` states preconditions as {dimension: minimum} so the planner can price them; `pre` stays the runtime guard."""
+    spec = Spec(**options)
+
     def wrap(fn):
-        declared(name or fn.__name__, needs, speed, gives, remaining)
-        contract = Contract(name or fn.__name__, fn, tuple(pre), start, done, verify, budget, stall, units,
-                            key, soft, commands, provides, prefer)
+        declared(name or fn.__name__, spec.needs, spec.speed, spec.gives, spec.remaining)
+        contract = Contract(name or fn.__name__, fn, spec)
         # a need that depends on the call is a fn of its args; `needs` is then the no-tier default
-        contract.needs_fn = needs if callable(needs) else None
-        contract.needs = {} if callable(needs) else dict(needs)
-        contract.speed = dict(speed)
-        contract.gives = gives_of(gives)
-        contract.remaining = remaining
+        contract.needs_fn = spec.needs if callable(spec.needs) else None
+        contract.needs = {} if callable(spec.needs) else dict(spec.needs)
+        contract.speed = dict(spec.speed)
+        contract.gives = gives_of(spec.gives)
+        contract.remaining = spec.remaining
         from .knowledge import PRODUCERS
         for g in contract.gives:
             if not isinstance(g, str) and g not in PRODUCERS:
                 PRODUCERS.append(g)
         # a gatherer: True, or c → the item ids it gathers
-        contract.fills_bag = fills_bag
+        contract.fills_bag = spec.fills_bag
         REGISTRY[contract.name] = contract
 
         @functools.wraps(fn)

@@ -101,9 +101,9 @@ ROWS = [
          check=[('state', 'health', '>=', 10), ('not', ('!state', 'dead'))], budget=25,
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'netherrack', 169, 169)]),
-    dict(name='bed_bomb_kill', module='end',
+    dict(name='bed_bomb_kill', module='dragon',
          doc='Speedrun End kit, the dragon perched and worn (crystals gone, 8 hp) → dead by a bed bomb.',
-         scene=[('sheet', 'SPEEDRUN_END_KIT')], run=('do', 'bonobo.end.slay_dragon', ['$ctx'], {}),
+         scene=[('sheet', 'SPEEDRUN_END_KIT')], run=('do', 'bonobo.dragon.slay_dragon', ['$ctx'], {}),
          before=[('&worn_perched_dragon',)],
          check=[('call', 'dragon_health', [], 'is', None), ('not', ('!state', 'dead'))], budget=25, raw=True,
          combat=True, dimension='minecraft:the_end', release=True, skills=['slay_dragon']),
@@ -155,7 +155,7 @@ CODE_ROWS = [
     dict(name="fight_dragon",
          doc="The End's main island, the dragon perched and worn (crystals gone, 8 hp), diamond sword, shield, iron "
              "armour, food, blocks → dragon dead.",
-         module="end", raw=True, combat=True, dimension="minecraft:the_end", release=True, skills=["slay_dragon"],
+         module="dragon", raw=True, combat=True, dimension="minecraft:the_end", release=True, skills=["slay_dragon"],
          # a dragon spawns once per world: the fight's last phase is built (WORN_DRAGON)
          setup=["clear @p", "give @p diamond_sword", "item replace entity @p weapon.offhand with shield",
                 "item replace entity @p armor.chest with iron_chestplate",
@@ -163,7 +163,7 @@ CODE_ROWS = [
                 "item replace entity @p armor.legs with iron_leggings", "item replace entity @p armor.feet with iron_boots",
                 "give @p cooked_beef 32", "give @p cobblestone 64", "give @p water_bucket"],
          before=_worn_perched_dragon,
-         run=lambda ctx: __import__("bonobo.end", fromlist=["slay_dragon"]).slay_dragon(ctx),
+         run=lambda ctx: __import__("bonobo.dragon", fromlist=["slay_dragon"]).slay_dragon(ctx),
          check=lambda api, inv: not any(e["type"] == "minecraft:ender_dragon"
                                         for e in __import__("bonobo.world", fromlist=["entities"]).entities(200)),
          budget=limit()),

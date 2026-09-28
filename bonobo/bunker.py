@@ -1,7 +1,7 @@
 """The dragon bunker: geometry only, no actions. Measured from the tapes, the fight gives us a 4.95 s sitting window and 0.85 s of warning before the take-off knock. Nothing with a 200 ms control loop and an execution delay on top can dodge on those numbers, so the answer is not better reflexes but better ground: a one-wide tunnel under the island floor turns the open-field problem into three discrete states — in the tunnel, at the mouth, out — each of which can be tested and reproduced. Why a tunnel works (all of it is vanilla geometry, none of it is a trick): * an enderman is 2.9 blocks tall: it cannot enter a 1×2 corridor, and cannot reach what stands inside one * dragon breath pools at the mouth but does not flow 2–3 blocks in * the head sweep and the take-off knockback need line of sight and space; a ceiling denies both It is an extension of the bomb pit, not a separate structure: the pit's floor is the mouth, and the tunnel runs outward from it along the same side axis. The pit stays the place a bed is clicked from; the tunnel is where we wait."""
 
 from . import nav
-from .end import PIT_DEPTH, PIT_R
+from .dragon import PIT_DEPTH, PIT_R
 from .fight_plan import CONFIG as _CFG
 
 _GEO = _CFG["geometry"]

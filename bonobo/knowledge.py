@@ -218,7 +218,7 @@ GIVES_TAKE = _table("take", TAKEABLE, lambda t, row: ("take", row["blocks"]))
 
 PRODUCERS = []  # the registered skills' producing tables, filled by the `skill` decorator
 # loaded by name before the tables are read (a string, not an import: knowledge stays below the skills)
-SKILL_MODULES = ("brewing", "building", "combat", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
+SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
                  "reflexes", "skills", "ui", "wood")
 
 def producers():

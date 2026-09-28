@@ -13,7 +13,7 @@ from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, i
 from . import skill as skillkit
 from . import craft, skillcore, survive
 # every module that registers skills: a new one is added here only
-from . import brewing, combat, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
+from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
 from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare

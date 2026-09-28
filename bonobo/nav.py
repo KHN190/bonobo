@@ -455,92 +455,113 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         raise api.FightHolds(f"nav.go_to {pos}: a fight holds the body")
     _began, _from = time.time(), feet()
     if avoid_hazards:
-        from . import combat_model
-        hz = combat_model.hazards()
-        if hz:
-            safe = safe_destination(pos, hz)
-            if safe is None:
-                log(f"   every spot near {pos} is inside something dangerous: not walking there")
-                return False
-            if safe != pos:
-                from . import combat_model
-                log(f"   {pos} sits inside a hazard: walking to {safe} instead "
-                    f"(slack {combat_model.slack_at(safe, hz, pos)}s)")
-                pos = tuple(safe)
+        pos = _clear_of_hazards(pos)
+        if pos is None:
+            return False
     if "travel" in mod_features():
-        # the mod plans and runs the whole route, so Python never plans moves the walker can't make
-        here = feet()
-        if ROAD_MEM is not None and math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
-            # known roads first, where they beat the direct way
-            from . import roads
-            known = ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], [])
-            for wp in roads.route(known, here, pos)[:-1]:
-                t0 = time.time()
-                if not moved(go_to(wp, policy, range_=6, attempts=1, purpose=purpose)):
-                    break
-                roads.add_leg(known, here, feet(), time.time() - t0, time.time())
-                here = feet()
-        if math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
-            # long trips in legs: one plan over 100+ blocks exhausts the search
-            start, t_start = here, time.time()
-            for hop in waypoints(here, pos, LEG)[:-1]:
-                if min_hp is not None and api.get("/state")["health"] < min_hp:
-                    log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
-                    return False
-                if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp, purpose=purpose)):
-                    # this hop got nowhere; the trip is over only if we are no nearer than at its start
-                    return _arrived(_from, pos, _began, False,
-                                    closer=walked_closer(_from, feet(), pos))
-            here = feet()
-            # per-leg accounting tells replanning from slow movement
-            _walked = math.dist(start, here)
-            _took = time.time() - t_start
-            log(f"   leg: {_walked:.0f} blocks in {_took:.1f}s ({_took / max(_walked, 1) * 100:.0f} s/100)")
-            if ROAD_MEM is not None:
-                # This trip is now a known road (timed), for the way back and for later trips.
-                from . import roads
-                roads.add_leg(ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], []),
-                              start, here, time.time() - t_start, time.time())
-        budget = place_budget(Inventory().count("building"))
-        avoid = avoid_cells(policy.protected, here, pos)
-        grounded = False
-        brk, plc, void = may_alter(purpose, policy)
-        # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
-        for _ in range(max(attempts, LEGS)):
-            api.at_boundary()                # nightfall between legs: never inside a walk
-            was = feet()
-            r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                         "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                         "avoid": avoid}, wait=900, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
-            if there(api.get("/state"), pos, range_):
-                return _arrived(_from, pos, _began, True)
-            if walked_closer(was, feet(), pos):
-                budget = place_budget(Inventory().count("building"))
-                continue                     # that leg gained ground: the next one starts from here
-            here = feet()
-            budget = place_budget(Inventory().count("building"))     # the last leg spent some
-            if not grounded and "no route" in (r.get("message") or "") and \
-                    math.hypot(pos[0] - here[0], pos[2] - here[2]) <= 64:
-                # the target's y was a guess: stand on the column's real ground and try once more
-                grounded = True
-                col = Region((pos[0], pos[1] - 32, pos[2]), (pos[0], pos[1] + 32, pos[2]))
-                fy = ground_in_column(col.solid, pos[0], pos[2], pos[1])
-                if fy is not None and fy != pos[1]:
-                    log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
-                    pos = (pos[0], fy, pos[2])
-                    api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                             "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                             "avoid": avoid}, wait=900, awaits="the retry's arrival is read before anything else is asked")
-                    if there(api.get("/state"), pos, range_):
-                        return _arrived(_from, pos, _began, True)
-        # a leg that ended nearer is progress; the next round continues from there
-        return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet(), pos))
+        return _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began)
     for _ in range(attempts):
         # a jar without `travel`: one step at a time, the same rule
         api.run({"type": "goto", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_, "partial": True}, awaits="whether the step arrived (`there`) decides the next attempt")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
     return _arrived(_from, pos, _began, False)
+
+def _clear_of_hazards(pos):
+    """The target, or the nearest spot outside every hazard (combat_model.hazards); None when there is none."""
+    from . import combat_model
+    hz = combat_model.hazards()
+    if not hz:
+        return pos
+    safe = safe_destination(pos, hz)
+    if safe is None:
+        log(f"   every spot near {pos} is inside something dangerous: not walking there")
+        return None
+    if safe != pos:
+        log(f"   {pos} sits inside a hazard: walking to {safe} instead "
+            f"(slack {combat_model.slack_at(safe, hz, pos)}s)")
+        return tuple(safe)
+    return pos
+
+def _known_roads(here, pos, policy, purpose):
+    """Walk the known roads toward `pos` where they beat the direct way; where the body ends up."""
+    from . import roads
+    known = ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], [])
+    for wp in roads.route(known, here, pos)[:-1]:
+        t0 = time.time()
+        if not moved(go_to(wp, policy, range_=6, attempts=1, purpose=purpose)):
+            break
+        roads.add_leg(known, here, feet(), time.time() - t0, time.time())
+        here = feet()
+    return here
+
+def _long_trip(here, pos, policy, min_hp, purpose, _from, _began):
+    """A long trip in legs of LEG blocks: (where it ended, None), or (None, the walk's answer) when it stopped."""
+    start, t_start = here, time.time()
+    for hop in waypoints(here, pos, LEG)[:-1]:
+        if min_hp is not None and api.get("/state")["health"] < min_hp:
+            log(f"   travel stopped at {min_hp} hp: falling back instead of walking on")
+            return None, False
+        if not moved(go_to(hop, policy, range_=6, attempts=1, min_hp=min_hp, purpose=purpose)):
+            # this hop got nowhere; the trip is over only if we are no nearer than at its start
+            return None, _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet(), pos))
+    here = feet()
+    # per-leg accounting tells replanning from slow movement
+    _walked = math.dist(start, here)
+    _took = time.time() - t_start
+    log(f"   leg: {_walked:.0f} blocks in {_took:.1f}s ({_took / max(_walked, 1) * 100:.0f} s/100)")
+    if ROAD_MEM is not None:
+        # This trip is now a known road (timed), for the way back and for later trips.
+        from . import roads
+        roads.add_leg(ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], []),
+                      start, here, time.time() - t_start, time.time())
+    return here, None
+
+def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
+    """The mod plans and runs the whole route, so Python never plans moves the walker can't make."""
+    here = feet()
+    if ROAD_MEM is not None and math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
+        here = _known_roads(here, pos, policy, purpose)
+    if math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
+        here, stopped = _long_trip(here, pos, policy, min_hp, purpose, _from, _began)
+        if here is None:
+            return stopped
+    budget = place_budget(Inventory().count("building"))
+    avoid = avoid_cells(policy.protected, here, pos)
+    grounded = False
+    brk, plc, void = may_alter(purpose, policy)
+    # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
+    for _ in range(max(attempts, LEGS)):
+        api.at_boundary()                # nightfall between legs: never inside a walk
+        was = feet()
+        r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
+                     "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+                     "avoid": avoid}, wait=900, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+        if there(api.get("/state"), pos, range_):
+            return _arrived(_from, pos, _began, True)
+        if walked_closer(was, feet(), pos):
+            budget = place_budget(Inventory().count("building"))
+            continue                     # that leg gained ground: the next one starts from here
+        here = feet()
+        budget = place_budget(Inventory().count("building"))     # the last leg spent some
+        if grounded or "no route" not in (r.get("message") or "") or \
+                math.hypot(pos[0] - here[0], pos[2] - here[2]) > 64:
+            continue
+        # the target's y was a guess: stand on the column's real ground and try once more
+        grounded = True
+        col = Region((pos[0], pos[1] - 32, pos[2]), (pos[0], pos[1] + 32, pos[2]))
+        fy = ground_in_column(col.solid, pos[0], pos[2], pos[1])
+        if fy is None or fy == pos[1]:
+            continue
+        log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
+        pos = (pos[0], fy, pos[2])
+        api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
+                 "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+                 "avoid": avoid}, wait=900, awaits="the retry's arrival is read before anything else is asked")
+        if there(api.get("/state"), pos, range_):
+            return _arrived(_from, pos, _began, True)
+    # a leg that ended nearer is progress; the next round continues from there
+    return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet(), pos))
 
 ARRIVE_CALLS = 8          # go_to calls one `arrive` may chain while each keeps gaining ground
 

@@ -449,7 +449,6 @@ def take_prebuilt(name, wait_s=120):
 def _setup(name, sc, feedback):
     from .. import api
     SETUP_S.clear()
-    from ..world import Region
     if api.get("/state").get("dead"):
         api.post("/respawn")
         time.sleep(2)
@@ -463,37 +462,7 @@ def _setup(name, sc, feedback):
         return f"execute in {dim} run {cmd}"
 
     if sc.get("raw"):
-        # real-world scenarios: no box, just the body reset and the commands
-        if moved:
-            # another dimension first: "@p" in "execute in" only finds players already there, so park with @a on its glass
-            _checked(ex(f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"), feedback)
-            probe = _c(at(0, BOX[1][1], 0))
-            for _ in range(60):
-                if not any("not loaded" in l for l in _command(ex(f"fill {probe} {probe} air"), feedback)):
-                    break
-                time.sleep(0.5)
-            glass = _c(at(0, BOX[1][1] + 2, 0))
-            _checked(ex(f"fill {glass} {glass} glass"), feedback)
-            _checked(ex(f"tp @a[limit=1] {_c(at(0, BOX[1][1] + 3, 0))}"), feedback)
-            time.sleep(4)
-        for cmd in ("gamemode survival @p", "effect clear @p", "time set day", "weather clear"):
-            _checked(ex(cmd), feedback)
-        said = _command(ex(f"difficulty {difficulty_of(sc)}"), feedback)
-        if not difficulty_set(said, difficulty_of(sc)):
-            raise SetupInvalid(f"difficulty not {difficulty_of(sc)}: {said[:1]}")
-        for cmd in sc["setup"]:
-            _checked(ex(cmd), feedback)
-        for cmd in body_reset(sc):
-            _command(ex(cmd), feedback)
-        time.sleep(4 if moved else 1.5)
-        s = api.get("/state")
-        if s.get("dimension") != dim:
-            raise SetupInvalid(f"player in {s.get('dimension')}, scenario needs {dim}")
-        # real-world scenarios need their actors too
-        for t, want in sc.get("expect_entities", []):
-            n = server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..160]"), feedback))
-            if n < want:
-                raise SetupInvalid(f"{t}: {n} on the server, expected ≥ {want}")
+        _setup_raw(sc, dim, moved, lo, hi, ex, feedback)
         return
 
     # global state in one batch: empty bag, difficulty (its reply read back), no chance left in the world
@@ -506,12 +475,7 @@ def _setup(name, sc, feedback):
     if not difficulty_set(said, want):
         raise SetupInvalid(f"difficulty not {want}: {[l for l in said if 'ifficulty' in l][:1] or said[:1]}")
     # wait until the box's chunks load: a fill answers "not loaded" until then
-    probe = _c(at(0, BOX[1][1], 0))
-    for _ in range(60):
-        if not any("not loaded" in l for l in _command(ex(f"fill {probe} {probe} air"), feedback)):
-            break
-        time.sleep(0.5)
-    else:
+    if not _chunks_loaded(ex, feedback):
         raise SetupInvalid("scenario chunks never loaded")
     # wait on a glass block above the box: no fall while it is rebuilt
     glass = _c(at(0, BOX[1][1] + 2, 0))
@@ -521,6 +485,58 @@ def _setup(name, sc, feedback):
                f"dz={hi[2] - lo[2]}]")], feedback)
     if moved:
         time.sleep(3)            # the client loads the new dimension
+    _build_box(name, sc, lo, hi, ex, feedback)
+    # glass gone once we are down, the setup's drops, the body reset — one batch
+    _batch([ex(f"fill {glass} {glass} air"), ex("kill @e[type=item]")] + [ex(c) for c in body_reset(sc)], feedback)
+    bad, s = _setup_settled(sc, lo, hi, ex, feedback)
+    if bad:
+        raise SetupInvalid("; ".join(bad))
+    if s.get("dimension") != dim:
+        raise SetupInvalid(f"player in {s.get('dimension')}, scenario needs {dim}")
+    if s.get("dead") or s.get("health", 0) < 18:
+        raise SetupInvalid(f"player not healthy after setup (hp {s.get('health')})")
+
+def _chunks_loaded(ex, feedback):
+    """Wait until the box's chunks load (a fill answers "not loaded" until then); False when they never did."""
+    probe = _c(at(0, BOX[1][1], 0))
+    for _ in range(60):
+        if not any("not loaded" in l for l in _command(ex(f"fill {probe} {probe} air"), feedback)):
+            return True
+        time.sleep(0.5)
+    return False
+
+def _setup_raw(sc, dim, moved, lo, hi, ex, feedback):
+    """Real-world scenarios: no box, just the body reset and the commands."""
+    from .. import api
+    if moved:
+        # another dimension first: "@p" in "execute in" only finds players already there, so park with @a on its glass
+        _checked(ex(f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}"), feedback)
+        _chunks_loaded(ex, feedback)
+        glass = _c(at(0, BOX[1][1] + 2, 0))
+        _checked(ex(f"fill {glass} {glass} glass"), feedback)
+        _checked(ex(f"tp @a[limit=1] {_c(at(0, BOX[1][1] + 3, 0))}"), feedback)
+        time.sleep(4)
+    for cmd in ("gamemode survival @p", "effect clear @p", "time set day", "weather clear"):
+        _checked(ex(cmd), feedback)
+    said = _command(ex(f"difficulty {difficulty_of(sc)}"), feedback)
+    if not difficulty_set(said, difficulty_of(sc)):
+        raise SetupInvalid(f"difficulty not {difficulty_of(sc)}: {said[:1]}")
+    for cmd in sc["setup"]:
+        _checked(ex(cmd), feedback)
+    for cmd in body_reset(sc):
+        _command(ex(cmd), feedback)
+    time.sleep(4 if moved else 1.5)
+    s = api.get("/state")
+    if s.get("dimension") != dim:
+        raise SetupInvalid(f"player in {s.get('dimension')}, scenario needs {dim}")
+    # real-world scenarios need their actors too
+    for t, want in sc.get("expect_entities", []):
+        n = server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..160]"), feedback))
+        if n < want:
+            raise SetupInvalid(f"{t}: {n} on the server, expected ≥ {want}")
+
+def _build_box(name, sc, lo, hi, ex, feedback):
+    """The previous row's leftovers cleared above the glass and the layout built, prebuilt at site B when there is one."""
     # clear the previous row's leftovers (lava) up above the glass, the layout in one burst, feedback checked once
     top = _c((hi[0], hi[1] + 6, hi[2]))
     above = [ex(f"fill {_c((lo[0], hi[1] + 3, lo[2]))} {top} air"),
@@ -534,18 +550,18 @@ def _setup(name, sc, feedback):
         _world, rest = split_setup(sc["setup"])
         _batch(above + [ex(f"clone {_c(b_lo)} {_c(b_hi)} {_c(lo)} replace")], feedback)
         SETUP_S.update(prebuilt=True, world_s=round(time.time() - t_world, 2))
-        t_body = time.time()
-        _batch([ex(cmd) for cmd in rest], feedback)
     else:
         world, rest = split_setup(sc["setup"])
         _batch([ex(f"fill {_c(lo)} {_c((hi[0], hi[1] + 1, hi[2]))} air")] + above + [ex(c) for c in world], feedback)
         SETUP_S.update(prebuilt=False, world_s=round(time.time() - t_world, 2))
-        t_body = time.time()
-        _batch([ex(cmd) for cmd in rest], feedback)
+    t_body = time.time()
+    _batch([ex(cmd) for cmd in rest], feedback)
     SETUP_S["body_s"] = round(time.time() - t_body, 2)
-    # glass gone once we are down, the setup's drops, the body reset — one batch
-    _batch([ex(f"fill {glass} {glass} air"), ex("kill @e[type=item]")] + [ex(c) for c in body_reset(sc)], feedback)
-    # the client sees the build late: read until the expectation holds, then judge
+
+def _setup_settled(sc, lo, hi, ex, feedback):
+    """(what the built box and its actors still miss, the last /state): the client sees the build late, so read until it holds."""
+    from .. import api
+    from ..world import Region
     for i in range(10):
         bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", [])) if sc.get("expect") else []
         if not bad:
@@ -562,13 +578,7 @@ def _setup(name, sc, feedback):
         if s.get("health", 0) < 18:
             _command(ex("effect give @p minecraft:instant_health 1 10 true"), feedback)
         time.sleep(0.25)
-    bad += ents
-    if bad:
-        raise SetupInvalid("; ".join(bad))
-    if s.get("dimension") != dim:
-        raise SetupInvalid(f"player in {s.get('dimension')}, scenario needs {dim}")
-    if s.get("dead") or s.get("health", 0) < 18:
-        raise SetupInvalid(f"player not healthy after setup (hp {s.get('health')})")
+    return bad + ents, s
 
 def _trace(stop, out):
     from .. import api
@@ -597,9 +607,9 @@ def _report(name, data):
     if SCENARIOS.get(name, {}).get("combat"):
         # a dead fight becomes a replayable incident (tests/incidents/)
         try:
-            from .. import end
+            from .. import dragon
             from ..tools import incidents
-            state, intent = end.LAST_ROUND
+            state, intent = dragon.LAST_ROUND
             path = incidents.capture(name, str(data.get("note", "")), state, intent)
             if path:
                 print(f"incident captured → {path}")
@@ -607,12 +617,77 @@ def _report(name, data):
             print(f"incident not captured: {e}")
     return folder
 
-def run(name, make_ctx):
-    """Set up and run one scenario (test world only)."""
+def _run_row(sc, make_ctx, fired):
+    """(result, exc, note, crashed, when the clock started): the row's `before` hooks, then its run under the limit."""
+    from .. import api
+    from ..api import McError
+    t0 = time.time()
+    result, exc, note, crashed = None, None, "", False
+    limit = sc["budget"]
+    timer = None
+    try:
+        try:
+            ctx = make_ctx()
+            if sc.get("before"):
+                sc["before"](ctx)
+                ctx = make_ctx()      # the hook may move the player: rebuild policy/dimension there
+            from .. import skillcore as _sc
+            if _sc.dead():
+                # dead before the skill began: the setup is invalid, not the skill
+                raise SetupInvalid("player dead before the skill started")
+            # the budget is the behaviour's: `before` hooks build the scene, so the clock starts here
+            t0 = time.time()
+            timer = _watchdog(limit, fired)
+            result = sc["run"](ctx)
+        finally:
+            if timer is not None:
+                timer.cancel()
+    except KeyboardInterrupt:
+        if not fired.is_set():
+            raise                      # the user's ^C, not the limit
+        exc = McError(f"{TIMEOUT}: stopped at the {limit}s limit")
+        note = str(exc)
+    except Exception as e:     # the skill's own failure is a result, not a crash of the bench
+        exc, note = e, f"{type(e).__name__}: {e}"
+        if not isinstance(e, (api.McError, api.NotAvailable, SetupInvalid)):
+            crashed = True      # a bug in our own code is never a pass, whatever the world looks like after
+            # a crash says nothing without its frames
+            import traceback as _tb
+            note += " @ " + " < ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno} {f.name}"
+                                       for f in reversed(_tb.extract_tb(e.__traceback__)[-4:]))
+    return result, exc, note, crashed, t0
 
+def _row_verdict(sc, seconds, crashed, fired, exc, note):
+    """(ok, exc, note) of a row that ran: its check over the world, the time it took, a crash of ours never a pass."""
     from .. import api
     from ..api import McError
     from ..world import Inventory
+    ok = False
+    try:
+        inv_after = Inventory()
+        reached = bool(sc["check"](api, inv_after))
+        # a crash of ours is never a pass
+        from . import vocab as _rows
+        ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
+                          _rows.BASE.get("target_s") or sc.get("target_s"))   # a row's own, measured at start
+        ok = ok and not fired.is_set()
+        if reached and not ok:
+            # the outcome came too slowly (or via our crash): say so
+            exc = exc or McError(why)
+            note = note or str(exc)
+        if sc.get("detail"):
+            note = (note + " " if note else "") + sc["detail"](inv_after)   # what a pass really produced
+        if ok and sc.get("fails"):
+            note = (note + " " if note else "") + f"(failed as expected: /{sc['fails']}/)"
+    except Exception as e:
+        exc = exc or type("HarnessError", (Exception,), {})(f"check failed: {e}")
+        note = note or f"check failed: {e}"
+    return ok, exc, note
+
+def run(name, make_ctx):
+    """Set up and run one scenario (test world only)."""
+
+    from ..api import McError
     if not os.path.exists(FLAG):
         raise RuntimeError("scenarios run only in a test world: `mc.py scenario enable` there first")
     sc = SCENARIOS[name]
@@ -642,64 +717,12 @@ def run(name, make_ctx):
             prebuild(NEXT_ROW[0])          # the next row's world, at site B, while this one runs
         if exc is None:
             threading.Thread(target=_trace, args=(stop, trace), daemon=True).start()
-            t0 = time.time()
-            result = None
-            crashed = False
             LAST_FEEDBACK[:] = feedback
             fired = threading.Event()
-            limit = sc["budget"]
-            timer = None
-            try:
-              try:
-                ctx = make_ctx()
-                if sc.get("before"):
-                    sc["before"](ctx)
-                    ctx = make_ctx()      # the hook may move the player: rebuild policy/dimension there
-                from .. import skillcore as _sc
-                if _sc.dead():
-                    # dead before the skill began: the setup is invalid, not the skill
-                    raise SetupInvalid("player dead before the skill started")
-                # the budget is the behaviour's: `before` hooks build the scene, so the clock starts here
-                t0 = time.time()
-                timer = _watchdog(limit, fired)
-                result = sc["run"](ctx)
-              finally:
-                if timer is not None:
-                    timer.cancel()
-            except KeyboardInterrupt:
-                if not fired.is_set():
-                    raise                      # the user's ^C, not the limit
-                exc = McError(f"{TIMEOUT}: stopped at the {limit}s limit")
-                note = str(exc)
-            except Exception as e:     # the skill's own failure is a result, not a crash of the bench
-                exc, note = e, f"{type(e).__name__}: {e}"
-                if not isinstance(e, (api.McError, api.NotAvailable, SetupInvalid)):
-                    crashed = True      # a bug in our own code is never a pass, whatever the world looks like after
-                    # a crash says nothing without its frames
-                    import traceback as _tb
-                    note += " @ " + " < ".join(f"{f.filename.rsplit('/', 1)[-1]}:{f.lineno} {f.name}"
-                                               for f in reversed(_tb.extract_tb(e.__traceback__)[-4:]))
+            result, exc, note, crashed, t0 = _run_row(sc, make_ctx, fired)
             seconds = time.time() - t0
             LAST_LINES[:] = console.lines          # slices read the cerebellum's own log for loops
-            try:
-                inv_after = Inventory()
-                reached = bool(sc["check"](api, inv_after))
-                # a crash of ours is never a pass
-                from . import vocab as _rows
-                ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
-                                  _rows.BASE.get("target_s") or sc.get("target_s"))   # a row's own, measured at start
-                ok = ok and not fired.is_set()
-                if reached and not ok:
-                    # the outcome came too slowly (or via our crash): say so
-                    exc = exc or McError(why)
-                    note = note or str(exc)
-                if sc.get("detail"):
-                    note = (note + " " if note else "") + sc["detail"](inv_after)   # what a pass really produced
-                if ok and sc.get("fails"):
-                    note = (note + " " if note else "") + f"(failed as expected: /{sc['fails']}/)"
-            except Exception as e:
-                exc = exc or type("HarnessError", (Exception,), {})(f"check failed: {e}")
-                note = note or f"check failed: {e}"
+            ok, exc, note = _row_verdict(sc, seconds, crashed, fired, exc, note)
             from .. import skillcore as _sc
             if not ok and type(exc).__name__ != "SetupInvalid" and _sc.dead():
                 # died is the result, whatever the skill did after

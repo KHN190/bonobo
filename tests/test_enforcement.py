@@ -220,12 +220,12 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
 
     def test_a_recovery_is_a_safety_preemption(self):
         from unittest import mock
-        from bonobo import arbiter, end
+        from bonobo import arbiter, dragon
         for reason, want in self.RECOVERIES:
             ran, body = [], Recorder()
-            with self.subTest(reason), mock.patch.object(arbiter, "BODY", body), mock.patch.object(end, "log"), \
-                    mock.patch.object(end, "_recover_body", side_effect=lambda ctx, act: ran.append((ctx, act))):
-                self.assertEqual(end._recover("ctx", reason), want)
+            with self.subTest(reason), mock.patch.object(arbiter, "BODY", body), mock.patch.object(dragon, "log"), \
+                    mock.patch.object(dragon, "_recover_body", side_effect=lambda ctx, act: ran.append((ctx, act))):
+                self.assertEqual(dragon._recover("ctx", reason), want)
                 self.assertEqual((body.preempted, ran), ([("safety", f"{want}: {reason}")], []),
                                  "nothing drives the body inline")
                 body.action()

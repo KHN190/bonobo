@@ -392,7 +392,7 @@ ROWS = [
          expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'grass_block', 285, 289),
                  (('@', -8, 0, -8), ('@', 8, 8, 8), 'birch_log', 8, 20)],
          skills=['chop']),
-    dict(name='break_caged_crystal', module='end',
+    dict(name='break_caged_crystal', module='dragon',
          doc=('A caged end crystal on a 6-high obsidian pillar, blocks + water bucket + sword → towered up, bars '
               'broken, crystal destroyed, alive.'),
          scene=[('floor',), ('fill', ('@', 5, 0, 0), ('@', 5, 5, 0), 'obsidian'),
