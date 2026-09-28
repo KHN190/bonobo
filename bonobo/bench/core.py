@@ -131,12 +131,6 @@ def _platform(reach=9, walled=False):
             out.append(f"fill {_c(at(*a))} {_c(at(*b))} stone")
     return out
 
-def _sweep_rows(path):
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
-
 def _sweep(name, cells, build, record, path, settle=0.5):
     """One pass: build each cell, record one row, append it; returns this pass's rows."""
     def run(_ctx):
