@@ -42,7 +42,9 @@ class VirtualInventory:
     def available(self, token):
         return sum(self.counts[m] for m in members(token)) + self.produced[token]
 
-    def consume(self, token, n):
+    def consume(self, token, n, awaits=True):
+        """Use `n` of token: what the plan makes first, then the bag, then what a job is still making — that last
+        noted as awaited (`awaits`: a step uses it; a top-level need met by an output on its way awaits nothing)."""
         take = min(n, self.produced[token])
         self.produced[token] -= take
         n -= take
@@ -51,10 +53,11 @@ class VirtualInventory:
                 break
             take = min(n, self.counts[m])
             held = self.counts[m] - self.pending[m]
-            if take > held:                  # the rest comes from a job not yet collected: await it first
+            if take > held:                  # the rest comes from a job not yet collected
                 late = take - max(0, held)
                 self.pending[m] -= late
-                self.awaited[m] += late
+                if awaits:
+                    self.awaited[m] += late
             self.counts[m] -= take
             n -= take
 
@@ -110,12 +113,16 @@ class Planner:
                 self.need_tool(need[1], need[2])
             else:
                 self.need(need[0], need[1])
-        # what the plan takes from a job still running (a sown crop, a furnace) is collected first — counted as held,
-        # it was crafted from before it existed (bread_from_a_farm: sown, then "missing 3× wheat for crafting")
-        awaits = [Step("await", item, n) for item, n in sorted(self.inv.awaited.items()) if n > 0]
-        for st in awaits:
-            st.est = self.cost.estimate(st)
-        return awaits + self.merged()
+        return self.merged()
+
+    def await_first(self):
+        """What a step is about to take from a job still running (a sown crop, a furnace) is collected right before
+        that step — after every step planned so far, which need nothing of it (never idle while it is on its way).
+        Counted as held and used at once, bread was crafted from sown wheat ("missing 3× wheat for crafting")."""
+        for item, n in sorted(self.inv.awaited.items()):
+            if n > 0:
+                self.steps.append(Step("await", item, n, est=self.cost.estimate(Step("await", item, n))))
+        self.inv.awaited.clear()
 
     # -- resolution
     def need_tool(self, kind, tier, depth=0):
@@ -191,11 +198,13 @@ class Planner:
             raise Unplannable(f"requirement chain too deep at {token}")
         have = 0 if fresh else self.inv.available(token)
         if have >= n:
-            self.inv.consume(token, n)
+            self.inv.consume(token, n, awaits=depth > 0)
+            self.await_first()
             return
         missing = n - have
         if not fresh:
-            self.inv.consume(token, have)
+            self.inv.consume(token, have, awaits=depth > 0)
+            self.await_first()
         if token == "food":
             # raw meat carried first: smelting is seconds, hunting minutes
             for cooked, k in cooked_from_carried(COOKABLE_FOOD, self.inv.available, missing):
@@ -332,4 +341,4 @@ class NullCost:
 
     def estimate(self, step):
         return {"craft": 60, "smelt": 200 * step.count, "mine": 80 * step.count, "gather": 60 * step.count,
-                "hunt": 400 * step.count, "fill": 100, "farm": 6000, "trade": 600, "take": 100}[step.kind]
+                "hunt": 400 * step.count, "fill": 100, "farm": 6000, "trade": 600, "take": 100, "await": 0}[step.kind]
