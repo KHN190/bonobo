@@ -320,8 +320,9 @@ class Brain:
             self.just_finished = False
             return 0
         slices = 0
+        wake = getattr(self, "wake", None)       # a Brain built without __init__ (a test's) has none
         for _ in range(max(1, IDLE_WAIT_TICKS // IDLE_SLICE_TICKS)):
-            if self.wake is not None and self.wake():
+            if wake is not None and wake():
                 break
             api.run({"type": "wait", "ticks": IDLE_SLICE_TICKS}, wait=15, awaits="one task: a slice of the idle round's wait")
             slices += 1
