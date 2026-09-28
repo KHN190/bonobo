@@ -486,18 +486,21 @@ def _respawn(api):
     raise SetupInvalid(f"still dead after {RESPAWN_TRIES} respawns")
 
 
-LEFTOVER_R = 64              # blocks round the site cleared of the last row's mobs: past the 40 a scene is counted in
+PAUSE_SCREEN = "class_433"   # the game menu's screen class (/state screen)
+LEFTOVER_R = 64             # blocks round the site cleared of the last row's mobs: past the 40 a scene is counted in
 
 
 def _setup(name, sc, feedback):
     from .. import api
     SETUP_S.clear()
     _respawn(api)                # the last row may have died (fight rows do)
-    api.post("/resume")          # a pause menu freezes the integrated server: commands would do nothing
-    time.sleep(0.5)
+    s0 = api.get("/state")
+    if s0.get("screen") == PAUSE_SCREEN:
+        api.post("/resume")      # a pause menu freezes the integrated server: commands would do nothing
+        time.sleep(0.5)
     lo, hi = at(*BOX[0]), at(*BOX[1])
     dim = sc.get("dimension", "minecraft:overworld")
-    moved = api.get("/state")["dimension"] != dim
+    moved = s0["dimension"] != dim
 
     def ex(cmd):                 # every command runs in the scenario's dimension (tp included: it moves us there)
         return f"execute in {dim} run {cmd}"
