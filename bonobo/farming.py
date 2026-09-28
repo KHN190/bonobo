@@ -145,16 +145,12 @@ def started_plot(region, here, radius=8):
     return None if best is None else best[1]
 
 def click_line(task, reply):
-    """Pure: one use_item's detail line — the item, the aim sent, the jar's reply and what the click saw (jar ≥ 0.1.59:
-    the eye, yaw/pitch, reach, where the ray ended, the block hit)."""
+    """Pure: one use_item's detail line from what the jar reports anyway — the item, the aim sent, the status and
+    message, the block and face hit, the task's own seconds."""
     res = reply.get("result") or {}
-    f = lambda k: f"{res[k]:.2f}" if isinstance(res.get(k), (int, float)) else "-"     # noqa: E731
     return (f"click {task['item'].split(':')[-1]} aim ({task['x']:.2f}, {task['y']:.2f}, {task['z']:.2f}) → "
-            f"{reply.get('status')} {reply.get('message') or ''} | eye ({f('eyeX')}, {f('eyeY')}, {f('eyeZ')}) "
-            f"yaw {f('yaw')} pitch {f('pitch')} reach {f('reach')} aimDist {f('aimDist')} "
-            f"ray end ({f('rayEndX')}, {f('rayEndY')}, {f('rayEndZ')}) hit {res.get('hitX', '-')},{res.get('hitY', '-')},"
-            f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')} "
-            f"in {reply.get('seconds', '-')} s")
+            f"{reply.get('status')} {reply.get('message') or ''} | hit {res.get('hitX', '-')},{res.get('hitY', '-')},"
+            f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')} in {reply.get('seconds', '-')} s")
 
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
