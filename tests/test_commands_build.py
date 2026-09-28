@@ -85,7 +85,7 @@ class Sow(unittest.TestCase):
                 self.assertEqual((len(got), {t["item"] for t in got} or {"minecraft:wheat_seeds"}),
                                  (n, {"minecraft:wheat_seeds"}))
                 # aimed at the farmland's own top (15/16), not the air above a full block's top
-                self.assertTrue(all(c[1] + 0.9 < t["y"] < c[1] + 0.9375 for c, t in zip(cells, got)))
+                self.assertTrue(all(c[1] + 0.75 < t["y"] < c[1] + 0.9375 for c, t in zip(cells, got)))
 
 
 if __name__ == "__main__":

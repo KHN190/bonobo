@@ -201,7 +201,9 @@ def plant_farm(ctx):
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
     tasks = plant_farm_commands(state, ())
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
-    if not nav.arrived(stand, ctx.policy, range_=1.0, attempts=1):
+    # on the stand, not a block off it: the ring's far side is 3 away and a sow aimed there from 4 ran past the
+    # jar's 4.5 reach ("no block under the crosshair")
+    if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
     done = api.run_chain(tasks, stop_on_failure=False)

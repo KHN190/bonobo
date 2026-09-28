@@ -35,8 +35,10 @@ FARMLAND_TOP = 0.9375      # farmland is 15/16 of a block: its top face is below
 
 def use_on_top(item, cell, top=1.0):
     """Pure: the task that uses `item` on the top face of `cell` (till, sow, pour, light a portal); `top`: that face's
-    height in the cell — aimed a hair under it, so a block lower than a full cube (farmland) is hit, not the air above."""
-    y = cell[1] + (1.0 if top >= 1.0 else top - 0.02)
+    height in the cell — aimed inside it, so a block lower than a full cube (farmland) is hit, not the air above."""
+    # under a lower face, aimed well inside it: 0.02 under the farmland's top left the look's own error sailing over
+    # the cell (the jar raycasts along the look, not to the point): "no block under the crosshair" on 7 of 8 sows
+    y = cell[1] + (1.0 if top >= 1.0 else top - 0.15)
     return {"type": "use_item", "item": item, "x": cell[0] + 0.5, "y": y, "z": cell[2] + 0.5, "onBlock": True}
 
 def mine_task(c, collect=False, down=False):
