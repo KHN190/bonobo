@@ -261,6 +261,18 @@ class TunnelAroundCaves(unittest.TestCase):
             d, end, cave = gather.plan_tunnel(self.rock([(2, 64, 1)]), feet, 4, facing=east)
             self.assertNotEqual(d, east)
 
+    def test_tunnel_run(self):
+        feet, east = (0, 64, 0), (1, 0)
+        rows = [("solid: the whole length", self.rock(), (), 4, (4, None)),
+                ("a cave beside the second step: one step, its cells", self.rock([(2, 64, 1)]), (), 4,
+                 (1, [(2, 65, 0), (2, 64, 0)])),
+                ("boundary: no length", self.rock(), (), 0, (0, None)),
+                ("must fail: the first step protected", self.rock(), {(1, 64, 0)}, 4, (0, None)),
+                ("must fail: no floor under the first step", self.rock([(1, 63, 0)]), (), 4, (0, None))]
+        for name, region, protected, length, want in rows:
+            with self.subTest(name):
+                self.assertEqual(gather.tunnel_run(region, feet, east, length, protected), want)
+
     def test_the_opening_sealed_first(self):
         region = self.rock([(1, 64, 1), (-1, 64, -1)])
         own, cave = {(0, 64, 0), (0, 65, 0)}, [(1, 65, 0), (1, 64, 0)]

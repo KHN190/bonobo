@@ -818,6 +818,31 @@ class Frontier(unittest.TestCase):
                     self.assertFalse(memory.out_of_look({band: m.clock}, band, [self.D],
                                                         m.clock + memory.absent_ttl(self.D) + 1))    # expires
 
+    def test_stand_in_look_range(self):
+        from bonobo import explore
+        rows = [("a cave floor 16 above the band", (-40, -56, 48, False), True),
+                ("boundary: exactly the radius apart", (40, -8, 48, False), True),
+                ("a dig-down stand", (70, -56, 48, True), True),
+                ("must fail: one past the radius", (41, -8, 48, False), False),
+                ("must fail: the surface, the band 126 below, no digging", (70, -56, 48, False), False)]
+        for name, args, want in rows:
+            with self.subTest(name):
+                self.assertIs(explore.stand_in_look_range(*args), want)
+
+    def test_out_of_look(self):
+        from bonobo import memory
+        ttl = memory.absent_ttl(self.D)
+        band = (0, -4, 0)
+        rows = [("skipped lately", {band: 1000}, 1000 + 10, True),
+                ("boundary: the skip at its ttl", {band: 1000}, 1000 + ttl, True),
+                ("no clock: a skip holds", {band: 1000}, None, True),
+                ("must fail: the skip expired", {band: 1000}, 1000 + ttl + 1, False),
+                ("must fail: another section skipped", {(1, -4, 0): 1000}, 1010, False),
+                ("must fail: no skips", None, 1010, False)]
+        for name, skips, tick, want in rows:
+            with self.subTest(name):
+                self.assertIs(memory.out_of_look(skips, band, [self.D], tick), want)
+
     def test_ttl_by_class(self):
         from bonobo import memory
         row = {"t": 0, "kinds": {}, "looked": {"diamond_ore": 0, "sheep": 0}}
@@ -1223,12 +1248,20 @@ class Pits(unittest.TestCase):
                   for j in range(y - 4, top + 1) if not (i == x and k == z and j >= y)}
         return FakeRegion((x - half, y - 5, z - half), (x + half, y + 6, z + half), blocks)
 
+    @classmethod
+    def bedrock(cls, depth):
+        from tests.world import FakeRegion
+        stone = cls.ground(depth)
+        return FakeRegion(stone.lo, stone.hi, {c: "bedrock" for c in stone.blocks})
+
     def test_in_pit(self):
         from bonobo import nav
+        from tests.world import FakeRegion
         rows = [("a 1-wide shaft 3 deep: a pit", self.ground(3), True),
                 ("2 deep: the head-height sides solid — a pit", self.ground(2), True),
                 ("must fail: a 1-deep dip — a jump clears it", self.ground(1), False),
-                ("must fail: flat ground", self.ground(0), False)]
+                ("must fail: flat ground", self.ground(0), False),
+                ("must fail: the sides not read", FakeRegion((0, 64, 0), (0, 64, 0), {}), False)]
         for name, region, want in rows:
             with self.subTest(name):
                 self.assertIs(nav.in_pit(region, (0, 64, 0)), want)
@@ -1237,7 +1270,8 @@ class Pits(unittest.TestCase):
         from bonobo import nav
         rows = [("a block carried, the shaft open above: pillar", self.ground(3), "minecraft:cobblestone", "pillar"),
                 ("no block: a step dug into a side, then walked onto", self.ground(3), None, "goto"),
-                ("must fail: nothing to stand on beside (air all round): no way", self.ground(0), None, None)]
+                ("must fail: nothing to stand on beside (air all round): no way", self.ground(0), None, None),
+                ("must fail: bedrock all round, no block: no way", self.bedrock(3), None, None)]
         for name, region, block, want in rows:
             with self.subTest(name):
                 tasks = nav.pit_exit_tasks(region, (0, 64 if want else 65, 0), block)
@@ -1260,3 +1294,16 @@ class Pits(unittest.TestCase):
                     self.assertTrue(gotos)
                     self.assertTrue(all(g[1] == 64 - k and (g[0], g[2]) == (d[0] * k, d[1] * k)
                                         for k, g in enumerate(gotos, 1)))
+
+    def test_stairs_stop_before_danger(self):
+        from bonobo import nav
+        from tests.world import FakeRegion
+        flat = self.ground(0)
+        lava = FakeRegion(flat.lo, flat.hi, {**flat.blocks, (1, 63, 0): "lava"})
+        rows = [("must fail: lava in the first step", lava, (3, 59, 0), ()),
+                ("must fail: the first step protected", flat, (3, 59, 0), {(1, 63, 0)}),
+                ("must fail: the target above", flat, (2, 70, 0), ()),
+                ("must fail: bedrock under the steps", self.bedrock(0), (3, 59, 0), ())]
+        for name, region, target, protected in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.stair_down_tasks(region, (0, 64, 0), target, protected), [])

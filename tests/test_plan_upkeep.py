@@ -2067,9 +2067,16 @@ class Overnight(unittest.TestCase):
                 got, _secs, steps = needs.overnight(snap.inv, cost(snap), needs.night_facts(False, cooled),
                                                     bed_too=False)
                 self.assertEqual(got, free if want is None else (None if want == "none" else want))
-        with self.subTest("the cooling read from the retry keys"):
-            self.assertEqual(needs.cooled_ways(lambda key: key != needs.way_key("dig in")), ["dig in"])
-            self.assertEqual(needs.cooled_ways(lambda key: True), [])
+        ways = [s["name"] for s in decompose.SOURCES["overnight"]]
+        cooled = [("one way cooling", lambda key: key != needs.way_key("dig in"), ["dig in"]),
+                  ("two ways cooling, in the sources' order",
+                   lambda key: key not in {needs.way_key("dig in"), needs.way_key("wall in")},
+                   [w for w in ways if w in ("dig in", "wall in")]),
+                  ("boundary: every way cooling", lambda key: False, ways),
+                  ("must fail: nothing cooling", lambda key: True, [])]
+        for name, ready, want in cooled:
+            with self.subTest(name):
+                self.assertEqual(needs.cooled_ways(ready), want)
 
     def test_only_a_dig_in_that_can_finish_is_offered(self):
         """survive.dig_in_site over the ground under the feet, and the pricing that reads it (needs.night_facts):
@@ -2090,10 +2097,13 @@ class Overnight(unittest.TestCase):
                 ("resumed after a fall, two dug, deep stone", ground(57, dug=[(0, 63, 0), (0, 62, 0)]), (0, 62, 0),
                  True),
                 ("must fail: three thick over air (the bench arena)", ground(61), (0, 64, 0), False),
-                ("must fail: lava in the third cell", ground(57, under=((0, 61, 0), "lava")), (0, 64, 0), False)]
+                ("must fail: lava in the third cell", ground(57, under=((0, 61, 0), "lava")), (0, 64, 0), False),
+                ("must fail: bedrock in the second cell", ground(57, under=((0, 62, 0), "bedrock")), (0, 64, 0), False)]
         for name, region, feet, want in rows:
             with self.subTest(name):
                 self.assertIs(survive.dig_in_site(region, feet), want)
+        with self.subTest("must fail: the cell under the feet protected"):
+            self.assertIs(survive.dig_in_site(ground(57), (0, 64, 0), {(0, 63, 0)}), False)
         snap = snapshot(state(timeOfDay=NIGHT), inventory(("stone_pickaxe", 1), ("cobblestone", 16)))
         for name, site, want in [("must fail: no dig-in site: walled in", False, "wall in")]:
             with self.subTest(name):

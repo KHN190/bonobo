@@ -2007,11 +2007,30 @@ class BagRules(unittest.TestCase):
                 ("must fail: a standable top face (head room): no opener", {**ground, cell: "diamond_ore"},
                  (10012, 198, 10005), None),
                 ("buried: a side face on the body's side (the drop's way out of the sealed cavity)",
-                 {**ground, cell: "diamond_ore", (10014, 200, 10003): "stone"}, (10012, 198, 10005), (10013, 199, 10003))]
+                 {**ground, cell: "diamond_ore", (10014, 200, 10003): "stone"}, (10012, 198, 10005), (10013, 199, 10003)),
+                ("must fail: every solid face bedrock: none to break",
+                 {**pocket, **{f: "bedrock" for f in [(10013, 199, 10003), (10015, 199, 10003), (10014, 199, 10002),
+                                                      (10014, 199, 10004), (10014, 198, 10003)]}}, (10012, 198, 10005), None),
+                ("must fail: no region read", None, (10012, 198, 10005), None)]
         for name, blocks, feet, want in rows:
             with self.subTest(name):
-                region = FakeRegion((10006, 190, 9995), (10022, 205, 10011), blocks)
+                region = None if blocks is None else FakeRegion((10006, 190, 9995), (10022, 205, 10011), blocks)
                 self.assertEqual(bag.opener(region, cell, feet, nav.SAFE_DROP), want)
+
+    def test_standable_face(self):
+        from bonobo import bag
+        from tests.world import FakeRegion
+        cell = (10014, 199, 10003)
+        ground = {(x, y, z): "stone" for x in range(10008, 10021) for y in (197, 198, 199) for z in range(9997, 10010)}
+        pocket = {**ground, cell: "diamond_ore", (10014, 201, 10003): "stone"}
+        rows = [("the top open with head room", {**ground, cell: "diamond_ore"}, 205, True),
+                ("boundary: the face above not read counts as standable", pocket, 199, True),
+                ("must fail: the top open onto a pocket, no head room", pocket, 205, False),
+                ("must fail: buried", {**ground, cell: "diamond_ore", (10014, 200, 10003): "stone"}, 205, False)]
+        for name, blocks, top, want in rows:
+            with self.subTest(name):
+                region = FakeRegion((10006, 190, 9995), (10022, top, 10011), blocks)
+                self.assertIs(bag.standable_face(region, cell, nav.SAFE_DROP), want)
 
     def test_open_faced_before_buried(self):
         """bag.mineable: open-faced cells first; a buried one only when nothing open is left."""
