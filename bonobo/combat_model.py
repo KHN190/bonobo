@@ -2,8 +2,6 @@
 
 import math
 
-from .data import EYE_HEIGHT
-
 TICK = 0.05                 # seconds per tick
 HORIZON = 4.0               # seconds ahead worth predicting; past that the dragon has re-decided anyway
 
@@ -230,6 +228,7 @@ def windows(frames, window_phases=WINDOW_PHASES):
 # enderman geometry: a fact `api.run` and the fight skills consult before any aimed task
 
 ENDERMAN = "minecraft:enderman"
+EYE_HEIGHT = 1.62
 ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
 HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
 

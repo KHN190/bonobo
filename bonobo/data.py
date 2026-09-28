@@ -264,3 +264,22 @@ NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
 ROUTE_FACTOR = 1.5            # real route length / straight line
 
+
+# every exception an attempt can end in, by class name (this module imports nothing): (cause it is counted and
+# cooled under, interrupt source — arbiter.RESUME_OF says what that source means: resumed, or failed)
+EXCEPTIONS = {
+    "Exception": ("error", "crash"),                       # a bug of ours: anything not declared below
+    "McError": ("error", "stuck"),                         # a mod task failed (its text may say "nav": cause_of)
+    "GameUnreachable": ("game", "game lost"),
+    "NotAvailable": ("unavailable", "stuck"), "NavFailed": ("nav", "stuck"), "Unreachable": ("nav", "stuck"),
+    "TaskStuck": ("stuck", "stuck"),
+    "ToolMissing": ("tool", "stuck"), "NeedMissing": ("tool", "stuck"),
+    "StationMissing": ("replan", "stuck"),                 # the plan counted on a station that is gone
+    "CommitmentExpired": ("replan", "layer:plan"),         # the plan grew stale: nothing failed
+    "Interrupted": ("interrupt", "layer:safety"), "NightFell": ("interrupt", "night"),
+    "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
+    "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
+    "DimensionChanged": ("interrupt", "dimension change"),
+    "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
+    "SetupInvalid": ("error", "crash"),
+}

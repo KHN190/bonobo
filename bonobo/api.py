@@ -5,8 +5,8 @@ import time
 import urllib.error
 import urllib.request
 
-from . import paths, retry, tape
-from .data import TASK_WAIT_S, item_ids
+from . import paths, tape
+from .data import EXCEPTIONS, TASK_WAIT_S, item_ids
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -142,7 +142,7 @@ class DimensionChanged(McError):
     """The body left the task's dimension: the task resumes only back in its own (maps and notes are per dimension)."""
 
 INTERRUPTIONS = tuple(c for n, c in list(globals().items())
-                      if isinstance(c, type) and retry.EXCEPTIONS.get(n, ("",))[0] in ("interrupt", "replan"))
+                      if isinstance(c, type) and EXCEPTIONS.get(n, ("",))[0] in ("interrupt", "replan"))
 
 def interrupted(err):
     """Was this an interruption rather than a failure?"""

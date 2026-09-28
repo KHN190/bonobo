@@ -1,6 +1,6 @@
 """One failure policy for every attempt the brain makes (task steps, upkeep, rescues). A failure is (task, cause). Two facts, kept apart on purpose: - the COUNT belongs to the pair: "mine iron failed for nav" three times means three sources were tried and none could be reached. After SOURCES_TRIED the task stops retrying and is reported upward (L3: task state + reason); - the COOLDOWN belongs to the cause, at a place: `cause@place`. The same wall stops every task that would walk into it, and is asked about once between them — a body treading water fails to dig, place, build and shelter, one fact. Nothing else cools: there is no per-task timer. An interruption (`api.interrupted`) is not a failure and never reaches this module. Pure (time is passed in): offline-testable."""
 
-from .data import UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
+from .data import EXCEPTIONS, UNREACHABLE  # noqa: E402  (the one list: api raises Unreachable on the same words)
 
 BACKSTOP = {"game": 10, "tool": 20, "nav": 120, "unavailable": 180, "stuck": 120, "error": 60}
 # the doubling's ceiling by cause: "not here" ages fast (mobs wander, we walk); a bug does not
@@ -11,24 +11,6 @@ LOG_EVERY = 10
 NOT_FAILURES = ("interrupt", "replan")
 REPLAN_LIMIT = 2  # replanning this often in a row with nothing done is a failure ("unavailable")
 
-# every exception an attempt can end in, by class name (this module imports nothing): (cause it is counted and
-# cooled under, interrupt source — arbiter.RESUME_OF says what that source means: resumed, or failed)
-EXCEPTIONS = {
-    "Exception": ("error", "crash"),                       # a bug of ours: anything not declared below
-    "McError": ("error", "stuck"),                         # a mod task failed (its text may say "nav": cause_of)
-    "GameUnreachable": ("game", "game lost"),
-    "NotAvailable": ("unavailable", "stuck"), "NavFailed": ("nav", "stuck"), "Unreachable": ("nav", "stuck"),
-    "TaskStuck": ("stuck", "stuck"),
-    "ToolMissing": ("tool", "stuck"), "NeedMissing": ("tool", "stuck"),
-    "StationMissing": ("replan", "stuck"),                 # the plan counted on a station that is gone
-    "CommitmentExpired": ("replan", "layer:plan"),         # the plan grew stale: nothing failed
-    "Interrupted": ("interrupt", "layer:safety"), "NightFell": ("interrupt", "night"),
-    "PlayerTookControl": ("interrupt", "player"), "FightHolds": ("interrupt", "layer:tactic"),
-    "BodyContested": ("interrupt", "manual"), "Died": ("interrupt", "death"),
-    "DimensionChanged": ("interrupt", "dimension change"),
-    "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
-    "SetupInvalid": ("error", "crash"),
-}
 
 def row_of(err):
     """(cause, source) of an exception: its nearest class with a row. An exception class of ours with no row of its
