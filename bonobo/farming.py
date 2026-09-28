@@ -86,6 +86,17 @@ def started_plot(region, here, radius=8):
                 best = (d, c)
     return None if best is None else best[1]
 
+def click_line(task, reply):
+    """Pure: one use_item's detail line — the item, the aim sent, the jar's reply and what the click saw (jar ≥ 0.1.59:
+    the eye, yaw/pitch, reach, where the ray ended, the block hit)."""
+    res = reply.get("result") or {}
+    f = lambda k: f"{res[k]:.2f}" if isinstance(res.get(k), (int, float)) else "-"     # noqa: E731
+    return (f"click {task['item'].split(':')[-1]} aim ({task['x']:.2f}, {task['y']:.2f}, {task['z']:.2f}) → "
+            f"{reply.get('status')} {reply.get('message') or ''} | eye ({f('eyeX')}, {f('eyeY')}, {f('eyeZ')}) "
+            f"yaw {f('yaw')} pitch {f('pitch')} reach {f('reach')} aimDist {f('aimDist')} "
+            f"ray end ({f('rayEndX')}, {f('rayEndY')}, {f('rayEndZ')}) hit {res.get('hitX', '-')},{res.get('hitY', '-')},"
+            f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')}")
+
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
 
@@ -207,6 +218,10 @@ def plant_farm(ctx):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
     done = api.run_chain(tasks, stop_on_failure=False)
+    api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
+    for t, r in zip(tasks, done):
+        if t.get("type") == "use_item":
+            api.detail("  " + click_line(t, r))
     for cell in unreachable_cells(tasks, done):
         ctx.ban(tuple(int(round(v)) for v in cell), 600)
     after = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1)))
