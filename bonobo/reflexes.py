@@ -12,7 +12,8 @@ from .knowledge import RAW_MEAT, food_count
 from .skill import skill
 from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
-from .bag import FREE_SLOTS_TARGET, empty_how
+from .bag import FREE_SLOTS_TARGET, bag_signature, empty_how
+from .decompose import cooled_ways, night_facts, way_key
 
 
 def in_sight(snap, kinds, radius):
@@ -167,7 +168,6 @@ class Maintain:
         self.last_run = None          # (name, progress when it started): judged next round (`stalled`)
 
     def observe(self, snap):
-        from .needs import bag_signature
         now = time.time()
         self.history = [h for h in self.history if now - h[0] <= STUCK_LIMIT + 30]
         self.history.append((now, snap.feet, bag_signature(snap.inv)))
@@ -182,13 +182,12 @@ class Maintain:
     def proposals(self, snap, ctx, reads=None):
         """[(seq, name, run)] of every reflex that fires; triggers read this round's snapshot only, so asking order does not matter."""
 
-        from . import needs
         b, s, inv, over = self.brain, snap.state, snap.inv, snap.dimension == "minecraft:overworld"
         blocked = self.blocked_here(b.place)
         enclosed, soft_ground, dig_site = ground(reads)
 
         def night_way():
-            return b.needs.overnight(snap, needs.night_facts(soft_ground(), needs.cooled_ways(b.ready), dig_site()),
+            return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site()),
                                      bed_too=False)
         view = View({
             "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
@@ -249,7 +248,6 @@ class Maintain:
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
-        from .needs import way_key
         way, _secs, steps = night_way
         log(f"   the night: {way} ({' → '.join(map(str, steps))})")
         try:

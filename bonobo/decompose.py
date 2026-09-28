@@ -327,3 +327,26 @@ def to_dict(step):
 
 def from_dict(d):
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
+
+def night_facts(soft, cooled=(), dig_site=True):
+    """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
+    the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
+    finish here (`dig_site`, survive.dig_in_site: False → dig in is not offered)."""
+
+    out = {"soft_ground": False} if soft is None or soft is False else \
+        {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
+    if not dig_site:
+        out["no_dig_site"] = True
+    if cooled:
+        out["cooled"] = sorted(cooled)
+    return out
+
+
+def way_key(way):
+    """The retry key a night way's failure cools under (reflexes.Maintain.shelter)."""
+    return f"shelter:{way}"
+
+
+def cooled_ways(ready):
+    """Pure given `ready(key)`: the night's ways (SOURCES["overnight"]) cooling after a failure here."""
+    return [s["name"] for s in SOURCES["overnight"] if not ready(way_key(s["name"]))]
