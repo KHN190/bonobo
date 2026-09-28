@@ -794,8 +794,8 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
     ok = False
     try:
         inv_after = bag_now()
+        CHECK_READOUT.clear()      # before the check: what it writes (a volley's readout) reaches the report
         reached = bool(sc["check"](api, inv_after))
-        CHECK_READOUT.clear()
         if not reached:
             CHECK_READOUT["parts"] = check_parts(sc["check"], api, inv_after)
             if sc.get("combat"):
