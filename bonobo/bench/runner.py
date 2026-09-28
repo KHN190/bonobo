@@ -991,6 +991,20 @@ DIED_ONLY = "DIED_ONLY"     # the idle check passed, but the body died: valid on
 IDLE_POLL_S = 1.0           # the idle window reads its check this often; ends on a pass or a death
 
 
+def idle_done(reached, died, over, hold):
+    """Pure: does the idle window end now? On a death or the budget; else a hold check (judged.HOLD: true at t 0)
+    only once it fails, any other check once it passes."""
+    if died or over:
+        return True
+    return not reached if hold else reached
+
+
+def holds(check):
+    """Does this check hold a state over the window (any of its words in judged.HOLD)?"""
+    from .judged import HOLD, callable_words
+    return bool(callable_words(check) & HOLD)
+
+
 def idle_verdict(reached, died):
     """Pure: VALID when an idle body fails the row's check, INVALID when it passes; passed but died: DIED_ONLY."""
     if reached:
@@ -1041,14 +1055,15 @@ def run_idle(name, make_ctx):
             from .words.checks import BASE, FAILED_AS_EXPECTED
             if sc.get("fails"):
                 FAILED_AS_EXPECTED[BASE.get("name", name)] = "idle: the expected failure granted"
-            while True:                  # ends on a pass, a death, or the budget: never idles past what decides it
+            hold = holds(sc["check"])
+            while True:                  # ends on what decides it (idle_done): never idles past it, never before it
                 inv = bag_now()
                 try:
                     reached = bool(sc["check"](_api, inv))
                 except Exception as e:  # guard: a check that raised is no pass, and the idle row records why
                     reached, note = False, f"check raised {type(e).__name__}: {e} @ {traceback_of(e)}"
                 died = died_during(trace)
-                if reached or died or time.time() >= deadline:
+                if idle_done(reached, died, time.time() >= deadline, hold):
                     break
                 time.sleep(IDLE_POLL_S)
             verdict_ = idle_verdict(reached, died)

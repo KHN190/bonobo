@@ -22,6 +22,10 @@ WORLD = {
     "deflected",                # the server's player Health, each volley fireball's end read off /entities
 }
 
+# words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode
+# judges them there, never early)
+HOLD = {"alive", "hp_kept", "kept_health", "escaped", "shield_kept", "endermen_calm"}
+
 # words that read the bot: the fight loop, the brain, memory, the api calls made, the log, timings, the bench's own
 # records of what the bot did
 PROXY = {

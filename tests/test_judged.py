@@ -92,6 +92,21 @@ class Idle(unittest.TestCase):
             with self.subTest(why):
                 self.assertEqual(runner.idle_verdict(reached, died), want)
 
+    def test_a_hold_is_judged_at_the_end(self):
+        from bonobo.bench import bench_combat, table as sc
+        trapped = runner.holds(sc.SCENARIOS[bench_combat.TRAPPED_ROW]["check"])
+        self.assertTrue(trapped, "kept_health holds over the window")
+        # (situation, reached, died, over, hold) -> the window ends now
+        rows = [("must fail: trapped_unarmed passing at t 0 ends the window", True, False, False, trapped, False),
+                ("a hold that fails ends it (idle fails: valid)", False, False, False, True, True),
+                ("a hold still true at the budget: judged there", True, False, True, True, True),
+                ("a death ends it", True, True, False, True, True),
+                ("any other check ends on a pass", True, False, False, False, True),
+                ("must fail: any other check, failing, waits", False, False, False, False, False)]
+        for why, reached, died, over, hold, want in rows:
+            with self.subTest(why):
+                self.assertEqual(runner.idle_done(reached, died, over, hold), want)
+
     def test_one_hp(self):
         rows = [("20 hp: 19 to take", 20.0, 19.0), ("already 1: nothing", 1.0, 0.0), ("7.5: 6.5", 7.5, 6.5),
                 ("must fail: below 1 never heals", 0.5, 0.0)]
