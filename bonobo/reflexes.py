@@ -11,7 +11,7 @@ from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
 from .skillcore import gained
-from .world import BAG_SLOTS, Inventory, nearest
+from .world import BAG_SLOTS, Inventory, Region, nearest
 
 
 def in_sight(snap, kinds, radius):
@@ -48,11 +48,19 @@ def meal(food, inv, cookable):
         return None
     return True if food <= STARVE or not cookable() else None
 
+def pit_due(v):
+    """The body stands in a hole open to the sky it cannot jump out of (a view without the reading: no)."""
+    try:
+        return bool(v["in_pit"])
+    except KeyError:
+        return False
+
 TABLE = [
     ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
     ("eat", lambda v: eat_due(v["food"], v.get("hp", MAX_HP), EAT_BELOW, MAX_HP, FULL_BAR) and v["meal"] is not None,
      lambda m, v: skills.eat(raw_ok=v["meal"])),
     ("reach land", lambda v: v["swimming"], lambda m, v: skills.reach_land(v["ctx"])),
+    ("leave the pit", pit_due, lambda m, v: m.leave_pit(v["snap"], v["ctx"])),
     ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
     ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: skills.dig_out(v["ctx"])),
     ("sleep", lambda v: v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"]),
@@ -198,6 +206,8 @@ class Maintain:
             "job_ready": lambda: self.ready_job(snap) is not None,
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
+            # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
+            "in_pit": lambda: s.get("skyLight", 0) >= 14 and not skills.swimming(s) and self.in_pit(snap.feet),
         }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night, overworld=over,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
             blocked_at=blocked, building=inv.count("building"), feet=snap.feet,
@@ -305,6 +315,24 @@ class Maintain:
         return min(math.dist(s["pos"], snap.feet) for s in sites) / (WALK_BLOCKS_PER_TICK * 20)
 
     # -- stuck
+    def in_pit(self, feet):
+        """nav.in_pit over the cells round the feet (one small read)."""
+        x, y, z = feet
+        try:
+            return nav.in_pit(Region((x - 1, y, z - 1), (x + 1, y + 2, z + 1)), feet)
+        except McError:
+            return False
+
+    def leave_pit(self, snap, ctx):
+        """One level up out of a pit (nav.pit_exit_tasks): a pillar with a carried block, else a step dug in the side."""
+        x, y, z = snap.feet
+        region = Region((x - 1, y - 1, z - 1), (x + 1, y + 3, z + 1))
+        tasks = nav.pit_exit_tasks(region, snap.feet, nav.building_item())
+        if not tasks:
+            raise NotAvailable(f"in a pit at {snap.feet}: no block to pillar and no side to dig a step in")
+        log(f"   in a pit at {snap.feet}: one level up ({tasks[0]['type']})")
+        api.run_chain(tasks, stop_on_failure=True, wait=30)
+
     def stuck_in_place(self, snap, enclosed=None):
         """Same block and the same bag for STUCK_LIMIT seconds (sheltered at night excluded)."""
         if snap.night and self.sheltered(snap, enclosed):
