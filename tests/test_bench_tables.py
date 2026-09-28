@@ -180,7 +180,10 @@ class Coverage(unittest.TestCase):
 
     def test_code_rows_are_few(self):
         # the rows no word earns its place for: 24 when the tables were made; may only fall
-        n = sum(len(getattr(importlib.import_module(table.TABLES[t]), "CODE_ROWS", ())) for t in table.TIERS)
+        def code(t):          # a table may build its one-off rows lazily (bench_combat: when the sheet is built)
+            rows = getattr(importlib.import_module(table.TABLES[t]), "CODE_ROWS", ())
+            return rows() if callable(rows) else rows
+        n = sum(len(code(t)) for t in table.TIERS)
         self.assertLessEqual(n, 24)
 
 

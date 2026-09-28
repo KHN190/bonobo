@@ -168,7 +168,3 @@ def resolve(name):
     raise KeyError(f"no word {name!r}")
 
 __all__ = ['REGISTRY', 'WORDS', 'resolve', 'BOX_EXPECT', 'CHOP_TREE', 'SCENE', 'SHEET_EXPECT', '_c', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'pos', 'scene', 'top']
-from .checks import *  # noqa: E402,F401,F403  (call-time words, defined after)
-from .runs import *  # noqa: E402,F401,F403  (call-time words, defined after)
-from .fight import *  # noqa: E402,F401,F403  (call-time words, defined after)
-from .brain import *  # noqa: E402,F401,F403  (call-time words, defined after)

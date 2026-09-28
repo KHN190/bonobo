@@ -224,7 +224,7 @@ PREDICATES = {"count": count, "state": state, "bag": bag, "call": call}
 
 LOGIC = ("all", "any", "not", "now")      # composition: all/any of predicates, not one, one read on the bag now
 
-__all__ = ['ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', '_at', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']
-from .runs import *  # noqa: E402,F401,F403  (call-time words, defined after)
-from .fight import *  # noqa: E402,F401,F403  (call-time words, defined after)
-from .brain import *  # noqa: E402,F401,F403  (call-time words, defined after)
+FIRST = {}      # token → the run second it first showed in the bag (a watcher thread, `_first_times`)
+RESUMED_LEFT = {}          # row → what the resume found still to do (an interrupt after the last load left nothing)
+
+__all__ = ['FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', '_at', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']
