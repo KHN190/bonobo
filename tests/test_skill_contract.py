@@ -1990,11 +1990,15 @@ class ResumeFromTheWorld(unittest.TestCase):
                     try:
                         with mock.patch.object(skillcore, "Inventory", inv), \
                                 mock.patch.object(api, "get", lambda path, *a, **k: state(food=world["food"])), \
-                                mock.patch.dict(skillkit.RESUME, clear=True):
+                                mock.patch.dict(skillkit.RESUME, clear=True), \
+                                mock.patch.object(arbiter, "BODY", arbiter.Motion()):
                             runner = skillkit.skill(needs={}, speed={}, gives=gives, remaining=remaining)(fn)
-                            with self.assertRaises(source):
+                            if source is api.FightHolds:
+                                runner(None, token, 3)      # the driver waits the fight out and resumes itself
+                            else:
+                                with self.assertRaises(source):
+                                    runner(None, token, 3)
                                 runner(None, token, 3)
-                            runner(None, token, 3)
                     finally:
                         skillkit.REGISTRY.pop("_dummy_resume", None)
                     self.assertEqual(asked, want, situation)
