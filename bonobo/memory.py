@@ -78,6 +78,7 @@ def section_centre(section):
 
 SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, farthest go first)
 
+TICK_READ_S = 1.0       # a tick read outside a round serves this long (a burst of stamps and judgements)
 TICK_READER = None      # fn() → the game's tick now (skillcore wires /state gameTime): a look outside a round reads it
 
 class Memory:
@@ -86,10 +87,15 @@ class Memory:
         no brain round (the bench's achieve, the CLI) — the game's tick read now (else None: nothing to read)."""
         if self.clock is not None or TICK_READER is None:
             return self.clock
+        cached = getattr(self, "_tick_read", None)
+        if cached is not None and time.time() - cached[0] < TICK_READ_S:
+            return cached[1]                 # one read serves a burst (seen() judges every note)
         try:
-            return TICK_READER()
+            value = TICK_READER()
         except Exception:        # no game to ask (an offline test): unstamped, as before
-            return None
+            value = None
+        self._tick_read = (time.time(), value)
+        return value
 
     def __init__(self, path=NOTES_FILE):
         self.path = path
@@ -431,9 +437,9 @@ class Memory:
         for row in self.data["seen"]:
             if row["kind"] == kind and row["dimension"] == dimension \
                     and math.dist(row["pos"], pos) <= max(rule["merge"], 0.5):
-                row.update(t=self.clock, verify=verify)
+                row.update(t=self.tick(), verify=verify)
                 return row
-        row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.clock, "verify": verify}
+        row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.tick(), "verify": verify}
         if cls != seen_class(kind):
             row["cls"] = cls
         self.data["seen"].append(row)
@@ -445,9 +451,10 @@ class Memory:
         if rule is None:
             return False
         limit = min(x for x in (rule["ttl"], within, float("inf")) if x is not None)
-        if limit == float("inf") or row.get("t") is None or self.clock is None:
+        now = self.tick() if limit != float("inf") and row.get("t") is not None else None
+        if now is None:
             return True
-        return self.clock - row["t"] <= limit
+        return now - row["t"] <= limit
 
     def note_seen(self, kind, pos, dimension):
         """One of `kind` is at `pos` (a block or mob name, or an alias: "tree", "herd")."""
