@@ -661,6 +661,17 @@ class DeflectCells(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(wf.fireball_end(ds, gone), want)
 
+    def test_done(self):
+        from bonobo.bench.words import fight as wf
+        n = len(wf.VOLLEY)
+        # (situation, fired, ends read) → done
+        rows = [("every shot fired and read", n, n, True),
+                ("must fail: the last one fired but not read yet", n, n - 1, False),
+                ("not all fired", n - 1, n - 1, False)]
+        for name, fired, closed, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wf.volley_done(fired, closed), want)
+
     def test_verdict(self):
         from bonobo.bench.words import fight as wf
         # (situation, start hp, end hp, fired, end distances) → passed

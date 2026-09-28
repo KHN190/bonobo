@@ -398,10 +398,10 @@ def options(state):
     creepers = [i for i, h in enumerate(hazards) if MOBS[h[3]].get("burst") and h[3] == "minecraft:creeper"]
     clear = float(MOBS["minecraft:creeper"]["keep_out"])
     lit = set(state.get("lit") or ())
-    # never stand within the fuse's range of a hissing creeper: out first, strike when it walks again
-    hissing = any(ids[i] in lit and math.dist(here, hazards[i][0]) < clear for i in creepers)
-    if creepers and sword >= 1 and not hissing and all(MOBS[h[3]].get("burst") is None or i in creepers
-                                                        for i, h in enumerate(hazards)):
+    # armed, lit or not: hit-and-back — the jar's keepoff steps out past keep_out while it swells and strikes again
+    # once it stops (a baited creeper blows up: no kill, fight_creeper_1 05:07)
+    if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
+                                       for i, h in enumerate(hazards)):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
         t_c, lost_c = keepoff_cost(here, hazards[first], sword, prot)
         rest = [h for i, h in enumerate(hazards) if i != first]
@@ -409,8 +409,8 @@ def options(state):
         out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
-    # bait: the hit can't be timed (no sword, or it hisses inside its fuse range) — it fuses out away from us
-    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and (sword < 1 or hissing) else None
+    # bait: no sword, no timed hit — it fuses out away from us
+    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and sword < 1 else None
     if bait is not None:
         out.append(bait)
     # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)

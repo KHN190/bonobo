@@ -58,6 +58,7 @@ ALLOW = {
     ("bonobo.bench.runner", "_IMPORTS"): "cache keyed by source files",
     ("bonobo.bench.runner", "_CODE"): "cache keyed by source files",
     ("bonobo.bench.rowkey", "_INDEX"): "cache keyed by source files",
+    ("bonobo.bench.runner", "REPORTING"): "the last failure report's thread: joined by the next row, never dropped",
 }
 
 
