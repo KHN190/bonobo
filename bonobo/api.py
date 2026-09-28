@@ -375,11 +375,10 @@ def vet_aim(task):
         return None
     try:
         from . import combat_model
-        from .world import entities
         st = get("/state")
         if st.get("dimension") != "minecraft:the_end":
             return None
-        near = entities(32)
+        near = get("/entities?radius=32")["entities"]
         if combat_model.aim_hits_enderman((task["x"], task["y"], task["z"]), (st["x"], st["y"], st["z"]), near):
             return f"aim at {task['x']},{task['y']},{task['z']} crosses an enderman's head"
     except Exception:

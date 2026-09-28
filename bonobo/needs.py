@@ -8,7 +8,9 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, decompose, goals, survive, beliefs
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
+from .bag import bag_signature
 from .cost import Cost
+from .decompose import cooled_ways, night_facts, way_key  # noqa: F401
 from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS
 from .knowledge import food_count, food_points, FIND_AT
 from .planner import NullCost, Planner, Unplannable
@@ -32,38 +34,11 @@ FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("s
              ("activate", "end_portal"), ("hunt", "minecraft:blaze_rod")}
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
-def bag_signature(inv):
-    """What the bag holds, exactly: a change the plan did not make is an event."""
-    return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
-
 def dusk_s(snap):
     """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / 20, 0 once
     it is dark."""
     t = int(snap.time) % DAY_TICKS
     return max(0.0, (DAY_END - t) / 20.0) if t < DAY_END else 0.0
-
-def night_facts(soft, cooled=(), dig_site=True):
-    """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
-    the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
-    finish here (`dig_site`, survive.dig_in_site: False → dig in is not offered)."""
-
-    out = {"soft_ground": False} if soft is None or soft is False else \
-        {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
-    if not dig_site:
-        out["no_dig_site"] = True
-    if cooled:
-        out["cooled"] = sorted(cooled)
-    return out
-
-
-def way_key(way):
-    """The retry key a night way's failure cools under (reflexes.Maintain.shelter)."""
-    return f"shelter:{way}"
-
-
-def cooled_ways(ready):
-    """Pure given `ready(key)`: the night's ways (decompose.SOURCES["overnight"]) cooling after a failure here."""
-    return [s["name"] for s in decompose.SOURCES["overnight"] if not ready(way_key(s["name"]))]
 
 def overnight(inv, cost, facts=None, bed_too=True):
     """How to get through a night, by price: (choice, seconds, steps); (None, inf, []) when there is none."""

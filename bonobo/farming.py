@@ -469,3 +469,5 @@ def breed(ctx):
     ctx.mem.note_seen(kind, pos, ctx.dimension)
     log(f"bred two {kind.split(':')[1]} at {pos}")
     return kind
+
+jobs.COLLECT.update(crop=harvest, sapling=check_sapling)

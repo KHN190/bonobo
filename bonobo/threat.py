@@ -498,3 +498,17 @@ def hp_seconds(s, dhp):
     # a death costs the respawn and walk back, never less for being hurt already
     reset = max(0.0, expected_loss(dict(s, hp=20)) - expected_loss(s))
     return round(p * (_T["death_cost_s"] + reset) + (1.0 - p) * margin, 1)
+
+THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
+
+def threats_seen(max_age_s=3.0, now=None):
+    """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""
+    import time as _t
+    if not THREAT_ROWS or (now or _t.time()) - THREAT_AT > max_age_s:
+        return [], []
+    return list(THREAT_ROWS), list(THREAT_IDS)
+
+def seen_at():
+    """When the rows above were read."""
+
+    return THREAT_AT
