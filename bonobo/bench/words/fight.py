@@ -781,19 +781,28 @@ def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESO
     def check(api, inv):
         from ...world import feet
         start_hp = BASE["state"]["health"]
-        if api.get("/state")["health"] < start_hp - hp_loss:
-            return False
+
         def gaps():
             here = feet()
             return [math.dist(here, (e["x"], e["y"], e["z"])) for e in _hostiles(32, set(kinds))]
         first = gaps()
-        if not first:
-            return True
-        time.sleep(hold_s)
-        last = gaps()
-        return (not last or (min(first) >= gap and min(last) >= gap and min(last) >= min(first) - 1.0)) and \
-            api.get("/state")["health"] >= start_hp - hp_loss
+        last = first
+        if first:
+            time.sleep(hold_s)
+            last = gaps()
+        kills = _killed(kinds, 1)(api, inv) and 1 or 0
+        return resolved(start_hp, api.get("/state")["health"], first, last, kills, gap, hp_loss)
     return check
+
+def resolved(start_hp, hp_now, first, last, kills, gap=RESOLVE_GAP, hp_loss=RESOLVE_HP_LOSS):
+    """Pure: the threat is over — health within `hp_loss`, and every mob either killed by us (the server's count:
+    one that is merely gone may have blown up — an exploded creeper is no answer) or `gap` off and not closing."""
+    if hp_now < start_hp - hp_loss:
+        return False
+    if not first:
+        return kills >= 1
+    return (not last and kills >= 1) or (bool(last) and min(first) >= gap and min(last) >= gap
+                                         and min(last) >= min(first) - 1.0)
 
 # tidying in the Nether with lava on one side: junk is thrown the other way
 NETHER_LAVA = [f"fill {_c(at(1, 0, -1))} {_c(at(4, 0, 1))} lava"]
@@ -880,7 +889,7 @@ def fight_cell_row(name, mob, n, tier, secs, hp, clear):
     return _row(name, f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}"
                       + (f", {n} kills credited by the server" if clear is True else ""), "fight_loop",
                 [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots]
-                + (kill_stat_scene(f"minecraft:{mob}") if clear is True else []),
+                + (kill_stat_scene(f"minecraft:{mob}") if clear in (True, "resolved") else []),
                 ("fight_until", kinds, secs - RESOLVE_HOLD_S - 2 if clear == "resolved" else secs - 2)
                 + (() if clear is not False else (False,)), check, point="B", budget=min(secs + 5, limit()),
                 before=[("&record_bids",)], combat=True, skills=[], tier_fixed=tier,
@@ -909,4 +918,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

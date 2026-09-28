@@ -74,7 +74,7 @@ FAMILIES = [
     ('fight_cell', [('fight_zombie_1', 'zombie', 1, 'common', 25, 12, True),
          ('fight_zombie_3', 'zombie', 3, 'exception', 25, 6, True),
          ('fight_skeleton_1', 'skeleton', 1, 'common', 25, 10, True),
-         ('fight_creeper_1', 'creeper', 1, 'common', 25, 14, 'resolved'),
+         ('fight_creeper_1', 'creeper', 1, 'common', 25, 16, True),
          ('fight_blaze_3', 'blaze', 3, 'exception', 25, 6, True),
          ('fight_enderman_1', 'enderman', 1, 'exception', 25, 20, False)]),
 ]

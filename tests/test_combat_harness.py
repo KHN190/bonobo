@@ -103,6 +103,21 @@ class SweepCheckParts(unittest.TestCase):
         core.SWEEP.pop("t", None)
 
 
+class Resolved(unittest.TestCase):
+    """A threat is over when we killed it (the server's count) or keep it off; a creeper that blew up is not."""
+
+    def test_rows(self):
+        # (start hp, hp now, gaps first, gaps after the hold, server kills) → resolved
+        rows = [("killed, 18 hp left", 20, 18, [], [], 1, True),
+                ("must fail: gone with no kill — the idle bot's creeper blew up", 20, 17, [], [], 0, False),
+                ("must fail: killed, but the blast took 9", 20, 11, [], [], 1, False),
+                ("kept 7 off and not closing", 20, 20, [7.0], [7.5], 0, True),
+                ("must fail: 7 off, then closing to 3", 20, 20, [7.0], [3.0], 0, False)]
+        for name, start, now, first, last, kills, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.resolved(start, now, first, last, kills), want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 
