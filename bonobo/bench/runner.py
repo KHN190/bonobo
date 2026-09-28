@@ -475,6 +475,9 @@ def _respawn(api):
     raise SetupInvalid(f"still dead after {RESPAWN_TRIES} respawns")
 
 
+LEFTOVER_R = 64              # blocks round the site cleared of the last row's mobs: past the 40 a scene is counted in
+
+
 def _setup(name, sc, feedback):
     from .. import api
     SETUP_S.clear()
@@ -506,10 +509,11 @@ def _setup(name, sc, feedback):
         raise SetupInvalid("scenario chunks never loaded")
     # wait on a glass block above the box: no fall while it is rebuilt
     glass = _c(at(0, BOX[1][1] + 2, 0))
-    # waiting glass, the body onto it, the previous row's mobs — one batch
+    # waiting glass, the body onto it, the previous row's mobs — one batch, before anything is built or summoned.
+    # Everything within LEFTOVER_R of the site, not just the box: a scene's actors are counted within 40 of the body
+    # (_setup_settled), and a zombie left from the last row outside the box made fight_zombie_3 "4 on the server"
     _batch([ex(f"fill {glass} {glass} glass"), ex(f"tp @p {_c(at(0, BOX[1][1] + 3, 0))}"),
-            ex(f"kill @e[type=!player,x={lo[0]},y={lo[1]},z={lo[2]},dx={hi[0] - lo[0]},dy={hi[1] - lo[1] + 6},"
-               f"dz={hi[2] - lo[2]}]")], feedback)
+            ex(f"execute positioned {_c(at(0, 0, 0))} run kill @e[type=!player,distance=..{LEFTOVER_R}]")], feedback)
     if moved:
         time.sleep(3)            # the client loads the new dimension
     _build_box(name, sc, lo, hi, ex, feedback)
