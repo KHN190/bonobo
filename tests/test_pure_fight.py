@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import combat_model as cm  # noqa: E402
-from bonobo import combat_tape, decompose, dispatch, dragon, estimate, field, fight_loop, fight_plan  # noqa: E402
+from bonobo import combat_tape, decompose, dispatch, dragon as dragon_mod, estimate, field, fight_loop, fight_plan  # noqa: E402
 from bonobo.api import McError, NavFailed, NotAvailable  # noqa: E402
 from bonobo.planner import Step, Unplannable  # noqa: E402
 
@@ -455,7 +455,7 @@ class Bombable(unittest.TestCase):
         ]
         for name, dragon, want in rows:
             with self.subTest(name):
-                self.assertEqual(dragon.bombable(dragon), want)
+                self.assertEqual(dragon_mod.bombable(dragon), want)
 
 
 # ------------------------------------------------------------------------------------------------ estimate

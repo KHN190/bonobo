@@ -52,7 +52,7 @@ class DragonDead(unittest.TestCase):
     """dragon.dragon_dead: the dragon gone (or at 0 health) AND the exit portal open."""
 
     def test_rows(self):
-        from bonobo import dragon
+        from bonobo import dragon as dragon_mod
         dragon = lambda hp: {"type": "minecraft:ender_dragon", "health": hp}      # noqa: E731
         part = {"type": "minecraft:ender_dragon"}                                  # a body part: no health
         # (situation, entities near, exit portal open) → dead
@@ -62,8 +62,8 @@ class DragonDead(unittest.TestCase):
                 ("must fail: alive", [dragon(120)], True, False),
                 ("must fail: not seen, the portal closed (out of range is not dead)", [], False, False)]
         for name, near, portal, want in rows:
-            with self.subTest(name), mock.patch.object(dragon, "exit_portal_open", lambda centre=(0, 0), _p=portal: _p):
-                self.assertEqual(dragon.dragon_dead(near), want)
+            with self.subTest(name), mock.patch.object(dragon_mod, "exit_portal_open", lambda centre=(0, 0), _p=portal: _p):
+                self.assertEqual(dragon_mod.dragon_dead(near), want)
 
 
 class Reinforced(unittest.TestCase):
