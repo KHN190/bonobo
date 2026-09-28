@@ -1,5 +1,6 @@
 """Renewable food and wood: replant saplings after chopping, a 3×3 wheat plot around a water source, harvest when ripe, breed animals with wheat. Everything that grows is a job (jobs.py) collected later by upkeep. Pure planners (`farm_plot`, `ripe_cells`, `breeding_pair`) are offline-tested; skills only execute them."""
 
+import dataclasses
 import math
 import time
 
@@ -98,6 +99,19 @@ def water_task(centre, stand=None, region=None):
             if nav.first_solid(region, eye, (floor["x"], floor["y"], floor["z"])) == below:
                 return floor
     return task
+
+def pour_commands(centre, centre_now, stand, region=None):
+    """Pure: the pour as one send from the stand — the centre dug first when something filled it since its dig
+    (`centre_now`: what stands there, read right before), then the water aimed at the far inner wall."""
+    out = [] if centre_now in ("air", "water") else [nav.mine_task(centre)]
+    return out + [water_task(centre, stand, region)]
+
+def plot_cells(centre):
+    """Pure: the cells a walk must neither dig nor build in while the plot is made: the centre hole and the cell under
+    it, the ring and the crop layer over it."""
+    x, y, z = centre
+    ring = {(x + dx, y, z + dz) for dx, dz in RING}
+    return {(x, y, z), (x, y - 1, z)} | ring | {(c[0], c[1] + 1, c[2]) for c in ring}
 
 def water_contained(region, cell):
     """Pure: water at `cell` stays a source there — solid under it and on its four sides at its own level, so it
@@ -251,15 +265,20 @@ def plant_farm(ctx):
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
     tasks = plant_farm_commands(state, (), stand=stand)
+    # every walk here keeps off the plot: the walk back to the stand filled the dug centre with the grass the dig
+    # had picked up (a floor over a hole on its path: centre air at 16:00:57, grass again at 16:01:03, before the pour)
+    policy = dataclasses.replace(ctx.policy, protected=set(ctx.policy.protected) | plot_cells(centre))
     # on the stand, not a block off it: the ring's far side is 3 away and a sow aimed there from 4 ran past the
     # jar's 4.5 reach ("no block under the crosshair")
-    if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
+    if not nav.arrived(stand, policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"farm spot {centre} not reachable")
     # the plot in one send, judged by the world (water in, cells sown), never by the chain's word
     def on_stand(_segment):
-        # a segment boundary: back onto the stand only if the body moved off it (the drift, bread_from_a_farm 10:23:34)
-        if math.dist(skillcore.feet(), stand) > 0.5:
-            nav.arrived(stand, ctx.policy, range_=0.5, attempts=1)
+        # a segment boundary: back onto the stand only if the body really left it (the walker's own measure, its
+        # slack included — a whole-block reading of the feet one cell over walked it back every segment)
+        if not nav.there(api.get("/state"), stand, 0.5):
+            api.detail(f"  plot: off the stand at a segment boundary, walked back")
+            nav.arrived(stand, policy, range_=0.5, attempts=1)
     # the centre dug on its own and read back: the pour needs the hole (a dig the jar called done left it solid, and
     # the water went on it: 13360 — jar 0.1.60 no longer takes a changed id for a break)
     below = add(centre, (0, -1, 0))
@@ -281,8 +300,14 @@ def plant_farm(ctx):
     ring = [t for t in tasks if t.get("item") != "minecraft:water_bucket"]
     done = api.run_chain(ring, stop_on_failure=False, before_segment=on_stand) if ring else []
     if pour:
-        api.detail(f"  plot before the pour: {column()}")
-        done = done + api.run_chain(pour, stop_on_failure=False, before_segment=on_stand)
+        # the pour from the stand only: back on it first (walking off the plot), the centre read, dug again if it
+        # was filled, then dig + pour as one send with no walk between (the pour once came from wherever the body was)
+        if not nav.there(api.get("/state"), stand, 0.5):
+            nav.arrived(stand, policy, range_=0.5, attempts=1)
+        centre_now = Region(centre, centre).name(centre)
+        api.detail(f"  plot before the pour: stand {stand}, feet {skillcore.feet()}, {column()}")
+        pour = pour_commands(centre, centre_now, stand, region)
+        done = done + api.run_chain(pour, stop_on_failure=False)
         api.detail(f"  plot after the pour: {column()}")
     tasks = ring + pour
     api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")

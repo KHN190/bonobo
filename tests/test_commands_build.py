@@ -87,6 +87,25 @@ class WaterLast(unittest.TestCase):
             self.assertEqual(nav.first_solid(region, (9998.5, 201.62, 10000.5), (10000.5, 199.0, 10000.5)),
                              (9999, 199, 10000))
 
+    def test_the_pour_from_the_stand(self):
+        """pour_commands: one send — the centre dug again if something filled it since its dig, then the pour;
+        plot_cells: every walk while the plot is made keeps off the centre and the ring."""
+        stand = (-2, 64, 0)
+        rows = [("the centre open: the pour alone", "air", ["use_item"]),
+                ("must fail: the centre refilled (a walk's floor block): dug again, then the pour", "grass_block",
+                 ["mine", "use_item"]),
+                ("water already in: the pour is sent anyway (the check after reads it)", "water", ["use_item"])]
+        for name, now, want in rows:
+            with self.subTest(name):
+                got = farming.pour_commands(CENTRE, now, stand)
+                self.assertEqual([t["type"] for t in got], want)
+                if got[0]["type"] == "mine":
+                    self.assertEqual((got[0]["x"], got[0]["y"], got[0]["z"]), CENTRE)
+        cells = farming.plot_cells(CENTRE)
+        with self.subTest("a walk off the stand keeps off the plot: the centre, the cell under it, the ring"):
+            self.assertTrue({CENTRE, (0, 62, 0), (1, 63, 1), (-1, 64, 0)} <= cells)
+            self.assertNotIn(stand, cells)
+
     def test_contained(self):
         from tests.world import FakeRegion
         ground = {(x, y, z): "grass_block" for x in range(-3, 4) for y in (61, 62, 63) for z in range(-3, 4)}
