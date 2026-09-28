@@ -260,15 +260,12 @@ def plant_farm(ctx):
         # a segment boundary: back onto the stand only if the body moved off it (the drift, bread_from_a_farm 10:23:34)
         if math.dist(skillcore.feet(), stand) > 0.5:
             nav.arrived(stand, ctx.policy, range_=0.5, attempts=1)
-    # the centre dug on its own, judged by the world: a mine of grass "succeeded" while random ticks turned it to dirt
-    # (the jar's mine ends when the block's id changes), the hole stayed solid and the water went on it (13360)
-    for _try in range(3):
-        if Region(centre, centre).name(centre) in ("air", "water"):
-            break
+    # the centre dug on its own and read back: the pour needs the hole (a dig the jar called done left it solid, and
+    # the water went on it: 13360 — jar 0.1.60 no longer takes a changed id for a break)
+    if Region(centre, centre).name(centre) not in ("air", "water"):
         api.run(nav.mine_task(centre), wait=20, awaits="the centre cell read after the dig")
-    else:
         if Region(centre, centre).name(centre) not in ("air", "water"):
-            raise McError(f"could not dig the plot's centre at {centre}")
+            raise McError(f"the plot's centre at {centre} is still {Region(centre, centre).name(centre)} after its dig")
     tasks = [t for t in tasks if not (t.get("type") == "mine" and (t["x"], t["y"], t["z"]) == tuple(centre))]
     done = api.run_chain(tasks, stop_on_failure=False, before_segment=on_stand)
     api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
