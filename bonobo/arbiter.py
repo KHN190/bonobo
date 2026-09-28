@@ -233,8 +233,9 @@ class Motion:
             intent, release, _worth = self.lease
             try:
                 done = bool(release())
-            except Exception:
-                done = True       # a judgement we cannot make is not a reason to keep the body
+            except Exception as e:
+                done = True       # a judgement we cannot make is not a reason to keep the body — said, not silent
+                self._log(f"   motion: {intent.layer} '{intent.reason}' release check failed: {type(e).__name__}: {e}")
             if done:
                 self.lease = None
                 self._log(f"   motion: {intent.layer} '{intent.reason}' hands the body back")

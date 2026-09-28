@@ -82,6 +82,8 @@ def same(a, b):
 def carry(want_of, answer, going, held, again=False):
     """The one loop carrying answers: while `going()`, the same answer keeps the posted task, a new one /stops it and posts its own."""
 
+    if not going():
+        api.detail("  fight: the lease was gone before the first answer (nothing posted)")
     while going():
         want = want_of()
         if want is None:
