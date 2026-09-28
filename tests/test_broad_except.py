@@ -1,6 +1,6 @@
-"""A broad `except Exception` hides the bug it catches. Outside the modules another owner narrows (api, perception,
-fight_loop), each one left is a named guard — a thread or loop that must not die, a bench that records a crash —
-that says why and writes the traceback. The kept list may only shrink."""
+"""A broad `except Exception` hides the bug it catches. Each one left in the package is a named guard — a thread or
+loop that must not die, a bench that records a crash — that says why (`# guard:`) and writes the traceback (itself,
+or through `api.unexpected`, which writes it to detail.log). The kept list may only shrink."""
 import ast
 import os
 import sys
@@ -8,8 +8,6 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-
-OWNED_ELSEWHERE = {"bonobo/api.py", "bonobo/perception.py", "bonobo/fight_loop.py"}
 
 # (file, enclosing function) → why a broad catch is right there. Only shrinks.
 KEPT = {
@@ -23,8 +21,13 @@ KEPT = {
     ("bonobo/bench/runner.py", "check_parts"): "a check word that raised is a readout",
     ("bonobo/bench/runner.py", "_row_verdict"): "the fight readout and the check are recorded, never a pass",
     ("bonobo/bench/runner.py", "run_idle"): "a hook or check of ours that raised is recorded by the idle row",
+    ("bonobo/perception.py", "Watcher.run"): "the only watcher for lava, drowning and mobs must not die (4 sites)",
+    ("bonobo/perception.py", "perceived"): "a reading we cannot take never stops the threat answer",
+    ("bonobo/perception.py", "ground"): "a field we cannot build keeps the last one",
+    ("bonobo/fight_loop.py", "_engagement"): "the engagement's thread: said, and the body handed back",
+    ("bonobo/fight_loop.py", "lease_done"): "a release judgement we cannot make keeps the body",
 }
-MAX_SITES = 12          # broad catches in the package now (a kept function may hold two); only goes down
+MAX_SITES = 20          # broad catches in the package now (a kept function may hold two); only goes down
 
 
 def broad_excepts(source, path):
@@ -51,7 +54,8 @@ def broad_excepts(source, path):
 def unlisted(sites, kept):
     """Pure: the broad catches not in `kept`, and the kept ones that write no traceback."""
     bad = [f"{p}:{w} is not a kept guard" for p, w, _s in sites if (p, w) not in kept]
-    bad += [f"{p}:{w} writes no traceback" for p, w, s in sites if (p, w) in kept and "traceback" not in s]
+    bad += [f"{p}:{w} writes no traceback" for p, w, s in sites
+            if (p, w) in kept and "traceback" not in s and "unexpected(" not in s]
     bad += [f"{p}:{w} gives no reason ('# guard:')" for p, w, s in sites if (p, w) in kept and "# guard:" not in s]
     return bad
 
@@ -63,8 +67,6 @@ def sites_in_package():
             if not name.endswith(".py"):
                 continue
             path = os.path.relpath(os.path.join(folder, name), ROOT).replace(os.sep, "/")
-            if path in OWNED_ELSEWHERE:
-                continue
             with open(os.path.join(ROOT, path)) as f:
                 out += broad_excepts(f.read(), path)
     return out
@@ -74,6 +76,8 @@ class BroadExcepts(unittest.TestCase):
     GUARD = ("def f():\n    try:\n        g()\n    except Exception:  # guard: must not die\n"
              "        log(traceback.format_exc())\n")
     SILENT = "def f():\n    try:\n        g()\n    except Exception:\n        pass\n"
+    SAID = ("def f():\n    try:\n        g()\n    except Exception as e:  # guard: must not die\n"
+            "        api.unexpected('f', e, 'why')\n")
     NARROW = "def f():\n    try:\n        g()\n    except McError:\n        pass\n"
 
     def test_rows(self):
@@ -82,6 +86,7 @@ class BroadExcepts(unittest.TestCase):
         rows = [("a narrow catch: nothing to say", self.NARROW, {}, []),
                 ("a kept guard with its reason and traceback", self.GUARD, kept, []),
                 ("must fail: a broad catch nobody kept", self.SILENT, {}, ["m.py:f is not a kept guard"]),
+                ("a kept guard said through api.unexpected (it writes the traceback)", self.SAID, kept, []),
                 ("a kept guard that swallows silently", self.SILENT, kept,
                  ["m.py:f writes no traceback", "m.py:f gives no reason ('# guard:')"])]
         for name, source, k, want in rows:

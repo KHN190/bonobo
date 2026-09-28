@@ -166,7 +166,7 @@ def _engagement(intent, failure):
                            stale=_restale):
                 pass
         arbiter.BODY.carry(intent, loop)
-    except Exception as e:
+    except Exception as e:  # guard: the engagement's own thread: whatever ends it is said, the body handed back
         failure["failed"] = f"{type(e).__name__}: {e}"
         # said, not only recorded: an engagement that dies at once re-bid every round with nothing reaching the jar
         # (fight_zombie_1 20260928-224501: four 'threat: fight_shielded … worth 194s', no task posted, no step taken)
@@ -290,8 +290,7 @@ def lease_done(state, rows, price, ids=()):
         return True
     try:
         fresh = bid(state, rows, price, now=time.time(), ids=ids)
-    except Exception as e:
-        # the lease's release check runs inside arbiter.holder: a judgement we cannot make keeps the body, said
+    except Exception as e:  # guard: the release check (in arbiter.holder): a judgement we cannot make keeps the body
         return api.unexpected("fight: lease_done", e, "the lease is kept") or False
     return fresh is None or fresh[1] <= 0
 

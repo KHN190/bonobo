@@ -304,8 +304,7 @@ class Watcher(threading.Thread):
                 s = api.get("/state")
             except (api.McError, api.PlayerTookControl, ValueError):
                 continue        # game restarting, network hiccup, the player's turn: the main loop handles those
-            except Exception as e:
-                # the only watcher for lava, drowning and mobs: an unforeseen read failure never kills the thread
+            except Exception as e:  # guard: the only watcher for lava, drowning and mobs: a read failure never kills it
                 api.unexpected("perception: /state", e, "this tick is skipped")
                 continue
             note_hurt(s)
@@ -313,8 +312,7 @@ class Watcher(threading.Thread):
             self._look(s)
             try:
                 self._answer_threats(s)
-            except Exception as e:
-                # the only watcher for lava, drowning and mobs: a failing answer must never kill the thread
+            except Exception as e:  # guard: the only watcher for lava, drowning, mobs: a failing answer never kills it
                 if time.time() - getattr(self, "_answer_logged", 0) > 30:
                     self._answer_logged = time.time()
                     api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
@@ -330,7 +328,7 @@ class Watcher(threading.Thread):
                 try:
                     # the message is ours to set; /stop goes through the one exit
                     arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"claude: {why}")
-                except Exception as e:      # the thread outlives a failed stop: said, and Claude may ask again
+                except Exception as e:  # guard: the watcher outlives a failed stop; said, and Claude may ask again
                     api.unexpected("perception: Claude's stop", e, "the task was not stopped")
                 api.log(f"!! perception: interrupt requested by Claude ({why})")
                 continue
@@ -373,7 +371,7 @@ class Watcher(threading.Thread):
                 continue
             try:
                 arbiter.BODY.preempt("safety", lambda: api.post("/stop"), reason)
-            except Exception as e:          # the thread outlives a failed stop: said; the danger repeats after REPEAT_S
+            except Exception as e:  # guard: the watcher outlives a failed stop; said, the danger repeats after REPEAT_S
                 api.unexpected("perception: safety stop", e, "the task was not stopped")
             api.log(f"!! perception: {reason} → interrupting the current task")
 
@@ -419,7 +417,7 @@ def perceived(state, now, ground_of=None, kit_of=None):
                        ("footing", lambda: out.update(footing=footing(state)))):
         try:
             read()
-        except Exception as e:
+        except Exception as e:  # guard: a reading we cannot take (kit, ground, footing) never stops the answer
             if name not in STATE.failed:
                 STATE.failed.add(name)
                 api.log(f"!! perception: {name}: {type(e).__name__}: {e}")
@@ -441,7 +439,7 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
         grid, region = memo_ttl(cache, here, GRID_TTL_S, read, now, one=True)
     except (api.McError, api.PlayerTookControl, ValueError):
         return STATE.grid            # a failed read keeps the last field
-    except Exception as e:
+    except Exception as e:  # guard: a field we cannot build keeps the last one (the answer runs at 5 Hz)
         return api.unexpected("perception: ground", e, "the last field is kept") or STATE.grid
     with STATE.lock:
         STATE.grid, STATE.region = grid, region
