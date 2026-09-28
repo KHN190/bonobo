@@ -10,7 +10,7 @@ import inspect
 import time
 from typing import Any, Callable, cast
 
-from . import api, lifecycle, paths, skillcore, tape, knowledge
+from . import api, arbiter, lifecycle, paths, skillcore, tape, knowledge
 from .api import McError, TaskStuck
 from .knowledge import have_remainder, needs_rows
 from .bag import has_room
@@ -316,6 +316,16 @@ def skill(name=None, **options):
 
         @functools.wraps(fn)
         def runner(*args, **kwargs):
+            # a fight holding the body pauses the skill: wait it out, resume from the world (no try spent)
+            deadline = time.monotonic() + contract.budget
+            while True:
+                try:
+                    return once(*args, **kwargs)
+                except api.FightHolds:
+                    if not fight_over(deadline):
+                        raise
+
+        def once(*args, **kwargs):
             p0 = time.perf_counter()
             key = _resume_key(contract, args)
             c = Call(args, kwargs)
@@ -396,6 +406,16 @@ def skill(name=None, **options):
         return runner
 
     return wrap
+
+FIGHT_POLL_S = 0.5      # how often a paused skill looks whether the fight let the body go
+
+def fight_over(deadline, sleep=time.sleep, now=time.monotonic):
+    """Poll until no lease holds the body; False when the deadline came first."""
+    while arbiter.BODY.holder() is not None:
+        if now() >= deadline:
+            return False
+        sleep(FIGHT_POLL_S)
+    return True
 
 def bag_full_reason(message, free):
     """Pure: a failure re-said with "bag full" when there was no free slot; None when the bag had room or the message says so already."""
