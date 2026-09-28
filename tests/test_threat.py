@@ -974,13 +974,27 @@ class DodgeThePredictedImpact(unittest.TestCase):
         rows = [("a fireball predicted", [{"type": "minecraft:fireball", "impact": {"x": 1, "y": 64, "z": 0},
                                            "tti_ticks": 20}], [((1.0, 64.0, 0.0), 1.0, 6.0)]),
                 ("no prediction on this jar", [{"type": "minecraft:fireball"}], []),
-                ("a zombie's lunge as a list", [{"type": "minecraft:zombie", "impact": [0, 64, 0], "tti_ticks": 10}],
-                 [((0.0, 64.0, 0.0), 0.5, 3.0)]),
+                ("must fail: a zombie's lunge is not dodged (it follows)",
+                 [{"type": "minecraft:zombie", "impact": [0, 64, 0], "tti_ticks": 10}], []),
+                ("an arrow: dodged, a 1-block path", [{"type": "minecraft:arrow", "impact": [0, 64, 0], "tti_ticks": 10}],
+                 [((0.0, 64.0, 0.0), 0.5, 1.0)]),
                 ("nothing near", [], [])]
         for name, near, want in rows:
             with self.subTest(name):
                 from bonobo import perception
                 self.assertEqual(threat.impacts_of(perception.read_combat(near)), want)
+
+    def test_a_walker_is_not_sidestepped(self):
+        """escape__walker_open_blocks: a predicted lunge made evade a cheap sidestep; the pillar is the answer."""
+        from bonobo import field, perception
+        walker = [row("minecraft:zombie", 6, 0, vel=(-4.0, 0.0, 0.0))]
+        lunge = perception.read_combat([{"id": 0, "type": "minecraft:zombie", "impact": [0, 64, 0], "tti_ticks": 36}])
+        rows = [("must fail: evade beats the pillar vs a walker at 6", threat.impacts_of(lunge), ("reshape", ("under", 2)))]
+        for name, impacts, want in rows:
+            with self.subTest(name):
+                d = decide(walker, sword=0, blocks=128, field=field.Field(bucket="underground"), dig_ok=True,
+                           impacts=impacts)
+                self.assertEqual((d.kind, d.target), want)
 
     def test_dodge_spot(self):
         here = (0.0, 64.0, 0.0)

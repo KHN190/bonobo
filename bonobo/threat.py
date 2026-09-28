@@ -129,11 +129,20 @@ def fuse_lit(e):
     """Pure: this creeper's fuse is lit (perception.read_combat)."""
     return bool(e.get("lit"))
 
+ARROWS = {"minecraft:arrow": 1.0, "minecraft:spectral_arrow": 1.0, "minecraft:trident": 1.0}   # radius
+
+def dodgeable(kind):
+    """Pure: a hit worth side-stepping — a projectile or a blast; a melee lunge follows us (dodging it only postpones:
+    escape__walker_open_blocks sidestepped a walker to death)."""
+    return kind in ARROWS or bool(MOBS.get(kind, {}).get("burst"))
+
 def impacts_of(near):
-    """Pure: [(point, seconds, radius)] where each predicted hit lands (read_combat's impact_at, hit_s), the radius
-    the mob table keeps out of."""
-    return [(e["impact_at"], float(e["hit_s"]), float(MOBS.get(e.get("type"), {}).get("keep_out", 3.0)))
-            for e in near or [] if e.get("impact_at") is not None and e.get("hit_s") is not None]
+    """Pure: [(point, seconds, radius)] where each predicted projectile or blast lands (read_combat's impact_at,
+    hit_s)."""
+    return [(e["impact_at"], float(e["hit_s"]),
+             ARROWS.get(e.get("type"), float(MOBS.get(e.get("type"), {}).get("keep_out", 3.0))))
+            for e in near or [] if e.get("impact_at") is not None and e.get("hit_s") is not None
+            and dodgeable(e.get("type"))]
 
 def dodge_spot(here, impacts, candidates, speed=None):
     """Pure: the nearest candidate out of every predicted impact that we reach before the impact it leaves lands,
