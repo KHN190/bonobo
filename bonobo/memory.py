@@ -41,10 +41,13 @@ def covered(row, kinds, tick):
     for k in map(bare, kinds):
         if k in row["kinds"]:
             continue
-        t = looked.get(k)
-        if t is None:
+        if k not in looked:
             return False
-        if tick is not None and tick - t > absent_ttl(k):
+        # a look stamped without the game clock (a skill run with no brain round to set it: the bench's achieve,
+        # the CLI) is still a look — read as never looked, every leg re-picked the same sections (the farm row's
+        # search for logs: (624,12,625) → (624,12,624) → … round again)
+        t = looked[k]
+        if t is not None and tick is not None and tick - t > absent_ttl(k):
             return False
     return True
 

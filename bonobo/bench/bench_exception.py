@@ -456,7 +456,7 @@ ROWS = [
          doc=("2 wheat carried, a ripe plot beside the body → the plan's farm step reaps it (the look at execution, "
               'not in the estimate; no new plot sown) and bakes: bread'),
          scene=[('floor', 'grass_block'), ('sheet', 'RIPE_PLOT'), ('stand',), ('give', 'wheat', 2),
-                ('sheet', 'FARM_KIT')],
+                ('sheet', 'FARM_KIT'), ('give', 'crafting_table')],       # the row proves the reap, not a table's logs
          run=('achieve_needs', [('minecraft:bread', 1)], 4), before=[('start', 'bread_from_a_farm_two_wheat_carried')],
          check=[('gain', 'minecraft:bread', 1), ('blocks', ('@', 4, 0, -1), ('@', 6, 0, 1), ('wheat',), 0, 8),
                 ('blocks', ('@', -8, -1, -8), ('@', 3, -1, 8), ('farmland',), 0, 0)],

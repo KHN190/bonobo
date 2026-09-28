@@ -830,6 +830,13 @@ class Frontier(unittest.TestCase):
         for name, kind, age, want in rows:
             with self.subTest(name):
                 self.assertEqual(memory.covered(row, [kind], age), want)
+        # a look stamped with no game clock (a skill run without a brain round) is still a look
+        unclocked = {"t": None, "kinds": {}, "looked": {"oak_log": None}}
+        for name, tick, kind, want in [("no clock on the look, a clock now: covered", 5000, "oak_log", True),
+                                       ("no clock at all: covered", None, "oak_log", True),
+                                       ("must fail: another kind never looked for", 5000, "birch_log", False)]:
+            with self.subTest(name):
+                self.assertEqual(memory.covered(unclocked, [kind], tick), want)
 
     def test_resume_and_shared(self):
         # A search interrupted after one look resumes elsewhere; another task's look counts for the same kind.
