@@ -385,8 +385,10 @@ def breathing(st, c):
     return left(int(s.get("air", AIR_FULL)) >= AIR_FULL, "state:air", AIR_FULL - int(s.get("air", 0)))
 
 def daytime(st, c):
+    """The day wanted: {} while the clock's time of day (absolute ticks, taken mod a day) is before dusk."""
+    from .data import DAY_END
     t = body(st).get("timeOfDay")
-    return left(t is not None and int(t) % 24000 < 12500, "state:day")
+    return left(t is not None and int(t) % 24000 < DAY_END, "state:day")
 
 def fed(st, c):
     food = int(body(st).get("food", 0))

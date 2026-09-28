@@ -247,3 +247,18 @@ class ToolWear(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual((knowledge.usable(left), knowledge.working(left)), want)
         self.assertLess(knowledge.TOOL_USABLE, knowledge.TOOL_WORKING)
+
+
+class Daytime(unittest.TestCase):
+    """knowledge.daytime: the one "is it day" over the absolute clock (sleep's verify reads it)."""
+
+    def test_rows(self):
+        from bonobo import knowledge
+        # (situation, timeOfDay) → day
+        rows = [("day 1 morning", 1000, True), ("day 2 morning (absolute 25 000)", 25000, True),
+                ("day 5 noon", 5 * 24000 + 6000, True),
+                ("must fail: day 2 night (absolute 42 000; the old '< 12500' read day 1 only)", 42000, False),
+                ("must fail: dusk", 12500, False)]
+        for name, t, day in rows:
+            with self.subTest(name):
+                self.assertEqual(knowledge.daytime({"state": {"timeOfDay": t}}, None) == {}, day)
