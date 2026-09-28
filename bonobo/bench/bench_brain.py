@@ -180,8 +180,8 @@ CODE_ROWS = [
                        _when(walked_at_least(6), _set_time(13000)),
                        _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
                        lambda ctx: SEARCH_FLAGS.clear()),
-         queue=[_goal(("minecraft:diamond", 1))],
-         run=_slice(_inv_has("minecraft:diamond", 1), 0.45, queue=[_goal(("minecraft:diamond", 1))]),
+         queue=[_have(("minecraft:diamond", 1))],
+         run=_slice(_inv_has("minecraft:diamond", 1), 0.45, queue=[_have(("minecraft:diamond", 1))]),
          check=_all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False)),
          budget=limit(), expect=SHEET_EXPECT),
 ]
