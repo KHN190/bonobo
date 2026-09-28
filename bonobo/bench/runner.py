@@ -728,8 +728,12 @@ def _run_row(sc, make_ctx, fired):
                 ctx = make_ctx()      # the hook may move the player: rebuild policy/dimension there
             from .. import skillcore as _sc
             if _sc.dead():
-                # dead before the skill began: the setup is invalid, not the skill
-                raise SetupInvalid("player dead before the skill started")
+                # dead before the skill began: the setup is invalid, not the skill — with what the body read then
+                s = api.get("/state")
+                raise SetupInvalid("player dead before the skill started ("
+                                   + ", ".join(f"{k} {s.get(k)}" for k in ("health", "dead", "screen", "x", "y", "z",
+                                                                            "inWater", "inLava", "onFire"))
+                                   + f"; last hurt by {s.get('lastDamage') or s.get('damageSource')})")
             # the budget is the behaviour's: `before` hooks build the scene, so the clock starts here
             t0 = time.time()
             timer = _watchdog(limit, fired)
@@ -809,7 +813,14 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
                     CHECK_READOUT["ghast"] = ghast_readout(GHAST)      # what the ghast watch saw
                 from .words.fight import ENDERMEN
                 if ENDERMEN:
-                    CHECK_READOUT["endermen"] = dict(ENDERMEN)         # each one's AngerTime and place
+                    CHECK_READOUT["endermen"] = dict(ENDERMEN)         # each one's anger end and place
+                from .words.fight import answered_by_time, WINDOW_PROBE
+                # the threat layer's looks over the row (outcome, and each bid's record): its silences are provable
+                looks = answered_by_time(time.time() - float(seconds) - 1.0)     # the row's own window
+                CHECK_READOUT["looks"] = {"n": len(looks), "answered": sum(1 for a in looks if a["outcome"] == "answered"),
+                                          "last": looks[-12:]}
+                if WINDOW_PROBE:
+                    CHECK_READOUT["probe"] = dict(WINDOW_PROBE)
                 try:
                     CHECK_READOUT["reflex"] = api.get("/reflex")        # the jar's policy as it holds it
                 except McError as e:
