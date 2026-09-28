@@ -146,8 +146,8 @@ ROWS = [
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)],      # the _ARENA: floor, roof, walls
          expect_gear={'items': [['minecraft:iron_sword', 1]], 'offhand': 'minecraft:shield'}),
     dict(name='combat__trapped_unarmed', module='fight_loop',
-         doc=('Trapped: a closed room 2 high (no pillar), a dirt floor, no weapon, no armour, no blocks, a pickaxe; '
-              'a walker → alive at the end, little health lost, whatever the bot chose (dig, wall with dug dirt…)'),
+         doc=('Trapped: a closed room 2 high (no pillar), a dirt floor, no weapon, armour or blocks, a pickaxe; a walker '
+              '→ alive at the end, little health lost, whatever the bot chose (dig, wall with dug dirt…)'),
          scene=[('built', 'trapped_room', TRAP_HALF), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
                 ('cmd', BEST_TOOLS['pickaxe']),
                 ('summon', 'zombie', ('@', TRAP_HALF - 1, 0, 0), '{PersistenceRequired:1b,NoAI:1b}')],

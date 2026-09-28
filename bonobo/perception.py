@@ -438,6 +438,15 @@ def watching():
 GRID_R = 8
 GRID_TTL_S = 2.0
 
+def dig_ok(ground, pick_tier):
+    """Pure: the floor under us digs as deep as a hole must be to keep a walker off (melee_stop_blocks), with what we
+    carry — the hand for dirt, sand, gravel; a pickaxe for stone (knowledge.diggable, the one rule)."""
+    from .knowledge import diggable
+    depth = int(float(_ENGAGE["melee_stop_blocks"]))
+    floor = tuple(getattr(ground, "floor", ()) or ())[:depth]
+    return len(floor) == depth and all(diggable(b, pick_tier) for b in floor)
+
+
 def perceived(state, now, ground_of=None, kit_of=None):
     """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
 
@@ -446,7 +455,8 @@ def perceived(state, now, ground_of=None, kit_of=None):
     out = dict(state)
     for name, read in (("kit", lambda: out.update(kit_of(state))),
                        ("ground", lambda: out.update(field=ground_of(state))),
-                       ("footing", lambda: out.update(footing=footing(state)))):
+                       ("footing", lambda: out.update(footing=footing(state))),
+                       ("dig", lambda: out.update(dig_ok=dig_ok(out.get("field"), out.get("pick_tier"))))):
         try:
             read()
         except Exception as e:  # guard: a reading we cannot take (kit, ground, footing) never stops the answer
@@ -506,7 +516,7 @@ def kit(signature):
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": food_count(inv),              # knowledge's one food table
             "blocks": inv.count("building"),
-            "dig_ok": any(usable(d) for _t, d, _ in inv.tools("pickaxe")),
+            "pick_tier": max((t for t, d, _ in inv.tools("pickaxe") if usable(d)), default=None),
             "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple"),
             "bow": inv.count("minecraft:bow") > 0 and inv.count("minecraft:arrow") > 0,
             "gold_worn": any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")

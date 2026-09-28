@@ -31,7 +31,8 @@ TERRAIN = Terrain()
 
 class Field:
 
-    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None, cover=None, shape_now=()):
+    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None, cover=None, shape_now=(),
+                 floor=()):
         self.speed = float(speed)
         self.bucket = bucket
         self.blocks = int(blocks)
@@ -39,6 +40,7 @@ class Field:
         self.seal = None if seal is None else int(seal)   # blocks that seal the way we stand in; None: nothing we carry seals it
         self.cover = cover     # the nearest 2-high space (a cell), or None
         self.shape_now = tuple(shape_now)     # the shapes we stand in now (shape_at): priced like a planned reshape
+        self.floor = tuple(floor)             # the blocks under our feet, top first (a dig down breaks these)
 
     def slowdown(self, squeezes=False):
         """How much longer anything takes over this ground than a straight line: learned per bucket times our placed blocks' cost."""
@@ -63,7 +65,8 @@ class Field:
         return self.bucket != "open" or self.seal is not None
 
     def with_block(self, cell=None):
-        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal, self.cover, self.shape_now)
+        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal, self.cover, self.shape_now,
+                     self.floor)
 
     def choke(self, src, dst, within=3.0):
         if math.dist(src, dst) < 2.0:
@@ -193,8 +196,14 @@ def blocks_in_passage(region, here, reach=4):
         return best
     return 0
 
+def floor_at(region, here, depth=4):
+    """Pure: the block names under our feet, top first, `depth` deep (what a dig down breaks)."""
+    x, y, z = (int(math.floor(v)) for v in here)
+    return tuple(region.name((x, y - 1 - i, z)) for i in range(depth))
+
+
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
     return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here),
                  blocks=blocks_in_passage(region, here), cover=low_cover_at(region, here),
-                 shape_now=shape_at(region, here))
+                 shape_now=shape_at(region, here), floor=floor_at(region, here))

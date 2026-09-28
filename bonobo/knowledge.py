@@ -2,7 +2,7 @@
 import math
 
 from .data import (BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
-                   bare, mid)
+                   HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid)
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -288,6 +288,23 @@ def tool_kind(block):
     if any(name.endswith(sv) for sv in SHOVEL_BLOCKS):
         return "shovel"
     return "pickaxe"
+
+UNBREAKABLE = ("bedrock", "barrier", "end_portal_frame", "end_portal", "nether_portal")
+NEEDS_DIAMOND = ("obsidian", "crying_obsidian", "ancient_debris", "respawn_anchor")
+
+
+def diggable(block, pick_tier=None):
+    """Pure: can we break `block` with what we carry — the hand for what it breaks (dirt, sand, gravel …), a pickaxe
+    for the rest (`pick_tier`: the best carried, None for none; obsidian wants diamond), never bedrock."""
+    name = bare(block or "")
+    if not name or name in UNBREAKABLE:
+        return False
+    if name.endswith(HAND_MINEABLE_SUFFIX):
+        return True
+    if pick_tier is None:
+        return False
+    return pick_tier >= TIER_OF_MATERIAL["diamond"] if name in NEEDS_DIAMOND else True
+
 
 def tool_for(inv, block, tier=None, min_left=2):
     """Pure: the item a task that breaks `block` holds — the best tier of its tool kind carried with wear left (a

@@ -1308,6 +1308,40 @@ class NeverStillUnderAFollower(unittest.TestCase):
         self.assertEqual((d.kind, d.target), ("reshape", ("down", 2)))
 
 
+class AFloorThatDigs(unittest.TestCase):
+    """'down' is on offer when the floor under us breaks with what we carry: the hand for dirt, a pickaxe for stone."""
+
+    def test_dig_ok(self):
+        from bonobo import field, perception
+        dirt, stone = ("minecraft:dirt",) * 4, ("minecraft:stone",) * 4
+        rows = [("dirt, no pickaxe: by hand", dirt, None, True),
+                ("stone, a wooden pickaxe", stone, 0, True),
+                ("must fail: stone by hand", stone, None, False),
+                ("bedrock under the dirt, 1 deep only", ("minecraft:dirt", "minecraft:bedrock"), 3, False),
+                ("no floor read", (), 3, False)]
+        for name, floor, tier, want in rows:
+            with self.subTest(name):
+                self.assertEqual(perception.dig_ok(field.Field(floor=floor), tier), want)
+
+    def test_diggable(self):
+        from bonobo.knowledge import diggable
+        rows = [("gravel by hand", "minecraft:gravel", None, True), ("obsidian with iron", "minecraft:obsidian", 2, False),
+                ("obsidian with diamond", "minecraft:obsidian", 3, True), ("must fail: bedrock", "minecraft:bedrock", 4, False)]
+        for name, block, tier, want in rows:
+            with self.subTest(name):
+                self.assertEqual(diggable(block, tier), want)
+
+    def test_a_dirt_floor_with_no_pickaxe_offers_down(self):
+        """must fail: a dirt floor and no pickaxe gave no 'down' (dig_ok was 'a pickaxe carried')."""
+        from bonobo import field, perception
+        ground = field.Field(bucket="underground", floor=("minecraft:dirt",) * 4)
+        hazards = [row("minecraft:zombie", 5, 0, vel=(-4.0, 0.0, 0.0))]
+        press = threat.pressure(HERE, hazards, 0.0, ground=ground)
+        offered = threat.reshape_options({"blocks": 0, "dig_ok": perception.dig_ok(ground, None)}, ground, hazards,
+                                         HERE, press, 0.0, 0.0, 20.0)
+        self.assertIn("down", {o.target[0] for o in offered})
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 

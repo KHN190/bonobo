@@ -156,6 +156,7 @@ def _combat_intent(state: dict[str, Any]):
     try:
         state = dict(state, field=perception.ground(state),
                      **perception.kit(str(state.get("selected", "")) + str(state.get("screen"))))
+        state["dig_ok"] = perception.dig_ok(state["field"], state.get("pick_tier"))     # as the live answer reads it
     except McError:
         pass
     sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
