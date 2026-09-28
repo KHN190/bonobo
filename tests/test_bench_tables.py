@@ -287,6 +287,14 @@ PRED_ROWS = [
     ("any yes", ("any", ("!state", "dead"), ("!count", "log", ">=", 1)), None, LOG2, {}, True),
     ("any no", ("any", ("!state", "dead"), ("!count", "log", ">=", 5)), None, LOG2, {}, False),
     # the fight's own record (FIGHT_LOG) and the bag's offhand: the combat rows' words
+    # bids as the live wrapper records them: (when, engaged, the answer's kind)
+    ("decision gaps ok yes: engaged bids 0.1 s apart", ("decision_gaps_ok",), None, None,
+     {"FIGHT_LOG": {"bids": [(0.0, False, None), (3.0, True, "fight"), (3.1, True, "fight"), (3.2, True, "fight")]}},
+     True),
+    ("must fail: decision gaps ok no — a 1 s gap while engaged", ("decision_gaps_ok",), None, None,
+     {"FIGHT_LOG": {"bids": [(0.0, True, "fight"), (1.0, True, "fight")]}}, False),
+    ("must fail: decision gaps ok no — never engaged", ("decision_gaps_ok",), None, None,
+     {"FIGHT_LOG": {"bids": [(0.0, False, None), (0.1, False, None)]}}, False),
     ("kills by the fight yes", ("kills_by_the_fight", 1), None, None,
      {"FIGHT_LOG": {"bids": [], "alive": [(1, True), (0, True)]}}, True),
     ("must fail: kills by the fight no — the mob went while nothing was engaged", ("kills_by_the_fight", 1), None, None,
@@ -380,7 +388,6 @@ WORLD_ROWS = [
 NOT_ROW_TESTED = {
     "slice_check": "the slice's trace and decision lines (SLICE, LAST_LINES) through review",
     "placed_facing": "a placed block's facing property from the world",
-    "decision_gaps_ok": "the tape's decision gaps",
     "surfaced": "a hold over time of the body's height",
     "not_remembered": "the memory file",
     "threat_resolved": "a hold over time of hostiles, gap and health",

@@ -615,7 +615,7 @@ def _decision_gaps_ok(factor=1.5):
     def check(api, inv):
         from ... import fight_loop
         bids = FIGHT_LOG["bids"]
-        return any(e for _t, e in bids) and \
+        return any(b[1] for b in bids) and \
             max(engaged_gaps(bids), default=0.0) <= fight_loop.FIGHT_POLL_S * factor
     return check
 
