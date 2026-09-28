@@ -7,8 +7,9 @@ from .data import (DAY_END, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIE
 from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
                         under_rock)
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
-from . import estimate
+from . import estimate, threat
 from .solve import Action
+from .planner import Step
 
 TICKS_PER_S = 20.0
 
@@ -20,7 +21,6 @@ FIGHTERS = {"minecraft:spider", "minecraft:enderman", "minecraft:blaze", "minecr
 def exposure_of(action, state):
     """Seconds of damage an action's shape implies, priced by the threat layer."""
 
-    from . import threat
     hazards = [h for h in state.get("hazards", ()) if h[3] in threat.MOBS]
     if not hazards:
         return 0.0
@@ -483,7 +483,6 @@ def to_step(action, times):
     return step
 
 def _shape(action, times):
-    from .planner import Step
     tag = action.tag or ()
     kind = tag[0] if tag else "craft"
     if kind == "seek":

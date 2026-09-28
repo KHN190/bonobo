@@ -1,11 +1,13 @@
 """Potions for the Nether and the End: water bottles, awkward potions (nether wart), fire resistance (magma cream). A brewing stand's slots: 0–2 bottles, 3 ingredient, 4 fuel (blaze powder). Pure `brew_steps` is offline-tested."""
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav, skillcore
+from . import api, nav, skillcore, fluids
 from .api import NotAvailable, log
 from .skill import skill
 from .skillcore import settle
 from .world import Inventory, find
+from .building import _open_container
+from .craft import Station
 
 FIRE_RES_CHAIN = [("minecraft:nether_wart", "awkward"), ("minecraft:magma_cream", "fire_resistance")]
 
@@ -46,7 +48,6 @@ def bottle_commands(state, args):
        provides={"fill:minecraft:potion": lambda ctx, s: (s.count,)})
 def fill_bottles(ctx, count=3):
     """Fill glass bottles at water (use the bottle while looking at a water source)."""
-    from . import fluids
     here = skillcore.feet()
     hits = sorted(find(["water"], radius=32, limit=30), key=lambda h: h["distance"])
     for h in hits[:4]:
@@ -75,8 +76,6 @@ def _fire_resistance_held():
 def brew_fire_resistance(ctx):
     """At a brewing stand (found or placed): water bottles + wart → awkward, + magma cream → fire resistance; blaze powder fuels."""
 
-    from .building import _open_container
-    from .craft import Station
     inv = Inventory()
     if inv.count("minecraft:blaze_powder") < 1:
         raise NotAvailable("need blaze powder as brewing fuel")

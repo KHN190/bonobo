@@ -5,6 +5,7 @@ import statistics
 import sys
 
 from .. import combat_model as cm, combat_tape as ct      # noqa: E402
+from .. import fight_plan
 
 PHASE_NAMES = {0: "holding pattern", 1: "strafing", 2: "landing approach", 3: "landing",
                4: "taking off", 5: "sitting: flaming", 6: "sitting: scanning", 7: "sitting: attacking",
@@ -44,7 +45,6 @@ def fit(paths):
 def write_fit(values, path=None):
     """Write fitted values into fight.toml and drop their names from `unmeasured`. Returns what changed."""
     import re
-    from .. import fight_plan
     path = path or fight_plan.CONFIG_PATH
     text = open(path).read()
     changed = {}

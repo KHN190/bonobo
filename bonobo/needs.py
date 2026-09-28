@@ -5,12 +5,12 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, decompose, goals, survive
+from . import api, decompose, goals, survive, beliefs
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, mid
-from .knowledge import food_count, food_points
+from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION
+from .knowledge import food_count, food_points, FIND_AT
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
 from .skillcore import lost
@@ -96,7 +96,6 @@ def tool_kinds(steps):
 
 def food_on_its_way(pending):
     """Pure: (meals, hunger points) of the ready food a background job or machine is making ({item id: count})."""
-    from .data import FOOD, NUTRITION
     ready = {mid(f): NUTRITION[f] for f in FOOD}
     meals = sum(n for item, n in pending.items() if item in ready)
     return meals, sum(n * ready[item] for item, n in pending.items() if item in ready)
@@ -104,7 +103,6 @@ def food_on_its_way(pending):
 def food_lasts_s(snap, pending=None):
     """Seconds of work the stomach, the bag's meals and those cooking cover."""
 
-    from . import beliefs
     drain = float(beliefs.value("risk.food_drain_s"))
     return (float(snap.get("food", 20)) + food_points(snap.inv) + food_on_its_way(pending or {})[1]) * drain
 
@@ -124,7 +122,6 @@ def craftable_tier(inv, kind):
 
 def falls(step):
     """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)?"""
-    from .knowledge import FIND_AT
     if (step.kind, None) in FALL_RISK or (step.kind, step.token) in FALL_RISK:
         return True
     depth = FIND_AT.get(step.token)

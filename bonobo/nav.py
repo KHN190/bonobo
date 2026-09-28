@@ -5,9 +5,9 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import api, tape
+from . import api, tape, arbiter, combat_model, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS
+from .data import GROUPS, FOOD
 from .world import NEIGHBOURS6, Inventory, Region, add, feet
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
@@ -162,7 +162,6 @@ WALK_EAT_BELOW = 18        # hunger points: the jar eats on the way below this (
 def autoeat_policy():
     """Pure: what the jar eats on the way and when (jar ≥ 0.1.46): below WALK_EAT_BELOW, the best food first."""
 
-    from .data import FOOD
     return {"below": WALK_EAT_BELOW, "foods": [f"minecraft:{f}" for f in FOOD]}
 
 def mod_features():
@@ -219,7 +218,6 @@ MIN_WALK_HP = 6.0
 def safe_destination(pos, hazards=None, clear=1.0):
     """Pure: `pos`, or a nearby spot clear of every hazard when `pos` sits inside one."""
 
-    from . import combat_model
     hazards = [h if len(h) > 2 else (h[0], h[1], (0.0, 0.0, 0.0)) for h in (hazards or [])]
     if not hazards or combat_model.min_tti(pos, hazards) == float("inf"):
         return pos
@@ -449,13 +447,11 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
     """Walk; when the walker can't get there, build/dig a route toward the target."""
 
     pos = tuple(pos)
-    from . import arbiter
     if not arbiter.BODY.owns("nav.go_to"):
         # a fight holds the body: an interruption, not "no way there" (read as False it banned the vein)
         raise api.FightHolds(f"nav.go_to {pos}: a fight holds the body")
     _began, _from = time.time(), feet()
     if avoid_hazards:
-        from . import combat_model
         hz = combat_model.hazards()
         if hz:
             safe = safe_destination(pos, hz)
@@ -463,7 +459,6 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
                 log(f"   every spot near {pos} is inside something dangerous: not walking there")
                 return False
             if safe != pos:
-                from . import combat_model
                 log(f"   {pos} sits inside a hazard: walking to {safe} instead "
                     f"(slack {combat_model.slack_at(safe, hz, pos)}s)")
                 pos = tuple(safe)
@@ -472,7 +467,6 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
         here = feet()
         if ROAD_MEM is not None and math.hypot(pos[0] - here[0], pos[2] - here[2]) > LEG:
             # known roads first, where they beat the direct way
-            from . import roads
             known = ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], [])
             for wp in roads.route(known, here, pos)[:-1]:
                 t0 = time.time()
@@ -498,7 +492,6 @@ def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards
             log(f"   leg: {_walked:.0f} blocks in {_took:.1f}s ({_took / max(_walked, 1) * 100:.0f} s/100)")
             if ROAD_MEM is not None:
                 # This trip is now a known road (timed), for the way back and for later trips.
-                from . import roads
                 roads.add_leg(ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], []),
                               start, here, time.time() - t_start, time.time())
         budget = place_budget(Inventory().count("building"))

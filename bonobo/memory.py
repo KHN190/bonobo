@@ -4,7 +4,7 @@ import json
 import math
 import os
 import time
-from . import beliefs, paths
+from . import beliefs, paths, blueprints
 from .data import GROUPS, VOLATILITY, bare, mid, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
@@ -215,7 +215,6 @@ class Memory:
     def build_cells(self, dimension):
         """Cells of started, unfinished builds: never mined (the portal goal once took its own frame apart)."""
 
-        from . import blueprints
         cells = set()
         for name, b in self.data.get("builds", {}).items():
             bp = blueprints.REGISTRY.get(name)
@@ -302,7 +301,6 @@ class Memory:
         self.save()
 
     def machine_cells(self, dimension):
-        from . import blueprints
         cells = set()
         for m in self.machines(dimension):
             bp = blueprints.REGISTRY.get(m["blueprint"])

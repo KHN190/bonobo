@@ -8,8 +8,10 @@ import functools
 import inspect
 import time
 
-from . import api, paths, skillcore, tape
+from . import api, paths, skillcore, tape, knowledge
 from .api import McError, TaskStuck
+from .knowledge import have_remainder, needs_rows
+from .bag import has_room
 
 REGISTRY = {}
 VERIFY_SETTLE_S = 3.0      # how long a finished skill's effect may take to show up in the world
@@ -108,7 +110,6 @@ def can_run(fn, *args, **kwargs):
 
 def unmet(contract, args, bag):
     """Pure given the bag: this call's needs not held ({} = can start); `bag()` is read only when there are needs."""
-    from .knowledge import have_remainder, needs_rows
     needs = needs_of(contract, args)
     return have_remainder(bag(), needs_rows(needs)) if needs else {}
 
@@ -180,7 +181,6 @@ def _lenient(step):
     return types.SimpleNamespace(kind=step.kind, token=step.token, count=step.count, detail=_Blank(step.detail))
 
 def _wire_planner():
-    from . import knowledge
     knowledge.STEP_CALL = step_call
 
 def declared(name, needs, speed, gives=(), remaining=None):
@@ -244,7 +244,6 @@ def remaining_of(contract, state, call):
     want = getattr(call, "want", None)
     if want is None:
         return None
-    from .knowledge import have_remainder
     return have_remainder(state["inv"], [[t, n] for t, n in want.items()])
 
 def gives_of(gives):
@@ -366,7 +365,6 @@ def bag_check(contract, c):
     """A gatherer with no room stops now, saying so (before it starts and between batches): otherwise it breaks what it cannot pick up."""
     if not contract.fills_bag:
         return
-    from .bag import has_room
     ids = contract.fills_bag(c) if callable(contract.fills_bag) else ()
     try:
         inv = skillcore.Inventory()

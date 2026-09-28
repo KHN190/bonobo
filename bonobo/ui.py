@@ -4,9 +4,12 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import knowledge as K
 from . import api
 from .api import NotAvailable, log
-from .data import mid
+from .data import mid, MATERIAL_TOKEN
 from .skill import skill
 from .world import Inventory, container, entities
+from .building import _open_container
+from .craft import Station
+from .knowledge import members
 
 def choose_enchant(options, xp_level, lapis):
     """Pure: the best enchant button the player can pay for (level ≤ xp, lapis ≥ button + 1)."""
@@ -60,8 +63,6 @@ def _enchanted(item):
 def enchant_item(ctx, item):
     """At an enchanting table (found or carried): put the item and lapis in, press the best affordable option, take the item back."""
 
-    from .building import _open_container
-    from .craft import Station
     xp = api.get("/state").get("xpLevel", 0)
     if xp < 1:
         raise NotAvailable("no experience levels to enchant with")
@@ -118,8 +119,6 @@ def _worn(item):
 
 def _anvil_args(ctx, step):
     """(most worn tool of the step's kind, the material an anvil repairs it with), when both are carried."""
-    from .data import MATERIAL_TOKEN
-    from .knowledge import members
     inv = Inventory()
     tools = [s for s in inv.slots if s["id"].endswith("_" + step.token) and s.get("damage")]
     if not tools:
@@ -134,8 +133,6 @@ def _anvil_args(ctx, step):
 def anvil_repair(ctx, item, material):
     """At an anvil: item + repair material (e.g. diamond pickaxe + diamonds), take the result when the level cost is affordable."""
 
-    from .building import _open_container
-    from .craft import Station
     xp = api.get("/state").get("xpLevel", 0)
     with Station(ctx, "minecraft:anvil") as station:
         _open_container(station.pos)

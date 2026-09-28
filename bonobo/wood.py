@@ -1,7 +1,7 @@
 """Wood: fell trunks from the ground up, nearest first."""
 import math
 
-from . import knowledge as K
+from . import knowledge as K, farming
 from . import api, nav
 from .api import McError, NotAvailable, log
 from .data import GROUPS
@@ -110,7 +110,6 @@ def chop(ctx, n):
             log(f"   trunk at {(base['x'], base['y'], base['z'])} yielded no logs ({r['message']}); next tree")
             continue
         # renewable wood: note the grove and replant once the trunk is all down (a sapling under standing logs blocked the way up)
-        from . import farming
         ctx.mem.note_seen("tree", base_pos, ctx.dimension)
         if not felled(trunk, still):
             continue

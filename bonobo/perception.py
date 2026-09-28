@@ -4,12 +4,14 @@ import math
 import threading
 import time
 
-from . import api, arbiter, fight_loop, hazard, paths
-from .data import memo_ttl
+from . import api, arbiter, fight_loop, hazard, paths, estimate, field as _field, nav, threat
+from .data import memo_ttl, DAY_END, NIGHT_END
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
+from .knowledge import food_count, sheltered
+from .skill import HEARTBEAT
 
 POLL_S = 0.2
 # the operator's interrupt ends the running skill (/stop only cancels the current mod task)
@@ -46,7 +48,6 @@ def hurt_rate():
 def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
     """The pressure we are actually under: the model's rate or the measured one, whichever is worse."""
 
-    from . import estimate
     return max(estimate.pressure_hp_s(here, rows, prot, ground=field, horizon=horizon), hurt_rate())
 
 def note_threats(near, now=None, here=None):
@@ -54,7 +55,6 @@ def note_threats(near, now=None, here=None):
 
     global THREAT_ROWS, THREAT_IDS, THREAT_AT
     import time as _t
-    from . import threat
     now = now if now is not None else _t.time()
     THREAT_ROWS = threat.hostile_rows(near or [], _SEEN, now, here=here)
     THREAT_IDS = threat.ids_by_row(near or [], THREAT_ROWS)
@@ -80,8 +80,7 @@ INTERRUPT_TTD_S = float(_ENGAGE["interrupt_ttd_s"])     # floor: never look less
 def interrupt_within_s():
     """Seconds until the planner next gets to decide — the running commitment, measured from the last segment."""
 
-    from . import api as _api
-    return max(INTERRUPT_TTD_S, _api.LAST_SEGMENT_S)
+    return max(INTERRUPT_TTD_S, api.LAST_SEGMENT_S)
 REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let the rescue work)
 
 HOSTILE = ("critical_health", "breath", "enderman", "hostiles")
@@ -97,8 +96,6 @@ def nightfall(state, enclosed, in_site=lambda: False):
     """Pure given its readers: the soft boundary request for surface work at dusk or night — "night" in the
     Overworld between DAY_END and NIGHT_END unless sheltered by the night way's own judgement (knowledge.sheltered:
     under rock, walled in, inside a site); None by day or in another dimension."""
-    from .data import DAY_END, NIGHT_END
-    from .knowledge import sheltered
     if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
         return None
     t = int(state.get("timeOfDay", 0)) % 24000
@@ -149,7 +146,6 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     return None
 
 def _running_skill():
-    from .skill import HEARTBEAT
     try:
         with open(HEARTBEAT) as f:
             t, name = f.read().split()[:2]
@@ -220,7 +216,6 @@ class Watcher(threading.Thread):
     def _answer_threats(self, state):
         """One look at the world, one outcome recorded — an answer, or a named reason there was none."""
 
-        from . import threat
         now = time.time()
         if not fight_loop.wired():
             return observe(now, "unwired")
@@ -412,7 +407,6 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
     """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved."""
 
     global GRID, GRID_AT, GRID_AT_POS, REGION
-    from . import field as _field
     from .world import Region
     region_of = region_of or Region
     now = now if now is not None else time.time()
@@ -430,7 +424,6 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
 def footing(state):
     """spot → where a walk toward it lands (nav.landing), for evade; None before the ground was read."""
 
-    from . import nav
     region, here = REGION, (state["x"], state["y"], state["z"])
     return None if region is None else (lambda spot: nav.landing(region, here, spot))
 
@@ -451,7 +444,6 @@ def kit(signature):
     global _KIT, _KIT_SIG
     if signature == _KIT_SIG and _KIT:
         return _KIT
-    from .knowledge import food_count
     from .world import Inventory
     inv = Inventory()
     _KIT = {"sword_tier": sword_level([t for t, d, _ in inv.tools("sword") if d >= 1]),

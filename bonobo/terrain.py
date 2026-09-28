@@ -5,6 +5,7 @@ import math
 from . import nav
 from .bag import throw_direction
 from .world import add, is_enclosed, openings  # noqa: F401  (the walls: world's, re-exported)
+from .data import HAND_MINEABLE_SUFFIX, bare
 
 def standing_cells(region, here, radius):
     """Pure: cells within `radius` of `here` one could stand in — solid harmless floor, two free cells up — in region order."""
@@ -159,7 +160,6 @@ def stands(region, feet_c):
 def soft_below(region, feet, depth):
     """Pure: the `depth` cells under the feet all dig by hand with something solid below — no pickaxe needed to hide."""
 
-    from .data import HAND_MINEABLE_SUFFIX, bare
     x, y, z = feet
     names = [bare(region.name((x, y - k, z))) for k in range(1, depth + 1)]
     return all(n not in ("air", "cave_air", "water") and n.endswith(HAND_MINEABLE_SUFFIX) for n in names) \

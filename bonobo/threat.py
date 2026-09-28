@@ -2,7 +2,7 @@
 
 import math
 
-from . import beliefs, estimate
+from . import beliefs, estimate, kernel
 
 CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS
@@ -357,7 +357,6 @@ def saves(option, opts, price, work_s):
 def decide(state, price=None):
     """Pure: the best answer, decided by `kernel.choose` like every other plan this agent makes."""
 
-    from . import kernel
     field = Field(state, price)
     best = (kernel.choose(field, field.state()).action or field.default).option
     return Decision(best.kind, best.target, best.why, best.hp)

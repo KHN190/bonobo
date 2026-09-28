@@ -5,9 +5,11 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .knowledge import step_call, tool_ok
+from .knowledge import step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest
+from .skill import MIN_SAMPLES
+from .planner import Planner, Unplannable
 
 TICKS_PER_S = 20
 
@@ -90,7 +92,6 @@ class Cost:
                 self.cache[key] = known
         if key not in self.cache:
             # in sight: the round's one look (world.nearest), never a search of its own
-            from .knowledge import SOURCE_BLOCKS
             seen = None
             if self.snap is not None:
                 seen = nearest(list(blocks), self.snap.feet, self.snap.dimension, radius, union=SOURCE_BLOCKS)
@@ -112,7 +113,6 @@ class Cost:
 
     def _surface_trip(self):
         """Under rock, getting out is part of any surface trip, and it scales with depth."""
-        from .knowledge import under_rock
         if not under_rock(self.snap.get("skyLight", 15)):
             return 0
         return 200 + 30 * max(0, 64 - int(self.snap.feet[1]))
@@ -126,7 +126,6 @@ class Cost:
         return self.distance([block], 6) is not None and self.distance([block], 6) <= 6
 
     def cheapest_food(self, options):
-        from .knowledge import HUNT
         raw = {c: c.replace("cooked_", "") for c in options}
         dist = {c: self._entity(HUNT[raw[c]]) for c in options if raw[c] in HUNT}
         known = [c for c, d in dist.items() if d is not None]
@@ -136,7 +135,6 @@ class Cost:
         """Ticks the skill runner has measured for this step, or None until enough runs exist."""
         if self.mem is None or step.kind not in STAT_KEYS:
             return None
-        from .skill import MIN_SAMPLES
         key, units = STAT_KEYS[step.kind](step)
         per = self.mem.duration(key, min_samples=MIN_SAMPLES)
         return int(per * max(1, units) * TICKS_PER_S) if per is not None else None
@@ -259,7 +257,6 @@ class Prices:
 
     def get(self, item, default=None):
         if item not in self.cache:
-            from .planner import Planner, Unplannable
             base = Planner.from_inventory(self.inv, self.cost)
             try:
                 steps = Planner({}, base.inv.tools, self.cost).plan([(item, 1)])

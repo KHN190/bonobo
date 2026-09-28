@@ -5,7 +5,8 @@ import time
 import urllib.error
 import urllib.request
 
-from . import paths, retry
+from . import paths, retry, tape
+from .data import item_ids
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -219,7 +220,6 @@ def _clock(method, path, out):
             CLOCK["ended"], CLOCK["ended_id"] = now, t["id"] if isinstance(t["id"], int) else -1
 
 def api(method, path, body=None, timeout=1200):
-    from . import tape
     if tape.REPLAY is not None:          # an offline decision replay: the world answers from the recording
         return tape.replayed(method, path)
     data = json.dumps(body).encode() if body is not None else None
@@ -254,7 +254,6 @@ BODY_PATHS = ("/task", "/stop")
 def with_item_ids(body):
     """A task post with every "only" list as the jar's item ids: the one place tokens become ids."""
 
-    from .data import item_ids
     if isinstance(body, dict) and "tasks" in body:
         return dict(body, tasks=[with_item_ids(t) for t in body["tasks"]])
     if isinstance(body, dict) and body.get("only"):

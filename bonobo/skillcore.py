@@ -3,7 +3,7 @@ free of skill logic so a skill module's readiness hash doesn't change with unrel
 import math
 import time
 
-from . import api, beliefs
+from . import api, beliefs, knowledge as _know, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import bare
@@ -99,7 +99,6 @@ SETTLE_POLL_S = 0.25
 
 def settle(read, ok, timeout=3.0, stable_s=0.5, soft=False, poll=SETTLE_POLL_S, clock=time.time, sleep=time.sleep):
     """Poll `read()` until `ok(value)` held for `stable_s` or `timeout`; returns the last value (the world catches up a tick later)."""
-    from . import tape
     began = clock()
     value = read()
     seq = [(0.0, value)]
@@ -238,7 +237,6 @@ def arm(tasks, inv=None, read_blocks=True):
     weapon_for): reads only when a task lacks one — the bag (unless `inv`, the one perception already holds, is given)
     and the blocks a chain's mines break (unless `read_blocks` is off: the fight path, where a mine holds the route
     tool and a weapon wants no block). The jar holds exactly that item."""
-    from . import knowledge as _know
     mines = [t for t in tasks if t.get("type") == "mine" and "item" not in t]
     if not mines and not any(t.get("type") in ("travel", "attack") and "item" not in t for t in tasks):
         return tasks

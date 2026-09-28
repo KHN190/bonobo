@@ -4,7 +4,7 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav
+from . import api, nav, survive
 from . import combat_model
 from .api import McError, NotAvailable, log
 from .skill import skill
@@ -103,7 +103,6 @@ def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
     """Wait out a fight at a safe distance from `anchor`, inside the band so the target stays reachable, eating when hurt."""
 
     from .world import Region
-    from . import survive
     for _ in range(rounds):
         if until is not None and until():
             return True

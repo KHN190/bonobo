@@ -4,14 +4,15 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, building, craft, fluids, nav, nether, store, survive, tape, world
+from . import api, building, craft, fluids, nav, nether, store, survive, tape, world, jobs
 from .api import McError, NotAvailable, log
-from .data import BASE_MARKERS, FULL_BAR, MAX_HP
+from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_TICK
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
 from .skillcore import gained
 from .world import BAG_SLOTS, Inventory, Region, nearest
+from .bag import FREE_SLOTS_TARGET, empty_how
 
 
 def in_sight(snap, kinds, radius):
@@ -287,7 +288,6 @@ class Maintain:
         return min(near, key=lambda m: math.dist(m["origin"], snap.feet), default=None)
 
     def collect_job(self, snap, ctx):
-        from . import jobs
         job = self.ready_job(snap)
         if job is not None:
             jobs.collect(ctx, job)
@@ -295,7 +295,6 @@ class Maintain:
     def empty_bag(self, snap, ctx):
         """Deposit into an existing chest when a stack is worth the walk, else drop the cheapest — never craft a chest for it."""
 
-        from .bag import FREE_SLOTS_TARGET, empty_how
         need = max(1, snap.inv.used_slots() - (BAG_SLOTS - FREE_SLOTS_TARGET))
         lava = in_sight(snap, ["lava"], 3)
         how = empty_how(snap.inv.slots, need, ctx.prices().get, self.chest_seconds(snap, ctx), lava)
@@ -304,7 +303,6 @@ class Maintain:
     def chest_seconds(self, snap, ctx):
         """Seconds to an existing chest (in reach, or a remembered site's; at night only in reach), or None."""
 
-        from .data import WALK_BLOCKS_PER_TICK
         if in_sight(snap, BASE_MARKERS["chest"], 6):
             return 2.0
         if snap.night:

@@ -10,6 +10,7 @@ import time
 from .. import api, nav, paths
 from ..bench.core import FLAG
 from ..world import Snapshot
+from ..brain import Brain
 
 OUT = paths.data("plan-bench.jsonl")
 
@@ -49,7 +50,6 @@ def main():
             if not os.path.exists(FLAG):
                 raise SystemExit("walk mode moves the player: test world only (mc.py scenario enable)")
             snap = Snapshot()
-            from bonobo.brain import Brain
             policy = Brain().policy(snap, snap.night)
             t0 = time.time()
             ok = nav.moved(nav.go_to(t, policy, range_=8, attempts=1))

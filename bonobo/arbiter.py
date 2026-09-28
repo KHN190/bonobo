@@ -2,6 +2,8 @@
 
 import threading
 import time
+from .data import NIGHT_WORK
+from . import api
 
 REFLEX, SAFETY, TACTIC, MAINTAIN, PLAN = 0.05, 0.2, 1.0, 3.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
@@ -95,7 +97,6 @@ WAIT_KINDS = ("wait for day", "wait")
 def on_surface(step_kind):
     """Pure: does a step of this kind walk the surface? Everything but the work done under cover (data.NIGHT_WORK:
     digging, crafting, smelting) — a tree, an animal, a search out in the open."""
-    from .data import NIGHT_WORK
     return step_kind not in NIGHT_WORK
 
 def viable(intent, facts):
@@ -296,11 +297,9 @@ class Motion:
                 self.lease = (intent, release, now if seen_at is None else seen_at)
             if intent.scale <= SAFETY:
                 # the message channel has one writer, a preemption; the running slow action reads it and abandons itself
-                from . import api
                 api.INTERRUPT = reason
         if clear_first:
             # stop the slower layer's running task, after the lease stands so whoever wakes is refused
-            from . import api
             try:
                 api.post("/stop")
             except api.McError:

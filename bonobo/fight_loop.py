@@ -4,8 +4,14 @@ import math
 import threading
 import time
 
-from . import api, arbiter, nav
+from . import api, arbiter, nav, field as _field, kernel, threat
 from .api import NotAvailable
+from .skillcore import Context
+from .world import Snapshot
+from .estimate import follows_to
+from .beliefs import MOBS
+from .knowledge import ALL_FOOD, RAW_MEAT
+from .data import GROUPS
 
 ANSWER = None          # (option) -> None | {"id": task}: carries out one answer with the agent's memory and policy
 POLL_S = 0.5           # how often a running engagement looks at what perception now wants
@@ -16,8 +22,6 @@ def wire(mem, policy_of, blacklist, prices=None):
     """Give the fight what it needs from the agent: memory, a movement policy for the current snapshot, and the shared blacklist."""
 
     global ANSWER
-    from .skillcore import Context
-    from .world import Snapshot
 
     def answer(option):
         snap = Snapshot()
@@ -133,8 +137,6 @@ def active():
 def threat_state(state, rows, work_s=None, ids=()):
     """The threat model's state vector, read off a player state and the rows the watcher last saw."""
 
-    from . import field as _field
-    from . import threat
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
           "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
@@ -149,7 +151,6 @@ def threat_state(state, rows, work_s=None, ids=()):
 def bid(state, rows, price, work_s=None, now=None, ids=()):
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
     global HELD
-    from . import kernel, threat
     if not rows:
         return None
     st = threat_state(state, rows, work_s, ids)
@@ -171,7 +172,6 @@ _CHASE = {"at": None}  # when a threat was last seen chasing, in this engagement
 
 def chasing(rows, here):
     """Pure: some threat is still after us — it notices or reaches us here (`estimate.follows_to`), or closes."""
-    from .estimate import follows_to
     for h in rows:
         centre, vel = h[0], h[2]
         if follows_to(here, h):
@@ -207,12 +207,11 @@ def lease_done(state, rows, price, ids=()):
 def still_worth(choice, field_model, price, horizon):
     """The assumption behind a threat answer: that it still beats carrying on."""
 
-    from . import threat as _threat
     options = [a.option for a in field_model.opts]
     same = next((o for o in options if o.kind == choice.name), None)
     if same is None:
         return False
-    return _threat.saves(same, options, price, horizon) > 0
+    return threat.saves(same, options, price, horizon) > 0
 
 # -- the batches
 
@@ -229,7 +228,6 @@ LURE_BLOCKS = 8          # how far a creeper by our builds is led away from them
 def footwork(target, state):
     """Pure: the footwork for fighting `target`, from the rows being answered; None when it is not among them."""
 
-    from .beliefs import MOBS
     rows, ids = state.get("threats") or [], list(state.get("threat_ids") or [])
     if target not in ids or ids.index(target) >= len(rows):
         return None
@@ -248,7 +246,6 @@ def lure_spot(here, creeper, protected, blast):
     return (round(here[0] + LURE_BLOCKS * dx / n), int(here[1]), round(here[2] + LURE_BLOCKS * dz / n))
 
 def _attack(option, state, **extra):
-    from .beliefs import MOBS
     task = {"type": "attack", "entity": option.target, **extra}
     step = footwork(option.target, state)
     if step is None:
@@ -282,7 +279,6 @@ def _evade(option, state):
              "avoid": nav.avoid_cells(state.get("protected", ()), (x, y, z), state["feet"])}]
 
 def _eat(option, state):
-    from .knowledge import ALL_FOOD, RAW_MEAT
     wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_MEAT)
     food = next((f for f in wanted if state["inv"].count(f)), None)
     return [{"type": "eat", "item": food}] if food else []
@@ -294,7 +290,6 @@ def _shield(option, state):
 
 def _reshape(option, state):
     """Change the ground: dig down n, stand n blocks up, or put n blocks between us and the nearest threat."""
-    from .data import GROUPS
     where, n = option.target
     x, y, z = state["feet"]
     if where == "down":

@@ -3,7 +3,7 @@ import math
 import re
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, blueprints, nav, world
+from . import api, blueprints, nav, world, fluids
 from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
@@ -463,7 +463,6 @@ def build_blueprint(ctx, name, near):
         raise api.NavFailed(f"can't reach the build spot for {name}")
     yield from _build_parts(ctx, bp, origin, turns)
     if "portal" in bp.tags:
-        from . import fluids
         nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.0, attempts=1)
         fluids.light_portal(ctx, origin, turns)
     machine = ctx.mem.add_machine(name, origin, turns, ctx.dimension, bp.tags)
@@ -497,7 +496,6 @@ def build_shelter(ctx):
 _CAST = {}      # where the last frame was cast: what the verify looks at
 
 def _portal_cast(c):
-    from . import fluids
     return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])
 
 @skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), speed={}, needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
@@ -505,7 +503,6 @@ def _portal_cast(c):
 def cast_portal(ctx):
     """Cast a Nether portal frame in place (no obsidian, no diamond pickaxe): mould each cell, lava in, water on, then light it."""
 
-    from . import fluids
     block = nav.building_item()          # its needs (water, flint and steel, 16 blocks) held: the runner checked
     bp = blueprints.NETHER_PORTAL
     here = feet()

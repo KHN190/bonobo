@@ -8,7 +8,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import cannot_reach, bare, mid
-from .knowledge import DIG_SHOVEL_S, HUNT_SWORD_S, members
+from .knowledge import DIG_SHOVEL_S, HUNT_SWORD_S, members, MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
 from .skillcore import ToolMissing, feet, mine_cell, gained
@@ -317,7 +317,6 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             _reach_budget(unreachable, blocks, str(out))
             continue
         if gained(lambda: Inventory().count(drop), before) <= before:
-            from .knowledge import MINE_YIELD
             if MINE_YIELD.get(mid(drop), 1) < 1 and "failed" not in r["message"]:
                 continue   # a chance drop (grass → seeds ~1 in 8): an empty break is expected, keep breaking
             # partial success is progress: some blocks broke, keep the batch (banning all over one block stalled the kit)

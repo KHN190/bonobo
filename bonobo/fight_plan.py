@@ -3,6 +3,7 @@
 import math
 import os
 import tomllib
+from . import combat_model, kernel
 
 # -- configuration: one file; a number copied into code drifts
 
@@ -331,7 +332,6 @@ class Fight:
                 return False, f"needs terrain.{key} = {wanted}"
         if state["threats"]:
             # feasibility after committing `busy` s: a safe cell still reachable before the first threat, over all threats (a pincer killed a run)
-            from . import combat_model
             _spot, slack = combat_model.best_step(me["pos"], state["threats"], speed=me["speed"],
                                                   horizon=busy + 1.0, cover=me.get("cover"))
             if slack is not None and slack < busy:
@@ -347,7 +347,6 @@ class Fight:
     def plan(self, state):
         """{intent, deadline_s, duration_s, commitment_s, benefit_s, rejected, fault, assumptions}."""
 
-        from . import kernel
         choice = kernel.choose(self, state)
         best = choice.action or self.default
         left = remaining(state["boss"]["phase"], state["boss"]["phase_elapsed_s"])

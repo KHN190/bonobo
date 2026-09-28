@@ -7,6 +7,7 @@ from .api import NotAvailable, log
 from .data import RARE_SIGHTINGS, bare
 from .skill import skill
 from .skillcore import feet
+from .knowledge import FIND_AT, MINE, takeable_blocks
 
 def _searched(c):
     """A search succeeded when it found one: walking without finding is not the product."""
@@ -89,7 +90,6 @@ def _search(ctx, kinds, look, radius, legs):
 def band(kind):
     """The y a kind is richest at (knowledge.FIND_AT), None for surface kinds."""
 
-    from .knowledge import FIND_AT, MINE
     k = bare(kind)
     item = next((tok for tok, (blocks, _t) in MINE.items() if k in blocks), None)
     return FIND_AT.get(item) if item else None
@@ -180,13 +180,11 @@ def unknown(mem, dimension, names):
 def variants(block):
     """Pure: the blocks that are the same find as `block` (the ore and its deepslate form)."""
 
-    from .knowledge import MINE
     return next((list(blocks) for blocks, _tier in MINE.values() if block in blocks), [block])
 
 def note_around(mem, dimension, here):
     """Note resources in sight while travelling (trees, water, lava, ores, takeable and rare blocks, animals) for later searches."""
 
-    from .knowledge import takeable_blocks
     looked_blocks, seen_blocks = [], []
     try:
         for kind, blocks in SCAN_BLOCKS.items():

@@ -9,7 +9,7 @@ import time
 import traceback
 
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
-               needs, reflexes, tape, tasks, world)
+               needs, reflexes, tape, tasks, world, perception)
 from . import skill as skillkit
 from . import craft, skillcore, survive
 # every module that registers skills: a new one is added here only
@@ -82,7 +82,6 @@ class Brain:
         self.held = {}                # task id -> {"steps": [Step], "sig": bag signature, "event": bool, "dim": str}
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
-        from . import perception
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
@@ -91,7 +90,6 @@ class Brain:
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
-        from . import fight_loop
         fight_loop.wire(self.mem, lambda snap: self.policy(snap, snap.night), self.blacklist,
                         prices=self.price_table)
 
@@ -584,7 +582,6 @@ FIGHT_POLL_S, FIGHT_WAIT_MAX_S = 0.5, 60.0
 
 def wait_out_fight(sleep=time.sleep, now=time.monotonic):
     """Poll until our own fight lets the body go, at most FIGHT_WAIT_MAX_S. Returns the seconds waited."""
-    from . import fight_loop
     began = now()
     while (fight_loop.engaged() is not None or arbiter.BODY.holder() is not None) \
             and now() - began < FIGHT_WAIT_MAX_S:
@@ -659,7 +656,6 @@ def autoplay(hours):
         log("!! another autoplay process is already running; aborting")
         return
     log(f"autoplay start: brain code {code_version()}")
-    from . import perception
     perception.start()  # ~5 Hz
     brain = Brain()
     deadline = time.time() + hours * 3600

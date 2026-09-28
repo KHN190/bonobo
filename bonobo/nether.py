@@ -7,7 +7,8 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .world import Inventory, entities, find, screen_slot
+from .world import Inventory, entities, find, screen_slot, container
+from .knowledge import food_count
 
 OVERWORLD = "minecraft:overworld"
 NETHER = "minecraft:the_nether"
@@ -130,7 +131,6 @@ def in_portal(state):
 def must_leave():
     """Stop exploring when food or health run low (survival then retreats through the portal)."""
     from .world import Inventory
-    from .knowledge import food_count
     s = api.get("/state")
     food = food_count(Inventory())
     return food < 6 or s.get("health", 20) <= 10
@@ -142,7 +142,6 @@ HEAD_SLOT = 5   # armor head slot in the player inventory screen
 
 def wear_gold_helmet():
     """Swap the carried gold helmet onto the head (the iron one goes back into its slot)."""
-    from .world import container
     api.post("/close")
     src = next((s for s in container()["slots"] if s["owner"] == "player" and s["id"] == "minecraft:golden_helmet"
                 and s["slot"] != HEAD_SLOT), None)

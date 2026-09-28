@@ -414,7 +414,6 @@ def furnace_takes(slots, input_ids, output):
 def start_smelt_job(ctx, output, input_token, count, fuel):
     """Spread the batch over the free furnaces within FURNACE_REACH (placing one if none), fuel each, and walk away."""
 
-    from .building import _open_container
     count = min(64, count)
     inv = Inventory()
     inputs = [m for m in members(input_token) if inv.count(m)]

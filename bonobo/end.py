@@ -4,11 +4,13 @@ import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav, skillcore
+from . import api, nav, skillcore, arbiter, combat_model, fight_loop, fight_plan, recovery, survive, threat
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .data import bare
+from .data import bare, GROUPS, cannot_reach
 from .world import Inventory, Region, away_from, cells_with, entities, find
+from .combat import angry_endermen, crystal_order, station
+from .combat_tape import EventStream
 
 def frames_missing_eye(region):
     """Pure: end portal frame blocks without an eye (block state eye=false)."""
@@ -182,7 +184,6 @@ def perched(dragon, top=None, centre=(0, 0)):
     return near and (top is None or dragon["y"] <= top + 6)
 
 def _bed_item():
-    from .data import GROUPS
     inv = Inventory()
     return next((b for b in GROUPS["bed"] if inv.count(b)), None)
 
@@ -250,7 +251,6 @@ def build_bed_pit(ctx):
         raise NotAvailable("no exit portal pillar in range")
     s = api.get("/state")
     # only while it flies: the breath covers ~6 blocks around
-    from .combat import station
     for _ in range(40):
         d = dragon_entry(entities(128))
         if prep_safe(d, (s["x"], s["y"], s["z"]), floor_y=top):
@@ -338,7 +338,6 @@ def _soft_interrupt():
 
 def _recover(ctx, reason):
     """Carry out the recovery table's answer for an interrupt: one lookup, one action, always an answer."""
-    from . import arbiter, recovery
     act, why = recovery.explain(reason)
     log(f"   {reason} → {act} ({why})")
     # a recovery is the safety layer: preempt so it owns the body and drops anything slower
@@ -352,7 +351,6 @@ def _recover_body(ctx, act):
         api.run({"type": "wait", "ticks": 5}, wait=5, awaits="the fall's landing (onGround) before the next recovery act")     # mid-air: the mod pours water under us
     elif act == "retreat_and_eat":
         _retreat(ctx)
-        from . import survive
         try:
             survive.eat(raw_ok=True)
         except McError:
@@ -366,8 +364,6 @@ def await_perch(ctx):
     if not PIT:
         raise NotAvailable("no bed pit built yet")
     pit_feet, fire_cell, retreat_cell, bed, floor_y = PIT
-    from .combat import angry_endermen, station
-    from .combat_tape import EventStream
     last_hp, last_feet, bleeding = None, None, 0
     # wait on the event stream: a quiet circle costs nothing and a landing is known the tick it happens
     stream = EventStream()
@@ -449,7 +445,6 @@ def await_perch(ctx):
             continue
         if s["health"] < 19 and s.get("food", 20) < 20:
             # only when a bite helps: at a full bar eat fails its own verify
-            from . import survive
             try:
                 survive.eat(raw_ok=True)
             except McError as e:
@@ -491,7 +486,6 @@ def bed_bomb_window(ctx):
     before = dragon_entry(entities(128))
     from .world import Region as _R
     # the window as one submission: a round trip (~98 ms) is a quarter of the shortest window (0.4 s), so it runs open-loop
-    from . import fight_loop
     window = fight_loop.batch(fight_loop.Answer("bed_bomb", (tuple(bed), item, tuple(stand), tuple(retreat_cell),
                                                              _R(bed, bed).solid(bed))), None)
     try:
@@ -542,7 +536,6 @@ def cage_plan(crystal, here, floor_y):
 
 def crystal_commands(state, args):
     """`commands` for break_caged_crystal from the tower base: pillar up, break every bar still standing, in one chain."""
-    from .data import GROUPS
     crystal = args[0]
     pos = (crystal["x"], crystal["y"], crystal["z"])
     feet = tuple(state["feet"])
@@ -559,7 +552,6 @@ def crystal_commands(state, args):
 
 def unreachable(results):
     """Pure: the cells a chain's results name as "cannot reach x, y, z" — the only ones a partial failure bans."""
-    from .data import cannot_reach
     return {c for t in results if t["status"] != "succeeded" for c in cannot_reach(t.get("message"))}
 
 def caged(crystal, here):
@@ -570,7 +562,6 @@ def caged(crystal, here):
 def shake_enderman(ctx):
     """Shake an angry enderman without fighting: the pit (they can't follow), else water, else walk away — never look at it (looking provokes)."""
     from .skillcore import place
-    from .combat import angry_endermen
     from .world import entities as _entities
     s = api.get("/state")
     here = (s["x"], s["y"], s["z"])
@@ -671,7 +662,6 @@ def break_caged_crystal(ctx, crystal):
 
 def fight_state(near, s, ctx):
     """The planner's view of one perception round — never summarised: threat rows go through whole."""
-    from . import fight_plan
     d = dragon_entry(near)
     inv = Inventory()
     here = (s["x"], s["y"], s["z"])
@@ -710,7 +700,6 @@ _LAST_SEEN = {}          # entity id -> (position, when), for differencing veloc
 
 def _threats(near, dragon, now=None):
     """The round as (centre, radius, velocity, kind) hazards; a new enemy needs only a radius in combat_model.HAZARD_R."""
-    from . import combat_model, threat
     now = time.time() if now is None else now
     live = [e for e in near or [] if not (e.get("type") == combat_ENDERMAN and not e.get("angry"))]
     return threat.rows(live, _LAST_SEEN, now, combat_model.HAZARD_R)
@@ -722,7 +711,6 @@ def _solid(cell):
 def dragon_view(near, s):
     """What fight_loop.dragon_answer reads off one perception round: dragon, crystals, bed, a takeable bomb window, cells to proof, breath escape, cover."""
     from . import bunker
-    from .combat import crystal_order
     d = dragon_entry(near)
     here = (s["x"], s["y"], s["z"])
     item = _bed_item()
@@ -749,7 +737,6 @@ def _retreat(ctx, near=None):
     here = (s["x"], s["y"], s["z"])
     near = entities(128) if near is None else near
     # no cover: put distance between us and the nearest hazard
-    from . import combat_model
     hazards = _threats(near, dragon_entry(near))
     if hazards:
         # the same rule the safety veto applies, so a retreat never goes where the veto refuses
@@ -781,7 +768,6 @@ def slay_dragon(ctx):
     """Hold the body while fight_loop carries the dragon fight; runs the two preparations and says when it is over."""
     if api.get("/state")["dimension"] != "minecraft:the_end":
         raise NotAvailable("not in the End")
-    from . import arbiter, fight_loop, fight_plan
     motion = arbiter.BODY  # perception preempts on it from its own thread
     motion.engage(log=log)
     fight = fight_plan.Fight()
@@ -852,7 +838,6 @@ def _floor_under(x, z, y_hint):
     return None
 
 def _building_block():
-    from .data import GROUPS
     inv = Inventory()
     return next((b for b in GROUPS["building"] if inv.count(b)), "minecraft:cobblestone")
 

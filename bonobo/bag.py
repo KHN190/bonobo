@@ -1,6 +1,9 @@
 """The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
 
 from .world import add
+from .knowledge import ALL_FOOD, RAW_MEAT, members
+from .api import NotAvailable
+from .data import VALUABLES
 
 PICKUP_FILTER_AT = 28
 
@@ -19,7 +22,6 @@ def reserved_stacks(slots):
 def reserved_ids(plan, needs=()):
     """Pure: every item id a plan passes through plus the goal's needs — the one reservation list."""
 
-    from .knowledge import members
     tokens = set()
     for step in plan:
         tokens.add(step.token)
@@ -42,7 +44,6 @@ def pickup_whitelist(used_slots, wanted=()):
 
     if used_slots < PICKUP_FILTER_AT:
         return None
-    from .knowledge import members
     ids = {i for token in FLOOR if token != "building" for i in _floor_ids(token)} | set(PICKUP_ALWAYS)
     for token in ("food", "coal", "log", "planks", "wool"):
         ids |= set(members(token))
@@ -57,7 +58,6 @@ FLOOR = {"food": 8, "building": 64, "minecraft:torch": 16, "minecraft:bucket": 1
 UNPRICED_S = 1.0          # seconds to get again when nothing prices an item: it goes first (junk)
 
 def _floor_ids(token):
-    from .knowledge import ALL_FOOD, RAW_MEAT, members
     if token == "food":
         return list(ALL_FOOD) + list(RAW_MEAT)     # raw meat is the next meal while cooked food is short
     return list(members(token))
@@ -88,11 +88,9 @@ def reget_seconds(s, price=None):
 def let_go(slots, need, price=None, chest_s=None, lava_near=False):
     """Pure: [(stack, "drop" | "deposit")] freeing `need` slots."""
 
-    from .api import NotAvailable
     keep = kept(slots)
     order = [s for s in slots if dead(s)] + sorted(
         (s for s in slots if s not in keep and not dead(s)), key=lambda s: (reget_seconds(s, price), s.get("count", 1)))
-    from .data import VALUABLES
     out = []
     for s in order:
         if len(out) >= need:

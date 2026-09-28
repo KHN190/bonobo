@@ -2,10 +2,12 @@
 
 import math
 
-from . import blueprints, goals, knowledge
+from . import blueprints, goals, knowledge, actions as act, skill
 from .cost import TICKS_PER_S
-from .data import POD_BLOCKS
+from .data import POD_BLOCKS, mid
 from .planner import Planner, Step, Unplannable
+from .solve import Unsolvable, solve
+from .knowledge import members
 
 SOLVERS = {}          # name -> fn(inv, needs, cost, pending) -> [Step]
 ORDER = []            # fallback order when no solver is named
@@ -24,8 +26,6 @@ register("planner", _planner)
 def _solve(inv, needs, cost, pending=None, jobs=None):
     """The column solver: slower, sees further — where to go, what to take ready-made, which half-done work to finish."""
 
-    from . import actions as act
-    from .solve import Unsolvable, solve
     target = act.target_of(needs)
     if not target:
         return []
@@ -65,7 +65,6 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
     extra = dict(pending or {})
     if mem is None or snap is None or not hasattr(mem, "stored"):
         return [], extra
-    from .knowledge import members
     steps = []
     for need in needs:
         if need[0] == "tool":
@@ -93,8 +92,6 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
 def effect_detail(kind, token, count):
     """What an effect step's skill reads from `detail`, filled where the tables know it."""
 
-    from . import knowledge
-    from .data import mid
     if kind == "hunt" and token in knowledge.HUNT:
         return {"types": list(knowledge.HUNT[token])}
     if kind == "mine" and mid(token) in knowledge.MINE:
@@ -109,7 +106,6 @@ def effect_detail(kind, token, count):
 def missing_detail(step):
     """The detail key the step's providers ask for and the step lacks, or None."""
 
-    from . import skill
 
     class _Detail(dict):
         def __missing__(self, key):
@@ -267,7 +263,6 @@ def _action(kind, token, cost, **detail):
 def decompose(inv, goal, cost, solver=None, pending=None):
     """Ordered steps for `goal` from this bag."""
 
-    from . import skill
     steps = _decompose(inv, goal, cost, solver, pending)
     missing = [s for s in steps if not skill.handles(s)]
     if missing:

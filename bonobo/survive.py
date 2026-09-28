@@ -6,11 +6,13 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
-from .data import BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid
-from .knowledge import DIG_SHOVEL_S, RAW_MEAT
+from .data import (BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
+                   WALK_BLOCKS_PER_TICK)
+from .knowledge import DIG_SHOVEL_S, RAW_MEAT, ALL_FOOD
 from .world import Inventory, Region, add, dark_spots, find
 from .bag import throw_direction
-from .terrain import choose_burrow, choose_exit, air_route, is_enclosed, openings, find_open_spot
+from .terrain import (choose_burrow, choose_exit, air_route, is_enclosed, openings, find_open_spot, SOFT_RADIUS,
+                      nearest_soft)
 from .skillcore import feet, free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
 from .fluids import AIR_FULL, swimming
 from .craft import run_split
@@ -64,7 +66,6 @@ def torch_commands(state, args=(4, 1)):
 def bites_to_full(food, carried, raw_ok=False):
     """Pure: (item, bites) to fill the bar from `food`: the best fit for the gap, raw meat only when `raw_ok`."""
 
-    from .knowledge import ALL_FOOD
     gap = FULL_BAR - food
     allowed = [f for f in ALL_FOOD + (RAW_MEAT if raw_ok else []) if carried.get(f, 0) > 0]
     if gap <= 0 or not allowed:
@@ -89,7 +90,6 @@ def bite_plan(food, carried, raw_ok=False):
 def eat_commands(state, args):
     """`commands` for eat: one eat task per planned bite, back to back (one bite a round left the bar hungry)."""
 
-    from .knowledge import ALL_FOOD
     raw_ok = bool(args[0]) if args else False
     inv = state["inv"]
     carried = {f: inv.count(f) for f in ALL_FOOD + RAW_MEAT}
@@ -108,7 +108,6 @@ def _fed_as_planned(c):
 def eat(ctx=None, raw_ok=False):
     """Eat until the bar is full, every planned bite as one chain; an interruption stops it where it is."""
 
-    from .knowledge import ALL_FOOD
     st = body_state(ctx) if ctx is not None else {"state": api.get("/state"), "inv": Inventory()}
     tasks = eat_commands(st, (raw_ok,))
     carried = {f: st["inv"].count(f) for f in ALL_FOOD + (RAW_MEAT if raw_ok else [])}
@@ -395,7 +394,6 @@ def can_sleep(state):
     return "a bed only works at night (or in a thunderstorm)"
 
 def _day_now():
-    from .data import DAY_END, NIGHT_END
     t = int(api.get("/state")["timeOfDay"]) % 24000
     return not DAY_END <= t <= NIGHT_END
 
@@ -487,7 +485,6 @@ def dig_in_commands(state, args=()):
 def soft_spot():
     """(cell, steps) of the nearest hand-diggable ground to DIG_IN_DEPTH on our ground, or None."""
 
-    from .terrain import SOFT_RADIUS, nearest_soft
     x, y, z = feet()
     region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
     return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
@@ -512,8 +509,6 @@ def night_ground():
     """One region read around the feet for the night's pricing: (seconds' walk to hand-diggable ground or None,
     whether a dig-in can finish right here)."""
 
-    from .data import WALK_BLOCKS_PER_TICK
-    from .terrain import SOFT_RADIUS, nearest_soft
     x, y, z = feet()
     region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
     spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
