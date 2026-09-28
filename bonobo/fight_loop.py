@@ -333,7 +333,8 @@ def _reshape(option, state):
         return [{"type": "pillar", "item": item} for _ in range(n)]
     near = state.get("threats") or []
     toward = min(near, key=lambda h: math.dist((x, y, z), h[0]))[0] if near else (x + 1, y, z)
-    step = [1 if toward[i] > (x, z)[j] else (-1 if toward[i] < (x, z)[j] else 0) for j, i in enumerate((0, 2))]
+    # by block, not by centre: a mob in the same row stands at x.5 > x, and its "+1" put the block diagonal (a wall)
+    step = [(lambda d: (d > 0) - (d < 0))(math.floor(toward[i]) - (x, z)[j]) for j, i in enumerate((0, 2))]
     return [{"type": "place", "item": item, "x": x + step[0], "y": y + i, "z": z + step[1]} for i in range(n)]
 
 def _place(option, state):

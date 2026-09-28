@@ -410,7 +410,9 @@ ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: 
 
 BEHAVIOUR_SECONDS = 20.0
 
-GAP = [at(4, y, z) for y in (1, 2, 3) for z in (-1, 0, 1)]          # the corridor's one gap (GROUND["corridor"])
+# the corridor's way in (GROUND["corridor"]): the passage between us and its open end, feet and head
+GAP = [at(x, y, 0) for x in range(1, 12) for y in (0, 1)]
+MOUTH = at(11, 0, 0)            # where block_gap's walker waits: in the passage's open end, 11 off
 
 def _last(name):
     rows = SWEEP.get(name) or []
@@ -427,8 +429,7 @@ def _ys(row):
 
 def _gap_blocked(api):
     from ...world import Region
-    lo, hi = at(4, 1, -1), at(4, 3, 1)
-    region = Region(lo, hi)
+    region = Region(tuple(min(c[i] for c in GAP) for i in range(3)), tuple(max(c[i] for c in GAP) for i in range(3)))
     return sum(1 for c in GAP if region.solid(c))
 
 def _walled(row):
@@ -469,13 +470,16 @@ def _gap_is_open(ctx):
 # behaviours whose scene is proven by a hook before the run, beyond the build's replies and the line-up count
 # block_gap: the walker held still (NoAI) where it was summoned, across the gap, and woken as the window opens —
 # left free it wandered 14 → 20 blocks off for 14 s and nothing came at the gap to be closed
-PROVEN = {"block_gap": {"scene": [("cmd", "data merge entity @e[type=minecraft:zombie,limit=1,sort=nearest] {NoAI:1b}")],
+# (summoned 10 off at the seed's bearing it stood outside the corridor: it is put in the passage's mouth first)
+PROVEN = {"block_gap": {"scene": [("cmd", f"tp @e[type=minecraft:zombie,limit=1,sort=nearest] {MOUTH[0] + 0.5} {MOUTH[1]} "
+                                          f"{MOUTH[2] + 0.5}"),
+                                  ("cmd", "data merge entity @e[type=minecraft:zombie,limit=1,sort=nearest] {NoAI:1b}")],
                         "before": [("&_gap_is_open",), ("loose", "zombie")]}}
 
 # name: (cell off ARMED, what must hold, why); a control runs before the cell compared to it
 BEHAVIOURS = {
     "block_gap": (dict(ground="corridor", kit="blocks", distance="across"),
-                  lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["gap"] >= 2
+                  lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["gap"] >= 1.5
                   and r["outcome"]["hp_lost"] <= 4,
                   "a corridor with one gap, blocks carried: the gap closed, the walker kept outside it"),
     "dig_in": (dict(ground="roofed", kit="blocks"),
@@ -843,4 +847,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

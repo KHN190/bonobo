@@ -10,9 +10,11 @@ ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skelet
 COUNT = {"one": 1, "three": 3}
 # ground that gives each shaping column something to be worth (a flat arena prices `reshape` at nothing)
 GROUND = {"open": [("fill", ("@", 4, 0, 2), ("@", 5, 1, 3), "stone")],                  # a step to stand up on
-          "corridor": [("fill", ("@", -1, 1, -2), ("@", 9, 3, -2), "cobblestone"),
-                       ("fill", ("@", -1, 1, 2), ("@", 9, 3, 2), "cobblestone"),
-                       ("fill", ("@", 4, 1, -1), ("@", 4, 3, 1), "air")],                # one gap, wide enough to close
+          # a 1-wide passage at the feet (START_Y is the feet: walls from y 1 left a 3-wide open channel under a
+          # raised wall, 6 blocks to seal and none offered), shut behind us, open 11 ahead: two blocks seal it
+          "corridor": [("fill", ("@", -1, 0, -1), ("@", 11, 2, -1), "cobblestone"),
+                       ("fill", ("@", -1, 0, 1), ("@", 11, 2, 1), "cobblestone"),
+                       ("fill", ("@", -1, 0, 0), ("@", -1, 2, 0), "cobblestone")],
           "roofed": [("fill", ("@", -4, 3, -4), ("@", 9, 3, 4), "cobblestone"),
                      ("fill", ("@", -4, 1, -4), ("@", -4, 2, 4), "cobblestone"),
                      ("fill", ("@", -2, -3, -2), ("@", 2, -1, 2), "dirt")]}             # a floor worth digging into
