@@ -1,5 +1,4 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
-import math
 import time
 
 from . import api
@@ -284,13 +283,6 @@ def feet():
 
     s = api.get("/state")
     return s["blockX"], s["blockY"], s["blockZ"]
-
-def away_from(here, point, blocks):
-    """Pure: the spot `blocks` from `here` straight away from `point`, on the horizontal (y kept; unrounded)."""
-
-    dx, dz = here[0] - point[0], here[2] - point[2]
-    n = math.hypot(dx, dz) or 1.0
-    return here[0] + dx / n * blocks, here[1], here[2] + dz / n * blocks
 
 def cells_with(region, name, key, value, want=True):
     """Pure: the `name` blocks of `region` whose block state `key` reads `value` (`want=False`: reads anything else)."""

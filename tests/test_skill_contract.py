@@ -1014,10 +1014,6 @@ def river():
     return r
 
 
-CRYSTAL = {"id": 1, "x": 0.5, "y": 70.0, "z": 3.5}      # fixture: a caged crystal six above FEET's floor
-CAGE = [((x, y, z), "iron_bars") for x, z in ((1, 3), (-1, 3), (0, 4), (0, 2)) for y in (70, 71)]
-
-
 def types(batch):
     return [t["type"] for t in batch]
 
@@ -1153,24 +1149,6 @@ COMMANDS = {
             {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 100, "maxDamage": 131},
             {"id": "minecraft:stone_pickaxe", "count": 1, "damage": 110, "maxDamage": 131}), _args=("axe",)),
          NotAvailable),
-    ],
-    # break_caged_crystal at the tower base: pillars to the crystal's height, then every bar still standing
-    "break_caged_crystal": [
-        ("six below a caged crystal: six pillars, the eight bars",
-         body(world(*CAGE), inv=inventory(cobblestone=16), _args=(CRYSTAL,)),
-         lambda t, b: t.assertEqual((types(b).count("pillar"), sorted(cells(b, "mine"))),
-                                    (6, sorted(c for c, _n in CAGE)))),
-        ("three bars already broken: only the five standing",
-         body(world(*CAGE[3:]), inv=inventory(cobblestone=16), _args=(CRYSTAL,)),
-         lambda t, b: t.assertEqual((types(b).count("pillar"), len(cells(b, "mine"))), (6, 5))),
-        ("resumed after an interrupt (three pillars and two bars done): only the rest, nothing twice",
-         body(world(*CAGE[2:]), feet=(0, 67, 0), inv=inventory(cobblestone=13), _args=(CRYSTAL,)),
-         lambda t, b: t.assertEqual((types(b).count("pillar"), sorted(cells(b, "mine"))),
-                                    (3, sorted(c for c, _n in CAGE[2:])))),
-        ("already at the crystal's height, no blocks: the bars only",
-         body(world(*CAGE), feet=(0, 70, 0), _args=(CRYSTAL,)),
-         lambda t, b: t.assertEqual(types(b), ["mine"] * 8)),
-        ("below it with nothing to tower with", body(world(*CAGE), _args=(CRYSTAL,)), NotAvailable),
     ],
     # eat: (situation, the body) → the bites, back to back (bite_plan)
     "eat": [
@@ -1510,8 +1488,6 @@ WORLD_LEFT.update({
                       lambda: body(inv=inventory(("cobblestone", 4), ("ender_pearl", 2)))),
     "bed_bomb_window": (_with(), lambda: body(entities=_ents(dict(DRAGON, phase=6))),
                         lambda: body(entities=_ents(dict(DRAGON, phase=0)))),
-    "break_caged_crystal": (_with({"id": 3}), lambda: body(entities=_ents({"type": "minecraft:end_crystal", "id": 3})),
-                            lambda: body(entities=[])),
     "breed": (_with(base=0), lambda: body(entities=_ents({"type": "minecraft:cow"})),
               lambda: body(entities=_ents({"type": "minecraft:cow", "baby": True}))),
     "brew_fire_resistance": (_with(base=0), lambda: body(),
@@ -1572,7 +1548,6 @@ WORLD_LEFT.update({
     "stand_on_a_block": (_with(), lambda: body(state=_st(onGround=False)), lambda: body(state=_st(onGround=True))),
     "start_smelt_job": (_with("minecraft:iron_ingot", "minecraft:raw_iron", 6, "coal", base=6),
                         lambda: body(inv=inventory(("raw_iron", 6))), lambda: body(inv=inventory())),
-    "station": (_with((0, 64, 0)), lambda: body(entities=_ents(DRAGON)), lambda: body(entities=[])),
     "strip_mine_step": (_with(16, base=(64, 0)), lambda: body(), lambda: body(inv=inventory(("cobblestone", 8)))),
     "tidy_inventory": (_with(), lambda: body(inv=inventory(*[("dirt", 64)] * 34)), lambda: body()),
     "travel_to": (_with((10, 64, 0), 2), lambda: body(), lambda: body(feet=(9, 64, 0))),

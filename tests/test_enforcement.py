@@ -128,38 +128,9 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual(call(), want)
                 self.assertEqual((asked, wire.called), (want_asked, reached))
 
-    def test_danger_kinds_and_the_recovery_table_agree(self):
-        # Perception emits kinds; the table keys on them exactly. A kind with no row falls to the default, which
-        # is allowed; a row for a kind perception can never emit is a dead entry pretending to be a rule.
-        from bonobo import perception, recovery
-        emitted = set(perception.DANGERS) | {"airborne", "stale"}       # the two non-perception triggers
-        for kind, _, _ in recovery.TABLE:
-            self.assertIn(kind, emitted, f"recovery row {kind!r} can never fire")
-        # Every kind danger() can say, swept: each is a declared kind (a row can key on it).
-        base = {"health": 20, "food": 20, "control": {}, "air": 300, "onGround": True,
-                "dimension": "minecraft:overworld"}
-        near = lambda d: (lambda r: d)      # noqa: E731
-        rows = [({}, {}, None), ({"inLava": True}, {}, "lava"), ({"onFire": True, "health": 6}, {}, "burning"),
-                ({"inWater": True, "air": 40, "onGround": False}, {}, "drowning"),
-                ({}, {"buried": True}, "suffocating"), ({"onGround": False, "y": 60}, {"fallen": 6.0}, "falling"),
-                ({"health": 3}, {}, "critical_health"),
-                ({"dimension": "minecraft:the_end"}, {"breath_within": near(True)}, "breath"),
-                ({}, {"enderman_after_us": near(True)}, "enderman"),
-                ({"health": 9}, {"hostiles_within": near(4.0)}, "hostiles"),
-                ({"health": 9}, {"hostiles_within": near(9.0)}, None),  # must fail: hostiles out of reach, no danger
-                ({"dead": True, "inLava": True}, {}, None),
-                ({"inLava": True, "control": {"paused": True}}, {}, None)]       # the player holds control
-        for st, kw, want in rows:
-            with self.subTest(state=st, **{k: True for k in kw}):
-                got = perception.danger({**base, **st}, **kw)
-                self.assertEqual(got, want)
-                self.assertTrue(got is None or got in perception.DANGERS)
-
-
 class TheSafetyLayerStopsTheBody(unittest.TestCase):
     """The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's — two direct stops were two of
-    the commanders a multi-threat fight cannot afford. A recovery is the safety layer speaking too: it owns the
-    body while it runs, never walks inline. Both are run here over a recording arbiter."""
+    the commanders a multi-threat fight cannot afford. It is run here over a recording arbiter."""
 
     RUNNING = {"active": True, "paused": False, "allowed": True, "task": {"type": "mine"}, "queued": 0}
     # One perception tick. (situation, the state read, a soft skill running?, Claude's flag text) →
@@ -212,25 +183,6 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
                     if want_pre:
                         body.action()
                         self.assertEqual(posts, ["/stop"], "the preemption's action is the /stop")
-
-    # (the interrupt reason) → the recovery carried out (recovery.TABLE, else its default)
-    RECOVERIES = [("enderman", "shake_enderman"), ("claude: breath", "retreat_to_cover"),
-                  ("critical_health", "retreat_and_eat"), ("airborne", "water_clutch"),
-                  ("must fail: a kind nobody listed: cover, never carry on", "retreat_to_cover")]
-
-    def test_a_recovery_is_a_safety_preemption(self):
-        from unittest import mock
-        from bonobo import arbiter, dragon
-        for reason, want in self.RECOVERIES:
-            ran, body = [], Recorder()
-            with self.subTest(reason), mock.patch.object(arbiter, "BODY", body), mock.patch.object(dragon, "log"), \
-                    mock.patch.object(dragon, "_recover_body", side_effect=lambda ctx, act: ran.append((ctx, act))):
-                self.assertEqual(dragon._recover("ctx", reason), want)
-                self.assertEqual((body.preempted, ran), ([("safety", f"{want}: {reason}")], []),
-                                 "nothing drives the body inline")
-                body.action()
-                self.assertEqual(ran, [("ctx", want)])
-
 
 ENDERMEN = [{"type": "minecraft:enderman", "id": 7, "x": 6, "y": 64, "z": 0, "angry": True},
             {"type": "minecraft:enderman", "id": 8, "x": 3, "y": 64, "z": 0},

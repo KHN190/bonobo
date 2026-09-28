@@ -1,13 +1,13 @@
-"""Ranged and defensive combat: shoot a bow with drop compensation, raise the shield, fight blazes from cover, and the dragon fight (crystals first, then the head). Pure helpers (`bow_aim`, `crystal_order`, `blaze_cover`) are offline-tested; skills execute with the mod's use_item (hold to draw) and attack tasks."""
+"""Ranged and defensive combat: shoot a bow with drop compensation, raise the shield, fight blazes from cover. Pure helpers (`bow_aim`, `blaze_cover`) are offline-tested; skills execute with the mod's use_item (hold to draw) and attack tasks."""
 
 import math
 import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
-from . import api, nav, survive
+from . import api, nav
 from . import combat_model
 from .data import EYE_HEIGHT
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable
 from .skill import skill
 from .world import Inventory, add, entities
 
@@ -22,11 +22,6 @@ def bow_aim(eye, target, height=1.0):
     ticks = d / ARROW_SPEED
     drop = 0.5 * GRAVITY * ticks * ticks
     return tx, ty + drop, tz
-
-def crystal_order(crystals, here):
-    """Pure: end crystals nearest first (entity dicts with x, y, z)."""
-
-    return sorted(crystals, key=lambda e: (e["y"] - here[1] > 30, math.dist((e["x"], e["y"], e["z"]), here)))
 
 def blaze_cover(region, here, blaze, radius=4):
     """Pure: a standable cell with a block between it and the blaze at head height, yet within 5 blocks to hit it."""
@@ -49,96 +44,8 @@ def blaze_cover(region, here, blaze, radius=4):
 
 # how far each danger reaches: one flat distance mistook the head sweep and take-off knockback
 
-def clearance(spot, hazards):
-    """Pure: the smallest margin between `spot` and any hazard's reach (negative = inside it, inf when none)."""
-    return min((math.dist(spot, p) - r for p, r in hazards), default=float("inf"))
-
-def safe_stand(region, here, hazards, anchor, band=(8, 14), clear=1.0):
-    """Pure: the nearest standable cell within `band` of `anchor` and `clear` from every hazard."""
-
-    lo, hi = band
-    ax, az = anchor[0], anchor[-1]      # (x, z) or (x, y, z)
-    best, fallback = None, None
-    for (x, y, z), name in region.blocks.items():
-        cell = (x, y, z)
-        below, head = add(cell, (0, -1, 0)), add(cell, (0, 1, 0))
-        if not (region.solid(below) and not region.solid(cell) and not region.solid(head)):
-            continue
-        if region.hazard(cell) or region.hazard(below):
-            continue
-        r = math.hypot(cell[0] + 0.5 - ax, cell[2] + 0.5 - az)
-        if not lo <= r <= hi:
-            continue
-        c = clearance(cell, hazards)
-        d = math.dist(cell, here)
-        if c >= clear and (best is None or d < best[1]):
-            best = (cell, d)
-        if fallback is None or c > fallback[1]:
-            fallback = (cell, c)
-    if best:
-        return best[0]
-    return fallback[0] if fallback else None
-
-ENDERMAN = "minecraft:enderman"
-
-def angry_endermen(near, here, radius=16.0):
-    """Pure: endermen that are actually after us (mod ≥0.1.33 reports `angry`), nearest first."""
-
-    out = [e for e in near if e["type"] == ENDERMAN and e.get("angry")
-           and math.dist((e["x"], e["y"], e["z"]), here) <= radius]
-    return sorted(out, key=lambda e: math.dist((e["x"], e["y"], e["z"]), here))
-
 ENDERMAN_HEAD = 2.55      # eye/head height of a 2.9-block enderman
 HEAD_BAND = 1.0           # how close to that height the aim may pass before it counts as "looking at it"
-
-def endermen_near(near, here, radius=6.0):
-    """Pure: endermen within `radius`, nearest first."""
-
-    out = [e for e in near if e["type"] == ENDERMAN
-           and math.dist((e["x"], e["y"], e["z"]), here) <= radius]
-    return sorted(out, key=lambda e: math.dist((e["x"], e["y"], e["z"]), here))
-
-@skill(gives=["state:fight_over"], remaining=_k.none_of("minecraft:ender_dragon", within=512.0), needs={}, speed={}, budget=180, stall=90, soft=True)
-def station(ctx, anchor, band=(8, 14), clear=1.0, rounds=200, until=None):
-    """Wait out a fight at a safe distance from `anchor`, inside the band so the target stays reachable, eating when hurt."""
-
-    from .world import Region
-    for _ in range(rounds):
-        if until is not None and until():
-            return True
-        s = api.get("/state")
-        here = (s["blockX"], s["blockY"], s["blockZ"])
-        near = entities(128)
-        angry = angry_endermen(near, here, 12.0)
-        if angry:
-            # never trade hits with an enderman: shake it off; swinging provokes more
-            from .dragon import shake_enderman
-            shake_enderman(ctx)
-            yield (len(angry), round(s["health"]))
-            continue
-        hz = combat_model.hazard_points(near)
-        pad = int(band[1]) + 2
-        ax, az = anchor[0], anchor[-1]      # (x, z) or (x, y, z): callers pass the perch as a flat pair
-        region = Region((round(ax) - pad, here[1] - 4, round(az) - pad),
-                        (round(ax) + pad, here[1] + 4, round(az) + pad))
-        spot = safe_stand(region, here, hz, anchor, band, clear)
-        safe = clearance(here, hz) >= clear and not endermen_near(near, here, 8.0)
-        if not safe and spot is not None and math.dist(here, spot) > 1.0:
-            # get out first: eating in the breath was a death loop
-            nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
-        elif safe and s["health"] <= 14 and s.get("food", 20) < 20:
-            try:
-                survive.eat(raw_ok=True)  # a full bar can't be eaten
-            except McError as e:
-                log(f"   station: no bite ({e})")
-        elif spot is not None and math.dist(here, spot) > 1.5:
-            nav.arrived(spot, ctx.policy, range_=1.0, attempts=1)
-        else:
-            api.run({"type": "wait", "ticks": 5}, wait=5, awaits="the fight's next reading (reflex latency: a poll, never a batch)")
-        margin = clearance(here, hz)
-        # no hazards = infinite margin, and round(inf) raises
-        yield (99 if margin == float("inf") else round(margin), round(s["health"]))
-    return True
 
 def shoot_batch(entity, eye, hold_ticks=22):
     """Pure: the one task that draws fully and looses at `entity` from `eye` (arrow drop allowed for)."""

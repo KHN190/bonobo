@@ -226,7 +226,7 @@ from .rowkey import (COMMON, NOT_PRODUCTION, _callable_sources, _names_in, _stri
                      reach_hash, reached, row_hash)
 
 # only fights change run to run; everything else is settled once it passes
-FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skeleton_1", "fight_creeper_1", "fight_blaze_3", "fight_enderman_1", "ghast_fireball", "bed_bomb_kill", "fight_dragon", "siege", "combat_arena",
+FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skeleton_1", "fight_creeper_1", "fight_blaze_3", "fight_enderman_1", "ghast_fireball", "siege", "combat_arena",
           "escape"}
 
 def settled(table, name):
@@ -604,17 +604,6 @@ def _report(name, data):
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "report.json"), "w") as f:
         json.dump(data, f, indent=1, default=str)
-    if SCENARIOS.get(name, {}).get("combat"):
-        # a dead fight becomes a replayable incident (tests/incidents/)
-        try:
-            from .. import dragon
-            from ..tools import incidents
-            state, intent = dragon.LAST_ROUND
-            path = incidents.capture(name, str(data.get("note", "")), state, intent)
-            if path:
-                print(f"incident captured → {path}")
-        except Exception as e:                 # capture must never mask the failure it records
-            print(f"incident not captured: {e}")
     return folder
 
 def _run_row(sc, make_ctx, fired):

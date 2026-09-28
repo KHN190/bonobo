@@ -496,15 +496,6 @@ def dragon_phase(phases):
         return left(dragon is not None and dragon.get("phase") in phases, "state:dragon_perched")
     return fn
 
-def entity_gone(id_of):
-    def fn(st, c):
-        rows = entities(st)
-        if rows is None:
-            return {"unread:entity": 1}
-        gone = all(e.get("id") != id_of(c) for e in rows)
-        return left(gone, f"entity:{id_of(c)}")
-    return fn
-
 def few_dark(st, c):
     """No dark spot left (the /dark spots read)."""
     spots = st.get("dark")

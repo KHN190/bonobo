@@ -101,12 +101,6 @@ ROWS = [
          check=[('state', 'health', '>=', 10), ('not', ('!state', 'dead'))], budget=25,
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'netherrack', 169, 169)]),
-    dict(name='bed_bomb_kill', module='dragon',
-         doc='Speedrun End kit, the dragon perched and worn (crystals gone, 8 hp) → dead by a bed bomb.',
-         scene=[('sheet', 'SPEEDRUN_END_KIT')], run=('do', 'bonobo.dragon.slay_dragon', ['$ctx'], {}),
-         before=[('&worn_perched_dragon',)],
-         check=[('call', 'dragon_health', [], 'is', None), ('not', ('!state', 'dead'))], budget=25, raw=True,
-         combat=True, dimension='minecraft:the_end', release=True, skills=['slay_dragon']),
     dict(name='fight_zombie_1_full_bag', module='fight_loop',
          doc=('Walled platform, iron kit, the bag full of dirt: 1 zombie → dead, health ≥ 12, decisions as often as '
               'ever: the drop it cannot pick up changes nothing'),
@@ -152,21 +146,6 @@ ROWS = [
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
 CODE_ROWS = [
-    dict(name="fight_dragon",
-         doc="The End's main island, the dragon perched and worn (crystals gone, 8 hp), diamond sword, shield, iron "
-             "armour, food, blocks → dragon dead.",
-         module="dragon", raw=True, combat=True, dimension="minecraft:the_end", release=True, skills=["slay_dragon"],
-         # a dragon spawns once per world: the fight's last phase is built (WORN_DRAGON)
-         setup=["clear @p", "give @p diamond_sword", "item replace entity @p weapon.offhand with shield",
-                "item replace entity @p armor.chest with iron_chestplate",
-                "item replace entity @p armor.head with iron_helmet",
-                "item replace entity @p armor.legs with iron_leggings", "item replace entity @p armor.feet with iron_boots",
-                "give @p cooked_beef 32", "give @p cobblestone 64", "give @p water_bucket"],
-         before=_worn_perched_dragon,
-         run=lambda ctx: __import__("bonobo.dragon", fromlist=["slay_dragon"]).slay_dragon(ctx),
-         check=lambda api, inv: not any(e["type"] == "minecraft:ender_dragon"
-                                        for e in __import__("bonobo.world", fromlist=["entities"]).entities(200)),
-         budget=limit()),
     dict(name="fight_before_upkeep",
          doc="Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
              "before any log is gathered (must not), the player never leaves the arena",

@@ -1,4 +1,4 @@
-"""Pure tables for the build / bunker / actions group: one table per function, every row a subTest.
+"""Pure tables for the build / actions group: one table per function, every row a subTest.
 
 Expected values are worked out by hand from the rule each function states (geometry, arithmetic, group membership);
 the config constants they read (pit geometry, slot_fill_s, UNPRICED_S) are named, not re-derived. Nothing here talks
@@ -9,7 +9,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, api, bag, beliefs, blueprints, building, bunker, estimate, threat  # noqa: E402
+from bonobo import actions, api, bag, beliefs, blueprints, building, estimate, threat  # noqa: E402
 from bonobo.api import Interrupted, NotAvailable  # noqa: E402
 from bonobo.blueprints import Blueprint, Part  # noqa: E402
 from bonobo.solve import Action  # noqa: E402
@@ -390,36 +390,6 @@ class BlueprintCommands(unittest.TestCase):
     def test_no_building_blocks(self):
         with self.assertRaises(NotAvailable):     # negative: a pillar with nothing to pillar with is refused
             self.cmds([Part((0, 2, 0), self.O)], inv={})
-
-
-# ------------------------------------------------------------------------------------------------------- bunker
-# Geometry from fight.toml: mouth_r 5, pit_depth 2, tunnel_len 3, retreat_at 3, fire_at 0. Side (1, 0) at floor 64
-# puts the mouth at (5, 62, 0) and the retreat cell at (8, 62, 0).
-
-class Bunker(unittest.TestCase):
-    def test_head_cells(self):
-        rows = [
-            ([],                               [],                               "boundary: no cells"),
-            ([(1, 2, 3)],                      [(1, 3, 3)],                      "one above"),
-            ([(0, -1, 0), (5, 62, 0)],         [(0, 0, 0), (5, 63, 0)],          "order kept, below zero fine"),
-            ([(0, 0, 0), (0, 0, 0)],           [(0, 1, 0), (0, 1, 0)],           "negative: duplicates not merged"),
-        ]
-        for cells, want, why in rows:
-            with self.subTest(why=why):
-                self.assertEqual(bunker.head_cells(cells), want)
-
-    def test_reinforce_cells(self):
-        rows = [
-            # side, floor, centre        expected                                                                    why
-            ((1, 0), 64, (0, 0),        [(5, 64, 0), (5, 62, 1), (5, 62, -1), (5, 63, 1), (5, 63, -1)],              "east: walls on z"),
-            ((0, 1), 64, (0, 0),        [(0, 64, 5), (1, 62, 5), (-1, 62, 5), (1, 63, 5), (-1, 63, 5)],              "south: walls on x"),
-            ((-1, 0), 64, (10, 20),     [(5, 64, 20), (5, 62, 19), (5, 62, 21), (5, 63, 19), (5, 63, 21)],           "west, off-centre"),
-            ((0, 0), 64, (0, 0),        [(0, 64, 0), (0, 62, 0), (0, 62, 0), (0, 63, 0), (0, 63, 0)],                "negative: no side collapses the walls onto the corridor"),
-        ]
-        for side, floor, centre, want, why in rows:
-            with self.subTest(side=side, why=why):
-                self.assertEqual(bunker.reinforce_cells(side, floor, centre), want)
-
 
 if __name__ == "__main__":
     unittest.main()

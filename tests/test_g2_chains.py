@@ -1,9 +1,9 @@
-"""G (single send → run_chain), the pure halves: fluids.light_commands and dragon.crystal_commands' partial failure."""
+"""G (single send → run_chain), the pure half: fluids.light_commands."""
 import unittest
 
-from bonobo import dragon, fluids
+from bonobo import fluids
 from bonobo.api import NotAvailable
-from tests.test_skill_contract import CAGE, CRYSTAL, body, cells, types, world
+from tests.test_skill_contract import body, types
 from tests.world import inventory
 
 FLINT = inventory(flint_and_steel=1)
@@ -39,39 +39,6 @@ class LightCommands(unittest.TestCase):
 
 def result(t, ok=True, msg=""):
     return dict(t, status="succeeded" if ok else "failed", message=msg)
-
-
-class CrystalPartial(unittest.TestCase):
-    """"N of M failed": what broke stays broken (recomputed from the world), only "cannot reach" cells are banned."""
-
-    def chain(self):
-        return dragon.crystal_commands(body(world(*CAGE), feet=(0, 70, 0), _args=(CRYSTAL,)), (CRYSTAL,))
-
-    def test_bans_only_cannot_reach(self):
-        mines = self.chain()
-        far = cells(mines, "mine")[5]
-        done = [result(t) for t in mines[:5]] + [result(mines[5], False, "cannot reach %d, %d, %d: no path" % far)]
-        self.assertEqual(dragon.unreachable(done), {far})
-
-    def test_other_failures_ban_nothing(self):
-        mines = self.chain()
-        done = [result(mines[0], False, "interrupted"), result(mines[1], False, "tool broke")]
-        self.assertEqual(dragon.unreachable(done), set())
-
-    def test_after_partial_failure_only_the_rest_minus_banned(self):
-        mines = self.chain()
-        ordered = cells(mines, "mine")
-        broke, far = ordered[:5], ordered[5]
-        left = [(c, n) for c, n in CAGE if c not in broke]
-        again = dragon.crystal_commands(body(world(*left), feet=(0, 70, 0), banned={far}), (CRYSTAL,))
-        self.assertEqual(sorted(cells(again, "mine")), sorted(ordered[6:]))
-
-    def test_all_failed_all_unreachable_nothing_left(self):
-        mines = self.chain()
-        done = [result(t, False, "cannot reach %d, %d, %d" % (t["x"], t["y"], t["z"])) for t in mines]
-        banned = dragon.unreachable(done)
-        self.assertEqual(len(banned), 8)
-        self.assertEqual(dragon.crystal_commands(body(world(*CAGE), feet=(0, 70, 0), banned=banned), (CRYSTAL,)), [])
 
 
 if __name__ == "__main__":

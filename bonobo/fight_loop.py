@@ -304,15 +304,6 @@ def _reshape(option, state):
     step = [1 if toward[i] > (x, z)[j] else (-1 if toward[i] < (x, z)[j] else 0) for j, i in enumerate((0, 2))]
     return [{"type": "place", "item": item, "x": x + step[0], "y": y + i, "z": z + step[1]} for i in range(n)]
 
-def _bed_bomb(option, state):
-    """Into the hole, detonate, back to cover: one window as one batch (a round trip is ~0.1 s of a short window)."""
-
-    bed, item, stand, cover, placed = option.target
-    bomb = ({"type": "use", "x": bed[0], "y": bed[1], "z": bed[2]} if placed
-            else {"type": "bed_bomb", "x": bed[0], "y": bed[1], "z": bed[2], "item": item})
-    return [{"type": "travel", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.8}, bomb,
-            {"type": "travel", "x": cover[0], "y": cover[1], "z": cover[2], "range": 0.6}]
-
 def _place(option, state):
     cells, item = option.target
     if not state["inv"].count(item):
@@ -320,7 +311,7 @@ def _place(option, state):
     return [{"type": "place", "item": item, "x": x, "y": y, "z": z} for x, y, z in cells]
 
 BATCH = {"fight": _fight, "fight_shielded": _fight_shielded, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape,
-         "bed_bomb": _bed_bomb, "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
+         "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # what a batch reads around the body, by kind; skills register theirs so this module never imports the skill library
 REGION = {}
 
@@ -348,28 +339,4 @@ def engage(decision, s, ctx):
         raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")
     return {"id": queued[-1]["id"]}
 
-# -- the dragon: the same loop and batches as any threat; fight_plan decides, this maps its intent to an answer
 Answer = __import__("collections").namedtuple("Answer", "kind target")
-
-def dragon_answer(intent, view):
-    """Pure: the phase model's intent → the Answer the loop posts, or None when the dragon is dead (the fight stops)."""
-
-    if view["dead"]:
-        return None
-    name = intent.get("intent")
-    retreat = Answer("evade", view["escape"] or view["cover"] or tuple(view["here"]))
-    if name != "retreat" and (intent.get("deadline_s") if intent.get("deadline_s") is not None else 1.0) <= 0.0:
-        return retreat
-    if name == "shoot_crystal" and view["crystals"]:
-        return Answer("shoot", view["crystals"][0])
-    if name == "fire_window" and view["dragon"] is not None:
-        if view.get("bomb"):
-            return Answer("bed_bomb", view["bomb"])
-        return Answer("fight", view["dragon"]["id"])
-    if name == "place_bed" and view["bed"] and view["bed_cell"]:
-        return Answer("place", ((tuple(view["bed_cell"]),), view["bed"]))
-    if name == "reinforce" and view.get("reinforce"):
-        return Answer("place", (tuple(map(tuple, view["reinforce"])), "minecraft:obsidian"))
-    if name in ("dig_tunnel", "water_bucket"):
-        return Answer("prep", name)
-    return retreat

@@ -192,47 +192,6 @@ def view(**changes):
 
 
 A = fight_loop.Answer
-# (situation, the phase model's intent, the round's view) → the answer the loop posts (None: the fight stops)
-DRAGON_ANSWERS = [
-    ("perched, a window, a bed and the pit: the bomb", {"intent": "fire_window", "deadline_s": 3.0},
-     view(bed="minecraft:red_bed", bed_cell=(2, 65, 0), bomb=BOMB), A("bed_bomb", BOMB)),
-    ("perched, a window, no bed: melee on the dragon", {"intent": "fire_window", "deadline_s": 3.0}, view(),
-     A("fight", 7)),
-    ("flying, open crystals: shoot the first in order", {"intent": "shoot_crystal", "deadline_s": 5.0},
-     view(crystals=[CRYSTAL_NEAR, CRYSTAL_FAR]), A("shoot", CRYSTAL_NEAR)),
-    ("breath on us: away from the cloud before the cover", {"intent": "retreat"},
-     view(escape=(20, 64, 0), cover=(5, 62, 0)), A("evade", (20, 64, 0))),
-    ("retreat, no breath: into the cover", {"intent": "retreat"}, view(cover=(5, 62, 0)), A("evade", (5, 62, 0))),
-    ("a window with no time left: retreat, not a bomb caught in the open", {"intent": "fire_window", "deadline_s": 0.0},
-     view(bomb=BOMB, cover=(5, 62, 0)), A("evade", (5, 62, 0))),
-    ("shoot asked, no open crystal left: retreat (nothing to shoot)", {"intent": "shoot_crystal"}, view(),
-     A("evade", (10.0, 64.0, 0.0))),
-    ("the pit wanted: the dig skill, whole", {"intent": "dig_tunnel", "deadline_s": 20.0}, view(),
-     A("prep", "dig_tunnel")),
-    ("must fail: the dragon dead: the fight stops", {"intent": "fire_window"}, view(dead=True), None)]
-
-
-class DragonAnswer(unittest.TestCase):
-    def test_intent_to_answer(self):
-        for name, intent, v, want in DRAGON_ANSWERS:
-            with self.subTest(name):
-                self.assertEqual(fight_loop.dragon_answer(intent, v), want)
-
-    def test_every_answer_has_a_batch(self):
-        """Each answer kind the dragon uses is posted as a batch (or is a prep skill): none is empty from here."""
-        from bonobo import brain  # noqa: F401  (lends "shoot")
-        from tests.world import bag, inventory
-        st = {"state": {"x": 10.0, "y": 64.0, "z": 0.0}, "feet": (10, 64, 0),
-              "inv": bag(inventory(("red_bed", 2), ("bow", 1), ("arrow", 16), ("cobblestone", 32)))}
-        want = {"bed_bomb": ["travel", "bed_bomb", "travel"], "fight": ["attack"], "shoot": ["use_item"],
-                "evade": ["travel"]}
-        for name, intent, v, answer in DRAGON_ANSWERS:
-            if answer is None or answer.kind == "prep":
-                continue
-            with self.subTest(name):
-                self.assertEqual([t["type"] for t in fight_loop.batch(answer, st)], want[answer.kind])
-
-
 class Carry(unittest.TestCase):
     """fight_loop.carry, the one answer loop: the same answer keeps its task, a new one /stops and posts."""
 

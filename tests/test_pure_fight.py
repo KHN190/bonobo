@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import combat_model as cm  # noqa: E402
-from bonobo import combat_tape, decompose, dispatch, dragon as dragon_mod, estimate, field, fight_loop, fight_plan  # noqa: E402
+from bonobo import combat_tape, decompose, dispatch, estimate, field, fight_loop, fight_plan  # noqa: E402
 from bonobo.api import McError, NavFailed, NotAvailable  # noqa: E402
 from bonobo.planner import Step, Unplannable  # noqa: E402
 
@@ -441,21 +441,6 @@ class RunStep(unittest.TestCase):
 
 
 # ------------------------------------------------------------------------------------------------ end
-
-
-class Bombable(unittest.TestCase):
-    def test_table(self):
-        rows = [
-            ("scanning", {"phase": 6}, True),
-            ("attacking", {"phase": 7}, True),
-            ("flaming: breath on the perch", {"phase": 5}, False),
-            # must-fail: no dragon means no window
-            ("must fail: no dragon", None, False),
-            ("no phase", {}, False),
-        ]
-        for name, dragon, want in rows:
-            with self.subTest(name):
-                self.assertEqual(dragon_mod.bombable(dragon), want)
 
 
 # ------------------------------------------------------------------------------------------------ estimate

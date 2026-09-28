@@ -200,7 +200,7 @@ KIT = {n: list(jobs) for jobs, names in {
          'seen_store__noted', 'strip_mine_real'],
     ('pickaxe', 'shovel'): ['dig_in_night'],
     ('shovel',): ['buried_by_sand', 'unbury_sand'],
-    ('sword',): ['bed_bomb_kill', 'break_caged_crystal', 'combat__block_gap', 'combat__dig_in', 'combat__fight_and_block',
+    ('sword',): ['combat__block_gap', 'combat__dig_in', 'combat__fight_and_block',
          'combat__fight_without_shield', 'combat__knocked_off_edge', 'combat__low_hp_eat', 'combat__pillar',
          'combat__shield_arrows', 'combat__surrounded_low', 'combat__wall_in', 'fight_blaze_3', 'fight_creeper_1',
          'fight_creeper_by_home', 'fight_creeper_sword', 'fight_enderman_1', 'fight_skeleton_1', 'fight_zombie_1',

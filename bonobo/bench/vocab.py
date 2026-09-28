@@ -118,14 +118,6 @@ def _portal_room_found():
     # the same radius as the skill contract (three different radii let a failed verify pass)
     return bool(PORTAL_ROOM_OK) and bool(_find(["end_portal_frame"], radius=ROOM_REACH, limit=1))
 
-# a dragon worn down, crystals gone: the fight's last phase fits a row; the full fight is the acceptance run's
-WORN_DRAGON = ["kill @e[type=end_crystal]", "data merge entity @e[type=ender_dragon,limit=1] {Health:8f}"]
-
-def _wear_dragon(ctx):
-    for cmd in WORN_DRAGON:
-        _chat(f"execute in minecraft:the_end run {cmd}")
-    time.sleep(0.5)
-
 def _worn_head():
     from ..world import Inventory
     return ((Inventory().equipment.get("head") or {}).get("id") or "")
@@ -374,59 +366,6 @@ def _portal_beside_player(ctx):
         _chat(f"execute in minecraft:overworld run {cmd}")
     ctx.mem.add_machine("nether_portal", (x, y - 1, z - 1), 1, "minecraft:overworld", ["portal"])
     ctx.mem.add_site("portal", (x, y, z), "minecraft:overworld", name="portal-overworld")
-
-def _dragon_health():
-    import re
-    lines = _command("execute in minecraft:the_end run data get entity @e[type=minecraft:ender_dragon,limit=1] Health",
-                     [])
-    for line in lines:
-        m = re.search(r"([\d.]+)f", line)
-        if m:
-            return float(m.group(1))
-    return None
-
-SPEEDRUN_END_KIT = ["clear @p", "give @p stone_sword", "give @p stone_pickaxe", "give @p white_bed 6",
-                    "give @p cobblestone 64", "give @p cooked_beef 16", "give @p water_bucket"]
-
-def _summon_perched_dragon(phase=6):
-    """After setup: a dragon standing on the exit-portal pillar's real top (one summoned mid-air never perched)."""
-    def before(ctx):
-        from ..end import find_pillar_top
-        top = find_pillar_top()
-        if top is None:
-            raise SetupInvalid("no exit-portal bedrock found near the island centre")
-        # on the island floor east of the pillar (spreadplayers put the player on an obsidian tower)
-        _chat(f"execute in minecraft:the_end run spreadplayers 12 0 0 3 under {top + 8} false @p")
-        # never /kill the dragon (its death opens the exit portal); reuse a living one, summon only when none
-        count = lambda: server_count(_command("execute in minecraft:the_end as @p at @s if entity "
-                                              "@e[type=minecraft:ender_dragon,distance=..300]", []))
-        if count() < 1:
-            _chat(f"execute in minecraft:the_end run summon ender_dragon 0 {top} 0 {{DragonPhase:{phase}}}")
-            time.sleep(2)
-        sel = "@e[type=minecraft:ender_dragon,limit=1]"
-        for cmd in (f"data modify entity {sel} Health set value 200f",
-                    f"data modify entity {sel} DragonPhase set value {phase}",
-                    f"tp {sel} 0 {top} 0"):
-            _chat(f"execute in minecraft:the_end run {cmd}")
-        time.sleep(1.5)
-        # a fresh summon needs a moment to sync: check again before calling it missing
-        for attempt in range(8):
-            if count() >= 1:
-                break
-            if attempt % 3 == 2:
-                _chat(f"execute in minecraft:the_end run summon ender_dragon 0 {top} 0 {{DragonPhase:{phase}}}")
-            time.sleep(1.0)
-        else:
-            raise SetupInvalid("no living dragon after setup")
-        # full health before the skill: a perched dragon left by the last row chews on the player here
-        _chat("execute in minecraft:the_end run effect give @p minecraft:instant_health 2 10 true")
-        _chat("execute in minecraft:the_end run effect clear @p minecraft:instant_health")
-    return before
-
-def _worn_perched_dragon(ctx, _perch=_summon_perched_dragon(6)):
-    """The fight's last phase, built: the dragon on the pillar, crystals gone, 8 hp (WORN_DRAGON)."""
-    _perch(ctx)
-    _wear_dragon(ctx)
 
 def locate_reply(feedback):
     """Pure: (x, z) from '/locate structure' feedback ('... is at [x, ~, z] (N blocks away)'), or None."""
@@ -1533,15 +1472,6 @@ def _threat_resolved(kinds, gap=RESOLVE_GAP, hold_s=RESOLVE_HOLD_S, hp_loss=RESO
             api.get("/state")["health"] >= start_hp - hp_loss
     return check
 
-def _one_crystal(ctx):
-    rows = __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
-    if not rows:
-        raise SetupInvalid("no end crystal after setup")
-    return rows[0]
-
-def _crystals_left(api, inv):
-    return __import__("bonobo.world", fromlist=["entities"]).entities(16, ["minecraft:end_crystal"])
-
 # tidying in the Nether with lava on one side: junk is thrown the other way
 NETHER_LAVA = [f"fill {_c(at(1, 0, -1))} {_c(at(4, 0, 1))} lava"]
 
@@ -2189,7 +2119,7 @@ TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 # fighting is its own tier
 COMBAT_PREFIXES = ("fight_", "combat_arena", "siege__", "escape__", "fight_before_upkeep", "combat__")
 # fights whose names say otherwise; resume_after_combat left out on purpose
-COMBAT_ROWS = ("bed_bomb_kill", "collect_blaze_rods", "ghast_fireball")
+COMBAT_ROWS = ("collect_blaze_rods", "ghast_fireball")
 # the chain's first slice is common, not core: core is what every change can afford
 CORE = tuple(f"{b}__base" for b in BASES) + ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand",
                                              "iron_ingots", "bed_in_nether", "slice_start_tools", "water_clutch")

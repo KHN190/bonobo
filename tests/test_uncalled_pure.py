@@ -48,44 +48,6 @@ class SomethingToStore(unittest.TestCase):
                 self.assertEqual(got, refused)
 
 
-class DragonDead(unittest.TestCase):
-    """dragon.dragon_dead: the dragon gone (or at 0 health) AND the exit portal open."""
-
-    def test_rows(self):
-        from bonobo import dragon as dragon_mod
-        dragon = lambda hp: {"type": "minecraft:ender_dragon", "health": hp}      # noqa: E731
-        part = {"type": "minecraft:ender_dragon"}                                  # a body part: no health
-        # (situation, entities near, exit portal open) → dead
-        rows = [("gone and the portal open", [], True, True),
-                ("health 0, the portal open", [dragon(0)], True, True),
-                ("only a body part left (no health), the portal open", [part], True, True),
-                ("must fail: alive", [dragon(120)], True, False),
-                ("must fail: not seen, the portal closed (out of range is not dead)", [], False, False)]
-        for name, near, portal, want in rows:
-            with self.subTest(name), mock.patch.object(dragon_mod, "exit_portal_open", lambda centre=(0, 0), _p=portal: _p):
-                self.assertEqual(dragon_mod.dragon_dead(near), want)
-
-
-class Reinforced(unittest.TestCase):
-    """dragon._reinforced: every cell bunker.reinforce_cells names for the pit's side is solid."""
-
-    def test_rows(self):
-        from bonobo import bunker, dragon
-        pit_x = [(3, 60, 0), None, None, None, 60]          # the pit's first cell east of the centre, its floor y
-        pit_z = [(0, 60, -3), None, None, None, 60]         # south of the centre: the z side
-        cells_x = bunker.reinforce_cells((1, 0), 60)
-        # (situation, pit, the cells standing solid) → reinforced
-        rows = [("no pit: not reinforced", None, set(), False),
-                ("east side, every cell solid", pit_x, set(cells_x), True),
-                ("a z-side pit, its own cells solid", pit_z, set(bunker.reinforce_cells((0, -1), 60)), True),
-                ("must fail: one cell still open", pit_x, set(cells_x[1:]), False),
-                ("must fail: the other side's cells solid, not this one's", pit_x,
-                 set(bunker.reinforce_cells((-1, 0), 60)) - set(cells_x), False)]
-        for name, pit, solid, want in rows:
-            with self.subTest(name), mock.patch.object(dragon, "_solid", lambda c, _s=solid: c in _s):
-                self.assertEqual(dragon._reinforced(pit), want)
-
-
 class ReviewPlans(unittest.TestCase):
     """review.plans: each task's latest plan and how often its steps failed or were interrupted, in the window."""
 

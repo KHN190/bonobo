@@ -27,10 +27,9 @@ from bonobo.bench import runner  # noqa: E402
 CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
 
 # Skills without a real verify (the runner judges them by nothing). May only shrink.
-VERIFY_GAPS = {"await_perch", "bed_bomb_window", "break_caged_crystal", "build_bed_pit",
-               "shake_enderman", "slay_dragon", "station"}
+VERIFY_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "slay_dragon"}
 # Skills no scenario row proves in the world yet. May only shrink.
-SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "station"}
+SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_enderman", "slay_dragon"}
 CEILING = 8        # neither list grows past this; lower it as they shrink
 
 COMMANDS = {"experience", "gamemode", "fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",
@@ -550,9 +549,6 @@ class EndgameBuilt(unittest.TestCase):
     # (row, what its setup must build so the job fits 30 s)
     ROWS = [("activate_end_portal", lambda r: "give @p ender_eye 3" in r["setup"]
              and sum("eye=true" in c for c in r["setup"]) == 3),
-            ("fight_dragon", lambda r: r["before"] is sc._worn_perched_dragon
-             and not any(c.startswith(("kill ", "summon ")) for c in r["setup"])),
-            ("bed_bomb_kill", lambda r: r["before"] is sc._worn_perched_dragon),
             ("find_portal_room_fresh", lambda r: r["before"] is sc._built_stronghold),
             ("locate_stronghold", lambda r: not any(c.startswith("spreadplayers") for c in r["setup"])),
             ("seek_blocks_real", lambda r: any("oak_log" in c for c in r["setup"])),

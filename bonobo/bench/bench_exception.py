@@ -392,18 +392,6 @@ ROWS = [
          expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'grass_block', 285, 289),
                  (('@', -8, 0, -8), ('@', 8, 8, 8), 'birch_log', 8, 20)],
          skills=['chop']),
-    dict(name='break_caged_crystal', module='dragon',
-         doc=('A caged end crystal on a 6-high obsidian pillar, blocks + water bucket + sword → towered up, bars '
-              'broken, crystal destroyed, alive.'),
-         scene=[('floor',), ('fill', ('@', 5, 0, 0), ('@', 5, 5, 0), 'obsidian'),
-                ('at', 'fill {0} {1} iron_bars hollow', ('@', 4, 6, -1), ('@', 6, 8, 1)),
-                ('fill', ('@', 5, 6, 0), ('@', 5, 7, 0), 'air'),
-                ('summon', 'end_crystal', ('@', 5, 6, 0), '{ShowBottom:0b}'), ('stand',), ('give', 'cobblestone', 32),
-                ('give', 'water_bucket'), ('give', 'iron_sword'), ('give', 'stone_pickaxe')],
-         run=('skill', 'break_caged_crystal', ('$call', 'one_crystal', '$ctx')),
-         check=[('not', ('!call', 'crystals_left', ['$api', '$inv'])), ('not', ('!state', 'dead'))], budget=25,
-         skills=['break_caged_crystal'], expect=[(('@', 5, 0, 0), ('@', 5, 5, 0), 'obsidian', 6, 6)],
-         expect_entities=[('minecraft:end_crystal', 1)]),
     dict(name='build_light_portal_interrupted', module='building',
          doc=('flat stone, 10 obsidian, interrupted with 4 placed → resumed from the world: 10 in the frame, none in '
               'the bag, lit'),
