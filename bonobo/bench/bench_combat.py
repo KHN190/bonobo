@@ -118,7 +118,9 @@ ROWS = [
          # the zombie summoned still (NoAI) so the food drain runs unhurt; it wakes once the bar is at 6
          scene=[('sheet', '_ARENA'), ('cmd', 'damage @p 14 minecraft:magic'),
                 ('summon', 'zombie', ('@', 2, 0, 0), '{PersistenceRequired:1b,NoAI:1b}')],
-         run=('fight_until', ['minecraft:zombie'], 20, False),
+         # the window is the fight's alone (the drain and the wake are `before` hooks, off the clock): 14 s to back
+         # off or wall in and eat, well inside 25 s once the rounds' own time is added (20 s ran to 25.0 s)
+         run=('fight_until', ['minecraft:zombie'], 14, False),
          before=[('start', 'combat__low_hp_eat'), ('drain_to', 6, 20, (4, 8)), ('loose', 'zombie'), ('&record_bids',)],
          check=[('state', 'health', '>', 6), ('alive',), ('count', 'minecraft:cooked_beef', '<', 16),
                 ('away_or_walled', ['minecraft:zombie'])],
