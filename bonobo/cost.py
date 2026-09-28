@@ -5,7 +5,7 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .knowledge import step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock
+from .knowledge import PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest
 from .skill import MIN_SAMPLES
@@ -16,10 +16,6 @@ TICKS_PER_S = 20
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
 # work per unit before anything is measured, in ticks, bare-handed: a held tool's declared speed is taken off (_sped_up)
-PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
-               "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
-               "withdraw": 100, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
-               "farm": 6000, "trade": 600}         # farm: tilling, sowing and a crop's growth; trade: one sale
 # step kind → (statistics key, units): the keys the skill runner records under
 STAT_KEYS = {"mine": lambda s: (f"mine:{s.token}", s.count), "gather": lambda s: ("chop", s.count),
              "hunt": lambda s: (f"hunt:{s.token}", s.count), "smelt": lambda s: ("smelt", s.count),
@@ -157,18 +153,7 @@ class Cost:
         return int(sum(s for tool, s in speed.items() if tool_ok(inv, tool, 0)) * max(1, units) * TICKS_PER_S)
 
     def _prior_work(self, step):
-        k = step.kind
-        if k == "smelt":
-            return PRIOR_TICKS["smelt_each"] * step.count + PRIOR_TICKS["smelt_setup"]
-        if k == "mine":
-            return PRIOR_TICKS["mine_each"] * step.detail.get("breaks", step.count)
-        if k == "gather":
-            return PRIOR_TICKS["gather_each"] * step.count
-        if k == "hunt":
-            return PRIOR_TICKS["hunt_each"] * step.detail.get("kills", step.count)
-        if k == "fill":
-            return PRIOR_TICKS["fill"] * step.count
-        return PRIOR_TICKS.get(k, 1000)
+        return prior_ticks(step)
 
     SOURCED = ("gather", "mine", "hunt", "trade")      # step kinds that walk to where their thing is found
 

@@ -231,3 +231,61 @@ class WhatToHold(unittest.TestCase):
         for name, inv, want in rows:
             with self.subTest(name):
                 self.assertEqual(knowledge.weapon_for(inv), want)
+
+
+class ToolWear(unittest.TestCase):
+    """knowledge.usable (the jar's rule: remaining > 1) and knowledge.working (planning's replace-soon margin)."""
+
+    def test_rows(self):
+        from bonobo import knowledge
+        # (situation, uses left) → (usable, working)
+        rows = [("new", 250, (True, True)), ("at the margin: working", 3, (True, True)),
+                ("two left: held, not working", 2, (True, False)),
+                ("must fail: one left — the jar never holds it", 1, (False, False)),
+                ("must fail: broken", 0, (False, False))]
+        for name, left, want in rows:
+            with self.subTest(name):
+                self.assertEqual((knowledge.usable(left), knowledge.working(left)), want)
+        self.assertLess(knowledge.TOOL_USABLE, knowledge.TOOL_WORKING)
+
+
+class Daytime(unittest.TestCase):
+    """knowledge.daytime: the one "is it day" over the absolute clock (sleep's verify reads it)."""
+
+    def test_rows(self):
+        from bonobo import knowledge
+        # (situation, timeOfDay) → day
+        rows = [("day 1 morning", 1000, True), ("day 2 morning (absolute 25 000)", 25000, True),
+                ("day 5 noon", 5 * 24000 + 6000, True),
+                ("must fail: day 2 night (absolute 42 000; the old '< 12500' read day 1 only)", 42000, False),
+                ("must fail: dusk", 12500, False)]
+        for name, t, day in rows:
+            with self.subTest(name):
+                self.assertEqual(knowledge.daytime({"state": {"timeOfDay": t}}, None) == {}, day)
+
+
+class ClearRequests(unittest.TestCase):
+    """api.clear_requests: nothing pending carries into work that starts now (a bench row, a rescue)."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api
+        # (situation, INTERRUPT, AT_BOUNDARY, cleared first) → at_boundary raises
+        rows = [("a boundary left pending, cleared: nothing raised", None, "night", True, False),
+                ("both left pending, cleared: nothing raised", "lava", "night", True, False),
+                ("nothing pending: nothing raised", None, None, False, False),
+                ("must fail: a boundary left pending and not cleared raises in the next row", None, "night", False,
+                 True)]
+        for name, interrupt, boundary, cleared, raises in rows:
+            with self.subTest(name), mock.patch.object(api, "INTERRUPT", interrupt), \
+                    mock.patch.object(api, "AT_BOUNDARY", boundary), mock.patch.object(api, "SOFT", False), \
+                    mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: False):
+                if cleared:
+                    api.clear_requests()
+                    self.assertIsNone(api.INTERRUPT)
+                try:
+                    api.at_boundary()
+                    got = False
+                except api.NightFell:
+                    got = True
+                self.assertEqual(got, raises)

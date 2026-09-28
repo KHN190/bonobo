@@ -40,7 +40,7 @@ def _night_policy(ctx):
     return dataclasses.replace(ctx.policy, allow_surface=False)
 
 def require_pickaxe_ok():
-    return any(d >= 3 for _, d, _ in Inventory().tools("pickaxe"))
+    return any(_k.working(d) for _, d, _ in Inventory().tools("pickaxe"))
 
 # -- light, food, night
 
@@ -406,7 +406,7 @@ def wait_for_day(ctx):
         yield api.get("/state")["timeOfDay"]
 
 # needs: none the bag can state — a bed carried or one standing nearby
-@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: api.get("/state")["timeOfDay"] < 12500, budget=240, stall=60,
+@skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
        provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):
     """Sleep through the night: carried bed first (placed next to us, picked up after), then a nearby site bed."""

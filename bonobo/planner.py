@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from .api import McError
 from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
 from .beliefs import fights_back
-from .knowledge import (COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MIN_DURABILITY,
+from .knowledge import (prior_ticks, COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MIN_DURABILITY,
                         have_remainder, members, needs_rows, source, step_call)
 
 MAX_DEPTH = 14
@@ -364,5 +364,5 @@ class NullCost:
         return options[0]
 
     def estimate(self, step):
-        return {"craft": 60, "smelt": 200 * step.count, "mine": 80 * step.count, "gather": 60 * step.count,
-                "hunt": 400 * step.count, "fill": 100, "farm": 6000, "trade": 600, "take": 100, "await": 0}[step.kind]
+        """The same prior the real cost model starts from (knowledge.prior_ticks): one table, not a second guess."""
+        return prior_ticks(step)

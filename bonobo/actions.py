@@ -4,7 +4,7 @@ import math
 
 from .data import (DAY_END, DAY_TICKS, GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
-from .knowledge import (BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
+from .knowledge import (working, BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
                         under_rock)
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate, threat
@@ -108,7 +108,7 @@ def state_of(snap, mem, extra=None, reachable=None):
             if item in members or bare(item) in members:
                 x[group] = x.get(group, 0) + n
     for kind in TOOL_KINDS:
-        usable = [(t, d) for t, d, _ in inv.tools(kind) if d >= 3]
+        usable = [(t, d) for t, d, _ in inv.tools(kind) if working(d)]
         best = max((t for t, _d in usable), default=None)
         if best is not None:
             for tier in range(0, best + 1):

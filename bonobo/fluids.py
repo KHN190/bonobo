@@ -11,7 +11,7 @@ from .skill import skill
 from .skillcore import body_state, feet, gained
 from .world import Inventory, Region, add, find
 
-REACH = 4.0
+REACH = nav.WORK_REACH        # the reach holds uses: the jar's range less its margin
 
 def _eye(cell):
     return cell[0] + 0.5, cell[1] + EYE_HEIGHT, cell[2] + 0.5

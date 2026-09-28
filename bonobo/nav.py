@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD, EYE_HEIGHT, NAV_NODES, REACH, TASK_WAIT_S
+from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
@@ -235,8 +235,8 @@ def _arrived(start, target, began, ok, closer=False):
         if ok and straight > 0.5:
             state = api.get("/state")
             field.TERRAIN.observed(field.bucket_of(state), straight, time.time() - began)
-    except Exception:
-        pass
+    except api.McError:
+        pass                # the one read failed (the game away): the estimate waits for the next walk
     if ok:
         return True
     return Walked(math.dist(start, target) - math.dist(feet(), target)) if closer else False
@@ -346,7 +346,7 @@ def holds(region, feet_at, cell, down=False, reach=REACH, through=()):
     points = [centre] + [(centre[0] + d[0] * 0.45, centre[1] + d[1] * 0.45, centre[2] + d[2] * 0.45) for d in _FACES]
     for ox, oz in _OFFS:
         eye = (fx + 0.5 + ox, fy + EYE_HEIGHT, fz + 0.5 + oz)
-        if not any(_ray_hits(region, eye, p, cell, reach - 0.5, through) for p in points):
+        if not any(_ray_hits(region, eye, p, cell, reach - HOLD_MARGIN, through) for p in points):
             return False
     return True
 
