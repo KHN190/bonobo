@@ -33,6 +33,7 @@ class Call:
         self.want: Bag | None = None            # an item skill's desired bag, fixed at its start (skill.wanted)
         self.keep: dict[str, Any] = {}          # what the skill fixed at its first start (an anchor: a column, a direction)
         self.contract: "Contract | None" = None   # the skill this call runs (set by its runner)
+        self.began = time.time()
 
 # an interrupted call's base, wanted bag and anchors, for its resume (read off the world, never a step index); stale after RESUME_TTL_S
 RESUME = {}
@@ -56,6 +57,11 @@ api.BOUNDARY_EXEMPT = lambda: not CALLS or _night_way_running()     # only a ski
 def current():
     """The call running now (innermost); its `keep` survives an interruption for its resume."""
     return CALLS[-1] if CALLS else None
+
+def budget_end():
+    """When the running call's budget runs out: a loop waiting on the world stops by time, not by a count."""
+    c = current()
+    return c.began + c.contract.budget if c is not None and c.contract is not None else float("inf")
 
 def _resume_key(contract, args):
     return contract.name, repr(args[1:])
