@@ -213,13 +213,23 @@ class BehaviourParts(unittest.TestCase):
 
 class Endermen(unittest.TestCase):
     def test_angers(self):
-        rows = [("two calm", ["Enderman has the following entity data: 0"] * 2, [0, 0]),
-                ("must fail: one provoked", ["Enderman has the following entity data: 0",
-                                             "Enderman has the following entity data: 412"], [0, 412]),
-                ("none found", ["No entity was found"], []), ("nothing said", [], [])]
+        # the real reply shapes: a long with its L, a calm enderman's missing tag
+        rows = [("one provoked", ["Enderman has the following entity data: 2506145L"], [2506145]),
+                ("must fail: a calm one has no tag", ["Found no elements matching anger_end_time"], []),
+                ("two", ["Enderman has the following entity data: 5L", "Enderman has the following entity data: 9L"],
+                 [5, 9]),
+                ("nothing said", [], [])]
         for name, lines, want in rows:
             with self.subTest(name):
                 self.assertEqual(fight.angers(lines), want)
+
+    def test_provoked(self):
+        rows = [("anger ended before now: calm", [100], 200, []), ("must fail: anger ends after now", [300], 200, [300]),
+                ("none angry", [], 200, []), ("the time unread: any end counts", [100], None, [100])]
+        for name, ends, now, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.provoked(ends, now), want)
+        self.assertEqual(fight.game_time(["The time is 2519838"]), 2519838)
 
     def test_positions(self):
         rows = [("two", ["Enderman has the following entity data: [1.5d, 64.0d, -2.5d]",
