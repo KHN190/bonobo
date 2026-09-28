@@ -240,9 +240,9 @@ class TheSkillsBatches(unittest.TestCase):
             done.set()
 
 
-def nav_mine(cell):
+def nav_mine(cell, down=False):
     from bonobo import nav
-    return nav.mine_task(cell)
+    return nav.mine_task(cell, down=down)
 
 
 class EachAnswerIsABatch(unittest.TestCase):
@@ -278,7 +278,7 @@ class EachAnswerIsABatch(unittest.TestCase):
              [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]),
             ("shield up without one: not an answer", ("shield",), {}, []),
             ("dig down two", ("reshape", ("down", 2)), {},
-             [nav_mine((0, 63, 0)), nav_mine((0, 62, 0))]),
+             [nav_mine((0, 63, 0), down=True), nav_mine((0, 62, 0), down=True)]),
             ("stand two up", ("reshape", ("under", 2)), {"counts": {"minecraft:cobblestone": 5}},
              [{"type": "pillar", "item": "minecraft:cobblestone"}] * 2),
             ("a wall toward the zombie in the east", ("reshape", ("between", 2)),

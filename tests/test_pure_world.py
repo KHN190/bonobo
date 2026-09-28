@@ -543,7 +543,7 @@ class Nav(unittest.TestCase):
         feet = (0, 64, 0)
 
         def mine(y):
-            return {"type": "mine", "x": 0, "y": y, "z": 0, "collect": False, "requireDrops": False}
+            return {"type": "mine", "x": 0, "y": y, "z": 0, "collect": False, "requireDrops": False, "down": True}
         wait = {"type": "wait", "ticks": 6}
         ladder = {"type": "place", "item": "minecraft:ladder", "x": 0, "y": 65, "z": 0,
                   "against": {"x": 1, "y": 65, "z": 0}}
