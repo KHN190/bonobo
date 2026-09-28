@@ -1046,6 +1046,11 @@ def fireball_end(dists, gone):
     return False, None
 
 
+def volley_done(fired, closed):
+    """Pure: every shot fired and each one's end read (a shot fired but not yet seen is not done)."""
+    return fired == len(VOLLEY) and closed >= fired
+
+
 def volley_verdict(start_hp, end_hp, fired, ends):
     """Pure: all shots fired, each ended > DEFLECTED_AT from the eye, and the body unhurt."""
     if start_hp is None or end_hp is None or end_hp < start_hp:
@@ -1095,7 +1100,7 @@ def _deflect_volley(ctx):
                 if done:
                     closed.add(i)
                     DEFLECT["ends"].append(end)
-            DEFLECT["done"] = DEFLECT["fired"] == len(VOLLEY) and len(closed) == len(series) > 0
+            DEFLECT["done"] = volley_done(DEFLECT["fired"], len(closed))
             time.sleep(0.05)
         DEFLECT["done"] = True
     _threading.Thread(target=volley, daemon=True, name="deflect-volley").start()
@@ -1104,13 +1109,17 @@ def _deflect_volley(ctx):
 def _deflect_watch():
     """The reflex policy on, the agent driving; ends as soon as the last fireball resolves (≤ 20 s)."""
     def run(ctx):
-        from ... import api
-        api.post("/reflex", {"deflect": True, "shield": True, "counter": False})
-        api.post("/takeover", {})               # the reflex runs only while the agent drives
-        t0 = time.time()
-        while not DEFLECT.get("done") and time.time() - t0 < 20:
-            time.sleep(0.05)
-        time.sleep(0.5)                          # the last blast lands
+        from ... import api, perception
+        perception.pause(True)                   # the jar's reflex alone: the threat layer fought the ghasts
+        try:
+            api.post("/reflex", {"deflect": True, "shield": True, "counter": False})
+            api.post("/takeover", {})           # the reflex runs only while the agent drives
+            t0 = time.time()
+            while not DEFLECT.get("done") and time.time() - t0 < 20:
+                time.sleep(0.05)
+            time.sleep(0.5)                      # the last blast lands
+        finally:
+            perception.pause(False)
         return True
     return run
 
@@ -1118,7 +1127,11 @@ def _deflect_watch():
 def _deflected():
     """Check (the server's health read): all 3 fireballs punched away and the body unhurt (volley_verdict)."""
     def check(api_, inv):
-        return volley_verdict(DEFLECT.get("start"), _server_hp(), DEFLECT.get("fired", 0), DEFLECT.get("ends", []))
+        from ..runner import CHECK_READOUT
+        hp = _server_hp()
+        CHECK_READOUT["deflect"] = {"start_hp": DEFLECT.get("start"), "end_hp": hp, "fired": DEFLECT.get("fired", 0),
+                                    "ends": [round(e, 2) for e in DEFLECT.get("ends", [])]}
+        return volley_verdict(DEFLECT.get("start"), hp, DEFLECT.get("fired", 0), DEFLECT.get("ends", []))
     return check
 
 
@@ -1144,4 +1157,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
