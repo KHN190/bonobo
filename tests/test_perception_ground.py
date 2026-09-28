@@ -20,8 +20,8 @@ R = range(-8, 9)
 
 
 def fresh():
-    perception.GRID, perception.GRID_AT, perception.GRID_AT_POS, perception.REGION = None, 0.0, None, None
-    perception._GROUND.clear()
+    perception.STATE.grid, perception.STATE.grid_at, perception.STATE.grid_at_pos, perception.STATE.region = None, 0.0, None, None
+    perception.STATE.ground.clear()
 
 
 class Ground(unittest.TestCase):
@@ -43,7 +43,7 @@ class Ground(unittest.TestCase):
                 fresh()
                 got = perception.ground(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
                 self.assertEqual((type(got), got.bucket, got.blocks), (field.Field, bucket, 0))
-                self.assertEqual((perception.REGION.lo, perception.REGION.hi, perception.REGION.blocks),
+                self.assertEqual((perception.STATE.region.lo, perception.STATE.region.hi, perception.STATE.region.blocks),
                                  ((-8, 56, -8), (8, 72, 8), blocks), "the region read is kept for evade's footing")
 
 

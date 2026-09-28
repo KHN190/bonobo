@@ -529,7 +529,7 @@ def _walk_once(ctx):
     def watch():
         while not stop.is_set():
             if fed_up(frames, nav.WALK_EAT_BELOW):
-                api.INTERRUPT = "bench: fed on the walk"
+                api.request_interrupt("bench: fed on the walk")
                 return
             stop.wait(0.1)
     threading.Thread(target=_trace, args=(stop, frames), daemon=True).start()

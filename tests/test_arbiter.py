@@ -136,10 +136,10 @@ class LockDiscipline(unittest.TestCase):
     def test_who_writes_the_interrupt_message(self):
         for layer, reason, want in self.INTERRUPTS:
             with self.subTest(layer):
-                api.INTERRUPT = None
+                api.STATE.interrupt = None
                 arbiter.Motion().preempt(layer, lambda: None, reason)
-                self.assertEqual(api.INTERRUPT, want)
-        api.INTERRUPT = None
+                self.assertEqual(api.STATE.interrupt, want)
+        api.STATE.interrupt = None
 
 
 class APreemptionIsNotAnIntruder(unittest.TestCase):
@@ -521,6 +521,6 @@ class WaitsCounted(unittest.TestCase):
 
 
 def tearDownModule():
-    """A preemption here sets api.INTERRUPT (arbiter.Motion.preempt): it must not leak into the next module's skills
+    """A preemption here sets api.STATE.interrupt (arbiter.Motion.preempt): it must not leak into the next module's skills
     (test_skill_contract's runner raised Interrupted("lava") when run after this one)."""
-    api.INTERRUPT = None
+    api.STATE.interrupt = None

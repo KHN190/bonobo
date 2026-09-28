@@ -1993,7 +1993,7 @@ class OneArbiter(unittest.TestCase):
         b.mem, b.blacklist, b.policy_cache = None, {}, None
         b.prepare = lambda snap, ctx: brainmod.Act("idle", "prepare", None)
         snap = snapshot(state(timeOfDay=NIGHT), inventory())
-        with mock.patch.object(api, "MODE", "normal"), mock.patch.object(brainmod.hazard, "due", return_value=None), \
+        with mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(brainmod.hazard, "due", return_value=None), \
                 mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
                 mock.patch.object(tasks, "expire", return_value=False):
             act = b.decide(snap, None)
@@ -2261,7 +2261,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
     """L0 > the fight's lease > upkeep > the queue: while a fight holds the body, upkeep is not even asked (a zombie
     in the arena and upkeep sent the body off for logs, over the edge)."""
 
-    # (situation, the body's holder, api.MODE, a hazard due, upkeep has work) → the layer that takes the round
+    # (situation, the body's holder, api.STATE.mode, a hazard due, upkeep has work) → the layer that takes the round
     ROWS = [("a fight holds the body, upkeep has work", "fight", "normal", None, True, "L0", []),
             ("a rescue runs (survival mode)", None, "survival", None, True, "L0", []),
             ("must fail: nobody holds it, a hazard is due", None, "normal", "drowning", True, "L0", []),
@@ -2284,7 +2284,7 @@ class AFightComesBeforeUpkeep(unittest.TestCase):
             b.task_act = lambda task, snap, ctx: None
             b.prepare = lambda snap, ctx: None
             snap = snapshot(state(), inventory())
-            with self.subTest(name), mock.patch.object(api, "MODE", mode), \
+            with self.subTest(name), mock.patch.object(api.STATE, "mode", mode), \
                     mock.patch.object(arbiter.BODY, "holder", return_value=holder), \
                     mock.patch.object(brainmod.hazard, "due", return_value=due), \
                     mock.patch.object(tasks, "load", return_value=[]), mock.patch.object(tasks, "expire", return_value=False):

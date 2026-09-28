@@ -581,7 +581,7 @@ def arrive(pos, policy, range_=1.5, **kw):
             return True
         if not moved(got):
             raise api.NavFailed(f"could not get to {tuple(pos)} (no nearer after walking)", pos=pos)
-        api.check_interrupt(began, api.SOFT)
+        api.check_interrupt(began, api.soft())
     raise api.NavFailed(f"still {math.dist(feet(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks",
                         pos=pos)
 

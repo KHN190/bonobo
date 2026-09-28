@@ -188,10 +188,10 @@ class ExposureOf(unittest.TestCase):
 
 class Interrupts(unittest.TestCase):
     def setUp(self):
-        self._saved = api.INTERRUPT
+        self._saved = api.STATE.interrupt
 
     def tearDown(self):
-        api.INTERRUPT = self._saved
+        api.STATE.interrupt = self._saved
 
     def test_consume(self):
         rows = [
@@ -203,9 +203,9 @@ class Interrupts(unittest.TestCase):
         ]
         for pending, want, why in rows:
             with self.subTest(pending=pending, why=why):
-                api.INTERRUPT = pending
+                api.STATE.interrupt = pending
                 self.assertEqual(api.consume_interrupt(), want)
-                self.assertEqual(api.INTERRUPT, None)          # cleared either way
+                self.assertEqual(api.STATE.interrupt, None)          # cleared either way
                 self.assertEqual(api.consume_interrupt(), None)  # and only once
 
     def test_take(self):
@@ -218,14 +218,14 @@ class Interrupts(unittest.TestCase):
         ]
         for pending, want, why in rows:
             with self.subTest(pending=pending, why=why):
-                api.INTERRUPT = pending
+                api.STATE.interrupt = pending
                 if want is None:
                     self.assertEqual(api.take_interrupt(), None)
                 else:
                     with self.assertRaises(Interrupted) as cm:
                         api.take_interrupt()
                     self.assertEqual(str(cm.exception), want)
-                self.assertEqual(api.INTERRUPT, None)
+                self.assertEqual(api.STATE.interrupt, None)
 
 
 # ---------------------------------------------------------------------------------------------- bag / beliefs

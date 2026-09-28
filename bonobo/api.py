@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, cast
 
 from . import lifecycle, paths, tape
@@ -19,15 +21,42 @@ INSTANCE = paths.instance_dir()
 BASE = paths.api_base()
 STUCK_SECONDS = 10
 
-# world reads allowed to fail, never invisibly: every quiet handler reports here (mc.py prints the tally)
-SWALLOWED = {}
+@dataclass
+class ApiState(lifecycle.State):
+    """What the transport shares between threads: the perception thread writes the requests to stop, the body's
+    thread reads and takes them; the clock and the posted chain are the body's own."""
+
+    # per life (lifecycle.reset_all): the requests to stop, and the chain last posted
+    interrupt: "str | None" = None       # a pending interrupt reason (perception, the arbiter's preemption)
+    # a soft request that takes effect only between tasks (a chain's segment boundary, a walk's next leg): nightfall
+    # on the surface. Never cuts a task short, never /stop; skipped while the running work is itself the night's way.
+    at_boundary: "str | None" = None
+    last_posted: "tuple[str, Any] | None" = None      # (chain signature, its last task's id): not restarted
+    # per process
+    mode: str = "normal"                 # "survival" while a rescue runs
+    soft: bool = False                   # a soft skill runs: perception's request stays for it to read, no cut
+    last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
+    # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
+    # first posted since the round began (perf_counter seconds; None when not yet)
+    clock: dict = field(default_factory=lambda: {"ended": None, "first_post": None, "ended_id": -1})
+    ended_ids: set = field(default_factory=set)       # tasks whose end is already stamped
+    # world reads allowed to fail, never invisibly: every quiet handler reports here (mc.py prints the tally)
+    swallowed: dict = field(default_factory=dict)
+    lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
+
+    LIFE = ("interrupt", "at_boundary", "last_posted")
+
+
+STATE = lifecycle.owns(__name__, ApiState())
+
 
 def swallowed(where, err):
     """Record a world read failed and ignored; returns None so a handler can `return api.swallowed(...)`."""
     key = f"{where}: {type(err).__name__}"
-    SWALLOWED[key] = SWALLOWED.get(key, 0) + 1
-    if SWALLOWED[key] in (1, 10, 100):
-        log(f"?? {where}: {type(err).__name__} ignored ({SWALLOWED[key]}×) — that feature is off in this round")
+    with STATE.lock:
+        n = STATE.swallowed[key] = STATE.swallowed.get(key, 0) + 1
+    if n in (1, 10, 100):
+        log(f"?? {where}: {type(err).__name__} ignored ({n}×) — that feature is off in this round")
     return None
 
 class McError(Exception):
@@ -60,23 +89,64 @@ class NightFell(Interrupted):
     RESUME_OF "night"); never counted, cooled or banned."""
 
 
-# Set by the perception thread (perception.py): a pending interrupt reason. MODE is "survival" while a rescue runs.
-INTERRUPT = None
-MODE = "normal"
-# set while a soft skill runs: perception's request stays for the skill to read, not cutting a task short
-SOFT = False
+# -- the requests to stop (STATE.interrupt, STATE.at_boundary) and the modes they are read under
 
-# A soft request that takes effect only between tasks (a chain's segment boundary, a walk's next leg): nightfall on
-# the surface. Never cuts a task short, never /stop; skipped while the running work is itself the night's way.
-AT_BOUNDARY = None
+def interrupt_pending():
+    """The pending interrupt reason, or None (not taken)."""
+    return STATE.interrupt
+
+
+def request_interrupt(reason):
+    """Leave `reason` for the running work to take (the arbiter's preemption; perception to a soft skill)."""
+    STATE.interrupt = reason
+
+
+def boundary_pending():
+    """The pending boundary request, or None."""
+    return STATE.at_boundary
+
+
+def request_boundary(reason):
+    """Ask the running work to stop at its next task boundary (nightfall on the surface)."""
+    STATE.at_boundary = reason
+
+
+def mode():
+    """"survival" while a rescue runs, else "normal"."""
+    return STATE.mode
+
+
+def set_mode(m):
+    STATE.mode = m
+
+
+def soft():
+    """Is a soft skill running (perception's request stays for it to read)?"""
+    return STATE.soft
+
+
+def set_soft(on):
+    """Set the soft flag; returns the previous value (a nested skill restores it)."""
+    with STATE.lock:
+        prev, STATE.soft = STATE.soft, bool(on)
+    return prev
+
+
+def last_segment_s():
+    """A chain segment's measured length: how far ahead a watcher must look."""
+    return STATE.last_segment_s
+
+
 BOUNDARY_EXEMPT = lambda: False          # noqa: E731  (skill.py: is the night's way what runs now?)
 
 
 def at_boundary():
     """Between two tasks: raise Interrupted for a pending boundary request (cleared), unless exempt."""
-    global AT_BOUNDARY
-    if AT_BOUNDARY and not SOFT and not BOUNDARY_EXEMPT():
-        reason, AT_BOUNDARY = AT_BOUNDARY, None
+    if not STATE.at_boundary or STATE.soft or BOUNDARY_EXEMPT():
+        return
+    with STATE.lock:
+        reason, STATE.at_boundary = STATE.at_boundary, None
+    if reason:
         raise NightFell(reason)
 
 
@@ -97,17 +167,14 @@ def clear_requests():
     """Drop every pending request to stop — the perception thread's INTERRUPT and nightfall's AT_BOUNDARY — so work
     that starts now begins clean (a bench row; a rescue taking the body). A boundary left from the last row raised
     NightFell in the next (deposit_home_chest after dig_in_night, 0 s)."""
-    global INTERRUPT, AT_BOUNDARY
-    INTERRUPT = AT_BOUNDARY = None
-
-
-lifecycle.on_reset(clear_requests, covers=("INTERRUPT", "AT_BOUNDARY"))
+    with STATE.lock:
+        STATE.interrupt = STATE.at_boundary = None
 
 
 def consume_interrupt():
     """Return and clear the pending interrupt, or None: soft skills read it and take cover themselves."""
-    global INTERRUPT
-    reason, INTERRUPT = INTERRUPT, None
+    with STATE.lock:
+        reason, STATE.interrupt = STATE.interrupt, None
     return reason
 
 def take_interrupt():
@@ -119,9 +186,9 @@ def take_interrupt():
 def interrupt_due(since, soft=False):
     """Should work that began at `since` stop for the pending interrupt?"""
 
-    if not INTERRUPT or soft:
+    if not STATE.interrupt or soft:
         return False
-    if MODE != "survival":
+    if STATE.mode != "survival":
         return True
     from . import arbiter
     return arbiter.BODY.preempted_at > since
@@ -213,11 +280,19 @@ def _token():
 
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-# the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was first
-# posted since the round began (perf_counter seconds; None when not yet)
-CLOCK = {"ended": None, "first_post": None, "ended_id": -1}
 TERMINAL = ("succeeded", "failed", "cancelled")     # a task's end states (queued and running are not)
-_ENDED_IDS = set()          # tasks whose end is already stamped: a later read of the same ended task is no new end
+
+
+def clock_new_round():
+    """A round begins: (when a task's end was last seen, or None); the round's first post is not stamped yet."""
+    with STATE.lock:
+        STATE.clock["first_post"] = None
+        return STATE.clock["ended"]
+
+
+def clock_first_post():
+    """When the round's first task was posted (perf_counter seconds), or None."""
+    return STATE.clock["first_post"]
 
 def _clock(method, path, out):
     """The one stamp point: every /task answer (a watch, api.run's post, a chain's post or its read-back) is looked
@@ -225,17 +300,19 @@ def _clock(method, path, out):
     if not path.startswith("/task") or not isinstance(out, dict):
         return
     now = time.perf_counter()
-    if method == "POST" and CLOCK["first_post"] is None:
-        CLOCK["first_post"] = now
-    for t in [out] + list(out.get("tasks") or []):
-        if isinstance(t, dict) and t.get("id") is not None and t.get("status") in TERMINAL \
-                and t["id"] not in _ENDED_IDS:
-            if len(_ENDED_IDS) > 4096:
-                _ENDED_IDS.clear()
-            _ENDED_IDS.add(t["id"])
-            if isinstance(t["id"], int) and t["id"] < CLOCK.get("ended_id", -1):
-                continue        # an earlier task (ids rise) read back after a later one ended: it ended before that
-            CLOCK["ended"], CLOCK["ended_id"] = now, t["id"] if isinstance(t["id"], int) else -1
+    clock, ended_ids = STATE.clock, STATE.ended_ids
+    with STATE.lock:
+        if method == "POST" and clock["first_post"] is None:
+            clock["first_post"] = now
+        for t in [out] + list(out.get("tasks") or []):
+            if isinstance(t, dict) and t.get("id") is not None and t.get("status") in TERMINAL \
+                    and t["id"] not in ended_ids:
+                if len(ended_ids) > 4096:
+                    ended_ids.clear()
+                ended_ids.add(t["id"])
+                if isinstance(t["id"], int) and t["id"] < clock.get("ended_id", -1):
+                    continue    # an earlier task (ids rise) read back after a later one ended: it ended before that
+                clock["ended"], clock["ended_id"] = now, t["id"] if isinstance(t["id"], int) else -1
 
 def api(method, path, body=None, timeout=1200):
     if tape.REPLAY is not None:          # an offline decision replay: the world answers from the recording
@@ -350,7 +427,7 @@ def await_task(task_id, wait, exempt=("wait",)):
     last, since, seen = None, began, []
     while True:
         r = get(f"/task?id={task_id}&wait=2")
-        check_interrupt(began, SOFT)
+        check_interrupt(began, STATE.soft)
         if r["status"] != "running":
             return r
         if time.time() > deadline:
@@ -452,20 +529,6 @@ def out_of_reach(r):
              for m in _re.finditer(r"(-?\d+),\s*(-?\d+),\s*(-?\d+)", text)]
     raise Unreachable(f"{r.get('type', 'task')}: {text.strip()}", cells)
 
-# how far ahead a watcher must look: a segment is where the planner gets the body back; measured
-LAST_SEGMENT_S = 2.0
-
-# (chain signature, its last task's id): re-deciding must not restart work under way
-LAST_POSTED = None
-
-
-def _forget_posted():
-    """The last life's chain is not work under way in this one (its task id is gone with it)."""
-    global LAST_POSTED
-    LAST_POSTED = None
-
-
-lifecycle.on_reset(_forget_posted, covers=("LAST_POSTED",))
 
 def chain_signature(tasks):
     """What makes two chains the same work: the task list, verbatim and in order."""
@@ -486,21 +549,19 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
               before_segment=None) -> "list[TaskResult]":
     """Queue tasks in segments so the game never idles, calling `before_segment(segment_tasks)` before each."""
 
-    global LAST_SEGMENT_S
     results: list[TaskResult] = []
     chain_began = time.time()
     for start in range(0, len(tasks), segment):
         if start:
             # an interrupt stops the chain at a segment boundary; the skill resumes by what the world lacks, never this index
-            check_interrupt(chain_began, SOFT)
+            check_interrupt(chain_began, STATE.soft)
         at_boundary()          # nightfall: before any segment, the first too — between tasks, never inside one
         part = [DRESS(t) for t in tasks[start:start + segment]] if DRESS else tasks[start:start + segment]
         part = ARM(part) if ARM else part
         began = time.time()
         if before_segment:
             before_segment(part)
-        global LAST_POSTED
-        resume = resume_id(part, (get("/state").get("control") or {}).get("task"), LAST_POSTED)
+        resume = resume_id(part, (get("/state").get("control") or {}).get("task"), STATE.last_posted)
         if resume is not None:
             # The same work is already running: wait for it rather than starting it again.
             await_task(resume, wait)
@@ -509,14 +570,14 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
             r = post("/task?wait=0", {"tasks": part, "stopOnFailure": stop_on_failure})
             queued = r.get("tasks") or []
             refused(r, queued=bool(queued))
-            LAST_POSTED = (chain_signature(part), queued[-1]["id"])
+            STATE.last_posted = (chain_signature(part), queued[-1]["id"])
             await_task(queued[-1]["id"], wait)
             done = [get(f"/task?id={t['id']}") for t in queued]
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
         results += done
-        LAST_SEGMENT_S = max(0.2, min(30.0, time.time() - began))
+        STATE.last_segment_s = max(0.2, min(30.0, time.time() - began))
         _raise_if_released(done, since=began)
         if stop_on_failure and any(t["status"] != "succeeded" for t in done):
             break

@@ -1,4 +1,4 @@
-"""L0: what the ENVIRONMENT does to the body — lava, fire, water, falling, being buried. Hostiles are not here: they are the fight's (fight_loop.py). Two halves, one kind name between them: kind(state, ...)   pure: which hazard is on the body now, or None. The perception thread asks it every tick and, when one is, preempts at SAFETY with a /stop (the running work is abandoned; the plan is void). handle(...)        the rescue, run by the brain at the top of its loop: the one skill that takes the body out of that hazard, with the rescue itself protected from the interrupt it answers (`api.MODE`). A hazard with no rescue of our own (a fall: the jar's WaterClutch owns the landing) only stops the work."""
+"""L0: what the ENVIRONMENT does to the body — lava, fire, water, falling, being buried. Hostiles are not here: they are the fight's (fight_loop.py). Two halves, one kind name between them: kind(state, ...)   pure: which hazard is on the body now, or None. The perception thread asks it every tick and, when one is, preempts at SAFETY with a /stop (the running work is abandoned; the plan is void). handle(...)        the rescue, run by the brain at the top of its loop: the one skill that takes the body out of that hazard, with the rescue itself protected from the interrupt it answers (`api.mode()`). A hazard with no rescue of our own (a fall: the jar's WaterClutch owns the landing) only stops the work."""
 
 import time
 
@@ -146,10 +146,10 @@ def handle(ctx, state, attempt, ready):
         return False
     log(f"L0: {k} → rescue")
     api.clear_requests()
-    api.MODE = "survival"      # the perception thread does not interrupt the rescue it asked for
+    api.set_mode("survival")   # the perception thread does not interrupt the rescue it asked for
     try:
         attempt(f"rescue {k}", lambda: RESCUE[k](ctx, state))
     finally:
-        api.MODE = "normal"
+        api.set_mode("normal")
     return True
 

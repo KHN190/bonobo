@@ -184,13 +184,13 @@ class FightReset(unittest.TestCase):
         from bonobo import fight_loop
         rows = [("a held decision dropped", object(), None), ("nothing held: still nothing", None, None)]
         for name, held, want in rows:
-            with self.subTest(name), mock.patch.object(fight_loop, "HELD", held):
+            with self.subTest(name), mock.patch.object(fight_loop.STATE, "held", held):
                 fight_loop.reset()
-                self.assertIs(fight_loop.HELD, want)
+                self.assertIs(fight_loop.STATE.held, want)
         with self.subTest("must fail: without the reset the last row's decision is still held"):
             marker = object()
-            with mock.patch.object(fight_loop, "HELD", marker):
-                self.assertIs(fight_loop.HELD, marker)
+            with mock.patch.object(fight_loop.STATE, "held", marker):
+                self.assertIs(fight_loop.STATE.held, marker)
 
 
 

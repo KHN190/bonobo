@@ -171,7 +171,7 @@ class Rescue(unittest.TestCase):
 
                 def rescue(ctx, st, _k):
                     ran.append(_k)
-                    modes.append(api.MODE)
+                    modes.append(api.STATE.mode)
                     if does is not OK:
                         raise does
                 table = {k: (lambda ctx, st, _k=k: rescue(ctx, st, _k)) for k in hazard.RESCUE}
@@ -181,15 +181,15 @@ class Rescue(unittest.TestCase):
                         mock.patch.object(api, "api", side_effect=AssertionError("L0 read the world")):
                     for used, kind, stopped in rounds:
                         ran.clear(), posted.clear()
-                        api.INTERRUPT, api.MODE = "perception: danger", "normal"
+                        api.STATE.interrupt, api.STATE.mode = "perception: danger", "normal"
                         self.assertEqual(hazard.handle(None, state(**changes), b.attempt, b.ready), used)
                         self.assertEqual(ran[0] if ran else None, kind)
                         self.assertEqual("/stop" in posted, stopped)
-                        self.assertEqual(api.MODE, "normal", "survival mode ends with the rescue")
+                        self.assertEqual(api.STATE.mode, "normal", "survival mode ends with the rescue")
                         if kind:
                             self.assertEqual(modes[-1], "survival", "the rescue runs protected from its own trigger")
-                            self.assertIsNone(api.INTERRUPT, "the interrupt it answers is consumed")
-                api.INTERRUPT, api.MODE = None, "normal"
+                            self.assertIsNone(api.STATE.interrupt, "the interrupt it answers is consumed")
+                api.STATE.interrupt, api.STATE.mode = None, "normal"
 
 
 # The burning rescue, over what the world reads (the bag, water within 8): what it posts, or why it cannot.
@@ -388,11 +388,11 @@ class Disengage(unittest.TestCase):
                 return {}
             record = {"thread": None, "want": "x", "failure": {}, "intent": ours if current else other}
             with self.subTest(name), mock.patch.object(fight_loop.arbiter, "BODY", body), \
-                    mock.patch.object(api, "post", side_effect=post), mock.patch.dict(fight_loop._ENG, record):
+                    mock.patch.object(api, "post", side_effect=post), mock.patch.multiple(fight_loop.STATE, **record):
                 fight_loop.disengage(ours, stop=stop)
                 self.assertEqual("/stop" in posted, stopped)
                 self.assertEqual(body.lease[0] if body.lease else None, {"theirs": theirs, None: None}[left])
-                self.assertEqual(fight_loop._ENG["intent"] is None, cleared)
+                self.assertEqual(fight_loop.STATE.intent is None, cleared)
 
 
 

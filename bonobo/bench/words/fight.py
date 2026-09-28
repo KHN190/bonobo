@@ -158,7 +158,7 @@ def _combat_intent(state: dict[str, Any]):
     price = lambda dhp: threat.hp_seconds(sstate, dhp)
     st = fight_loop.threat_state(state, rows)
     horizon, opts = threat.horizon_for(st), threat.options(st)
-    fight_loop.HELD = None
+    fight_loop.STATE.held = None
     chosen = fight_loop.bid(state, rows, price, now=now)
     return {"rows": len(rows),
             "options": {o.kind: {"hp": round(o.hp, 2), "seconds": round(o.seconds, 2),
@@ -210,7 +210,7 @@ def _combat_execute(seconds, until=None, cell=None):
     from ...world import Inventory, Snapshot
     if not perception.watching():
         raise SetupInvalid("the threat layer is not running: nothing would answer, and nothing would be measured")
-    mark = len(perception.ANSWERED)
+    mark = perception.looks_taken()
     began, worst = time.time(), Snapshot.from_readings(api.get("/state"), bag_now()).state["health"]
     trace, stop = [], threading.Event()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)

@@ -251,14 +251,13 @@ class Brain:
 
     def _round(self):
         """One round, its phases timed into one detail.log line (round_line): where an idle body's time goes."""
-        clock = {"t0": time.perf_counter(), "marks": [], "ended": api.CLOCK["ended"]}
-        api.CLOCK["first_post"] = None
+        clock = {"t0": time.perf_counter(), "marks": [], "ended": api.clock_new_round()}
         self._clock = clock
         try:
             self._round_body(clock)
         finally:
             now = time.perf_counter()
-            post = api.CLOCK["first_post"]
+            post = api.clock_first_post()
             gap = (post - clock["ended"]) * 1000 if post is not None and clock["ended"] is not None else None
             api.detail(round_line(phase_ms(clock["t0"], clock["marks"], now), gap))
 
@@ -339,7 +338,7 @@ class Brain:
         """Every layer proposes, the arbiter chooses; nothing here ranks."""
         def fast():
             out = []
-            if arbiter.BODY.holder() is not None or api.MODE == "survival":
+            if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5))))
             k = hazard.due(snap.state)
             if k is not None and self.ready(f"rescue {k}"):

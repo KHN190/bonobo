@@ -91,10 +91,10 @@ class NothingTurnsItselfOffInSilence(unittest.TestCase):
     def test_the_mark_is_countable(self):
         """However many times it is ignored, that is how many the tally shows."""
         for times in (1, 3, 7):
-            api.SWALLOWED.clear()
+            api.STATE.swallowed.clear()
             for _ in range(times):
                 got = api.swallowed("a test", ValueError("no"))
-            self.assertEqual(api.SWALLOWED["a test: ValueError"], times)
+            self.assertEqual(api.STATE.swallowed["a test: ValueError"], times)
             self.assertIsNone(got, "a handler can return it directly")
 
 

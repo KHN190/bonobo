@@ -74,7 +74,7 @@ class PerceptionBidsThreats(unittest.TestCase):
         sstate = threat.price_state(hp=20, armor=15)
         price = lambda dhp: threat.hp_seconds(sstate, dhp)   # noqa: E731
         for name, rows, want in self.ROWS:
-            with self.subTest(name), mock.patch.object(fight_loop, "HELD", None):
+            with self.subTest(name), mock.patch.object(fight_loop.STATE, "held", None):
                 got = fight_loop.bid(self.STATE, rows, price, ids=list(range(len(rows))))
                 self.assertEqual(got[0].kind if got else None, want)
 

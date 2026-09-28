@@ -151,7 +151,7 @@ class TheFastLane(unittest.TestCase):
     def setUp(self):
         from bonobo import fight_loop, threat as sv
         self.fight_loop, self.sv = fight_loop, sv
-        fight_loop.HELD = None      # each case is its own situation, not a continuation of the last
+        fight_loop.STATE.held = None      # each case is its own situation, not a continuation of the last
 
     def bid(self, rows, hp=20, sword=2, armor=8):
         ss = self.sv.price_state(hp=hp, sword=sword, armor=armor)
@@ -167,7 +167,7 @@ class TheFastLane(unittest.TestCase):
     def test_bids_over_the_table(self):
         for name, rows, want in self.BIDS:
             with self.subTest(name):
-                self.fight_loop.HELD = None
+                self.fight_loop.STATE.held = None
                 got = self.bid(rows)
                 self.assertEqual(None if got is None else (got[0].kind, got[1]), want)
 
@@ -208,13 +208,13 @@ class AStaleTargetIsDecidedAgain(unittest.TestCase):
                 fight_loop.reset()
                 if seen:
                     fight_loop.bid(state, [dead], price, ids=[7])      # the held choice: fight 7
-                    self.assertEqual(fight_loop.HELD.choice.action.option.target, 7)
-                stale_held = fight_loop.HELD
+                    self.assertEqual(fight_loop.STATE.held.choice.action.option.target, 7)
+                stale_held = fight_loop.STATE.held
                 with mock.patch.object(fight_loop.threat, "threats_seen", return_value=reading):
                     fresh = fight_loop.redecide(7)
                 self.assertEqual(None if fresh is None else fresh.target, want)
                 if seen:
-                    self.assertIsNot(fight_loop.HELD, stale_held, "the stale HELD was dropped")
+                    self.assertIsNot(fight_loop.STATE.held, stale_held, "the stale HELD was dropped")
 
 
 class TheSkillsBatches(unittest.TestCase):
@@ -261,7 +261,7 @@ class TheSkillsBatches(unittest.TestCase):
                 ("must fail: our engagement's thread has ended", False, threading.Thread(target=lambda: None), False)]
         try:
             for name, engaged, thread, want in rows:
-                with self.subTest(name), mock.patch.dict(fight_loop._ENG, {"thread": thread, "intent": "ours"}):
+                with self.subTest(name), mock.patch.multiple(fight_loop.STATE, thread=thread, intent="ours"):
                     body = arbiter.Motion()
                     if engaged:
                         body.engage()
@@ -338,7 +338,7 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
     def setUp(self):
         from bonobo import fight_loop, threat as sv
         self.fight_loop, self.sv = fight_loop, sv
-        fight_loop.HELD = None
+        fight_loop.STATE.held = None
 
     def release(self, frames):
         """The lease's own judgement over a few perception frames [(seconds since the first, rows seen)]."""
@@ -348,7 +348,7 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
                  "food_items": 0, "shield": False, "blocks": 64, "field": field.Field()}
         ss = self.sv.price_state(hp=12, sword=2)
         price = lambda dhp: self.sv.hp_seconds(ss, dhp)
-        self.fight_loop._CHASE["at"] = None
+        self.fight_loop.STATE.chase_at = None
         done = None
         for dt, rows in frames:
             with mock.patch.object(self.fight_loop.time, "time", return_value=1000.0 + dt):
@@ -508,7 +508,7 @@ class Kit(unittest.TestCase):
             with self.subTest(name):
                 inv = bag(inventory(*[slot(i.split(":")[1], 1, d) for i, d in swords]))
                 with mock.patch("bonobo.world.Inventory", return_value=inv):
-                    perception._KIT_SIG = object()                 # a fresh read
+                    perception.STATE.kit_sig = object()                 # a fresh read
                     self.assertEqual(perception.kit(("x", name))["sword_tier"], want)
 
     def test_signature_changes_when_the_bag_may_have(self):

@@ -5,6 +5,8 @@ change. A new piece of such state is covered by registering it, not by another c
 (the leaks this replaced: api.AT_BOUNDARY, fight_loop.HELD, bench SWEEP, each patched where it bit).
 tests/test_lifecycle.py holds every `global`-assigned module name to a registered reset or a stated reason."""
 
+from typing import Any
+
 _RESETS = []        # [(module name, names covered, fn)], in registration (import) order
 
 
@@ -12,6 +14,27 @@ def on_reset(fn, covers=()):
     """Register `fn` (no arguments) as the reset of `covers`, names in fn's own module. Returns fn."""
     _RESETS.append((fn.__module__, tuple(covers), fn))
     return fn
+
+
+class State:
+    """Base of a module's shared state object (a dataclass whose every field has a default, plus a `lock`). LIFE names
+    the fields one life owns: `reset` puts them back to their defaults, the rest outlive a life. Each field is
+    rebound, never emptied in place: a thread holding the old value finishes on it."""
+
+    LIFE: "tuple[str, ...]" = ()
+    lock: "Any"            # each subclass's own field (a Lock or RLock)
+
+    def reset(self):
+        fresh = type(self)()
+        with self.lock:
+            for f in self.LIFE:
+                setattr(self, f, getattr(fresh, f))
+
+
+def owns(module, state):
+    """Register `state` (a State, module-level name STATE in `module`) for reset_all. Returns state."""
+    _RESETS.append((module, ("STATE",), state.reset))
+    return state
 
 
 def in_place(module, *names):

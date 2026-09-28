@@ -26,7 +26,6 @@ ALLOW = {
     ("bonobo.nav", "_features"): "the running jar's features: per process, not per life",
     ("bonobo.actions", "_CRAFT_SPEC"): "a cache derived from the recipe tables",
     ("bonobo.actions", "_SMELT_SPEC"): "a cache derived from the recipe tables",
-    ("bonobo.api", "LAST_SEGMENT_S"): "the jar's measured pace, not world state",
     ("bonobo.beliefs", "_last_flush"): "the belief log's flush throttle (output bookkeeping)",
     ("bonobo.intent", "_last_sent"): "publish dedupe: a resend is harmless (output bookkeeping)",
     ("bonobo.tape", "_calls"): "the tape recorder's session: spans a recording, not a life",
@@ -44,14 +43,10 @@ ALLOW = {
     ("bonobo.solve", "_MEMO"): "memo keyed by (columns, state, target): the key is the whole input",
     ("bonobo.solve", "_PRICES"): "memo keyed by (columns, state): the key is the whole input",
     ("bonobo.world", "_PER_BLOCK"): "the running jar's capability: per process",
-    ("bonobo.api", "SWALLOWED"): "the session's tally of quiet handlers (mc.py prints it)",
-    ("bonobo.api", "CLOCK"): "the round log's clock over jar task ids, which outlive a life; brain resets it per round",
-    ("bonobo.api", "_ENDED_IDS"): "jar task ids already stamped: ids outlive a life, never repeat",
     ("bonobo.beliefs", "COUNTS"): "learned measurements, persisted: meant to outlive a life",
     ("bonobo.beliefs", "OBSERVED"): "learned measurements, persisted: meant to outlive a life",
     ("bonobo.beliefs", "_PENDING"): "rows queued for the belief log (output bookkeeping)",
     ("bonobo.intent", "_state"): "the published intent line, rewritten every round (output bookkeeping)",
-    ("bonobo.perception", "_FAILED"): "log-once set (output bookkeeping)",
     ("bonobo.tape", "SOURCES"): "tape recorder (recording session)",
     ("bonobo.tape", "FILES"): "tape recorder (recording session)",
     ("bonobo.tape", "_events"): "tape recorder: flushed each round",
@@ -219,6 +214,15 @@ def unrestored(module, names, reset, initial):
     return [n for n in names if getattr(module, n) != initial[n]]
 
 
+def state_unrestored(st, reset):
+    """A lifecycle.State's LIFE fields `reset` did not put back to their defaults after each was dirtied."""
+    fresh = type(st)()
+    for f in st.LIFE:
+        setattr(st, f, _DIRTY)
+    reset()
+    return [f for f in st.LIFE if getattr(st, f) != getattr(fresh, f)]
+
+
 def _import_stateful(sources):
     for mod in sorted({m for m, _ in runtime_state(sources)}):
         importlib.import_module(mod)
@@ -273,10 +277,38 @@ class Restores(unittest.TestCase):
         for mod, names in regs:
             module = sys.modules[mod]
             initial = initial_values(sources[mod])
+            if names == ("STATE",):
+                with self.subTest(f"{mod}.STATE"):
+                    self.assertIsInstance(module.STATE, lifecycle.State)
+                    self.assertTrue(module.STATE.LIFE)
+                    self.assertEqual(state_unrestored(module.STATE, lifecycle.reset_all), [])
+                continue
             with self.subTest(mod):
                 self.assertEqual([n for n in names if n not in initial], [],
                                  "a covered name needs a literal initial value in its module")
                 self.assertEqual(unrestored(module, names, lifecycle.reset_all, initial), [])
+
+    def test_state_object(self):
+        import dataclasses
+        import threading
+
+        @dataclasses.dataclass
+        class S(lifecycle.State):
+            a: object = None
+            b: dict = dataclasses.field(default_factory=dict)
+            kept: int = 0
+            lock: object = dataclasses.field(default_factory=threading.Lock)
+            LIFE = ("a", "b")
+
+        st = S(kept=5)
+        self.assertEqual(state_unrestored(st, st.reset), [])
+        self.assertEqual(st.kept, 5, "a field outside LIFE outlives the reset")
+
+        class Forgets(S):
+            def reset(self):
+                self.a = None
+        st = Forgets()
+        self.assertEqual(state_unrestored(st, st.reset), ["b"], "must fail: a reset that forgets a LIFE field")
 
     def test_must_fail_reset_that_forgets_a_name(self):
         fake = types.ModuleType("fake")

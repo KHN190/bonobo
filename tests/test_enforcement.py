@@ -22,11 +22,21 @@ PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 
 
 def interrupt_writes(src):
-    """Pure: assignments of a message (anything but None) to `api.INTERRUPT` in a module's source (its AST)."""
-    return sum(1 for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Assign)
-               for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "INTERRUPT"
-               and isinstance(t.value, ast.Name) and t.value.id == "api"
-               and not (isinstance(node.value, ast.Constant) and node.value.value is None))
+    """Pure: writes of a message (anything but None) into the interrupt in a module's source (its AST): a call of
+    `api.request_interrupt(msg)`, or an assignment to `api.STATE.interrupt`."""
+    def message(v):
+        return not (isinstance(v, ast.Constant) and v.value is None)
+    n = 0
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == "request_interrupt" and isinstance(node.func.value, ast.Name) \
+                and node.func.value.id == "api" and node.args and message(node.args[0]):
+            n += 1
+        elif isinstance(node, ast.Assign) and message(node.value):
+            n += sum(1 for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "interrupt"
+                     and isinstance(t.value, ast.Attribute) and t.value.attr == "STATE"
+                     and isinstance(t.value.value, ast.Name) and t.value.value.id == "api")
+    return n
 
 
 # Modules that execute: they talk to the game or decide what to do. A rule enforced only in a module that never
@@ -81,12 +91,14 @@ class RulesAreWired(unittest.TestCase):
                 self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
                 self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")
 
-    # fixture: (module source) → how many assignments write a message (not None) into api.INTERRUPT
-    WRITES = [("a message written", "api.INTERRUPT = 'stop'\n", 1),
-              ("must fail: cleared with None: not a writer", "api.INTERRUPT = None\n", 0),
-              ("two writes in one function", "def f():\n    api.INTERRUPT = x\n    api.INTERRUPT = 'y'\n", 2),
-              ("another module's INTERRUPT is not api's", "other.INTERRUPT = 'x'\n", 0),
-              ("reading it is not writing it", "x = api.INTERRUPT\n", 0)]
+    # fixture: (module source) → how many assignments write a message (not None) into api.STATE.interrupt
+    WRITES = [("a message written", "api.request_interrupt('stop')\n", 1),
+              ("the field written directly", "api.STATE.interrupt = 'stop'\n", 1),
+              ("must fail: cleared with None: not a writer", "api.request_interrupt(None)\n", 0),
+              ("must fail: the field cleared with None", "api.STATE.interrupt = None\n", 0),
+              ("two writes in one function", "def f():\n    api.request_interrupt(x)\n    api.request_interrupt('y')\n", 2),
+              ("another module's interrupt is not api's", "other.request_interrupt('x')\nother.STATE.interrupt = 'x'\n", 0),
+              ("reading it is not writing it", "x = api.interrupt_pending()\ny = api.STATE.interrupt\n", 0)]
 
     def test_the_writer_count_over_the_fixture(self):
         for name, src, want in self.WRITES:
@@ -134,7 +146,7 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
 
     RUNNING = {"active": True, "paused": False, "allowed": True, "task": {"type": "mine"}, "queued": 0}
     # One perception tick. (situation, the state read, a soft skill running?, Claude's flag text) →
-    # (preemptions (layer, why), the message left in api.INTERRUPT)
+    # (preemptions (layer, why), the message left in api.STATE.interrupt)
     TICKS = [("lava under a running task: a safety preemption", dict(inLava=True, control=RUNNING), False, None,
               [("safety", "lava")], None),
              ("Claude asks: preempted with the reason", dict(control=RUNNING), False, "look at this",
@@ -165,10 +177,10 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
                     for target, attr, kw in [
                             (perception.time, "sleep", {"side_effect": one_tick}),
                             (perception.fight_loop, "active", {"return_value": False}),
-                            (perception, "FLAG", {"new": path}), (perception, "PAUSED", {"new": False}),
+                            (perception, "FLAG", {"new": path}), (perception.STATE, "paused", {"new": False}),
                             (perception, "_eating", {"return_value": False}), (perception, "note_hurt", {}),
-                            (api, "MODE", {"new": "normal"}), (api, "SOFT", {"new": soft}),
-                            (api, "INTERRUPT", {"new": None}), (api, "log", {}),
+                            (api.STATE, "mode", {"new": "normal"}), (api.STATE, "soft", {"new": soft}),
+                            (api.STATE, "interrupt", {"new": None}), (api, "log", {}),
                             (api, "get", {"return_value": state(**changes)}),
                             (api, "post", {"side_effect": lambda p, b=None: posts.append(p)}),
                             (arbiter, "BODY", {"new": body}), (w, "_look", {}), (w, "_answer_threats", {}),
@@ -178,7 +190,7 @@ class TheSafetyLayerStopsTheBody(unittest.TestCase):
                             (w, "hazard", {"new": types.SimpleNamespace(buried=lambda s: False, fallen=lambda s: 0.0)})]:
                         stack.enter_context(mock.patch.object(target, attr, **kw))
                     w.run()
-                    self.assertEqual((body.preempted, api.INTERRUPT, posts), (want_pre, want_msg, []),
+                    self.assertEqual((body.preempted, api.STATE.interrupt, posts), (want_pre, want_msg, []),
                                      "perception never posts the /stop itself")
                     if want_pre:
                         body.action()
@@ -281,7 +293,7 @@ class OneDecisionPoint(unittest.TestCase):
             b.task_act = lambda *a: (ask_queue(*a), {})
             b.mem, b.blacklist, b.policy_cache = None, {}, None
             b.prepare = layer("prepare", brain.Act("idle", "p", None))
-            with self.subTest(busy=sorted(busy)), mock.patch.object(api, "MODE", "normal"), \
+            with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \
                     mock.patch.object(brain.hazard, "due", layer("hazard", "drowning")), \
                     mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
                     mock.patch.object(tasks, "expire", return_value=False):

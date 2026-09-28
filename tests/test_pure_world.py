@@ -554,11 +554,11 @@ class Nav(unittest.TestCase):
 
 class Perception(unittest.TestCase):
     def setUp(self):
-        self._saved = (perception.HURT_RATE, perception._HP_SEEN, list(perception.ANSWERED))
+        self._saved = (perception.STATE.hurt_rate, perception.STATE.hp_seen, list(perception.STATE.answered))
 
     def tearDown(self):
-        perception.HURT_RATE, perception._HP_SEEN = self._saved[0], self._saved[1]
-        perception.ANSWERED[:] = self._saved[2]
+        perception.STATE.hurt_rate, perception.STATE.hp_seen = self._saved[0], self._saved[1]
+        perception.STATE.answered[:] = self._saved[2]
 
     def test_note_hurt_then_hurt_rate(self):
         rows = [  # (why, [(health, t)], expected rate)
@@ -572,7 +572,7 @@ class Perception(unittest.TestCase):
         ]
         for why, reads, want in rows:
             with self.subTest(why):
-                perception.HURT_RATE, perception._HP_SEEN = 0.0, None
+                perception.STATE.hurt_rate, perception.STATE.hp_seen = 0.0, None
                 got = None
                 for hp, t in reads:
                     got = perception.note_hurt({"health": hp}, now=t)
@@ -589,12 +589,12 @@ class Perception(unittest.TestCase):
         ]
         for why, mark, want in rows:
             with self.subTest(why):
-                perception.ANSWERED[:] = looks
+                perception.STATE.answered[:] = looks
                 self.assertEqual([x["outcome"] for x in perception.answered_since(mark)], want)
         with self.subTest("a copy: changing it leaves the record alone"):
-            perception.ANSWERED[:] = looks
+            perception.STATE.answered[:] = looks
             perception.answered_since(0).clear()
-            self.assertEqual(len(perception.ANSWERED), 3)
+            self.assertEqual(len(perception.STATE.answered), 3)
 
     def test_sword_level(self):
         rows = [  # (why, tiers, expected)
@@ -1022,8 +1022,8 @@ class Nightfall(unittest.TestCase):
                 ("a soft skill (a fight): never cut", "night", True, False, False),
                 ("must fail: the shelter being built is never cut by the night it answers", "night", False, True, False)]
         for name, pending, soft, exempt, raises in rows:
-            with self.subTest(name), mock.patch.object(api, "AT_BOUNDARY", pending), \
-                    mock.patch.object(api, "SOFT", soft), mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: exempt):
+            with self.subTest(name), mock.patch.object(api.STATE, "at_boundary", pending), \
+                    mock.patch.object(api.STATE, "soft", soft), mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: exempt):
                 try:
                     api.at_boundary()
                     got = False
@@ -1031,7 +1031,7 @@ class Nightfall(unittest.TestCase):
                     got = True
                 self.assertEqual(got, raises)
                 if raises:
-                    self.assertIsNone(api.AT_BOUNDARY)            # taken once
+                    self.assertIsNone(api.STATE.at_boundary)            # taken once
 
 
 class InterruptSources(unittest.TestCase):
@@ -1122,11 +1122,11 @@ class RoundLog(unittest.TestCase):
                  set(), {4}),
                 ("must fail: a state read is neither", "GET", "/state", {"id": 1, "status": "x"}, set(), set())]
         for name, method, path, out, want, seen in rows:
-            with self.subTest(name), mock.patch.dict(api.CLOCK, {"ended": None, "first_post": None, "ended_id": -1}), \
-                    mock.patch.object(api, "_ENDED_IDS", set(seen)), \
+            with self.subTest(name), mock.patch.dict(api.STATE.clock, {"ended": None, "first_post": None, "ended_id": -1}), \
+                    mock.patch.object(api.STATE, "ended_ids", set(seen)), \
                     mock.patch.object(api.time, "perf_counter", return_value=7.0):
                 api._clock(method, path, out)
-                self.assertEqual({k for k in ("ended", "first_post") if api.CLOCK[k] is not None}, want)
+                self.assertEqual({k for k in ("ended", "first_post") if api.STATE.clock[k] is not None}, want)
 
     def test_a_chain_stamps_its_last_task_once(self):
         """run_chain: the end is stamped when the watch first sees the last task ended — the read-back of every
@@ -1143,15 +1143,15 @@ class RoundLog(unittest.TestCase):
                                                                    {"id": 9, "status": "queued"}]}
             api._clock(method, path, out)
             return out
-        with mock.patch.dict(api.CLOCK, {"ended": None, "first_post": None, "ended_id": -1}), \
-                mock.patch.object(api, "_ENDED_IDS", set()), mock.patch.object(api, "api", side_effect=call), \
+        with mock.patch.dict(api.STATE.clock, {"ended": None, "first_post": None, "ended_id": -1}), \
+                mock.patch.object(api.STATE, "ended_ids", set()), mock.patch.object(api, "api", side_effect=call), \
                 mock.patch.object(api.time, "perf_counter", side_effect=lambda: next(clock)), \
-                mock.patch.object(api, "DRESS", None), mock.patch.object(api, "LAST_POSTED", None), \
+                mock.patch.object(api, "DRESS", None), mock.patch.object(api.STATE, "last_posted", None), \
                 mock.patch.object(api, "detail"), mock.patch.object(api, "at_boundary", lambda: None), \
                 mock.patch.object(api, "_raise_if_released", lambda *a, **k: None), \
                 mock.patch.object(arbiter, "BODY", arbiter.Motion()):
             api.run_chain([{"type": "wait", "ticks": 1}, {"type": "wait", "ticks": 1}])
-            self.assertEqual((api.CLOCK["first_post"], api.CLOCK["ended"]), (1.0, 2.0))
+            self.assertEqual((api.STATE.clock["first_post"], api.STATE.clock["ended"]), (1.0, 2.0))
 
     def test_summary(self):
         from bonobo.tools import rounds

@@ -345,8 +345,8 @@ def skill(name=None, **options):
             t0 = time.time()
             c.times = {"pre": (time.perf_counter() - p0) * 1000, "body": 0.0, "checks": 0.0, "n": 0}
             p1 = time.perf_counter()
-            prev_soft, prev_skill = api.SOFT, tape.SKILL
-            api.SOFT = contract.soft or prev_soft     # nested skills (eat inside a fight) inherit the protection
+            prev_soft, prev_skill = api.soft(), tape.SKILL
+            api.set_soft(contract.soft or prev_soft)  # nested skills (eat inside a fight) inherit the protection
             tape.SKILL = contract.name                # whose post-action readings the tape is recording
             CALLS.append(c)
             try:
@@ -363,7 +363,8 @@ def skill(name=None, **options):
                 raise (type(e)(why) if _same_shape(e) else McError(why)) from e
             finally:
                 CALLS.pop()
-                api.SOFT, tape.SKILL = prev_soft, prev_skill
+                api.set_soft(prev_soft)
+                tape.SKILL = prev_skill
             c.result = out
             if not c.times["n"]:
                 c.times["body"] = (time.perf_counter() - p1) * 1000      # a plain function: all of it is body

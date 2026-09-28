@@ -66,12 +66,12 @@ class Clock:
 
 class _Clean(unittest.TestCase):
     def setUp(self):
-        self._saved = (api.INTERRUPT, api.MODE, api.SOFT)
-        api.INTERRUPT, api.MODE, api.SOFT = None, "normal", False
+        self._saved = (api.STATE.interrupt, api.STATE.mode, api.STATE.soft)
+        api.STATE.interrupt, api.STATE.mode, api.STATE.soft = None, "normal", False
         tape._readings.clear()
 
     def tearDown(self):
-        api.INTERRUPT, api.MODE, api.SOFT = self._saved
+        api.STATE.interrupt, api.STATE.mode, api.STATE.soft = self._saved
         tape._readings.clear()
 
 
@@ -85,7 +85,7 @@ def reader(seq, interrupt_at=None, message="perception: lava"):
         n = i["n"]
         i["n"] += 1
         if n in at:
-            api.INTERRUPT = message
+            api.STATE.interrupt = message
         return seq[min(n, len(seq) - 1)]
     read.calls = i
     return read
@@ -125,21 +125,21 @@ class Settle(_Clean):
         for name, seq, ok, kw, want in SETTLE:
             with self.subTest(name):
                 kw = dict(kw)
-                api.INTERRUPT, api.MODE = None, kw.pop("mode", "normal")
+                api.STATE.interrupt, api.STATE.mode = None, kw.pop("mode", "normal")
                 read = reader(seq, kw.pop("interrupt_at", None))
                 c = Clock()
                 args = dict(FAST, clock=c.now, sleep=c.sleep, **kw)
                 if isinstance(want, type) and issubclass(want, BaseException):
                     with self.assertRaises(want):
                         skillcore.settle(read, ok, **args)
-                    self.assertIsNone(api.INTERRUPT, "the interrupt is consumed by whoever it stopped")
+                    self.assertIsNone(api.STATE.interrupt, "the interrupt is consumed by whoever it stopped")
                     continue
                 self.assertEqual(skillcore.settle(read, ok, **args), want)
                 # The tape keeps what the verdict was made from: those readings, in order, and whether it held.
                 rec = tape._readings[-1]
                 self.assertEqual([v for _, v in rec["seq"]], [seq[min(i, len(seq) - 1)] for i in range(len(rec["seq"]))])
                 self.assertEqual(rec["verdict"], bool(ok(want)))
-                api.MODE = "normal"
+                api.STATE.mode = "normal"
 
     def test_two_interrupts_in_a_row_stop_two_waits(self):
         for _ in range(2):
@@ -325,7 +325,7 @@ class Arrive(_Clean):
 
     def run_legs(self, fn, legs, interrupt_at=None, soft=False):
         answers = reader(legs, interrupt_at)
-        api.SOFT = soft
+        api.STATE.soft = soft
         with mock.patch.object(nav, "go_to", side_effect=lambda *a, **k: answers()), \
                 mock.patch.object(nav, "feet", return_value=(0, 64, 0)):
             return fn((40, 64, 0), None, range_=2)
@@ -333,14 +333,14 @@ class Arrive(_Clean):
     def test_leg_sequences(self):
         for name, legs, kw, want in ARRIVE:
             with self.subTest(name, call="arrive"):
-                api.INTERRUPT = None
+                api.STATE.interrupt = None
                 if isinstance(want, type):
                     with self.assertRaises(want):
                         self.run_legs(nav.arrive, legs, **kw)
                 else:
                     self.assertIs(self.run_legs(nav.arrive, legs, **kw), want)
             with self.subTest(name, call="arrived"):
-                api.INTERRUPT = None
+                api.STATE.interrupt = None
                 if want is api.Interrupted:
                     with self.assertRaises(api.Interrupted):       # not getting there is False; being stopped is not
                         self.run_legs(nav.arrived, legs, **kw)
@@ -502,14 +502,14 @@ class ChainStopsAtASegment(unittest.TestCase):
                 def fake_post(path, body=None):
                     posted.append(body)
                     if after is not None and len(posted) >= after:
-                        api.INTERRUPT = "bench: a threat"
+                        api.STATE.interrupt = "bench: a threat"
                     return {"tasks": [{"id": len(posted)}]}
                 with mock.patch.object(api, "post", side_effect=fake_post), \
                         mock.patch.object(api, "get", side_effect=lambda p: {"control": {}} if p == "/state"
                                           else {"id": 1, "status": "succeeded", "type": "wait", "message": ""}), \
                         mock.patch.object(api, "await_task", return_value=None), \
-                        mock.patch.object(api, "MODE", "normal"), mock.patch.object(api, "DRESS", None), \
-                        mock.patch.object(api, "INTERRUPT", None):
+                        mock.patch.object(api.STATE, "mode", "normal"), mock.patch.object(api, "DRESS", None), \
+                        mock.patch.object(api.STATE, "interrupt", None):
                     if raises:
                         with self.assertRaises(raises) as got:
                             api.run_chain(tasks, segment=6)
@@ -2279,7 +2279,7 @@ class PureHelpers(unittest.TestCase):
                 ("a preemption before it began is old news", "lava", "survival", 0.5, False, 1.0, False)]
         for name, pending, mode, pre_at, soft, since, want in rows:
             with self.subTest(name):
-                with mock.patch.object(api, "INTERRUPT", pending), mock.patch.object(api, "MODE", mode), \
+                with mock.patch.object(api.STATE, "interrupt", pending), mock.patch.object(api.STATE, "mode", mode), \
                         mock.patch.object(arbiter.BODY, "preempted_at", pre_at):
                     self.assertIs(api.interrupt_due(since, soft), want)
 

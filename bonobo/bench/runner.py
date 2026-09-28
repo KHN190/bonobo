@@ -795,7 +795,7 @@ def _begin(name, sc, feedback):
     (lifecycle.reset_all: nothing the last row left — a pending boundary, a held target id, a sweep — leaks in),
     then the setup, which respawns a body the last row left dead (_setup → _respawn). Raises SetupInvalid."""
     from .. import lifecycle, perception
-    perception.PAUSED = True
+    perception.pause(True)
     lifecycle.reset_all()
     _setup(name, sc, feedback)
 
@@ -828,7 +828,7 @@ def run(name, make_ctx):
         except SetupInvalid as e:
             exc, note = e, f"SETUP_INVALID: {e}"
         finally:
-            perception.PAUSED = False
+            perception.pause(False)
         if exc is None and NEXT_ROW[0] and NEXT_ROW[0] != name:
             prebuild(NEXT_ROW[0])          # the next row's world, at site B, while this one runs
         if exc is None:
@@ -942,7 +942,7 @@ def run_idle(name, make_ctx):
                                          ", ".join(f"{w}={v}" for w, v in parts)) if x)
     finally:
         stop.set()
-        perception.PAUSED = False
+        perception.pause(False)
         if rate:
             _command("tick rate 20", feedback)
     os.makedirs(os.path.dirname(IDLE_TABLE), exist_ok=True)

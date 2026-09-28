@@ -76,7 +76,7 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
     same kind — no second air threshold above it decides first."""
 
     def test_due_rows_are_rescued_first(self):
-        self.assertEqual(api.MODE, "normal")
+        self.assertEqual(api.STATE.mode, "normal")
         for name, st, _slack, _leave, _danger, due in ROWS:
             if due is None:
                 continue

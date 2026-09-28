@@ -163,7 +163,7 @@ class TheLease(unittest.TestCase):
                 self.assertEqual(r["status"], want)
                 if want == "failed":
                     self.assertEqual(r["message"], "body owned by the arbiter")
-                api.INTERRUPT = None            # a safety preemption leaves its message: not for the next test
+                api.STATE.interrupt = None            # a safety preemption leaves its message: not for the next test
 
 
 class TwoRealThreads(unittest.TestCase):
@@ -196,7 +196,7 @@ class TwoRealThreads(unittest.TestCase):
                 body.preempt(layer, lambda: None, "answer", worth_s=1e6, now=0.0,
                              clear_first=True, release=lambda: False)
                 self.assertEqual(seen, [True], "the body was announced taken only after the stop went out")
-                api.INTERRUPT = None
+                api.STATE.interrupt = None
         with mock.patch.object(api, "post", side_effect=stopped):
             seen.clear()
             box["body"] = arbiter.Motion()

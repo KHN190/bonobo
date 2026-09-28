@@ -1,8 +1,10 @@
-"""Hostiles: fight or flight. Perception sees a threat and offers the answer it chose (`offer`); this module takes the body for it and carries it out on its OWN thread (`_engagement`), so perception keeps sensing while the fight runs — an attack used to hold the perception thread for up to 45 s. Environmental hazards are not here (hazard.py). One engagement at a time. While it runs, a new answer from perception is not a second commander: it replaces what the engagement wants (`_ENG["want"]`), and the engagement appends (same answer: the posted task keeps running) or /stops and posts the new one. It ends when the lease says answering has stopped paying, and `disengage` always runs: what it posted is stopped, the lease handed back, the plan drives again."""
+"""Hostiles: fight or flight. Perception sees a threat and offers the answer it chose (`offer`); this module takes the body for it and carries it out on its OWN thread (`_engagement`), so perception keeps sensing while the fight runs — an attack used to hold the perception thread for up to 45 s. Environmental hazards are not here (hazard.py). One engagement at a time. While it runs, a new answer from perception is not a second commander: it replaces what the engagement wants (`STATE.want`), and the engagement appends (same answer: the posted task keeps running) or /stops and posts the new one. It ends when the lease says answering has stopped paying, and `disengage` always runs: what it posted is stopped, the lease handed back, the plan drives again."""
 
 import math
 import threading
 import time
+from dataclasses import dataclass, field as _dc_field
+from typing import Any
 
 from . import api, arbiter, lifecycle, nav, field as _field, kernel, threat
 from .api import NotAvailable
@@ -15,8 +17,47 @@ from .data import GROUPS
 
 ANSWER = None          # (option) -> None | {"id": task}: carries out one answer with the agent's memory and policy
 POLL_S = 0.5           # how often a running engagement looks at what perception now wants
-_ENG = {"thread": None, "want": None, "failure": {}, "intent": None}
-_ENG_LOCK = threading.Lock()
+
+
+@dataclass
+class FightState(lifecycle.State):
+    """What the perception thread (bids, offers), the engagement thread (carries them out) and the body's thread
+    share; `lock` guards the engagement record (thread, want, failure, intent)."""
+
+    # per life (lifecycle.reset_all)
+    held: Any = None               # the threat layer's held decision (kernel.Held): kept while it pays
+    last_bid: dict = _dc_field(default_factory=dict)   # the state and price the last bid was made on
+    chase_at: Any = None           # when a threat was last seen chasing, in this engagement
+    # the engagement: its own thread's while it runs; forgotten on a reset only when none runs
+    thread: Any = None
+    want: Any = None               # the answer (a threat.Option) perception wants carried out now
+    failure: dict = _dc_field(default_factory=dict)
+    intent: Any = None
+    lock: Any = _dc_field(default_factory=threading.Lock, repr=False, compare=False)
+
+    LIFE = ("held", "last_bid", "chase_at")
+
+    def reset(self):
+        """Forget the held decision, the last bid (a stale answer re-decided on the last row's state) and the chase
+        clock, and a finished engagement's record: nothing a fight decided carries into work that starts now (a
+        bench row: the last row's Held named a dead zombie's id). A live engagement's record is its own thread's."""
+        super().reset()
+        with self.lock:
+            if not (self.thread is not None and self.thread.is_alive()):
+                self.thread, self.want, self.failure, self.intent = None, None, {}, None
+
+
+STATE = lifecycle.owns(__name__, FightState())
+
+
+def held():
+    """The threat layer's held decision (kernel.Held), or None."""
+    return STATE.held
+
+
+def reset():
+    """STATE.reset: the fight's per-life state forgotten (lifecycle.reset_all does it with the rest)."""
+    STATE.reset()
 
 def wire(mem, policy_of, blacklist, prices=None):
     """Give the fight what it needs from the agent: memory, a movement policy for the current snapshot, and the shared blacklist."""
@@ -35,46 +76,30 @@ def wired():
 
 def engaged():
     """The engagement running now, or None."""
-    t = _ENG["thread"]
-    return _ENG["intent"] if t is not None and t.is_alive() else None
-
-def reset():
-    """Forget the held decision, the last bid (a stale answer re-decided on the last row's state), the chase clock and
-    a finished engagement's record: nothing a fight decided carries into work that starts now (a bench row: the last
-    row's Held named a dead zombie's id). A live engagement's record is its own thread's; it is left to end itself."""
-    global HELD, _CHASE, _ENG, _LAST_BID
-    HELD = None
-    # rebound, not cleared: the engagement thread may be reading the old ones
-    _CHASE = {"at": None}
-    _LAST_BID = {}
-    with _ENG_LOCK:
-        if engaged() is None:
-            _ENG = {"thread": None, "want": None, "failure": {}, "intent": None}
-
-
-lifecycle.on_reset(reset, covers=("HELD", "_LAST_BID", "_CHASE", "_ENG"))
+    t, intent = STATE.thread, STATE.intent
+    return intent if t is not None and t.is_alive() else None
 
 
 def carrying():
     """The answer (a threat.Option) the running engagement is carrying out now, or None when none runs."""
-    return _ENG["want"] if engaged() is not None else None
+    return STATE.want if engaged() is not None else None
 
 def offer(option, worth, key, now, release, held, seen_at):
     """Answer a threat now."""
 
-    with _ENG_LOCK:
+    with STATE.lock:
         running = engaged()
         if running is not None and arbiter.BODY.holder() is running:
-            _ENG["want"] = option
-            return (running.layer, running.reason), None, _ENG["failure"]
+            STATE.want = option
+            return (running.layer, running.reason), None, STATE.failure
     failure = {}
 
     def run():
         intent = arbiter.BODY.current()
-        _CHASE["at"] = None                      # a new engagement: its own chase clock
-        with _ENG_LOCK:
+        STATE.chase_at = None                    # a new engagement: its own chase clock
+        with STATE.lock:
             th = threading.Thread(target=_engagement, args=(intent, failure), daemon=True, name="fight")
-            _ENG.update(thread=th, want=option, failure=failure, intent=intent)
+            STATE.thread, STATE.want, STATE.failure, STATE.intent = th, option, failure, intent
         th.start()
 
     taken, refused = arbiter.BODY.preempt("tactic", run, key, worth_s=worth, now=now, clear_first=True,
@@ -136,7 +161,7 @@ def _engagement(intent, failure):
     held = {"done": None, "task_id": None}
     try:
         def loop():
-            for _ in carry(lambda: _ENG["want"], ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True,
+            for _ in carry(lambda: STATE.want, ANSWER, lambda: arbiter.BODY.holder() is intent, held, again=True,
                            stale=_restale):
                 pass
         arbiter.BODY.carry(intent, loop)
@@ -144,22 +169,22 @@ def _engagement(intent, failure):
         failure["failed"] = f"{type(e).__name__}: {e}"
         # said, not only recorded: an engagement that dies at once re-bid every round with nothing reaching the jar
         # (fight_zombie_1 20260928-224501: four 'threat: fight_shielded … worth 194s', no task posted, no step taken)
-        api.log(f"!! fight: {getattr(_ENG.get('want') or held.get('done'), 'kind', '?')} failed: {failure['failed']}")
+        api.log(f"!! fight: {getattr(STATE.want or held.get('done'), 'kind', '?')} failed: {failure['failed']}")
     finally:
         disengage(intent, stop=held["task_id"] is not None)
 
 def _restale(want):
     """The engagement's answer to 'target not found': what is wanted now, decided again without the gone target."""
     fresh = redecide(want.target)
-    with _ENG_LOCK:
-        if _ENG["want"] is want:
-            _ENG["want"] = fresh
+    with STATE.lock:
+        if STATE.want is want:
+            STATE.want = fresh
 
 def disengage(intent, stop=True):
     """Always, however the engagement ended: stop what it still has running, hand the body back, forget it."""
-    with _ENG_LOCK:
-        if _ENG["intent"] is intent:
-            _ENG.update(thread=None, want=None, intent=None)
+    with STATE.lock:
+        if STATE.intent is intent:
+            STATE.thread, STATE.want, STATE.intent = None, None, None
     try:
         if stop and arbiter.BODY.holder() is intent:
             api.post("/stop")
@@ -170,7 +195,6 @@ def disengage(intent, stop=True):
 # -- the decision
 
 FIGHT_POLL_S = 0.1     # while a fight holds the body: a window is 0.4 s at worst, a 0.2 s poll sees half of it
-HELD = None            # the threat layer's held decision (kernel.Held): kept while it pays, replaced when not
 
 def active():
     """A fight is on: an engagement of ours is running, or a boss fight holds the body (`arbiter.BODY.engaged`)."""
@@ -193,24 +217,23 @@ def threat_state(state, rows, work_s=None, ids=()):
 
 def bid(state, rows, price, work_s=None, now=None, ids=()):
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
-    global HELD
     if not rows:
         return None
-    _LAST_BID.update(state=state, price=price)
+    STATE.last_bid.update(state=state, price=price)
     st = threat_state(state, rows, work_s, ids)
     field_model = threat.Field(st, price)
-    if HELD is None:
-        HELD = kernel.Held()
+    with STATE.lock:
+        if STATE.held is None:
+            STATE.held = kernel.Held()
+        keeper = STATE.held
     horizon_now = threat.horizon_for(st)
-    choice = HELD.decide(field_model, field_model.state(), now if now is not None else time.time(),
+    choice = keeper.decide(field_model, field_model.state(), now if now is not None else time.time(),
                          holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
     option = choice.action.option if choice.action is not None else None
     if option is None or option.kind == "ignore":
         return None
     worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
     return (option, round(worth, 1)) if worth > 0 else None
-
-_LAST_BID = {}         # the state and price the last bid was made on: a stale answer is re-decided on them
 
 # the jar's word that the named mob is no target any more: dead ("defeated or gone" — the kill) or not found; the
 # next target is decided at once, not after one more post at the dead id (fight_zombie_3 23:45:58: 0.4 s idle)
@@ -221,11 +244,10 @@ def redecide(gone):
     again at once on the latest reading without it — the option now wanted, or None when nothing pays. Waiting for
     perception's next offer (a key repeats once a second) posted the dead id again and again: 'target not found',
     0 hits, many times a second (detail.log 23:32:53)."""
-    global HELD
-    HELD = None
+    STATE.held = None
     rows, ids = threat.threats_seen()
     kept = [(r, i) for r, i in zip(rows, ids) if i != gone] if ids else [(r, None) for r in rows]
-    last = _LAST_BID               # one read: a reset may rebind it meanwhile
+    last = STATE.last_bid          # one read: a reset may rebind it meanwhile
     if not kept or "state" not in last:
         return None
     chosen = bid(last["state"], [r for r, _ in kept], last["price"], ids=[i for _, i in kept])
@@ -233,7 +255,6 @@ def redecide(gone):
 
 LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end
 CLOSING = 0.3          # blocks/s toward us: a threat coming this fast is following, wherever it is
-_CHASE: dict[str, float | None] = {"at": None}  # when a threat was last seen chasing, in this engagement
 
 def chasing(rows, here):
     """Pure: some threat is still after us — it notices or reaches us here (`estimate.follows_to`), or closes."""
@@ -258,7 +279,7 @@ def lease_done(state, rows, price, ids=()):
     """Has answering stopped paying?"""
 
     here = (state["x"], state["y"], state["z"])
-    over, _CHASE["at"] = engagement_over(rows, here, _CHASE["at"], time.time())
+    over, STATE.chase_at = engagement_over(rows, here, STATE.chase_at, time.time())
     if not over:
         return False
     if not rows:

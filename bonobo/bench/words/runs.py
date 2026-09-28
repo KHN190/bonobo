@@ -245,8 +245,8 @@ def _resume(name, run, resume, tries=4):
                     fn = resume
             raise api.McError(f"still interrupted after {tries} tries")
         finally:
-            if api.INTERRUPT and str(api.INTERRUPT).startswith("bench:"):
-                api.INTERRUPT = None       # an injected interrupt that landed after the end must not stop the next row
+            if str(api.interrupt_pending() or "").startswith("bench:"):
+                api.consume_interrupt()    # an injected interrupt that landed after the end must not stop the next row
     return go
 
 def _progress_of(base):

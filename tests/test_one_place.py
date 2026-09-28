@@ -270,12 +270,12 @@ class ClearRequests(unittest.TestCase):
                 ("must fail: a boundary left pending and not cleared raises in the next row", None, "night", False,
                  True)]
         for name, interrupt, boundary, cleared, raises in rows:
-            with self.subTest(name), mock.patch.object(api, "INTERRUPT", interrupt), \
-                    mock.patch.object(api, "AT_BOUNDARY", boundary), mock.patch.object(api, "SOFT", False), \
+            with self.subTest(name), mock.patch.object(api.STATE, "interrupt", interrupt), \
+                    mock.patch.object(api.STATE, "at_boundary", boundary), mock.patch.object(api.STATE, "soft", False), \
                     mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: False):
                 if cleared:
                     api.clear_requests()
-                    self.assertIsNone(api.INTERRUPT)
+                    self.assertIsNone(api.STATE.interrupt)
                 try:
                     api.at_boundary()
                     got = False

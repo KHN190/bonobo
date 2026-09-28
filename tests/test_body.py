@@ -199,6 +199,8 @@ class TheArbiterJudgesAndNeverPrices(unittest.TestCase):
                ("tactic", "tactic", "held"), ("tactic", "safety", None)]  # must fail: a faster layer is never refused
 
     def test_being_refused_ends_the_assumption_it_was_made_under(self):
+        from bonobo import api
+        self.addCleanup(api.clear_requests)     # a safety preemption leaves its message: not for the next file's test
         for holder, asker, why_want in self.REFUSED:
             with self.subTest(holder=holder, asker=asker):
                 asking, body = FakeHeld(), arbiter.Motion()
