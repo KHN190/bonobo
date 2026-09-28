@@ -20,7 +20,7 @@ from .craft import run_split
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from .shapes import BodyState, Task
+    from .shapes import BodyState, EatTask, PlaceTask, Task
 
 @skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45,
        verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
@@ -53,7 +53,7 @@ def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
     return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
 
-def torch_commands(state: "BodyState", args=(4, 1)) -> "list[Task]":
+def torch_commands(state: "BodyState", args=(4, 1)) -> "list[PlaceTask]":
     """Pure: place tasks for up to `limit` of the darkest floor spots within `radius`, never the body's cells; [] when none."""
 
     radius, limit = (tuple(args) + (4, 1)[len(args):])[:2]
@@ -92,7 +92,7 @@ def bite_plan(food, carried, raw_ok=False):
         left[item] -= 1
         food = min(FULL_BAR, food + NUTRITION[item.split(":")[-1]])
 
-def eat_commands(state: "BodyState", args) -> "list[Task]":
+def eat_commands(state: "BodyState", args) -> "list[EatTask]":
     """`commands` for eat: one eat task per planned bite, back to back (one bite a round left the bar hungry)."""
 
     raw_ok = bool(args[0]) if args else False
@@ -121,7 +121,7 @@ def eat(ctx=None, raw_ok=False):
             return False                    # full: nothing to eat for
         raise NotAvailable("nothing edible carried" + ("" if raw_ok else " (raw meat not allowed: not starving)"))
     food = st["state"].get("food", 0)
-    target = min(FULL_BAR, food + sum(NUTRITION[t["item"].split(":")[-1]] for t in tasks))
+    target = min(FULL_BAR, food + sum(NUTRITION[str(t.get("item", "")).split(":")[-1]] for t in tasks))
     started = time.time()
     api.run_chain(tasks, stop_on_failure=True)
     took = (time.time() - started) / len(tasks)

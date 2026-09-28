@@ -117,6 +117,11 @@ class EntityReading(TypedDict):
     item: NotRequired[Stack]      # a dropped item's
 
 
+class BagState(TypedDict):
+    """The least a bag-only `*_commands` builder reads (a BodyState is one too)."""
+    inv: Inventory
+
+
 class BodyState(TypedDict):
     """skillcore.body_state: what a pure `*_commands` builder reads — one /state, the bag, the cells the policy
     protects, the blocks around (None when the builder reads none), and what the caller adds."""
