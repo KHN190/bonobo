@@ -35,6 +35,8 @@ def arrival_s(here, hazard, ground=None, horizon=None):
     slower = 1.0 if ground is None else ground.slowdown(bool(mob.get("squeezes")))
     if slower == float("inf"):
         return slower                # the way is sealed: it never arrives
+    if not mob.get("burst") and share_of(getattr(ground, "shape_now", ()), mob) <= 0.0:
+        return float("inf")          # where we stand now it can't reach us (a pillar, a hole, a cover)
     futures = combat_model.hypotheses(hazard, here, closing=float(mob.get("speed", 2.5)))
     # ask the geometry for a window this ground can deliver, and answer on the same clock (else "30 s" came from a 20 s account)
     seconds = combat_model.min_tti(here, futures, horizon=horizon / slower)
@@ -58,10 +60,15 @@ def reaches_share(shape, mob):
     # zombies' damage, chosen at 12 hp, and the bot died in it (combat__dig_in 01:38:51)
     return 0.0 if n >= float(ENGAGE["melee_stop_blocks"]) else 1.0
 
+def share_of(shapes, mob):
+    """How much of this mob reaches us through all of `shapes` (the least of them); 1 with none."""
+    return min((reaches_share(s, mob) for s in shapes or ()), default=1.0)
+
 def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None):
     """Health per second expected at `here`: each threat's rate, weighted by its reachable share of the horizon and its notice."""
 
     horizon = horizon_s(horizon)
+    shapes = ((shape,) if shape else ()) + tuple(getattr(ground, "shape_now", ()) or ())    # planned and current
     total, hardest = 0.0, 0.0
     for hazard in hazards:
         mob = MOBS.get(hazard[3])
@@ -71,7 +78,7 @@ def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None
         # further than a decision takes to act is the next decision's (a far zombie was worth stopping work for)
         if when == float("inf") or when > float(ENGAGE["react_s"]):
             continue
-        total += hazard[5] * hazard[4] * (max(0.0, horizon - when) / horizon) * reaches_share(shape, mob)
+        total += hazard[5] * hazard[4] * (max(0.0, horizon - when) / horizon) * share_of(shapes, mob)
         hardest = max(hardest, float(mob.get("attack", 0.0)))
     return min(total, incoming_cap(hardest)) * (1.0 - prot)
 

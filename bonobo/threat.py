@@ -222,10 +222,10 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=No
     assert best is not None, "options is not empty"
     return tuple(round(c) for c in best)
 
-def evade_cost(here, spot, hazards, prot):
-    """hp lost walking from here to `spot`: the pressure here, over the walk, as an integral."""
+def evade_cost(here, spot, hazards, prot, ground=None):
+    """hp lost walking from here to `spot`: the pressure here (over the ground we stand in), over the walk."""
     walk_s = math.dist(here, spot) / float(PLAYER["speed"])
-    return estimate.leaving_hp(estimate.pressure_hp_s(here, hazards, prot), walk_s)
+    return estimate.leaving_hp(estimate.pressure_hp_s(here, hazards, prot, ground=ground), walk_s)
 
 class Option:
     """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind."""
@@ -278,10 +278,10 @@ def delayed_pressure(here, hazards, prot, before, after, work_s):
         total += rate * max(0.0, work_s - t) / work_s
     return total
 
-def knockback_rate(here, hazards, within_s):
+def knockback_rate(here, hazards, within_s, ground=None):
     """Pure: hits per second landing on us while we shape — each melee mob that reaches us within `within_s`."""
     return sum(1.0 / float(MOBS[h[3]]["attack_s"]) for h in hazards
-               if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") and arrival(here, h) <= within_s)
+               if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") and arrival(here, h, ground=ground) <= within_s)
 
 def block_under_hits_s(each_s, rate):
     """Pure: expected seconds to stand one block up while hit `rate` times a second: a hit knocks us off the cell and
@@ -312,7 +312,7 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
         if where == "under":
             # a pillar started under a walker's hits: each hit resets the jump (escape__walker_open_blocks: priced
             # 1.2 s, ran 4 s rising nothing, died) — the price is the knocked-back one
-            each_s = round(block_under_hits_s(each_s, knockback_rate(here, hazards, each_s)), 2)
+            each_s = round(block_under_hits_s(each_s, knockback_rate(here, hazards, each_s, ground=grid)), 2)
         after = grid
         for n in ((most_of[where],) if where == "roof" and most_of[where] else range(1, most_of[where] + 1)):
             if where == "between":
@@ -362,7 +362,7 @@ def horizon_for(state):
 
     return estimate.horizon_s(state.get("work_s"))
 
-def _evade_option(here, spot, hazards, prot, press, out):
+def _evade_option(here, spot, hazards, prot, press, out, ground=None):
     """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
     walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
     # leaving costs the walk out and back; what follows is the next round's account — unless every threat still reaches us there and a fight is on offer (then leaving only postpones it)
@@ -371,7 +371,7 @@ def _evade_option(here, spot, hazards, prot, press, out):
     # a creeper is not a rate that leaving ends: with a fight on offer its blast stays owed
     fight_on = any(o.kind == "fight" for o in out)
     blast = burst_damage(here, hazards, prot, fuse_s=float("inf")) if fight_on else burst_damage(spot, hazards, prot)
-    return Option("evade", spot, evade_cost(here, spot, hazards, prot),
+    return Option("evade", spot, evade_cost(here, spot, hazards, prot, ground=ground),
                   round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
                   blast_after=blast)
 
@@ -440,7 +440,7 @@ def options(state):
     if spot is not None:             # else nowhere to leave to (a lethal drop all round): fight, eat, wall in
         # a fight the veto removes is not "a fight on offer" for leaving to postpone (before the one veto, the fight's
         # own gate kept it out of `out`: evade at low health priced as postponing a fight nobody could take)
-        out.append(_evade_option(here, spot, hazards, prot, press, [o for o in out if survivable(o, hp)]))
+        out.append(_evade_option(here, spot, hazards, prot, press, [o for o in out if survivable(o, hp)], ground=grid))
     cover = state.get("low_cover")
     tall = [h for h in hazards if MOBS[h[3]].get("tall")]
     if tall and cover is not None:

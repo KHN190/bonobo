@@ -1190,6 +1190,42 @@ class AProvokedEndermanIsEvaded(unittest.TestCase):
                 self.assertEqual(field.reached_from(off), want)
 
 
+class WhereWeStandNow(unittest.TestCase):
+    """The shape we already stand in prices a mob's reach as a planned reshape does (field.shape_at → shape_now)."""
+
+    def test_pressure_over_the_table(self):
+        from bonobo import estimate, field
+        from tests.world import FakeRegion
+        span = range(-8, 9)
+        floor = {(x, 63, z): "stone" for x in span for z in span}
+        pillar = {**floor, (0, 64, 0): "stone", (0, 65, 0): "stone"}
+        hole = {(x, y, z): "stone" for x in span for z in span for y in (62, 63) if (x, z) != (0, 0)}
+        hole[(0, 61, 0)] = "stone"
+        lid = {**floor, **{(x, 66, z): "stone" for x in (-1, 0, 1) for z in (-1, 0, 1)}}
+        alcove = dict(floor)
+        alcove.update({(x, y, z): "stone" for x in range(4, 7) for z in (-1, 0, 1) for y in (64, 65, 66)})
+        for x in (4, 5):
+            for y in (64, 65):
+                alcove.pop((x, y, 0))
+
+        def mob(p, kind="minecraft:zombie"):
+            return estimate.row(p, 3.0, (0, 0, 0), kind, 1.0, 6.25)
+        # (situation, blocks, where we stand, the mob) → pressure now (0: it can't reach us here)
+        rows = [("2 up a pillar, a zombie below", pillar, (0.5, 66.0, 0.5), mob((2.0, 64.0, 0.5))),
+                ("2 down a hole, a zombie on the rim", hole, (0.5, 62.0, 0.5), mob((1.5, 64.0, 0.5))),
+                ("under a 3×3 lid, an enderman beside", lid, (0.5, 64.0, 0.5),
+                 mob((1.9, 64.0, 0.5), "minecraft:enderman")),
+                ("the alcove's inner cell, an enderman at the mouth", alcove, (5.5, 64.0, 0.5),
+                 mob((3.2, 64.0, 0.5), "minecraft:enderman"))]
+        for name, blocks, here, m in rows:
+            with self.subTest(name):
+                region = FakeRegion((-8, 56, -8), (8, 72, 8), blocks)
+                now = field.Field(shape_now=field.shape_at(region, here))
+                self.assertEqual(estimate.pressure_hp_s(here, [m], 0.0, ground=now), 0.0)
+                # must fail: the same spot read as flat ground (the old pricing) still counts it
+                self.assertGreater(estimate.pressure_hp_s(here, [m], 0.0, ground=field.Field()), 0.0)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 

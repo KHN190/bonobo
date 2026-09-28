@@ -31,13 +31,14 @@ TERRAIN = Terrain()
 
 class Field:
 
-    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None, cover=None):
+    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None, cover=None, shape_now=()):
         self.speed = float(speed)
         self.bucket = bucket
         self.blocks = int(blocks)
         self.terrain = terrain or TERRAIN
         self.seal = None if seal is None else int(seal)   # blocks that seal the way we stand in; None: nothing we carry seals it
         self.cover = cover     # the nearest 2-high space (a cell), or None
+        self.shape_now = tuple(shape_now)     # the shapes we stand in now (shape_at): priced like a planned reshape
 
     def slowdown(self, squeezes=False):
         """How much longer anything takes over this ground than a straight line: learned per bucket times our placed blocks' cost."""
@@ -62,7 +63,7 @@ class Field:
         return self.bucket != "open" or self.seal is not None
 
     def with_block(self, cell=None):
-        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal, self.cover)
+        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal, self.cover, self.shape_now)
 
     def choke(self, src, dst, within=3.0):
         if math.dist(src, dst) < 2.0:
@@ -141,7 +142,38 @@ def low_cover_at(region, here, radius=6, mob_width=TALL_WIDTH):
     return None if best is None else best[1]
 
 
+def stand_level(solid, x, z, y, span=4):
+    """Pure: the y a body stands at in column (x, z) near `y` (floor under, feet and head clear), or None (a wall)."""
+    for yy in range(y + span, y - span - 1, -1):
+        if solid((x, yy - 1, z)) and not solid((x, yy, z)) and not solid((x, yy + 1, z)):
+            return yy
+    return None
+
+
+def shape_at(region, here):
+    """Pure: the shapes we stand in now, as reshape_options names them — ("under", n) on a column n above the ground
+    round it, ("down", n) in a hole walled n high, ("roof", 9) under a cover no tall mob's open cell reaches."""
+    x, y, z = (int(math.floor(v)) for v in here)
+    solid = region.solid
+    out = []
+    sides = [(x + dx, z + dz) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+    levels = [stand_level(solid, sx, sz, y) for sx, sz in sides]
+    if all(lv is not None and lv < y for lv in levels):
+        out.append(("under", min(y - lv for lv in levels if lv is not None)))
+    walls = 0
+    while walls < 3 and all(solid((sx, y + walls, sz)) for sx, sz in sides):
+        walls += 1
+    if walls:
+        out.append(("down", walls))
+    if solid((x, y + 2, z)):
+        near = int(math.ceil(0.5 + TALL_WIDTH / 2 + ATTACK_RANGE + PLAYER_HALF))
+        if not any(tall_can_stand(solid, (x + ox, y, z + oz)) and reached_from((ox, oz))
+                   for ox in range(-near, near + 1) for oz in range(-near, near + 1) if ox or oz):
+            out.append(("roof", 9))
+    return tuple(out)
+
+
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
     return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here),
-                 cover=low_cover_at(region, here))
+                 cover=low_cover_at(region, here), shape_now=shape_at(region, here))
