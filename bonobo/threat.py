@@ -366,7 +366,9 @@ def _evade_option(here, spot, hazards, prot, press, out, ground=None):
     """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
     walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
     # leaving costs the walk out and back; what follows is the next round's account — unless every threat still reaches us there and a fight is on offer (then leaving only postpones it)
-    postpones = any(o.kind == "fight" for o in out) and all(estimate.follows_to(spot, h) for h in hazards)
+    # a melee follower walks after us: leaving only postpones it, fight or not (combat__dig_in evaded instead of digging)
+    melee = all(not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") for h in hazards)
+    postpones = (melee or any(o.kind == "fight" for o in out)) and all(estimate.follows_to(spot, h) for h in hazards)
     follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
     # a creeper is not a rate that leaving ends: with a fight on offer its blast stays owed
     fight_on = any(o.kind == "fight" for o in out)
