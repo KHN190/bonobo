@@ -257,10 +257,23 @@ def _command(cmd, feedback, timeout=REPLY_WAIT_S):
     feedback.append({"cmd": cmd, "reply": lines})
     return lines
 
-def _batch(cmds, feedback, settle=REPLY_WAIT_S):
-    """Send commands back to back, then read the replies at once; any error line fails the setup."""
+SILENT = ("gamemode",)      # may answer nothing (the mode already set): never waited on
 
-    lines = _send(list(cmds), len(cmds), settle) if cmds else []
+
+def replies(cmds):
+    """Pure: how many of `cmds` always answer in chat (execute … run X answers as X)."""
+    def head(c):
+        while c.startswith("execute ") and " run " in c:
+            c = c.split(" run ", 1)[1]
+        return (c.split() or [""])[0]
+    return sum(1 for c in cmds if head(c) not in SILENT)
+
+
+def _batch(cmds, feedback, settle=REPLY_WAIT_S):
+    """Send commands back to back, then read the replies at once; any error line fails the setup. Waits only for
+    the commands that answer: a silent one cost the whole settle."""
+
+    lines = _send(list(cmds), replies(cmds), settle) if cmds else []
     feedback.append({"cmd": f"batch of {len(cmds)}", "cmds": list(cmds), "reply": lines})
     from .runner import feedback_errors      # runner imports core: ask for it when needed, not at import time
     bad = feedback_errors(lines)
