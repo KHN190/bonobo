@@ -450,6 +450,8 @@ def diff_hunks(diff_text):
             path = line[6:] if line.startswith("+++ b/") else None
         elif line.startswith("@@") and path:
             m = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            if m is None:
+                continue
             start, n = int(m.group(1)), int(m.group(2) or 1)
             out.setdefault(path, []).extend(range(start, start + max(n, 1)))
     return out
@@ -461,7 +463,10 @@ def skill_spans(registry, root):
     for name, c in registry.items():
         try:
             lines, first = inspect.getsourcelines(c.fn)
-            path = os.path.relpath(inspect.getsourcefile(c.fn), root)
+            src = inspect.getsourcefile(c.fn)
+            if src is None:
+                continue
+            path = os.path.relpath(src, root)
         except (OSError, TypeError):
             continue
         out[name] = (path, first, first + len(lines) - 1)
@@ -485,6 +490,7 @@ def base_row(name, base, cond=None, surprise=None):
     b, c = BASES[base], CONDITIONS[cond] if cond else {}
     x = SURPRISES[surprise] if isinstance(surprise, str) else surprise or {}     # a one-off row: its own surprise
     scene = list(x["scene"]) if x.get("replace_setup") else b["scene"] + c.get("scene", []) + x.get("scene", [])
+    hooks: list[tuple]
     run, check, hooks = x.get("run", b["run"]), x.get("check", b["check"]), [("start", name)]
     fails = x.get("fails", c.get("fails"))
     scene += c.get("scene_for", {}).get(base, [])
@@ -554,8 +560,9 @@ REAL_KIT = [("cmd", "forceload add 14136 14136 14264 14264"), ("cmd", "spreadpla
 def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False, before=()):
     """On real terrain (raw), a target put in scan range: judged by what was found."""
     row = _row(name, doc, "skills", REAL_KIT + list(extra), run, items(check), budget=budget, raw=True, release=True,
-               skills=list(skills), tags={"base": skills[0], "terrain": "real"},
-               **({"stochastic": True} if stochastic else {}), **({"before": list(before)} if before else {}))
+               skills=list(skills), tags={"base": skills[0], "terrain": "real"}, before=before)
+    if stochastic:
+        row["stochastic"] = True
     del row["expect"]
     return row
 

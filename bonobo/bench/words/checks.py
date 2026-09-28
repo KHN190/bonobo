@@ -219,6 +219,7 @@ def bag(api, inv, method, args=(), op=None, want=None):
 
 def call(api, inv, name, args=(), op=None, want=None, resolve=None):
     """A named world helper's answer compared (or its truth); "$api"/"$inv" in `args` are the check's own."""
+    assert resolve is not None, "vocab binds `resolve` when it builds a call check"
     fn = resolve(name)
     return cmp(fn(*[api if a == "$api" else inv if a == "$inv" else a for a in args]), op, want)
 

@@ -9,6 +9,7 @@ import re
 import sys
 import threading as _threading
 import time
+from typing import Any
 
 from ... import estimate, paths  # noqa: F401
 import importlib
@@ -138,7 +139,7 @@ def _columns_possible(cell):
         want.discard("eat")          # eating at full health is not an option anywhere
     return want
 
-def _combat_intent(state):
+def _combat_intent(state: dict[str, Any]):
     """What the threat model wants, before anything moves: every column, its price, and the state it priced from."""
     from ... import api as _api, fight_loop, perception, threat
     near = _api.get("/entities?radius=24").get("entities", []) or []
@@ -845,7 +846,7 @@ def behaviour_row(name, behaviour):
     """One fight behaviour: a cell moved off ARMED so that one answer is worth the most; chosen and working. The cell
     is built in setup (each command's reply checked), so the run is the fight's window alone (≤ 25 s)."""
     moved, _rule, why = BEHAVIOURS[behaviour]
-    cell = dict(dict(ARMED, **moved), run=0, seed=0)
+    cell: dict[str, Any] = dict(dict(ARMED, **moved), run=0, seed=0)
     kind = ENEMY[cell["enemy"]]
     proof = PROVEN.get(behaviour, {})
     row = _fight_row(name, f"Fight behaviour: {why}",

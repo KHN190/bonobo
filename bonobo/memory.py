@@ -105,7 +105,7 @@ class Memory:
         except (OSError, ValueError):
             self.data = {}
         d = self.data
-        self.clock = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
+        self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
         for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
                              ("stats", {}), ("durations", {}), ("jobs", [])):

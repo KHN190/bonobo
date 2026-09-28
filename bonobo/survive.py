@@ -17,10 +17,10 @@ from .terrain import (choose_burrow, choose_exit, air_route, is_enclosed, openin
 from .skillcore import feet, free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
 from .fluids import AIR_FULL, swimming
 from .craft import run_split
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from .shapes import Task
+    from .shapes import BodyState, Task
 
 @skill(gives=["state:open_room"], remaining=lambda st, c: open_room_left(st, c), needs={}, speed={}, budget=120, stall=45,
        verify=lambda c: c.result is not None and math.dist(feet(), c.result) <= 2
@@ -113,7 +113,7 @@ def _fed_as_planned(c):
 def eat(ctx=None, raw_ok=False):
     """Eat until the bar is full, every planned bite as one chain; an interruption stops it where it is."""
 
-    st = body_state(ctx) if ctx is not None else {"state": api.get("/state"), "inv": Inventory()}
+    st = body_state(ctx) if ctx is not None else cast("BodyState", {"state": api.get("/state"), "inv": Inventory()})
     tasks = eat_commands(st, (raw_ok,))
     carried = {f: st["inv"].count(f) for f in ALL_FOOD + (RAW_MEAT if raw_ok else [])}
     if not tasks:
@@ -260,7 +260,9 @@ def burrow_commands(state, args=()):
 def burrow(ctx):
     """Night shelter in a hillside: tunnel 2 in, step to the end, seal the entrance (both faces visible from inside), one chain."""
 
-    keep = current_call().keep
+    call = current_call()
+    assert call is not None, "a skill body runs inside its runner"
+    keep = call.keep
     if "anchor" not in keep:
         d = _burrow_here(ctx)
         if d is None:

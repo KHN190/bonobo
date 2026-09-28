@@ -87,18 +87,20 @@ def _achieve(ctx, needs, done, rounds=12):
     from .. import api
     from ..world import Inventory, Snapshot
     from .. import jobs as _jobs
+    brain = BRAIN
+    assert brain is not None, "set_brain first: plan-driven rows run the brain's own path"
     for _ in range(rounds * 4):
         if done():
             return True
         snap = Snapshot.from_readings(api.get("/state"), Inventory())
-        pending = BRAIN.mem.jobs(snap.dimension)
+        pending = brain.mem.jobs(snap.dimension)
         from .. import world as _world
         ready = [j for j in pending if _world.job_ready(j, snap.state.get("gameTime"))]
         if ready:
             _jobs.collect(ctx, ready[0])        # a background furnace finished: take its output (the brain's job)
             continue
-        plan = decompose.decompose(snap.inv, goals.have(*needs), Cost(snap, BRAIN.mem),
-                                   pending=BRAIN.mem.pending_outputs(snap.dimension))
+        plan = decompose.decompose(snap.inv, goals.have(*needs), Cost(snap, brain.mem),
+                                   pending=brain.mem.pending_outputs(snap.dimension))
         if not plan:
             if pending:
                 time.sleep(1)                   # everything else is done; the furnace is still cooking

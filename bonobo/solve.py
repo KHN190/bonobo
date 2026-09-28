@@ -267,7 +267,7 @@ def _priced(action, dim, price, have):
 def _branch_and_bound(A, b, c, upper, nodes=None):
     """Integer minimum of cᵀn subject to A·n ≥ b, 0 ≤ n ≤ upper. Depth-first on the most fractional variable."""
     nodes = [MAX_NODES] if nodes is None else nodes
-    best = [None, None]      # (value, vector)
+    best: list = [None, None]      # (value, vector)
 
     def dive(lo, hi):
         if nodes[0] <= 0:

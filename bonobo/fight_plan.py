@@ -3,6 +3,7 @@
 import math
 import os
 import tomllib
+from typing import Any
 from . import combat_model, kernel
 
 # -- configuration: one file; a number copied into code drifts
@@ -172,7 +173,7 @@ def _fx_retreat(state):
 class Profile:
     """A boss, described by what removes its work and what that costs in exposure."""
 
-    def __init__(self, name, specs, work, per_window, exposure):
+    def __init__(self, name, specs: list[dict[str, Any]], work, per_window, exposure):
         self.name = name
         self.specs = specs
         self.work = work

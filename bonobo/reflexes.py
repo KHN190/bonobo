@@ -2,6 +2,7 @@
 
 import math
 import time
+from typing import Any
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, fluids, nav, nether, store, survive, tape, world, jobs
@@ -165,7 +166,7 @@ class Maintain:
         self.blocked = None           # {"t", "place", "pos"}: the last path failure and where it was going
         self.active = frozenset()     # rows inside their hysteresis (`latched`)
         self.land_since = None        # when the body last stood on something that is not water
-        self.last_run = None          # (name, progress when it started): judged next round (`stalled`)
+        self.last_run: tuple[str, Any] | None = None     # (name, progress when it started): judged next round (`stalled`)
 
     def observe(self, snap):
         now = time.time()

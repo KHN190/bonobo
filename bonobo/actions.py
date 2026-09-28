@@ -483,7 +483,7 @@ def to_step(action, times):
     return step
 
 def _shape(action, times):
-    tag = action.tag or ()
+    tag: tuple = action.tag or ()     # (kind, token, ...) by kind
     kind = tag[0] if tag else "craft"
     if kind == "seek":
         # The position, when one is known: the seek skill walks there (explore.seek).

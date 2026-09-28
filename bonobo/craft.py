@@ -426,6 +426,7 @@ def start_smelt_job(ctx, output, input_token, count, fuel):
         station = Station(ctx, "minecraft:furnace")          # places the carried furnace
         station.__enter__()
         api.post("/close")
+        assert station.pos is not None, "Station.__enter__ raises when it places nothing"
         near, placed = [station.pos], station.pos
     # busy furnaces are memory's; each is opened once, read, loaded, closed (the clicks need its screen, the jar has no click task)
     busy = {tuple(j["pos"]) for j in ctx.mem.jobs(ctx.dimension) if j.get("kind") == "furnace"}

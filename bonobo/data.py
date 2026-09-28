@@ -32,7 +32,7 @@ def cannot_reach(message):
     """Pure: the cells a mod answer names as "cannot reach x, y, z" — {(x, y, z)}, empty when it names none."""
     return {tuple(int(g) for g in m.groups()) for m in _CANNOT_REACH.finditer(message or "")}
 
-def mid(name):
+def mid(name) -> str:
     """The full id: "oak_planks" → "minecraft:oak_planks". Already-qualified names pass through."""
     got = _MID.get(name)
     if got is None:
@@ -63,7 +63,7 @@ def item_ids(tokens):
         out += [i for i in ids if i not in out]
     return out
 
-def bare(name):
+def bare(name) -> str:
     """The short id: "minecraft:oak_planks" → "oak_planks"."""
     got = _BARE.get(name)
     if got is None:

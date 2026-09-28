@@ -81,7 +81,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
         core.BRAIN.idle_since, core.BRAIN.committed = None, None
         core.BRAIN.picks.clear()              # this slice's rounds only
         t0, positions, idle = time.time(), [], 0.0
-        start_line = len(sys.stdout.lines) if hasattr(sys.stdout, "lines") else 0
+        start_line = len(getattr(sys.stdout, "lines", []))       # the bench's capturing stdout keeps its lines
         stopped = None
         try:
             while time.time() - t0 < minutes * 60:
@@ -96,7 +96,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
                 positions.append((time.time(), s.feet))
                 if core.BRAIN.idle_since:
                     idle = max(idle, time.time() - core.BRAIN.idle_since)
-                lines = sys.stdout.lines[start_line:] if hasattr(sys.stdout, "lines") else []
+                lines = getattr(sys.stdout, "lines", [])[start_line:]
                 rep = slice_report(lines, positions, target, idle, core.BRAIN.picks)
                 if rep["loops"] or rep["idle_s"] > max_idle:
                     stopped = f"loop: {rep['loops'][0]}" if rep["loops"] else f"idle {rep['idle_s']}s"
@@ -109,7 +109,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
             raise api.McError(f"slice stopped early — {stopped}")
         SLICE.update(seconds=time.time() - t0, positions=positions, idle=idle, target=target)
         if done is not None and not done():
-            last = [l.strip() for l in (sys.stdout.lines[start_line:] if hasattr(sys.stdout, "lines") else [])
+            last = [l.strip() for l in getattr(sys.stdout, "lines", [])[start_line:]
                     if "→" in l or "!!" in l or "task" in l or "upkeep" in l]
             raise api.McError(f"slice not done after {minutes} min, last decision: {last[-1] if last else 'no decision logged'}")
         return True
@@ -260,6 +260,8 @@ def _progress_of(base):
 def _on_progress(name, base, action, times=1):
     """`before` hook: `action()` the moment the run first makes progress."""
     how = _progress_of(base)
+    if how is None:
+        raise ValueError(f"{name}: on_progress on a base with no progress, effect or target to watch")
     def hook(ctx):
         from ... import api
         start = BASE["state"]

@@ -206,7 +206,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel")
             api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}, walked closer")
             continue
-        if hits[0].get("noted") and bare(region.name(seed)) not in {bare(b) for b in blocks}:
+        if ctx.mem is not None and hits[0].get("noted") and bare(region.name(seed)) not in {bare(b) for b in blocks}:
             for b in blocks:
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=0.5)     # gone from where it was noted
             api.detail(f"  mine {bare(drop)}: noted {seed} is {region.name(seed)} now, note forgotten")
@@ -365,7 +365,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             if empty_batches >= 3:
                 raise NotAvailable(f"{blocks[0]} vein yielded nothing: {r['message']}")
             continue
-        else:
+        elif ctx.mem is not None:
             for b in blocks:                  # this vein is mined: its notes are spent
                 ctx.mem.forget_seen(b, seed, ctx.dimension, radius=4)
     raise McError(f"could not mine enough {bare(drop)}")
@@ -534,6 +534,7 @@ def plan_tunnel(region, feet_at, length, protected=(), hostiles=(), facing=None)
         score = (end, away)
         if best is None or score > best[0]:
             best = (score, d, end, cave)
+    assert best is not None, "TUNNEL_DIRS is not empty"
     _score, d, end, cave = best
     return d, end, (cave if end == 0 else None)
 

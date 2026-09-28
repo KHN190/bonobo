@@ -9,9 +9,9 @@ CLOCKWISE = {"north": "east", "east": "south", "south": "west", "west": "north",
 class Part:
     offset: tuple                 # (dx, dy, dz) from the origin
     item: str                     # item id, or a group token ("stone", "door") resolved to a held member
-    facing: str = None            # intended `facing` block-state property
-    against: tuple = None         # relative cell to click (hoppers output into it, torches hang on it)
-    role: str = None              # "input" / "fuel" / "output" containers etc.
+    facing: str | None = None     # intended `facing` block-state property
+    against: tuple | None = None  # relative cell to click (hoppers output into it, torches hang on it)
+    role: str | None = None       # "input" / "fuel" / "output" containers etc.
     either_way: bool = False      # the opposite facing works as well (doors)
 
 @dataclass(frozen=True)

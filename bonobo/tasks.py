@@ -4,6 +4,7 @@ A task's `plan` is saved with it so half-done work survives a restart — only a
 import json
 import os
 import time
+from typing import Any
 
 from . import goals, paths
 
@@ -68,7 +69,7 @@ def marked(state, reason=""):
     """Pure: the fields a task in `state` gets (`reason`, and no plan once it is not live)."""
     if state not in STATES:
         raise ValueError(f"unknown task state {state!r}")
-    fields = {"state": state, "reason": reason}
+    fields: dict[str, Any] = {"state": state, "reason": reason}
     if state not in LIVE:
         fields["plan"] = None
     return fields

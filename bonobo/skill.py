@@ -371,7 +371,8 @@ def skill(name=None, **options):
             # judge the effect once the world caught up (a drop in the air, a slot filling next update)
             prev_skill, tape.SKILL = tape.SKILL, contract.name
             try:
-                verified = not contract.verify or skillcore.settle(lambda: contract.verify(c), bool,
+                verify = contract.verify
+                verified = not verify or skillcore.settle(lambda: verify(c), bool,
                                                                    timeout=VERIFY_SETTLE_S, stable_s=0)
             finally:
                 tape.SKILL = prev_skill

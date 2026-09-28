@@ -8,6 +8,10 @@ from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, EYE_HEIGHT, bare
 from .world import Inventory, Region, add, feet  # noqa: F401  (feet: read here by the skills)
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .shapes import BodyState
 
 def game_time():
     """The game's tick now (/state gameTime): what a look made outside a brain round is stamped with (brain wires
@@ -150,12 +154,13 @@ def dead(state=None, readings=None):
         return False
     return bool(settle(lambda: api.get("/state").get("dead"), bool, timeout=1.5, stable_s=0.5, soft=True))
 
-def body_state(ctx, region=None, **extra):
+def body_state(ctx, region=None, **extra) -> "BodyState":
     """The state `commands` are built from — body, bag, protected cells, blocks around; read once here."""
     s = api.get("/state")
-    return dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
-                 "protected": set(getattr(getattr(ctx, "policy", None), "protected", ()) or ()), "region": region},
-                **extra)
+    out = dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
+                "protected": set(getattr(getattr(ctx, "policy", None), "protected", ()) or ()), "region": region},
+               **extra)
+    return cast("BodyState", out)      # `extra`: a BodyState key each (the NotRequired ones)
 
 def carried_total():
     """Every item in the bag counted (a pickup that only tops up a stack still raises it)."""

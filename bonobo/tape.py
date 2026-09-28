@@ -35,7 +35,7 @@ _EMPTY = {"blocks": [], "entities": [], "slots": [], "tasks": [], "palette": ["m
 def replayed(method, path):
     if method != "GET":
         raise ReplayMiss(f"{method} {path}: a decision must not act")
-    if path not in REPLAY:
+    if REPLAY is None or path not in REPLAY:
         if LENIENT:
             return dict(_EMPTY)
         raise ReplayMiss(path)

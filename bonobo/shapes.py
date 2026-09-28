@@ -1,7 +1,10 @@
 """The shapes the package passes around, named once for the type checker: the game's readings (/state, /inventory,
 /entities, /task), a block cell, the task dicts the jar's TaskFactory reads (tests/test_task_schema checks the
 keys), and the interrupt vocabulary (data.EXCEPTIONS, arbiter.RESUME_OF). Types only: imports nothing of ours."""
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
+
+if TYPE_CHECKING:
+    from .world import Inventory, Region
 
 Cell = tuple[int, int, int]          # a block position: x, y, z
 Pos = tuple[float, float, float]     # an exact position (feet, an entity)
@@ -112,6 +115,21 @@ class EntityReading(TypedDict):
     angry: NotRequired[bool]      # an enderman's
     baby: NotRequired[bool]       # a passive mob's
     item: NotRequired[Stack]      # a dropped item's
+
+
+class BodyState(TypedDict):
+    """skillcore.body_state: what a pure `*_commands` builder reads — one /state, the bag, the cells the policy
+    protects, the blocks around (None when the builder reads none), and what the caller adds."""
+    state: StateReading
+    feet: Cell
+    inv: Inventory
+    protected: set[Cell]
+    region: Region | None
+    spots: NotRequired[list]             # survive.light_area: the dark spots to light
+    entities: NotRequired[list[EntityReading]]
+    cooling: NotRequired[list]           # farming.breed: pens bred lately
+    threats: NotRequired[list]           # fight_loop: the threat rows and their entity ids
+    threat_ids: NotRequired[list[int]]
 
 
 # ------------------------------------------------------------------ task dicts (the jar's TaskFactory.create)

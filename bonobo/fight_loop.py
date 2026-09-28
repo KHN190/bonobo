@@ -45,7 +45,8 @@ def reset():
     global HELD, _CHASE, _ENG, _LAST_BID
     HELD = None
     # rebound, not cleared: the engagement thread may be reading the old ones
-    _CHASE, _LAST_BID = {"at": None}, {}
+    _CHASE = {"at": None}
+    _LAST_BID = {}
     with _ENG_LOCK:
         if engaged() is None:
             _ENG = {"thread": None, "want": None, "failure": {}, "intent": None}
@@ -232,7 +233,7 @@ def redecide(gone):
 
 LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end
 CLOSING = 0.3          # blocks/s toward us: a threat coming this fast is following, wherever it is
-_CHASE = {"at": None}  # when a threat was last seen chasing, in this engagement
+_CHASE: dict[str, float | None] = {"at": None}  # when a threat was last seen chasing, in this engagement
 
 def chasing(rows, here):
     """Pure: some threat is still after us — it notices or reaches us here (`estimate.follows_to`), or closes."""

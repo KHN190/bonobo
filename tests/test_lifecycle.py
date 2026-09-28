@@ -172,9 +172,12 @@ def uncovered(sources, covered, allow):
 
 
 def initial_values(src):
-    """Pure: {name: value} for module-level `NAME = <literal>` (and tuple) assignments in `src`."""
+    """Pure: {name: value} for module-level `NAME = <literal>` (and tuple, and annotated `NAME: T = <literal>`)
+    assignments in `src`."""
     out = {}
     for node in ast.parse(src).body:
+        if isinstance(node, ast.AnnAssign) and node.value is not None:
+            node = ast.Assign(targets=[node.target], value=node.value)
         if not isinstance(node, ast.Assign):
             continue
         for t in node.targets:

@@ -263,6 +263,8 @@ def plant_farm(ctx):
     state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
+    if centre is None:
+        raise NotAvailable("no 3×3 of soil with room above within 8 blocks for a plot")
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
     hoe = next((h for h in HOES if state["inv"].count(h)), None)
     if hoe is None:

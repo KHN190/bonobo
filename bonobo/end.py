@@ -48,6 +48,7 @@ def activate_end_portal(ctx):
     if Inventory().count("minecraft:ender_eye") < len(missing):
         raise NotAvailable(f"need {len(missing)} eyes of ender, have {Inventory().count('minecraft:ender_eye')}")
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in hits])
+    assert centre is not None, "hits is not empty"
     lit = any(n == "end_portal" for n in region.blocks.values())
     below = (centre[0], centre[1] - 1, centre[2])
     block = nav.building_item()

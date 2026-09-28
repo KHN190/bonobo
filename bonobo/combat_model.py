@@ -1,6 +1,7 @@
 """What a combat tape means. Pure functions only — they read frames, never the game. The rule this module exists to serve: don't learn "where is safe", learn "how long until I am hit". Every hazard is reduced to the same triple so the controller compares a breath cloud and an enderman with one number: kind        what it is (the entity id), for the damage model only tti         seconds until it reaches us if nothing changes (inf = it never does) region      (x, y, z, radius) it will occupy — where not to stand dps         health per second while inside it persistent  True if it stays put once formed (breath clouds), False if it must be re-aimed (head, enderman) Everything is measured off the tape rather than tabulated: the numbers that matter (how fast breath spreads, how much a head sweep takes) belong to this version of the game, not to a wiki page."""
 
 import math
+from typing import Any
 
 TICK = 0.05                 # seconds per tick
 HORIZON = 4.0               # seconds ahead worth predicting; past that the dragon has re-decided anyway
@@ -190,7 +191,7 @@ def safest(frame, options=None, speed=4.3, horizon=HORIZON, dps=None, margin=0.3
             best, best_key = (opt, slack), key
     return best
 
-def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None):
+def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None) -> tuple[Any, float]:
     """Pure: (spot, slack): each option's slack is `min_tti - travel_time - margin`; best wins, distance from hazards breaks ties."""
 
     frame = {"player": {"pos": {"x": here[0], "y": here[1], "z": here[2]},
@@ -199,7 +200,9 @@ def best_step(here, hazards, speed=4.3, horizon=HORIZON, margin=0.3, cover=None)
     if cover is not None:
         options = list(options) + [tuple(cover)]
     # safe against every future, not the single differenced one
-    return safest(frame, options, speed, horizon, None, margin, hazards=expand(hazards, here))
+    best = safest(frame, options, speed, horizon, None, margin, hazards=expand(hazards, here))
+    assert best is not None, "step_options is never empty"
+    return best
 
 def windows(frames, window_phases=WINDOW_PHASES):
     """Pure: one entry per attack window, with the three numbers the planner's value model runs on."""
@@ -214,7 +217,8 @@ def windows(frames, window_phases=WINDOW_PHASES):
             continue
         first, last = span[0], span[-1]
         exposed = sum(1 for f in span if any(t[1] == 0.0 for t in threats(f)))
-        dragon_hp = [(f["dragon"] or {}).get("health") for f in span if (f["dragon"] or {}).get("present")]
+        dragon_hp = [(f["dragon"] or {})["health"] for f in span
+                     if (f["dragon"] or {}).get("present") and (f["dragon"] or {}).get("health") is not None]
         out.append({
             "phase": phase,
             "start": a,

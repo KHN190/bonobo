@@ -126,6 +126,7 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
         key = (-round(p, 3), -round(walk_s, 2))
         if best_key is None or key > best_key:
             best, best_key = opt, key
+    assert best is not None, "options is not empty"
     return tuple(round(c) for c in best)
 
 def evade_cost(here, spot, hazards, prot):

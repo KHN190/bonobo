@@ -3,6 +3,7 @@ dicts (setup, run, check, before, budget, tier, …) — SCENARIOS, built here a
 decides; it reads the words back into vocab's helpers and predicates. The bench's other names (the runner's, the
 helpers') are reached through here too: `from bonobo.bench import table as sheet`."""
 import importlib
+from typing import Any
 from . import core, vocab
 from .vocab import *  # noqa: F401,F403  (the sheet's names: the runner's, the primitives', the helpers')
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
@@ -12,7 +13,7 @@ WORDS = ("hooks", "named_all", "interrupt_when", "iter", "constant", "now_api", 
 resolve = vocab.resolve
 
 # -- values -------------------------------------------------------------------------------------------------------
-def dec(v):
+def dec(v) -> Any:
     """Data → value: positions, nested callables ("!kind", ...), containers."""
     if isinstance(v, tuple) and v and isinstance(v[0], str):
         if v[0] == "@" and len(v) == 4:
@@ -192,8 +193,9 @@ def rows(tier):
     """{name: row data} of one tier's table: its families expanded, its rows in words, its rows in code."""
     mod = importlib.import_module(TABLES[tier])
     out = expand(getattr(mod, "FAMILIES", ()))
-    code = getattr(mod, "CODE_ROWS", ())
-    for r in list(getattr(mod, "ROWS", ())) + list(code() if callable(code) else code):
+    code = getattr(mod, "CODE_ROWS", ())      # a list, or a fn building it
+    made = list(code) if isinstance(code, (list, tuple)) else code()
+    for r in list(getattr(mod, "ROWS", ())) + made:
         if r["name"] in out:
             raise ValueError(f"{r['name']} made twice in the {tier} table")
         out[r["name"]] = r

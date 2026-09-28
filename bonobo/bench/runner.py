@@ -624,6 +624,7 @@ def _setup_settled(sc, lo, hi, ex, feedback):
     """(what the built box and its actors still miss, the last /state): the client sees the build late, so read until it holds."""
     from .. import api
     from ..world import Region
+    bad, ents, s = [], [], {}
     for i in range(10):
         bad = setup_mismatches(Region(lo, hi).blocks, sc.get("expect", [])) if sc.get("expect") else []
         if not bad:

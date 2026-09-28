@@ -13,6 +13,7 @@ from .world import NEIGHBOURS6, Inventory, Region, add, feet
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .memory import Memory
     from .shapes import Cell
 
 DIRS4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
@@ -69,7 +70,9 @@ def mine_order(cells, start=None) -> list[Cell]:
     top down (never a cell while another of the batch sits above it). A sort, not a walk: what is left after any
     step keeps its order, so a batch rebuilt from the world after an interruption is the rest of the first."""
     cells = [tuple(c) for c in cells]
-    here = tuple(start) if start is not None else (cells[0] if cells else None)
+    if not cells:
+        return []
+    here = tuple(start) if start is not None else cells[0]
     return sorted(cells, key=lambda c: ((c[0] - here[0]) ** 2 + (c[2] - here[2]) ** 2, -c[1], c[0], c[2]))
 
 
@@ -77,7 +80,9 @@ def build_order(cells, start=None):
     """Pure: the order a batch places `cells` — the lowest layer first (every block has support), in it the nearest
     to `start` (else the first cell given). A sort: what is left after any step keeps its order."""
     cells = [tuple(c) for c in cells]
-    here = tuple(start) if start is not None else (cells[0] if cells else None)
+    if not cells:
+        return []
+    here = tuple(start) if start is not None else cells[0]
     return sorted(cells, key=lambda c: (c[1], sum((c[i] - here[i]) ** 2 for i in range(3)), c[0], c[2]))
 
 
@@ -210,7 +215,7 @@ def ground_in_column(solid, x, z, y_hint, span=32):
     return None
 
 LEG = 48   # blocks per travel leg on long trips
-ROAD_MEM = None   # the brain's memory: travelled legs are kept as a road network (roads.py) and reused
+ROAD_MEM: "Memory | None" = None   # the brain's memory: travelled legs are kept as a road network (roads.py) and reused
 
 BLOCK_RESERVE = 16   # blocks kept back from travel: shelter walls, a pillar out of a hole, the next bridge
 
@@ -448,7 +453,7 @@ def may_alter(purpose, policy):
     brk, plc, void = MOVES[purpose]
     return brk and bool(getattr(policy, "allow_dig", True)), plc and bool(getattr(policy, "allow_build", True)), void
 
-def go_to(pos, policy, range_=1.5, attempts=3, min_hp=MIN_WALK_HP, avoid_hazards=True, purpose="work"):
+def go_to(pos, policy, range_=1.5, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work"):
     """Walk; when the walker can't get there, build/dig a route toward the target."""
 
     pos = tuple(pos)
@@ -486,6 +491,7 @@ def _clear_of_hazards(pos):
 
 def _known_roads(here, pos, policy, purpose):
     """Walk the known roads toward `pos` where they beat the direct way; where the body ends up."""
+    assert ROAD_MEM is not None, "called only when the brain has wired its memory"
     known = ROAD_MEM.data.setdefault("roads", {}).setdefault(api.get("/state")["dimension"], [])
     for wp in roads.route(known, here, pos)[:-1]:
         t0 = time.time()

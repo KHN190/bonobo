@@ -230,7 +230,7 @@ def _thrown_there(c):
     site = next((s for s in c.args[0].mem.sites(OVERWORLD, kinds=["stronghold"])
                  if math.dist((s["pos"][0], s["pos"][2]), xz) <= 1), None)
     throws = (site or {}).get("throws") or []
-    if len(throws) < 2:
+    if site is None or len(throws) < 2:
         return False
     spot = triangulate(*throws[0], *throws[1])
     return spot is not None and math.dist(spot, (site["pos"][0], site["pos"][2])) <= 1

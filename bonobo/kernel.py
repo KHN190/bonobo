@@ -1,4 +1,7 @@
 """The planner. One function; the fight planner and ordinary play are the same function with a different model. They were two planners because they look different from inside — one thinks in hit points over four seconds, the other in beds and pickaxes over a day. They are not different. Both hold a state, both can price a state in seconds, both have a set of things they could do, each of which changes the state and costs time, and both want the thing that buys the most seconds. That is this module, and it is the whole of it: score(action) = price(state) − price(action.effect(state)) − action.cost_s `price` is the model's, and it is the ONLY place a number turns into seconds. There are no benefit tables and no urgency multipliers: a thing is worth the difference it makes to what the future costs. A bed is worth the night it removes; a tunnel is worth the exposure it removes from the windows still to come; neither needs a number written next to it. What the two models differ in is the horizon and the SCALE of the commitment, nothing else. Both commit; neither re-decides continuously, because a decision that can be revised at any instant is not a decision: normal   horizon a day       commitment = the plan's assumptions, minutes; released when one stops holding combat   horizon seconds     commitment = the action's atomicity, seconds; released when the action ends `cost_s` is what the action takes; `commitment_s` is how much of that cannot be abandoned half-way. They differ: a 0.4 s firing window is open-loop — there is no state in the middle of it to re-decide from — while a walk to a vein can be dropped after one step. The veto reads `commitment_s`, not `cost_s`: what must be survived is the part that cannot be called off. A model is any object with: price(state)                  → seconds the future costs from here actions(state)                → iterable of actions; or a plain attribute holding them, when the set does not depend on the state (a fight's actions come from its profile and never change) admissible(state, action)     → (allowed, why_not) — a veto, never a ranking default                       → the action taken when nothing else survives (may be None) An action is any object with: name                          → str cost_s                        → seconds it takes (the time is charged here, never inside `price`) commitment_s                  → seconds of that which cannot be abandoned (optional; defaults to cost_s) effect(state)                 → the state afterwards (pure: it must not mutate `state`) Nothing here knows about Minecraft, health, dragons or inventories."""
+from collections.abc import Iterable
+from typing import cast
+
 from . import estimate
 
 class Choice:
@@ -53,7 +56,8 @@ def survivors(model, state):
 
     allowed, rejected = [], []
     default = getattr(model, "default", None)
-    actions = model.actions(state) if callable(model.actions) else model.actions
+    # a fn of the state, or a plain attribute holding them (the module doc's model contract)
+    actions = cast(Iterable, model.actions(state) if callable(model.actions) else model.actions)
     for action in actions:
         if action is default:
             allowed.append(action)

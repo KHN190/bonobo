@@ -34,7 +34,7 @@ from ..core import SWEEP, _platform  # noqa: F401
 def _floor(block="stone", half=8, depth=3):
     return [f"fill {_c(at(-half, -depth, -half))} {_c(at(half, -1, half))} {block}"]
 
-def _tp(dx=0, dy=0, dz=0):
+def _tp(dx: float = 0, dy: float = 0, dz: float = 0):
     return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
 
 def _tree(x, z, wood="oak", height=5):

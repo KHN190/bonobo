@@ -16,7 +16,7 @@ from .world import Inventory, Region, add
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .shapes import Task
+    from .shapes import Cell, Task
 
 def _mod_at_least(version):
     def check(c):
@@ -47,7 +47,7 @@ def _go_to_machine(ctx, machine):
     if not nav.arrived(access, ctx.policy, range_=2, attempts=2):
         raise NotAvailable(f"{machine['name']} not reachable")
 
-def spot_options(bp, near, region, policy, radius=8, body=None):
+def spot_options(bp, near, region, policy, radius=8, body=None) -> "list[tuple[int, Cell, int, tuple]]":
     """Pure: [(prepare cost, origin, turns, prepare)] for building `bp` around `near`, cheapest first."""
 
     nx, ny, nz = near
