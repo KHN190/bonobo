@@ -237,8 +237,8 @@ def _arrived(start, target, began, ok, closer=False):
         if ok and straight > 0.5:
             state = api.get("/state")
             field.TERRAIN.observed(field.bucket_of(state), straight, time.time() - began)
-    except Exception:
-        pass
+    except api.McError:
+        pass                # the one read failed (the game away): the estimate waits for the next walk
     if ok:
         return True
     return Walked(math.dist(start, target) - math.dist(feet(), target)) if closer else False

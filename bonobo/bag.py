@@ -116,10 +116,11 @@ def empty_how(slots, need, price=None, chest_s=None, lava_near=False):
 
 def free_slots_plan(slots, need=0, price=None):
     """Pure: the stacks to drop to free `need` slots (let_go without a chest); dead tools always go."""
+    from .api import NotAvailable
     try:
         plan = [s for s, how in let_go(slots, need, price) if how == "drop"]
-    except Exception:
-        plan = []
+    except NotAvailable:
+        plan = []           # let_go's own answer: every stack is needed — a bug in it surfaces
     return plan + [s for s in slots if dead(s) and s not in plan]
 
 FREE_SLOTS_TARGET = 5     # keep this many slots free: crafting, pickups and loot need room
