@@ -47,16 +47,15 @@ class SpentTools(unittest.TestCase):
         return {"id": f"minecraft:{item}", "count": 1, "maxDamage": 100, "damage": 100 - left}
 
     def test_rows(self):
-        # (situation, the stack) → (kept, thrown first by let_go)
+        # (situation, the stack) → (kept, thrown to free a slot)
         rows = [("must fail: a spent diamond pickaxe thrown", self.tool("diamond_pickaxe", 1), (True, False)),
                 ("a spent netherite sword kept", self.tool("netherite_sword", 1), (True, False)),
                 ("a spent iron pickaxe thrown first", self.tool("iron_pickaxe", 1), (False, True)),
                 ("a spent diamond chestplate: armour, not a tool: thrown", self.tool("diamond_chestplate", 1),
                  (False, True)),
                 ("a working stone axe kept", self.tool("stone_axe", 50), (True, False))]
-        filler = {"id": "minecraft:dirt", "count": 64}
+        filler = {"id": "minecraft:bone", "count": 3}      # junk: droppable (dirt is the building floor)
         for name, st, (keep, first) in rows:
             with self.subTest(name):
                 self.assertEqual(st in bag.kept([st, filler]), keep)
-                out = bag.let_go([st, filler], 1)
-                self.assertEqual(bool(out) and out[0][0] is st, first)
+                self.assertEqual(st in bag.free_slots_plan([st, filler], 1), first)
