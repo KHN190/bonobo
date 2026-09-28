@@ -78,6 +78,31 @@ class ColumnsPossible(unittest.TestCase):
                 self.assertEqual(fight._columns_possible(cell), want)
 
 
+class SweepCheckParts(unittest.TestCase):
+    """A sweep's check names its parts: the row count, then each rule with what it said."""
+
+    def test_rows(self):
+        from bonobo.bench import core
+
+        def broken(rows):
+            return ["wave 1 not cleared"]
+
+        def kept(rows):
+            return []
+        rows = [("every rule kept", [kept], 1, (True, [("('rows',)", True), ("('kept',)", True)])),
+                ("must fail: a broken rule names its words", [broken, kept], 1,
+                 (False, [("('rows',)", True), ("('broken',)", "wave 1 not cleared"), ("('kept',)", True)])),
+                ("too few rows: the count, the rules not judged", [kept], 3,
+                 (False, [("('rows',)", "1 rows, need ≥ 3"), ("('kept',)", "not judged")])),
+                ("no rules: rows only", [], 1, (True, [("('rows',)", True)]))]
+        for name, rules, least, want in rows:
+            with self.subTest(name):
+                core.SWEEP["t"] = [{"cell": 1}]
+                check = core._sweep_check("t", "/nonexistent", rules, least)
+                self.assertEqual((check(None, None), runner.check_parts(check, None, None)), want)
+        core.SWEEP.pop("t", None)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

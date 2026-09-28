@@ -741,7 +741,9 @@ def check_parts(check, api, inv):
     for part in getattr(check, "parts", ()):
         word = getattr(part, "__table__", None) or getattr(part, "__name__", "?")
         try:
-            out.append((str(word), bool(part(api, inv))))
+            ok = bool(part(api, inv))
+            # a part that can say why (a sweep's rule: its messages) is read back in words, not as False
+            out.append((str(word), ok if ok or not hasattr(part, "why") else part.why()))
         except Exception as e:  # guard: a check word that raised is a readout of the failed row, not a bench crash
             out.append((str(word), f"{type(e).__name__}: {e} @ {traceback_of(e)}"))
     return out

@@ -156,15 +156,36 @@ def _sweep_check(name, path, rules, least):
     """The verdict is what the RULES say about the finished table — never which name won a cell. Only this run's rows
     (SWEEP[name], cleared at each row's setup): the file `path` is shared by every shard and holds older runs, so a
     run that wrote no rows fails instead of passing on another run's."""
-    def check(_api, _inv):
+    said = {}                    # each part's messages from the last judging: what check_parts reads back
+
+    def judge():
         rows = SWEEP.get(name) or []
-        if len(rows) < least:
-            return False
-        bad = [m for rule in rules for m in (rule(rows) or [])]
+        said.clear()
+        said["rows"] = [] if len(rows) >= least else [f"{len(rows)} rows, need ≥ {least}"]
+        if not said["rows"]:
+            for rule in rules:
+                said[_rule_name(rule)] = list(rule(rows) or [])
+        return said
+
+    def check(_api, _inv):
+        bad = [m for msgs in judge().values() for m in msgs]
         if bad:
             print(f"{name}: " + "; ".join(bad[:6]))
         return not bad
+
+    def part(key):
+        def ask(_api, _inv):
+            got = said if said else judge()
+            return key in got and not got[key]          # a rule not judged (too few rows) said nothing: no pass
+        ask.__table__ = (key,)
+        ask.why = lambda: "; ".join(said[key]) if said.get(key) else ("not judged" if key not in said else False)
+        return ask
+    # the parts a failed row's readout names (runner.check_parts): the row count, then each rule
+    check.parts = [part("rows")] + [part(_rule_name(r)) for r in rules]
     return check
+
+def _rule_name(rule):
+    return str(getattr(rule, "__table__", None) or getattr(rule, "__name__", "?"))
 
 # chat has no ids: every sender holds this for its send-and-read so no reply lands in another's read
 CHAT_LOCK = __import__("threading").RLock()
