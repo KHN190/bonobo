@@ -669,36 +669,59 @@ class DrainRegen(unittest.TestCase):
 
 
 class DeflectCells(unittest.TestCase):
-    """The deflect rows' words: a volley of 3 fireballs at the eye, each tracked to its end, judged on server health."""
+    """The deflect row's words: fireballs down a 1-wide corridor, each tagged and tracked to its end from the body's
+    position at each read, judged on server health."""
 
     def test_shot(self):
         from bonobo.bench.words import fight as wf
         eye = wf.deflect_eye()
-        ball, m = wf.shot_from((0, 0, -1), 12)
-        self.assertAlmostEqual(math.dist(ball, eye), 12.0, places=6)
+        ball, m = wf.shot_at()
+        self.assertAlmostEqual(math.dist(ball, eye), wf.SHOT_DIST, places=6)
         self.assertAlmostEqual(math.hypot(*m), wf.FIREBALL_SPEED, places=9)
-        self.assertGreater(m[2], 0, "aimed back at the eye")
-        places = {wf.shot_from(d, n)[0] for _t, d, n in wf.VOLLEY}
-        self.assertEqual(len(places), 3, "each shot from its own place")
-        self.assertEqual([t for t, *_ in wf.VOLLEY], sorted(t for t, *_ in wf.VOLLEY), "staggered")
+        self.assertLess(sum(m[i] * (ball[i] - eye[i]) for i in range(3)), 0, "aimed back at the eye")
+        self.assertLess(wf.SHOT_DIST, wf.CORRIDOR_LEN, "it starts inside the corridor")
 
     def test_fireball_end(self):
         from bonobo.bench.words import fight as wf
         eye = wf.deflect_eye()
-        ball, m = wf.shot_from(wf.VOLLEY[0][1], wf.VOLLEY[0][2])
-        coming, away = (ball, m), (ball, tuple(-c for c in m))      # the shot as fired, and turned back
-        # (situation, its (pos, velocity) reads, gone) → (resolved, deflected)
-        rows = [("velocity turned away after coming: deflected", [coming, away], False, (True, True)),
-                ("must fail: exploded without turning", [coming, coming], True, (True, False)),
-                ("must fail: still coming, not resolved", [coming, coming], False, (False, None)),
-                ("must fail: never came at the eye: not a punch", [away], False, (False, None))]
+        ball, m = wf.shot_at()
+        back = tuple(-c for c in m)
+        moved = tuple(eye[i] + (ball[i] - eye[i]) * 2 for i in range(3))     # the body past the ball, down the corridor
+        # (situation, its (pos, velocity, the body's eye then) reads, gone) → (resolved, deflected)
+        rows = [("velocity turned away from the body: deflected", [(ball, m, eye), (ball, back, eye)], False,
+                 (True, True)),
+                ("must fail: exploded without turning", [(ball, m, eye), (ball, m, eye)], True, (True, False)),
+                ("must fail: still coming, not resolved", [(ball, m, eye), (ball, m, eye)], False, (False, None)),
+                ("must fail: flew past a body that moved: judged from where it stands, not a turn",
+                 [(ball, m, moved), (ball, m, moved)], False, (False, None))]
         for name, reads, gone, want in rows:
             with self.subTest(name):
-                self.assertEqual(wf.fireball_end(reads, gone, eye), want)
+                self.assertEqual(wf.fireball_end(reads, gone), want)
+
+    def test_tags(self):
+        from bonobo.bench.words import fight as wf
+        # (situation, tags so far, ids seen, fired) → tags
+        rows = [("the first seen is shot 0", {}, [7], 1, {7: 0}),
+                ("the next new id is the next shot", {7: 0}, [7, 9], 2, {7: 0, 9: 1}),
+                ("must fail: an id past the shots fired is not tagged", {7: 0}, [7, 9], 1, {7: 0})]
+        for name, tags, seen, fired, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wf.tag_shots(tags, seen, fired), want)
+
+    def test_next_shot(self):
+        from bonobo.bench.words import fight as wf
+        # (situation, fired, closed shots) → a shot goes out now
+        rows = [("the first at once", 0, {}, True),
+                ("must fail: the next before the last resolves", 1, {}, False),
+                ("the next while the last resolves", 1, {0: True}, 1 < wf.SHOTS),
+                ("must fail: never past SHOTS", wf.SHOTS, {k: True for k in range(wf.SHOTS)}, False)]
+        for name, fired, closed, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wf.next_shot_due(fired, closed), want)
 
     def test_done(self):
         from bonobo.bench.words import fight as wf
-        n = len(wf.VOLLEY)
+        n = wf.SHOTS
         # (situation, fired, ends read) → done
         rows = [("every shot fired and read", n, n, True),
                 ("must fail: the last one fired but not read yet", n, n - 1, False),
@@ -709,17 +732,24 @@ class DeflectCells(unittest.TestCase):
 
     def test_verdict(self):
         from bonobo.bench.words import fight as wf
-        n = len(wf.VOLLEY)
+        n = wf.SHOTS
         every, one_missed = [True] * n, [True] * (n - 1) + [False]
-        # (situation, start hp, end hp, fired, deflected per fireball) → passed
+        # (situation, start hp, end hp, fired, deflected per shot) → passed
         rows = [("every one turned away, unhurt", 20.0, 20.0, n, every, True),
-                ("must fail: idle — one burst on us", 20.0, 14.0, n, one_missed, False),
+                ("must fail: idle — one burst on us", 20.0, 1.0, n, one_missed, False),
                 ("must fail: unhurt but one not turned", 20.0, 20.0, n, one_missed, False),
+                ("must fail: one never read", 20.0, 20.0, n, every[:-1] + [None], False),
                 ("must fail: not all fired", 20.0, 20.0, n - 1, every[:-1], False),
                 ("must fail: no health read", 20.0, None, n, every, False)]
         for name, h0, h1, fired, ends, want in rows:
             with self.subTest(name):
                 self.assertEqual(wf.volley_verdict(h0, h1, fired, ends), want)
+
+    def test_the_row_is_quiet(self):
+        from bonobo.bench.words import fight as wf
+        row = wf.deflect_row("deflect__volley")
+        self.assertTrue(row.get("quiet"), "perception paused and no fight from the setup on")
+        self.assertFalse(any("ghast" in str(step) for step in row["scene"]), "no ghasts at all")
 
     def test_health_read(self):
         from bonobo.bench.words import fight as wf

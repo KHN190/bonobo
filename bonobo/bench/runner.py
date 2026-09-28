@@ -721,7 +721,7 @@ def _run_row(sc, make_ctx, fired):
     timer = None
     try:
         try:
-            open_window()
+            open_window(bool(sc.get("quiet")))
             ctx = make_ctx()
             if sc.get("before"):
                 sc["before"](ctx)
@@ -837,11 +837,13 @@ ROW_MARK: dict = {}       # "mark": perception's look count when the row's windo
 _lifecycle.in_place(__name__, "ROW_MARK")
 
 
-def open_window():
+def open_window(quiet=False):
     """The one place a row's window opens, before its `before` hooks: perception unpaused and the answer mark taken
-    together — a hook that wakes a mob (block_gap's loose) had its answer land before the recording's own mark."""
+    together — a hook that wakes a mob (block_gap's loose) had its answer land before the recording's own mark.
+    A `quiet` row keeps perception paused: its run gives the eyes back (the jar's reflex alone answers)."""
     from .. import perception
-    perception.pause(False)
+    if not quiet:
+        perception.pause(False)
     ROW_MARK["mark"] = perception.looks_taken()
     ROW_MARK["t"] = time.time()
 
@@ -866,6 +868,12 @@ def _begin(name, sc, feedback, idle=False):
     perception.pause(True)
     lifecycle.reset_all()
     _setup(name, sc, feedback)
+    if sc.get("quiet"):
+        # no fight left running into a quiet row: stopped before any hook summons
+        from .. import fight_loop
+        held = fight_loop.engaged()
+        if held is not None:
+            fight_loop.disengage(held)
     if idle:
         from .. import api as _api
         try:
@@ -944,6 +952,7 @@ def run(name, make_ctx):
     finally:
         stop.set()
         sys.stdout = console.real
+        perception.pause(False)       # a quiet row whose run never gave the eyes back
         if rate:
             _command("tick rate 20", feedback)
         _api.CLOCK_HOOK = None

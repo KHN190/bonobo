@@ -1145,13 +1145,17 @@ WORDS.update(siege_detail=siege_detail, escape_detail=escape_detail, behaviour=b
 from ..bench_combat import (ARMED, ARMOUR, BLOOD, COUNT, DIMS, DISTANCE, ENEMY, GROUND, KIT, NEEDS,  # noqa: E402
                            UNARMED, WAVES, WEAPON)     # combat's dimensions, its data; last: its rows use these words
 
-# -- the deflect row: 3 ghast fireballs at the eye, each from its own place, staggered; the reflex punches each ---
-DEFLECT = {}            # the running volley: start hp, eye, fired, each fireball's outcome (deflected?), done
+# -- the deflect row: fireballs straight down a 1-wide corridor at the player, one after another; the reflex punches each
+DEFLECT = {}            # the running volley: start hp, fired, each shot's outcome (deflected?) in shot order, done
 EYE_Y = 1.62
+FIREBALL = "minecraft:fireball"
 FIREBALL_SPEED = 0.1    # a ghast's shot leaves at acceleration_power along its aim
 GHAST_HP = 10.0         # a ghast's max health
-# (seconds after the hook, where from (a direction from the player), how far): front, behind-left, above-right
-VOLLEY = ((0.5, (0, 0, -1), 12), (2.0, (-1, 0, 1), 8), (3.5, (1, 0.75, 0), 20))
+SHOTS = 2               # fired one after another: the next while the last one resolves
+SHOT_DIST = 12          # blocks down the corridor a shot starts from
+CORRIDOR = (1, 0, 0)    # the corridor runs from the player along this
+CORRIDOR_LEN = SHOT_DIST + 2    # past the shot's start: it spawns inside the corridor
+VOLLEY_WATCH_S = 20     # longest the volley is tracked
 
 
 def data_health(lines):
@@ -1168,11 +1172,26 @@ def deflect_eye():
     return (o[0] + 0.5, o[1] + EYE_Y, o[2] + 0.5)
 
 
-def shot_from(direction, dist):
-    """Pure: (fireball centre, its motion) for a shot `dist` out along `direction`, aimed at the eye."""
-    x, y, z = direction
-    n = math.sqrt(x * x + y * y + z * z)
-    u = (x / n, y / n, z / n)
+def corridor(length=CORRIDOR_LEN):
+    """Pure: the commands for a 1-wide, 3-high stone corridor from the player along CORRIDOR, closed behind him."""
+    dx, _dy, dz = CORRIDOR
+    side = (dz, 0, dx)          # across the corridor
+    def cell(i, up, s):
+        return at(dx * i + side[0] * s, up, dz * i + side[2] * s)
+    out = [f"fill {_c(cell(-2, -2, -2))} {_c(cell(length + 1, 5, 2))} air",
+           f"fill {_c(cell(-1, -1, -1))} {_c(cell(length, -1, 1))} stone",       # floor
+           f"fill {_c(cell(-1, 3, -1))} {_c(cell(length, 3, 1))} stone"]         # roof
+    for s in (-1, 1):
+        out.append(f"fill {_c(cell(-1, 0, s))} {_c(cell(length, 2, s))} stone")  # the two walls
+    out += [f"fill {_c(cell(-1, 0, 0))} {_c(cell(-1, 2, 0))} stone",              # closed behind
+            f"tp @p {_c(at(0, 0, 0))}", "kill @e[type=!player,distance=..40]"]
+    return out
+
+
+def shot_at(dist=SHOT_DIST):
+    """Pure: (fireball centre, its motion) for a shot `dist` down the corridor, aimed back at the eye."""
+    n = math.sqrt(sum(c_ * c_ for c_ in CORRIDOR))
+    u = tuple(c_ / n for c_ in CORRIDOR)
     eye = deflect_eye()
     ball = tuple(eye[i] + u[i] * dist for i in range(3))
     return ball, tuple(-c_ * FIREBALL_SPEED for c_ in u)
@@ -1183,10 +1202,10 @@ def heading(pos, vel, eye):
     return sum(vel[i] * (pos[i] - eye[i]) for i in range(3))
 
 
-def fireball_end(reads, gone, eye):
-    """Pure: (resolved, deflected) of one fireball from its (pos, velocity) reads: its velocity turned away from the
-    eye after coming at it = deflected; gone (exploded) without turning = not."""
-    signs = [heading(p, v, eye) for p, v in reads]
+def fireball_end(reads, gone):
+    """Pure: (resolved, deflected) of one fireball from its (pos, velocity, the body's eye then) reads: its velocity
+    turned away from the body after coming at it = deflected; gone (exploded) without turning = not."""
+    signs = [heading(p, v, eye) for p, v, eye in reads]
     came = next((i for i, h in enumerate(signs) if h < 0), None)
     if came is not None and any(h > 0 for h in signs[came + 1:]):
         return True, True
@@ -1195,16 +1214,30 @@ def fireball_end(reads, gone, eye):
     return False, None
 
 
+def tag_shots(tags, seen, fired):
+    """Pure: each fireball id tagged with its shot index in the order first seen, never past the shots fired."""
+    out = dict(tags)
+    for i in seen:
+        if i not in out and len(out) < fired:
+            out[i] = len(out)
+    return out
+
+
+def next_shot_due(fired, closed):
+    """Pure: the next shot goes out while the last one resolves (its end read), never before the first."""
+    return fired == 0 or (fired < SHOTS and (fired - 1) in closed)
+
+
 def volley_done(fired, closed):
     """Pure: every shot fired and each one's end read (a shot fired but not yet seen is not done)."""
-    return fired == len(VOLLEY) and closed >= fired
+    return fired == SHOTS and closed >= fired
 
 
 def volley_verdict(start_hp, end_hp, fired, ends):
-    """Pure: all shots fired, each one's velocity turned away from the eye (ends: deflected per fireball), unhurt."""
+    """Pure: every shot fired and each one turned away from the body (ends: per shot, in shot order), unhurt."""
     if start_hp is None or end_hp is None or end_hp < start_hp:
         return False
-    return fired == len(VOLLEY) and len(ends) == len(VOLLEY) and all(ends)
+    return fired == SHOTS and len(ends) == SHOTS and all(e is True for e in ends)
 
 
 def _server_hp():
@@ -1213,44 +1246,46 @@ def _server_hp():
 
 
 def _deflect_volley(ctx):
-    """`before` hook: a NoAI ghast behind each shot's line, then the shots on VOLLEY's schedule, each tracked to its
-    end (idle too: no shot waits for a deflect)."""
+    """`before` hook: the shots down the corridor, the next while the last resolves, each tracked to its end from
+    the body's position at each read (idle too: no shot waits for a deflect)."""
     from ..core import _command
+    from ... import api
     from ...world import entities
     from ...perception import read_combat
-    eye = deflect_eye()
-    for _t, direction, dist in VOLLEY:
-        g, _m = shot_from(direction, dist + 3.5)
-        _command(f"summon minecraft:ghast {g[0]:.2f} {g[1] - 2:.2f} {g[2]:.2f} "
-                 "{NoAI:1b,PersistenceRequired:1b}", [])
     DEFLECT.clear()
-    DEFLECT.update(start=_server_hp(), eye=eye, fired=0, ends=[], done=False)
+    DEFLECT.update(start=_server_hp(), fired=0, ends=[], done=False)
+
+    def fire():
+        ball, m = shot_at()
+        _command(f"summon {FIREBALL} {ball[0]:.3f} {ball[1] - 0.5:.3f} {ball[2]:.3f} "
+                 f"{{Motion:[{m[0]:.4f}d,{m[1]:.4f}d,{m[2]:.4f}d],acceleration_power:0.1d,ExplosionPower:1b}}", [])
+        DEFLECT["fired"] += 1
 
     def volley():
-        t0, series, closed = time.time(), {}, set()
-        while time.time() - t0 < 20 and not DEFLECT["done"]:
-            now = time.time() - t0
-            while DEFLECT["fired"] < len(VOLLEY) and now >= VOLLEY[DEFLECT["fired"]][0]:
-                ball, m = shot_from(*VOLLEY[DEFLECT["fired"]][1:])
-                _command(f"summon minecraft:fireball {ball[0]:.3f} {ball[1] - 0.5:.3f} {ball[2]:.3f} "
-                         f"{{Motion:[{m[0]:.4f}d,{m[1]:.4f}d,{m[2]:.4f}d],acceleration_power:0.1d,"
-                         "ExplosionPower:1b}", [])
-                DEFLECT["fired"] += 1
+        t0, series, tags, closed = time.time(), {}, {}, {}
+        while time.time() - t0 < VOLLEY_WATCH_S and not DEFLECT["done"]:
+            if next_shot_due(DEFLECT["fired"], closed):
+                fire()
             try:
+                s = api.get("/state")
+                eye = (s["x"], s["y"] + EYE_Y, s["z"])
                 # the one reader: vel (blocks/s) from the jar's velocity
                 near = {e["id"]: ((e["x"], e["y"] + 0.5, e["z"]), e["vel"])
-                        for e in read_combat(entities(64, ["minecraft:fireball"])) if "vel" in e}
+                        for e in read_combat(entities(64, [FIREBALL])) if "vel" in e}
             except McError:
-                near = {}
-            for i, read in near.items():
-                series.setdefault(i, []).append(read)
+                time.sleep(0.05)
+                continue
+            tags = tag_shots(tags, near, DEFLECT["fired"])
+            for i, (p, v) in near.items():
+                series.setdefault(i, []).append((p, v, eye))
             for i, reads in series.items():
-                if i in closed:
+                k = tags.get(i)
+                if k is None or k in closed:
                     continue
-                done, end = fireball_end(reads, i not in near, eye)
+                done, turned = fireball_end(reads, i not in near)
                 if done:
-                    closed.add(i)
-                    DEFLECT["ends"].append(end)
+                    closed[k] = turned
+            DEFLECT["ends"] = [closed.get(k) for k in range(DEFLECT["fired"])]
             DEFLECT["done"] = volley_done(DEFLECT["fired"], len(closed))
             time.sleep(0.05)
         DEFLECT["done"] = True
@@ -1258,15 +1293,15 @@ def _deflect_volley(ctx):
 
 
 def _deflect_watch():
-    """The reflex policy on, the agent driving; ends as soon as the last fireball resolves (≤ 20 s)."""
+    """The reflex policy on, the agent driving; ends as soon as the last fireball resolves (≤ VOLLEY_WATCH_S).
+    Perception stays paused from the setup (the row is `quiet`): the jar's reflex alone answers."""
     def run(ctx):
         from ... import api, perception
-        perception.pause(True)                   # the jar's reflex alone: the threat layer fought the ghasts
         try:
             api.post("/reflex", {"deflect": True, "shield": True, "counter": False})
             api.post("/takeover", {})           # the reflex runs only while the agent drives
             t0 = time.time()
-            while not DEFLECT.get("done") and time.time() - t0 < 20:
+            while not DEFLECT.get("done") and time.time() - t0 < VOLLEY_WATCH_S:
                 time.sleep(0.05)
             time.sleep(0.5)                      # the last blast lands
         finally:
@@ -1276,26 +1311,26 @@ def _deflect_watch():
 
 
 def _deflected():
-    """Check (the server's health read): every fireball's velocity turned away, the body unhurt (volley_verdict)."""
+    """Check (the server's health read): every shot turned away from the body, the body unhurt (volley_verdict)."""
     def check(api_, inv):
         from ..runner import CHECK_READOUT
         hp = _server_hp()
         CHECK_READOUT["deflect"] = {"start_hp": DEFLECT.get("start"), "end_hp": hp, "fired": DEFLECT.get("fired", 0),
-                                    "deflected": list(DEFLECT.get("ends", []))}
+                                    "shots": [{"shot": k, "deflected": e}
+                                              for k, e in enumerate(DEFLECT.get("ends", []))]}
         return volley_verdict(DEFLECT.get("start"), hp, DEFLECT.get("fired", 0), DEFLECT.get("ends", []))
     return check
 
 
 def deflect_row(name):
-    """Open platform, sword and shield: 3 fireballs (front 12, behind-left 8, above-right 20, 1.5 s apart) → each
-    punched back, unhurt."""
-    scene = [("cmd", c) for c in _platform(4)] + [
-        ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword"),
-        ("cmd", "item replace entity @p weapon.offhand with shield")]
-    return _row(name, "3 ghast fireballs, front 12, behind-left 8, above-right 20, 1.5 s apart, sword and shield: "
-                      "each punched back by the reflex, unhurt", "fight_loop",
+    """A 1-wide corridor, a sword: SHOTS fireballs straight down it at the player, the next while the last resolves
+    → each punched back, unhurt. Quiet: perception paused and no fight from the setup on (nothing to fight)."""
+    scene = [("cmd", c) for c in corridor()] + [
+        ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword")]
+    return _row(name, f"{SHOTS} fireballs down a 1-wide corridor from {SHOT_DIST} out, the next while the last "
+                      "resolves, a sword: each punched back by the reflex, unhurt", "fight_loop",
                 scene, ("deflect_watch",), [("deflected",)], budget=25, before=[("&deflect_volley",)], combat=True,
-                tier_fixed="exception", tags={"base": "deflect"})
+                quiet=True, tier_fixed="exception", tags={"base": "deflect"})
 
 
 from ... import lifecycle as _deflect_lifecycle  # noqa: E402
@@ -1308,4 +1343,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', 'trapped_room', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'VOLLEY', 'heading', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', 'trapped_room', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
