@@ -9,7 +9,7 @@ import functools
 import inspect
 import time
 
-from . import api, paths, skillcore, tape, knowledge
+from . import api, lifecycle, paths, skillcore, tape, knowledge
 from .api import McError, TaskStuck
 from .knowledge import have_remainder, needs_rows
 from .bag import has_room
@@ -28,6 +28,7 @@ class Call:
 
 # an interrupted call's base, wanted bag and anchors, for its resume (read off the world, never a step index); stale after RESUME_TTL_S
 RESUME = {}
+lifecycle.on_reset(lambda: RESUME.clear(), covers=("RESUME",))     # an anchor from the last life (another site) resumes nothing
 RESUME_TTL_S = 300
 CALLS = []
 # skill → fn (state, args) → the keys a call fixes at its first start, kept so its resume rebuilds against the same anchor

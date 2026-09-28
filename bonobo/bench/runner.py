@@ -739,6 +739,9 @@ def check_parts(check, api, inv):
 
 
 CHECK_READOUT = {}      # the last failed row's parts and, for a fight, its numbers (the report carries them)
+# a row's own records: a passing row must not report the last failed row's readout
+from .. import lifecycle as _lifecycle  # noqa: E402
+_lifecycle.in_place(__name__, "CHECK_READOUT", "LAST_FEEDBACK", "LAST_LINES", "SETUP_S", "TRACE_NOW")
 
 
 def _row_verdict(sc, seconds, crashed, fired, exc, note):
@@ -803,11 +806,8 @@ def run(name, make_ctx):
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
             _command(f"tick rate {rate}", feedback)
         perception.PAUSED = True
-        _api.clear_requests()      # nothing the last row left pending (a nightfall boundary) stops this one
-        from .. import fight_loop as _fight
-        _fight.reset()             # nor the fight's held decision (a target id from the last row)
-        from .core import SWEEP
-        SWEEP.pop(name, None)      # a sweep's check reads only the rows this run writes
+        from .. import lifecycle
+        lifecycle.reset_all()      # nothing the last row left (a pending boundary, a held target id, a sweep) leaks in
         try:
             _setup(name, sc, feedback)
         except SetupInvalid as e:

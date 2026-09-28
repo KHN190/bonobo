@@ -4,7 +4,7 @@ import math
 import threading
 import time
 
-from . import api, arbiter, fight_loop, hazard, paths, estimate, field as _field, nav, threat
+from . import api, arbiter, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat
 from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
@@ -372,6 +372,21 @@ _KIT, _KIT_SIG = {}, None
 
 _FAILED = set()          # what perceived() already logged once: a failing read says so, and only once
 
+
+def _forget_life():
+    """What this thread measured and read in the last life (row, death, dimension): the health bar's rate, the
+    entities' velocities, the looks it took, the ground and the kit it read. PAUSED is the bench's switch, not state."""
+    global HURT_RATE, _HP_SEEN, LAST_HERE, GRID, GRID_AT, GRID_AT_POS, REGION, _KIT, _KIT_SIG, _SEEN, ANSWERED, _GROUND
+    HURT_RATE, _HP_SEEN, LAST_HERE = 0.0, None, None
+    GRID, GRID_AT, GRID_AT_POS, REGION = None, 0.0, None, None
+    _KIT, _KIT_SIG = {}, None
+    # rebound, not cleared: a perception round in flight finishes on the old ones (this runs off its thread)
+    _SEEN, ANSWERED, _GROUND = {}, [], {}
+
+
+lifecycle.on_reset(_forget_life, covers=("HURT_RATE", "_HP_SEEN", "LAST_HERE", "GRID", "GRID_AT", "GRID_AT_POS",
+                                         "REGION", "_KIT", "_KIT_SIG", "_SEEN", "ANSWERED", "_GROUND"))
+
 def perceived(state, now, ground_of=None, kit_of=None):
     """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
 
@@ -404,7 +419,7 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
         GRID, REGION = memo_ttl(_GROUND, here, GRID_TTL_S, read, now, one=True)
     except Exception:
         return GRID                  # a failed read keeps the last field
-    GRID_AT, GRID_AT_POS = _GROUND[here][0], here
+    GRID_AT, GRID_AT_POS = _GROUND.get(here, (now,))[0], here     # .get: a reset may rebind _GROUND meanwhile
     return GRID
 
 def footing(state):

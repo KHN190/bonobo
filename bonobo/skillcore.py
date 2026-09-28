@@ -3,7 +3,7 @@ free of skill logic so a skill module's readiness hash doesn't change with unrel
 import math
 import time
 
-from . import api, beliefs, knowledge as _know, tape
+from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, EYE_HEIGHT, bare
@@ -60,6 +60,7 @@ class ToolMissing(McError):
         self.kind, self.tier = kind, tier
 
 _BAN_COUNTS = {}
+lifecycle.in_place(__name__, "_BAN_COUNTS")     # in place: every Context shares it; bans name the last life's cells
 
 def banned(blacklist, pos, now=None):
     """Pure given `now`: is `pos` (a cell, or (entity id, 0, 0)) banned in `blacklist` ({key: expiry})?"""

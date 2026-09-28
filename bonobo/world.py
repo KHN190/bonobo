@@ -1,7 +1,7 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
 import time
 
-from . import api
+from . import api, lifecycle
 from .data import (DAY_END, DAY_TICKS, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
                    TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
 
@@ -146,6 +146,8 @@ class Snapshot:
 
 SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
 _SIGHT = {"key": None, "t": 0.0, "near": {}}
+# the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
+lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
 _PER_BLOCK = []            # [bool] once known: the running jar answers /find?perBlock (≥ 0.1.55)
 
 def _per_block_ok():

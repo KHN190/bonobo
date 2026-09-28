@@ -5,7 +5,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import paths, tape
+from . import lifecycle, paths, tape
 from .data import EXCEPTIONS, TASK_WAIT_S, item_ids
 
 # no default instance path: a wrong one read no token and every request came back 401
@@ -93,6 +93,9 @@ def clear_requests():
     NightFell in the next (deposit_home_chest after dig_in_night, 0 s)."""
     global INTERRUPT, AT_BOUNDARY
     INTERRUPT = AT_BOUNDARY = None
+
+
+lifecycle.on_reset(clear_requests, covers=("INTERRUPT", "AT_BOUNDARY"))
 
 
 def consume_interrupt():
@@ -447,6 +450,15 @@ LAST_SEGMENT_S = 2.0
 
 # (chain signature, its last task's id): re-deciding must not restart work under way
 LAST_POSTED = None
+
+
+def _forget_posted():
+    """The last life's chain is not work under way in this one (its task id is gone with it)."""
+    global LAST_POSTED
+    LAST_POSTED = None
+
+
+lifecycle.on_reset(_forget_posted, covers=("LAST_POSTED",))
 
 def chain_signature(tasks):
     """What makes two chains the same work: the task list, verbatim and in order."""

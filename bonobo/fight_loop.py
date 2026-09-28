@@ -4,7 +4,7 @@ import math
 import threading
 import time
 
-from . import api, arbiter, nav, field as _field, kernel, threat
+from . import api, arbiter, lifecycle, nav, field as _field, kernel, threat
 from .api import NotAvailable
 from .skillcore import Context
 from .world import Inventory, Snapshot
@@ -39,12 +39,19 @@ def engaged():
     return _ENG["intent"] if t is not None and t.is_alive() else None
 
 def reset():
-    """Forget the held decision and the chase clock: nothing a fight decided carries into work that starts now
-    (a bench row: the last row's Held named a dead zombie's id — the same leak as a pending AT_BOUNDARY)."""
-    global HELD
+    """Forget the held decision, the last bid (a stale answer re-decided on the last row's state), the chase clock and
+    a finished engagement's record: nothing a fight decided carries into work that starts now (a bench row: the last
+    row's Held named a dead zombie's id). A live engagement's record is its own thread's; it is left to end itself."""
+    global HELD, _CHASE, _ENG, _LAST_BID
     HELD = None
-    _CHASE["at"] = None
-    _LAST_BID.clear()
+    # rebound, not cleared: the engagement thread may be reading the old ones
+    _CHASE, _LAST_BID = {"at": None}, {}
+    with _ENG_LOCK:
+        if engaged() is None:
+            _ENG = {"thread": None, "want": None, "failure": {}, "intent": None}
+
+
+lifecycle.on_reset(reset, covers=("HELD", "_LAST_BID", "_CHASE", "_ENG"))
 
 
 def carrying():
@@ -217,9 +224,10 @@ def redecide(gone):
     HELD = None
     rows, ids = threat.threats_seen()
     kept = [(r, i) for r, i in zip(rows, ids) if i != gone] if ids else [(r, None) for r in rows]
-    if not kept or "state" not in _LAST_BID:
+    last = _LAST_BID               # one read: a reset may rebind it meanwhile
+    if not kept or "state" not in last:
         return None
-    chosen = bid(_LAST_BID["state"], [r for r, _ in kept], _LAST_BID["price"], ids=[i for _, i in kept])
+    chosen = bid(last["state"], [r for r, _ in kept], last["price"], ids=[i for _, i in kept])
     return chosen[0] if chosen else None
 
 LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end

@@ -258,7 +258,7 @@ def aim_hits_enderman(aim_at, here, near, half_angle=12.0, radius=24.0, head_ban
             return True
     return False
 
-from . import beliefs
+from . import beliefs, lifecycle
 
 # a view of the belief table, not a copy (two copies disagreed for months)
 HAZARD_R = beliefs.keep_out()
@@ -272,6 +272,14 @@ def hazard_points(near, radii=None):
 # the current hazard set: written by perception, read by movement, kept here beside its points
 HAZARDS = []          # [(point, radius)], newest perception round wins
 HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
+
+
+def _forget_hazards():
+    global HAZARDS, HAZARDS_AT
+    HAZARDS, HAZARDS_AT = [], 0.0
+
+
+lifecycle.on_reset(_forget_hazards, covers=("HAZARDS", "HAZARDS_AT"))
 
 def note_hazards(near, now=None):
     """Record what can hurt us right now. Pure apart from the clock; called from the perception round."""
