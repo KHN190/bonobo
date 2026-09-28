@@ -86,10 +86,19 @@ class Idle(unittest.TestCase):
     def test_verdict(self):
         rows = [("idle fails the check", False, False, runner.VALID),
                 ("must fail: an idle body passes", True, False, runner.INVALID),
-                ("passed but died: a death fails any run", True, True, runner.VALID)]
+                ("must fail: passed but died — valid only by the death, flagged apart", True, True, runner.DIED_ONLY),
+                ("failed and died: the check failed", False, True, runner.VALID)]
         for why, reached, died, want in rows:
             with self.subTest(why):
                 self.assertEqual(runner.idle_verdict(reached, died), want)
+
+    def test_one_hp(self):
+        rows = [("20 hp: 19 to take", 20.0, 19.0), ("already 1: nothing", 1.0, 0.0), ("7.5: 6.5", 7.5, 6.5),
+                ("must fail: below 1 never heals", 0.5, 0.0)]
+        for why, hp, want in rows:
+            with self.subTest(why):
+                self.assertEqual(runner.one_hp_damage(hp), want)
+        self.assertEqual(runner.health_of(["knh190 has the following entity data: 20.0f"]), 20.0)
 
     def test_recorded_apart(self):
         self.assertNotEqual(runner.IDLE_TABLE, TABLE)

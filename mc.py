@@ -238,6 +238,8 @@ def _scenario_idle(sheet, names, brain):
     print("idle: " + ", ".join(f"{v} {len(n)}" for v, n in sorted(out.items())))
     if out.get(sheet.INVALID):
         print("INVALID (an idle body passes them): " + " ".join(out[sheet.INVALID]))
+    if out.get(sheet.DIED_ONLY):
+        print("DIED_ONLY (the idle check passed; only the death failed them): " + " ".join(out[sheet.DIED_ONLY]))
 
 
 MIGRATE_KEYS = r"""
@@ -442,8 +444,9 @@ def main():
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
     p.add_argument("--idle", action="store_true",
-                   help="run/all: set each row up, do nothing for its budget, check — a row that passes is INVALID "
-                        "(recorded apart from the readiness table)")
+                   help="run/all: set each row up at 1 hp, do nothing until its check passes, it dies or its budget "
+                        "— a row that passes is INVALID, one that passed but died DIED_ONLY (recorded apart from the "
+                        "readiness table)")
     p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
     p.add_argument("--tier", choices=["core", "common", "brain", "combat", "exception", "acceptance", "all"], default="core",
                    help="which tier to run with `all` / list (default core)")

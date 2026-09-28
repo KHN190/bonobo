@@ -799,14 +799,38 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
         note = note or f"check failed: {e} @ {traceback_of(e)}"
     return ok, exc, note
 
-def _begin(name, sc, feedback):
+def _begin(name, sc, feedback, idle=False):
     """Every row's one entry, normal or idle: perception paused (commands rebuild the world), per-life state reset
     (lifecycle.reset_all: nothing the last row left — a pending boundary, a held target id, a sweep — leaks in),
-    then the setup, which respawns a body the last row left dead (_setup → _respawn). Raises SetupInvalid."""
+    then the setup, which respawns a body the last row left dead (_setup → _respawn). Raises SetupInvalid.
+    Idle: the jar's reflex off and the body at 1 hp — any harm the row holds ends the window at once."""
     from .. import lifecycle, perception
     perception.pause(True)
     lifecycle.reset_all()
     _setup(name, sc, feedback)
+    if idle:
+        from .. import api as _api
+        try:
+            _api.post("/reflex", {"shield": False, "counter": False, "deflect": False})
+        except _api.McError as e:
+            _api.swallowed("idle: reflex off", e)
+        hp = health_of(_command("data get entity @p Health", feedback))
+        if hp is not None and hp > 1:
+            _command(f"damage @p {one_hp_damage(hp)} minecraft:out_of_world", feedback)
+
+
+def health_of(lines):
+    """Pure: Health from '/data get entity … Health' feedback, or None."""
+    for line in lines:
+        m = re.search(r"entity data: ([0-9.]+)f?", line)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def one_hp_damage(hp):
+    """Pure: the damage that leaves 1 hp (never kills, never heals)."""
+    return max(0.0, round(float(hp) - 1.0, 2))
 
 def run(name, make_ctx):
     """Set up and run one scenario (test world only)."""
@@ -886,11 +910,15 @@ def run(name, make_ctx):
 
 IDLE_TABLE = os.path.join(BENCH, "idle.json")
 VALID, INVALID, IDLE_SETUP, IDLE_ERROR = "VALID", "INVALID", "SETUP_INVALID", "ERROR"
+DIED_ONLY = "DIED_ONLY"     # the idle check passed, but the body died: valid only by the death, not by the check
+IDLE_POLL_S = 1.0           # the idle window reads its check this often; ends on a pass or a death
 
 
 def idle_verdict(reached, died):
-    """Pure: VALID when an idle body fails the row's check (or died: a death fails any run), INVALID when it passes."""
-    return INVALID if reached and not died else VALID
+    """Pure: VALID when an idle body fails the row's check, INVALID when it passes; passed but died: DIED_ONLY."""
+    if reached:
+        return DIED_ONLY if died else INVALID
+    return VALID
 
 
 def record_idle(table, name, code, verdict_, note=""):
@@ -902,8 +930,8 @@ def record_idle(table, name, code, verdict_, note=""):
 
 
 def run_idle(name, make_ctx):
-    """Set up row `name` exactly as `run` does and run its `before` hooks (they finish the scene), then post nothing
-    for the row's budget — perception kept paused, so no reflex moves the body — and read its check. An
+    """Set up row `name` exactly as `run` does (idle: the reflex off, the body at 1 hp) and run its `before` hooks,
+    then post nothing — perception paused — reading its check until it passes, the body dies, or the budget. An
     expect_failure row (`fails`) is granted its failure (FAILED_AS_EXPECTED), so what is judged is its world parts:
     VALID only if those fail an idle body. Returns (verdict, note, code); written to IDLE_TABLE only."""
     from .. import api as _api
@@ -920,14 +948,14 @@ def run_idle(name, make_ctx):
         if rate:
             _command(f"tick rate {rate}", feedback)
         try:
-            _begin(name, sc, feedback)     # run's own entry; perception stays paused through the idle window
+            _begin(name, sc, feedback, idle=True)     # perception stays paused through the idle window
             if NEXT_ROW[0] and NEXT_ROW[0] != name:
                 prebuild(NEXT_ROW[0])
             threading.Thread(target=_trace, args=(stop, trace), daemon=True).start()
             LAST_FEEDBACK[:] = feedback
             if sc.get("before"):
                 sc["before"](make_ctx())
-            time.sleep(sc["budget"])
+            deadline = time.time() + sc["budget"]
         except SetupInvalid as e:
             note = f"SETUP_INVALID: {e}"
         except Exception as e:  # guard: a hook of ours broke — the idle row records it and says nothing either way
@@ -936,12 +964,16 @@ def run_idle(name, make_ctx):
             from .words.checks import BASE, FAILED_AS_EXPECTED
             if sc.get("fails"):
                 FAILED_AS_EXPECTED[BASE.get("name", name)] = "idle: the expected failure granted"
-            inv = bag_now()
-            try:
-                reached = bool(sc["check"](_api, inv))
-            except Exception as e:  # guard: a check that raised is no pass, and the idle row records why
-                reached, note = False, f"check raised {type(e).__name__}: {e} @ {traceback_of(e)}"
-            died = died_during(trace)
+            while True:                  # ends on a pass, a death, or the budget: never idles past what decides it
+                inv = bag_now()
+                try:
+                    reached = bool(sc["check"](_api, inv))
+                except Exception as e:  # guard: a check that raised is no pass, and the idle row records why
+                    reached, note = False, f"check raised {type(e).__name__}: {e} @ {traceback_of(e)}"
+                died = died_during(trace)
+                if reached or died or time.time() >= deadline:
+                    break
+                time.sleep(IDLE_POLL_S)
             verdict_ = idle_verdict(reached, died)
             parts = check_parts(sc["check"], _api, inv)
             note = "; ".join(x for x in (note, f"idle check {'passed' if reached else 'failed'}",
