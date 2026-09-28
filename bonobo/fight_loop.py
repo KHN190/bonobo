@@ -97,6 +97,9 @@ def carry(want_of, answer, going, held, again=False):
         elif held["task_id"] is not None:
             r = api.get(f"/task?id={held['task_id']}&wait=1")
             if r.get("status") != "running":
+                # what the jar says the task did (hits, a weapon it could not hold): an attack posted that landed
+                # nothing left no trace (fight_zombie_1: the zombie 2 blocks off at 20 hp every sample)
+                api.detail(f"  fight {want.kind}: task {r.get('status')} — {r.get('message')} {r.get('result') or ''}")
                 held["task_id"] = None
                 if again:
                     held["done"] = None
