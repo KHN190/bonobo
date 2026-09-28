@@ -224,6 +224,16 @@ def _restock(cell):
                            seed=cell.get("seed")):
         _chat(command)
 
+ENGAGED_INTENT: dict = {}     # "intent": the priced options at the first answer that went out in the window
+
+
+def missing_columns(cell, start, engaged=None):
+    """Pure: the columns the cell paid for that were not on offer — read once engaged (`engaged`), not at the window's
+    start (a walker held 11 off offered only ignore)."""
+    intent = engaged or start
+    return sorted(_columns_possible(cell) - set(intent.get("options") or {})) if intent.get("rows") else []
+
+
 def _combat_execute(seconds, until=None, cell=None):
     """Live in the cell with ONE layer driving, recording every look the threat layer took and a 5 Hz trace."""
     import threading
@@ -237,6 +247,7 @@ def _combat_execute(seconds, until=None, cell=None):
     mark = perception.looks_taken() if mark is None else mark
     began, worst = time.time(), Snapshot.from_readings(api.get("/state"), bag_now()).state["health"]
     trace, stop = [], threading.Event()
+    ENGAGED_INTENT.clear()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)
     watcher.start()
     # ONE layer drives: the planner takes no round in the window (Brain.not_taking_part, which this used, went in
@@ -248,6 +259,9 @@ def _combat_execute(seconds, until=None, cell=None):
             worst = min(worst, state["health"])
             if state["health"] <= 0:
                 break
+            if "intent" not in ENGAGED_INTENT and any(a.get("outcome") == "answered"
+                                                        for a in perception.answered_since(mark)):
+                ENGAGED_INTENT["intent"] = _combat_intent(dict(state))     # what was on offer once it was engaged
             if cell and not _hostiles(radius=24, kinds={ENEMY.get(cell.get("enemy"))} - {None}):
                 _restock(cell)
             time.sleep(TRACE_EVERY_S)
@@ -312,7 +326,7 @@ def _fought(kinds, seconds):
         # a window blind too long is not evidence
         dark = blind_s(answered, took)
         priced = intent.get("state") or {}
-        missing = sorted(_columns_possible(cell) - set(intent.get("options") or {})) if intent.get("rows") else []
+        missing = missing_columns(cell, intent, ENGAGED_INTENT.get("intent"))
         intent = dict(intent, state=_plain(intent.get("state")), missing_column=missing,
                       carried={k: priced.get(k) for k in ("blocks", "food_items", "shield", "sword")})
         return {"intent": intent, "answered": answered, "trace": trace,
@@ -588,7 +602,7 @@ def _record_with_start(record):
 # -- CT3: fights on a walled platform, the whole agent running; judged by the world and the decision rhythm (no bid gap over 1.5 × FIGHT_POLL_S)
 FIGHT_LOG: dict = {"bids": []}        # also keeps the real fight_loop.bid
 from ... import lifecycle as _lifecycle  # noqa: E402
-_lifecycle.in_place(__name__, "FIGHT_LOG")     # a row's own record
+_lifecycle.in_place(__name__, "FIGHT_LOG", "ENGAGED_INTENT")     # a row's own record
 
 def _record_bids(ctx):
     """`before` hook: time every bid the threat layer makes during this row (the fight's decision clock)."""
@@ -1205,4 +1219,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

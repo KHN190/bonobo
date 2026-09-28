@@ -309,6 +309,20 @@ class TheWindowOpensBeforeTheHooks(unittest.TestCase):
                 self.assertEqual(got, want)
 
 
+class MissingColumnsOnceEngaged(unittest.TestCase):
+    def test_rows(self):
+        cell = {"kit": "blocks", "blood": "whole"}
+        start = {"rows": 1, "options": {"ignore": {}}}
+        engaged = {"rows": 1, "options": {"ignore": {}, "reshape": {}, "wall_in": {}}}
+        rows = [("engaged: all offered", start, engaged, []),
+                ("must fail: read at the window start", start, None, ["reshape", "wall_in"]),
+                ("engaged without the pod", start, {"rows": 1, "options": {"reshape": {}}}, ["wall_in"]),
+                ("nothing in reach ever", {"rows": 0}, None, [])]
+        for name, s0, eng, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.missing_columns(cell, s0, eng), want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 
