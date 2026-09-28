@@ -182,6 +182,15 @@ def _combat_intent(state: dict[str, Any]):
 
 TRACE_EVERY_S = 0.2
 
+def reflex_last(api_):
+    """The jar's last reflex act from GET /reflex (`last` / `lastAct`), or None when this jar doesn't say."""
+    try:
+        r = api_.get("/reflex")
+    except McError:
+        return None
+    return r.get("last") or r.get("lastAct")
+
+
 def _sampler(stop, out, began):
     """The trace, on its own thread."""
     from ... import api as _api
@@ -192,9 +201,14 @@ def _sampler(stop, out, began):
             state = _api.get("/state")
             near = [(e["type"], round(e["distance"], 2), round(e.get("health", 0.0), 1))
                     for e in entities(24) if e.get("type") in kinds]
+            task = (state.get("control") or {}).get("task") or {}
             out.append({"t": round(time.time() - began, 2), "hp": state["health"],
                         "pos": [round(state[k], 2) for k in ("x", "y", "z")], "near": near,
-                        "blocking": bool(state.get("blocking"))})
+                        "blocking": bool(state.get("blocking")),
+                        # what moved the body: the running task and the jar's last reflex act (escape: off the pillar)
+                        "task": [task.get("type"), task.get("status"), str(task.get("message") or "")[:60]]
+                        if task else None,
+                        "reflex": reflex_last(_api)})
         except McError:
             pass
         stop.wait(TRACE_EVERY_S)
@@ -1189,4 +1203,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
