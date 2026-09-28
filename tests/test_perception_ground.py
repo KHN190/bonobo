@@ -47,6 +47,27 @@ class Ground(unittest.TestCase):
                                  ((-8, 56, -8), (8, 72, 8), blocks), "the region read is kept for evade's footing")
 
 
+class Seal(unittest.TestCase):
+    """A 1-wide passage (walled both sides, feet and head) is sealed by two blocks: the field says so, and pricing
+    reads a walker's arrival as never once they are in (threat.reshape_options)."""
+    ROWS = [  # (why, blocks) → blocks that seal the way we stand in
+        ("walls east and west: a passage running north", {**floor(R, R), **{(x, y, 0): "stone" for x in (1, -1)
+                                                                              for y in (64, 65)}}, 2),
+        ("walls north and south: a passage running east", {**floor(R, R), **{(0, y, z): "stone" for z in (1, -1)
+                                                                               for y in (64, 65)}}, 2),
+        ("flat stone all round: nothing we carry seals it", floor(R, R), None),
+        ("must fail: walls at the feet only — a 1-high sill, not a passage", {**floor(R, R), (1, 64, 0): "stone",
+                                                                               (-1, 64, 0): "stone"}, None),
+    ]
+
+    def test_the_seal_over_the_blocks(self):
+        for why, blocks, seal in self.ROWS:
+            with self.subTest(why):
+                fresh()
+                got = perception.ground(HERE, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, blocks))
+                self.assertEqual(got.seal, seal)
+
+
 class Perceived(unittest.TestCase):
     def test_the_kit_does_not_wait_on_the_ground(self):
         def boom(_state):

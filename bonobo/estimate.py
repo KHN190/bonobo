@@ -33,6 +33,8 @@ def arrival_s(here, hazard, ground=None, horizon=None):
     mob = MOBS.get(hazard[3], {})
     horizon = horizon_s(horizon)
     slower = 1.0 if ground is None else ground.slowdown(bool(mob.get("squeezes")))
+    if slower == float("inf"):
+        return slower                # the way is sealed: it never arrives
     futures = combat_model.hypotheses(hazard, here, closing=float(mob.get("speed", 2.5)))
     # ask the geometry for a window this ground can deliver, and answer on the same clock (else "30 s" came from a 20 s account)
     seconds = combat_model.min_tti(here, futures, horizon=horizon / slower)

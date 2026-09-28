@@ -176,11 +176,13 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             if where == "between":
                 after = after.with_block()
             seconds = each_s * n
-            # shaping kills nothing: what it leaves never falls below walking away's (else a pillar outbid killing a zombie)
-            leaves = max(estimate.pressure_hp_s(here, hazards, prot, ground=after, shape=(where, n)),
-                         press * float(ENGAGE["follow_p"]))
-            still = [h for h in hazards
-                     if arrival(here, h, ground=after) <= work_s]
+            # shaping kills nothing: what can still come at us afterwards follows as walking away's does (else a pillar
+            # outbid killing a zombie) — but what the shape shuts out for good (a sealed passage: arrival inf over the
+            # ground after) follows no one, and leaves nothing
+            coming = [h for h in hazards if arrival(here, h, ground=after) != float("inf")]
+            follows = pressure(here, coming, prot, ground=grid) * float(ENGAGE["follow_p"]) if coming else 0.0
+            leaves = max(estimate.pressure_hp_s(here, hazards, prot, ground=after, shape=(where, n)), follows)
+            still = [h for h in coming if arrival(here, h, ground=after) <= work_s]
             blast_after = burst_damage(here, still, prot) if still else 0.0
             if leaves > press - float(ENGAGE["shape_min_gain"]) * max(press, 1e-6) \
                     and blast_after >= blast_here - 1e-6:

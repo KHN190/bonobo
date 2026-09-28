@@ -31,11 +31,12 @@ TERRAIN = Terrain()
 
 class Field:
 
-    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None):
+    def __init__(self, speed=4.3, bucket="open", blocks=0, terrain=None, seal=None):
         self.speed = float(speed)
         self.bucket = bucket
         self.blocks = int(blocks)
         self.terrain = terrain or TERRAIN
+        self.seal = None if seal is None else int(seal)   # blocks that seal the way we stand in; None: nothing we carry seals it
 
     def slowdown(self, squeezes=False):
         """How much longer anything takes over this ground than a straight line: learned per bucket times our placed blocks' cost."""
@@ -51,13 +52,16 @@ class Field:
 
         if not self.blocks:
             return 1.0
+        # the way sealed: a walker never arrives (a squeezer — spider, climber — still does, a little later)
+        if not squeezes and self.seal is not None and self.blocks >= self.seal:
+            return float("inf")
         return SQUEEZE_FACTOR if squeezes else BLOCK_FACTOR ** self.blocks
 
     def blocks_worth_placing(self):
-        return self.bucket != "open"
+        return self.bucket != "open" or self.seal is not None
 
     def with_block(self, cell=None):
-        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain)
+        return Field(self.speed, self.bucket, self.blocks + 1, self.terrain, self.seal)
 
     def choke(self, src, dst, within=3.0):
         if math.dist(src, dst) < 2.0:
@@ -83,6 +87,16 @@ def bucket_at(region, here, radius):
         return "enclosed"
     return "underground" if any(region.inside(c) and region.solid(c) for c in above) else "open"
 
+def seal_at(region, here):
+    """Pure: 2 when `here` is a 1-wide passage — walled on both sides along x or along z, at feet and head — so two
+    blocks in it (feet and head: a walker jumps one) seal the way; else None (wider ground is not sealed at a glance)."""
+
+    x, y, z = (int(math.floor(v)) for v in here)
+    for dx, dz in ((1, 0), (0, 1)):
+        if all(region.solid((x + s * dx, yy, z + s * dz)) for s in (1, -1) for yy in (y, y + 1)):
+            return 2
+    return None
+
 def from_region(region, here, radius, speed=4.3, terrain=None):
-    """The Field over the blocks read around `here` (perception.ground): its bucket from the blocks themselves."""
-    return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain)
+    """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
+    return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here))

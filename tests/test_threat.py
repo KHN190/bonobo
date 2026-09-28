@@ -610,6 +610,35 @@ class EveryColumnMustBeSurvivable(unittest.TestCase):
                 self.assertEqual(kind in {o.kind for o in threat.options(state)}, offered)
 
 
+class ASealedPassageLeavesNothing(unittest.TestCase):
+    """Reshaping is priced by what still gets through afterwards, from the ground: a walker shut out of a sealed
+    1-wide passage follows no one (leaves 0), so closing the gap beats the fight; in the open a pillar still leaves
+    walking away's share (follow_p), so the fight stands (combat__block_gap fought where it should have closed)."""
+
+    def test_answers_over_the_table(self):
+        from bonobo import field
+        walker = [row("minecraft:zombie", 0, 8, vel=(0.0, 0.0, -4.0))]
+        rows = [("a sealed passage, a walker 8 off: close the gap", field.Field(seal=2), ("reshape", ("between", 2))),
+                ("open ground, the same walker: fight", field.Field(), ("fight", 0)),
+                ("under a roof, no passage: fight", field.Field(bucket="underground"), ("fight", 0))]
+        for name, ground, want in rows:
+            with self.subTest(name):
+                d = decide(walker, sword=2, protection=0.4, blocks=5, field=ground)
+                self.assertEqual((d.kind, d.target), want)
+
+    def test_a_walker_arrives_until_the_passage_is_sealed(self):
+        from bonobo import field
+        walker = row("minecraft:zombie", 0, 5, vel=(0.0, 0.0, -4.0))
+        sealed = field.Field(seal=2)
+        rows = [("nothing placed: it arrives", sealed, True),
+                ("must fail: one block — a walker jumps it: it still arrives", sealed.with_block(), True),
+                ("two blocks, feet and head: never", sealed.with_block().with_block(), False),
+                ("two blocks in the open seal nothing", field.Field().with_block().with_block(), True)]
+        for name, ground, arrives in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.arrival(HERE, walker, ground=ground) != float("inf"), arrives)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
