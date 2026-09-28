@@ -159,6 +159,30 @@ class Option:
 
 SHAPES = ("between", "under", "down")
 
+def _sealed_off(ground, h):
+    """Pure: the ground shuts this mob out for good (a sealed passage: its slowdown is infinite)."""
+    return ground is not None and ground.slowdown(bool(MOBS[h[3]].get("squeezes"))) == float("inf")
+
+DETOUR_BLOCKS = 2.0     # a block that seals nothing is walked round: about two blocks more of the mob's walk
+
+def delayed_pressure(here, hazards, prot, before, after, work_s):
+    """Pure: hp/s over the work that the mobs still coming put on us once `after` delays them: each one's rate now
+    (over `before`), for the share of the work left after its new arrival. A block that seals nothing costs a mob
+    its detour round it (DETOUR_BLOCKS at its speed), not a multiple of its whole walk: 1.8^4 read four blocks on
+    open ground as a 30 s wall and the walker as never coming (escape__walker_open_blocks walled in the open)."""
+    added = (after.blocks - before.blocks) if after is not None and before is not None else 0
+    total = 0.0
+    for h in hazards:
+        rate = pressure(here, [h], prot, ground=before)
+        if rate <= 0.0 or _sealed_off(after, h):
+            continue
+        t = arrival(here, h, ground=before, horizon=work_s)
+        if t == float("inf"):
+            continue
+        t += added * DETOUR_BLOCKS / float(MOBS[h[3]].get("speed", 2.5))
+        total += rate * max(0.0, work_s - t) / work_s
+    return total
+
 def knockback_rate(here, hazards, within_s):
     """Pure: hits per second landing on us while we shape — each melee mob that reaches us within `within_s`."""
     return sum(1.0 / float(MOBS[h[3]]["attack_s"]) for h in hazards
@@ -198,9 +222,15 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             # shaping kills nothing: what can still come at us afterwards follows as walking away's does (else a pillar
             # outbid killing a zombie) — but what the shape shuts out for good (a sealed passage: arrival inf over the
             # ground after) follows no one, and leaves nothing
-            coming = [h for h in hazards if arrival(here, h, ground=after) != float("inf")]
-            follows = pressure(here, coming, prot, ground=grid) * float(ENGAGE["follow_p"]) if coming else 0.0
-            leaves = max(estimate.pressure_hp_s(here, hazards, prot, ground=after, shape=(where, n)), follows)
+            coming = [h for h in hazards if not _sealed_off(after, h)]
+            if where == "between":
+                # blocks in the way buy time, they kill nothing: what still comes is the pressure from its new, later
+                # arrival to the end of the work — a seal buys it all (0), a delay part of it (neither 0 nor full; a
+                # delay past the 4 s look-ahead read as a seal: escape__walker_open_blocks walled in the open)
+                leaves = delayed_pressure(here, coming, prot, grid, after, work_s)
+            else:
+                follows = pressure(here, coming, prot, ground=grid) * float(ENGAGE["follow_p"]) if coming else 0.0
+                leaves = max(estimate.pressure_hp_s(here, hazards, prot, ground=after, shape=(where, n)), follows)
             still = [h for h in coming if arrival(here, h, ground=after) <= work_s]
             blast_after = burst_damage(here, still, prot) if still else 0.0
             if leaves > press - float(ENGAGE["shape_min_gain"]) * max(press, 1e-6) \

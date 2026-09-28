@@ -829,6 +829,39 @@ class APillarUnderHits(unittest.TestCase):
                 self.assertAlmostEqual(threat.knockback_rate(HERE, hazards, 0.6), want, places=3)
 
 
+class ADelayIsNotASeal(unittest.TestCase):
+    """Blocks in the way are priced by the time they buy: a seal leaves nothing, a block walked round leaves the
+    pressure from its later arrival to the end of the work — neither nothing nor all of it."""
+
+    def test_leaves_over_the_table(self):
+        from bonobo import field
+        walker = [row("minecraft:zombie", 0, 8, vel=(0.0, 0.0, -4.0))]
+        # (ground, blocks between) → leaves as a share of the pressure now: exactly 0, or strictly between 0 and 1
+        rows = [("a sealed passage, two blocks: nothing comes", field.Field(seal=2), 2, "zero"),
+                ("a passage, one block (a walker jumps it): a delay", field.Field(seal=2), 1, "part"),
+                ("must fail: four blocks on roofed open floor are no seal", field.Field(bucket="underground"), 4, "part"),
+                ("one block on roofed open floor: a delay", field.Field(bucket="underground"), 1, "part")]
+        for name, ground, n, want in rows:
+            with self.subTest(name):
+                after = ground
+                for _ in range(n):
+                    after = after.with_block()
+                now = threat.pressure(HERE, walker, 0.0, ground=ground)
+                left = threat.delayed_pressure(HERE, walker, 0.0, ground, after, 20.0)
+                self.assertEqual("zero" if left == 0.0 else "part" if 0.0 < left < now else "all", want)
+
+    def test_between_then_pillar(self):
+        from bonobo import field
+        walker = [row("minecraft:zombie", 0, 8, vel=(0.0, 0.0, -4.0))]
+        rows = [("roofed open floor: the pillar, not a wall walked round", field.Field(bucket="underground"),
+                 ("reshape", ("under", 2))),
+                ("a sealed passage: the wall", field.Field(seal=2), ("reshape", ("between", 2)))]
+        for name, ground, want in rows:
+            with self.subTest(name):
+                d = decide(walker, sword=0, blocks=128, field=ground, dig_ok=True)
+                self.assertEqual((d.kind, d.target), want)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
