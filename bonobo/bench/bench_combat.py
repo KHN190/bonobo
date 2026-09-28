@@ -104,12 +104,14 @@ ROWS = [
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'netherrack', 169, 169)]),
     dict(name='fight_zombie_1_full_bag', module='fight_loop',
-         doc=('Walled platform, iron kit, the bag full of dirt: 1 zombie → dead, health ≥ 12, decisions as often as '
-              'ever: the drop it cannot pick up changes nothing'),
-         scene=[('sheet', '_ARENA'), ('summon', 'zombie', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
+         doc=('Walled platform, iron kit, the bag full of dirt: 1 zombie → killed (credited by the server), health '
+              '≥ 12: the drop it cannot pick up changes nothing'),
+         scene=[('sheet', '_ARENA'), ('summon', 'zombie', ('@', 4, 0, 0), '{PersistenceRequired:1b}')]
+         + [('cmd', 'scoreboard objectives add bk_zombie minecraft.killed:minecraft.zombie'),
+            ('cmd', 'scoreboard players set @p bk_zombie 0')],      # the kill statistic (fight.kill_stat_scene)
          run=('fight_until', ['minecraft:zombie'], 23),
          before=[('hooks', ('!start', 'fight_zombie_1'), ('&record_bids',)), ('fill_bag', 0)],
-         check=[('hp_kept', 12), ('gone', ['minecraft:zombie']), ('no_stall',)], budget=25, combat=True,
+         check=[('hp_kept', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], budget=25, combat=True,
          point='B', tier_fixed='exception',
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
          expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),

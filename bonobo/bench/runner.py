@@ -855,3 +855,85 @@ def run(name, make_ctx):
         note = f"{note} [{cls}] → {folder}"
     return ok, seconds, note, cls, code
 
+
+# -- idle mode: the row's setup, then a body that does nothing for the row's budget, then its check. A row an idle
+# body passes tests nothing (its check reads a world the setup already made, or a proxy). Recorded apart (IDLE_TABLE),
+# never in the readiness table.
+
+IDLE_TABLE = os.path.join(BENCH, "idle.json")
+VALID, INVALID, IDLE_SETUP, IDLE_ERROR = "VALID", "INVALID", "SETUP_INVALID", "ERROR"
+
+
+def idle_verdict(reached, died):
+    """Pure: VALID when an idle body fails the row's check (or died: a death fails any run), INVALID when it passes."""
+    return INVALID if reached and not died else VALID
+
+
+def record_idle(table, name, code, verdict_, note=""):
+    """Pure: append one idle result (last 5 kept per row and code)."""
+    runs = table.setdefault(name, {}).setdefault(code, [])
+    runs.append({"verdict": verdict_, "note": note[:160], "t": int(time.time())})
+    del runs[:-5]
+    return table
+
+
+def run_idle(name, make_ctx):
+    """Set up row `name` exactly as `run` does and run its `before` hooks (they finish the scene), then post nothing
+    for the row's budget — perception kept paused, so no reflex moves the body — and read its check. An
+    expect_failure row (`fails`) is granted its failure (FAILED_AS_EXPECTED), so what is judged is its world parts:
+    VALID only if those fail an idle body. Returns (verdict, note, code); written to IDLE_TABLE only."""
+    from .. import api as _api
+    from .. import perception
+    from ..world import Inventory
+    if not os.path.exists(FLAG):
+        raise RuntimeError("scenarios run only in a test world: `mc.py scenario enable` there first")
+    sc = SCENARIOS[name]
+    code = code_for(name)
+    feedback, trace, stop = [], [], threading.Event()
+    rate = sc.get("tick_rate")
+    verdict_, note = IDLE_SETUP, ""
+    try:
+        if rate:
+            _command(f"tick rate {rate}", feedback)
+        from .. import lifecycle
+        lifecycle.reset_all()              # as `run`: nothing the last row left leaks in
+        perception.PAUSED = True           # stays paused through the idle window: nothing answers for the body
+        try:
+            _setup(name, sc, feedback)
+            if NEXT_ROW[0] and NEXT_ROW[0] != name:
+                prebuild(NEXT_ROW[0])
+            threading.Thread(target=_trace, args=(stop, trace), daemon=True).start()
+            LAST_FEEDBACK[:] = feedback
+            if sc.get("before"):
+                sc["before"](make_ctx())
+            time.sleep(sc["budget"])
+        except SetupInvalid as e:
+            note = f"SETUP_INVALID: {e}"
+        except Exception as e:             # a hook of ours broke: the row says nothing either way
+            verdict_, note = IDLE_ERROR, f"{type(e).__name__}: {e}"
+        else:
+            from .words.checks import BASE, FAILED_AS_EXPECTED
+            if sc.get("fails"):
+                FAILED_AS_EXPECTED[BASE.get("name", name)] = "idle: the expected failure granted"
+            inv = Inventory()
+            try:
+                reached = bool(sc["check"](_api, inv))
+            except Exception as e:
+                reached, note = False, f"check raised {type(e).__name__}: {e}"
+            died = died_during(trace)
+            verdict_ = idle_verdict(reached, died)
+            parts = check_parts(sc["check"], _api, inv)
+            note = "; ".join(x for x in (note, f"idle check {'passed' if reached else 'failed'}",
+                                         "died" if died else "",
+                                         "expect_failure: its failure granted, world parts judged" if sc.get("fails")
+                                         else "",
+                                         ", ".join(f"{w}={v}" for w, v in parts)) if x)
+    finally:
+        stop.set()
+        perception.PAUSED = False
+        if rate:
+            _command("tick rate 20", feedback)
+    os.makedirs(os.path.dirname(IDLE_TABLE), exist_ok=True)
+    table = load_table(IDLE_TABLE)
+    save_table(record_idle(table, name, code, verdict_, note), IDLE_TABLE)
+    return verdict_, note, code

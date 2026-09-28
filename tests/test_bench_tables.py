@@ -414,6 +414,7 @@ NOT_ROW_TESTED = {
     "behaviour": "a fight behaviour's rule over its recorded row (vocab.BEHAVIOURS, test_pure_fight)",
     "brain_rule": "a brain grid family's rule for the cell (vocab.BRAIN_FAMILIES): the words it makes are the old ones",
     "hostiles": "the live entities (the gone/mobs_near rows read the same)",
+    "killed": "the server's kill statistic, a scoreboard reply (stat_count and the scene: test_judged)",
 }
 
 

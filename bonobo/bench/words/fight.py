@@ -729,6 +729,31 @@ def _gone(kinds):
 def _hp_kept(least):
     return lambda api, inv: api.get("/state")["health"] >= least and not api.get("/state")["dead"]
 
+def kill_stat(kind):
+    """Pure: the scoreboard objective that holds the server's kill statistic for `kind` (minecraft:zombie → bk_zombie)."""
+    return "bk_" + kind.split(":")[-1]
+
+def kill_stat_scene(kind):
+    """Scene: the kill statistic for `kind` as an objective, zeroed for this row (adding one that exists only says so)."""
+    obj = kill_stat(kind)
+    return [("cmd", f"scoreboard objectives add {obj} minecraft.killed:{kind.replace(':', '.')}"), ("cmd", f"scoreboard players set @p {obj} 0")]
+
+def stat_count(lines):
+    """Pure: N from '/scoreboard players get' feedback ('<player> has N [obj]'); 0 when no score is set."""
+    for line in lines:
+        m = re.search(r"has (\d+) \[", line)
+        if m:
+            return int(m.group(1))
+    return 0
+
+def _killed(kinds, n):
+    """Check: the server credits the player with at least `n` kills of `kinds` (its kill statistic, zeroed by the
+    scene: kill_stat_scene) — a mob that only left sight, burned or fell is no kill (gone is not killed)."""
+    def check(api, inv):
+        from ..core import _command
+        return sum(stat_count(_command(f"scoreboard players get @p {kill_stat(k)}", [])) for k in kinds) >= n
+    return check
+
 # glass walls (visible), a stone roof: undead under the sky burned before the row began
 _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
           f"fill {_c(at(-9, 4, -9))} {_c(at(9, 4, 9))} stone",
@@ -841,15 +866,17 @@ def fight_cell_row(name, mob, n, tier, secs, hp, clear):
     nbt = "{PersistenceRequired:1b,Health:10f}" if mob == "blaze" and n > 1 else "{PersistenceRequired:1b}"
     verdict = {True: "all dead", False: "left alone (neutral)",
                "resolved": f"dead, or kept off and not following for {RESOLVE_HOLD_S:.0f} s"}[clear]
-    # the action never waits on a decision (no_stall); the decision rhythm itself is a readout (fight_readout)
-    check = ([("threat_resolved", kinds), ("no_stall",)] if clear == "resolved"
-             else [("hp_kept", hp), ("gone", kinds), ("kills_by_the_fight", n), ("no_stall",)] if clear
+    # judged by the world only: health, the mobs gone and the server's kill count; the fight's own record (its
+    # kills, stalls, answers carried, decision rhythm) is a readout (fight_readout), never the pass (bench.judged)
+    check = ([("threat_resolved", kinds)] if clear == "resolved"
+             else [("hp_kept", hp), ("gone", kinds), ("killed", kinds, n)] if clear
              else [("hp_kept", hp), ("call", "hostiles", [24, ("$set", kinds)])])
     if mob == "skeleton":
-        check += [("answered_with", "shield", "fight_shielded"), ("shield_kept",)]   # arrows: shield up, still there
-    return _row(name, f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}, a threat decision every "
-                      "≤ 1.5 × FIGHT_POLL_S while engaged", "fight_loop",
-                [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots],
+        check += [("shield_kept",)]           # arrows: the shield still in the offhand
+    return _row(name, f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}"
+                      + (f", {n} kills credited by the server" if clear is True else ""), "fight_loop",
+                [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots]
+                + (kill_stat_scene(f"minecraft:{mob}") if clear is True else []),
                 ("fight_until", kinds, secs - RESOLVE_HOLD_S - 2 if clear == "resolved" else secs - 2)
                 + (() if clear is not False else (False,)), check, point="B", budget=min(secs + 5, limit()),
                 before=[("&record_bids",)], combat=True, skills=[], tier_fixed=tier,
@@ -878,4 +905,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

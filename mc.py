@@ -180,6 +180,9 @@ def cmd_scenario(a):
     # counted runs agree, because one of those is a coin toss about flaky execution, not a measurement.
     # Each row runs once; a failure is re-run, three runs at most, ≥ 2 of 3 passes (runner.verdict_of). A row the
     # current code already has a verdict for is not run again (unless --force, once).
+    if getattr(a, "idle", False):
+        _scenario_idle(sheet, names, brain)
+        return
     runs = [(name, attempt) for name in names
             for attempt in range(1 if sheet.SCENARIOS[name].get("sweep") else sheet.MAX_RUNS)]
     for i, (name, attempt) in enumerate(runs):
@@ -208,6 +211,33 @@ def cmd_scenario(a):
                                   prices=brain.price_table)
         ok, seconds, note, cls, code = sheet.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
+
+
+def _idle_ctx(brain):
+
+    def make_ctx():
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
+                                 prices=brain.price_table)
+    return make_ctx
+
+
+def _scenario_idle(sheet, names, brain):
+    """Idle mode: each row set up as normal, then a body that does nothing for its budget, then its check — once,
+    no retries, no cache. INVALID: an idle body passes it (it tests nothing). Written to runner.IDLE_TABLE only."""
+    import os
+    out = {}
+    for i, name in enumerate(names):
+        sheet.NEXT_ROW[0] = names[i + 1] if i + 1 < len(names) else None
+        if os.path.exists(sheet.NOTES):
+            os.remove(sheet.NOTES)
+        sheet.reset_brain(brain, Memory(sheet.NOTES))
+        verdict, note, _code = sheet.run_idle(name, _idle_ctx(brain))
+        out.setdefault(verdict, []).append(name)
+        print(f"IDLE {verdict} {name} {note}", flush=True)
+    print("idle: " + ", ".join(f"{v} {len(n)}" for v, n in sorted(out.items())))
+    if out.get(sheet.INVALID):
+        print("INVALID (an idle body passes them): " + " ".join(out[sheet.INVALID]))
 
 
 MIGRATE_KEYS = r"""
@@ -411,6 +441,9 @@ def main():
     p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all", "migrate"])
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
+    p.add_argument("--idle", action="store_true",
+                   help="run/all: set each row up, do nothing for its budget, check — a row that passes is INVALID "
+                        "(recorded apart from the readiness table)")
     p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
     p.add_argument("--tier", choices=["core", "common", "brain", "combat", "exception", "acceptance", "all"], default="core",
                    help="which tier to run with `all` / list (default core)")
