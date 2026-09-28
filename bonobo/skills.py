@@ -305,7 +305,7 @@ def room_clicks(slots, need, price=None):
             for s in free_slots_plan(slots, need=need, price=price)[:need]]
 
 
-def make_room(ctx, need):
+def make_bag_room(ctx, need):
     """Throw the `need` least valuable stacks now (room_clicks), the screen closed first. Returns the clicks."""
     close_screen()
     clicks = room_clicks(Inventory().slots, need, ctx.prices().get if ctx else None)
@@ -320,7 +320,7 @@ def _sitting(ctx, recipes):
     inv = Inventory()
     if inv.used_slots() >= BAG_SLOTS:
         # the result needs a slot: drop the least valuable stack first
-        if make_room(ctx, 1):
+        if make_bag_room(ctx, 1):
             log("   dropped a stack to make room for crafting")
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
@@ -1997,7 +1997,7 @@ def _place_cache_chest(ctx):
     if Inventory().usable("minecraft:chest") == 0:
         # the result needs somewhere to go: drop the two least valuable stacks first
         if Inventory().free_slots() <= 1:
-            make_room(ctx, 2)
+            make_bag_room(ctx, 2)
         if Inventory().usable("planks") < 8:
             if Inventory().usable("log") >= 2:
                 craft(ctx, "planks", 2)
