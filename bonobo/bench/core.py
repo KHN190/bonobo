@@ -25,13 +25,11 @@ SITE_B = (100, 0, 0)
 BEST_TOOLS = {"axe": "give @p diamond_axe", "pickaxe": "give @p diamond_pickaxe", "shovel": "give @p diamond_shovel"}
 HIGH_TIER_MOBS = ("blaze", "wither_skeleton", "enderman", "ravager", "warden", "ender_dragon", "wither",
                   "elder_guardian", "evoker")
-MOB_WEAPON = {**{m: "diamond_sword" for m in HIGH_TIER_MOBS}}      # anything else: ORDINARY_WEAPON
 ORDINARY_WEAPON = "iron_sword"
 
-def weapon_for(mobs):
+def kit_sword(mobs):
     """Pure: the sword a row fighting `mobs` (bare names) is given — the best any of them calls for."""
-    names = [MOB_WEAPON.get(m, ORDINARY_WEAPON) for m in mobs] or [ORDINARY_WEAPON]
-    return f"give @p {'diamond_sword' if 'diamond_sword' in names else ORDINARY_WEAPON}"
+    return f"give @p {'diamond_sword' if any(m in HIGH_TIER_MOBS for m in mobs) else ORDINARY_WEAPON}"
 WORLD_CMDS = ("fill", "setblock", "clone", "place", "forceload")     # the build: no player in it, built ahead
 LATE_CMDS = ("summon",)                  # actors: summoned in the row itself — built ahead they wander or burn
 

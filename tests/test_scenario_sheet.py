@@ -1256,10 +1256,10 @@ class SliceVerdict(unittest.TestCase):
 
 
 class KitRule(unittest.TestCase):
-    """bench.core.weapon_for / bench_bases.KIT: iron for ordinary mobs, diamond for the high tier; the best work
+    """bench.core.kit_sword / bench_bases.KIT: iron for ordinary mobs, diamond for the high tier; the best work
     tool for every row whose work uses one."""
 
-    def test_weapon_for(self):
+    def test_kit_sword(self):
         from bonobo.bench import core
         rows = [("a zombie: iron", ["zombie"], "give @p iron_sword"),
                 ("a blaze: diamond", ["blaze"], "give @p diamond_sword"),
@@ -1268,7 +1268,7 @@ class KitRule(unittest.TestCase):
                 ("the dragon: diamond", ["ender_dragon"], "give @p diamond_sword")]
         for name, mobs, want in rows:
             with self.subTest(name):
-                self.assertEqual(core.weapon_for(mobs), want)
+                self.assertEqual(core.kit_sword(mobs), want)
 
     def test_rows_carry_their_tools(self):
         from bonobo.bench import core

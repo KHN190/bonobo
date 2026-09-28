@@ -2262,13 +2262,13 @@ def skill_spans(registry, root):
 def _kit_gives(row, jobs):
     """The gives the kit rule adds to `row`: the best work tool per job, and for a fight the sword its mobs call for."""
     import re
-    from .core import BEST_TOOLS, weapon_for
+    from .core import BEST_TOOLS, kit_sword
     mobs = set(re.findall(r"summon (?:minecraft:)?(\w+)", " ".join(map(str, row.get("setup", ())))))
     enemy = (row.get("tags") or {}).get("enemy")
     mobs |= {enemy} if enemy else set()
     if any(k in s for s in list(row.get("skills", ())) + [str(row.get("doc", ""))] for k in ("dragon", "crystal")):
         mobs.add("ender_dragon")          # the End fight: the dragon is there, not summoned
-    return [weapon_for(sorted(mobs)) if j == "sword" else BEST_TOOLS[j] for j in jobs]
+    return [kit_sword(sorted(mobs)) if j == "sword" else BEST_TOOLS[j] for j in jobs]
 
 # -- positions ----------------------------------------------------------------------------------------------------
 def pos(p):

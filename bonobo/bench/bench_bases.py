@@ -185,7 +185,7 @@ SURPRISES = {
 }
 TARGET_S = {'chop': 10.0, 'mine_stone': 8.0, 'craft': 8.0, 'eat': 2.0, 'find_air': 5.0}     # a base's own speed target (s), × TARGET_SLACK
 TARGET_SLACK = 1.5
-# The kit rule (bench.core.BEST_TOOLS / weapon_for): the rows whose work uses a tool, by the tools it uses.
+# The kit rule (bench.core.BEST_TOOLS / kit_sword): the rows whose work uses a tool, by the tools it uses.
 KIT = {n: list(jobs) for jobs, names in {
     ('axe',): ['brain__night', 'brain__tight', 'chest_or_tree', 'chop__base', 'chop__lava_edge', 'chop__night',
          'chop__pickup_lag', 'chop__stack_room', 'chop__valuables_full', 'chop_without_interrupt',
