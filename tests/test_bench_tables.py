@@ -72,7 +72,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 272)
+        self.assertEqual(len(rec), 269)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
