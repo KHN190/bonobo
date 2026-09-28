@@ -1992,6 +1992,27 @@ class BagRules(unittest.TestCase):
                     region = None if blocks is None else FakeRegion(lo, hi, blocks)
                 self.assertEqual(bag.mineable(cells, feet, region, nav.SAFE_DROP), want)
 
+    def test_opener_for_a_pocket_only_cell(self):
+        """bag.opener: a cell open only into a pocket no body can stand in (search_night_resume 09:13:54: faces stone
+        but the top, whose cell has stone over it) — the jar never digs for sight, so the face on the body's side is
+        broken first; a standable or buried cell needs none."""
+        from bonobo import bag
+        from tests.world import FakeRegion
+        cell = (10014, 199, 10003)
+        ground = {(x, y, z): "stone" for x in range(10008, 10021) for y in (197, 198, 199) for z in range(9997, 10010)}
+        pocket = {**ground, cell: "diamond_ore", (10014, 201, 10003): "stone"}       # the top open, no head room
+        rows = [("the logged cell, the body south-west: the west neighbour (nearest the eye, ties by position)",
+                 pocket, (10012, 198, 10005), (10013, 199, 10003)),
+                ("the body north-east: the north neighbour", pocket, (10016, 198, 10001), (10014, 199, 10002)),
+                ("must fail: a standable top face (head room): no opener", {**ground, cell: "diamond_ore"},
+                 (10012, 198, 10005), None),
+                ("must fail: buried (the approach digs): no opener",
+                 {**ground, cell: "diamond_ore", (10014, 200, 10003): "stone"}, (10012, 198, 10005), None)]
+        for name, blocks, feet, want in rows:
+            with self.subTest(name):
+                region = FakeRegion((10006, 190, 9995), (10022, 205, 10011), blocks)
+                self.assertEqual(bag.opener(region, cell, feet, nav.SAFE_DROP), want)
+
     def test_open_faced_before_buried(self):
         """bag.mineable: open-faced cells first; a buried one only when nothing open is left."""
         from bonobo import bag

@@ -11,7 +11,7 @@ from .skill import ANCHORS, skill, current as current_call
 from .data import (HAND_MINEABLE_SUFFIX, cannot_reach, ARMOR_RANK, ARMOR_SLOTS, BASE_MARKERS, GROUPS, LOG_TO_PLANKS,
                    MARKER_WEIGHT, PLACEABLE_AS, POD_BLOCKS, RECIPES, bare, mid)
 from .knowledge import DIG_SHOVEL_S, GROUP_RECIPES, HUNT_SWORD_S, members
-from .bag import mineable, pickup_whitelist, refused
+from .bag import mineable, opener, pickup_whitelist, refused
 
 from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, connected, dark_spots, entities, find, job_ready, region_around, ripe_near  # noqa: F401  (job_ready: re-exported)
 from .bag import FLOOR, let_go, free_slots_plan, FREE_SLOTS_TARGET, throw_direction, store_plan  # noqa: F401  (moved; re-exported for skills.X callers)
@@ -786,6 +786,12 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 seal = []
             if seal:
                 api.run_chain(seal, stop_on_failure=True, wait=60)
+        # a cell open only into pockets no body can stand in: the jar's mine never digs for a line of sight, so the
+        # block on the body's side goes first (bag.opener; down-flagged when it lies below the feet)
+        openers = sorted({op for c in vein if (op := opener(region, c, here_now, nav.SAFE_DROP)) is not None
+                          and op not in ctx.policy.protected})
+        if openers:
+            api.run_chain([nav.mine_task(op, down=op[1] < here_now[1]) for op in openers], stop_on_failure=True, wait=60)
         before = Inventory().count(drop)
         try:
             r = api.run(mine_segment_commands({"inv": Inventory()}, (vein, drop, tier))[0], wait=900, awaits="the batch's drops counted before the next vein is chosen")

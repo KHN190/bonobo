@@ -203,6 +203,35 @@ def stand_spot(region, cell, drop):
                 over_a_fall = True              # room to stand, nothing under it
     return not over_a_fall
 
+def standable_face(region, cell, drop):
+    """Pure: some open face of `cell` has a standing place beside it (2 high, ground within `drop`) — a spot the jar's
+    mine task can hold while it breaks the cell."""
+    for face in (add(cell, d) for d in FACES):
+        if region.inside(face) and region.solid(face):
+            continue
+        for s in (face, add(face, (0, -1, 0))):
+            head = add(s, (0, 1, 0))
+            if not all(region.inside(c) for c in (s, head)):
+                return True
+            if not region.solid(s) and not region.solid(head) and floored(region, s, drop):
+                return True
+    return False
+
+def opener(region, cell, feet, drop):
+    """Pure: the block to break first so the jar can see `cell` — for a cell that is not buried but whose open faces
+    are only pockets too small to stand in (the jar's mine task never digs for a line of sight): the solid face
+    neighbour nearest the body's eye, never the body's own floor. None when the cell needs no opening (a
+    standable face, or buried: the approach digs to a buried cell)."""
+    cell, feet = tuple(cell), tuple(feet)
+    if region is None or buried(region, cell) or standable_face(region, cell, drop):
+        return None
+    eye = (feet[0], feet[1] + 1, feet[2])
+    floor = supports(feet)
+    options = [f for f in (add(cell, d) for d in FACES)
+               if region.inside(f) and region.solid(f) and f not in floor and not under(feet, f)
+               and not getattr(region, "unbreakable", lambda p: False)(f)]
+    return min(options, key=lambda f: (sum((a - b) ** 2 for a, b in zip(f, eye)), f), default=None)
+
 def mineable(cells, feet, region=None, drop=None):
     """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""
 
