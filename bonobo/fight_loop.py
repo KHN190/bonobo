@@ -346,7 +346,8 @@ def engage(decision, s, ctx):
     tasks = batch(decision, state)
     if not tasks:
         raise NotAvailable(f"{decision.kind}: nothing to do it with from here")
-    r = api.post("/task?wait=0", {"tasks": api.ARM(tasks) if api.ARM else tasks})
+    # the fight's bag is the one perception read for this answer; no block read (a weapon wants none)
+    r = api.post("/task?wait=0", {"tasks": api.ARM(tasks, inv=state["inv"], read_blocks=False) if api.ARM else tasks})
     queued = r.get("tasks") or []
     if not queued:
         raise NotAvailable(f"{decision.kind}: the game queued none of it ({r.get('message')})")

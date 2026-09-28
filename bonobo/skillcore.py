@@ -233,18 +233,20 @@ def snapshot(center, half=2, down=1, up=2):
 
 ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mines break; larger: a read per cell
 
-def arm(tasks):
+def arm(tasks, inv=None, read_blocks=True):
     """The item each task that breaks or fights holds, named where none is (knowledge.tool_for / route_tool /
-    weapon_for): one bag read and one read of the blocks a chain's mines break. The jar holds exactly that item."""
+    weapon_for): reads only when a task lacks one — the bag (unless `inv`, the one perception already holds, is given)
+    and the blocks a chain's mines break (unless `read_blocks` is off: the fight path, where a mine holds the route
+    tool and a weapon wants no block). The jar holds exactly that item."""
     from . import knowledge as _know
     mines = [t for t in tasks if t.get("type") in ("mine", "mine_many") and "item" not in t]
     if not mines and not any(t.get("type") in ("travel", "attack") and "item" not in t for t in tasks):
         return tasks
     try:
-        inv = Inventory()
+        inv = inv if inv is not None else Inventory()
         cells = [(t["x"], t["y"], t["z"]) if t["type"] == "mine" else
                  (t["blocks"][0]["x"], t["blocks"][0]["y"], t["blocks"][0]["z"]) for t in mines
-                 if t["type"] == "mine" or t.get("blocks")]
+                 if t["type"] == "mine" or t.get("blocks")] if read_blocks else []
         names = {}
         if cells:
             lo = tuple(min(c[i] for c in cells) for i in range(3))
@@ -261,6 +263,8 @@ def arm(tasks):
         kind = t.get("type")
         if "item" in t or kind not in ("mine", "mine_many", "travel", "attack"):
             out.append(t)
+        elif kind in ("mine", "mine_many") and not read_blocks:
+            out.append({**t, "item": _know.route_tool(inv)})
         elif kind == "mine":
             out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
         elif kind == "mine_many":
