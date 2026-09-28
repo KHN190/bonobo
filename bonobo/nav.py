@@ -60,34 +60,20 @@ def mine_task(c, collect=False, down=False):
 
 # -- batches: many cells as one chain of single tasks (the jar's SequenceTask, now planned here) ------------------
 def mine_order(cells, start=None):
-    """Pure: the order a batch mines `cells` — never a cell while another of the batch sits above it in its column
-    (top first), the nearest to where the last one was (from `start`, else the first given)."""
-    pending = [tuple(c) for c in cells]
-    here = tuple(start) if start is not None else (pending[0] if pending else None)
-    out = []
-    while pending:
-        free = [c for c in pending if not any(q[0] == c[0] and q[2] == c[2] and q[1] > c[1] for q in pending)]
-        best = min(free or pending, key=lambda c: (sum((c[i] - here[i]) ** 2 for i in range(3)), pending.index(c)))
-        pending.remove(best)
-        out.append(best)
-        here = best
-    return out
+    """Pure: the order a batch mines `cells` — the columns nearest `start` (else the first cell given) first, each
+    top down (never a cell while another of the batch sits above it). A sort, not a walk: what is left after any
+    step keeps its order, so a batch rebuilt from the world after an interruption is the rest of the first."""
+    cells = [tuple(c) for c in cells]
+    here = tuple(start) if start is not None else (cells[0] if cells else None)
+    return sorted(cells, key=lambda c: ((c[0] - here[0]) ** 2 + (c[2] - here[2]) ** 2, -c[1], c[0], c[2]))
 
 
 def build_order(cells, start=None):
     """Pure: the order a batch places `cells` — the lowest layer first (every block has support), in it the nearest
-    to where the last one went (from `start`, else the first given)."""
-    pending = [tuple(c) for c in cells]
-    here = tuple(start) if start is not None else (pending[0] if pending else None)
-    out = []
-    while pending:
-        low = min(c[1] for c in pending)
-        best = min((c for c in pending if c[1] == low),
-                   key=lambda c: (sum((c[i] - here[i]) ** 2 for i in range(3)), pending.index(c)))
-        pending.remove(best)
-        out.append(best)
-        here = best
-    return out
+    to `start` (else the first cell given). A sort: what is left after any step keeps its order."""
+    cells = [tuple(c) for c in cells]
+    here = tuple(start) if start is not None else (cells[0] if cells else None)
+    return sorted(cells, key=lambda c: (c[1], sum((c[i] - here[i]) ** 2 for i in range(3)), c[0], c[2]))
 
 
 SWEEP_IDLE = 10        # ticks a batch's closing sweep waits for a drop before it ends (the jar's mine_many used 10)

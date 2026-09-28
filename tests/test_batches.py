@@ -8,6 +8,14 @@ from bonobo import api, nav
 
 
 class MineOrder(unittest.TestCase):
+    def test_what_is_left_keeps_its_order(self):
+        # the resume rule: after any step, the order of the rest is the rest of the order
+        cells = [(5, 64, 0), (1, 64, 0), (1, 65, 0), (3, 64, 2), (0, 66, 4)]
+        whole = nav.mine_order(cells, (0, 64, 0))
+        for k in range(len(cells)):
+            with self.subTest(k=k):
+                self.assertEqual(nav.mine_order(whole[k:], (0, 64, 0)), whole[k:])
+
     def test_rows(self):
         # (situation, cells, start) → the order
         rows = [("nearest first from the start", [(5, 64, 0), (1, 64, 0), (3, 64, 0)], (0, 64, 0),
@@ -30,8 +38,8 @@ class BuildOrder(unittest.TestCase):
                  [(0, 64, 0), (0, 65, 0)]),
                 ("in a layer the nearest next", [(4, 64, 0), (1, 64, 0), (2, 64, 0)], (0, 64, 0),
                  [(1, 64, 0), (2, 64, 0), (4, 64, 0)]),
-                ("two layers, each nearest-first", [(3, 65, 0), (0, 65, 0), (3, 64, 0), (0, 64, 0)], (0, 64, 0),
-                 [(0, 64, 0), (3, 64, 0), (3, 65, 0), (0, 65, 0)]),
+                ("two layers, each nearest the start first", [(3, 65, 0), (0, 65, 0), (3, 64, 0), (0, 64, 0)],
+                 (0, 64, 0), [(0, 64, 0), (3, 64, 0), (0, 65, 0), (3, 65, 0)]),
                 ("must fail: a block over a gap never goes before its support", [(0, 66, 0), (0, 65, 0), (0, 64, 0)],
                  (0, 70, 0), [(0, 64, 0), (0, 65, 0), (0, 66, 0)])]
         for name, cells, start, want in rows:
