@@ -48,7 +48,7 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
              
               "attack_s", "speed", "exists_prior",
              
-              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp"]
+              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
@@ -108,8 +108,6 @@ eat_s = 1.6                # one bite, and what it heals is regen over the secon
 eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed (regen from saturation)
 golden_heals = 8.0         # a golden apple: health back at once (4) and absorption (4) — the only food that heals now
 eat_safe_press = 0.2       # hp/s: below this nothing is reaching us (walled in, left behind) and regen can run
-shield_s = 0.3             # raising a shield
-shield_protects = 0.15     # damage removed while it is up, on top of armour
 block_s = 0.6              # placing one block in the way
 dig_s = 0.9                # digging one block down, out of sight
 hide_per_block = 0.45      # of an archer's fire that a block of depth takes out of the line

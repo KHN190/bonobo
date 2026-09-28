@@ -414,9 +414,8 @@ class EachAnswerIsABatch(unittest.TestCase):
             ("eat the first food carried", ("eat",), {"counts": {"minecraft:cooked_beef": 3}},
              [{"type": "eat", "item": "minecraft:cooked_beef"}]),
             ("must fail: eat with nothing to eat: not an answer", ("eat",), {}, []),
-            ("shield up with a shield in hand", ("shield",), {"offhand": "minecraft:shield"},
-             [{"type": "input", "keys": ["use"], "ticks": 30}]),
-            ("shield up without one: not an answer", ("shield",), {}, []),
+            ("must fail: the shield is no answer (the jar's reflex raises it): no batch", ("shield",),
+             {"offhand": "minecraft:shield"}, []),
             ("dig down two", ("reshape", ("down", 2)), {},
              [nav_mine((0, 63, 0), down=True), nav_mine((0, 62, 0), down=True)]),
             ("stand two up", ("reshape", ("under", 2)), {"counts": {"minecraft:cobblestone": 5}},
@@ -470,9 +469,9 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
               [(0, [row("minecraft:zombie", 20, 0)]), (LOST, [row("minecraft:zombie", 20, 0)])], False),
              ("a skeleton at 10", [(0, [row("minecraft:skeleton", 10, 0)]), (LOST, [row("minecraft:skeleton", 10, 0)])],
               False),
-             ("a zombie 60 away closing at 2 b/s: still chasing",
+             ("must fail: closing at 2 b/s is no longer read here (the jar predicts the hit): 60 away, over",
               [(0, [row("minecraft:zombie", 60, 0, vel=(-2.0, 0.0, 0.0))]),
-               (LOST, [row("minecraft:zombie", 60, 0, vel=(-2.0, 0.0, 0.0))])], False),
+               (LOST, [row("minecraft:zombie", 60, 0, vel=(-2.0, 0.0, 0.0))])], True),
              ("a zombie 60 away, standing, for LOST_S: outrun, and nothing owed",
               [(0, [row("minecraft:zombie", 60, 0)]), (LOST, [row("minecraft:zombie", 60, 0)])], True),
              ("the zombie killed: gone for LOST_S", [(0, [row("minecraft:zombie", 4, 0)]), (0.5, []), (LOST + 1, [])],
@@ -483,6 +482,18 @@ class TheLeaseSurvivesBlindMoments(unittest.TestCase):
         for name, frames, done in self.LEASE:
             with self.subTest(name):
                 self.assertEqual(self.release(frames), done)
+
+    def test_a_hit_the_jar_predicts_keeps_the_answer(self):
+        """The jar's time to impact (/entities tti_ticks → threat.hit_due_s) is what "still coming" means."""
+        from unittest import mock
+        far = [(0, [row("minecraft:zombie", 60, 0)]), (self.LOST, [row("minecraft:zombie", 60, 0)])]
+        # (situation, the jar's soonest hit, seconds) → done?
+        rows = [("a hit due in 1.5 s: not over", 1.5, False),
+                ("must fail: nothing predicted: outrun, over", None, True),
+                ("a hit due past LOST_S: over", self.fight_loop.LOST_S + 2, True)]
+        for name, hit_s, done in rows:
+            with self.subTest(name), mock.patch.object(self.fight_loop.threat, "hit_due_s", return_value=hit_s):
+                self.assertEqual(self.release(far), done)
 
 if __name__ == "__main__":
     unittest.main()
@@ -696,17 +707,15 @@ class EvadeOnlyPostpones(unittest.TestCase):
 
 
 class ShieldAndHole(unittest.TestCase):
-    """Fighting behind a shield is its own answer (the swing's cooldown is spent blocking); a hole down needs ground
-    that digs, not blocks carried."""
+    """A shield is no answer of its own — the jar's reflex raises it for any predicted hit, so it is protection in
+    the price of every answer; a hole down needs ground that digs, not blocks carried."""
 
     def test_answers_over_the_table(self):
         from bonobo import field
         crowd = [row("minecraft:zombie", 4, 0), row("minecraft:zombie", 0, 4), row("minecraft:zombie", -4, 0)]
-        rows = [("a zombie, a sword, a shield: fight behind it", [row("minecraft:zombie", 4, 0)],
-                 dict(sword=2, shield=True), ("fight_shielded", 0)),
+        rows = [("a zombie, a sword, a shield: fight (the reflex shields)", [row("minecraft:zombie", 4, 0)],
+                 dict(sword=2, shield=True), ("fight", 0)),
                 ("a zombie, a sword, no shield: fight", [row("minecraft:zombie", 4, 0)], dict(sword=2), ("fight", 0)),
-                ("a skeleton 10 off, a shield: fight behind it", [row("minecraft:skeleton", 10, 0)],
-                 dict(sword=2, shield=True), ("fight_shielded", 0)),
                 ("three zombies at night, 10 hp, no sword, ground that digs: a hole down", crowd,
                  dict(sword=0, hp=10, night=True, dig_ok=True, field=field.Field()), ("reshape", ("down", 2))),
                 ("must fail: the same, ground that does not dig: leave", crowd,
@@ -716,16 +725,12 @@ class ShieldAndHole(unittest.TestCase):
                 d = decide(hazards, **kw)
                 self.assertEqual((d.kind, d.target), want)
 
-    def test_the_shielded_batch(self):
-        from bonobo import fight_loop
-        from bonobo.threat import Option
-        from tests.world import bag, inventory
-        with_shield = bag(inventory(("iron_sword", 1), offhand="shield"))
-        without = bag(inventory(("iron_sword", 1)))
-        opt = Option("fight_shielded", 7, 1.0, 1.0, "")
-        self.assertEqual(fight_loop.batch(opt, {"inv": with_shield}),
-                         [{"type": "attack", "entity": 7, "shield": True}])
-        self.assertEqual(fight_loop.batch(opt, {"inv": without}), [])
+    def test_no_shield_column(self):
+        """must fail: no world offers a shield or a shielded fight as an answer — the reflex is the one shield."""
+        kinds = {o.kind for o in threat.options({"here": HERE, "hp": 12, "sword": 2, "protection": 0.0,
+                                                 "hazards": [row("minecraft:zombie", 4, 0)], "ids": [7],
+                                                 "shield": True})}
+        self.assertFalse(kinds & {"shield", "fight_shielded"}, kinds)
 
 
 
@@ -743,7 +748,6 @@ class EveryColumnMustBeSurvivable(unittest.TestCase):
         rows = [("20 hp, three zombies 6 off: the pillar is on offer", 20, coming, False, "reshape", True),
                 ("must fail: 3.1 hp, three zombies beside, a shield that survives: the 1.2 s pillar is not", 3.1,
                  crowd, True, "reshape", False),
-                ("3.1 hp, the same with the shield: the shield is", 3.1, crowd, True, "shield", True),
                 ("20 hp, one zombie 4 off: the fight is on offer", 20, one, False, "fight", True),
                 ("4 hp, three zombies beside: no fight either", 4, crowd, False, "fight", False),
                 ("3.1 hp: carrying on is never vetoed", 3.1, crowd, False, "ignore", True)]

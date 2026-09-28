@@ -336,24 +336,28 @@ class LongestStall(unittest.TestCase):
 
 
 
-class ShieldOnlyWhereTheJarHoldsUse(unittest.TestCase):
-    """threat.options offers the shield-alone answer only where the jar can hold the use key (state hold_use)."""
+class TheReflexPolicy(unittest.TestCase):
+    """fight_loop sets the jar's reflex policy (POST /reflex) and never posts a shield or a shielded attack: always
+    shield and deflect once wired, counter-hits only while an engagement runs."""
 
     def test_rows(self):
-        from bonobo import threat
-        zombie = ((2.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie", 1.0, 6.25)
-        base = {"here": (0.0, 64.0, 0.0), "hp": 20.0, "sword": 2, "protection": 0.0, "hazards": [zombie],
-                "shield": True, "ids": [7], "blocks": 0, "food_items": 0, "hunger": 20.0}
-        kinds = lambda st: {o.kind for o in threat.options(st)}      # noqa: E731
-        rows = [("a jar that holds use: the shield alone on offer", dict(base, hold_use=True), True),
-                ("no word from the jar (pure callers): offered as before", dict(base), True),
-                ("must fail: 0.1.62 cannot hold use — never offered", dict(base, hold_use=False), False),
-                ("no shield: never offered", dict(base, shield=False, hold_use=True), False)]
-        for name, st, offered in rows:
-            with self.subTest(name):
-                self.assertEqual("shield" in kinds(st), offered)
-        with self.subTest("the fight behind the shield stays either way (the attack's own)"):
-            self.assertIn("fight_shielded", kinds(dict(base, hold_use=False)))
+        from unittest import mock
+        from bonobo import api, fight_loop
+        posted = []
+        with mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append((path, body)) or {}):
+            fight_loop.wire(None, lambda snap: None, {})
+            fight_loop.reflex(counter=True)
+        self.assertEqual(posted[0], ("/reflex", {"counter": False, "shield": True, "deflect": True,
+                                                 "priority": "creeper"}))
+        self.assertEqual(posted[1], ("/reflex", {"counter": True}))
+        with self.subTest("must fail: a jar without /reflex: said (swallowed), never raised"), \
+                mock.patch.object(api, "post", side_effect=api.McError("/reflex: 404")), \
+                mock.patch.object(api, "swallowed") as said:
+            fight_loop.reflex(counter=True)
+            self.assertTrue(said.called)
+        with self.subTest("no batch builds a shield (the jar's reflex is the one)"):
+            self.assertNotIn("shield", fight_loop.BATCH)
+            self.assertNotIn("fight_shielded", fight_loop.BATCH)
 
 
 if __name__ == "__main__":

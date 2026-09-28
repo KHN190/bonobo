@@ -34,8 +34,9 @@ _SHIELD = [("cmd", "item replace entity @p weapon.offhand with shield")]
 KIT = {"nothing": [], "blocks": _BLOCKS, "food": [("give", "cooked_beef", 8)], "shield": _SHIELD,
        "full": _BLOCKS + [("give", "cooked_beef", 8)] + _SHIELD}
 # what each kit's column needs to exist, read off the cell (so "bag read as empty" can be caught)
-NEEDS = {"blocks": ("reshape", "wall_in"), "food": ("eat",), "shield": ("shield",),
-         "full": ("reshape", "wall_in", "eat", "shield"), "nothing": ()}
+# (a shield is no column: the jar's reflex raises it for any predicted hit — proven by /state blocking, `_blocked`)
+NEEDS = {"blocks": ("reshape", "wall_in"), "food": ("eat",), "shield": (),
+         "full": ("reshape", "wall_in", "eat"), "nothing": ()}
 DISTANCE = {"near": 5, "across": 10}
 DIMS = {"enemy": ENEMY, "count": COUNT, "ground": GROUND, "weapon": WEAPON, "armour": ARMOUR, "blood": BLOOD,
         "kit": KIT, "distance": DISTANCE}

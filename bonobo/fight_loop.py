@@ -71,7 +71,22 @@ def wire(mem, policy_of, blacklist, prices=None):
         ctx = Context(mem, policy_of(snap), snap.dimension, blacklist, prices=prices)
         return engage(option, snap.state, ctx)
     ANSWER = answer
+    reflex(counter=False, **ALWAYS)
     return answer
+
+# -- the jar's combat reflex (anaka combat.Reflex): shield for a predicted hit, a fireball punched back, a counter-hit
+
+ALWAYS = {"shield": True, "deflect": True, "priority": "creeper"}     # from the start: safety, whatever runs
+
+
+def reflex(**policy):
+    """Set the jar's reflex policy (POST /reflex: shield, counter, deflect, priority). The jar owns the timing and
+    the aim; the fight only says what the reflex may do. Refused (a jar without /reflex): said, and nothing else."""
+    try:
+        api.post("/reflex", policy)
+    except api.McError as e:
+        api.swallowed("fight: reflex policy", e)
+
 
 def wired():
     return ANSWER is not None
@@ -99,6 +114,7 @@ def offer(option, worth, key, now, release, held, seen_at):
     def run():
         intent = arbiter.BODY.current()
         STATE.chase_at = None                    # a new engagement: its own chase clock
+        reflex(counter=True)                     # engaged: the reflex hits back at full cooldown too
         with STATE.lock:
             th = threading.Thread(target=_engagement, args=(intent, failure), daemon=True, name="fight")
             STATE.thread, STATE.want, STATE.failure, STATE.intent = th, option, failure, intent
@@ -247,6 +263,7 @@ def disengage(intent, stop=True):
             api.post("/stop")
     except api.McError:
         pass
+    reflex(counter=False)
     arbiter.BODY.hand_back(intent)
 
 # -- the decision
@@ -262,12 +279,14 @@ def threat_state(state, rows, work_s=None, ids=()):
     """The threat model's state vector, read off a player state and the rows the watcher last saw."""
 
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
-          "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
+          "sword": int(state.get("sword_tier", 0)),
+          # a shield in the offhand is protection: the jar's reflex raises it for every predicted hit (`reflex`)
+          "protection": threat.protection(state.get("armor", 0), bool(state.get("shield"))),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
           "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
           "golden_apples": int(state.get("golden_apples", 0)), "hunger": float(state.get("food", 20)),
           "field": state.get("field") or _field.Field(), "ids": list(ids), "dig_ok": bool(state.get("dig_ok")),
-          "footing": state.get("footing"), "hold_use": "hold_use" in nav.mod_features(),
+          "footing": state.get("footing"),
           "alive": set(threat.THREAT_ALIVE) | {i for i in ids if i is not None},
           "impacts": list(threat.THREAT_IMPACTS)}
     if work_s is not None:
@@ -313,23 +332,19 @@ def redecide(gone):
     return chosen[0] if chosen else None
 
 LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end
-CLOSING = 0.3          # blocks/s toward us: a threat coming this fast is following, wherever it is
 
-def chasing(rows, here):
-    """Pure: some threat is still after us — it notices or reaches us here (`estimate.follows_to`), or closes."""
-    for h in rows:
-        centre, vel = h[0], h[2]
-        if follows_to(here, h):
-            return True
-        d = math.dist(centre, here)
-        if d > 0 and sum(vel[i] * (here[i] - centre[i]) / d for i in range(3)) > CLOSING:
-            return True
-    return False
+def chasing(rows, here, hit_s=None):
+    """Pure: some threat is still after us — it notices or reaches us here (`estimate.follows_to`), or the jar
+    predicts one of its hits landing within LOST_S (`hit_s`, threat.hit_due_s: the jar's time to impact, never a
+    closing speed differenced here)."""
+    if hit_s is not None and hit_s <= LOST_S:
+        return True
+    return any(follows_to(here, h) for h in rows)
 
-def engagement_over(rows, here, chased_at, now):
+def engagement_over(rows, here, chased_at, now, hit_s=None):
     """Pure: (over, chased_at)."""
 
-    if rows and chasing(rows, here):
+    if (rows or hit_s is not None) and chasing(rows, here, hit_s):
         return False, now
     chased_at = now if chased_at is None else chased_at
     return now - chased_at >= LOST_S, chased_at
@@ -338,7 +353,7 @@ def lease_done(state, rows, price, ids=()):
     """Has answering stopped paying?"""
 
     here = (state["x"], state["y"], state["z"])
-    over, STATE.chase_at = engagement_over(rows, here, STATE.chase_at, time.time())
+    over, STATE.chase_at = engagement_over(rows, here, STATE.chase_at, time.time(), threat.hit_due_s())
     if not over:
         return False
     if not rows:
@@ -371,7 +386,7 @@ def still_worth(choice, field_model, price, horizon):
         return False
     return threat.saves(same, options, price, horizon) > 0
 
-TARGETED = ("fight", "fight_shielded")     # the answers whose batch names the mob by its entity id (`_attack`)
+TARGETED = ("fight",)     # the answers whose batch names the mob by its entity id (`_attack`)
 
 # -- the batches
 
@@ -427,12 +442,6 @@ def _attack(option, state, **extra):
 def _fight(option, state):
     return _attack(option, state)
 
-def _fight_shielded(option, state):
-    """The attack with the shield raised between swings (jar AttackTask "shield", ≥ 0.1.45)."""
-    if state["inv"].offhand() != "minecraft:shield":
-        return []
-    return _attack(option, state, shield=True)
-
 def _evade(option, state):
     x, y, z = option.target
     brk, plc, void = nav.MOVES["evade"]            # digs and bridges as priced, never out over the void (nav.MOVES)
@@ -444,13 +453,6 @@ def _eat(option, state):
     wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_MEAT)
     food = next((f for f in wanted if state["inv"].count(f)), None)
     return [{"type": "eat", "item": food}] if food else []
-
-def _shield(option, state):
-    if state["inv"].offhand() != "minecraft:shield":
-        return []
-    # the use key held 1.5 s (jar input task "use", anaka shield-input): a use_item names a hand item and has no
-    # "hand"/"hold_ms" — this batch was refused ('missing item') every time the shield alone was the answer
-    return [{"type": "input", "keys": ["use"], "ticks": 30}]
 
 def _reshape(option, state):
     """Change the ground: dig down n, stand n blocks up, or put n blocks between us and the nearest threat."""
@@ -475,7 +477,7 @@ def _place(option, state):
         return []
     return [{"type": "place", "item": item, "x": x, "y": y, "z": z} for x, y, z in cells]
 
-BATCH = {"fight": _fight, "fight_shielded": _fight_shielded, "evade": _evade, "eat": _eat, "shield": _shield, "reshape": _reshape,
+BATCH = {"fight": _fight, "evade": _evade, "eat": _eat, "reshape": _reshape,
          "place": _place}       # "shoot" is lent by combat (combat.shoot_batch)
 # what a batch reads around the body, by kind; skills register theirs so this module never imports the skill library
 REGION = {}

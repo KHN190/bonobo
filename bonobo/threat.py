@@ -191,9 +191,9 @@ def evade_cost(here, spot, hazards, prot):
 class Option:
     """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind."""
 
-    def __init__(self, kind, target, hp, seconds, why, leaves=0.0, heals=0.0, protects=0.0, blast_after=0.0):
+    def __init__(self, kind, target, hp, seconds, why, leaves=0.0, heals=0.0, blast_after=0.0):
         self.kind, self.target, self.hp, self.seconds, self.why = kind, target, hp, seconds, why
-        self.heals, self.protects = heals, protects
+        self.heals = heals
         self.leaves = leaves          # hp/s still coming at us after this answer (fleeing does not kill anything)
         self.blast_after = blast_after   # one-off damage still owed afterwards; a rate cannot carry an explosion
 
@@ -366,13 +366,8 @@ def options(state):
         nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
                           f"kill {len(hazards)} in ~{t_fight}s for ~{lost} hp"))
-        if state.get("shield"):
-            # The same fight with the shield up between swings (the attack's cooldown): what lands is cut by what a
-            # raised shield stops, for the time raising it takes once per kill.
-            kept = round(lost * (1.0 - float(ENGAGE["shield_protects"])), 2)
-            t_guard = round(t_fight + float(ENGAGE["shield_s"]) * len(hazards), 2)
-            out.append(Option("fight_shielded", ids[nearest], kept + blast_here, t_guard,
-                              f"kill {len(hazards)} in ~{t_guard}s behind the shield for ~{kept} hp"))
+    # no shield column: the jar's reflex raises the shield for every predicted hit, whatever the answer (a shield in
+    # the offhand is protection, `state["protection"]`), so it is never an answer of its own
     spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"),
                        impacts=state.get("impacts"))
     if spot is not None:             # else nowhere to leave to (a lethal drop all round): fight, eat, wall in
@@ -381,13 +376,6 @@ def options(state):
         out.append(_evade_option(here, spot, hazards, prot, press, [o for o in out if survivable(o, hp)]))
     for option in eat_options(state, hp, press, blast_here):
         out.append(option)
-    # the shield alone is the use key held: offered only where the jar can hold it (state "hold_use", the jar's
-    # feature list — 0.1.62 cannot: the answer did nothing); a fight behind the shield is the attack's own
-    if state.get("shield") and state.get("hold_use", True) and prot < float(PLAYER["protection_cap"]):
-        up = float(ENGAGE["shield_protects"])
-        shield_s = float(ENGAGE["shield_s"])
-        out.append(Option("shield", None, round(press * shield_s, 2), shield_s,
-                          f"shield up: -{up:.0%} of what lands", leaves=press * (1.0 - up), protects=up))
     if grid is not None:
         for option in reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
             out.append(option)
@@ -632,21 +620,38 @@ def hp_seconds(s, dhp):
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 THREAT_ALIVE: set = set()   # every living entity id the last reading listed (x-ray: an occluded mob is still there)
 THREAT_IMPACTS: list = []   # the jar's predicted impacts in the last reading (impacts_of)
+# seconds until the soonest hit on the body lands, as the JAR predicts it (/entities tti_ticks: every projectile and
+# melee mob stepped as the game ticks them, anaka combat.Impact), or None: no hit coming. Never re-derived here.
+THREAT_HIT_S = None
 
 
 def _forget_threats():
-    """The last life's threats (their ids, their rows) are nobody's now."""
-    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS
-    THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS = [], [], 0.0, set(), []
+    """The last life's threats (their ids, their rows, the hit it predicted) are nobody's now."""
+    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S
+    THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S = [], [], 0.0, set(), [], None
 
 
 lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE",
-                                            "THREAT_IMPACTS"))
+                                            "THREAT_IMPACTS", "THREAT_HIT_S"))
 
 def alive_ids(near):
     """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""
     return {e.get("id") for e in near or [] if e.get("id") is not None
             and (e.get("health") is None or float(e["health"]) > 0)}
+
+
+def soonest_hit_s(near):
+    """Pure: seconds until the soonest hit the jar predicts among `near` (/entities rows with tti_ticks), or None."""
+    ticks = [int(e["tti_ticks"]) for e in near or [] if e.get("tti_ticks") is not None]
+    return min(ticks) / 20.0 if ticks else None
+
+
+def hit_due_s(max_age_s=3.0, now=None):
+    """The jar's soonest predicted hit (seconds) as perception last read it, or None (none, or not read lately)."""
+    import time as _t
+    if THREAT_HIT_S is None or (now or _t.time()) - THREAT_AT > max_age_s:
+        return None
+    return THREAT_HIT_S
 
 def threats_seen(max_age_s=3.0, now=None):
     """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""

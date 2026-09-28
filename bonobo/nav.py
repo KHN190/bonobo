@@ -190,8 +190,6 @@ def mod_features():
             _features.add("approach_dig")   # mine/place/use dig their own way when walking finds none (ApproachTask)
         if v >= (0, 1, 50):
             _features.add("input")          # keys held until the body stands (the "input" task): climb_out
-        if v >= (0, 1, 63):
-            _features.add("hold_use")       # the input task holds "use" (a shield raised from the offhand)
         if v >= (0, 1, 46):
             _features.add("autoeat")        # the jar eats while only walking, on the policy /autoeat sets
             # set once at first contact, so whoever drives the jar walks with it

@@ -559,18 +559,22 @@ class EngagementOver(unittest.TestCase):
         near = estimate.row((1, 0, 0), 1.0, (0, 0, 0), "test:nothing", dps=0.0)
         closing = estimate.row((100, 0, 0), 1.0, (-1, 0, 0), "test:nothing", dps=0.0)
         here = (0, 0, 0)
+        # (situation, rows, chased since, now, the jar's soonest hit in s) → (over, chased since)
         rows = [
-            ("no rows, clock starts now", [], None, 10.0, (False, 10.0)),
-            ("no rows, LOST_S elapsed", [], 5.0, 8.0, (True, 5.0)),
-            ("no rows, just short", [], 5.0, 7.9, (False, 5.0)),
-            ("far and still: runs out", [far], 0.0, 10.0, (True, 0.0)),
+            ("no rows, clock starts now", [], None, 10.0, None, (False, 10.0)),
+            ("no rows, LOST_S elapsed", [], 5.0, 8.0, None, (True, 5.0)),
+            ("no rows, just short", [], 5.0, 7.9, None, (False, 5.0)),
+            ("far and still: runs out", [far], 0.0, 10.0, None, (True, 0.0)),
             # must-fail: never over while something chases
-            ("in notice range", [near], 0.0, 10.0, (False, 10.0)),
-            ("closing from afar", [closing], 0.0, 10.0, (False, 10.0)),
+            ("in notice range", [near], 0.0, 10.0, None, (False, 10.0)),
+            ("far, but the jar predicts its hit in 1 s", [far], 0.0, 10.0, 1.0, (False, 10.0)),
+            ("an arrow the jar sees coming, no mob row", [], 0.0, 10.0, 0.5, (False, 10.0)),
+            ("must fail: closing from afar is not differenced here any more: over", [closing], 0.0, 10.0, None,
+             (True, 0.0)),
         ]
-        for name, rows_, chased_at, now, want in rows:
+        for name, rows_, chased_at, now, hit_s, want in rows:
             with self.subTest(name):
-                self.assertEqual(fight_loop.engagement_over(rows_, here, chased_at, now), want)
+                self.assertEqual(fight_loop.engagement_over(rows_, here, chased_at, now, hit_s), want)
 
 
 class StillWorth(unittest.TestCase):
@@ -685,7 +689,6 @@ class Footwork(unittest.TestCase):
             ("a zombie: back out of its reach", 11, "fight", both, "back"),
             ("a skeleton: strafe across its line", 12, "fight", both, "strafe"),
             ("a creeper: keep off — hit, out past its blast, in again", 13, "fight", both, "keepoff"),
-            ("behind the shield, a skeleton: strafe too", 12, "fight_shielded", both, "strafe"),
             ("must fail: a target not among the rows: no footwork", 99, "fight", both, None),
             ("no rows at all: no footwork", 11, "fight", dict(inv=bag), None),
         ]

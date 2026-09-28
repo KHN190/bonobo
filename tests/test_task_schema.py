@@ -68,7 +68,9 @@ class TaskSchema(unittest.TestCase):
     def test_rows(self):
         schema = jar_schema(open(FACTORY).read())
         # (situation, a dict) → caught
-        rows = [("an attack with its entity", '{"type": "attack", "entity": 5, "shield": True}', False),
+        rows = [("an attack with its entity", '{"type": "attack", "entity": 5, "footwork": "back"}', False),
+                ("must fail: the attack's old shield flag (the reflex shields now)",
+                 '{"type": "attack", "entity": 5, "shield": True}', True),
                 ("a sweep round the body (its centre is optional)", '{"type": "collect", "radius": 4}', False),
                 ("must fail: a use_item with no item and keys the jar never reads",
                  '{"type": "use_item", "hand": "offhand", "hold_ms": 1500}', True),

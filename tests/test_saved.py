@@ -18,7 +18,7 @@ from tests.world import dangers, fights  # noqa: E402
 
 # fixture: the answers that change the ground (a squeezer walks past both), and the rest
 SHAPES = ("reshape", "wall_in")
-NOT_SHAPES = ("ignore", "fight", "fight_shielded", "evade", "eat", "shield")
+NOT_SHAPES = ("ignore", "fight", "evade", "eat")
 
 
 # Every way fight_plan.admissible refuses, as the start of its reason: a refusal outside this set is unexplained.
@@ -179,10 +179,10 @@ class EveryColumnIsOfferedWhenItCanWork(unittest.TestCase):
         offered = set()
         for cell in dangers():
             offered |= {o.kind for o in threat.options(cell.threat_state())}
-        for kind in ("ignore", "fight", "evade", "eat", "shield", "reshape", "wall_in"):
+        for kind in ("ignore", "fight", "evade", "eat", "reshape", "wall_in"):
             self.assertIn(kind, offered, f"{kind} is a column no world in the sweep can reach")
 
-    def test_a_column_that_heals_heals_and_one_that_protects_protects(self):
+    def test_a_column_that_heals_heals(self):
         """The executor reads these fields; a column whose `heals` is zero is a column that does nothing when it
         runs, however well it prices."""
         for cell in dangers():
@@ -192,8 +192,6 @@ class EveryColumnIsOfferedWhenItCanWork(unittest.TestCase):
                     heals = threat.ENGAGE["golden_heals" if option.target == "minecraft:golden_apple" else "eat_heals"]
                     self.assertEqual(option.heals, min(float(heals), 20.0 - hp), cell)
                     self.assertGreater(option.heals, 0.0, cell)
-                if option.kind == "shield":
-                    self.assertEqual(option.protects, float(threat.ENGAGE["shield_protects"]), cell)
 
     def test_ground_worth_building_against_offers_the_wall(self):
         for cell in dangers():
@@ -218,7 +216,7 @@ class WhatAnAnswerIsFor(unittest.TestCase):
     def test_a_column_is_not_offered_when_what_it_needs_is_not_carried(self):
         """Read off the world's kit, not written in: every column that spends something must be absent from a
         world that holds none of it, whatever the column is called."""
-        needs = {"eat": "food", "shield": "shield", "wall_in": "blocks", "reshape": "blocks"}
+        needs = {"eat": "food", "wall_in": "blocks", "reshape": "blocks"}
         for cell in dangers():
             kinds = {o.kind for o in threat.options(cell.threat_state())}
             for kind, resource in needs.items():
