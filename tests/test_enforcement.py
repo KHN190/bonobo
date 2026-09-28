@@ -205,10 +205,10 @@ class EveryLookIsVetted(unittest.TestCase):
 
     def test_the_funnel_warns_of_a_provoking_aim(self):
         from unittest import mock
-        from bonobo import world
         for name, task, st, want in self.VET:
-            with self.subTest(name), mock.patch.object(api, "get", return_value=st), \
-                    mock.patch.object(world, "entities", return_value=list(ENDERMEN)):
+            def got(path, st=st):
+                return {"entities": list(ENDERMEN)} if path.startswith("/entities") else st
+            with self.subTest(name), mock.patch.object(api, "get", side_effect=got):
                 self.assertEqual(api.vet_aim(task), want)
 
     # (situation, the target, the entities handed in as `near`) → shot (else refused)
