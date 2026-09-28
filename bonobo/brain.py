@@ -30,7 +30,7 @@ _memory.TICK_READER = skillcore.game_time_or_none      # a look or note outside 
 api.ARM = skillcore.arm                       # every task that breaks or fights names the item it holds (the jar picks none)
 from .planner import Unplannable, runnable
 from .needs import bag_signature
-from .world import Inventory, Snapshot, entities
+from .world import Inventory, Snapshot
 
 # wired from the top so lower layers never import the skill library
 hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx))
@@ -149,14 +149,7 @@ class Brain:
             s = skillcore.settle(lambda: api.get("/state"), lambda st: not st.get("dead"), timeout=5.0, soft=True)
         if s["screen"] == "class_433":
             api.post("/resume")
-        if s["dimension"] == "minecraft:the_nether":
-            # a fireball hit within reach flies back
-            for fb in entities(6, ["minecraft:fireball"]):
-                if fb["distance"] <= 4.5:
-                    try:
-                        api.run({"type": "attack", "entity": fb["id"]}, wait=2, awaits="each fireball is one swing now, the next read decides the next (reflex latency)")
-                    except McError:
-                        pass
+        # a fireball in reach is punched back by the jar's reflex (anaka combat.Reflex, policy fight_loop.ALWAYS)
         inv = Inventory()
         head = bare((inv.equipment.get("head") or {}).get("id") or "")
         if s["screen"] == "none" and s["dimension"] == "minecraft:the_nether" and head != "golden_helmet" \
