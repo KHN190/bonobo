@@ -679,6 +679,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
     no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
     opened = set()       # cells the jar could not hold a stand at, given a side face once (then banned if refused again)
+    dug_out = False      # a batch that broke its cells but brought nothing in gets one dig-out and sweep
     for _ in range(10):
         have = Inventory().count(drop)
         if have >= target:
@@ -849,6 +850,22 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                     unreachable += 1
                     _reach_budget(unreachable, blocks)
                 continue
+            if not dug_out and "failed" not in (r.get("message") or ""):
+                # the batch broke its cells ("succeeded") and the bag gained nothing: the drop lies where the pickup
+                # never went (a sealed cavity: brain__base "collecting items (0)") — open the cavity toward the body
+                # once and sweep, not a silent success nor a ban of cells that are air now
+                now = Region(tuple(min(c[i] for c in vein) - 1 for i in range(3)),
+                             tuple(max(c[i] for c in vein) + 1 for i in range(3)))
+                broken = [c for c in vein if not now.solid(c)]
+                if broken:
+                    dug_out = True
+                    here = feet()
+                    ops = sorted({op for c in broken if (op := opener(now, c, here, nav.SAFE_DROP, forced=True))
+                                  is not None and op not in ctx.policy.protected})
+                    api.detail(f"  mine {bare(drop)}: {len(broken)} broken, nothing in the bag: dig-out {ops}, then a sweep")
+                    api.run_chain([nav.mine_task(op, down=op[1] < here[1]) for op in ops]
+                                  + [{"type": "collect", "radius": 6}], wait=60)
+                    continue
             again, _ = refused(vein, tried, "approach_dig" in nav.mod_features())
             tried |= vein
             if again and ctx.policy.allow_dig and nav.way_to(ctx, again):
