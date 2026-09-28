@@ -262,3 +262,30 @@ class Daytime(unittest.TestCase):
         for name, t, day in rows:
             with self.subTest(name):
                 self.assertEqual(knowledge.daytime({"state": {"timeOfDay": t}}, None) == {}, day)
+
+
+class ClearRequests(unittest.TestCase):
+    """api.clear_requests: nothing pending carries into work that starts now (a bench row, a rescue)."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api
+        # (situation, INTERRUPT, AT_BOUNDARY, cleared first) → at_boundary raises
+        rows = [("a boundary left pending, cleared: nothing raised", None, "night", True, False),
+                ("both left pending, cleared: nothing raised", "lava", "night", True, False),
+                ("nothing pending: nothing raised", None, None, False, False),
+                ("must fail: a boundary left pending and not cleared raises in the next row", None, "night", False,
+                 True)]
+        for name, interrupt, boundary, cleared, raises in rows:
+            with self.subTest(name), mock.patch.object(api, "INTERRUPT", interrupt), \
+                    mock.patch.object(api, "AT_BOUNDARY", boundary), mock.patch.object(api, "SOFT", False), \
+                    mock.patch.object(api, "BOUNDARY_EXEMPT", lambda: False):
+                if cleared:
+                    api.clear_requests()
+                    self.assertIsNone(api.INTERRUPT)
+                try:
+                    api.at_boundary()
+                    got = False
+                except api.NightFell:
+                    got = True
+                self.assertEqual(got, raises)

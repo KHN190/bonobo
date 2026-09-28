@@ -145,7 +145,7 @@ def handle(ctx, state, attempt, ready):
     if k is None or not ready(f"rescue {k}"):
         return False
     log(f"L0: {k} → rescue")
-    api.INTERRUPT = None
+    api.clear_requests()
     api.MODE = "survival"      # the perception thread does not interrupt the rescue it asked for
     try:
         attempt(f"rescue {k}", lambda: RESCUE[k](ctx, state))

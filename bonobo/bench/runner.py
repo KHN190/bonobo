@@ -632,6 +632,7 @@ def run(name, make_ctx):
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
             _command(f"tick rate {rate}", feedback)
         perception.PAUSED = True
+        _api.clear_requests()      # nothing the last row left pending (a nightfall boundary) stops this one
         try:
             _setup(name, sc, feedback)
         except SetupInvalid as e:

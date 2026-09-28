@@ -86,6 +86,14 @@ def waiting_for_clock(seconds):
             pass
 
 
+def clear_requests():
+    """Drop every pending request to stop — the perception thread's INTERRUPT and nightfall's AT_BOUNDARY — so work
+    that starts now begins clean (a bench row; a rescue taking the body). A boundary left from the last row raised
+    NightFell in the next (deposit_home_chest after dig_in_night, 0 s)."""
+    global INTERRUPT, AT_BOUNDARY
+    INTERRUPT = AT_BOUNDARY = None
+
+
 def consume_interrupt():
     """Return and clear the pending interrupt, or None: soft skills read it and take cover themselves."""
     global INTERRUPT
