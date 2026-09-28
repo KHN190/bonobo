@@ -135,7 +135,10 @@ FAMILIES = [
     ('real', [('seek_blocks_real', ['seek_blocks'], 'real terrain, a log column 16 blocks off → walked to it',
           ('skill', 'seek_blocks', ['oak_log', 'birch_log', 'spruce_log'], 1, 20),
           ('found_near', ['oak_log', 'birch_log', 'spruce_log'], 8), 25,
-          [('cmd', 'execute at @p run fill ~16 ~ ~ ~16 ~4 ~ oak_log')]),
+          # the real terrain's own trees within 12 cleared first (a 64-radius spread can land in a wood: found
+          # within 8 at setup, 0 s), then the column 16 off: the walk to it is the row's
+          [('cmd', 'execute at @p run fill ~-12 ~-4 ~-12 ~12 ~12 ~12 air replace #minecraft:logs'),
+           ('cmd', 'execute at @p run fill ~16 ~ ~ ~16 ~4 ~ oak_log')]),
          ('strip_mine_real', ['strip_mine_step'], 'real terrain, a stone pickaxe → a mining tunnel started',
           ('skill', 'strip_mine_step', 2), ('gain', 'minecraft:cobblestone', 2), 25,
           [('cmd', 'execute at @p run fill ~-1 17 ~-1 ~1 19 ~1 air'), ('cmd', 'execute at @p run tp @p ~ 17 ~')])]),
@@ -605,10 +608,11 @@ CODE_ROWS = [
                                  for s_ in inv.slots), limit()),
     real_row("explore_for_animals_real", ["explore_for"], "real terrain, two cows 16 blocks off → found",
              ("skill", "explore_for", ["minecraft:cow", "minecraft:sheep", "minecraft:pig"], 1, 20),
-             lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
-                 24, ["minecraft:cow", "minecraft:sheep", "minecraft:pig"])), limit(),
+             # judged by what the skill found and noted, never by animals near at setup (the old check, "within 24",
+             # held the moment the cows were summoned 16 off: the row passed in 0 s whatever the skill did)
+             _remembered_any(["minecraft:cow", "minecraft:sheep", "minecraft:pig"]), limit(),
              [("cmd", "execute at @p run summon cow ~16 ~3 ~"), ("cmd", "execute at @p run summon cow ~16 ~3 ~1")],
-             True),
+             True, before=[_forget_all("minecraft:cow"), _forget_all("minecraft:sheep"), _forget_all("minecraft:pig")]),
     dict(name="fill_bottles_interrupted",
          doc="a pond, 3 glass bottles, interrupted at the first water bottle → resumed for the 2 left: exactly 3",
          module="skills", point="A", skills=["fill_bottles"],

@@ -1741,6 +1741,10 @@ def _seen(kind, pos):
 def _not_remembered(kind):
     return lambda api, inv: core.BRAIN.mem.seen(kind, "minecraft:overworld") == []
 
+def _remembered_any(kinds):
+    """The skill noted one of `kinds` (memory's sightings): false at setup once `_forget_all` ran for each."""
+    return lambda api, inv: any(core.BRAIN.mem.seen(k, "minecraft:overworld") for k in kinds)
+
 def _forget_all(kind):
     def before(ctx):
         for r in core.BRAIN.mem.seen(kind, "minecraft:overworld"):
@@ -2544,11 +2548,11 @@ REAL_KIT = [("cmd", "forceload add 14136 14136 14264 14264"), ("cmd", "spreadpla
             ("cmd", "clear @p"), ("give", "stone_pickaxe"),
             ("give", "torch", 8), ("give", "cobblestone", 32), ("give", "cooked_beef", 8)]
 
-def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False):
+def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False, before=()):
     """On real terrain (raw), a target put in scan range: judged by what was found."""
     row = _row(name, doc, "skills", REAL_KIT + list(extra), run, items(check), budget=budget, raw=True, release=True,
                skills=list(skills), tags={"base": skills[0], "terrain": "real"},
-               **({"stochastic": True} if stochastic else {}))
+               **({"stochastic": True} if stochastic else {}), **({"before": list(before)} if before else {}))
     del row["expect"]
     return row
 
