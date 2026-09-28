@@ -678,6 +678,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
     empty_batches = 0    # batches the mod could not break at all; a few in a row means the seam really is dead
     tried = set()        # cells a batch already broke none of: a second refusal drops them (bag.refused)
     no_cell = set()      # seeds whose vein has no mineable cell from here: the next pass takes the next seed
+    opened = set()       # cells the jar could not hold a stand at, given a side face once (then banned if refused again)
     for _ in range(10):
         have = Inventory().count(drop)
         if have >= target:
@@ -799,6 +800,17 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             around = {c: region.name(c) for c in out.cells or ()}
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
                        + "; ".join(f"{c} {n} faces {[region.name(add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))
+            # "cannot hold a stand spot": the jar found no spot that keeps the cell in sight (a top face seen only
+            # from a pit's rim, search_night_resume 09:17:19) — open a side face once, then ask again; a ban only
+            # when the opened cell is refused too
+            held = [c for c in (out.cells or ()) if c not in opened and "cannot hold a stand spot" in str(out)]
+            sides = [(c, op) for c in held if (op := opener(region, c, feet(), nav.SAFE_DROP, forced=True)) is not None
+                     and op not in ctx.policy.protected]
+            if sides:
+                opened.update(c for c, _op in sides)
+                api.run_chain([nav.mine_task(op, down=op[1] < feet()[1]) for _c, op in sides], stop_on_failure=True,
+                              wait=60)
+                continue
             # "cannot reach": make a standing spot and ask again; a way that changed nothing counts against the budget (from jar 0.1.40 its approach already dug)
             if "approach_dig" not in nav.mod_features() and nav.way_to(ctx, out.cells or vein):
                 unreachable += 1

@@ -2006,8 +2006,8 @@ class BagRules(unittest.TestCase):
                 ("the body north-east: the north neighbour", pocket, (10016, 198, 10001), (10014, 199, 10002)),
                 ("must fail: a standable top face (head room): no opener", {**ground, cell: "diamond_ore"},
                  (10012, 198, 10005), None),
-                ("must fail: buried (the approach digs): no opener",
-                 {**ground, cell: "diamond_ore", (10014, 200, 10003): "stone"}, (10012, 198, 10005), None)]
+                ("buried: a side face on the body's side (the drop's way out of the sealed cavity)",
+                 {**ground, cell: "diamond_ore", (10014, 200, 10003): "stone"}, (10012, 198, 10005), (10013, 199, 10003))]
         for name, blocks, feet, want in rows:
             with self.subTest(name):
                 region = FakeRegion((10006, 190, 9995), (10022, 205, 10011), blocks)
