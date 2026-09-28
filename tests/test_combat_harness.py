@@ -189,6 +189,29 @@ class GhastReadout(unittest.TestCase):
                 self.assertEqual(vocab.ghast_readout(watch), want)
 
 
+class BehaviourParts(unittest.TestCase):
+    """A behaviour check names its parts: dig_in's went_out, depth, hp_lost."""
+
+    def test_rows(self):
+        rule = fight.BEHAVIOURS["dig_in"][1]
+        y0 = fight.START_Y
+        dug = {"answered": [{"kind": "reshape", "outcome": "answered"}], "trace": [{"pos": [0, y0 - 2, 0]}],
+               "outcome": {"hp_lost": 1.0}}
+        fought = dict(dug, answered=[{"kind": "fight", "outcome": "answered"}])
+        shallow = dict(dug, trace=[{"pos": [0, y0 - 1, 0]}])
+        # (the recorded row) → (passed, [(part, said)])
+        rows = [("dug two down, health kept", dug, (True, [True, True, True])),
+                ("must fail: fought instead", fought, (False, [False, True, True])),
+                ("one down only", shallow, (False, [True, False, True])),
+                ("no row recorded", None, (False, [False, False, False]))]
+        for name, recorded, want in rows:
+            with self.subTest(name):
+                fight.SWEEP["combat__dig_in"] = [recorded] if recorded else []
+                check = fight._behaviour_check("combat__dig_in", rule)
+                self.assertEqual((check(None, None), [v for _w, v in runner.check_parts(check, None, None)]), want)
+        fight.SWEEP.pop("combat__dig_in", None)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

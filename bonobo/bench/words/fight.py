@@ -511,9 +511,11 @@ BEHAVIOURS = {
                   lambda r, api: _went_out(r, "reshape") and _gap_blocked(api) >= 1 and r["outcome"]["gap"] >= 1.5
                   and r["outcome"]["hp_lost"] <= 4,
                   "a corridor with one gap, blocks carried: the gap closed, the walker kept outside it"),
-    "dig_in": (dict(ground="roofed", kit="blocks"),
-               lambda r, api: _went_out(r, "reshape", "wall_in") and min(_ys(r)) <= START_Y - 2
-               and r["outcome"]["hp_lost"] <= 4,
+    # unarmed: with an iron sword the fight is the right answer, never the dig
+    "dig_in": (dict(ground="roofed", kit="blocks", weapon="fist", armour="skin"),
+               [("went_out", lambda r, api: _went_out(r, "reshape", "wall_in")),
+                ("depth", lambda r, api: min(_ys(r)) <= START_Y - 2),
+                ("hp_lost", lambda r, api: r["outcome"]["hp_lost"] <= 4)],
                "a roof overhead, blocks and a pickaxe: dug two down into the floor out of reach, health kept"),
     "pillar": (dict(ground="open", kit="blocks"),
                lambda r, api: _went_out(r, "reshape") and max(_ys(r)) >= START_Y + 2,
@@ -540,9 +542,20 @@ BEHAVIOURS = {
 }
 
 def _behaviour_check(name, rule):
-    def check(api, _inv):
-        row = _last(name)
-        return row is not None and bool(rule(row, api))
+    """A behaviour's rule over its recorded row; a rule given as [(part, fn)] names each part (check_parts)."""
+    named = rule if isinstance(rule, list) else [("rule", rule)]
+
+    def part(word, fn):
+        def ask(api, _inv):
+            row = _last(name)
+            return row is not None and bool(fn(row, api))
+        ask.__table__ = (word,)
+        return ask
+    parts = [part(w, fn) for w, fn in named]
+
+    def check(api, inv):
+        return all(p(api, inv) for p in parts)
+    check.parts = parts
     return check
 
 def _record_with_start(record):
