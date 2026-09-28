@@ -28,7 +28,6 @@ UNMEASURED = tuple(CONFIG["tools"].get("unmeasured", ()))
 
 # observation counts keyed like `value`; filled from the log at import
 COUNTS = {}
-OBSERVED = {}
 LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
 
 # prior observations' worth of doubt in a declared number: with n = 0 a benefit reads at half, climbing as measurements come

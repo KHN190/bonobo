@@ -73,22 +73,6 @@ LOG_TO_PLANKS = {f"minecraft:{w}_log": f"minecraft:{w}_planks" for w in WOODS}
 LOG_TO_PLANKS.update({"minecraft:crimson_stem": "minecraft:crimson_planks",
                       "minecraft:warped_stem": "minecraft:warped_planks"})
 
-# interchangeable items; "any X" recipes use the group name
-GROUPS = {
-    "log": list(LOG_TO_PLANKS),
-    "planks": sorted(set(LOG_TO_PLANKS.values())),
-    "stone": ["minecraft:cobblestone", "minecraft:cobbled_deepslate", "minecraft:blackstone"],
-    "coal": ["minecraft:coal", "minecraft:charcoal"],
-    "wool": [f"minecraft:{c}_wool" for c in COLORS],
-    "bed": [f"minecraft:{c}_bed" for c in COLORS],
-    "boat": [f"minecraft:{w}_boat" for w in WOODS],
-    "door": [f"minecraft:{w}_door" for w in WOODS],
-    # anything solid we'd otherwise throw away is building material
-    "building": ["minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff",
-                 "minecraft:dripstone_block", "minecraft:calcite", "minecraft:dirt", "minecraft:cobbled_deepslate",
-                 "minecraft:cobblestone", "minecraft:blackstone"],
-}
-
 TIER_OF_MATERIAL = {"wooden": 0, "golden": 0, "stone": 1, "iron": 2, "diamond": 3, "netherite": 4}
 MATERIAL_TOKEN = {"wooden": "planks", "stone": "stone", "iron": "minecraft:iron_ingot", "diamond": "minecraft:diamond"}
 TOOL_KINDS = ("pickaxe", "axe", "shovel", "sword", "hoe")     # every kind of tool, in one place
@@ -112,8 +96,22 @@ FOOD = [f for f in NUTRITION if f not in RAW]
 FULL_BAR = 20
 MAX_HP = 20.0
 
-# food is a group so the solver can price "something to eat"
-GROUPS["food"] = list(FOOD)
+# interchangeable items; "any X" recipes use the group name
+GROUPS = {
+    "log": list(LOG_TO_PLANKS),
+    "planks": sorted(set(LOG_TO_PLANKS.values())),
+    "stone": ["minecraft:cobblestone", "minecraft:cobbled_deepslate", "minecraft:blackstone"],
+    "coal": ["minecraft:coal", "minecraft:charcoal"],
+    "wool": [f"minecraft:{c}_wool" for c in COLORS],
+    "bed": [f"minecraft:{c}_bed" for c in COLORS],
+    "boat": [f"minecraft:{w}_boat" for w in WOODS],
+    "door": [f"minecraft:{w}_door" for w in WOODS],
+    # anything solid we'd otherwise throw away is building material
+    "building": ["minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff",
+                 "minecraft:dripstone_block", "minecraft:calcite", "minecraft:dirt", "minecraft:cobbled_deepslate",
+                 "minecraft:cobblestone", "minecraft:blackstone"],
+    "food": list(FOOD),
+}
 
 def recipes():
     """item -> (row-major pattern of item ids / group tokens / None, output count). 4 entries = 2×2, 9 = 3×3."""
