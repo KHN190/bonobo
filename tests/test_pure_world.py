@@ -1186,3 +1186,55 @@ class SkillLine(unittest.TestCase):
         for name, t, want in rows:
             with self.subTest(name):
                 self.assertEqual(sk.skill_line(want.split()[1], t), want)
+
+
+class Pits(unittest.TestCase):
+    """nav.in_pit / pit_exit_tasks / stair_down_tasks: a body never ends in a hole it cannot leave."""
+
+    @staticmethod
+    def ground(depth, feet=(0, 64, 0), half=3):
+        """Stone to y 64+1 all round, a 1-wide hole `depth` deep at `feet` (the feet at its bottom)."""
+        from tests.world import FakeRegion
+        x, y, z = feet
+        top = y + depth - 1                       # the ground's top block level beside the hole
+        blocks = {(i, j, k): "stone" for i in range(x - half, x + half + 1) for k in range(z - half, z + half + 1)
+                  for j in range(y - 4, top + 1) if not (i == x and k == z and j >= y)}
+        return FakeRegion((x - half, y - 5, z - half), (x + half, y + 6, z + half), blocks)
+
+    def test_in_pit(self):
+        from bonobo import nav
+        rows = [("a 1-wide shaft 3 deep: a pit", self.ground(3), True),
+                ("2 deep: the head-height sides solid — a pit", self.ground(2), True),
+                ("must fail: a 1-deep dip — a jump clears it", self.ground(1), False),
+                ("must fail: flat ground", self.ground(0), False)]
+        for name, region, want in rows:
+            with self.subTest(name):
+                self.assertIs(nav.in_pit(region, (0, 64, 0)), want)
+
+    def test_pit_exit(self):
+        from bonobo import nav
+        rows = [("a block carried, the shaft open above: pillar", self.ground(3), "minecraft:cobblestone", "pillar"),
+                ("no block: a step dug into a side, then walked onto", self.ground(3), None, "goto"),
+                ("must fail: nothing to stand on beside (air all round): no way", self.ground(0), None, None)]
+        for name, region, block, want in rows:
+            with self.subTest(name):
+                tasks = nav.pit_exit_tasks(region, (0, 64 if want else 65, 0), block)
+                self.assertEqual(tasks[-1]["type"] if tasks else None, want)
+
+    def test_stairs_not_a_shaft(self):
+        from bonobo import nav
+        region = self.ground(0)
+        rows = [("5 below and 3 east: steps east, one down each", (3, 59, 0), (1, 0)),
+                ("straight below: steps along x, never the own column", (0, 60, 0), (1, 0)),
+                ("must fail: level with the feet: no stairs", (4, 64, 0), None),
+                ("one below: a step, not stairs", (2, 63, 0), None)]
+        for name, target, d in rows:
+            with self.subTest(name):
+                tasks = nav.stair_down_tasks(region, (0, 64, 0), target)
+                gotos = [(t["x"], t["y"], t["z"]) for t in tasks if t["type"] == "goto"]
+                if d is None:
+                    self.assertEqual(tasks, [])
+                else:
+                    self.assertTrue(gotos)
+                    self.assertTrue(all(g[1] == 64 - k and (g[0], g[2]) == (d[0] * k, d[1] * k)
+                                        for k, g in enumerate(gotos, 1)))
