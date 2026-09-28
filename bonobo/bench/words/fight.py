@@ -232,7 +232,9 @@ def _combat_execute(seconds, until=None, cell=None):
     from ...world import Inventory, Snapshot
     if not perception.watching():
         raise SetupInvalid("the threat layer is not running: nothing would answer, and nothing would be measured")
-    mark = perception.looks_taken()
+    from ..runner import take_row_mark
+    mark = take_row_mark()
+    mark = perception.looks_taken() if mark is None else mark
     began, worst = time.time(), Snapshot.from_readings(api.get("/state"), bag_now()).state["health"]
     trace, stop = [], threading.Event()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)

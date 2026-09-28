@@ -288,6 +288,27 @@ class UnarmedCellsGetNoSword(unittest.TestCase):
                 self.assertNotIn("sword", bench_bases.KIT.get(name, []))
 
 
+class TheWindowOpensBeforeTheHooks(unittest.TestCase):
+    """The row's answer mark is taken where the window opens, before its hooks: an answer a hook provokes counts."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import perception
+        looks = []
+        with mock.patch.object(perception, "looks_taken", lambda: len(looks)), \
+                mock.patch.object(perception, "pause", lambda on: None):
+            runner.open_window()
+            looks.append("reshape (the hook woke the walker)")        # answered before the recording starts
+            first = runner.take_row_mark()
+            second = runner.take_row_mark()
+        rows = [("the first recording takes the window's mark", first, 0),
+                ("must fail: marked after the hook's answer", first == len(looks), False),
+                ("later cells mark their own", second, None)]
+        for name, got, want in rows:
+            with self.subTest(name):
+                self.assertEqual(got, want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

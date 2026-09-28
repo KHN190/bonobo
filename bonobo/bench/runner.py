@@ -721,6 +721,7 @@ def _run_row(sc, make_ctx, fired):
     timer = None
     try:
         try:
+            open_window()
             ctx = make_ctx()
             if sc.get("before"):
                 sc["before"](ctx)
@@ -829,6 +830,23 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
         note = note or f"check failed: {e} @ {traceback_of(e)}"
     return ok, exc, note
 
+ROW_MARK: dict = {}       # "mark": perception's look count when the row's window opened (open_window), taken once
+_lifecycle.in_place(__name__, "ROW_MARK")
+
+
+def open_window():
+    """The one place a row's window opens, before its `before` hooks: perception unpaused and the answer mark taken
+    together — a hook that wakes a mob (block_gap's loose) had its answer land before the recording's own mark."""
+    from .. import perception
+    perception.pause(False)
+    ROW_MARK["mark"] = perception.looks_taken()
+
+
+def take_row_mark():
+    """The window's answer mark, once (the first recording of the row takes it; later cells mark their own)."""
+    return ROW_MARK.pop("mark", None)
+
+
 def _begin(name, sc, feedback, idle=False):
     """Every row's one entry, normal or idle: perception paused (commands rebuild the world), per-life state reset
     (lifecycle.reset_all: nothing the last row left — a pending boundary, a held target id, a sweep — leaks in),
@@ -891,8 +909,7 @@ def run(name, make_ctx):
             _begin(name, sc, feedback)
         except SetupInvalid as e:
             exc, note = e, f"SETUP_INVALID: {e}"
-        finally:
-            perception.pause(False)
+            perception.pause(False)       # no window opens: the agent is given back its eyes here
         if exc is None and NEXT_ROW[0] and NEXT_ROW[0] != name:
             prebuild(NEXT_ROW[0])          # the next row's world, at site B, while this one runs
         if exc is None:
