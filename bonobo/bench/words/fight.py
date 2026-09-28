@@ -260,8 +260,25 @@ def _plain(state):
     if not state:
         return None
     ground = state.get("field")
-    return dict(state, hazards=[list(h) for h in state.get("hazards", ())],
-                field=None if ground is None else {"bucket": ground.bucket, "blocks": ground.blocks})
+    return _data(dict(state, field=None if ground is None else {"bucket": ground.bucket, "blocks": ground.blocks}),
+                 "state")
+
+def _data(v, where):
+    """Pure: `v` as plain JSON data, recursively: sets sorted to lists, tuples to lists, keys to str. Anything else
+    (a callable) raises, naming the field — a set in the priced state crashed every sweep row's json.dumps."""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, dict):
+        return {str(k): _data(x, f"{where}.{k}") for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_data(x, f"{where}[{i}]") for i, x in enumerate(v)]
+    if isinstance(v, (set, frozenset)):
+        items = [_data(x, where) for x in v]
+        try:
+            return sorted(items)
+        except TypeError:
+            return sorted(items, key=repr)
+    raise TypeError(f"{where}: a {type(v).__name__} is not row data")
 
 def _fought(kinds, seconds):
     """The shared record: price the cell, live in it, report the outcome and the clock's word on the pricing's numbers."""

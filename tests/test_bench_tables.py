@@ -572,3 +572,26 @@ class WordModules(unittest.TestCase):
                     if mod in self.ORDER and n.lineno < first_def:       # at the top: only the words before it
                         self.assertLess(self.ORDER.index(mod), i, f"{name} imports {mod} at its top")
 
+
+class ARowIsPlainData(unittest.TestCase):
+    """words.fight._plain: a sweep row's priced state is plain JSON, recursively (threat_state's `alive` set crashed
+    json.dumps on every sweep/behaviour row)."""
+
+    def test_rows(self):
+        from bonobo import fight_loop
+        from bonobo.bench.words import fight as wf
+        live = fight_loop.threat_state({"x": 0.5, "y": 64.0, "z": 0.5, "health": 20},
+                                       [((3.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie", 1.0, 3.0)],
+                                       ids=[7])
+        self.assertIsInstance(live["alive"], set)
+        with self.subTest("must fail: the live state as it is: a set json cannot write"), \
+                self.assertRaises(TypeError):
+            json.dumps(dict(live, field=None))
+        with self.subTest("plain: written, sets sorted to lists, tuples to lists"):
+            back = json.loads(json.dumps(wf._plain(live)))
+            self.assertEqual(back["alive"], sorted(back["alive"]))
+            self.assertIsInstance(back["here"], list)
+        with self.subTest("must fail: a callable is named, never written"), \
+                self.assertRaisesRegex(TypeError, r"state\.footing"):
+            wf._plain(dict(live, footing=lambda spot: spot))
+
