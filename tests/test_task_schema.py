@@ -69,6 +69,9 @@ class TaskSchema(unittest.TestCase):
         schema = jar_schema(open(FACTORY).read())
         # (situation, a dict) → caught
         rows = [("an attack with its entity", '{"type": "attack", "entity": 5, "footwork": "back"}', False),
+                ("an attack's keep-off distance", '{"type": "attack", "entity": 5, "keepOff": 7.5}', False),
+                ("must fail: keep_off spelled the Python way", '{"type": "attack", "entity": 5, "keep_off": 7.5}',
+                 True),
                 ("must fail: the attack's old shield flag (the reflex shields now)",
                  '{"type": "attack", "entity": 5, "shield": True}', True),
                 ("a sweep round the body (its centre is optional)", '{"type": "collect", "radius": 4}', False),
