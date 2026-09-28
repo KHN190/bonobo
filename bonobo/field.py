@@ -50,7 +50,7 @@ class Field:
         return straight * self.slowdown(squeezes)
 
     def delay_ratio(self, squeezes=False):
-        """What the blocks we placed do to how soon something arrives."""
+        """What the blocks in the way (there when read, and ours) do to how soon something arrives."""
 
         if not self.blocks:
             return 1.0
@@ -173,7 +173,28 @@ def shape_at(region, here):
     return tuple(out)
 
 
+def blocks_in_passage(region, here, reach=4):
+    """Pure: blocks already filling our 1-wide passage (feet and head of its first non-empty cell either way, the
+    most of the two sides) — a passage walled before we look is as sealed as one we wall; 0 elsewhere."""
+    x, y, z = (int(math.floor(v)) for v in here)
+    solid = region.solid
+    for dx, dz in ((1, 0), (0, 1)):
+        if not all(solid((x + s * dx, yy, z + s * dz)) for s in (1, -1) for yy in (y, y + 1)):
+            continue
+        ax, az = dz, dx          # the passage runs across the walls
+        best = 0
+        for s in (1, -1):
+            for k in range(1, reach + 1):
+                c = (x + s * k * ax, y, z + s * k * az)
+                n = int(solid(c)) + int(solid((c[0], y + 1, c[2])))
+                if n:
+                    best = max(best, n)
+                    break
+        return best
+    return 0
+
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
     return Field(speed=speed, bucket=bucket_at(region, here, radius), terrain=terrain, seal=seal_at(region, here),
-                 cover=low_cover_at(region, here), shape_now=shape_at(region, here))
+                 blocks=blocks_in_passage(region, here), cover=low_cover_at(region, here),
+                 shape_now=shape_at(region, here))

@@ -1226,6 +1226,25 @@ class WhereWeStandNow(unittest.TestCase):
                 self.assertGreater(estimate.pressure_hp_s(here, [m], 0.0, ground=field.Field()), 0.0)
 
 
+class APassageWalledBeforeWeLook(unittest.TestCase):
+    """Blocks already in our 1-wide passage count toward its seal (field.blocks_in_passage)."""
+
+    def test_rows(self):
+        from bonobo import estimate, field
+        from tests.world import FakeRegion
+        span = range(-8, 9)
+        base = {(x, 63, z): "stone" for x in span for z in span}
+        base.update({(x, y, z): "stone" for x in range(-1, 9) for z in (-1, 1) for y in (64, 65, 66)})
+        walker = estimate.row((5.5, 64.0, 0.5), 3.0, (-4.0, 0.0, 0.0), "minecraft:zombie", 1.0, 6.25)
+        # (blocks already in the passage) → the walker arrives?
+        rows = [("open", {}, True), ("one block (it jumps it)", {(2, 64, 0): "stone"}, True),
+                ("must fail: feet and head walled — read as open", {(2, 64, 0): "stone", (2, 65, 0): "stone"}, False)]
+        for name, plug, arrives in rows:
+            with self.subTest(name):
+                ground = field.from_region(FakeRegion((-8, 56, -8), (8, 72, 8), {**base, **plug}), (0.5, 64.0, 0.5), 6)
+                self.assertEqual(estimate.arrival_s((0.5, 64.0, 0.5), walker, ground=ground) != float("inf"), arrives)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
