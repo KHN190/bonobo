@@ -515,7 +515,10 @@ def _record_bids(ctx):
     FIGHT_LOG["bids"] = []
     real = FIGHT_LOG.setdefault("real_bid", fight_loop.bid)
     def bid(*a, **k):
-        FIGHT_LOG["bids"].append(time.time())
+        # (when, engaged, its kind): the gaps judged are the ones while a fight holds the body, not the walk-in
+        eng = fight_loop.engaged()
+        want = fight_loop._ENG.get("want") if eng is not None else None      # the answer the fight is carrying out
+        FIGHT_LOG["bids"].append((time.time(), eng is not None, getattr(want, "kind", None)))
         return real(*a, **k)
     fight_loop.bid = bid
 
@@ -524,9 +527,12 @@ def _fight_until(kinds, seconds, clear=True):
     def run(ctx):
         from ... import fight_loop
         t0 = time.time()
+        FIGHT_LOG["alive"] = []
         try:
             while time.time() - t0 < seconds:
-                if clear and not _hostiles(24, set(kinds)):
+                alive = _hostiles(24, set(kinds))
+                FIGHT_LOG["alive"].append((len(alive), fight_loop.engaged() is not None))
+                if clear and not alive:
                     return True
                 core.BRAIN.round()
             return not clear or not _hostiles(24, set(kinds))
@@ -534,12 +540,39 @@ def _fight_until(kinds, seconds, clear=True):
             fight_loop.bid = FIGHT_LOG.get("real_bid", fight_loop.bid)
     return run
 
+def engaged_gaps(bids):
+    """Pure: the seconds between consecutive bids made while engaged (`bids`: [(when, engaged)]) — the fight's own
+    decision rhythm; the gaps before it engaged (the walk in, HTTP reads) are not the fight's."""
+    return [b[0] - a[0] for a, b in zip(bids, bids[1:]) if a[1] and b[1]]
+
+
+def kills_while_engaged(samples):
+    """Pure: the mobs that went while a fight held the body — `samples` [(alive count, engaged)] in order; a drop
+    between two samples counts when either was engaged (a kill by the plan layer or the sun is not the fight's)."""
+    return sum(max(0, a[0] - b[0]) for a, b in zip(samples, samples[1:]) if a[1] or b[1])
+
+
+def _kills_by_the_fight(n):
+    """Check: `n` mobs went while the fight was engaged (the fight's own kills, not a burn or the plan's swing)."""
+    return lambda api, inv: kills_while_engaged(FIGHT_LOG.get("alive", [])) >= n
+
+
+def _answered_with(*kinds):
+    """Check: the fight carried out one of `kinds` at some bid (shield, fight_shielded: the shield was raised)."""
+    return lambda api, inv: any(k in kinds for _t, _e, k in FIGHT_LOG["bids"])
+
+
+def _shield_kept():
+    """Check: the shield is still in the offhand at the end."""
+    return lambda api, inv: _offhand_shield()
+
+
 def _decision_gaps_ok(factor=1.5):
     def check(api, inv):
         from ... import fight_loop
-        t = FIGHT_LOG["bids"]
-        gaps = [b - a for a, b in zip(t, t[1:])]
-        return bool(t) and max(gaps, default=0.0) <= fight_loop.FIGHT_POLL_S * factor
+        bids = FIGHT_LOG["bids"]
+        return any(e for _t, e in bids) and \
+            max(engaged_gaps(bids), default=0.0) <= fight_loop.FIGHT_POLL_S * factor
     return check
 
 def _gone(kinds):
@@ -556,6 +589,12 @@ _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-
           "item replace entity @p armor.chest with iron_chestplate",
           "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
           "item replace entity @p weapon.offhand with shield"]
+
+# the _ARENA as built: its floor and roof stone, its four glass walls (4 high), and the kit it gives
+ARENA_EXPECT = [(("@", -9, -1, -9), ("@", 9, -1, 9), "stone", 361, 361),
+                (("@", -9, 4, -9), ("@", 9, 4, 9), "stone", 361, 361),
+                (("@", -9, 0, -9), ("@", 9, 3, 9), "glass", 288, 288)]
+ARENA_GEAR = {"items": [["minecraft:iron_sword", 1]], "offhand": "minecraft:shield"}
 
 # (name, mob, count, tier, seconds, health kept at least, cleared?) — cleared False: a neutral mob left alone
 RESOLVE_GAP, RESOLVE_HOLD_S, RESOLVE_HP_LOSS = 6.0, 5.0, 4.0
@@ -641,20 +680,26 @@ def behaviour_row(name, behaviour):
 def fight_cell_row(name, mob, n, tier, secs, hp, clear):
     """A walled arena, the iron kit, `n` of one mob: all dead (or kept off, or left alone when neutral)."""
     kinds = [f"minecraft:{mob}"]
-    spots = ([(7, 0, 0)] if mob == "creeper" else [(4, 0, 0), (-3, 0, 3), (1, 0, -4)])[:n]
+    # an archer 10 blocks off (7, 7: 9.9) — at 4 it was a melee fight; a creeper 7; the rest 4-5 off
+    spots = ([(7, 0, 0)] if mob == "creeper" else [(7, 0, 7)] if mob == "skeleton"
+             else [(4, 0, 0), (-3, 0, 3), (1, 0, -4)])[:n]
     nbt = "{PersistenceRequired:1b,Health:10f}" if mob == "blaze" and n > 1 else "{PersistenceRequired:1b}"
     verdict = {True: "all dead", False: "left alone (neutral)",
                "resolved": f"dead, or kept off and not following for {RESOLVE_HOLD_S:.0f} s"}[clear]
     check = ([("threat_resolved", kinds), ("decision_gaps_ok",)] if clear == "resolved"
-             else [("hp_kept", hp), ("gone", kinds), ("decision_gaps_ok",)] if clear
+             else [("hp_kept", hp), ("gone", kinds), ("kills_by_the_fight", n), ("decision_gaps_ok",)] if clear
              else [("hp_kept", hp), ("call", "hostiles", [24, ("$set", kinds)])])
+    if mob == "skeleton":
+        check += [("answered_with", "shield", "fight_shielded"), ("shield_kept",)]   # arrows: shield up, still there
     return _row(name, f"Walled platform, iron kit: {n} {mob} → {verdict}, health ≥ {hp}, a threat decision every "
                       "≤ 1.5 × FIGHT_POLL_S while engaged", "fight_loop",
                 [("sheet", "_ARENA")] + [("summon", mob, ("@", x, y, z), nbt) for x, y, z in spots],
                 ("fight_until", kinds, secs - RESOLVE_HOLD_S - 2 if clear == "resolved" else secs - 2)
                 + (() if clear is not False else (False,)), check, point="B", budget=min(secs + 5, limit()),
                 before=[("&record_bids",)], combat=True, skills=[], tier_fixed=tier,
-                tags={"base": "fight", "enemy": mob, "count": n}, expect_entities=[(f"minecraft:{mob}", n)])
+                tags={"base": "fight", "enemy": mob, "count": n},
+                # the scene proven before the run: exactly this line-up, the arena standing, the kit in hand
+                expect_entities=[(f"minecraft:{mob}", n, n)], expect=ARENA_EXPECT, expect_gear=ARENA_GEAR)
 
 def siege_detail(name):
     return lambda inv: _siege_detail_of(name)
@@ -677,4 +722,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "escape": lambda enemy, ground, kit, seed=None: f"escape__{enemy}_{ground}_{kit}",
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name}
 
-__all__ = ['ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', '_walled', '_wave_cleared', '_went_out', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

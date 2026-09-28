@@ -533,10 +533,16 @@ def _setup_raw(sc, dim, moved, lo, hi, ex, feedback):
     if s.get("dimension") != dim:
         raise SetupInvalid(f"player in {s.get('dimension')}, scenario needs {dim}")
     # real-world scenarios need their actors too
-    for t, want in sc.get("expect_entities", []):
+    for t, want, *most in sc.get("expect_entities", []):
         n = server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..160]"), feedback))
-        if n < want:
-            raise SetupInvalid(f"{t}: {n} on the server, expected ≥ {want}")
+        bad = entity_mismatch(t, n, want, most[0] if most else None)
+        if bad:
+            raise SetupInvalid(bad)
+    if sc.get("expect_gear"):
+        from ..world import Inventory
+        bad = gear_mismatches(Inventory(), sc["expect_gear"])
+        if bad:
+            raise SetupInvalid("; ".join(bad))
 
 def _build_box(name, sc, lo, hi, ex, feedback):
     """The previous row's leftovers cleared above the glass and the layout built, prebuilt at site B when there is one."""
@@ -561,6 +567,28 @@ def _build_box(name, sc, lo, hi, ex, feedback):
     _batch([ex(cmd) for cmd in rest], feedback)
     SETUP_S["body_s"] = round(time.time() - t_body, 2)
 
+def entity_mismatch(kind, n, want, most=None):
+    """Pure: what a scene's count of `kind` (n on the server) gets wrong — at least `want`, at most `most` when a row
+    asks for an exact line-up (a second zombie from a spawner made fight_zombie_1 another fight) — else None."""
+    if n < want:
+        return f"{kind}: {n} on the server, expected ≥ {want}"
+    if most is not None and n > most:
+        return f"{kind}: {n} on the server, expected ≤ {most}"
+    return None
+
+
+def gear_mismatches(inv, gear):
+    """Pure: what the body lacks of a row's kit (`gear`: {"items": [[id, n]], "offhand": id}) — a fight judged with
+    no sword or no shield in hand judges nothing."""
+    from ..data import bare
+    out = [f"{i}: {inv.count(i)} carried, expected ≥ {n}" for i, n in gear.get("items", ()) if inv.count(i) < n]
+    want = gear.get("offhand")
+    has = bare((inv.equipment.get("offhand") or {}).get("id", "") or "")
+    if want and has != bare(want):
+        out.append(f"offhand {has or 'empty'}, expected {bare(want)}")
+    return out
+
+
 def _setup_settled(sc, lo, hi, ex, feedback):
     """(what the built box and its actors still miss, the last /state): the client sees the build late, so read until it holds."""
     from .. import api
@@ -572,9 +600,13 @@ def _setup_settled(sc, lo, hi, ex, feedback):
         time.sleep(0.5)          # read again only when it did not hold yet (a fixed 0.5 s first cost every row)
     for _ in range(12):          # summoned mobs and the health effect land a few ticks later (a ghast took > 3 s)
         # count on the server: the client's entity list misses far summons
-        ents = [f"{t}: {n} on the server, expected ≥ {want}" for t, want in sc.get("expect_entities", [])
+        ents = [m for t, want, *most in sc.get("expect_entities", [])
                 for n in [server_count(_command(ex(f"execute as @p at @s if entity @e[type={t},distance=..40]"),
-                                                feedback))] if n < want]
+                                                feedback))]
+                for m in [entity_mismatch(t, n, want, most[0] if most else None)] if m]
+        if sc.get("expect_gear"):
+            from ..world import Inventory
+            ents += gear_mismatches(Inventory(), sc["expect_gear"])
         s = api.get("/state")
         if not ents and s.get("health", 0) >= 18:
             break
