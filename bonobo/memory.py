@@ -41,13 +41,10 @@ def covered(row, kinds, tick):
     for k in map(bare, kinds):
         if k in row["kinds"]:
             continue
-        if k not in looked:
-            return False
-        # a look stamped without the game clock (a skill run with no brain round to set it: the bench's achieve,
-        # the CLI) is still a look — read as never looked, every leg re-picked the same sections (the farm row's
-        # search for logs: (624,12,625) → (624,12,624) → … round again)
-        t = looked[k]
-        if t is not None and tick is not None and tick - t > absent_ttl(k):
+        t = looked.get(k)
+        if t is None:
+            return False        # never looked, or a look with no game time: not an answer that can expire
+        if tick is not None and tick - t > absent_ttl(k):
             return False
     return True
 
@@ -81,7 +78,19 @@ def section_centre(section):
 
 SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, farthest go first)
 
+TICK_READER = None      # fn() → the game's tick now (skillcore wires /state gameTime): a look outside a round reads it
+
 class Memory:
+    def tick(self):
+        """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
+        no brain round (the bench's achieve, the CLI) — the game's tick read now (else None: nothing to read)."""
+        if self.clock is not None or TICK_READER is None:
+            return self.clock
+        try:
+            return TICK_READER()
+        except Exception:        # no game to ask (an offline test): unstamped, as before
+            return None
+
     def __init__(self, path=NOTES_FILE):
         self.path = path
         try:
@@ -373,15 +382,16 @@ class Memory:
         """Sections within `radius` of `pos` were looked over now for `looked`; each `found` kind marks its own section."""
 
         smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
+        now = self.tick()
         asked = {bare(k) for k in looked} | {bare(k) for k in found}
         for c in sections_within(pos, radius):
-            row = smap.setdefault(",".join(map(str, c)), {"t": self.clock, "kinds": {}, "looked": {}})
-            row["t"] = self.clock
-            row.setdefault("looked", {}).update({k: self.clock for k in asked})
+            row = smap.setdefault(",".join(map(str, c)), {"t": now, "kinds": {}, "looked": {}})
+            row["t"] = now
+            row.setdefault("looked", {}).update({k: now for k in asked})
         for kind, spots in found.items():
             for p in spots:
                 key = ",".join(map(str, section_of(p)))
-                smap.setdefault(key, {"t": self.clock, "kinds": {}, "looked": {}})["kinds"][bare(kind)] = self.clock
+                smap.setdefault(key, {"t": now, "kinds": {}, "looked": {}})["kinds"][bare(kind)] = now
         if len(smap) > SECTION_CAP:
             here = section_of(pos)
             by = sorted(smap, key=lambda k: ((smap[k]["t"] or 0), -math.dist(here, tuple(map(int, k.split(","))))))
@@ -394,12 +404,12 @@ class Memory:
         skips = {tuple(map(int, k.split(","))): t
                  for k, t in self.data.get("out_of_look", {}).get(dimension, {}).items()}
         return [(s, section_centre(s))
-                for s in frontier(self.section_map(dimension), here, kinds, self.clock, band, skips=skips)]
+                for s in frontier(self.section_map(dimension), here, kinds, self.tick(), band, skips=skips)]
 
     def skip_section(self, dimension, section):
         """`section` is out of look range from any reachable stand (a band far under the ground we stand on): the
         search skips it until its absence TTL runs out. Not a look: nothing is recorded as seen or looked over."""
-        self.data.setdefault("out_of_look", {}).setdefault(dimension, {})[",".join(map(str, section))] = self.clock
+        self.data.setdefault("out_of_look", {}).setdefault(dimension, {})[",".join(map(str, section))] = self.tick()
 
     def section_map(self, dimension):
         """{(cx, cy, cz): {"t", "kinds"}} of this dimension (`frontier` reads it)."""
