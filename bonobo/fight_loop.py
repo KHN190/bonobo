@@ -311,6 +311,27 @@ def threat_state(state, rows, work_s=None, ids=()):
         st["work_s"] = work_s
     return st
 
+LAST_LOOK: dict = {}     # the last bid, as the readout needs it: when, the options and their worth, the pick, why none
+lifecycle.in_place(__name__, "LAST_LOOK")
+
+
+def look_detail():
+    """The last bid's record (LAST_LOOK) for a look's readout: JSON-plain."""
+    return dict(LAST_LOOK)
+
+
+def _note_look(t, st, field_model, price, horizon, keeper, option, worth, why):
+    ground = st.get("field")
+    opts = [a.option for a in field_model.opts]
+    LAST_LOOK.clear()
+    LAST_LOOK.update(
+        t=round(t, 2), y=round(float(st["here"][1]), 2),
+        shape_now=[list(s) for s in getattr(ground, "shape_now", ())],
+        options=[[o.kind, str(o.target), round(threat.saves(o, opts, price, horizon), 1)] for o in opts],
+        pick=None if option is None else option.kind, worth=worth, why=why,
+        held_because=getattr(keeper, "because", None), engaged=engaged() is not None)
+
+
 def bid(state, rows, price, work_s=None, now=None, ids=()):
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
     if not rows:
@@ -326,11 +347,17 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
     choice = keeper.decide(field_model, field_model.state(), now if now is not None else time.time(),
                          holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
     option = choice.action.option if choice.action is not None else None
+    t = now if now is not None else time.time()
     if option is None or option.kind == "ignore":
+        _note_look(t, st, field_model, price, horizon_now, keeper, option, None,
+                   "no action" if option is None else "ignore is the best")
         return None
     worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
-    if worth <= 0 and option is field_model.default.option:
+    forced = worth <= 0 and option is field_model.default.option
+    if forced:
         worth = FORCED_WORTH_S       # the fallback under a closing follower: taken though nothing saves
+    _note_look(t, st, field_model, price, horizon_now, keeper, option, round(worth, 1),
+               "fallback" if forced else ("bid" if worth > 0 else "saves nothing"))
     return (option, round(worth, 1)) if worth > 0 else None
 
 # the jar's word that the named mob is no target any more: dead ("defeated or gone" — the kill) or not found; the

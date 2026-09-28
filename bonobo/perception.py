@@ -282,18 +282,21 @@ class Watcher(threading.Thread):
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
         price = lambda dhp: threat.hp_seconds(sstate, dhp)
         chosen = fight_loop.bid(state, rows, price, ids=threat.THREAT_IDS)
+        # each look carries the bid's detail: the field's shape and read time, our height, the options with their
+        # worth, why none went out, the engagement (fight_loop.LAST_LOOK)
+        detail = dict(fight_loop.look_detail(), field_at=round(STATE.grid_at, 2))
         if chosen is None:
-            return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at())
+            return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at(), look=detail)
         option, worth = chosen
         key = f"threat:{option.kind}"
         if now - self.last.get(key, 0) < 1.0:
-            return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at())
+            return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at(), look=detail)
         self.last[key] = now
         taken, refused, failure = fight_loop.offer(
             option, worth, key, now, release=lambda: fight_loop.lease_done(state, threats_seen()[0], price, threat.THREAT_IDS),
             held=fight_loop.held(), seen_at=seen_at() or now)
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
-                rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, **failure)
+                rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, look=detail, **failure)
         if taken:
             api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
 

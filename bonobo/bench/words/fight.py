@@ -243,7 +243,9 @@ def perception_probe(t0):
     last = next((a["t"] for a in reversed(looks) if a.get("outcome") == "answered"), None)
     return {"paused": bool(perception.STATE.paused), "looks": len(looks),
             "since_mark": sum(1 for a in looks if a.get("t", 0.0) >= round(t0, 2) - 0.01),
-            "last_answer_t": last, "engaged": fight_loop.engaged() is not None, "watching": perception.watching()}
+            "last_answer_t": last, "last_bid_t": fight_loop.LAST_LOOK.get("t"),
+            "last_bid_why": fight_loop.LAST_LOOK.get("why"),
+            "engaged": fight_loop.engaged() is not None, "watching": perception.watching()}
 
 
 def missing_columns(cell, start, engaged=None):

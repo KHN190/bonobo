@@ -372,6 +372,32 @@ class ARequestTheGameDroppedIsNotALostGame(unittest.TestCase):
                 self.assertEqual(got, want)
 
 
+class EachBidIsRecorded(unittest.TestCase):
+    """Every bid leaves its record (fight_loop.LAST_LOOK): our height, the shape we stand in, each option's worth,
+    the pick and why none went out — the readout that proves a look's decision."""
+
+    def test_rows(self):
+        from bonobo import fight_loop, field, threat as sv
+        ss = sv.price_state(hp=20, sword=2, armor=8)
+        price = lambda dhp: sv.hp_seconds(ss, dhp)  # noqa: E731
+        base = {"x": 0, "y": 64, "z": 0, "health": 20, "armor": 8, "sword_tier": 2, "blocks": 64}
+        rows = [("a zombie 5 off: bid, the fight", [row("minecraft:zombie", 5, 0)], base, "bid"),
+                ("must fail: one 60 off — nothing pays, said so", [row("minecraft:zombie", 60, 0)], base,
+                 "ignore is the best"),
+                ("2 up a pillar: the shape is recorded", [row("minecraft:zombie", 2, 0)],
+                 dict(base, field=field.Field(shape_now=(("under", 2),))), None)]
+        for name, rows_, state, why in rows:
+            with self.subTest(name):
+                fight_loop.reset()
+                fight_loop.bid(state, rows_, price)
+                look = fight_loop.look_detail()
+                self.assertEqual(set(look) >= {"t", "y", "shape_now", "options", "pick", "why", "engaged"}, True)
+                if why is not None:
+                    self.assertEqual(look["why"], why)
+                else:
+                    self.assertEqual(look["shape_now"], [["under", 2]])
+
+
 class TheSkillsBatches(unittest.TestCase):
     """combat's shoot, as the pure batch the skills post."""
 
