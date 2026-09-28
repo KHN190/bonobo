@@ -174,6 +174,21 @@ class RunWordsResume(unittest.TestCase):
                     self.assertTrue(waited, "it waited for the body to be handed back")
 
 
+class GhastReadout(unittest.TestCase):
+    def test_rows(self):
+        from bonobo.bench import vocab
+        rows = [("a fireball seen, unhit", {"seen": True, "hp": 10.0, "fireballs": {1}, "start": 20.0, "worst": 20.0},
+                 {"seen": True, "ghast_hp": 10.0, "fireballs": 1, "start_hp": 20.0, "worst_hp": 20.0}),
+                ("must fail: no ghast read", {"seen": False, "hp": None, "fireballs": set(), "start": 20.0,
+                                              "worst": 20.0},
+                 {"seen": False, "ghast_hp": None, "fireballs": 0, "start_hp": 20.0, "worst_hp": 20.0}),
+                ("nothing watched", {}, {"seen": None, "ghast_hp": None, "fireballs": 0, "start_hp": None,
+                                         "worst_hp": None})]
+        for name, watch, want in rows:
+            with self.subTest(name):
+                self.assertEqual(vocab.ghast_readout(watch), want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

@@ -71,6 +71,9 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 "minecraft:slime" = { hp = 16, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 3.0, keep_out = 3.0, speed = 2.0, squeezes = true }
 "minecraft:vindicator" = { hp = 24, attack = 13.0, notice_r = 16.0, attack_s = 2.0, reach = 3.0, keep_out = 3.0, speed = 2.5 }
 "minecraft:wither_skeleton" = { hp = 20, attack = 8.0, notice_r = 16.0, attack_s = 2.0, reach = 3.0, keep_out = 3.0, speed = 2.5 }
+"minecraft:ghast" = { hp = 10, attack = 6.0, notice_r = 64.0, attack_s = 3.0, reach = 48.0, keep_out = 6.0, speed = 2.0, ranged = true, squeezes = true }
+"minecraft:piglin" = { hp = 16, attack = 5.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.5 }
+"minecraft:zombified_piglin" = { hp = 20, attack = 5.0, notice_r = 35.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.5 }
 "minecraft:blaze" = { hp = 20, attack = 5.0, notice_r = 48.0, attack_s = 1.7, reach = 12.0, keep_out = 3.0, speed = 2.0, ranged = true, squeezes = true }
 "minecraft:ender_dragon" = { hp = 200, attack = 10.0, notice_r = 64.0, attack_s = 1.0, reach = 8.0, keep_out = 8.0, speed = 8.0, squeezes = true }
 "minecraft:enderman" = { hp = 40, attack = 7.0, notice_r = 64.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 4.3, squeezes = true }

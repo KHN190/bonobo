@@ -773,6 +773,9 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
                     CHECK_READOUT["fight"] = fight_readout()
                 except Exception as e:  # guard: the fight readout is evidence for a failed row; it never fails the bench
                     CHECK_READOUT["fight"] = f"{type(e).__name__}: {e} @ {traceback_of(e)}"
+                from .vocab import GHAST, ghast_readout
+                if GHAST:
+                    CHECK_READOUT["ghast"] = ghast_readout(GHAST)      # what the ghast watch saw
         # a crash of ours is never a pass
         from . import vocab as _rows
         ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),

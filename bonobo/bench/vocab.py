@@ -177,6 +177,11 @@ def ghast_health(lines):
             return float(m.group(1))
     return None
 
+def ghast_readout(watch):
+    """Pure: the ghast watch as the report reads it — seen, its last Health, fireballs seen, our start and worst hp."""
+    return {"seen": watch.get("seen"), "ghast_hp": watch.get("hp"), "fireballs": len(watch.get("fireballs") or ()),
+            "start_hp": watch.get("start"), "worst_hp": watch.get("worst")}
+
 def ghast_was_answered(seen, ghast_hp, fireballs, start_hp, worst_hp):
     """Pure: the ghast was answered — it was there and is now hurt or dead, or it fired and nothing hit us."""
     if not seen:

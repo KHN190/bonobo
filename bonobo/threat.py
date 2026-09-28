@@ -27,10 +27,31 @@ NEUTRAL_MOBS = {"minecraft:zombified_piglin", "minecraft:piglin", "minecraft:end
                 "minecraft:bee", "minecraft:iron_golem", "minecraft:polar_bear", "minecraft:llama", "minecraft:panda",
                 "minecraft:dolphin", "minecraft:spider", "minecraft:cave_spider"}
 
-def awareness(e, here=None):
-    """0..1: how much of this mob's damage is coming at us (an unprovoked neutral is 0)."""
+def aggro(e, context=None):
+    """Pure: is this mob after us, from its reading and ours — the one place neutral is told from hostile.
+    A provoked mob (the jar's `angry`) always is; a hostile kind always is; a spider only out of daylight; a piglin
+    unless we wear gold; every other neutral (enderman, zombified piglin, wolf …) only when provoked.
+    `context`: {"day": the sun is up where we are, "gold_worn": a golden armour piece on}."""
+    kind = e.get("type")
+    if e.get("angry") or kind not in NEUTRAL_MOBS:
+        return True
+    ctx = context or {}
+    if kind in ("minecraft:spider", "minecraft:cave_spider"):
+        return not ctx.get("day", True)
+    if kind == "minecraft:piglin":
+        return not ctx.get("gold_worn", False)
+    return False
 
-    if e.get("type") in NEUTRAL_MOBS and not e.get("angry"):
+def context_of(state, kit):
+    """Pure: what `aggro` reads from our side — daylight (the overworld's day half) and gold worn (the kit)."""
+    day = (state.get("dimension", "minecraft:overworld") == "minecraft:overworld"
+           and int(state.get("timeOfDay", 6000)) % 24000 < 12000)
+    return {"day": day, "gold_worn": bool((kit or {}).get("gold_worn"))}
+
+def awareness(e, here=None, context=None):
+    """0..1: how much of this mob's damage is coming at us (a neutral not after us is 0)."""
+
+    if not aggro(e, context):
         return 0.0
     # being in the hazard table is the hostility test (reading `hostile` too dropped the dragon's parts)
     if here is None:
@@ -41,7 +62,7 @@ def awareness(e, here=None):
         return 1.0
     return max(0.0, 1.0 - (d - notice) / notice)
 
-def rows(near, memory, now, kinds, here=None):
+def rows(near, memory, now, kinds, here=None, context=None):
     """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach})."""
 
     out = []
@@ -62,7 +83,7 @@ def rows(near, memory, now, kinds, here=None):
                 dt = now - prev[1]
                 vel = tuple((pos[i] - prev[0][i]) / dt for i in range(3))
             memory[key] = (pos, now)
-        seen = awareness(e, here)
+        seen = awareness(e, here, context)
         if seen <= 0.0:
             continue
         out.append(row(pos, kinds[kind], vel, kind, aware=seen, dps=e.get("dps")))
@@ -70,11 +91,35 @@ def rows(near, memory, now, kinds, here=None):
         del memory[key]          # or the table grows for the length of the session
     return out
 
-def hostile_rows(near, memory, now, here=None):
+def hostile_rows(near, memory, now, here=None, context=None):
     """Rows for the mobs the table knows."""
 
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
-    return rows(near or [], memory, now, kinds, here=here)
+    return rows(near or [], memory, now, kinds, here=here, context=context)
+
+def impacts_of(near):
+    """Pure: [(point, seconds, radius)] — where and when each projectile or lunge the jar predicts lands (its
+    `impact` {x, y, z} and `tti_ticks`), the radius the mob table keeps out of. Nothing without the prediction."""
+    out = []
+    for e in near or []:
+        point, ticks = e.get("impact"), e.get("tti_ticks")
+        if point is None or ticks is None:
+            continue
+        p = tuple(float(point[k]) for k in ("x", "y", "z")) if isinstance(point, dict) else tuple(map(float, point))
+        out.append((p, float(ticks) / 20.0, float(MOBS.get(e.get("type"), {}).get("keep_out", 3.0))))
+    return out
+
+def dodge_spot(here, impacts, candidates, speed=None):
+    """Pure: the nearest candidate out of every predicted impact that we reach before the impact it leaves lands,
+    or None. An impact we already stand outside of needs no race."""
+    speed = float(PLAYER["speed"]) if speed is None else speed
+    best = None
+    for spot in candidates:
+        walk_s = math.dist(here, spot) / speed
+        clear = all(math.dist(spot, p) > r and (math.dist(here, p) > r or walk_s < t) for p, t, r in impacts)
+        if clear and (best is None or walk_s < best[0]):
+            best = (walk_s, spot)
+    return None if best is None else best[1]
 
 def ids_by_row(near, hazards):
     """Entity id for each row (matched on position), so a fight decision can name its target."""
@@ -94,7 +139,7 @@ hide_ratio = estimate.reaches_share
 
 # -- the model
 
-def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
+def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=None):
     """Where to leave every threat's reach: `blocks` away from their dps-weighted centre, under the fight's slack rule; `cover` a candidate."""
 
     blocks = float(ENGAGE["evade_blocks"]) if blocks is None else blocks
@@ -116,9 +161,18 @@ def escape_spot(here, hazards, blocks=None, cover=None, footing=None):
         options = [s for s in (footing(o) for o in options) if s is not None]
     if cover is not None:
         options.append(tuple(cover))
+    speed = float(PLAYER["speed"])
+    if impacts:
+        # what the jar predicts lands where and when: a step out of its path in time, the nearest that clears it
+        ring = [(here[0] + (max(r for _p, _t, r in impacts) + 1.0) * math.cos(k * math.pi / 4), here[1],
+                 here[2] + (max(r for _p, _t, r in impacts) + 1.0) * math.sin(k * math.pi / 4)) for k in range(8)]
+        if footing is not None:
+            ring = [s for s in (footing(o) for o in ring) if s is not None]
+        spot = dodge_spot(here, impacts, ring + options, speed)
+        if spot is not None:
+            return tuple(round(c) for c in spot)
     if not options:
         return None
-    speed = float(PLAYER["speed"])
     best, best_key = None, None
     for opt in options:
         p = pressure(opt, hazards)
@@ -319,7 +373,8 @@ def options(state):
             t_guard = round(t_fight + float(ENGAGE["shield_s"]) * len(hazards), 2)
             out.append(Option("fight_shielded", ids[nearest], kept + blast_here, t_guard,
                               f"kill {len(hazards)} in ~{t_guard}s behind the shield for ~{kept} hp"))
-    spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"))
+    spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"),
+                       impacts=state.get("impacts"))
     if spot is not None:             # else nowhere to leave to (a lethal drop all round): fight, eat, wall in
         # a fight the veto removes is not "a fight on offer" for leaving to postpone (before the one veto, the fight's
         # own gate kept it out of `out`: evade at low health priced as postponing a fight nobody could take)
@@ -576,15 +631,17 @@ def hp_seconds(s, dhp):
 
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 THREAT_ALIVE: set = set()   # every living entity id the last reading listed (x-ray: an occluded mob is still there)
+THREAT_IMPACTS: list = []   # the jar's predicted impacts in the last reading (impacts_of)
 
 
 def _forget_threats():
     """The last life's threats (their ids, their rows) are nobody's now."""
-    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE
-    THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE = [], [], 0.0, set()
+    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS
+    THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS = [], [], 0.0, set(), []
 
 
-lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE"))
+lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE",
+                                            "THREAT_IMPACTS"))
 
 def alive_ids(near):
     """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""

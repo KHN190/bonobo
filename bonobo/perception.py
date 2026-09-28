@@ -85,12 +85,13 @@ def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
 
     return max(estimate.pressure_hp_s(here, rows, prot, ground=field, horizon=horizon), hurt_rate())
 
-def note_threats(near, now=None, here=None):
-    """Record the threat rows and their entity ids."""
+def note_threats(near, now=None, here=None, context=None):
+    """Record the threat rows and their entity ids (`context`: threat.context_of — who is after us)."""
 
     import time as _t
     now = now if now is not None else _t.time()
-    threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here)
+    threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context)
+    threat.THREAT_IMPACTS = threat.impacts_of(near)
     threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
     threat.THREAT_ALIVE = threat.alive_ids(near)
     threat.THREAT_AT = now
@@ -231,7 +232,7 @@ class Watcher(threading.Thread):
             return None
         note_hazards(near)
         here = STATE.last_here = (s["x"], s["y"], s["z"])
-        return note_threats(near, time.time(), here=here)
+        return note_threats(near, time.time(), here=here, context=threat.context_of(s, STATE.kit))
 
     def _answer_threats(self, state):
         """One look at the world, one outcome recorded — an answer, or a named reason there was none."""
@@ -476,7 +477,9 @@ def kit(signature):
             "food_items": food_count(inv),              # knowledge's one food table
             "blocks": inv.count("building"),
             "dig_ok": any(usable(d) for _t, d, _ in inv.tools("pickaxe")),
-            "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple")}     # a hole down needs no blocks
+            "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple"),
+            "gold_worn": any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")
+                             for k in ("head", "chest", "legs", "feet"))}     # a piglin leaves the gold-clad alone
     with STATE.lock:
         STATE.kit, STATE.kit_sig = got, signature
     return got

@@ -862,6 +862,74 @@ class ADelayIsNotASeal(unittest.TestCase):
                 self.assertEqual((d.kind, d.target), want)
 
 
+class WhoIsAfterUs(unittest.TestCase):
+    """Neutral or hostile is read per mob from the reading and ours (threat.aggro), not from the type alone."""
+
+    DAY, NIGHT = {"day": True, "gold_worn": False}, {"day": False, "gold_worn": False}
+    GOLD = {"day": True, "gold_worn": True}
+
+    def test_aggro_over_the_table(self):
+        rows = [("a zombie, in daylight too", {"type": "minecraft:zombie"}, self.DAY, True),
+                ("a spider in daylight: left alone", {"type": "minecraft:spider"}, self.DAY, False),
+                ("a spider at night", {"type": "minecraft:spider"}, self.NIGHT, True),
+                ("a spider we hit (angry), in daylight", {"type": "minecraft:spider", "angry": True}, self.DAY, True),
+                ("an enderman not looked at", {"type": "minecraft:enderman"}, self.NIGHT, False),
+                ("must fail: an enderman provoked is no neutral", {"type": "minecraft:enderman", "angry": True},
+                 self.DAY, True),
+                ("a piglin, no gold on", {"type": "minecraft:piglin"}, self.DAY, True),
+                ("a piglin, gold worn", {"type": "minecraft:piglin"}, self.GOLD, False),
+                ("must fail: a piglin provoked, gold or not", {"type": "minecraft:piglin", "angry": True}, self.GOLD,
+                 True),
+                ("a ghast", {"type": "minecraft:ghast"}, self.DAY, True)]
+        for name, e, ctx, want in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.aggro(e, ctx), want)
+
+    def test_context_of(self):
+        rows = [("overworld noon", {"dimension": "minecraft:overworld", "timeOfDay": 6000}, {}, True, False),
+                ("overworld midnight", {"dimension": "minecraft:overworld", "timeOfDay": 18000}, {}, False, False),
+                ("the nether: no sun", {"dimension": "minecraft:the_nether", "timeOfDay": 6000}, {}, False, False),
+                ("gold on", {"dimension": "minecraft:overworld", "timeOfDay": 6000}, {"gold_worn": True}, True, True)]
+        for name, state, kit, day, gold in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.context_of(state, kit), {"day": day, "gold_worn": gold})
+
+    def test_the_new_rows_are_threats(self):
+        for kind in ("minecraft:ghast", "minecraft:blaze", "minecraft:wither_skeleton", "minecraft:witch",
+                     "minecraft:phantom", "minecraft:drowned", "minecraft:spider", "minecraft:enderman",
+                     "minecraft:piglin"):
+            with self.subTest(kind):
+                self.assertIn(kind, threat.MOBS)
+        self.assertTrue(threat.MOBS["minecraft:ghast"].get("ranged"))
+
+
+class DodgeThePredictedImpact(unittest.TestCase):
+    """Evade lands out of the jar's predicted impact (its point and time), a spot reached before it lands."""
+
+    def test_impacts_of(self):
+        rows = [("a fireball predicted", [{"type": "minecraft:fireball", "impact": {"x": 1, "y": 64, "z": 0},
+                                           "tti_ticks": 20}], [((1.0, 64.0, 0.0), 1.0, 6.0)]),
+                ("no prediction on this jar", [{"type": "minecraft:fireball"}], []),
+                ("a zombie's lunge as a list", [{"type": "minecraft:zombie", "impact": [0, 64, 0], "tti_ticks": 10}],
+                 [((0.0, 64.0, 0.0), 0.5, 3.0)]),
+                ("nothing near", [], [])]
+        for name, near, want in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.impacts_of(near), want)
+
+    def test_dodge_spot(self):
+        here = (0.0, 64.0, 0.0)
+        near_spot, far_spot = (4.0, 64.0, 0.0), (20.0, 64.0, 0.0)
+        # (impacts, candidates) → the spot
+        rows = [("aimed at us, 1 s: the near spot out of 3", [(here, 1.0, 3.0)], [near_spot, far_spot], near_spot),
+                ("must fail: the spot we stand on is in the path", [(here, 1.0, 3.0)], [here], None),
+                ("too late: 0.2 s is not enough for 4 blocks", [(here, 0.2, 3.0)], [near_spot], None),
+                ("landing on the near spot: the far one", [(near_spot, 10.0, 3.0)], [near_spot, far_spot], far_spot)]
+        for name, impacts, cands, want in rows:
+            with self.subTest(name):
+                self.assertEqual(threat.dodge_spot(here, impacts, cands), want)
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
