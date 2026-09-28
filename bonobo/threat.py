@@ -272,7 +272,9 @@ def options(state):
                               f"kill {len(hazards)} in ~{t_guard}s behind the shield for ~{kept} hp"))
     spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"))
     if spot is not None:             # else nowhere to leave to (a lethal drop all round): fight, eat, wall in
-        out.append(_evade_option(here, spot, hazards, prot, press, out))
+        # a fight the veto removes is not "a fight on offer" for leaving to postpone (before the one veto, the fight's
+        # own gate kept it out of `out`: evade at low health priced as postponing a fight nobody could take)
+        out.append(_evade_option(here, spot, hazards, prot, press, [o for o in out if survivable(o, hp)]))
     for option in eat_options(state, hp, press, blast_here):
         out.append(option)
     # the shield alone is the use key held: offered only where the jar can hold it (state "hold_use", the jar's
@@ -292,14 +294,26 @@ def options(state):
                                          ground=grid)
         out.append(Option("wall_in", None, round(press * wall_s + blast_here, 2), wall_s,
                           f"wall in, ~{wall_s}s exposed", leaves=round(through, 3)))
-    return [o for o in out if survivable(o, hp)]
+    return survivors(out, hp)
 
 def survivable(option, hp):
-    """Pure: the one veto every column passes — what it expects to lose over its own seconds stays under the health
-    we have, less a margin. Only the fight had it: a 1.2 s pillar at 3.1 hp beside three zombies was offered, taken,
-    and died on (fight_zombie_3). Carrying on is never vetoed: it is the account the others are priced against."""
+    """Pure: what this answer expects to lose over its own seconds stays under the health we have, less a margin."""
 
-    return option.kind == "ignore" or float(option.hp) < hp - float(ENGAGE["survive_margin_hp"])
+    return float(option.hp) < hp - float(ENGAGE["survive_margin_hp"])
+
+def survivors(out, hp):
+    """Pure: the one veto every column passes (`survivable`) — only the fight had it, and a 1.2 s pillar at 3.1 hp
+    beside three zombies was offered, taken, and died on (fight_zombie_3). It removes an answer only while a survivable
+    one remains: when none does, the one expected to lose least is kept (leaving, usually), or low health would have
+    no way out left at all — never a fight, which ends nothing before it has cost what we have. Carrying on is never vetoed: it is the account the others are priced against."""
+
+    acts = [o for o in out if o.kind != "ignore"]
+    kept = [o for o in acts if survivable(o, hp)]
+    # a fight expected to cost all we have is never the way out (the fight's own gate before): it kills nothing first
+    way_out = [o for o in acts if not o.kind.startswith("fight")]
+    if way_out and not kept:
+        kept = [min(way_out, key=lambda o: float(o.hp))]
+    return [o for o in out if o.kind == "ignore" or o in kept]
 
 def action_cost(option, price, work_s=None):
     """kernel's `cost_s` for an option: its seconds plus its health spent, priced on top of what it leaves owed — one damage price."""
