@@ -946,7 +946,8 @@ class WhoIsAfterUs(unittest.TestCase):
                 ("a ghast", {"type": "minecraft:ghast"}, self.DAY, True)]
         for name, e, ctx, want in rows:
             with self.subTest(name):
-                self.assertEqual(threat.aggro(e, ctx), want)
+                from bonobo import perception
+                self.assertEqual(threat.aggro(perception.read_combat([e])[0], ctx), want)
 
     def test_context_of(self):
         rows = [("overworld noon", {"dimension": "minecraft:overworld", "timeOfDay": 6000}, {}, True, False),
@@ -978,7 +979,8 @@ class DodgeThePredictedImpact(unittest.TestCase):
                 ("nothing near", [], [])]
         for name, near, want in rows:
             with self.subTest(name):
-                self.assertEqual(threat.impacts_of(near), want)
+                from bonobo import perception
+                self.assertEqual(threat.impacts_of(perception.read_combat(near)), want)
 
     def test_dodge_spot(self):
         here = (0.0, 64.0, 0.0)
@@ -1058,7 +1060,8 @@ class ACreeperIsStruckOnlyWhileItWalks(unittest.TestCase):
                 ("an old jar: no field", {}, False)]
         for name, e, want in rows:
             with self.subTest(name):
-                self.assertEqual(threat.fuse_lit(e), want)
+                from bonobo import perception
+                self.assertEqual(threat.fuse_lit(perception.read_combat([e])[0]), want)
 
 
 class BaitACreeper(unittest.TestCase):

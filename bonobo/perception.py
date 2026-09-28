@@ -85,14 +85,42 @@ def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
 
     return max(estimate.pressure_hp_s(here, rows, prot, ground=field, horizon=horizon), hurt_rate())
 
+# /entities combat fields (jar): read here only, threat and fight read `read_combat`'s view
+COMBAT_KEYS = ("velocity", "in_reach", "shooting", "drawing", "pull_ticks", "charging", "attacking", "ignited",
+               "fuse_ticks", "tti_ticks", "impact")
+
+
+def read_combat(near):
+    """Pure: /entities rows as the fight reads them — the jar's combat fields turned into provoked, lit, hit_s,
+    impact_at (x, y, z), vel (blocks/s), reach_now, busy (shooting/drawing/charging); the raw fields dropped."""
+    out = []
+    for e in near or []:
+        d = {k: v for k, v in e.items() if k not in COMBAT_KEYS}
+        d["provoked"] = bool(e.get("angry") or e.get("attacking"))
+        d["lit"] = bool(e.get("ignited"))
+        d["reach_now"] = bool(e.get("in_reach"))
+        d["busy"] = bool(e.get("shooting") or e.get("drawing") or e.get("charging"))
+        if e.get("tti_ticks") is not None:
+            d["hit_s"] = float(e["tti_ticks"]) / 20.0
+        p = e.get("impact")
+        if p is not None:
+            d["impact_at"] = tuple(float(p[k]) for k in ("x", "y", "z")) if isinstance(p, dict) else tuple(map(float, p))
+        v = e.get("velocity")
+        if v is not None:
+            d["vel"] = tuple(float(c) * 20.0 for c in v)
+        out.append(d)
+    return out
+
+
 def note_threats(near, now=None, here=None, context=None):
     """Record the threat rows and their entity ids (`context`: threat.context_of — who is after us)."""
 
     import time as _t
     now = now if now is not None else _t.time()
+    near = read_combat(near)
     threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context)
     threat.THREAT_IMPACTS = threat.impacts_of(near)
-    threat.THREAT_LIT = {e.get("id") for e in near or [] if e.get("type") == "minecraft:creeper" and threat.fuse_lit(e)}
+    threat.THREAT_LIT = {e.get("id") for e in near if e.get("type") == "minecraft:creeper" and threat.fuse_lit(e)}
     threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
     threat.THREAT_ALIVE = threat.alive_ids(near)
     threat.THREAT_HIT_S = threat.soonest_hit_s(near)

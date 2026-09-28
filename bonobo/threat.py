@@ -33,7 +33,7 @@ def aggro(e, context=None):
     unless we wear gold; every other neutral (enderman, zombified piglin, wolf …) only when provoked.
     `context`: {"day": the sun is up where we are, "gold_worn": a golden armour piece on}."""
     kind = e.get("type")
-    if e.get("angry") or e.get("attacking") or kind not in NEUTRAL_MOBS:     # the jar's flags
+    if e.get("provoked") or e.get("angry") or kind not in NEUTRAL_MOBS:     # perception.read_combat
         return True
     ctx = context or {}
     if kind in ("minecraft:spider", "minecraft:cave_spider"):
@@ -125,20 +125,14 @@ def bait_option(here, hazards, ids, creepers, lit, clear, prot):
                   "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come"))
 
 def fuse_lit(e):
-    """Pure: the jar reads this creeper's fuse as lit (`ignited`)."""
-    return bool(e.get("ignited"))
+    """Pure: this creeper's fuse is lit (perception.read_combat)."""
+    return bool(e.get("lit"))
 
 def impacts_of(near):
-    """Pure: [(point, seconds, radius)] — where and when each projectile or lunge the jar predicts lands (its
-    `impact` {x, y, z} and `tti_ticks`), the radius the mob table keeps out of. Nothing without the prediction."""
-    out = []
-    for e in near or []:
-        point, ticks = e.get("impact"), e.get("tti_ticks")
-        if point is None or ticks is None:
-            continue
-        p = tuple(float(point[k]) for k in ("x", "y", "z")) if isinstance(point, dict) else tuple(map(float, point))
-        out.append((p, float(ticks) / 20.0, float(MOBS.get(e.get("type"), {}).get("keep_out", 3.0))))
-    return out
+    """Pure: [(point, seconds, radius)] where each predicted hit lands (read_combat's impact_at, hit_s), the radius
+    the mob table keeps out of."""
+    return [(e["impact_at"], float(e["hit_s"]), float(MOBS.get(e.get("type"), {}).get("keep_out", 3.0)))
+            for e in near or [] if e.get("impact_at") is not None and e.get("hit_s") is not None]
 
 def dodge_spot(here, impacts, candidates, speed=None):
     """Pure: the nearest candidate out of every predicted impact that we reach before the impact it leaves lands,
@@ -699,9 +693,9 @@ def alive_ids(near):
 
 
 def soonest_hit_s(near):
-    """Pure: seconds until the soonest hit the jar predicts among `near` (/entities rows with tti_ticks), or None."""
-    ticks = [int(e["tti_ticks"]) for e in near or [] if e.get("tti_ticks") is not None]
-    return min(ticks) / 20.0 if ticks else None
+    """Pure: seconds until the soonest predicted hit among `near` (read_combat rows), or None."""
+    hits = [float(e["hit_s"]) for e in near or [] if e.get("hit_s") is not None]
+    return min(hits) if hits else None
 
 
 def hit_due_s(max_age_s=3.0, now=None):
