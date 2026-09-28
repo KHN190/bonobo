@@ -89,7 +89,7 @@ class TheBrainAsksTheSameTable(unittest.TestCase):
 
 
 # ------------------------------------------------------------------------------------------ where to go to breathe
-from bonobo import skills  # noqa: E402
+from bonobo import survive  # noqa: E402
 from bonobo.terrain import air_route  # noqa: E402
 from tests.world import FakeRegion  # noqa: E402
 
@@ -141,7 +141,7 @@ class AirRoute(unittest.TestCase):
 
 
 class Breathed(unittest.TestCase):
-    """skills.breathed, the verify of find_air: lungs full and the head out without a break for BREATH_HOLD_S."""
+    """survive.breathed, the verify of find_air: lungs full and the head out without a break for BREATH_HOLD_S."""
 
     # (situation, [(t, head under water, air)]) → breathing
     ROWS = [("out 2 s, lungs full", [(0.0, False, 200), (1.0, False, 280), (2.0, False, 300)], True),
@@ -155,7 +155,7 @@ class Breathed(unittest.TestCase):
     def test_breathed_over_the_table(self):
         for name, samples, want in self.ROWS:
             with self.subTest(name):
-                self.assertEqual(skills.breathed(samples), want)
+                self.assertEqual(survive.breathed(samples), want)
 
 
 

@@ -1046,7 +1046,7 @@ def _no_block_suffix(lo, hi, suffix):
 def fed_as_needed(food_before, carried_before, food_after, carried_after):
     """Pure: the eating filled the bar — every bite called for eaten, and the bar within the last bite of FULL_BAR."""
     from ..data import FULL_BAR, NUTRITION
-    from ..skills import bite_plan
+    from ..survive import bite_plan
     plan = bite_plan(food_before, carried_before)
     eaten = sum(carried_before.get(k, 0) - carried_after.get(k, 0) for k in carried_before)
     if not plan:
@@ -1288,30 +1288,30 @@ def _brain_rounds(seconds, until):
 
 def _enclosed():
     """Walled in, feet and head, and covered: what a burrow, a pod or a dug-in hole must leave."""
-    from .. import skills
-    return skills.enclosed()
+    from .. import survive
+    return survive.enclosed()
 
 def _breathing(least=280):
     """Out of the water's grip: the air bar back near full and the head out of the water."""
     def check(api, inv):
-        from .. import skills
+        from .. import skillcore
         s = api.get("/state")
-        return s["air"] >= least and not skills.head_underwater(s)
+        return s["air"] >= least and not skillcore.head_underwater(s)
     return check
 
 def _buried_first(ctx, polls=5):
     """`before` hook: the head is inside the sand the row dropped — else the body was pushed clear, the check (head
     clear) holds before any round and the row passes without a rescue: SetupInvalid."""
-    from .. import skills
+    from .. import skillcore
     for _ in range(polls):
-        if skills.head_buried():
+        if skillcore.head_buried():
             return
         time.sleep(0.2)
     raise SetupInvalid("the sand did not bury the head: head clear before any round, nothing to rescue")
 
 def _head_clear():
-    from .. import skills
-    return not skills.head_buried()
+    from .. import skillcore
+    return not skillcore.head_buried()
 
 # -- arena pieces (relative to ORIGIN)
 def _floor(block="stone", half=8, depth=3):
@@ -1356,7 +1356,7 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
 
 def eat_target_s(food, carried):
     """Pure: an eat row's speed target: per bite × the bites the bar's gap takes, with slack."""
-    from ..skills import bites_to_full
+    from ..survive import bites_to_full
     _item, bites = bites_to_full(food, carried)
     return TARGET_S["eat"] * bites * TARGET_SLACK if bites else None
 

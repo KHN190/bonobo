@@ -27,10 +27,10 @@ class Route(unittest.TestCase):
 
 
 class SomethingToStore(unittest.TestCase):
-    """skills._has_something_to_store (deposit's precondition): refused when every stack is kept (bag.store_plan)."""
+    """store._has_something_to_store (deposit's precondition): refused when every stack is kept (bag.store_plan)."""
 
     def test_rows(self):
-        from bonobo import skills
+        from bonobo import store
         pick = {"id": "minecraft:iron_pickaxe", "count": 1, "damage": 0, "maxDamage": 250}
         # (situation, the bag) → refused?
         rows = [("junk beyond the keep list: something to store", inventory(bone=40), False),
@@ -39,9 +39,9 @@ class SomethingToStore(unittest.TestCase):
                 ("must fail: only a working tool (kept)", inventory(pick), True),
                 ("must fail: building blocks within the floor (64 kept)", inventory(cobblestone=64), True)]
         for name, answer, refused in rows:
-            with self.subTest(name), mock.patch.object(skills, "Inventory", lambda _a=answer: bag(_a)):
+            with self.subTest(name), mock.patch.object(store, "Inventory", lambda _a=answer: bag(_a)):
                 try:
-                    skills._has_something_to_store(None)
+                    store._has_something_to_store(None)
                     got = False
                 except NotAvailable:
                     got = True
@@ -111,10 +111,10 @@ class ReviewPlans(unittest.TestCase):
 
 
 class SpentCells(unittest.TestCase):
-    """skills.spent_cells: a mined vein's notes are retired only for cells a fresh read shows gone."""
+    """gather.spent_cells: a mined vein's notes are retired only for cells a fresh read shows gone."""
 
     def test_rows(self):
-        from bonobo import skills
+        from bonobo import gather
         ores = ["diamond_ore", "deepslate_diamond_ore"]
         a, b = (0, 60, 0), (1, 60, 0)
         # (situation, sent, the fresh read) → the cells whose notes are spent
@@ -126,7 +126,7 @@ class SpentCells(unittest.TestCase):
                 ("must fail: no fresh read — nothing judged spent", {a}, None, [])]
         for name, sent, read, want in rows:
             with self.subTest(name):
-                self.assertEqual(skills.spent_cells(sent, None if read is None else read.get, ores), want)
+                self.assertEqual(gather.spent_cells(sent, None if read is None else read.get, ores), want)
 
 
 if __name__ == "__main__":

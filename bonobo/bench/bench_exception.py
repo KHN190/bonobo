@@ -242,7 +242,7 @@ ROWS = [
          scene=[('floor', 'grass_block', 8, 2), ('pen', 'cow', 0, 9), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
                 ('give', 'iron_sword'), ('summon', 'cow', ('@', 4, 0, 3)), ('summon', 'cow', ('@', -4, 0, 2)),
                 ('summon', 'cow', ('@', 3, 0, -5)), ('summon', 'cow', ('@', -5, 0, -4))],
-         run=('do', 'bonobo.skills.hunt', ['$ctx', 'minecraft:beef', 3, ['minecraft:cow'], False], {}),
+         run=('do', 'bonobo.gather.hunt', ['$ctx', 'minecraft:beef', 3, ['minecraft:cow'], False], {}),
          check=[('count', 'minecraft:beef', '>=', 3)], budget=25, combat=False,
          expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'grass_block', 289, 289)], expect_entities=[('minecraft:cow', 4)],
          skills=['hunt']),

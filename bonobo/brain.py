@@ -9,11 +9,11 @@ import time
 import traceback
 
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
-               needs, reflexes, skills, tape, tasks, world)
+               needs, reflexes, tape, tasks, world)
 from . import skill as skillkit
-from . import skillcore
+from . import craft, skillcore, survive
 # every module that registers skills: a new one is added here only
-from . import brewing, combat, end, farming, fluids, loot, ui  # noqa: F401,E402
+from . import brewing, combat, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
 from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare
@@ -26,10 +26,10 @@ from .needs import bag_signature
 from .world import Inventory, Snapshot, entities
 
 # wired from the top so lower layers never import the skill library
-hazard.SKILLS.update(find_air=lambda ctx: skills.find_air(ctx), unbury=lambda ctx: skills.unbury(ctx))
+hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx))
 from . import fight_loop  # noqa: E402
-fight_loop.lend("wall_in", lambda option, state: skills.pod_commands(state) if state.get("region") is not None else [],
-                region=skills._pod_region)
+fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],
+                region=survive._pod_region)
 fight_loop.lend("shoot", lambda option, state: combat.shoot_batch(
     option.target, (state["state"]["x"], state["state"]["y"] + 1.62, state["state"]["z"])))
 
@@ -118,12 +118,12 @@ class Brain:
             region = world.region_around(dug, pad=0)
             needs_pick = region is None or any(not bare(region.name(c)).endswith(HAND_MINEABLE_SUFFIX) for c in dug)
             if needs_pick and not any(d >= 3 for _, d, _ in Inventory().tools("pickaxe")):
-                raise skills.ToolMissing("pickaxe", 0)
-            skills.contain_lava(self.context(s["dimension"]))     # the last segment may have broken into lava
+                raise skillcore.ToolMissing("pickaxe", 0)
+            fluids.contain_lava(self.context(s["dimension"]))     # the last segment may have broken into lava
         self.invariants()
 
     def context(self, dimension, policy=None):
-        return skills.Context(self.mem, policy or self.policy_cache, dimension, self.blacklist,
+        return skillcore.Context(self.mem, policy or self.policy_cache, dimension, self.blacklist,
                               prices=self.price_table)
 
     # -- reflexes: invariants, not decisions
@@ -156,15 +156,15 @@ class Brain:
             nether.wear_gold_helmet()      # gold on in the Nether (piglins), iron back outside
             head = "golden_helmet"
         gold_on_in_nether = s["dimension"] == "minecraft:the_nether" and head == "golden_helmet"
-        if s["screen"] == "none" and not gold_on_in_nether and skills.better_armor_carried():
-            skills.equip_armor()
-        if s["screen"] == "none" and skills.shield_wanted_in_offhand() and time.time() - self.last_offhand > 30:
+        if s["screen"] == "none" and not gold_on_in_nether and craft.better_armor_carried():
+            craft.equip_armor()
+        if s["screen"] == "none" and craft.shield_wanted_in_offhand() and time.time() - self.last_offhand > 30:
             self.last_offhand = time.time()
-            skills.shield_to_offhand()
-        if time.time() - self.last_light > 5 and skills.dark_here(s) and not skills.enclosed():
+            craft.shield_to_offhand()
+        if time.time() - self.last_light > 5 and survive.dark_here(s) and not survive.enclosed():
             self.last_light = time.time()
             try:
-                skills.light_area(self.context(s["dimension"]), 4, 1)
+                survive.light_area(self.context(s["dimension"]), 4, 1)
             except api.INTERRUPTIONS:
                 raise
             except McError:
@@ -386,7 +386,7 @@ class Brain:
         if not closed:
             act = self.prepare(snap, ctx)
             return [arbiter.Intent("plan", act, kind="idle", key=act.name, surface=True)] if act else []
-        out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: skills.wait_for_day(ctx)),
+        out = [arbiter.Intent("plan", Act("idle", "wait for day", lambda: survive.wait_for_day(ctx)),
                               kind="wait for day")]
         if "pickaxe" in self.needs.working:
             act = self.night_stock(snap, ctx)
@@ -471,7 +471,7 @@ class Brain:
         run = craft_run(held["steps"], step)
         if len(run) > 1:
             recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
-            return Act("task", f"task {task['id']}", lambda: skills.craft_chain(ctx, recipes), task=task, step=step,
+            return Act("task", f"task {task['id']}", lambda: craft.craft_chain(ctx, recipes), task=task, step=step,
                        steps=run)
         return Act("task", f"task {task['id']}", lambda: dispatch.execute(ctx, step, snap.night), task=task, step=step)
 

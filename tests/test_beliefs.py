@@ -200,15 +200,15 @@ class EveryCounterTellsTheHistory(unittest.TestCase):
 
     def _eat(self, took):
         from unittest import mock
-        from bonobo import brain, skills  # noqa: F401  (brain registers every skill module)
+        from bonobo import brain, survive  # noqa: F401  (brain registers every skill module)
         from bonobo.knowledge import ALL_FOOD
         # one steak carried, the bar at 12: one bite (8 points) fills it — the bite's span is the chain's
         inv = type("Inv", (), {"count": lambda self, item: 1 if item == ALL_FOOD[0] else 0})
-        with mock.patch.object(skills.time, "time", side_effect=[1000.0, 1000.0 + took]), \
-                mock.patch.object(skills, "Inventory", inv), \
-                mock.patch.object(skills.api, "get", return_value={"food": 12}), \
-                mock.patch.object(skills.api, "run_chain", return_value=[{"status": "succeeded"}]) as run:
-            self.assertEqual(skills.eat.__wrapped__(None, raw_ok=False), 20)
+        with mock.patch.object(survive.time, "time", side_effect=[1000.0, 1000.0 + took]), \
+                mock.patch.object(survive, "Inventory", inv), \
+                mock.patch.object(survive.api, "get", return_value={"food": 12}), \
+                mock.patch.object(survive.api, "run_chain", return_value=[{"status": "succeeded"}]) as run:
+            self.assertEqual(survive.eat.__wrapped__(None, raw_ok=False), 20)
             run.assert_called_once_with([{"type": "eat", "item": ALL_FOOD[0]}], stop_on_failure=True)
 
     # (counter, how it is run, span in seconds) → the belief it files, or None when the span is not a sample

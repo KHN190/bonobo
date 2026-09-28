@@ -1,11 +1,11 @@
-"""One batch, every free furnace in reach: `skills.split_smelt` — (furnaces, items, fuel, items a fuel burns) →
+"""One batch, every free furnace in reach: `craft.split_smelt` — (furnaces, items, fuel, items a fuel burns) →
 [(furnace, items, fuel)]. Pure; the skill only walks the plan."""
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import skills  # noqa: E402
+from bonobo import craft, world  # noqa: E402
 from bonobo.api import NotAvailable  # noqa: E402
 
 A, B, C = (0, 64, 0), (2, 64, 0), (4, 64, 0)
@@ -35,13 +35,13 @@ class SplitSmelt(unittest.TestCase):
     def test_split_over_the_table(self):
         for name, furnaces, n, fuel, per, want in ROWS:
             with self.subTest(name):
-                self.assertEqual(skills.split_smelt(furnaces, n, fuel, per), want)
+                self.assertEqual(craft.split_smelt(furnaces, n, fuel, per), want)
 
     def test_nothing_loaded_says_why(self):
         for name, furnaces, n, fuel, per, why in FAILS:
             with self.subTest(name):
                 with self.assertRaises(NotAvailable) as caught:
-                    skills.split_smelt(furnaces, n, fuel, per)
+                    craft.split_smelt(furnaces, n, fuel, per)
                 self.assertEqual(str(caught.exception), why)
 
 
@@ -94,4 +94,4 @@ class JobReady(unittest.TestCase):
     def test_table(self):
         for why, job, tick, now, want in self.TABLE:
             with self.subTest(why):
-                self.assertIs(skills.job_ready(job, tick, now), want)
+                self.assertIs(world.job_ready(job, tick, now), want)

@@ -2,7 +2,7 @@
 
 import math
 
-from . import api, nav, retry, skillcore, skills
+from . import api, explore, gather, nav, retry, skillcore
 from . import skill as skillkit
 from .api import GameUnreachable, McError, NotAvailable, log
 from .data import GROUPS, bare, mid, seen_class
@@ -23,7 +23,7 @@ def execute(ctx, step, night):
         raise
     except api.INTERRUPTIONS:
         raise      # no statistics
-    except (McError, skills.ToolMissing) as e:
+    except (McError, skillcore.ToolMissing) as e:
         ctx.mem.record_outcome(f"nav:{step.kind}" if retry.cause_of(e) == "nav" else key, False)
         raise
     if not (isinstance(out, dict) and "ordered" in out):
@@ -99,14 +99,14 @@ def go_find(ctx, step):
             pass
     if step.kind == "mine" and depth is not None and dim == "minecraft:overworld":
         try:                                    # at the richest depth and nothing in sight: tunnel to reveal ore
-            skills.strip_mine_step(ctx)
+            gather.strip_mine_step(ctx)
             return True
         except NotAvailable:
             pass
     try:           # a search that found nothing fails its verify: that is "nowhere new", not a crash
         if step.kind == "hunt":
-            return bool(skills.explore_for(ctx, list(step.detail["types"])))
-        return bool(skills.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))
+            return bool(explore.explore_for(ctx, list(step.detail["types"])))
+        return bool(explore.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))
     except api.INTERRUPTIONS:
         raise
     except McError:

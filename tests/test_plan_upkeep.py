@@ -14,7 +14,7 @@
 
 Plans are made by the real planner and cost model over readings (`world.cost`: what /find saw). The upkeep table is
 the real `needs.Needs` and `reflexes.Maintain` run by a real (unstarted) Brain, its three world reads answered from the row
-(`skills.enclosed`, a bed seen by /find); any other request fails the test.
+(`survive.enclosed`, a bed seen by /find); any other request fails the test.
 """
 import json
 import os
@@ -26,7 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, arbiter, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, skills, tasks  # noqa: E402
+from bonobo import api, arbiter, craft, decompose, goals, nav, needs, planner, reflexes, retry, skillcore, survive, tasks  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402  (imports every skill module: `handles` needs the registry)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.data import bare  # noqa: E402
@@ -1332,7 +1332,7 @@ class Upkeep(unittest.TestCase):
                 ({"timeOfDay": 18000, "dimension": "minecraft:the_end"}, False)]
         for st, ok in rows:
             with self.subTest(st):
-                self.assertEqual(skills.can_sleep(state(**st)) is None, ok)
+                self.assertEqual(survive.can_sleep(state(**st)) is None, ok)
 
     def test_working_tiers(self):
         rows = [(inventory(), {}), (inventory(("stone_pickaxe", 1), ("iron_sword", 1)), {"pickaxe": 1, "sword": 2}),
@@ -2072,9 +2072,9 @@ class Overnight(unittest.TestCase):
             self.assertEqual(needs.cooled_ways(lambda key: True), [])
 
     def test_only_a_dig_in_that_can_finish_is_offered(self):
-        """skills.dig_in_site over the ground under the feet, and the pricing that reads it (needs.night_facts):
+        """survive.dig_in_site over the ground under the feet, and the pricing that reads it (needs.night_facts):
         a floor too thin to lid below the ground line is not offered — wall in is (search_night_resume)."""
-        from bonobo import skills
+        from bonobo import survive
         from tests.world import FakeRegion
 
         def ground(bottom, dug=(), under=None):
@@ -2093,7 +2093,7 @@ class Overnight(unittest.TestCase):
                 ("must fail: lava in the third cell", ground(57, under=((0, 61, 0), "lava")), (0, 64, 0), False)]
         for name, region, feet, want in rows:
             with self.subTest(name):
-                self.assertIs(skills.dig_in_site(region, feet), want)
+                self.assertIs(survive.dig_in_site(region, feet), want)
         snap = snapshot(state(timeOfDay=NIGHT), inventory(("stone_pickaxe", 1), ("cobblestone", 16)))
         for name, site, want in [("must fail: no dig-in site: walled in", False, "wall in")]:
             with self.subTest(name):
@@ -2209,7 +2209,7 @@ class WaterBucketBeforeAFall(unittest.TestCase):
 
 class ModFeatures(unittest.TestCase):
     """nav.mod_features: what the running jar can do, by its version; "approach_dig" (0.1.40) means a mine the
-    walker cannot reach is dug to by the jar itself, so skills.mine does not tunnel for it a second time."""
+    walker cannot reach is dug to by the jar itself, so gather.mine does not tunnel for it a second time."""
 
     ROWS = [("must fail: 0.1.14: nothing", "0.1.14+mc1.21.11", set()), ("0.1.15: pillar", "0.1.15", {"pillar"}),
             ("0.1.39: travel", "0.1.39+mc1.21.11", {"pillar", "travel"}),
@@ -2312,11 +2312,11 @@ class StationGone(unittest.TestCase):
             m = Memory(os.path.join(tmp, "notes.json"))
             m.add_station("minecraft:crafting_table", (1, 64, 1), OVER)
             ctx = skillcore.Context(m, None, OVER, {})
-            with mock.patch.object(skills, "close_screen"), mock.patch.object(skills, "find", return_value=[]), \
-                    mock.patch.object(skills, "Inventory", return_value=bag(inventory())), \
-                    mock.patch.object(skills, "feet", return_value=(0, 64, 0)), \
+            with mock.patch.object(craft, "close_screen"), mock.patch.object(craft, "find", return_value=[]), \
+                    mock.patch.object(craft, "Inventory", return_value=bag(inventory())), \
+                    mock.patch.object(craft, "feet", return_value=(0, 64, 0)), \
                     self.assertRaises(skillcore.StationMissing) as got:
-                with skills.Station(ctx, "minecraft:crafting_table"):
+                with craft.Station(ctx, "minecraft:crafting_table"):
                     pass
             self.assertEqual((m.stations(OVER), retry.cause_of(got.exception)), ([], "replan"))
 
@@ -2797,7 +2797,7 @@ class FoodOnItsWay(unittest.TestCase):
 
 
 class WhatTheFurnaceHolds(unittest.TestCase):
-    """skills.after_take: memory's furnace job after a take — over when nothing cooks, else what it still holds."""
+    """craft.after_take: memory's furnace job after a take — over when nothing cooks, else what it still holds."""
 
     def test_over_the_table(self):
         job = {"id": "furnace-1", "item": "minecraft:cooked_beef", "count": 4, "input": "minecraft:beef",
@@ -2810,4 +2810,4 @@ class WhatTheFurnaceHolds(unittest.TestCase):
                 ("more taken than listed: never below 0", 6, 1, None, {"count": 0, "input_count": 1, "ready_at": 15.0})]
         for name, got, cooking, tick, want in rows:
             with self.subTest(name):
-                self.assertEqual(skills.after_take(job, got, cooking, 0.0, tick), want)
+                self.assertEqual(craft.after_take(job, got, cooking, 0.0, tick), want)

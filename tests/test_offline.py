@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bonobo import arbiter, bag as BG, blueprints as B, brewing as BW, combat as CB, combat_model as CM  # noqa: E402
 from bonobo import end as END, farming as FM, fluids as FL, loot as LT, nav, needs as UK, nether as NT  # noqa: E402
-from bonobo import review as RV, roads as ROADS, skills, ui as UI  # noqa: E402
+from bonobo import explore as EX, review as RV, roads as ROADS, store as ST, survive as SV, terrain as TN, ui as UI, world as WD  # noqa: E402
 from bonobo.bench import table as SC  # noqa: E402
 from bonobo.api import NavFailed  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
@@ -236,7 +236,7 @@ class PlanningAndBag(unittest.TestCase):
                                                          price={"minecraft:wheat_seeds": 20.0,
                                                                 "minecraft:dirt": 0.5}.get)},
              lambda gone: "minecraft:wheat_seeds" not in gone),
-            ("broken tools go, worn ones stay", lambda: skills.free_slots_plan([broken, worn], need=0), [broken]),
+            ("broken tools go, worn ones stay", lambda: BG.free_slots_plan([broken, worn], need=0), [broken]),
         ])
 
 
@@ -270,7 +270,7 @@ def _sea(shores=(), walls=()):
 
 
 def _route(r):
-    got = skills.air_route(r, (0, 0, 0))
+    got = TN.air_route(r, (0, 0, 0))
     return got[:2] if got else None
 
 
@@ -280,24 +280,24 @@ class Terrain(unittest.TestCase):
         cave = region(CAVE, (-8, -2, -8), (8, 6, 8), drop=CAVE_OPEN)
         table(self, [
             ("dig out: east (open, floored; first of the tie), both wall cells, never toward lava",
-             lambda: skills.choose_exit(region(POD, *POD_BOX), (0, 1, 0)), ([(1, 1, 0), (1, 2, 0)], (1, 1, 0))),
-            ("a torch in the side cell: only the head cell", lambda: skills.choose_exit(torch, (0, 1, 0)),
+             lambda: TN.choose_exit(region(POD, *POD_BOX), (0, 1, 0)), ([(1, 1, 0), (1, 2, 0)], (1, 1, 0))),
+            ("a torch in the side cell: only the head cell", lambda: TN.choose_exit(torch, (0, 1, 0)),
              ([(1, 2, 0)], (1, 1, 0))),
-            ("the pod is enclosed", lambda: skills.is_enclosed(region(POD, *POD_BOX), (0, 1, 0)), True),
-            ("boundary: a torch under a solid block is still enclosed", lambda: skills.is_enclosed(torch, (0, 1, 0)),
+            ("the pod is enclosed", lambda: WD.is_enclosed(region(POD, *POD_BOX), (0, 1, 0)), True),
+            ("boundary: a torch under a solid block is still enclosed", lambda: WD.is_enclosed(torch, (0, 1, 0)),
              True),
-            ("must fail: a 2-high opening is not enclosed", lambda: skills.is_enclosed(
+            ("must fail: a 2-high opening is not enclosed", lambda: WD.is_enclosed(
                 region(POD, *POD_BOX, drop=[(1, 1, 0), (1, 2, 0)]), (0, 1, 0)), False),
-            ("throw: a sealed shaft, nowhere", lambda: skills.throw_direction(region(ROCK, *ROCK_BOX, drop=SHAFT),
+            ("throw: a sealed shaft, nowhere", lambda: BG.throw_direction(region(ROCK, *ROCK_BOX, drop=SHAFT),
                                                                              (0, 0, 0)), None),
-            ("throw: in a tunnel, back along it — not into the niche", lambda: skills.throw_direction(region(
+            ("throw: in a tunnel, back along it — not into the niche", lambda: BG.throw_direction(region(
                 ROCK, *ROCK_BOX,
                 drop=SHAFT + [(x, y, 0) for x in (-3, -2, -1) for y in (0, 1)] + [(0, 0, 1), (0, 1, 1)]),
                 (0, 0, 0)), (-1, 0)),
-            ("must fail: only a 1-block niche, don't throw (items land at the feet)", lambda: skills.throw_direction(
+            ("must fail: only a 1-block niche, don't throw (items land at the feet)", lambda: BG.throw_direction(
                 region(ROCK, *ROCK_BOX, drop=SHAFT + [(1, 0, 0), (1, 1, 0)]), (0, 0, 0)), None),
-            ("a cave's sealed shaft bottom: no room to throw", lambda: skills.throw_direction(cave, (0, 0, 0)), None),
-            ("open space: the passage to the room nearby", lambda: skills.find_open_spot(cave, (0, 0, 0)), (1, 3, 0)),
+            ("a cave's sealed shaft bottom: no room to throw", lambda: BG.throw_direction(cave, (0, 0, 0)), None),
+            ("open space: the passage to the room nearby", lambda: TN.find_open_spot(cave, (0, 0, 0)), (1, 3, 0)),
         ])
 
     def test_night_spots(self):
@@ -311,28 +311,28 @@ class Terrain(unittest.TestCase):
                                        for z in range(-6, 7) for y in range(55, 63)})
         chest_room = FakeRegion({(0, 1, 0): "stone"}, (-2, -1, -2), (2, 3, 2))
         table(self, [
-            ("burrow: faces the solid hill", lambda: skills.choose_burrow(FakeRegion(HILL, *HILL_BOX), (0, 0, 0)),
+            ("burrow: faces the solid hill", lambda: TN.choose_burrow(FakeRegion(HILL, *HILL_BOX), (0, 0, 0)),
              (1, 0)),
-            ("must fail: never burrow next to water", lambda: skills.choose_burrow(
+            ("must fail: never burrow next to water", lambda: TN.choose_burrow(
                 region(HILL, *HILL_BOX, {(3, 0, 1): "water", (1, 1, -1): "water"}), (0, 0, 0)), None),
-            ("burrow: flat open ground, none", lambda: skills.choose_burrow(flat, (0, 0, 0)), None),
-            ("shelter: nothing on top of a thin pillar", lambda: skills.shelter_method_at(peak, (0, 6, 0)), None),
-            ("shelter: a spot on the ground nearby instead", lambda: skills.find_shelter_spot(peak, (0, 6, 0)),
+            ("burrow: flat open ground, none", lambda: TN.choose_burrow(flat, (0, 0, 0)), None),
+            ("shelter: nothing on top of a thin pillar", lambda: TN.shelter_method_at(peak, (0, 6, 0)), None),
+            ("shelter: a spot on the ground nearby instead", lambda: TN.find_shelter_spot(peak, (0, 6, 0)),
              lambda f: f is not None and f[0][1] == 0 and f[1] in ("dig", "pod", "burrow")),
-            ("shelter: flat solid ground digs in", lambda: skills.shelter_method_at(peak, (3, 0, 3)), "dig"),
-            ("must fail: open water, no spot", lambda: skills.find_shelter_spot(water, (0, 1, 0), radius=5), None),
-            ("chest: air above opens", lambda: skills.chest_spot_ok(chest_room, (1, 0, 0)), True),
-            ("must fail: a solid block above, it can't open", lambda: skills.chest_spot_ok(chest_room, (0, 0, 0)),
+            ("shelter: flat solid ground digs in", lambda: TN.shelter_method_at(peak, (3, 0, 3)), "dig"),
+            ("must fail: open water, no spot", lambda: TN.find_shelter_spot(water, (0, 1, 0), radius=5), None),
+            ("chest: air above opens", lambda: TN.chest_spot_ok(chest_room, (1, 0, 0)), True),
+            ("must fail: a solid block above, it can't open", lambda: TN.chest_spot_ok(chest_room, (0, 0, 0)),
              False),
-            ("underground: a solid roof and floor", lambda: skills.underground_target(solid, (0, 65, 0)),
+            ("underground: a solid roof and floor", lambda: TN.underground_target(solid, (0, 65, 0)),
              lambda t: t is not None and all(solid.solid((t[0], t[1] + dy, t[2])) for dy in (2, 3, -1))),
-            ("must fail: a one-block crust, none", lambda: skills.underground_target(FakeRegion(
+            ("must fail: a one-block crust, none", lambda: TN.underground_target(FakeRegion(
                 {(x, 64, z): "stone" for x in range(-6, 7) for z in range(-6, 7)}, *DEEP_BOX), (0, 65, 0)), None),
             ("not on a ravine ledge: the head walled on 3+ sides",
-             lambda: skills.underground_target(ravine, (0, 65, 0)),
+             lambda: TN.underground_target(ravine, (0, 65, 0)),
              lambda t: t is not None and sum(ravine.solid((t[0] + a, t[1] + 1, t[2] + b))
                                              for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))) >= 3),
-            ("must fail: never tunnel next to water", lambda: skills.underground_target(wet, (0, 65, 0)), None),
+            ("must fail: never tunnel next to water", lambda: TN.underground_target(wet, (0, 65, 0)), None),
         ])
 
     def test_water(self):
@@ -354,7 +354,7 @@ class Terrain(unittest.TestCase):
             ("must fail: a rock under water is not land", lambda: _route(rock), ("land", (5, 1, 0))),
             ("a shore behind a wall higher than the water: pillar", lambda: _route(_sea(shores=[(6, 8)], walls=[5])),
              ("pillar", (0, 1, 0))),
-            ("open sea: pillar at the surface, saying why", lambda: skills.air_route(_sea(), (0, 0, 0)),
+            ("open sea: pillar at the surface, saying why", lambda: TN.air_route(_sea(), (0, 0, 0)),
              lambda g: g[:2] == ("pillar", (0, 1, 0)) and "no land" in g[2]),
             ("two shores, the nearer walled off: the reachable one",
              lambda: _route(_sea(shores=[(-8, -3), (6, 8)], walls=[-2])), ("land", (6, 1, 0))),
@@ -409,9 +409,9 @@ class MemoryAndReview(unittest.TestCase):
         table(self, [
             ("a job's output counts as pending", lambda: m.pending_outputs("minecraft:overworld"),
              {"minecraft:iron_ingot": 8}),
-            ("must fail: a job is not ready before its estimate", lambda: skills.job_ready(job), False),
+            ("must fail: a job is not ready before its estimate", lambda: WD.job_ready(job), False),
             ("a job is ready once the estimate passed",
-             lambda: m.postpone_job(job["id"], -1) or skills.job_ready(m.jobs()[0]), True),
+             lambda: m.postpone_job(job["id"], -1) or WD.job_ready(m.jobs()[0]), True),
             ("boundary: a finished job stops counting",
              lambda: m.finish_job(job["id"]) or m.pending_outputs("minecraft:overworld"), {}),
             ("stations and sightings deduplicated",
@@ -423,8 +423,8 @@ class MemoryAndReview(unittest.TestCase):
                 bool(died.recent_death("minecraft:overworld")),
                 bool(died.recent_death("minecraft:overworld", now=time.time() + 400))), (True, False)),
             ("must fail: a failed trek's site is banned, another is not",
-             lambda: (skills.site_trek_ok(ctx, {"name": "far", "pos": [90, 64, 0]}),
-                      skills.site_trek_ok(ctx, {"name": "home", "pos": [5, 64, 0]})), (False, True)),
+             lambda: (ST.site_trek_ok(ctx, {"name": "far", "pos": [90, 64, 0]}),
+                      ST.site_trek_ok(ctx, {"name": "home", "pos": [5, 64, 0]})), (False, True)),
         ])
 
     def test_review(self):
@@ -458,7 +458,7 @@ class NavAndNether(unittest.TestCase):
         ROADS.add_leg(roads, (0, 70, 0), (200, 70, 0), 45.0, 2)
         table(self, [
             ("hunting never digs, keeps the rest of the policy",
-             lambda: skills.approach_policy(nav.Policy(protected={(1, 2, 3)})),
+             lambda: EX.approach_policy(nav.Policy(protected={(1, 2, 3)})),
              lambda p: not p.allow_dig and p.allow_build and p.protected == {(1, 2, 3)}),
             # real case 08:07: a 200-block trek bridged dips until all 64 cobblestone were gone
             ("a full bag keeps a block reserve, a small kit still gets half",
@@ -685,7 +685,7 @@ class End(unittest.TestCase):
             ("the End fight skills take cover and retry", lambda: [f.__name__ for f in (
                 END.build_bed_pit, END.await_perch, END.bed_bomb_window, END.shake_enderman, END.break_caged_crystal,
                 END.slay_dragon, CB.station) if not f.contract.soft], []),
-            ("must fail: a plain skill ends on an interrupt", lambda: skills.eat.contract.soft, False),
+            ("must fail: a plain skill ends on an interrupt", lambda: SV.eat.contract.soft, False),
             ("the bed: one above the bedrock, 2 from the centre",
              lambda: (END.bed_cell((1, 0), 69), END.bed_cell((0, -1), 69)), ((2, 70, 0), (0, 70, -2))),
             ("perched: phases 6 and 7", lambda: [END.perched(_dragon(phase=p)) for p in (6, 7)], [True, True]),

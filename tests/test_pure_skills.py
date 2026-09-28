@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import skills, solve, tape, threat  # noqa: E402
+from bonobo import api, craft, fluids as fluids_mod, gather, solve, survive, tape, threat  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
 from bonobo.world import connected  # noqa: E402
@@ -65,7 +65,7 @@ class BitesToFull(unittest.TestCase):
     def test_bites(self):
         for name, food, carried, raw_ok, want in self.ROWS:
             with self.subTest(name):
-                self.assertEqual(skills.bites_to_full(food, carried, raw_ok), want)
+                self.assertEqual(survive.bites_to_full(food, carried, raw_ok), want)
 
 
 class ResolvePattern(unittest.TestCase):
@@ -88,7 +88,7 @@ class ResolvePattern(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.resolve_pattern, self.TABLE)
+        run_table(self, craft.resolve_pattern, self.TABLE)
 
 
 class OutputOf(unittest.TestCase):
@@ -104,7 +104,7 @@ class OutputOf(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.output_of, self.TABLE)
+        run_table(self, craft.output_of, self.TABLE)
 
 
 def slots(n, item="dirt"):
@@ -135,11 +135,11 @@ class SeekHits(unittest.TestCase):
             with self.subTest(why):
                 args = (["iron_ore"], found, radius, banned.__contains__, protected)
                 if isinstance(want, str):
-                    with self.assertRaises(skills.NotAvailable) as got:
-                        skills.seek_hits(*args)
+                    with self.assertRaises(api.NotAvailable) as got:
+                        gather.seek_hits(*args)
                     self.assertEqual(str(got.exception), want)
                 else:
-                    self.assertEqual(skills.seek_hits(*args), want)
+                    self.assertEqual(gather.seek_hits(*args), want)
 
     # (situation, find kwargs) → the query's tail after the limit: exposure is never sent as false
     QUERY = [
@@ -180,7 +180,7 @@ class Returns(unittest.TestCase):
 
 
 class NotedHits(unittest.TestCase):
-    """skills.noted_hits: a remembered ore is gone to straight, no /find (seen_store__noted scanned every pass)."""
+    """gather.noted_hits: a remembered ore is gone to straight, no /find (seen_store__noted scanned every pass)."""
     TABLE = [
         ("a noted diamond: that cell", ([{"kind": "diamond_ore", "pos": [4, 60, 0]}], ["diamond_ore"], set(), set()),
          [(4, 60, 0)]),
@@ -197,12 +197,12 @@ class NotedHits(unittest.TestCase):
     def test_table(self):
         for why, (notes, blocks, banned, protected), want in self.TABLE:
             with self.subTest(why):
-                got = skills.noted_hits(notes, blocks, lambda p: p in banned, protected)
+                got = gather.noted_hits(notes, blocks, lambda p: p in banned, protected)
                 self.assertEqual([(h["x"], h["y"], h["z"]) for h in got], want)
 
 
 class SealPlan(unittest.TestCase):
-    """skills.seal_plan: before breaking a cell, a block into every fluid cell touching it face to face."""
+    """fluids_mod.seal_plan: before breaking a cell, a block into every fluid cell touching it face to face."""
 
     def test_table(self):
         from tests.world import FakeRegion, bag, inventory
@@ -226,15 +226,15 @@ class SealPlan(unittest.TestCase):
                 region = FakeRegion(lo, hi, {**stone, cell: "iron_ore", **fluids})
                 if want is NotAvailable:
                     with self.assertRaises(NotAvailable):
-                        skills.seal_plan(region, [cell], bag(inv))
+                        fluids_mod.seal_plan(region, [cell], bag(inv))
                     continue
-                got = skills.seal_plan(region, [cell], bag(inv))
+                got = fluids_mod.seal_plan(region, [cell], bag(inv))
                 self.assertEqual([(t["x"], t["y"], t["z"]) for t in got], want)
                 self.assertTrue(all(t["type"] == "place" for t in got))
 
 
 class TunnelAroundCaves(unittest.TestCase):
-    """skills.plan_tunnel / tunnel_run: the night's tunnel is planned through the walls — never into a cave it could
+    """gather.plan_tunnel / tunnel_run: the night's tunnel is planned through the walls — never into a cave it could
     avoid, away from hostiles seen through the rock; boxed in by caves, the opening is sealed first (seal_plan)."""
 
     @staticmethod
@@ -256,9 +256,9 @@ class TunnelAroundCaves(unittest.TestCase):
                  ((1, 0), 0, [(1, 65, 0), (1, 64, 0)]))]
         for name, air, hostiles, want in rows:
             with self.subTest(name):
-                self.assertEqual(skills.plan_tunnel(self.rock(air), feet, 4, hostiles=hostiles, facing=east), want)
+                self.assertEqual(gather.plan_tunnel(self.rock(air), feet, 4, hostiles=hostiles, facing=east), want)
         with self.subTest("must fail: the cave the facing would break into is not dug into"):
-            d, end, cave = skills.plan_tunnel(self.rock([(2, 64, 1)]), feet, 4, facing=east)
+            d, end, cave = gather.plan_tunnel(self.rock([(2, 64, 1)]), feet, 4, facing=east)
             self.assertNotEqual(d, east)
 
     def test_the_opening_sealed_first(self):
@@ -272,14 +272,14 @@ class TunnelAroundCaves(unittest.TestCase):
         for name, inv, want in rows:
             with self.subTest(name):
                 if inv is None:
-                    got = skills.seal_plan(region, cave, bag(inventory(("cobblestone", 8))), own=own)
+                    got = fluids_mod.seal_plan(region, cave, bag(inventory(("cobblestone", 8))), own=own)
                     self.assertEqual(got, [])
                     continue
                 if want is NotAvailable:
                     with self.assertRaises(NotAvailable):
-                        skills.seal_plan(region, cave, bag(inv), own=own, cave=True)
+                        fluids_mod.seal_plan(region, cave, bag(inv), own=own, cave=True)
                     continue
-                got = skills.seal_plan(region, cave, bag(inv), own=own, cave=True)
+                got = fluids_mod.seal_plan(region, cave, bag(inv), own=own, cave=True)
                 self.assertEqual([(t["x"], t["y"], t["z"]) for t in got], want)
 
 
@@ -307,7 +307,7 @@ class OnlyIsItemIds(unittest.TestCase):
 
 
 class FurnaceTakes(unittest.TestCase):
-    """skills.furnace_takes: an open furnace takes this batch — its input empty or the same, its output too."""
+    """craft.furnace_takes: an open furnace takes this batch — its input empty or the same, its output too."""
 
     def test_table(self):
         inp, out = ["minecraft:raw_iron"], "minecraft:iron_ingot"
@@ -317,11 +317,11 @@ class FurnaceTakes(unittest.TestCase):
                 ("must fail: cooked beef in the output", {2: "minecraft:cooked_beef"}, False)]
         for name, slots, want in rows:
             with self.subTest(name):
-                self.assertIs(skills.furnace_takes(slots, inp, out), want)
+                self.assertIs(craft.furnace_takes(slots, inp, out), want)
 
 
 class TakeBackVerdict(unittest.TestCase):
-    """skills.take_back_verdict: a station not picked up but still standing is left (a station there), not lost."""
+    """craft.take_back_verdict: a station not picked up but still standing is left (a station there), not lost."""
     # (situation, (bag gained it, still standing)) → verdict
     TABLE = [
         ("picked up: taken", (True, False), "taken"),
@@ -331,7 +331,7 @@ class TakeBackVerdict(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.take_back_verdict, self.TABLE)
+        run_table(self, craft.take_back_verdict, self.TABLE)
 
 
 class TakesBack(unittest.TestCase):
@@ -345,7 +345,7 @@ class TakesBack(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.takes_back, self.TABLE)
+        run_table(self, craft.takes_back, self.TABLE)
 
 
 class CraftPlan(unittest.TestCase):
@@ -378,14 +378,14 @@ class CraftPlan(unittest.TestCase):
                 inv = bag(inventory(**have))
                 if isinstance(want, str):
                     with self.assertRaises(McError) as got:
-                        skills.craft_plan(recipes, inv)
+                        craft.craft_plan(recipes, inv)
                     self.assertEqual(str(got.exception), want)
                 else:
-                    self.assertEqual(skills.craft_plan(recipes, inv), want)
+                    self.assertEqual(craft.craft_plan(recipes, inv), want)
 
 
 class CraftCommands(unittest.TestCase):
-    """skills.craft_commands: a crafting session as one chain — 2×2 in the bag, the table opened once, a placed
+    """craft.craft_commands: a crafting session as one chain — 2×2 in the bag, the table opened once, a placed
     table taken back; recomputed from the bag after an interrupt, nothing made twice or skipped."""
     PICK = [("minecraft:stick", 1), ("minecraft:crafting_table", 1), ("minecraft:stone_pickaxe", 1)]
 
@@ -413,22 +413,22 @@ class CraftCommands(unittest.TestCase):
                 st = {"inv": bag(inventory(**have)), "table": table, "spot": sp}
                 if isinstance(want, type):
                     with self.assertRaises(want):
-                        skills.craft_commands(st, (recipes,))
+                        craft.craft_commands(st, (recipes,))
                     continue
-                self.assertEqual(self.shape(skills.craft_commands(st, (recipes,))), want)
+                self.assertEqual(self.shape(craft.craft_commands(st, (recipes,))), want)
 
     def test_resumed_from_the_bag(self):
         """Interrupted after the bag's crafts: the chain rebuilt from the bag then holds only the pickaxe."""
         from tests.world import bag, inventory
         st = {"inv": bag(inventory(oak_planks=6, stick=4, crafting_table=1, cobblestone=3)), "table": None,
               "spot": (1, 64, 0)}
-        got = self.shape(skills.craft_commands(st, ([("minecraft:stone_pickaxe", 1)],)))
+        got = self.shape(craft.craft_commands(st, ([("minecraft:stone_pickaxe", 1)],)))
         self.assertEqual(got, ["place", "use", ("craft", 9), "_close", "mine"])
         self.assertEqual(got.count(("craft", 4)), 0, "nothing of the first sitting made twice")
 
 
 class Sittings(unittest.TestCase):
-    """skills.sittings: a chain cut where the grid changes — the 2×2 part in the bag, the 3×3 part at a table.
+    """craft.sittings: a chain cut where the grid changes — the 2×2 part in the bag, the 3×3 part at a table.
     plan_repair_on_event asked for a table before making it, every round (StationMissing)."""
     # (situation, recipes, bag) → [(needs a table, [items])] | the McError message
     TABLE = [
@@ -450,10 +450,10 @@ class Sittings(unittest.TestCase):
                 inv = bag(inventory(**have))
                 if isinstance(want, str):
                     with self.assertRaises(McError) as got:
-                        skills.sittings(skills.craft_plan(recipes, inv)[0])
+                        craft.sittings(craft.craft_plan(recipes, inv)[0])
                     self.assertIn(want, str(got.exception))
                 else:
-                    got = skills.sittings(skills.craft_plan(recipes, inv)[0])
+                    got = craft.sittings(craft.craft_plan(recipes, inv)[0])
                     self.assertEqual([(t, [st[1] for st in part]) for t, part in got], want)
 
 
@@ -480,10 +480,10 @@ class MineSegmentCommands(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.mine_segment_commands, self.TABLE)
+        run_table(self, gather.mine_segment_commands, self.TABLE)
 
     def test_filtered_batch_keeps_the_drop(self):
-        only = skills.mine_segment_commands({"inv": slots(36)}, ([(1, 2, 3)], "minecraft:raw_iron", 1))[-1]["only"]
+        only = gather.mine_segment_commands({"inv": slots(36)}, ([(1, 2, 3)], "minecraft:raw_iron", 1))[-1]["only"]
         self.assertIn("minecraft:raw_iron", only)
         self.assertNotIn("minecraft:dirt", only)
 
@@ -501,7 +501,7 @@ class DarkHere(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.dark_here, self.TABLE)
+        run_table(self, survive.dark_here, self.TABLE)
 
 
 class PendingReady(unittest.TestCase):
@@ -514,7 +514,7 @@ class PendingReady(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, skills.pending_ready, self.TABLE)
+        run_table(self, craft.pending_ready, self.TABLE)
 
 
 # ---------------------------------------------------------------- solve

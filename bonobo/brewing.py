@@ -75,7 +75,8 @@ def _fire_resistance_held():
 def brew_fire_resistance(ctx):
     """At a brewing stand (found or placed): water bottles + wart → awkward, + magma cream → fire resistance; blaze powder fuels."""
 
-    from .skills import Station, _open_container
+    from .building import _open_container
+    from .craft import Station
     inv = Inventory()
     if inv.count("minecraft:blaze_powder") < 1:
         raise NotAvailable("need blaze powder as brewing fuel")

@@ -165,7 +165,7 @@ class APreemptionIsNotAnIntruder(unittest.TestCase):
 # -- the arbiter over the brain's real inputs: reflexes.due (the MAINTAIN rows) and PLAN kinds --------------------
 import itertools                                    # noqa: E402
 
-from bonobo import reflexes, retry as retry_mod, skills   # noqa: E402
+from bonobo import fluids, reflexes, retry as retry_mod   # noqa: E402
 
 # A calm round: nothing fires. Every key a reflexes.TABLE trigger reads.
 CALM = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False, "night": False,
@@ -371,7 +371,7 @@ class Flicker(unittest.TestCase):
                 ("on land", False, True, 300, False), ("falling through air", False, False, 300, False)]
         for name, wet, ground, air, want in rows:
             with self.subTest(name):
-                swim = skills.swimming({"inWater": wet, "onGround": ground, "air": air})
+                swim = fluids.swimming({"inWater": wet, "onGround": ground, "air": air})
                 self.assertEqual((swim, "reach land" in [n for _s, n in reflexes.due(dict(CALM, swimming=swim))]),
                                  (want, want))
 

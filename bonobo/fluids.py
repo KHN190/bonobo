@@ -3,10 +3,12 @@
 import math
 
 from . import knowledge as K
+from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
+from .data import GROUPS, bare
 from .skill import skill
-from .skillcore import gained
+from .skillcore import body_state, feet, gained
 from .world import Inventory, Region, add, find
 
 REACH = 4.0
@@ -203,3 +205,97 @@ def light_portal(ctx, origin, turns):
             log(f"nether portal lit at {origin}")
             return
     raise McError("the portal frame did not light")
+
+def _open_lava(region, here):
+    """Pure: lava cells within reach of `here` with air beside them, nearest first."""
+    x, y, z = here
+    return sorted((p for p in region.blocks if region.name(p) == "lava"
+                   and math.dist(p, (x, y + 1, z)) <= 4.5
+                   and any(region.name(add(p, d)) in ("air", "cave_air") for d in nav.NEIGHBOURS6)),
+                  key=lambda p: math.dist(p, (x, y, z)))
+
+def _lava_region(here, radius):
+    x, y, z = here
+    return Region((x - radius - 1, y - radius - 1, z - radius - 1), (x + radius + 1, y + radius + 1, z + radius + 1))
+
+def _open_lava_now(ctx, radius=4):
+    """How many lava cells lie open within reach right now (0 without a world read when /find sees none)."""
+    if getattr(ctx.policy, "lava_ok", False) or not find(["lava"], radius=radius, limit=1):
+        return 0
+    here = feet()
+    return len(_open_lava(_lava_region(here, radius), here))
+
+def fill_with_blocks(cells, inv, why, partial=False):
+    """Pure: one place task per cell, in order, building blocks taken from the bag in turn."""
+
+    stock = [[b, inv.count(b)] for b in GROUPS["building"] if inv.count(b)]
+    if cells and (not stock or (not partial and sum(n for _, n in stock) < len(cells))):
+        raise NotAvailable(f"{why}: {len(cells)} to cover, {sum(n for _, n in stock)} blocks carried")
+    tasks = []
+    for p in cells:
+        while stock and stock[0][1] <= 0:
+            stock.pop(0)
+        if not stock:
+            break
+        stock[0][1] -= 1
+        tasks.append({"type": "place", "item": stock[0][0], "x": p[0], "y": p[1], "z": p[2]})
+    return tasks
+
+FLUID_NAMES = ("water", "lava", "flowing_water", "flowing_lava")
+
+CAVE_AIR = ("air", "cave_air")
+
+def fluid_faces(region, cell, breaking=(), names=FLUID_NAMES):
+    """Pure: the cells of `names` (fluids; with cave air, openings) touching `cell` face to face (below, beside,
+    above) — what pours or walks in once it is broken. `breaking` (the cells broken with it) are not faces."""
+
+    out = []
+    for d in ((0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0)):
+        n = add(cell, d)
+        if n not in breaking and region.inside(n) and bare(region.name(n)) in names:
+            out.append(n)
+    return out
+
+def seal_plan(region, cells, inv, own=(), cave=False):
+    """Pure: before breaking `cells`, a block into every fluid cell touching one — the one sealing rule of mining;
+    with `cave`, cave air too (an opening a tunnel would break into), the tunnel's own space (`own`) excepted."""
+
+    cells = [tuple(c) for c in cells]
+    names = FLUID_NAMES + (CAVE_AIR if cave else ())
+    wet = []
+    for c in cells:
+        for f in fluid_faces(region, c, set(cells) | set(own), names):
+            if f not in wet:
+                wet.append(f)
+    return fill_with_blocks(wet, inv, ("an opening" if cave else "fluid")
+                            + " beside the cells to break and nothing to seal it with")
+
+def contain_lava_commands(state, args=()):
+    """Pure: one place task per open lava cell, nearest first, blocks taken from the bag in turn."""
+    open_lava = _open_lava(state["region"], state["feet"]) if state["region"] is not None else []
+    return fill_with_blocks(open_lava, state["inv"], "lava exposed and no blocks to cover it", partial=True)
+
+@skill(gives=["state:lava_covered"], remaining=_k.blocks_gone("lava"), needs={"building": 1}, speed={}, start=lambda c: _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4),
+       verify=lambda c: c.base == 0 or _open_lava_now(c.args[0], c.args[1] if len(c.args) > 1 else 4) < c.base,
+       commands=contain_lava_commands, budget=120, stall=30)
+def contain_lava(ctx, radius=4):
+    """Cover lava exposed within reach with building blocks, nearest first, before the tunnel goes on."""
+
+    if ctx.policy.lava_ok:
+        return 0
+    if not find(["lava"], radius=radius, limit=1):
+        return 0
+    here = feet()
+    tasks = contain_lava_commands(body_state(ctx, _lava_region(here, radius)), (radius,))
+    covered = sum(1 for r in api.run_chain(tasks) if r["status"] == "succeeded")
+    if covered:
+        log(f"covered {covered} exposed lava cells")
+    return covered
+
+def swimming(state):
+    """The one "in the water" test: in water and not standing, or standing with the head under (breath below full)."""
+
+    return bool(state.get("inWater")) and (not state.get("onGround", False)
+                                            or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
+
+AIR_FULL = 300          # the air meter's top, in ticks
