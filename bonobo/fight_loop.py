@@ -3,6 +3,7 @@
 import math
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
@@ -169,7 +170,10 @@ def _engagement(intent, failure):
         failure["failed"] = f"{type(e).__name__}: {e}"
         # said, not only recorded: an engagement that dies at once re-bid every round with nothing reaching the jar
         # (fight_zombie_1 20260928-224501: four 'threat: fight_shielded … worth 194s', no task posted, no step taken)
+        # broad on purpose: the engagement's own thread, whatever ends it the body is handed back (finally) — and the
+        # traceback kept, or a bug here reads as a fight that simply stopped
         api.log(f"!! fight: {getattr(STATE.want or held.get('done'), 'kind', '?')} failed: {failure['failed']}")
+        api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
     finally:
         disengage(intent, stop=held["task_id"] is not None)
 
@@ -286,8 +290,9 @@ def lease_done(state, rows, price, ids=()):
         return True
     try:
         fresh = bid(state, rows, price, now=time.time(), ids=ids)
-    except Exception:
-        return False
+    except Exception as e:
+        # the lease's release check runs inside arbiter.holder: a judgement we cannot make keeps the body, said
+        return api.unexpected("fight: lease_done", e, "the lease is kept") or False
     return fresh is None or fresh[1] <= 0
 
 def still_worth(choice, field_model, price, horizon):

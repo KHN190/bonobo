@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -57,6 +58,18 @@ def swallowed(where, err):
         n = STATE.swallowed[key] = STATE.swallowed.get(key, 0) + 1
     if n in (1, 10, 100):
         log(f"?? {where}: {type(err).__name__} ignored ({n}×) — that feature is off in this round")
+    return None
+
+
+def unexpected(where, err, why):
+    """A broad handler's catch, said: the error and `why` it is caught rather than raised on the log, its traceback
+    on detail.log — at the 1st, 10th and 100th time (one tally with `swallowed`). Returns None."""
+    key = f"{where}: {type(err).__name__}"
+    with STATE.lock:
+        n = STATE.swallowed[key] = STATE.swallowed.get(key, 0) + 1
+    if n in (1, 10, 100):
+        log(f"!! {where}: {type(err).__name__}: {err} — {why} ({n}×)")
+        detail("".join(traceback.format_exception(type(err), err, err.__traceback__)).rstrip())
     return None
 
 class McError(Exception):
@@ -468,8 +481,8 @@ def vet_aim(task):
         near = get("/entities?radius=32")["entities"]
         if combat_model.aim_hits_enderman((task["x"], task["y"], task["z"]), (st["x"], st["y"], st["z"]), near):
             return f"aim at {task['x']},{task['y']},{task['z']} crosses an enderman's head"
-    except Exception:
-        return None          # perception is best-effort here; never let the check break the task
+    except (McError, PlayerTookControl, KeyError, TypeError, ValueError):
+        return None          # a failed read or a reading short of a field: best-effort, never breaks the task
     return None
 
 # How a task is dressed before it is posted (brain: nav.with_avoid over the protected cells), or None.

@@ -3,6 +3,7 @@
 import math
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
@@ -194,7 +195,7 @@ class Watcher(threading.Thread):
             here = STATE.last_here
             near = [math.dist(here, row[0]) for row in rows] if here else []
             near = [d for d in near if d <= radius]
-        except Exception:
+        except (TypeError, ValueError, IndexError):      # a row short of its centre: no distance this tick
             return None
         return min(near, default=None)
 
@@ -301,7 +302,11 @@ class Watcher(threading.Thread):
                 continue
             try:
                 s = api.get("/state")
-            except Exception:   # game restarting, network hiccup: the main loop handles those
+            except (api.McError, api.PlayerTookControl, ValueError):
+                continue        # game restarting, network hiccup, the player's turn: the main loop handles those
+            except Exception as e:
+                # the only watcher for lava, drowning and mobs: an unforeseen read failure never kills the thread
+                api.unexpected("perception: /state", e, "this tick is skipped")
                 continue
             note_hurt(s)
             # look once per tick and hand that one reading to everything below (rows were absent or seconds old)
@@ -313,6 +318,7 @@ class Watcher(threading.Thread):
                 if time.time() - getattr(self, "_answer_logged", 0) > 30:
                     self._answer_logged = time.time()
                     api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
+                    api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
             import os
             if os.path.exists(FLAG):
                 try:
@@ -324,8 +330,8 @@ class Watcher(threading.Thread):
                 try:
                     # the message is ours to set; /stop goes through the one exit
                     arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"claude: {why}")
-                except Exception:
-                    pass
+                except Exception as e:      # the thread outlives a failed stop: said, and Claude may ask again
+                    api.unexpected("perception: Claude's stop", e, "the task was not stopped")
                 api.log(f"!! perception: interrupt requested by Claude ({why})")
                 continue
             # a fight skill handles "hurt with hostiles close" itself: only life-or-death interrupts it
@@ -367,8 +373,8 @@ class Watcher(threading.Thread):
                 continue
             try:
                 arbiter.BODY.preempt("safety", lambda: api.post("/stop"), reason)
-            except Exception:
-                pass
+            except Exception as e:          # the thread outlives a failed stop: said; the danger repeats after REPEAT_S
+                api.unexpected("perception: safety stop", e, "the task was not stopped")
             api.log(f"!! perception: {reason} → interrupting the current task")
 
 ANSWERED_MAX = 500
@@ -417,6 +423,7 @@ def perceived(state, now, ground_of=None, kit_of=None):
             if name not in STATE.failed:
                 STATE.failed.add(name)
                 api.log(f"!! perception: {name}: {type(e).__name__}: {e}")
+                api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
     return out
 
 def ground(state, now=None, radius=GRID_R, region_of=None):
@@ -432,8 +439,10 @@ def ground(state, now=None, radius=GRID_R, region_of=None):
     cache = STATE.ground              # one read: a reset may rebind it meanwhile
     try:
         grid, region = memo_ttl(cache, here, GRID_TTL_S, read, now, one=True)
-    except Exception:
+    except (api.McError, api.PlayerTookControl, ValueError):
         return STATE.grid            # a failed read keeps the last field
+    except Exception as e:
+        return api.unexpected("perception: ground", e, "the last field is kept") or STATE.grid
     with STATE.lock:
         STATE.grid, STATE.region = grid, region
         STATE.grid_at, STATE.grid_at_pos = cache.get(here, (now,))[0], here
