@@ -29,7 +29,6 @@ EXCEPTIONS = {
     "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
     "SetupInvalid": ("error", "crash"),
 }
-INTERRUPTION_NAMES = tuple(n for n, (cause, _) in EXCEPTIONS.items() if cause == "interrupt")
 
 def row_of(err):
     """(cause, source) of an exception: its nearest class with a row. An exception class of ours with no row of its

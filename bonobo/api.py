@@ -5,7 +5,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import paths
+from . import paths, retry
 
 # no default instance path: a wrong one read no token and every request came back 401
 INSTANCE = paths.instance_dir()
@@ -140,8 +140,8 @@ class Died(McError):
 class DimensionChanged(McError):
     """The body left the task's dimension: the task resumes only back in its own (maps and notes are per dimension)."""
 
-INTERRUPTIONS = (Interrupted, CommitmentExpired, BodyContested, FightHolds, PlayerTookControl, Died,
-                 DimensionChanged, NightFell)
+INTERRUPTIONS = tuple(c for n, c in list(globals().items())
+                      if isinstance(c, type) and retry.EXCEPTIONS.get(n, ("",))[0] in ("interrupt", "replan"))
 
 def interrupted(err):
     """Was this an interruption rather than a failure?"""
