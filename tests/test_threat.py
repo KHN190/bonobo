@@ -1151,13 +1151,32 @@ class AProvokedEndermanIsEvaded(unittest.TestCase):
         from bonobo import field
         from tests.world import FakeRegion
         floor = {(x, 63, z): "stone" for x in range(-8, 9) for z in range(-8, 9)}
-        rows = [("a block 2 over a cell 3 off", {**floor, (3, 66, 0): "stone"}, (3, 64, 0)),
-                ("must fail: a block 3 up is room for an enderman", {**floor, (3, 67, 0): "stone"}, None),
+
+        def alcove(depth):
+            """A 1-wide alcove `depth` deep from x 4, roofed at y 66 (2 over the feet)."""
+            out = dict(floor)
+            out.update({(x, y, z): "stone" for x in range(4, 5 + depth) for z in (-1, 0, 1) for y in (64, 65, 66)})
+            for x in range(4, 4 + depth):
+                out.pop((x, 64, 0))
+                out.pop((x, 65, 0))
+            return out
+        rows = [("a 2-deep alcove: its inner cell, out of reach from the open", alcove(2), (5, 64, 0)),
+                ("must fail: a 1-deep alcove — its only cell is reached from the mouth", alcove(1), None),
+                ("a lone block 2 over a cell: reached from every side", {**floor, (3, 66, 0): "stone"}, None),
                 ("nothing overhead anywhere", floor, None)]
         for name, blocks, want in rows:
             with self.subTest(name):
                 region = FakeRegion((-8, 56, -8), (8, 72, 8), blocks)
                 self.assertEqual(field.low_cover_at(region, (0.5, 64.0, 0.5)), want)
+
+    def test_reached_from(self):
+        from bonobo import field
+        # (the open cell's offset) → reached (vanilla attack box √2.04−0.6 past a 0.6-wide body)
+        rows = [("beside", (1, 0), True), ("diagonal", (1, 1), True), ("must fail: two cells off", (2, 0), False),
+                ("two off and one across", (2, 1), False)]
+        for name, off, want in rows:
+            with self.subTest(name):
+                self.assertEqual(field.reached_from(off), want)
 
 
 class EatingInAFight(unittest.TestCase):

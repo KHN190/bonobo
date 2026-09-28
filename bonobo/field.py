@@ -98,20 +98,48 @@ def seal_at(region, here):
             return 2
     return None
 
-def low_cover_at(region, here, radius=6):
-    """Pure: the nearest cell within `radius` with floor, feet and head clear, and a block 2 up — room for us, too low
-    for a tall mob; None when there is none."""
+ATTACK_RANGE = math.sqrt(2.04) - 0.6    # vanilla MobEntity.ATTACK_RANGE: the attack box = body box grown this, sideways only
+PLAYER_HALF = 0.3                        # half the player's width
+TALL_WIDTH = 0.6                         # an enderman's width (the one tall mob)
+
+
+def reached_from(offset, mob_width=TALL_WIDTH):
+    """Pure: a tall mob standing in the open cell at `offset` (dx, dz) hits us at our cell's centre — its centre kept
+    out of our roofed cell and the cells between, its attack box grown ATTACK_RANGE sideways."""
+    reach = mob_width / 2 + ATTACK_RANGE
+    for d in offset:
+        gap = max(0.0, abs(d) - 0.5) + mob_width / 2 if d else 0.0    # nearest its centre gets on this axis
+        if gap - reach >= PLAYER_HALF:
+            return False
+    return True
+
+
+def tall_can_stand(solid, c):
+    """Pure: a floor and three clear blocks (an enderman stands there)."""
+    return solid((c[0], c[1] - 1, c[2])) and not any(solid((c[0], c[1] + k, c[2])) for k in range(3))
+
+
+def low_cover_at(region, here, radius=6, mob_width=TALL_WIDTH):
+    """Pure: the nearest cell within `radius` with floor, feet and head clear and a block 2 up — room for us, too low
+    for a tall mob — that no tall mob in an open cell around reaches (fight_enderman_provoked: hit in the mouth).
+    None when there is none."""
     x, y, z = (int(math.floor(v)) for v in here)
+    near = int(math.ceil(0.5 + mob_width / 2 + ATTACK_RANGE + PLAYER_HALF))     # cells a mob could hit us from
     best = None
     for dx in range(-radius, radius + 1):
         for dz in range(-radius, radius + 1):
             c = (x + dx, y, z + dz)
-            if (region.solid((c[0], y - 1, c[2])) and not region.solid(c) and not region.solid((c[0], y + 1, c[2]))
+            if not (region.solid((c[0], y - 1, c[2])) and not region.solid(c) and not region.solid((c[0], y + 1, c[2]))
                     and region.solid((c[0], y + 2, c[2]))):
-                d = math.hypot(dx, dz)
-                if d <= radius and (best is None or d < best[0]):
-                    best = (d, c)
+                continue
+            if any(tall_can_stand(region.solid, (c[0] + ox, y, c[2] + oz)) and reached_from((ox, oz), mob_width)
+                   for ox in range(-near, near + 1) for oz in range(-near, near + 1) if ox or oz):
+                continue
+            d = math.hypot(dx, dz)
+            if d <= radius and (best is None or d < best[0]):
+                best = (d, c)
     return None if best is None else best[1]
+
 
 def from_region(region, here, radius, speed=4.3, terrain=None):
     """The Field over the blocks read around `here` (perception.ground): its bucket and seal from the blocks themselves."""
