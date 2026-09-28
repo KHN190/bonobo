@@ -276,7 +276,8 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
     """Run the whole cerebellum until done() or `minutes`, on a private task queue holding `queue`."""
     def run(ctx):
         from .. import api, tasks
-        from ..world import Snapshot
+        from .. import api
+        from ..world import Inventory, Snapshot
         saved = tasks.FILE
         tasks.FILE = os.path.join(os.path.dirname(NOTES), "slice-tasks.json")
         tasks.save([])
@@ -296,7 +297,7 @@ def _slice(done, minutes, target=None, queue=(), max_idle=15):
                     core.BRAIN.round()
                 except api.McError as e:
                     api.log(f"!! round: {e}")
-                s = Snapshot()
+                s = Snapshot.from_readings(api.get("/state"), Inventory())
                 positions.append((time.time(), s.feet))
                 if core.BRAIN.idle_since:
                     idle = max(idle, time.time() - core.BRAIN.idle_since)
@@ -637,11 +638,12 @@ def _combat_execute(seconds, until=None, cell=None):
     """Live in the cell with ONE layer driving, recording every look the threat layer took and a 5 Hz trace."""
     import threading
     from .. import perception
-    from ..world import Snapshot
+    from .. import api
+    from ..world import Inventory, Snapshot
     if not perception.watching():
         raise SetupInvalid("the threat layer is not running: nothing would answer, and nothing would be measured")
     mark = len(perception.ANSWERED)
-    began, worst = time.time(), Snapshot().state["health"]
+    began, worst = time.time(), Snapshot.from_readings(api.get("/state"), Inventory()).state["health"]
     trace, stop = [], threading.Event()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)
     watcher.start()
@@ -652,7 +654,7 @@ def _combat_execute(seconds, until=None, cell=None):
     with aside("threat bench cell"):
         try:
             while time.time() - began < seconds and (until is None or until()):
-                state = Snapshot().state
+                state = Snapshot.from_readings(api.get("/state"), Inventory()).state
                 worst = min(worst, state["health"])
                 if state["health"] <= 0:
                     break
@@ -698,11 +700,12 @@ def _plain(state):
 def _fought(kinds, seconds):
     """The shared record: price the cell, live in it, report the outcome and the clock's word on the pricing's numbers."""
     def record(cell):
-        from ..world import Snapshot
-        before = Snapshot()
+        from .. import api
+        from ..world import Inventory, Snapshot
+        before = Snapshot.from_readings(api.get("/state"), Inventory())
         intent = _combat_intent(dict(before.state))
         answered, worst, took, trace = _combat_execute(seconds, cell=cell)
-        after = Snapshot()
+        after = Snapshot.from_readings(api.get("/state"), Inventory())
         near = _hostiles(radius=24, kinds=kinds(cell))
         # a window blind too long is not evidence
         dark = blind_s(answered, took)
@@ -925,8 +928,9 @@ def _behaviour_check(name, rule):
 
 def _record_with_start(record):
     def rec(cell):
-        from ..world import Snapshot
-        y = Snapshot().state["y"]
+        from .. import api
+        from ..world import Inventory, Snapshot
+        y = Snapshot.from_readings(api.get("/state"), Inventory()).state["y"]
         return dict(record(cell), trace_start_y=y)
     return rec
 
@@ -1269,8 +1273,9 @@ def _plan_is_empty(needs):
     def run(ctx):
         from .. import api, decompose, goals
         from ..cost import Cost
-        from ..world import Snapshot
-        snap = Snapshot()
+        from .. import api
+        from ..world import Inventory, Snapshot
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
         steps = decompose.decompose(snap.inv, goals.have(*needs), Cost(snap, ctx.mem))
         if steps:
             raise api.McError(f"goal already met, but planned {' → '.join(map(str, steps))}")
@@ -1983,8 +1988,9 @@ def _blocked_toward(pos):
     """`before` hook: upkeep's memory of a walk that failed here, toward `pos` (what `Upkeep.failed` writes)."""
     def hook(ctx):
         from .. import retry
-        from ..world import Snapshot
-        snap = Snapshot()
+        from .. import api
+        from ..world import Inventory, Snapshot
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
         core.BRAIN.reflexes.blocked = {"t": time.time(), "place": retry.place_signature(snap.feet, snap.night),
                                     "pos": pos}
     return hook
@@ -1993,8 +1999,9 @@ def _stuck_for(seconds):
     """`before` hook: upkeep's history says we stood here, bag unchanged, for `seconds`."""
     def hook(ctx):
         from ..needs import bag_signature
-        from ..world import Snapshot
-        snap = Snapshot()
+        from .. import api
+        from ..world import Inventory, Snapshot
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
         core.BRAIN.reflexes.history = [(time.time() - seconds, snap.feet, bag_signature(snap.inv))]
     return hook
 

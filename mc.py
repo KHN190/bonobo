@@ -30,7 +30,7 @@ def cmd_plan(_):
     """Every live task, whether it is done, and the plan the brain would follow for it from this bag."""
     from bonobo import decompose, goals, tasks
     from bonobo.cost import Cost
-    snap = Snapshot()
+    snap = Snapshot.from_readings(api.get("/state"), Inventory())
     mem = Memory()
     for t in tasks.load():
         if t["state"] not in tasks.LIVE:
@@ -201,7 +201,7 @@ def cmd_scenario(a):
             os.remove(sheet.NOTES)
         sheet.reset_brain(brain, Memory(sheet.NOTES))
         def make_ctx():
-            snap = Snapshot()
+            snap = Snapshot.from_readings(api.get("/state"), Inventory())
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
             # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
             return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,

@@ -84,12 +84,13 @@ def _achieve(ctx, needs, done, rounds=12):
     """Plan the needs from the bag and run the first step until `done()` — the brain's own path."""
     from .. import decompose, dispatch, goals
     from ..cost import Cost
-    from ..world import Snapshot
+    from .. import api
+    from ..world import Inventory, Snapshot
     from .. import jobs as _jobs
     for _ in range(rounds * 4):
         if done():
             return True
-        snap = Snapshot()
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
         pending = BRAIN.mem.jobs(snap.dimension)
         from .. import world as _world
         ready = [j for j in pending if _world.job_ready(j, snap.state.get("gameTime"))]

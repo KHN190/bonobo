@@ -256,7 +256,7 @@ class Brain:
         self._mark("inv")
         tape.begin()
         nav.forget_routes()
-        snap = Snapshot()
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
         self._mark("snap")
         self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
         self.mem.observe_phase(snap.night)
@@ -554,7 +554,7 @@ class Brain:
     def price_table(self, snap=None):
         """{item: seconds to get one another way}, for skills that ask what a thing is worth."""
         try:
-            snap = snap or Snapshot()
+            snap = snap or Snapshot.from_readings(api.get("/state"), Inventory())
         except McError:
             return {}
         return Prices(Cost(snap, self.mem, self.blacklist, policy=self.policy_cache), snap.inv)

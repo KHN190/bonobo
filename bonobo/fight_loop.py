@@ -7,7 +7,7 @@ import time
 from . import api, arbiter, nav, field as _field, kernel, threat
 from .api import NotAvailable
 from .skillcore import Context
-from .world import Snapshot
+from .world import Inventory, Snapshot
 from .estimate import follows_to
 from .beliefs import MOBS
 from .knowledge import ALL_FOOD, RAW_MEAT
@@ -24,7 +24,7 @@ def wire(mem, policy_of, blacklist, prices=None):
     global ANSWER
 
     def answer(option):
-        snap = Snapshot()
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
         ctx = Context(mem, policy_of(snap), snap.dimension, blacklist, prices=prices)
         return engage(option, snap.state, ctx)
     ANSWER = answer

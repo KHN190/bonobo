@@ -98,11 +98,7 @@ def ticks_until_dusk(time_of_day):
     return 0
 
 class Snapshot:
-    """One consistent read of the player: state + inventory."""
-
-    def __init__(self):
-        self.state = api.get("/state")
-        self.inv = Inventory()
+    """One consistent read of the player: state + inventory, built from readings the caller took."""
 
     @classmethod
     def from_readings(cls, state, inventory):
