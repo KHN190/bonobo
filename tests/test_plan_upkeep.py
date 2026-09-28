@@ -2480,11 +2480,12 @@ class Reflexes(unittest.TestCase):
     BASE = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False,
             "night": False, "enclosed": False, "overworld": True, "bed_works": False, "bed_carried": False,
             "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
-            "blocked": False, "building": 0, "stuck": False}
+            "blocked": False, "building": 0, "stuck": False, "in_pit": False}
     # (reflex, the view's changes that fire it, the changes that do not) (must fail: the third column never fires)
     ROWS = [("recover items", {"died_recently": True}, {}),
             ("eat", {"food": 10}, {"food": 10, "meal": None}),
             ("reach land", {"swimming": True}, {}),
+            ("leave the pit", {"in_pit": True}, {}),
             ("leave the Nether", {"nether_bad": True}, {}),
             ("dig out", {"enclosed": True}, {"enclosed": True, "night": True}),
             ("sleep", {"night": True, "bed_works": True, "bed_carried": True},
@@ -2547,7 +2548,7 @@ class NeedsAndReflexesAreIndependent(unittest.TestCase):
             snap = snapshot(row.state, row.inv)
             c = cost(snap, **row.seen)
             b.needs.cost = lambda _snap: c
-            reads = {"enclosed": False, "bed_near": False, "soft_ground": False}
+            reads = {"enclosed": False, "bed_near": False, "soft_ground": False, "in_pit": False}
             with mock.patch.object(api, "api", side_effect=AssertionError("read the world beyond the row")):
                 if needs_first:
                     b.needs.propose(snap, None, reads)
