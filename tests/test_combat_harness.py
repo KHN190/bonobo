@@ -251,6 +251,31 @@ class GhastSpawn(unittest.TestCase):
         self.assertLess(abs(x - vocab.at(0, 0, 0)[0]), vocab.GHAST_FIRE_R)
 
 
+class DerivedScenes(unittest.TestCase):
+    """Scene spots come from rules, never hand-placed to fit one path."""
+
+    def test_endermen_off_path(self):
+        import re
+        from bonobo.field import PLAYER_HALF, TALL_WIDTH
+        start, end = (-7.0, 64.0, 0.0), (7.0, 64.0, 0.0)
+        for n in (1, 3, 4, 6):
+            with self.subTest(n=n):
+                cmds = fight.endermen_off_path(start, end, n)
+                zs = [float(re.search(r"summon \S+ \S+ \S+ (\S+)", c).group(1)) for c in cmds]
+                self.assertEqual(len(cmds), n)
+                # clear of a body walking the line (z 0): half its width + ours, never touching
+                self.assertTrue(all(abs(z) - TALL_WIDTH / 2 >= PLAYER_HALF for z in zs))
+
+    def test_alcove_cover(self):
+        from bonobo.field import reached_from
+        rows = [("2 deep: the inner cell", 2), ("3 deep", 3), ("must fail: 1 deep has none", 1), ("4 deep", 4)]
+        for name, depth in rows:
+            with self.subTest(name):
+                cells = fight.alcove_cover(4, depth)
+                self.assertEqual(len(cells), sum(1 for k in range(depth) if not reached_from((k + 1, 0))))
+                self.assertEqual(bool(cells), depth > 1)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

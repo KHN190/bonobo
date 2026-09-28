@@ -15,11 +15,14 @@ ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skelet
          "bomb": "minecraft:creeper", "teleporter": "minecraft:enderman"}
 COUNT = {"one": 1, "three": 3}
 # ground that gives each shaping column something to be worth (a flat arena prices `reshape` at nothing)
+CORRIDOR_END = 11      # the corridor runs from behind us to this x, open there
+WALK_X = 7             # the arena's inside, a block off each wall: a walk across is -WALK_X → WALK_X
+ALCOVE = (4, 2)        # (x of its mouth, depth): a 1-wide, 2-high alcove
 GROUND = {"open": [("fill", ("@", 4, 0, 2), ("@", 5, 1, 3), "stone")],                  # a step to stand up on
           # a 1-wide passage at the feet (START_Y is the feet: walls from y 1 left a 3-wide open channel under a
           # raised wall, 6 blocks to seal and none offered), shut behind us, open 11 ahead: two blocks seal it
-          "corridor": [("fill", ("@", -1, 0, -1), ("@", 11, 2, -1), "cobblestone"),
-                       ("fill", ("@", -1, 0, 1), ("@", 11, 2, 1), "cobblestone"),
+          "corridor": [("fill", ("@", -1, 0, -1), ("@", CORRIDOR_END, 2, -1), "cobblestone"),
+                       ("fill", ("@", -1, 0, 1), ("@", CORRIDOR_END, 2, 1), "cobblestone"),
                        ("fill", ("@", -1, 0, 0), ("@", -1, 2, 0), "cobblestone")],
           "roofed": [("fill", ("@", -4, 3, -4), ("@", 9, 3, 4), "cobblestone"),
                      ("fill", ("@", -4, 1, -4), ("@", -4, 2, 4), "cobblestone"),
@@ -144,13 +147,10 @@ ROWS = [
     dict(name='fight_enderman_1', module='nav',
          doc=('Four endermen about the arena, a walk 14 blocks across through them → reached, none provoked '
               '(server AngerTime 0 each), health kept'),
-         scene=[('sheet', '_ARENA'), ('tp', ('@', -7, 0, 0)),
-                ('summon', 'enderman', ('@', -3, 0, 3), '{PersistenceRequired:1b}'),
-                ('summon', 'enderman', ('@', 0, 0, -3), '{PersistenceRequired:1b}'),
-                ('summon', 'enderman', ('@', 3, 0, 3), '{PersistenceRequired:1b}'),
-                ('summon', 'enderman', ('@', 5, 0, -2), '{PersistenceRequired:1b}')],
-         run=('do', 'bonobo.nav.go_to', [('@', 7, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
-         check=[('call', 'near', ['$api', ('@', 7, 0, 0), 2.5]), ('endermen_calm',), ('hp_kept', 20)],
+         scene=[('sheet', '_ARENA'), ('tp', ('@', -WALK_X, 0, 0)),
+                ('built', 'endermen_off_path', ('@', -WALK_X, 0, 0), ('@', WALK_X, 0, 0), 4)],
+         run=('do', 'bonobo.nav.go_to', [('@', WALK_X, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
+         check=[('call', 'near', ['$api', ('@', WALK_X, 0, 0), 2.5]), ('endermen_calm',), ('hp_kept', 20)],
          budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
          expect_entities=[('minecraft:enderman', 4, 4)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
@@ -159,13 +159,13 @@ ROWS = [
          doc=('One enderman provoked (hit by the player through the console), no sword, a 2-high alcove 4 off → '
               'under it within 5 s, no hit after, alive'),
          scene=[('sheet', '_ARENA'), ('cmd', 'clear @p minecraft:iron_sword'),
-                ('fill', ('@', 4, 0, -1), ('@', 6, 2, 1), 'stone'), ('fill', ('@', 4, 0, 0), ('@', 5, 1, 0), 'air'),
-                ('summon', 'enderman', ('@', -4, 0, 0), '{PersistenceRequired:1b}')],
+                ('built', 'alcove', *ALCOVE),
+                ('summon', 'enderman', ('@', -ALCOVE[0], 0, 0), '{PersistenceRequired:1b}')],
          before=[('start', 'fight_enderman_provoked'),
                  ('do', 'chat', ['damage @e[type=minecraft:enderman,limit=1] 1 minecraft:player_attack by @p'], {}),
                  ('&record_bids',)],
          run=('fight_until', ['minecraft:enderman'], 14, False),
-         check=[('took_cover', [('@', 4, 0, 0), ('@', 5, 0, 0)], 5.0), ('alive',)],
+         check=[('took_cover_alcove', *ALCOVE, 5.0), ('alive',)],
          budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
          expect_entities=[('minecraft:enderman', 1, 1)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),

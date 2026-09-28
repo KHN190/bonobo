@@ -36,7 +36,7 @@ from .scene import *  # noqa: F401,F403
 from .checks import *  # noqa: F401,F403
 from .runs import *  # noqa: F401,F403
 from ..bench_combat import (ARMED, ARMOUR, BLOOD, COUNT, DIMS, DISTANCE, ENEMY, GROUND, KIT, NEEDS,  # noqa: F401
-                            UNARMED, WAVES, WEAPON)     # combat's dimensions: data in its table
+                            UNARMED, WAVES, WEAPON, CORRIDOR_END)     # combat's dimensions: data in its table
 
 # -- fights (the combat table's machinery): a cell of bench_combat's dimensions built, fought, recorded, judged ---
 import random  # noqa: E402
@@ -439,8 +439,8 @@ ESCAPE_WATCH = ESCAPE_SECONDS - 2.0     # setup's end → the run's first look: 
 BEHAVIOUR_SECONDS = 20.0
 
 # the corridor's way in (GROUND["corridor"]): the passage between us and its open end, feet and head
-GAP = [at(x, y, 0) for x in range(1, 12) for y in (0, 1)]
-MOUTH = at(11, 0, 0)            # where block_gap's walker waits: in the passage's open end, 11 off
+GAP = [at(x, y, 0) for x in range(1, CORRIDOR_END + 1) for y in (0, 1)]
+MOUTH = at(CORRIDOR_END, 0, 0)            # where block_gap's walker waits: in the passage's open end
 
 def _last(name):
     rows = SWEEP.get(name) or []
@@ -801,6 +801,38 @@ def covered_in_time(trace, cells, within_s):
     return False
 
 
+def endermen_off_path(start, end, n):
+    """Builder: `n` endermen spread along start → end, alternating sides, each far enough off the line that a body
+    walking it doesn't bump one (half its width + ours, then a block)."""
+    from ...field import PLAYER_HALF, TALL_WIDTH
+    side = math.ceil(TALL_WIDTH / 2 + PLAYER_HALF) + 1
+    out = []
+    for i in range(n):
+        f = (i + 1) / (n + 1)
+        x = start[0] + (end[0] - start[0]) * f
+        z = start[2] + side * (1 if i % 2 == 0 else -1)
+        out.append(f"summon minecraft:enderman {int(math.floor(x)) + 0.5} {start[1]} {int(z) + 0.5} "
+                   "{PersistenceRequired:1b}")
+    return out
+
+
+def alcove(x0, depth):
+    """Builder: a 1-wide alcove `depth` deep from x0 (z 0), roofed 2 over the feet, walled round."""
+    return [f"fill {_c(at(x0, 0, -1))} {_c(at(x0 + depth, 2, 1))} stone",
+            f"fill {_c(at(x0, 0, 0))} {_c(at(x0 + depth - 1, 1, 0))} air"]
+
+
+def alcove_cover(x0, depth):
+    """Pure: the alcove's cells a tall mob at its mouth can't reach (field.reached_from)."""
+    from ...field import reached_from
+    return [at(x0 + k, 0, 0) for k in range(depth) if not reached_from((k + 1, 0))]
+
+
+def _took_cover_alcove(x0, depth, within_s):
+    """Check: under the alcove's out-of-reach cells within `within_s`, no hit after."""
+    return _took_cover(alcove_cover(x0, depth), within_s)
+
+
 def _took_cover(cells, within_s):
     """Check: under the cover (`cells`) within `within_s`, no hit after (the runner's own trace)."""
     def check(api, inv):
@@ -1157,4 +1189,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', '_scatter', '_seed_of', '_shapes_fit_the_enemy', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', '_endermen_calm', 'covered_in_time', '_took_cover', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'DEFLECTED_AT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'RECEDED_AT', 'VOLLEY', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'shot_from', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
