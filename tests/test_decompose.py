@@ -591,6 +591,25 @@ class RipeFirst(unittest.TestCase):
                                 [], self.Cost(ripe)).plan([("minecraft:wheat", n)])
                 self.assertEqual([s.kind for s in steps if s.token == "minecraft:wheat"], want)
 
+class BreadFromTheBag(unittest.TestCase):
+    """Bread wanted: the plan farms only for the wheat the bag lacks (the bench proves the farm's two halves apart:
+    farm__plant sows, bread_from_a_farm reaps a ripe field and bakes)."""
+
+    def test_rows(self):
+        kit = {"minecraft:wheat_seeds": 8, "minecraft:water_bucket": 1, "minecraft:iron_hoe": 1,
+               "minecraft:crafting_table": 1}
+        # (situation, wheat carried) → the plan has a farm step
+        rows = [("no wheat: farmed", 0, True),
+                ("two wheat, bread takes three: farmed for the one short", 2, True),
+                ("three wheat: baked from the bag, no farm", 3, False),
+                ("must fail: wheat to spare carried, a farm step would be waste", 9, False)]
+        for name, wheat, farmed in rows:
+            with self.subTest(name):
+                counts = dict(kit, **({"minecraft:wheat": wheat} if wheat else {}))
+                steps = Planner(counts, [], RipeFirst.Cost(0)).plan([("minecraft:bread", 1)])
+                self.assertEqual(any(s.kind == "farm" for s in steps), farmed, [str(s) for s in steps])
+
+
 class SourceRemoved(unittest.TestCase):
     """A source taken away: the goal is unplannable, answered at once — no hang, no partial plan."""
 
