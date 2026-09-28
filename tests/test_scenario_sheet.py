@@ -793,6 +793,8 @@ class Drain(unittest.TestCase):
                 self.assertLessEqual(plan[1], sc.HUNGER_MAX_AMP)
                 self.assertEqual(self.after(food, sat, plan), level + 1)
                 self.assertIn(self.after(food, sat, plan, carried=3.9), (level, level + 1))
+                # the carried exhaustion read off the server: planned for, exact again
+                self.assertEqual(self.after(food, sat, sc.drain_plan(food, sat, level, 3.9), carried=3.9), level + 1)
         with self.subTest("at level + 1 already: nothing to drain"):
             self.assertIsNone(sc.drain_plan(7, 0.0, 6))
         with self.subTest("must fail: a plan short of the need leaves the bar high"):

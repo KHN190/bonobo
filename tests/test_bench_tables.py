@@ -638,34 +638,73 @@ class AFailedMineJudgesItsOwnOre(unittest.TestCase):
             self.assertFalse(any(self.inside(c, (4, 0, 0), (4, 1, 0)) for c in ores))
 
 
-class DrainRegen(unittest.TestCase):
-    """The drain hook: natural regeneration off while the bar drains, back to what it read after, even on a raise."""
+class FakeBar:
+    """The server's bar for the drain hook: a hunger effect steps exhaustion as the game does (saturation first, then
+    food); `short` of the first effect's ticks land (a lagging server), the rest after the read."""
 
-    def test_rule_restored(self):
-        from bonobo import api
+    def __init__(self, food, sat, exh, rule="true", short=1.0):
+        self.food, self.sat, self.exh, self.rule, self.short, self.effects = food, sat, exh, rule, short, 0
+
+    def command(self, cmd, fb):
+        from bonobo.bench.words import brain as wb
+        if cmd.startswith("gamerule"):
+            return [f"Gamerule {cmd.split()[1]} is currently set to: {self.rule}"]
+        if cmd == wb.HUNGER_ON:
+            return ["Test failed"]
+        key = cmd.split()[-1]
+        val = {"foodLevel": self.food, "foodSaturationLevel": self.sat, "foodExhaustionLevel": self.exh}[key]
+        return [f"knh190 has the following entity data: {val}"]
+
+    def chat(self, cmd):
+        from bonobo.bench.words import brain as wb
+        if cmd.startswith("effect give @p minecraft:hunger"):
+            secs, amp = int(cmd.split()[4]), int(cmd.split()[5])
+            share = self.short if self.effects == 0 else 1.0
+            self.effects += 1
+            self.exh += wb.HUNGER_PER_TICK * (amp + 1) * 20 * secs * share
+            while self.exh > wb.EXHAUSTION_PER_POINT:
+                self.exh -= wb.EXHAUSTION_PER_POINT
+                if self.sat > 0:
+                    self.sat = max(0.0, self.sat - 1)
+                else:
+                    self.food -= 1
+
+
+class DrainRegen(unittest.TestCase):
+    """The drain hook on the server's reads: regeneration off while the bar drains, back to what it read after even
+    on a raise; a short drain re-planned from fresh reads; each read and plan in SETUP_READOUT."""
+
+    def test_rows(self):
+        from bonobo.bench import runner
         from bonobo.bench.words import brain as wb
         from bonobo.reflexes import EAT_BELOW, STARVE
-        food = (STARVE + EAT_BELOW) // 2
-        # (situation, the rule's reply, the drain's plan, max s) -> (raised, the rule set last)
-        rows = [("drained: the rule back to what it was", "true", None, wb.LOW_FOOD_MAX_S, (None, "true")),
-                ("a rule that was off stays off", "false", None, wb.LOW_FOOD_MAX_S, (None, "false")),
-                ("must fail: the drain raises (too long): the rule restored anyway", "true",
-                 (wb.LOW_FOOD_MAX_S + 1, 0), wb.LOW_FOOD_MAX_S, (core.SetupInvalid, "true"))]
-        for name, was, plan, max_s, (want, last) in rows:
+        level = (STARVE + EAT_BELOW) // 2 - 1          # the window below holds level + 1
+        window = (STARVE, EAT_BELOW)
+        # (situation, bar, max s) -> (raised, the rule set last, drains given)
+        rows = [("drained on the server's reads: the rule back to what it was", FakeBar(20, 5.0, 1.5), wb.LOW_FOOD_MAX_S,
+                 (None, "true", 1)),
+                ("a rule that was off stays off", FakeBar(20, 0.0, 0.0, rule="false"), wb.LOW_FOOD_MAX_S,
+                 (None, "false", 1)),
+                ("short (a lagging server): re-planned from fresh reads", FakeBar(20, 5.0, 0.0, short=0.5),
+                 wb.LOW_FOOD_MAX_S, (None, "true", 2)),
+                ("must fail: the drain too long raises: the rule restored anyway", FakeBar(20, 20.0, 0.0), 0,
+                 (core.SetupInvalid, "true", 0))]
+        for name, bar, max_s, (want, last, given) in rows:
             said = []
-            with self.subTest(name), mock.patch.object(wb, "_chat", said.append), \
-                    mock.patch.object(core, "_command", lambda cmd, fb, _w=was: [f"Gamerule {cmd.split()[-1]} is currently set to: {_w}"]), \
-                    mock.patch.object(wb, "drain_plan", lambda *a, _p=plan: _p), \
-                    mock.patch.object(api, "get", lambda path: {"food": food, "saturation": 0}), \
-                    mock.patch.dict(wb.BASE):
-                hook = wb._drain_to(0, max_s=max_s)
+            with self.subTest(name), mock.patch.object(wb, "_chat", lambda c, _b=bar: (said.append(c), _b.chat(c))), \
+                    mock.patch.object(core, "_command", bar.command), mock.patch.object(wb.time, "sleep", lambda s: None), \
+                    mock.patch.dict(wb.BASE), mock.patch.dict(runner.SETUP_READOUT, clear=True):
+                hook = wb._drain_to(level, max_s=max_s, window=window)
                 if want is None:
                     hook(None)
+                    self.assertEqual(bar.food, level + 1)
+                    self.assertEqual(runner.SETUP_READOUT["drain"][-1], {"final": float(level + 1)})
                 else:
                     with self.assertRaises(want):
                         hook(None)
                 rules = [c for c in said if c.startswith(f"gamerule {wb.REGEN_RULE}")]
                 self.assertEqual(rules, [f"gamerule {wb.REGEN_RULE} false", f"gamerule {wb.REGEN_RULE} {last}"])
+                self.assertEqual(bar.effects, given)
 
 
 class DeflectCells(unittest.TestCase):

@@ -229,14 +229,14 @@ HUNGER_MAX_AMP = 255
 DRAIN_OVER = 0.05            # exhaustion past the last point's 4.0 (the game takes it only when exceeded)
 
 
-def drain_plan(food, saturation, level):
-    """Pure: (seconds, amplifier) of the one hunger effect that takes the bar from (food, saturation) to level + 1 —
-    the server's own clock, no reads to overshoot on (a carried point of exhaustion may take one more: level); None
-    when it is there already."""
+def drain_plan(food, saturation, level, exhaustion=0.0):
+    """Pure: (seconds, amplifier) of the one hunger effect that takes the bar from (food, saturation, the exhaustion
+    already carried) to level + 1 — the server's own clock; None when it is there already."""
     points = math.ceil(max(0.0, float(saturation))) + max(0, int(food) - (level + 1))   # a part saturation point: one
     if points <= 0:
         return None
-    need = EXHAUSTION_PER_POINT * points + DRAIN_OVER     # the game takes a point only past 4.0, never at it
+    # the game takes a point only past 4.0, never at it; what is carried counts toward the first
+    need = max(DRAIN_OVER, EXHAUSTION_PER_POINT * points + DRAIN_OVER - float(exhaustion))
     per_s = HUNGER_PER_TICK * 20
     secs = max(1, math.ceil(need / (per_s * (HUNGER_MAX_AMP + 1))))
     return secs, min(HUNGER_MAX_AMP, max(0, math.ceil(need / (per_s * secs)) - 1))
@@ -254,26 +254,65 @@ def gamerule_value(lines):
     return None
 
 
+FOOD_KEYS = ("foodLevel", "foodSaturationLevel", "foodExhaustionLevel")    # the server's bar (the client's lags)
+DRAIN_TRIES = 3             # re-planned from fresh server reads while short, at most this often
+DRAIN_POLL_S = 0.25         # how often the effect's end is looked for
+HUNGER_ON = 'execute if entity @p[nbt={active_effects:[{id:"minecraft:hunger"}]}]'
+
+
+def entity_number(lines):
+    """Pure: the number in a '/data get entity … <key>' reply ('… entity data: 5.0f'), or None."""
+    for line in lines:
+        m = re.search(r"entity data: (-?[0-9.]+)", str(line))
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def server_food():
+    """The server's food level, saturation and carried exhaustion."""
+    return {k: entity_number(core._command(f"data get entity @p {k}", [])) for k in FOOD_KEYS}
+
+
+def _hunger_on():
+    return any("Test passed" in str(line) for line in core._command(HUNGER_ON, []))
+
+
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
-    """`before` hook: the bar drained to `level` + 1 by one planned hunger effect (drain_plan), in seconds;
-    natural regeneration off during it (at low hp it takes points the plan did not count), restored after."""
+    """`before` hook: the bar drained to `level` + 1 by planned hunger effects (drain_plan) on the server's own reads,
+    each waited out on the server, re-planned while short; natural regeneration off during it, restored after. The
+    reads and plans go to the report (SETUP_READOUT["drain"])."""
     def hook(ctx):
-        from ... import api
+        from ..runner import SETUP_READOUT
+        reads = SETUP_READOUT.setdefault("drain", [])
         # unread: the game's default
         was = gamerule_value(core._command(f"gamerule {REGEN_RULE}", [])) or "true"
         _chat(f"gamerule {REGEN_RULE} false")
         try:
             _chat("effect clear @p minecraft:saturation")      # a refill still running would undo the drain
             _chat("effect clear @p minecraft:hunger")
-            s = api.get("/state")
-            plan = drain_plan(s.get("food", 20), s.get("saturation", 0), level)
-            if plan is not None:
+            for _ in range(DRAIN_TRIES):
+                f = server_food()
+                food_, sat_, exh_ = (f[k] for k in FOOD_KEYS)
+                if food_ is None or sat_ is None or exh_ is None:
+                    raise SetupInvalid(f"the server's food unread: {f}")
+                plan = drain_plan(food_, sat_, level, exh_)
+                reads.append({**f, "plan": plan})
+                if plan is None:
+                    break
                 secs, amp = plan
                 if secs > max_s:
                     raise SetupInvalid(f"the drain takes {secs} s, over {max_s}")
                 _chat(f"effect give @p minecraft:hunger {secs} {amp} true")
-                time.sleep(secs + 0.3)           # the effect's own clock, then its last tick lands
-            food = api.get("/state").get("food", 20)
+                end = time.time() + secs + max_s          # the server's clock may lag the wall's
+                time.sleep(secs)
+                while _hunger_on() and time.time() < end:
+                    time.sleep(DRAIN_POLL_S)
+            last = server_food()["foodLevel"]
+            reads.append({"final": last})
+            if last is None:
+                raise SetupInvalid("the server's food unread after the drain")
+            food = int(last)
         finally:
             _chat(f"gamerule {REGEN_RULE} {was}")
         BASE["food_drained"] = food
