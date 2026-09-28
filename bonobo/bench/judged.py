@@ -78,7 +78,7 @@ MARKS = {"FIGHT_LOG": "kills_by_the_fight", "fight_loop": "no_stall", "INTERRUPT
 
 def code_names(code):
     """Pure: every name and string constant a code object (and the code nested in it) uses."""
-    out = set(code.co_names) | {c for c in code.co_consts if isinstance(c, str)}
+    out = set(code.co_names) | set(code.co_freevars) | {c for c in code.co_consts if isinstance(c, str)}
     for c in code.co_consts:
         if hasattr(c, "co_names"):
             out |= code_names(c)

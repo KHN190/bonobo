@@ -75,10 +75,11 @@ class KillStat(unittest.TestCase):
     def test_every_killed_row_zeroes_its_stat(self):
         # must fail: a kill check with no objective in the scene reads 0 (or an older row's count)
         for name, r in all_rows().items():
-            kinds = [k for c in (r["check"] if isinstance(r["check"], list) else []) if c[0] == "killed" for k in c[1]]
+            kinds = [k for c in (r["check"] if isinstance(r["check"], list) else [])
+                     if isinstance(c, tuple) and c and c[0] == "killed" for k in c[1]]
             with self.subTest(name):
                 for k in kinds:
-                    self.assertTrue(all(step in r["scene"] for step in fight.kill_stat_scene(k)))
+                    self.assertTrue(all(step in r.get("scene", ()) for step in fight.kill_stat_scene(k)))
 
 
 class Idle(unittest.TestCase):

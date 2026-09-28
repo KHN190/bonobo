@@ -34,7 +34,8 @@ SCENARIO_GAPS = {"await_perch", "bed_bomb_window", "build_bed_pit", "shake_ender
 CEILING = 8        # neither list grows past this; lower it as they shrink
 
 COMMANDS = {"experience", "gamemode", "fill", "setblock", "tp", "give", "clear", "summon", "place", "time", "weather", "effect", "item", "kill",
-            "spreadplayers", "locate", "execute", "gamerule", "difficulty", "forceload", "data", "damage"}
+            "spreadplayers", "locate", "execute", "gamerule", "difficulty", "forceload", "data", "damage",
+            "scoreboard"}
 POINTS = {"A", "B", "C", "D"}
 BASICS_A = ("nav", "chop", "mine_stone", "craft", "smelt", "hunt", "eat", "sleep", "loot")
 L0_B = ("water_clutch", "cross_lava_8", "cave_escape", "lava_edge_walk", "buried_by_sand")
