@@ -262,16 +262,36 @@ def plant_farm(ctx):
             nav.arrived(stand, ctx.policy, range_=0.5, attempts=1)
     # the centre dug on its own and read back: the pour needs the hole (a dig the jar called done left it solid, and
     # the water went on it: 13360 — jar 0.1.60 no longer takes a changed id for a break)
+    below = add(centre, (0, -1, 0))
+
+    def column():
+        """The centre and the cell under it, read now (the log's evidence for the pour)."""
+        r = Region(below, centre)
+        return f"centre {centre} {r.name(centre)}, under {below} {r.name(below)}"
     if Region(centre, centre).name(centre) not in ("air", "water"):
-        api.run(nav.mine_task(centre), wait=20, awaits="the centre cell read after the dig")
+        dig = nav.mine_task(centre)
+        r = api.run(dig, wait=20, awaits="the centre cell read after the dig")
+        api.detail(f"  plot dig: task at ({dig['x']}, {dig['y']}, {dig['z']}) → {r.get('status')} {r.get('message')}; "
+                   f"then {column()}")
         if Region(centre, centre).name(centre) not in ("air", "water"):
             raise McError(f"the plot's centre at {centre} is still {Region(centre, centre).name(centre)} after its dig")
     tasks = [t for t in tasks if not (t.get("type") == "mine" and (t["x"], t["y"], t["z"]) == tuple(centre))]
-    done = api.run_chain(tasks, stop_on_failure=False, before_segment=on_stand)
+    # the pour sent on its own after the ring, the centre read right before it (instrumented: the evidence for 15:58)
+    pour = [t for t in tasks if t.get("item") == "minecraft:water_bucket"]
+    ring = [t for t in tasks if t.get("item") != "minecraft:water_bucket"]
+    done = api.run_chain(ring, stop_on_failure=False, before_segment=on_stand) if ring else []
+    if pour:
+        api.detail(f"  plot before the pour: {column()}")
+        done = done + api.run_chain(pour, stop_on_failure=False, before_segment=on_stand)
+        api.detail(f"  plot after the pour: {column()}")
+    tasks = ring + pour
     api.detail(f"  plot at {centre}: stand {stand}, feet {skillcore.feet()}")
     for t, r in zip(tasks, done):
         if t.get("type") == "use_item":
-            api.detail("  " + click_line(t, r))
+            res = r.get("result") or {}
+            hit = (res.get("hitX"), res.get("hitY"), res.get("hitZ"))
+            now = Region(hit, hit).name(hit) if None not in hit else "-"
+            api.detail("  " + click_line(t, r) + f" | hit block now: {now}")
     for cell in unreachable_cells(tasks, done):
         ctx.ban(tuple(int(round(v)) for v in cell), 600)
     after = Region(add(centre, (-1, -1, -1)), add(centre, (1, 1, 1)))
