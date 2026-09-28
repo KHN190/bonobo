@@ -11,7 +11,7 @@ import traceback
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
                needs, reflexes, tape, tasks, world, perception)
 from . import skill as skillkit
-from . import craft, skillcore, survive
+from . import craft, lifecycle, skillcore, survive
 # every module that registers skills: a new one is added here only
 from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
@@ -139,6 +139,7 @@ class Brain:
                                carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
             log("died → respawning")
             api.post("/respawn")
+            lifecycle.reset_all()     # a new life: nothing the last one held (a target id, a boundary, a threat) carries over
             s = skillcore.settle(lambda: api.get("/state"), lambda st: not st.get("dead"), timeout=5.0, soft=True)
         if s["screen"] == "class_433":
             api.post("/resume")
@@ -214,6 +215,8 @@ class Brain:
         elif outcome == "interrupted":
             # died: recover next round, then replan; another dimension: the task waits for its own; neither counted
             log(f"   {name} interrupted ({source}{f', {first} first' if first else ''}): {err}")
+            if source in ("death", "dimension change"):
+                lifecycle.reset_all()     # the last life's (or dimension's) state names things that are not here
         elif first == "cool":
             self.last_failure = self.failed(name, err)
             for key in also:

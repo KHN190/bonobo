@@ -2,7 +2,7 @@
 
 import math
 
-from . import beliefs, estimate, kernel
+from . import beliefs, estimate, kernel, lifecycle
 
 CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS
@@ -528,6 +528,15 @@ def hp_seconds(s, dhp):
     return round(p * (_T["death_cost_s"] + reset) + (1.0 - p) * margin, 1)
 
 THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
+
+
+def _forget_threats():
+    """The last life's threats (their ids, their rows) are nobody's now."""
+    global THREAT_ROWS, THREAT_IDS, THREAT_AT
+    THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
+
+
+lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT"))
 
 def threats_seen(max_age_s=3.0, now=None):
     """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""

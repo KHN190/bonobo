@@ -4,7 +4,7 @@ import json
 import os
 import time
 
-from .. import paths
+from .. import lifecycle, paths
 
 SCENARIOS = {}
 
@@ -117,6 +117,7 @@ def _inv_has(item, n):
 # the engine under every sweep bench: cells, their build commands, what a row records, rules over the table
 
 SWEEP = {}
+lifecycle.on_reset(lambda: SWEEP.clear(), covers=("SWEEP",))       # a sweep's check reads only the rows this row writes
 
 def _platform(reach=9, walled=False):
     """Bare stone, nothing alive, us in the middle: where every cell starts."""
