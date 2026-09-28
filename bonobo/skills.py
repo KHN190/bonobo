@@ -662,12 +662,6 @@ def mine_segment_commands(state, args):
     return [{"type": "mine_many", "collect": True, "requireDrops": tier is not None, **({"only": only} if only else {}),
              "blocks": [{"x": p[0], "y": p[1], "z": p[2]} for p in cells]}]
 
-@skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
-       start=lambda c: Inventory().count(c.args[1]),
-       done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
-       units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
-       provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
-                                          s.detail.get("breaks"))}, fills_bag=lambda c: members(c.args[1]))
 def spent_cells(sent, name_at, blocks):
     """Pure: the sent cells whose block is gone in a fresh read (`name_at(cell)`) — their notes are spent; a cell
     still standing (sent, not broken) keeps its note. No read (`name_at` None): nothing is judged spent."""
@@ -677,6 +671,12 @@ def spent_cells(sent, name_at, blocks):
     return sorted(c for c in sent if bare(name_at(c) or "air") not in kinds)
 
 
+@skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, speed={"shovel": DIG_SHOVEL_S},
+       start=lambda c: Inventory().count(c.args[1]),
+       done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
+       units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
+       provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
+                                          s.detail.get("breaks"))}, fills_bag=lambda c: members(c.args[1]))
 def mine(ctx, token, count, blocks, tier, breaks=None):
     """Tunnel to the nearest reachable vein of `blocks` and mine it until `count` more `token` are held."""
     drop = token
