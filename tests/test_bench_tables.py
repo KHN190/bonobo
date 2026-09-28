@@ -636,6 +636,36 @@ class AFailedMineJudgesItsOwnOre(unittest.TestCase):
             self.assertFalse(any(self.inside(c, (4, 0, 0), (4, 1, 0)) for c in ores))
 
 
+class DrainRegen(unittest.TestCase):
+    """The drain hook: natural regeneration off while the bar drains, back to what it read after, even on a raise."""
+
+    def test_rule_restored(self):
+        from bonobo import api
+        from bonobo.bench.words import brain as wb
+        from bonobo.reflexes import EAT_BELOW, STARVE
+        food = (STARVE + EAT_BELOW) // 2
+        # (situation, the rule's reply, the drain's plan, max s) -> (raised, the rule set last)
+        rows = [("drained: the rule back to what it was", "true", None, wb.LOW_FOOD_MAX_S, (None, "true")),
+                ("a rule that was off stays off", "false", None, wb.LOW_FOOD_MAX_S, (None, "false")),
+                ("must fail: the drain raises (too long): the rule restored anyway", "true",
+                 (wb.LOW_FOOD_MAX_S + 1, 0), wb.LOW_FOOD_MAX_S, (core.SetupInvalid, "true"))]
+        for name, was, plan, max_s, (want, last) in rows:
+            said = []
+            with self.subTest(name), mock.patch.object(wb, "_chat", said.append), \
+                    mock.patch.object(core, "_command", lambda cmd, fb, _w=was: [f"Gamerule {cmd.split()[-1]} is currently set to: {_w}"]), \
+                    mock.patch.object(wb, "drain_plan", lambda *a, _p=plan: _p), \
+                    mock.patch.object(api, "get", lambda path: {"food": food, "saturation": 0}), \
+                    mock.patch.dict(wb.BASE):
+                hook = wb._drain_to(0, max_s=max_s)
+                if want is None:
+                    hook(None)
+                else:
+                    with self.assertRaises(want):
+                        hook(None)
+                rules = [c for c in said if c.startswith(f"gamerule {wb.REGEN_RULE}")]
+                self.assertEqual(rules, [f"gamerule {wb.REGEN_RULE} false", f"gamerule {wb.REGEN_RULE} {last}"])
+
+
 class DeflectCells(unittest.TestCase):
     """The deflect rows' words: a volley of 3 fireballs at the eye, each tracked to its end, judged on server health."""
 
