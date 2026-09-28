@@ -88,6 +88,7 @@ class Brain:
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None
+        self.just_finished = False    # set by plan_proposals; idle_wait reads it on any round, a plan-less one too
         self.committed = None
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None
@@ -287,6 +288,8 @@ class Brain:
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting")
             intent.set("goal", "holding: nothing to do")
+            if not self.planning:
+                return                         # a fight row's round: its caller polls again, no idle wait posted
             jobs = self.mem.jobs(snap.dimension)
             if jobs:                           # only a furnace's clock is waited on: the bench may run it ahead
                 api.waiting_for_clock(max(0.0, min(j["ready_at"] for j in jobs) - time.time()))

@@ -554,6 +554,7 @@ def _fight_until(kinds, seconds, clear=True):
                 if clear and not alive:
                     return True
                 core.BRAIN.round(plan=False)     # a fight row runs no plan work: reflexes (eat) and the fight only
+                time.sleep(TRACE_EVERY_S)        # a plan-less round with nothing to do returns at once: no hot loop
             return not clear or not _hostiles(24, set(kinds))
         finally:
             fight_loop.bid = FIGHT_LOG.get("real_bid", fight_loop.bid)
