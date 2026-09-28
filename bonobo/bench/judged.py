@@ -16,6 +16,7 @@ WORLD = {
     "walk_ate", "mine_fed",     # /state frames: food rose while x grew / while the jar's work task ran
     "ghast_answered",           # the server's ghast Health, the fireballs /entities showed, the body's worst health
     "endermen_calm",            # the server's anger of each enderman
+    "kept_health",              # the body's /state: alive, health against the row's start
     "escaped",                  # an escape cell's outcome: alive, health lost (the body's /state at the window's end)
     "took_cover_alcove",        # the runner's /state trace: where the body stood, its health
     "deflected",                # the server's player Health, each volley fireball's end read off /entities

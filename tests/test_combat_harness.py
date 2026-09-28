@@ -190,26 +190,25 @@ class GhastReadout(unittest.TestCase):
 
 
 class BehaviourParts(unittest.TestCase):
-    """A behaviour check names its parts: dig_in's went_out, depth, hp_lost."""
+    """A behaviour check given as [(part, fn)] names each part (check_parts)."""
 
     def test_rows(self):
-        rule = fight.BEHAVIOURS["dig_in"][1]
-        y0 = fight.START_Y
-        dug = {"answered": [{"kind": "reshape", "outcome": "answered"}], "trace": [{"pos": [0, y0 - 2, 0]}],
-               "outcome": {"hp_lost": 1.0}}
-        fought = dict(dug, answered=[{"kind": "fight", "outcome": "answered"}])
-        shallow = dict(dug, trace=[{"pos": [0, y0 - 1, 0]}])
-        # (the recorded row) → (passed, [(part, said)])
-        rows = [("dug two down, health kept", dug, (True, [True, True, True])),
-                ("must fail: fought instead", fought, (False, [False, True, True])),
-                ("one down only", shallow, (False, [True, False, True])),
-                ("no row recorded", None, (False, [False, False, False]))]
+        rule = [("went_out", lambda r, api: fight._went_out(r, "reshape")),
+                ("hp_lost", lambda r, api: r["outcome"]["hp_lost"] <= fight.RESOLVE_HP_LOSS)]
+        shaped = {"answered": [{"kind": "reshape", "outcome": "answered"}], "outcome": {"hp_lost": 1.0}}
+        fought = dict(shaped, answered=[{"kind": "fight", "outcome": "answered"}])
+        hurt = dict(shaped, outcome={"hp_lost": fight.RESOLVE_HP_LOSS + 1})
+        # (the recorded row) → (passed, [each part])
+        rows = [("shaped, health kept", shaped, (True, [True, True])),
+                ("must fail: fought instead", fought, (False, [False, True])),
+                ("hurt past the allowance", hurt, (False, [True, False])),
+                ("no row recorded", None, (False, [False, False]))]
         for name, recorded, want in rows:
             with self.subTest(name):
-                fight.SWEEP["combat__dig_in"] = [recorded] if recorded else []
-                check = fight._behaviour_check("combat__dig_in", rule)
+                fight.SWEEP["combat__probe"] = [recorded] if recorded else []
+                check = fight._behaviour_check("combat__probe", rule)
                 self.assertEqual((check(None, None), [v for _w, v in runner.check_parts(check, None, None)]), want)
-        fight.SWEEP.pop("combat__dig_in", None)
+        fight.SWEEP.pop("combat__probe", None)
 
 
 class Endermen(unittest.TestCase):
@@ -289,15 +288,18 @@ class DerivedScenes(unittest.TestCase):
 
 
 class UnarmedCellsGetNoSword(unittest.TestCase):
-    """A behaviour cell with a fist is not handed a sword by the kit rule (combat__dig_in fought with one)."""
+    """The trapped row is unarmed: the kit rule hands it no sword and its scene gives none."""
 
     def test_rows(self):
+        import json
         from bonobo.bench import bench_bases
-        fist = [f"combat__{b}" for b, (cell, _r, _w) in fight.BEHAVIOURS.items() if cell.get("weapon") == "fist"]
-        self.assertTrue(fist, "at least one unarmed behaviour (dig_in)")
-        for name in fist:
+        with open("tests/fixtures/bench_rows.json") as f:
+            setup = json.load(f)["combat__trapped_unarmed"]["setup"]
+        rows = [("not on the kit rule's sword list", "sword" in bench_bases.KIT.get("combat__trapped_unarmed", []), False),
+                ("must fail: a sword given by the setup", any("sword" in c for c in setup), False)]
+        for name, got, want in rows:
             with self.subTest(name):
-                self.assertNotIn("sword", bench_bases.KIT.get(name, []))
+                self.assertEqual(got, want)
 
 
 class TheWindowOpensBeforeTheHooks(unittest.TestCase):

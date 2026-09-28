@@ -309,9 +309,9 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
         if creeper and where in ("between", "down"):
             continue
         each_s = float(ENGAGE["dig_s"] if where == "down" else ENGAGE["block_s"])
-        if where == "under":
-            # a pillar started under a walker's hits: each hit resets the jump (escape__walker_open_blocks: priced
-            # 1.2 s, ran 4 s rising nothing, died) — the price is the knocked-back one
+        if where in ("under", "down", "between"):
+            # a shape built under a walker's hits: each hit knocks us off the cell and the work starts again (a pillar
+            # rose nothing in 4 s; combat__dig_in's dig never went down in 2.7 s) — the price is the knocked-back one
             each_s = round(block_under_hits_s(each_s, knockback_rate(here, hazards, each_s, ground=grid)), 2)
         after = grid
         for n in ((most_of[where],) if where == "roof" and most_of[where] else range(1, most_of[where] + 1)):

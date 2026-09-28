@@ -862,6 +862,22 @@ class APillarUnderHits(unittest.TestCase):
             self.assertGreater(threat.block_under_hits_s(0.6, threat.knockback_rate(
                 HERE, [row("minecraft:zombie", 1.5, 0)], 0.6)), 0.6 * 3)
 
+    def test_every_shape_under_hits(self):
+        """A hole or a wall built under a walker's hits is knocked back like a pillar (combat__dig_in: 2.7 s of
+        digging went nowhere). Read before the survivability veto: the price itself."""
+        from bonobo import field
+        ground, hazards = field.Field(bucket="underground"), [row("minecraft:zombie", 2.5, 0)]
+        press = threat.pressure(HERE, hazards, 0.0, ground=ground)
+        opts = threat.reshape_options({"blocks": 5, "dig_ok": True}, ground, hazards, HERE, press, 0.0, 0.0, 20.0)
+        got = {o.target[0]: o.seconds / o.target[1] for o in opts}
+        quiet = {"down": float(threat.ENGAGE["dig_s"]), "under": float(threat.ENGAGE["block_s"]),
+                 "between": float(threat.ENGAGE["block_s"])}
+        self.assertEqual(set(got), set(quiet))
+        for where in quiet:
+            with self.subTest(where):
+                # must fail: priced as a quiet block under a zombie's hits
+                self.assertGreater(got[where], quiet[where])
+
     def test_knockback_rate(self):
         rows = [("a zombie in reach: one hit per attack_s", [row("minecraft:zombie", 1.5, 0)], 1 / 0.48),
                 ("a zombie 10 off: none yet", [row("minecraft:zombie", 10, 0)], 0.0),

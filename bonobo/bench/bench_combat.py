@@ -18,6 +18,7 @@ COUNT = {"one": 1, "three": 3}
 CORRIDOR_END = 11      # the corridor runs from behind us to this x, open there
 WALK_X = 7             # the arena's inside, a block off each wall: a walk across is -WALK_X → WALK_X
 ALCOVE = (4, 2)        # (x of its mouth, depth): a 1-wide, 2-high alcove
+TRAP_HALF = 4          # the trapped room: this far out each way
 GROUND = {"open": [("fill", ("@", 4, 0, 2), ("@", 5, 1, 3), "stone")],                  # a step to stand up on
           # a 1-wide passage at the feet (START_Y is the feet: walls from y 1 left a 3-wide open channel under a
           # raised wall, 6 blocks to seal and none offered), shut behind us, open 11 ahead: two blocks seal it
@@ -74,7 +75,7 @@ FAMILIES = [
          ('climber', 'open', 'blocks'), ('bomb', 'open', 'blocks'), ('teleporter', 'open', 'blocks'),
          ('walker', 'corridor', 'blocks'), ('walker', 'roofed', 'blocks'), ('walker', 'open', 'nothing'),
          ('walker', 'open', 'food'), ('walker', 'open', 'shield'), ('walker', 'open', 'full')]),
-    ('behaviour', [('block_gap',), ('dig_in',), ('pillar',), ('shield_arrows',), ('fight_without_shield',), ('fight_and_block',),
+    ('behaviour', [('block_gap',), ('pillar',), ('shield_arrows',), ('fight_without_shield',), ('fight_and_block',),
          ('wall_in',), ('surrounded_low',)]),
     ('deflect', [('deflect__volley',)]),
     ('fight_cell', [('fight_zombie_1', 'zombie', 1, 'common', 25, 12, True),
@@ -144,6 +145,17 @@ ROWS = [
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)],      # the _ARENA: floor, roof, walls
          expect_gear={'items': [['minecraft:iron_sword', 1]], 'offhand': 'minecraft:shield'}),
+    dict(name='combat__trapped_unarmed', module='fight_loop',
+         doc=('Trapped: a closed room 2 high (no pillar), a dirt floor, no weapon, no armour, no blocks, a pickaxe; '
+              'a walker → alive at the end, little health lost, whatever the bot chose (dig, wall with dug dirt…)'),
+         scene=[('built', 'trapped_room', TRAP_HALF), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
+                ('cmd', BEST_TOOLS['pickaxe']),
+                ('summon', 'zombie', ('@', TRAP_HALF - 1, 0, 0), '{PersistenceRequired:1b,NoAI:1b}')],
+         run=('fight_until', ['minecraft:zombie'], 14, False),
+         before=[('start', 'combat__trapped_unarmed'), ('loose', 'zombie'), ('&record_bids',)],
+         check=[('kept_health',)],
+         budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie'},
+         expect_entities=[('minecraft:zombie', 1, 1)]),
     dict(name='fight_enderman_1', module='nav',
          doc=('Four endermen about the arena, a walk 14 blocks across through them → reached, none provoked '
               '(server AngerTime 0 each), health kept'),
