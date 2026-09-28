@@ -637,3 +637,26 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
     never says walled in: a cave mouth or a pit under open sky is none of them. The readers are asked only when
     the cheaper answer did not settle it (perception reads the walls once a night)."""
     return under_rock(sky_light) or bool(enclosed()) or bool(in_site())
+
+
+# -- a step's prior work in ticks: the one table (cost.Cost before anything is measured, and planner.NullCost)
+PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
+               "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
+               "withdraw": 100, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
+               "farm": 6000, "trade": 600}         # farm: tilling, sowing and a crop's growth; trade: one sale
+
+
+def prior_ticks(step):
+    """Pure: the ticks a step's work takes before anything is measured (PRIOR_TICKS, per unit where it has units)."""
+    k = step.kind
+    if k == "smelt":
+        return PRIOR_TICKS["smelt_each"] * step.count + PRIOR_TICKS["smelt_setup"]
+    if k == "mine":
+        return PRIOR_TICKS["mine_each"] * step.detail.get("breaks", step.count)
+    if k == "gather":
+        return PRIOR_TICKS["gather_each"] * step.count
+    if k == "hunt":
+        return PRIOR_TICKS["hunt_each"] * step.detail.get("kills", step.count)
+    if k == "fill":
+        return PRIOR_TICKS["fill"] * step.count
+    return PRIOR_TICKS.get(k, 1000)
