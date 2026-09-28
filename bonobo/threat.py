@@ -359,9 +359,10 @@ class Answer:
 class Field:
     """The threats around us, as a kernel model: one state, one price, a column per answer."""
 
-    def __init__(self, state, price=None):
+    def __init__(self, state, price=None, refused=None):
         self.field = state
         self.price_hp = price or (lambda dhp: dhp)
+        self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed), or None
         self.work_s = horizon_for(state)
         self.opts = [Answer(o, self.price_hp, self.work_s) for o in options(state)]
         self.default = next(a for a in self.opts if a.name == "ignore")
@@ -379,9 +380,10 @@ class Field:
         return self.opts
 
     def admissible(self, state, option):
-        """Nothing here is refused."""
+        """Refused only what the caller says it may not choose now (an answer that just failed)."""
 
-        return True, ""
+        why = self.refused(getattr(option, "option", option)) if self.refused is not None else None
+        return (False, why) if why else (True, "")
 
 def owed(option, work_s):
     """Pure: health still owed to us after this answer — the rate it leaves, over the work, plus any blast that still reaches us."""

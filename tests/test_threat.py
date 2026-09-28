@@ -217,6 +217,112 @@ class AStaleTargetIsDecidedAgain(unittest.TestCase):
                     self.assertIsNot(fight_loop.STATE.held, stale_held, "the stale HELD was dropped")
 
 
+class AFailedAnswerIsDecidedAgain(unittest.TestCase):
+    """An answer that raised (a jar error, nothing to do it with) is refused a while and the held choice dropped: the
+    next decision is a fresh one without it, never the same option bid again (combat__dig_in 01:03:09-11: the same
+    fight ×3, then death). An attack naming no mob is never built, nor kept as the held choice."""
+
+    def setUp(self):
+        from bonobo import fight_loop
+        fight_loop.reset()
+        self.addCleanup(fight_loop.reset)
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import fight_loop, threat as sv
+        ss = sv.price_state(hp=20, sword=2, armor=8)
+        price = lambda dhp: sv.hp_seconds(ss, dhp)  # noqa: E731
+        state = {"x": 0, "y": 64, "z": 0, "health": 20, "armor": 8, "sword_tier": 2, "blocks": 64}
+        live = row("minecraft:zombie", 1.5, 0)
+        first = fight_loop.bid(state, [live], price, ids=[9], now=100.0)
+        self.assertEqual((first[0].kind, first[0].target), ("fight", 9))
+        # (situation, marked failed?, when the next bid is made) → the same fight bid again?
+        rows = [("must fail: nothing failed: the same fight is held", False, 100.5, True),
+                ("it failed: refused, the next bid is another answer", True, 100.5, False),
+                ("FAILED_S later it may be chosen again", True, 100.0 + fight_loop.FAILED_S + 0.5, True)]
+        for name, failed, when, again in rows:
+            with self.subTest(name):
+                fight_loop.reset()
+                fight_loop.bid(state, [live], price, ids=[9], now=100.0)
+                if failed:
+                    fight_loop._mark_failed(first[0], now=100.0)
+                    self.assertIsNone(fight_loop.STATE.held, "the held choice is dropped")
+                with mock.patch.object(fight_loop.time, "time", return_value=when):
+                    nxt = fight_loop.bid(state, [live], price, ids=[9], now=when)
+                same = nxt is not None and (nxt[0].kind, nxt[0].target) == ("fight", 9)
+                self.assertEqual(same, again)
+
+    def test_carry_re_decides_a_failed_answer(self):
+        from unittest import mock
+        from bonobo import api, fight_loop
+        a, b = (type("Option", (), {"kind": k, "target": t})() for k, t in (("fight", 9), ("evade", (3, 64, 0))))
+        wants, posted, failed = [a, b, None], [], []
+
+        def answer(want):
+            if want is a:
+                raise api.McError("/task?wait=0: 500 JsonNull")
+            posted.append(want.kind)
+            return {"id": 1}
+
+        def on_failed(want, err):
+            failed.append((want.kind, str(err)))
+            wants.pop(0)                         # decided again: what is wanted now is the next answer
+
+        # (situation, the failure handler) → (raised?, failed, posted)
+        rows = [("a failed answer is decided again, the next one posted", on_failed, False,
+                 [("fight", "/task?wait=0: 500 JsonNull")], ["evade"]),
+                ("must fail: without the handler the error ends the loop (the old engagement's end)", None, True, [],
+                 [])]
+        for name, handler, raises, want_failed, want_posted in rows:
+            with self.subTest(name), mock.patch.object(fight_loop.time, "sleep"), \
+                    mock.patch.object(api, "get", return_value={"status": "running"}):
+                wants[:], posted[:], failed[:] = [a, b, None], [], []
+                held = {"done": None, "task_id": None}
+                steps = iter(range(4))
+                loop = fight_loop.carry(lambda: wants[0], answer, lambda: next(steps, None) is not None, held,
+                                        failed=handler)
+                try:
+                    list(loop)
+                    got = False
+                except api.McError:
+                    got = True
+                self.assertEqual((got, failed, posted), (raises, want_failed, want_posted))
+
+    def test_an_attack_names_its_mob(self):
+        from bonobo import fight_loop
+        opt = lambda target: type("Option", (), {"kind": "fight", "target": target})()  # noqa: E731
+        state = {"feet": (0, 64, 0), "inv": None, "region": None, "protected": set(), "hazards": []}
+        self.assertEqual(fight_loop._attack(opt(None), state), [], "must fail: attack(entity=None) is never built")
+        self.assertEqual(fight_loop._attack(opt(7), state)[0]["entity"], 7)
+
+
+class ARequestTheGameDroppedIsNotALostGame(unittest.TestCase):
+    """api: a connection reset on one request while the game still answers /status is that request's error (McError,
+    the jar's log names it), not GameUnreachable — which stood the brain down to wait for a game that was there."""
+
+    def test_rows(self):
+        import http.client
+        from unittest import mock
+        from bonobo import api
+        # (situation, the request's failure, the game answers /status) → the error raised
+        rows = [("the jar dropped the request, the game is up: its error", http.client.RemoteDisconnected("x"), True,
+                 "McError"),
+                ("must fail: the game is gone: GameUnreachable", http.client.RemoteDisconnected("x"), False,
+                 "GameUnreachable"),
+                ("refused outright: GameUnreachable, no probe needed", ConnectionRefusedError(), True,
+                 "GameUnreachable")]
+        for name, err, up, want in rows:
+            with self.subTest(name), mock.patch.object(api._DIRECT, "open", side_effect=err), \
+                    mock.patch.object(api, "_game_up", return_value=up), \
+                    mock.patch.object(api, "_token", return_value="t"), mock.patch.object(api.tape, "REPLAY", None):
+                try:
+                    api.api("POST", "/task?wait=0", {"tasks": []})
+                    got = None
+                except api.McError as e:
+                    got = type(e).__name__
+                self.assertEqual(got, want)
+
+
 class TheSkillsBatches(unittest.TestCase):
     """combat's shoot, as the pure batch the skills post."""
 
