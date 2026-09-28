@@ -1293,19 +1293,16 @@ def _deflect_volley(ctx):
 
 
 def _deflect_watch():
-    """The reflex policy on, the agent driving; ends as soon as the last fireball resolves (≤ VOLLEY_WATCH_S).
-    Perception stays paused from the setup (the row is `quiet`): the jar's reflex alone answers."""
+    """The reflex policy on, the agent driving, the whole stack live (the threat layer must hold, the jar deflects);
+    ends as soon as the last fireball resolves (≤ VOLLEY_WATCH_S)."""
     def run(ctx):
-        from ... import api, perception
-        try:
-            api.post("/reflex", {"deflect": True, "shield": True, "counter": False})
-            api.post("/takeover", {})           # the reflex runs only while the agent drives
-            t0 = time.time()
-            while not DEFLECT.get("done") and time.time() - t0 < VOLLEY_WATCH_S:
-                time.sleep(0.05)
-            time.sleep(0.5)                      # the last blast lands
-        finally:
-            perception.pause(False)
+        from ... import api
+        api.post("/reflex", {"deflect": True, "shield": True, "counter": False})
+        api.post("/takeover", {})           # the reflex runs only while the agent drives
+        t0 = time.time()
+        while not DEFLECT.get("done") and time.time() - t0 < VOLLEY_WATCH_S:
+            time.sleep(0.05)
+        time.sleep(0.5)                      # the last blast lands
         return True
     return run
 
@@ -1324,13 +1321,13 @@ def _deflected():
 
 def deflect_row(name):
     """A 1-wide corridor, a sword: SHOTS fireballs straight down it at the player, the next while the last resolves
-    → each punched back, unhurt. Quiet: perception paused and no fight from the setup on (nothing to fight)."""
+    → each punched back, unhurt. The normal state: the whole stack answers."""
     scene = [("cmd", c) for c in corridor()] + [
         ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword")]
     return _row(name, f"{SHOTS} fireballs down a 1-wide corridor from {SHOT_DIST} out, the next while the last "
                       "resolves, a sword: each punched back by the reflex, unhurt", "fight_loop",
                 scene, ("deflect_watch",), [("deflected",)], budget=25, before=[("&deflect_volley",)], combat=True,
-                quiet=True, tier_fixed="exception", tags={"base": "deflect"})
+                tier_fixed="exception", tags={"base": "deflect"})
 
 
 from ... import lifecycle as _deflect_lifecycle  # noqa: E402

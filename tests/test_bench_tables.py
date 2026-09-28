@@ -745,11 +745,10 @@ class DeflectCells(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(wf.volley_verdict(h0, h1, fired, ends), want)
 
-    def test_the_row_is_quiet(self):
+    def test_the_row_has_no_ghast(self):
         from bonobo.bench.words import fight as wf
         row = wf.deflect_row("deflect__volley")
-        self.assertTrue(row.get("quiet"), "perception paused and no fight from the setup on")
-        self.assertFalse(any("ghast" in str(step) for step in row["scene"]), "no ghasts at all")
+        self.assertFalse(any("ghast" in str(step) for step in row["scene"] + row["before"]), "no ghasts at all")
 
     def test_health_read(self):
         from bonobo.bench.words import fight as wf
