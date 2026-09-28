@@ -159,6 +159,16 @@ class Option:
 
 SHAPES = ("between", "under", "down")
 
+def knockback_rate(here, hazards, within_s):
+    """Pure: hits per second landing on us while we shape — each melee mob that reaches us within `within_s`."""
+    return sum(1.0 / float(MOBS[h[3]]["attack_s"]) for h in hazards
+               if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") and arrival(here, h) <= within_s)
+
+def block_under_hits_s(each_s, rate):
+    """Pure: expected seconds to stand one block up while hit `rate` times a second: a hit knocks us off the cell and
+    the jump starts again, so a block needs a hit-free `each_s` — exp(each_s × rate) tries of it on average."""
+    return each_s * math.exp(each_s * rate)
+
 def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
     """Blocking, standing on a block and digging down are one column: seconds (and blood while exposed) buying delay or no sight."""
 
@@ -176,6 +186,10 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
         if where == "between" and (cell is None or not grid.blocks_worth_placing()):
             continue
         each_s = float(ENGAGE["dig_s"] if where == "down" else ENGAGE["block_s"])
+        if where == "under":
+            # a pillar started under a walker's hits: each hit resets the jump (escape__walker_open_blocks: priced
+            # 1.2 s, ran 4 s rising nothing, died) — the price is the knocked-back one
+            each_s = round(block_under_hits_s(each_s, knockback_rate(here, hazards, each_s)), 2)
         after = grid
         for n in range(1, most_of[where] + 1):
             if where == "between":

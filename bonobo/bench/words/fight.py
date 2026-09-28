@@ -846,13 +846,18 @@ def escape_row(name, enemy, ground, kit, seed=None):
     """No weapon, no armour, one enemy: away by any answer but swinging; no seed given, one is drawn (as at import)."""
     seed = random.randrange(1 << 30) if seed is None else seed
     cell = dict(UNARMED, enemy=enemy, ground=ground, kit=kit, run=0, seed=seed)
+    kind = ENEMY[enemy]
+    # the enemy held still (NoAI) where it was summoned and woken as the window opens: free, a walker 11 off reached
+    # the body during setup and the window began under its hits (escape__walker_open_blocks: 20 → 17 hp at 0.2 s)
+    hold = [("cmd", f"data merge entity @e[type={kind},limit=1,sort=nearest] {{NoAI:1b}}")] if kind else []
+    wake = {"before": [("loose", kind.split(":")[-1])]} if kind else {}
     return _fight_row(name, f"No weapon, no armour, {enemy} on {ground} ground with {kit}, {ESCAPE_SECONDS:.0f} s: the "
                             "answer has to come from somewhere other than swinging — back off, block the way, dig "
                             "down, eat, or leave a teleporter alone (bench/escape.jsonl).",
                       [("cmd", "gamemode survival @p"), ("cmd", "kill @e[type=!player,type=!item,distance=..48]"),
-                       ("built", "_build", cell)], [cell], ("!constant", []), _fought_for(ESCAPE_WATCH),
+                       ("built", "_build", cell)] + hold, [cell], ("!constant", []), _fought_for(ESCAPE_WATCH),
                       "bench/escape.jsonl", 0.0, RULES[:2], sweep=True, expect=FIGHT_EXPECT,
-                      detail=("escape_detail", name), tick_rate=60)
+                      detail=("escape_detail", name), tick_rate=60, **wake)
 
 def behaviour_row(name, behaviour):
     """One fight behaviour: a cell moved off ARMED so that one answer is worth the most; chosen and working. The cell

@@ -631,9 +631,10 @@ class EveryColumnMustBeSurvivable(unittest.TestCase):
         from bonobo import field
         crowd = [row("minecraft:zombie", 1.5, 0), row("minecraft:zombie", 0, 1.5), row("minecraft:zombie", -1.5, 0)]
         one = [row("minecraft:zombie", 4, 0)]
-        # (name, hp, hazards, column, offered?)
         # (name, hp, hazards, a shield in hand, column, offered?)
-        rows = [("20 hp, three zombies beside: the pillar is on offer", 20, crowd, False, "reshape", True),
+        coming = [row("minecraft:zombie", 6, 0), row("minecraft:zombie", 0, 6), row("minecraft:zombie", -6, 0)]
+        # (beside, three zombies' hits knock every pillar down: APillarUnderHits prices that; 6 off it is on offer)
+        rows = [("20 hp, three zombies 6 off: the pillar is on offer", 20, coming, False, "reshape", True),
                 ("must fail: 3.1 hp, three zombies beside, a shield that survives: the 1.2 s pillar is not", 3.1,
                  crowd, True, "reshape", False),
                 ("3.1 hp, the same with the shield: the shield is", 3.1, crowd, True, "shield", True),
@@ -689,6 +690,37 @@ class ASealedPassageLeavesNothing(unittest.TestCase):
         for name, ground, arrives in rows:
             with self.subTest(name):
                 self.assertEqual(threat.arrival(HERE, walker, ground=ground) != float("inf"), arrives)
+
+
+class APillarUnderHits(unittest.TestCase):
+    """Standing a block up is priced with the hits that knock us off it: under a walker's reach each hit resets the
+    jump (escape__walker_open_blocks: priced 1.2 s, ran 4 s rising nothing)."""
+
+    def test_the_pillar_over_the_table(self):
+        from bonobo import field
+        # (a zombie this far off) → the seconds of each pillar on offer {n: seconds}
+        rows = [("6 off: nothing hits while we build", 6, {1: 0.6, 2: 1.2, 3: 1.8, 4: 2.4}),
+                ("1.5 off, in reach: one block costs its hit-free tries, two are too many to live", 1.5, {1: 2.09}),
+                ("12 off: nothing near enough to be worth it", 12, {})]
+        for name, x, want in rows:
+            with self.subTest(name):
+                state = {"here": HERE, "hp": 20, "sword": 0, "protection": 0.0, "blocks": 5,
+                         "hazards": [row("minecraft:zombie", x, 0)], "ids": [0], "field": field.Field()}
+                got = {o.target[1]: round(o.seconds, 2) for o in threat.options(state)
+                       if o.kind == "reshape" and o.target[0] == "under"}
+                self.assertEqual(got, want)
+        with self.subTest("must fail: under a zombie's hits a block is not the 0.6 s of a quiet one"):
+            self.assertGreater(threat.block_under_hits_s(0.6, threat.knockback_rate(
+                HERE, [row("minecraft:zombie", 1.5, 0)], 0.6)), 0.6 * 3)
+
+    def test_knockback_rate(self):
+        rows = [("a zombie in reach: one hit per attack_s", [row("minecraft:zombie", 1.5, 0)], 1 / 0.48),
+                ("a zombie 10 off: none yet", [row("minecraft:zombie", 10, 0)], 0.0),
+                ("a skeleton in reach: arrows do not knock a pillar down here", [row("minecraft:skeleton", 2, 0)], 0.0),
+                ("two zombies in reach", [row("minecraft:zombie", 1.5, 0), row("minecraft:zombie", 0, 1.5)], 2 / 0.48)]
+        for name, hazards, want in rows:
+            with self.subTest(name):
+                self.assertAlmostEqual(threat.knockback_rate(HERE, hazards, 0.6), want, places=3)
 
 
 class EatingInAFight(unittest.TestCase):
