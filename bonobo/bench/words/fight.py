@@ -1148,6 +1148,7 @@ def _deflect_volley(ctx):
     end (idle too: no shot waits for a deflect)."""
     from ..core import _command
     from ...world import entities
+    from ...perception import read_combat
     eye = deflect_eye()
     for _t, direction, dist in VOLLEY:
         g, _m = shot_from(direction, dist + 3.5)
@@ -1167,8 +1168,9 @@ def _deflect_volley(ctx):
                          "ExplosionPower:1b}", [])
                 DEFLECT["fired"] += 1
             try:
-                near = {e["id"]: ((e["x"], e["y"] + 0.5, e["z"]), tuple(v))
-                        for e in entities(64, ["minecraft:fireball"]) if (v := e.get("velocity")) is not None}
+                # the one reader: vel (blocks/s) from the jar's velocity
+                near = {e["id"]: ((e["x"], e["y"] + 0.5, e["z"]), e["vel"])
+                        for e in read_combat(entities(64, ["minecraft:fireball"])) if "vel" in e}
             except McError:
                 near = {}
             for i, read in near.items():
