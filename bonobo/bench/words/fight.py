@@ -212,29 +212,21 @@ def _combat_execute(seconds, until=None, cell=None):
     trace, stop = [], threading.Event()
     watcher = threading.Thread(target=_sampler, args=(stop, trace, began), daemon=True)
     watcher.start()
-    aside = getattr(core.BRAIN, "not_taking_part", None)
-    if not callable(aside):
-        # two decision-makers on one body cannot be measured: said before the window
-        raise SetupInvalid("the planner offers no way to stand down: a cell cannot measure one layer alone")
-    with aside("threat bench cell"):
-        try:
-            while time.time() - began < seconds and (until is None or until()):
-                state = Snapshot.from_readings(api.get("/state"), Inventory()).state
-                worst = min(worst, state["health"])
-                if state["health"] <= 0:
-                    break
-                if cell and not _hostiles(radius=24, kinds={ENEMY.get(cell.get("enemy"))} - {None}):
-                    _restock(cell)
-                # the planner keeps taking rounds (its refusals must reach the tape), each refused while standing down
-                try:
-                    core.BRAIN.round()
-                except Exception as e:
-                    from ... import api as _api
-                    _api.log(f"!! round: {type(e).__name__}: {e}")
-                    time.sleep(TRACE_EVERY_S)
-        finally:
-            stop.set()
-            watcher.join(1.0)
+    # ONE layer drives: the planner takes no round in the window (Brain.not_taking_part, which this used, went in
+    # fda0116 — every cell since raised SetupInvalid 'no way to stand down' at 1 s: combat__block_gap ×3); the threat
+    # layer answers from the perception thread as always
+    try:
+        while time.time() - began < seconds and (until is None or until()):
+            state = Snapshot.from_readings(api.get("/state"), Inventory()).state
+            worst = min(worst, state["health"])
+            if state["health"] <= 0:
+                break
+            if cell and not _hostiles(radius=24, kinds={ENEMY.get(cell.get("enemy"))} - {None}):
+                _restock(cell)
+            time.sleep(TRACE_EVERY_S)
+    finally:
+        stop.set()
+        watcher.join(1.0)
     worst = min([worst] + [s["hp"] for s in trace])
     return perception.answered_since(mark), worst, round(time.time() - began, 1), trace
 
