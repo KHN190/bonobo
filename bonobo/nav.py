@@ -518,3 +518,66 @@ def way_to(ctx, cells, range_=2.0):
         if arrived(cell, ctx.policy, range_=range_, attempts=1) and reachable(cell, ctx.policy, range_)[0]:
             return True
     return False
+
+# -- stairs and pits: a body goes down by a staircase it can walk back up, never a 1-wide shaft
+STAIR_STEPS = 8          # steps one staircase segment digs before the ground is read again
+
+def stair_dir(feet, target):
+    """Pure: the horizontal step toward `target` along its longer axis ((1, 0) when straight below)."""
+    dx, dz = target[0] - feet[0], target[2] - feet[2]
+    if dx == 0 and dz == 0:
+        return (1, 0)
+    return ((1 if dx > 0 else -1), 0) if abs(dx) >= abs(dz) else (0, (1 if dz > 0 else -1))
+
+def stair_down_tasks(region, feet, target, protected=(), max_steps=STAIR_STEPS):
+    """Pure: a 1-wide staircase from `feet` down toward `target` — each step one over and one down, its three cells
+    (feet, head, the head room the walk down passes) cleared, a solid tread under it — until the feet are at the
+    target's level or `max_steps`; stops before a fluid, an unbreakable or protected cell, or a tread that is not
+    there. [] when not below or nothing can be dug."""
+    x, y, z = feet
+    if target[1] >= y - 1:
+        return []
+    d = stair_dir(feet, target)
+    tasks = []
+    for k in range(1, max_steps + 1):
+        fx, fy, fz = x + d[0] * k, y - k, z + d[1] * k
+        cells = [(fx, fy, fz), (fx, fy + 1, fz), (fx, fy + 2, fz)]
+        tread = (fx, fy - 1, fz)
+        if not all(region.inside(c) for c in cells + [tread]):
+            break
+        if any(region.hazard(c) or region.hazard(add(c, n)) for c in cells for n in NEIGHBOURS6) \
+                or any(region.unbreakable(c) or c in protected for c in cells) or not region.solid(tread):
+            break
+        tasks += [mine_task(c) for c in cells if region.solid(c)]
+        tasks.append({"type": "goto", "x": fx, "y": fy, "z": fz, "range": 0.5})
+        if fy <= target[1] + 1:
+            break
+    return tasks
+
+def in_pit(region, feet):
+    """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep
+    dip has air there: a jump clears it). False when the sides are not read."""
+    x, y, z = feet
+    sides = [(x + dx, y + 1, z + dz) for dx, dz in DIRS4]
+    return all(region.inside(c) for c in sides) and all(region.solid(c) for c in sides)
+
+def pit_exit_tasks(region, feet, block=None):
+    """Pure: one level up out of a pit — a pillar with a carried block when the column above is clear, else a step dug
+    into the side with the least to break (its head and the head room above the body), then a walk onto it."""
+    x, y, z = feet
+    if block is not None and not region.solid((x, y + 2, z)):
+        return [{"type": "pillar", "item": block}]
+    best = None
+    for dx, dz in DIRS4:
+        step = (x + dx, y + 1, z + dz)          # stand here next: its floor is the side block at our feet level
+        cells = [step, (x + dx, y + 2, z + dz), (x, y + 2, z)]
+        if not region.solid((x + dx, y, z + dz)) or any(region.unbreakable(c) or region.hazard(c) for c in cells):
+            continue
+        cost = sum(region.solid(c) for c in cells)
+        if best is None or cost < best[0]:
+            best = (cost, step, cells)
+    if best is None:
+        return []
+    _cost, step, cells = best
+    return [mine_task(c) for c in cells if region.solid(c)] + \
+        [{"type": "goto", "x": step[0], "y": step[1], "z": step[2], "range": 0.5}]

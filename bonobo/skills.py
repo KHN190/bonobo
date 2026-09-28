@@ -711,6 +711,17 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         # which blocks have an open face is the world's answer (/find exposed), not a second model here
         seed = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
         region = region_around([start, seed], pad=nav.SAFE_DROP + 2)   # deep enough to see a drop (bag.floored)
+        if region is None and seed[1] < start[1] - 2 and ctx.policy.allow_dig:
+            # too far to read at once and far below: the ground a staircase segment crosses is read, and the segment
+            # dug — the seed read again from the foot of it (no blind shaft)
+            d = nav.stair_dir(start, seed)
+            leg_end = (start[0] + d[0] * nav.STAIR_STEPS, start[1] - nav.STAIR_STEPS, start[2] + d[1] * nav.STAIR_STEPS)
+            leg = region_around([start, leg_end], pad=2)
+            stairs = nav.stair_down_tasks(leg, start, seed, ctx.policy.protected) if leg is not None else []
+            if stairs:
+                api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}: a staircase segment down")
+                api.run_chain(stairs, stop_on_failure=True, wait=120)
+                continue
         if region is None:
             # too far to read the ground between: walk closer or make a way; only when neither works is the place the problem
             if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
@@ -735,6 +746,13 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = min(vein, key=lambda p: math.dist(p, start))
+        if near[1] < start[1] - 2 and ctx.policy.allow_dig:
+            # far below: a staircase the body can walk back up, never travel's 1-wide shaft (brain__base: 9 deep,
+            # no way out and no sight of the ore 2 blocks off)
+            stairs = nav.stair_down_tasks(region, start, near, ctx.policy.protected)
+            if stairs:
+                api.run_chain(stairs, stop_on_failure=True, wait=120)
+                continue
         walked = nav.arrived(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
             for p in vein:
