@@ -451,7 +451,8 @@ ROWS = [
                 ('give', 'crafting_table')],       # the row proves the farm, not a table's logs
          run=('growing', ('!achieve_needs', [('minecraft:bread', 1)], 6)), before=[('start', 'bread_from_a_farm')],
          check=[('gain', 'minecraft:bread', 1), ('blocks', ('@', -4, -1, -4), ('@', 4, -1, 4), ('farmland',), 1)],
-         budget=25, point='C', skills=['farm'], tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'},
+         budget=25, point='C', skills=['farm', 'await_job'], tier_fixed='exception',
+         tags={'base': 'sources', 'source': 'farm'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='bread_from_a_farm_two_wheat_carried', module='decompose',
          doc=("2 wheat carried, a ripe plot beside the body → the plan's farm step reaps it (the look at execution, "
