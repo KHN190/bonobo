@@ -70,7 +70,10 @@ def _scatter(seed):
 def _roof():
     """A lid and a floor on the walled platform: a cell is a room, not a clearing."""
     lo, hi = at(-ARENA_REACH, 5, -ARENA_REACH), at(ARENA_REACH + 3, 5, ARENA_REACH)
-    return [f"fill {_c(lo)} {_c(hi)} stone"]
+    # glowstone in the lid: light to watch by, nothing on the floor
+    lamps = [f"setblock {_c(at(x, 5, z))} glowstone" for x in range(-ARENA_REACH + 3, ARENA_REACH + 3, 6)
+             for z in range(-ARENA_REACH + 3, ARENA_REACH, 6)]
+    return [f"fill {_c(lo)} {_c(hi)} stone"] + lamps
 
 def _cells(base, dims=None, repeat=1, over=None, table=None):
     """The cells a pass visits: one dimension off the baseline at a time, or the product of `over`, each repeated."""
@@ -836,7 +839,9 @@ def _killed(kinds, n):
 # glass walls (visible), a stone roof: undead under the sky burned before the row began
 _ARENA = [f"fill {_c(at(-9, -2, -9))} {_c(at(9, -1, 9))} stone", f"fill {_c(at(-9, 0, -9))} {_c(at(9, 4, 9))} glass hollow",
           f"fill {_c(at(-9, 4, -9))} {_c(at(9, 4, 9))} stone",
-          f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air", f"fill {_c(at(-9, -1, -9))} {_c(at(9, -1, 9))} stone", _tp(),
+          f"fill {_c(at(-8, 0, -8))} {_c(at(8, 3, 8))} air", f"fill {_c(at(-9, -1, -9))} {_c(at(9, -1, 9))} stone",
+          *[f"setblock {_c(at(x, 0, z))} torch" for x in (-8, 8) for z in (-8, 0, 8)],     # light to watch by
+          _tp(),
           "give @p iron_sword", "give @p stone_pickaxe",       # a pickaxe: upkeep's "no pickaxe" row stays quiet
           "item replace entity @p armor.chest with iron_chestplate",
           "item replace entity @p armor.head with iron_helmet", "give @p cooked_beef 16", "give @p cobblestone 64",
