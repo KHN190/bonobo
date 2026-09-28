@@ -223,39 +223,39 @@ POCKET = at(0, -9, 0)
 
 LOW_FOOD, LOW_FOOD_MAX_S = 10, 20     # food drained to ~10 before the run (a `before` hook: harness, not budget)
 
-DRAIN_POLL_S = 0.05
+HUNGER_PER_TICK = 0.005      # exhaustion one level of the hunger effect adds a tick (HungerStatusEffect)
+EXHAUSTION_PER_POINT = 4.0   # exhaustion that takes one saturation point, then one food point
+HUNGER_MAX_AMP = 255
+DRAIN_OVER = 0.05            # exhaustion past the last point's 4.0 (the game takes it only when exceeded)
 
-DRAIN_FAST, DRAIN_SLOW = 255, 30     # hunger amplifiers: ~6 points a second; ~0.8 (≤ 1 point between two polls)
 
-DRAIN_SLOW_FROM = 4                  # the last points above the stop are taken slowly
+def drain_plan(food, saturation, level):
+    """Pure: (seconds, amplifier) of the one hunger effect that takes the bar from (food, saturation) to level + 1 —
+    the server's own clock, no reads to overshoot on (a carried point of exhaustion may take one more: level); None
+    when it is there already."""
+    points = math.ceil(max(0.0, float(saturation))) + max(0, int(food) - (level + 1))   # a part saturation point: one
+    if points <= 0:
+        return None
+    need = EXHAUSTION_PER_POINT * points + DRAIN_OVER     # the game takes a point only past 4.0, never at it
+    per_s = HUNGER_PER_TICK * 20
+    secs = max(1, math.ceil(need / (per_s * (HUNGER_MAX_AMP + 1))))
+    return secs, min(HUNGER_MAX_AMP, max(0, math.ceil(need / (per_s * secs)) - 1))
 
-def drain_step(food, saturation, level):
-    """Pure: the drain's next move — "fast" with saturation or a high bar, "slow" for the last points, "stop" at `level` + 1."""
-    if food <= level + 1:
-        return "stop"
-    if saturation >= 2 or food > level + 1 + DRAIN_SLOW_FROM:
-        return "fast"
-    return "slow"
 
 def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
-    """`before` hook: drain hunger to `level` + 1 (drain_step), read from /state every 50 ms."""
+    """`before` hook: the bar drained to `level` + 1 by one planned hunger effect (drain_plan), in seconds."""
     def hook(ctx):
         from ... import api
-        t0, now_amp = time.time(), None
-        while time.time() - t0 < max_s:
-            s = api.get("/state")
-            step = drain_step(s.get("food", 20), s.get("saturation", 0), level)
-            if step == "stop":
-                break
-            amp = DRAIN_FAST if step == "fast" else DRAIN_SLOW
-            if amp != now_amp:
-                # a weaker effect does not replace a stronger one: clear, then give
-                _chat("effect clear @p minecraft:hunger")
-                _chat(f"effect give @p minecraft:hunger 30 {amp} true")
-                now_amp = amp
-            time.sleep(DRAIN_POLL_S)
+        _chat("effect clear @p minecraft:saturation")      # a refill still running would undo the drain
         _chat("effect clear @p minecraft:hunger")
-        time.sleep(1.0)                   # what exhaustion was left takes its last point, if any
+        s = api.get("/state")
+        plan = drain_plan(s.get("food", 20), s.get("saturation", 0), level)
+        if plan is not None:
+            secs, amp = plan
+            if secs > max_s:
+                raise SetupInvalid(f"the drain takes {secs} s, over {max_s}")
+            _chat(f"effect give @p minecraft:hunger {secs} {amp} true")
+            time.sleep(secs + 0.3)           # the effect's own clock, then its last tick lands
         food = api.get("/state").get("food", 20)
         BASE["food_drained"] = food
         from ...reflexes import EAT_BELOW, STARVE
@@ -696,4 +696,4 @@ NAMES = {"upkeep": lambda line, *p: f"upkeep__{line}",
          "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          "brain": lambda name, *p: name, "dirt": lambda name, *p: name}
 
-__all__ = ['BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_FAST', 'DRAIN_POLL_S', 'DRAIN_SLOW', 'DRAIN_SLOW_FROM', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_is_day_now', '_job_ready_at', '_kept', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_regen_fed', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_step', 'fed_up', 'first_step', 'furnace_slots', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
+__all__ = ['BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_is_day_now', '_job_ready_at', '_kept', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_regen_fed', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']

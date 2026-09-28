@@ -759,20 +759,37 @@ class FurnaceSlots(unittest.TestCase):
 
 
 class Drain(unittest.TestCase):
-    """vocab.drain_step: fast while saturation is left or the bar is high, slow for the last points, stop at
-    the level + 1 — at full strength all the way it overshot to 0 and 4."""
+    """drain_plan: one hunger effect on the server's clock takes the bar to level + 1 (or level, a carried point) —
+    read-and-stop at full strength overshot to 0 and 4; read-and-stop slowly took 14 s."""
+
+    @staticmethod
+    def after(food, sat, plan, carried=0.0):
+        """The bar after the effect, stepped as the game takes exhaustion (saturation first, then food)."""
+        secs, amp = plan
+        ex = carried + sc.HUNGER_PER_TICK * (amp + 1) * 20 * secs
+        while ex > sc.EXHAUSTION_PER_POINT:
+            ex -= sc.EXHAUSTION_PER_POINT
+            if sat > 0:
+                sat = max(0.0, sat - 1)
+            else:
+                food -= 1
+        return food
 
     def test_table(self):
-        rows = [("full, saturation left: fast", 20, 5.0, 10, "fast"),
-                ("no saturation, high: fast", 16, 0.0, 10, "fast"),
-                ("four above the stop: slow (the overshoot zone)", 15, 0.0, 10, "slow"),
-                ("one above the stop: slow", 12, 0.0, 10, "slow"),
-                ("saturation left though low: fast (the bar cannot move before it is gone)", 13, 3.0, 10, "fast"),
-                ("at level + 1: stop", 11, 0.0, 10, "stop"),
-                ("must fail: overshot below the level: stop", 8, 0.0, 10, "stop")]
-        for name, food, sat, level, want in rows:
+        # (situation, food, saturation, level)
+        rows = [("full, saturated: to level + 1", 20, 20.0, 6), ("full, no saturation", 20, 0.0, 16),
+                ("partial saturation", 18, 3.4, 10)]
+        for name, food, sat, level in rows:
             with self.subTest(name):
-                self.assertEqual(sc.drain_step(food, sat, level), want)
+                plan = sc.drain_plan(food, sat, level)
+                self.assertLessEqual(plan[1], sc.HUNGER_MAX_AMP)
+                self.assertEqual(self.after(food, sat, plan), level + 1)
+                self.assertIn(self.after(food, sat, plan, carried=3.9), (level, level + 1))
+        with self.subTest("at level + 1 already: nothing to drain"):
+            self.assertIsNone(sc.drain_plan(7, 0.0, 6))
+        with self.subTest("must fail: a plan short of the need leaves the bar high"):
+            secs, amp = sc.drain_plan(20, 20.0, 6)
+            self.assertGreater(self.after(20, 20.0, (secs, max(0, amp - 20))), 7)
 
 
 class EatTarget(unittest.TestCase):
