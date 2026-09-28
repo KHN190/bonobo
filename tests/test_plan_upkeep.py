@@ -2013,12 +2013,15 @@ class Overnight(unittest.TestCase):
     def test_a_way_that_failed_here_gives_way_to_the_next(self):
         """A night way that failed here (cooling under needs.way_key) drops out of the pricing: the next way is
         chosen the same night (search_night_resume: dig in refused 'no lid below the ground line', then idling)."""
+        from bonobo import decompose
         carried = [("stone_pickaxe", 1), ("cobblestone", 16)]            # both dig in and wall in can be had
         # (situation, the ways cooling) → the way chosen
         rows = [("dig in cooled: walled in", ["dig in"], "wall in"),
                 ("wall in cooled: dug in", ["wall in"], "dig in"),
                 ("a way this bag cannot take cooled: no change", ["hut", "dig in by hand"], None),
-                ("must fail: every way it has cooled: none tonight", ["dig in", "wall in"], "none")]
+                # the hut too: its parts can be planned from this bag (a door, torches), so it is a way
+                ("must fail: every way cooled: none tonight", [s["name"] for s in decompose.SOURCES["overnight"]],
+                 "none")]
         snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
         free, _s, _st = needs.overnight(snap.inv, cost(snap), needs.night_facts(False), bed_too=False)
         for name, cooled, want in rows:
