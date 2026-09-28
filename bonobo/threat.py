@@ -506,6 +506,28 @@ class Answer:
     def __repr__(self):
         return f"Answer({self.name}, {self.cost_s:.1f}s)"
 
+FALLBACK = (("reshape", "cover", "wall_in"), ("evade",), ("fight", "fight_shielded"))   # shape, flee, fists
+
+
+def fallback(opts, state):
+    """Pure: the answer when nothing saves but a melee follower is closing and would hurt us — never ignore: a
+    shape if one is on offer, else flight while every follower is slower than us, else the fight; the least costly
+    of the first group there is. None when nothing melee closes (ignore stands)."""
+    here, grid = tuple(state["here"]), state.get("field")
+    melee = [h for h in state.get("hazards", ()) if h[3] in MOBS and not MOBS[h[3]].get("ranged")
+             and not MOBS[h[3]].get("burst")]
+    if not melee or pressure(here, melee, float(state.get("protection", 0.0)), ground=grid) <= 0.0:
+        return None
+    slower = all(float(MOBS[h[3]].get("speed", 2.5)) < float(PLAYER["speed"]) for h in melee)
+    for kinds in FALLBACK:
+        if kinds == ("evade",) and not slower:
+            continue
+        group = [o for o in opts if o.kind in kinds]
+        if group:
+            return min(group, key=lambda o: float(o.hp) + float(o.seconds))
+    return None
+
+
 class Field:
     """The threats around us, as a kernel model: one state, one price, a column per answer."""
 
@@ -515,12 +537,15 @@ class Field:
         self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed), or None
         self.work_s = horizon_for(state)
         self.opts = [Answer(o, self.price_hp, self.work_s) for o in options(state)]
-        self.default = next(a for a in self.opts if a.name == "ignore")
+        self.idle = next(a for a in self.opts if a.name == "ignore")
+        # the answer when nothing saves: never standing still under a closing melee follower (fallback)
+        forced = fallback([a.option for a in self.opts], state)
+        self.default = next((a for a in self.opts if a.option is forced), self.idle) if forced else self.idle
 
     def state(self):
         """The kernel state: what carrying on still owes us, which is exactly what the `ignore` column leaves."""
 
-        return {"pending_hp": self.default.option.leaves * self.work_s + self.default.option.blast_after,
+        return {"pending_hp": self.idle.option.leaves * self.work_s + self.idle.option.blast_after,
                 "work_s": self.work_s}
 
     def price(self, state):

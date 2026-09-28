@@ -329,6 +329,8 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
     if option is None or option.kind == "ignore":
         return None
     worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
+    if worth <= 0 and option is field_model.default.option:
+        worth = FORCED_WORTH_S       # the fallback under a closing follower: taken though nothing saves
     return (option, round(worth, 1)) if worth > 0 else None
 
 # the jar's word that the named mob is no target any more: dead ("defeated or gone" — the kill) or not found; the
@@ -348,6 +350,8 @@ def redecide(gone):
         return None
     chosen = bid(last["state"], [r for r, _ in kept], last["price"], ids=[i for _, i in kept])
     return chosen[0] if chosen else None
+
+FORCED_WORTH_S = 0.1   # the bid of threat.fallback: enough to take the body, less than any answer that saves
 
 LOST_S = 3.0           # nothing has chased us this long (killed, gone, outrun): the engagement may end
 

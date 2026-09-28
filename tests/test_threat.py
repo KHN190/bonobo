@@ -1257,6 +1257,41 @@ class APassageWalledBeforeWeLook(unittest.TestCase):
                 self.assertEqual(estimate.arrival_s((0.5, 64.0, 0.5), walker, ground=ground) != float("inf"), arrives)
 
 
+class NeverStillUnderAFollower(unittest.TestCase):
+    """A melee follower closing: never ignore — a shape if carried, else flight while it is slower, else the fight."""
+
+    def test_rows(self):
+        z = [row("minecraft:zombie", 3, 0)]
+        nowhere = (lambda spot: None)  # noqa: E731
+        # (our kit) → the pick
+        rows = [("blocks carried, no ground to flee: wall in", dict(sword=0, blocks=16, footing=nowhere), "wall_in"),
+                ("bare hands, open ground: flee (it is slower)", dict(sword=0), "evade"),
+                ("must fail: bare hands, 10 hp, a stone sword — not ignore", dict(sword=1, hp=10), "evade"),
+                ("nowhere to go, nothing to build, a fist fight is lethal: nothing else exists", dict(sword=0, footing=nowhere),
+                 "ignore")]
+        for name, kw, want in rows:
+            with self.subTest(name):
+                self.assertEqual(decide(z, **kw).kind, want)
+
+    def test_dig_in_replay(self):
+        """combat__dig_in 05:42, the logged start (16 hp, a walker 2.3 off, a 9.2-block walk): a follower's evade only
+        postpones, so down 2 wins (must fail: evade, its old pick)."""
+        import math
+        from bonobo import estimate, field
+        here = (10000.08, 200.0, 10002.09)
+        z = [estimate.row((10000.56, 200.0, 10000.23), 3.0, (0, 0, 0), "minecraft:zombie", 1.0, 6.25)]
+
+        def footing(spot):
+            dx, dz = spot[0] - here[0], spot[2] - here[2]
+            k = min(1.0, 9.2 / math.hypot(dx, dz))
+            return (here[0] + dx * k, spot[1], here[2] + dz * k)
+        state = {"here": here, "hp": 16, "sword": 0, "protection": 0.0, "blocks": 128, "hazards": z, "ids": [1],
+                 "field": field.Field(bucket="underground"), "dig_ok": True, "footing": footing}
+        ss = sv.price_state(hp=16, armor=0, pickaxe=3)
+        d = threat.decide(state, lambda dhp: sv.hp_seconds(ss, dhp))
+        self.assertEqual((d.kind, d.target), ("reshape", ("down", 2)))
+
+
 class EatingInAFight(unittest.TestCase):
     """Ordinary food heals by regen, later and only undisturbed; a golden apple heals now."""
 
