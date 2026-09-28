@@ -202,7 +202,12 @@ class EveryColumnIsOfferedWhenItCanWork(unittest.TestCase):
             rows = cell.rows()
             if not rows or any(cell.mob_of(r).get("squeezes") or cell.mob_of(r).get("ranged") for r in rows):
                 continue
-            wheres = {o.target[0] for o in threat.options(cell.threat_state()) if o.kind == "reshape"}
+            state = cell.threat_state()
+            # a wall can work only if it stands before they reach us (set under their hits it is knocked apart)
+            seal_s = 2 * float(threat.ENGAGE["block_s"])
+            if min(threat.arrival(tuple(state["here"]), r, ground=state["field"]) for r in rows) < seal_s:
+                continue
+            wheres = {o.target[0] for o in threat.options(state) if o.kind == "reshape"}
             self.assertIn("between", wheres, cell)
 
 

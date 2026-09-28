@@ -23,6 +23,18 @@ def row(kind, x, z, vel=STILL, aware=1.0, dps=None):
     return threat.row((float(x), 64.0, float(z)), threat.MOBS[kind]["reach"], vel, kind, aware=aware, dps=dps)
 
 
+def dig_fits_at(kind="minecraft:zombie"):
+    """Fixture: the nearest whole distance a `kind` still presses us from but reaches us only after a stopping-depth
+    dig (melee_stop_blocks × dig_s) — the rule's own numbers, not a tuned spot."""
+    from bonobo import field
+    need = float(threat.ENGAGE["melee_stop_blocks"]) * float(threat.ENGAGE["dig_s"])
+    for d in range(2, 40):
+        r = row(kind, d, 0)
+        if threat.arrival(HERE, r, ground=field.Field()) >= need and threat.pressure(HERE, [r], 0.0) > 0:
+            return d
+    raise AssertionError("no distance fits a dig")
+
+
 def decide(hazards, **kw):
     """Decide with the price the agent actually uses: health costs what the survival model says it costs.
 
@@ -750,7 +762,8 @@ class ShieldAndHole(unittest.TestCase):
 
     def test_answers_over_the_table(self):
         from bonobo import field
-        crowd = [row("minecraft:zombie", 4, 0), row("minecraft:zombie", 0, 4), row("minecraft:zombie", -4, 0)]
+        d = dig_fits_at()     # they reach us only after the hole is dug
+        crowd = [row("minecraft:zombie", d, 0), row("minecraft:zombie", 0, d), row("minecraft:zombie", -d, 0)]
         rows = [("a zombie, a sword, a shield: fight (the reflex shields)", [row("minecraft:zombie", 4, 0)],
                  dict(sword=2, shield=True), ("fight", 0)),
                 ("a zombie, a sword, no shield: fight", [row("minecraft:zombie", 4, 0)], dict(sword=2), ("fight", 0)),
@@ -848,8 +861,7 @@ class APillarUnderHits(unittest.TestCase):
         from bonobo import field
         # (a zombie this far off) → the seconds of each pillar on offer {n: seconds}
         # one block up stops no walker (reaches_share: a step at melee_stop_blocks): never on offer
-        rows = [("6 off: nothing hits while we build, from two up", 6, {2: 1.2, 3: 1.8, 4: 2.4}),
-                ("must fail: 1.5 off, in reach: one block stops nothing, two are too many to live", 1.5, {}),
+        rows = [("must fail: 1.5 off, in reach: one block stops nothing, two are too many to live", 1.5, {}),
                 ("12 off: nothing near enough to be worth it", 12, {})]
         for name, x, want in rows:
             with self.subTest(name):
@@ -858,6 +870,15 @@ class APillarUnderHits(unittest.TestCase):
                 got = {o.target[1]: round(o.seconds, 2) for o in threat.options(state)
                        if o.kind == "reshape" and o.target[0] == "under"}
                 self.assertEqual(got, want)
+        with self.subTest("6 off: blocks set before it arrives are quiet, the rest knocked back"):
+            z = row("minecraft:zombie", 6, 0)
+            t_free, block = threat.arrival(HERE, z, ground=field.Field()), float(threat.ENGAGE["block_s"])
+            for n in (1, 2, 3, 4):
+                s = threat.shaping_s("under", block, n, HERE, [z], field.Field())
+                if n * block <= t_free:
+                    self.assertAlmostEqual(s, n * block, places=2)
+                else:
+                    self.assertGreater(s, n * block)
         with self.subTest("must fail: under a zombie's hits a block is not the 0.6 s of a quiet one"):
             self.assertGreater(threat.block_under_hits_s(0.6, threat.knockback_rate(
                 HERE, [row("minecraft:zombie", 1.5, 0)], 0.6)), 0.6 * 3)
@@ -895,8 +916,9 @@ class AHoleDeepEnoughToStopThem(unittest.TestCase):
     def test_rows(self):
         from bonobo import field
         stop = int(threat.ENGAGE["melee_stop_blocks"])
+        # the walker reaches us only after the dig (dug under its hits a hole goes nowhere: shaping_s)
         state = {"here": HERE, "hp": 14, "sword": 0, "protection": 0.0, "blocks": 0, "dig_ok": True,
-                 "hazards": [row("minecraft:zombie", 3, 0)], "ids": [0], "field": field.Field()}
+                 "hazards": [row("minecraft:zombie", dig_fits_at(), 0)], "ids": [0], "field": field.Field()}
         opts = threat.options(state)
         downs = {o.target[1]: o for o in opts if o.kind == "reshape" and o.target[0] == "down"}
         press = next(o.leaves for o in opts if o.kind == "ignore")
@@ -1290,8 +1312,9 @@ class NeverStillUnderAFollower(unittest.TestCase):
                 self.assertEqual(decide(z, **kw).kind, want)
 
     def test_dig_in_replay(self):
-        """combat__dig_in 05:42, the logged start (16 hp, a walker 2.3 off, a 9.2-block walk): a follower's evade only
-        postpones, so down 2 wins (must fail: evade, its old pick)."""
+        """combat__dig_in 05:42, the logged start (16 hp, a walker 2.3 off, a 9.2-block walk). Under its hits no shape
+        is built in time (06:29: the dig ran 2.7 s and never went down), so flee — it is slower (must fail: down 2,
+        the pick that died)."""
         import math
         from bonobo import estimate, field
         here = (10000.08, 200.0, 10002.09)
@@ -1305,7 +1328,7 @@ class NeverStillUnderAFollower(unittest.TestCase):
                  "field": field.Field(bucket="underground"), "dig_ok": True, "footing": footing}
         ss = sv.price_state(hp=16, armor=0, pickaxe=3)
         d = threat.decide(state, lambda dhp: sv.hp_seconds(ss, dhp))
-        self.assertEqual((d.kind, d.target), ("reshape", ("down", 2)))
+        self.assertEqual(d.kind, "evade")
 
 
 class AFloorThatDigs(unittest.TestCase):

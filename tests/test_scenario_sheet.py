@@ -207,6 +207,16 @@ class Unique(unittest.TestCase):
                 self.assertEqual(self.dups(table), want)
 
 
+def _behaviours():
+    from bonobo.bench.words import fight
+    return sorted(fight.BEHAVIOURS)
+
+
+def _trapped_row():
+    from bonobo.bench import bench_combat
+    return bench_combat.TRAPPED_ROW
+
+
 class Tiers(unittest.TestCase):
     def test_every_row_has_a_tier(self):
         for name, row in rows():
@@ -241,10 +251,8 @@ class Tiers(unittest.TestCase):
               ("resume_after_combat", "brain"), ("l3_two_goals_in_order", "brain"),
               ("ban_needs_a_failure", "brain"), 
               ("l3_order_swapped", "brain"), ("plan_without_events", "brain")] + [
-              # the fight's behaviour cells: one each, all in the combat tier
-              (f"combat__{b}", "combat") for b in ("block_gap", "dig_in", "pillar", "shield_arrows",
-                                                   "fight_without_shield", "fight_and_block", "wall_in",
-                                                   "surrounded_low")]
+              # the fight's behaviour cells, read from their table (a rename fails here, not silently)
+              (f"combat__{b}", "combat") for b in _behaviours()] + [(_trapped_row(), "combat")]
 
     def test_placed_rows(self):
         for name, tier in self.PLACED:

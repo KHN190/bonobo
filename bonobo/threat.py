@@ -283,6 +283,22 @@ def knockback_rate(here, hazards, within_s, ground=None):
     return sum(1.0 / float(MOBS[h[3]]["attack_s"]) for h in hazards
                if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") and arrival(here, h, ground=ground) <= within_s)
 
+def shaping_s(where, each_s, n, here, hazards, ground=None):
+    """Pure: seconds to build `n` of a shape — quiet until the first walker reaches us, then each block knocked back
+    by its hits (block_under_hits_s): a pillar rose nothing in 4 s and a dig never went down in 2.7 s under hits, but
+    blocks set before it arrives cost only their time. A roof is a lid over the head: priced quiet."""
+    quiet = each_s * n
+    if where == "roof":
+        return quiet
+    melee = [h for h in hazards if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst")]
+    t_free = min((arrival(here, h, ground=ground) for h in melee), default=float("inf"))
+    if quiet <= t_free:
+        return round(quiet, 2)
+    rate = knockback_rate(here, melee, quiet, ground=ground)
+    # the rest, block by block, each a hit-free each_s: exp(each_s × rate) tries (block_under_hits_s per block)
+    return round(t_free + (quiet - t_free) * math.exp(each_s * rate), 2)
+
+
 def block_under_hits_s(each_s, rate):
     """Pure: expected seconds to stand one block up while hit `rate` times a second: a hit knocks us off the cell and
     the jump starts again, so a block needs a hit-free `each_s` — exp(each_s × rate) tries of it on average."""
@@ -309,15 +325,11 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
         if creeper and where in ("between", "down"):
             continue
         each_s = float(ENGAGE["dig_s"] if where == "down" else ENGAGE["block_s"])
-        if where in ("under", "down", "between"):
-            # a shape built under a walker's hits: each hit knocks us off the cell and the work starts again (a pillar
-            # rose nothing in 4 s; combat__dig_in's dig never went down in 2.7 s) — the price is the knocked-back one
-            each_s = round(block_under_hits_s(each_s, knockback_rate(here, hazards, each_s, ground=grid)), 2)
         after = grid
         for n in ((most_of[where],) if where == "roof" and most_of[where] else range(1, most_of[where] + 1)):
             if where == "between":
                 after = after.with_block()
-            seconds = each_s * n
+            seconds = shaping_s(where, each_s, n, here, hazards, grid)
             # shaping kills nothing: what can still come at us afterwards follows as walking away's does (else a pillar
             # outbid killing a zombie) — but what the shape shuts out for good (a sealed passage: arrival inf over the
             # ground after) follows no one, and leaves nothing
