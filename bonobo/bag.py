@@ -221,10 +221,14 @@ def opener(region, cell, feet, drop, forced=False):
     """Pure: the block to break first so the jar can see `cell` — for a cell that is not buried but whose open faces
     are only pockets too small to stand in (the jar's mine task never digs for a line of sight): the solid face
     neighbour nearest the body's eye, never the body's own floor. None when the cell needs no opening (a
-    standable face, or buried: the approach digs to a buried cell)."""
+    standable face)."""
     cell, feet = tuple(cell), tuple(feet)
-    if region is None or (not forced and (buried(region, cell) or standable_face(region, cell, drop))):
+    if region is None or (not forced and standable_face(region, cell, drop)):
         return None
+    # buried: the jar's approach digs a way to it, but the drop then lies in a sealed cavity its collect never
+    # enters (brain__base 09:17:59: DIAMOND_UP mined, "collecting items (0)", then a shaft dug for the next seed) —
+    # a side face on the body's side is opened first, the way in for the eye and for the pickup
+    forced = forced or buried(region, cell)
     # `forced`: the jar refused every stand it tried (NO_STAND) though a face looked standable — a side face then
     # (the one above would put the body on the cell's own column, which the jar's mine never stands on)
     eye = (feet[0], feet[1] + 1, feet[2])
