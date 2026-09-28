@@ -23,7 +23,7 @@ PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 
 def interrupt_writes(src):
     """Pure: writes of a message (anything but None) into the interrupt in a module's source (its AST): a call of
-    `api.request_interrupt(msg)`, or an assignment to `api.STATE.interrupt`."""
+    `api.request_interrupt(msg)`, the arbiter's `WIRE["tell"](msg)`, or an assignment to `api.STATE.interrupt`."""
     def message(v):
         return not (isinstance(v, ast.Constant) and v.value is None)
     n = 0
@@ -32,6 +32,11 @@ def interrupt_writes(src):
                 and node.func.attr == "request_interrupt" and isinstance(node.func.value, ast.Name) \
                 and node.func.value.id == "api" and node.args and message(node.args[0]):
             n += 1
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) \
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "WIRE" \
+                and isinstance(node.func.slice, ast.Constant) and node.func.slice.value == "tell" \
+                and node.args and message(node.args[0]):
+            n += 1          # the arbiter's wire to api.request_interrupt (arbiter never imports api)
         elif isinstance(node, ast.Assign) and message(node.value):
             n += sum(1 for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "interrupt"
                      and isinstance(t.value, ast.Attribute) and t.value.attr == "STATE"
@@ -96,6 +101,8 @@ class RulesAreWired(unittest.TestCase):
               ("the field written directly", "api.STATE.interrupt = 'stop'\n", 1),
               ("must fail: cleared with None: not a writer", "api.request_interrupt(None)\n", 0),
               ("must fail: the field cleared with None", "api.STATE.interrupt = None\n", 0),
+              ("the arbiter's wire", "WIRE['tell'](reason)\n", 1),
+              ("must fail: another wire is not the message", "WIRE['stop']()\n", 0),
               ("two writes in one function", "def f():\n    api.request_interrupt(x)\n    api.request_interrupt('y')\n", 2),
               ("another module's interrupt is not api's", "other.request_interrupt('x')\nother.STATE.interrupt = 'x'\n", 0),
               ("reading it is not writing it", "x = api.interrupt_pending()\ny = api.STATE.interrupt\n", 0)]

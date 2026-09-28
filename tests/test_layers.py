@@ -31,7 +31,7 @@ MAY_IMPORT_TOP = {"brain", "review"}
 CLOSURE = {
     "actions": 15,
     "api": 8,
-    "arbiter": 8,
+    "arbiter": 2,            # arbiter no longer imports api: api wires its message and /stop in (arbiter.WIRE)
     "bag": 11,
     "beliefs": 2,
     "blueprints": 1,

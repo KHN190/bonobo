@@ -11,7 +11,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, cast
 
-from . import lifecycle, paths, tape
+from . import arbiter, lifecycle, paths, tape
 from .data import EXCEPTIONS, TASK_WAIT_S, item_ids
 
 if TYPE_CHECKING:
@@ -203,7 +203,6 @@ def interrupt_due(since, soft=False):
         return False
     if STATE.mode != "survival":
         return True
-    from . import arbiter
     return arbiter.BODY.preempted_at > since
 
 def check_interrupt(since, soft=False):
@@ -219,7 +218,6 @@ def refused(r, queued):
 
     if queued:
         return
-    from . import arbiter
     if "owned by the arbiter" in str(r.get("message", "")) or arbiter.BODY.holder() is not None \
             or arbiter.BODY.engaged:
         raise FightHolds(f"the body is held ({r.get('message') or 'a fight'}): nothing queued")
@@ -372,7 +370,6 @@ def post(path, body=None):
     if path.startswith("/task"):
         body = with_item_ids(body)
     if path.startswith(BODY_PATHS):
-        from . import arbiter
         if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
             return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
     return api("POST", path, body or {})
@@ -417,7 +414,6 @@ def _raise_if_released(results, since=None):
     if any("released by player" in (t.get("message") or "") for t in results):
         raise PlayerTookControl()
     if any(REPLACED in (t.get("message") or "") for t in results):
-        from . import arbiter
         if since is not None and arbiter.BODY.preempted_at > since:
             raise CommitmentExpired(f"a faster layer took the body ({arbiter.BODY.preempted_by}): re-planning")
         raise BodyContested("another commander posted a task while ours ran")
@@ -494,7 +490,6 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
 
     if not isinstance(awaits, str) or not awaits.strip():
         raise ValueError("api.run: `awaits` must name the world result waited for (else send a chain)")
-    from . import arbiter
     if not arbiter.BODY.owns(f"api.run({task.get('type')})"):
         return {"status": "failed", "type": task.get("type"), "message": "body owned by the arbiter", "seconds": 0}
     at_boundary()          # nightfall: a single send is a boundary too (mine's mine_many went out after the request)
@@ -598,3 +593,15 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
         ok = sum(t["status"] == "succeeded" for t in results)
         detail(f"  chain: {ok}/{len(tasks)} succeeded")
     return results
+
+
+def _stop_quietly():
+    """A preemption's /stop: a game that cannot hear it has nothing running to stop."""
+    try:
+        post("/stop")
+    except McError:
+        pass
+
+
+# the arbiter says and does through here (it never imports the transport): the one wire, set once at import
+arbiter.WIRE.update(tell=request_interrupt, stop=_stop_quietly)

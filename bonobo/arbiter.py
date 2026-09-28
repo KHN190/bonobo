@@ -5,8 +5,7 @@ import threading
 import traceback
 import time
 from .data import NIGHT_WORK
-from . import api
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from .shapes import Rule, Source
@@ -15,6 +14,11 @@ REFLEX, SAFETY, TACTIC, MAINTAIN, PLAN = 0.05, 0.2, 1.0, 3.0, 10.0
 FRESH_WITHIN_S = 1.0     # a reading older than this describes a world that has moved on
 # MAINTAIN (reflexes.TABLE): faster than any plan, slower than a fight
 SCALES = {"reflex": REFLEX, "safety": SAFETY, "tactic": TACTIC, "maintain": MAINTAIN, "plan": PLAN}
+
+# what a preemption says and does through the transport, wired from above by api (which imports this module, never
+# the other way): "tell" leaves the interrupt message (api.request_interrupt), "stop" /stops the running task
+# (quietly: a game that cannot hear it has nothing running)
+WIRE: "dict[str, Callable[..., None] | None]" = {"tell": None, "stop": None}
 
 
 def fresh_enough(seen_at, now=None, within=1.0):
@@ -305,13 +309,12 @@ class Motion:
                 self.lease = (intent, release, now if seen_at is None else seen_at)
             if intent.scale <= SAFETY:
                 # the message channel has one writer, a preemption; the running slow action reads it and abandons itself
-                api.request_interrupt(reason)
+                if WIRE["tell"] is not None:
+                    WIRE["tell"](reason)
         if clear_first:
             # stop the slower layer's running task, after the lease stands so whoever wakes is refused
-            try:
-                api.post("/stop")
-            except api.McError:
-                pass
+            if WIRE["stop"] is not None:
+                WIRE["stop"]()
         self._run(intent)  # outside the lock: a long action must not freeze the body
         return (intent.layer, intent.reason), None
 
