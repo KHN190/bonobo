@@ -217,18 +217,21 @@ def standable_face(region, cell, drop):
                 return True
     return False
 
-def opener(region, cell, feet, drop):
+def opener(region, cell, feet, drop, forced=False):
     """Pure: the block to break first so the jar can see `cell` — for a cell that is not buried but whose open faces
     are only pockets too small to stand in (the jar's mine task never digs for a line of sight): the solid face
     neighbour nearest the body's eye, never the body's own floor. None when the cell needs no opening (a
     standable face, or buried: the approach digs to a buried cell)."""
     cell, feet = tuple(cell), tuple(feet)
-    if region is None or buried(region, cell) or standable_face(region, cell, drop):
+    if region is None or (not forced and (buried(region, cell) or standable_face(region, cell, drop))):
         return None
+    # `forced`: the jar refused every stand it tried (NO_STAND) though a face looked standable — a side face then
+    # (the one above would put the body on the cell's own column, which the jar's mine never stands on)
     eye = (feet[0], feet[1] + 1, feet[2])
     floor = supports(feet)
     options = [f for f in (add(cell, d) for d in FACES)
                if region.inside(f) and region.solid(f) and f not in floor and not under(feet, f)
+               and not (forced and f[1] != cell[1])
                and not getattr(region, "unbreakable", lambda p: False)(f)]
     return min(options, key=lambda f: (sum((a - b) ** 2 for a, b in zip(f, eye)), f), default=None)
 
