@@ -2538,7 +2538,10 @@ def one_row(name, skills, doc, scene, run, check, budget, tick_rate=None):
                 skills=list(skills), tags={"base": skills[0]}, **({"target_s": target} if target else {}),
                 **({"tick_rate": tick_rate} if tick_rate else {}))
 
-REAL_KIT = [("cmd", "spreadplayers 14200 14200 0 4 false @p"), ("cmd", "clear @p"), ("give", "stone_pickaxe"),
+# Real terrain at 14200: its chunks loaded first, then a dry standing spot anywhere within 64 — a radius of 4 found
+# none ("Could not spread 1 entity": water or leaves all round the centre), and the row never began.
+REAL_KIT = [("cmd", "forceload add 14136 14136 14264 14264"), ("cmd", "spreadplayers 14200 14200 0 64 false @p"),
+            ("cmd", "clear @p"), ("give", "stone_pickaxe"),
             ("give", "torch", 8), ("give", "cobblestone", 32), ("give", "cooked_beef", 8)]
 
 def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False):
