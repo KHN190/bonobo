@@ -296,6 +296,43 @@ class AFailedAnswerIsDecidedAgain(unittest.TestCase):
         self.assertEqual(fight_loop._attack(opt(7), state)[0]["entity"], 7)
 
 
+class AOneShotAnswerIsDoneOnce(unittest.TestCase):
+    """carry re-posts only what continues (a fight swings on): a dig, a pillar, a walk away is done once its task is,
+    and posted again only for a fresh decision — never the finished one again at the air it just dug."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api, fight_loop
+        opt = lambda kind: type("Option", (), {"kind": kind, "target": ("down", 2) if kind == "reshape" else 7})()  # noqa: E731
+        # (situation, the wants in turn, perception's answer each loop) → posts
+        dig, dig2, hit = opt("reshape"), opt("reshape"), opt("fight")
+        rows = [("must fail: a finished dig is not posted again (the held decision)", [dig, dig, dig, dig], 1),
+                ("a fresh decision to dig again is posted", [dig, dig, dig2, dig2], 2),
+                ("a fight swings on: posted again when its task ends", [hit, hit, hit, hit], 2)]
+        for name, wants, posts in rows:
+            with self.subTest(name), mock.patch.object(fight_loop.time, "sleep"), \
+                    mock.patch.object(api, "get", return_value={"status": "succeeded", "message": "done"}):
+                posted = []
+                seq = iter(wants)
+                current = {"w": None}
+
+                def want():
+                    current["w"] = next(seq, None)
+                    return current["w"]
+                held = {"done": None, "task_id": None}
+                list(fight_loop.carry(want, lambda w: posted.append(w) or {"id": len(posted)},
+                                      lambda: True, held, again=True))
+                self.assertEqual(len(posted), posts)
+
+    def test_still_to_mine(self):
+        from bonobo import fight_loop
+        tasks = [{"type": "mine", "x": 0, "y": 63, "z": 0}, {"type": "mine", "x": 0, "y": 62, "z": 0},
+                 {"type": "pillar", "item": "minecraft:dirt"}]
+        solid = {(0, 62, 0)}
+        got = fight_loop.still_to_mine(tasks, lambda c: c in solid)
+        self.assertEqual([t.get("y") for t in got], [62, None], "must fail: the dug cell (63, air now) is dropped")
+
+
 class ARequestTheGameDroppedIsNotALostGame(unittest.TestCase):
     """api: a connection reset on one request while the game still answers /status is that request's error (McError,
     the jar's log names it), not GameUnreachable — which stood the brain down to wait for a game that was there."""
@@ -809,8 +846,9 @@ class APillarUnderHits(unittest.TestCase):
     def test_the_pillar_over_the_table(self):
         from bonobo import field
         # (a zombie this far off) → the seconds of each pillar on offer {n: seconds}
-        rows = [("6 off: nothing hits while we build", 6, {1: 0.6, 2: 1.2, 3: 1.8, 4: 2.4}),
-                ("1.5 off, in reach: one block costs its hit-free tries, two are too many to live", 1.5, {1: 2.09}),
+        # one block up stops no walker (reaches_share: a step at melee_stop_blocks): never on offer
+        rows = [("6 off: nothing hits while we build, from two up", 6, {2: 1.2, 3: 1.8, 4: 2.4}),
+                ("must fail: 1.5 off, in reach: one block stops nothing, two are too many to live", 1.5, {}),
                 ("12 off: nothing near enough to be worth it", 12, {})]
         for name, x, want in rows:
             with self.subTest(name):
@@ -831,6 +869,25 @@ class APillarUnderHits(unittest.TestCase):
         for name, hazards, want in rows:
             with self.subTest(name):
                 self.assertAlmostEqual(threat.knockback_rate(HERE, hazards, 0.6), want, places=3)
+
+
+class AHoleDeepEnoughToStopThem(unittest.TestCase):
+    """Digging down is priced by the depth that really puts us out of a walker's reach (melee_stop_blocks): a
+    1-deep hole leaves every hit landing, so it is never an answer (combat__dig_in 01:38:51 died in one)."""
+
+    def test_rows(self):
+        from bonobo import field
+        stop = int(threat.ENGAGE["melee_stop_blocks"])
+        state = {"here": HERE, "hp": 14, "sword": 0, "protection": 0.0, "blocks": 0, "dig_ok": True,
+                 "hazards": [row("minecraft:zombie", 3, 0)], "ids": [0], "field": field.Field()}
+        opts = threat.options(state)
+        downs = {o.target[1]: o for o in opts if o.kind == "reshape" and o.target[0] == "down"}
+        press = next(o.leaves for o in opts if o.kind == "ignore")
+        with self.subTest("must fail: a 1-deep hole is not on offer"):
+            self.assertNotIn(1, downs)
+        with self.subTest("the stopping depth is: only what waits for us up top follows (follow_p), no hit lands"):
+            self.assertIn(stop, downs)
+            self.assertAlmostEqual(downs[stop].leaves, round(press * float(threat.ENGAGE["follow_p"]), 3), places=2)
 
 
 class ADelayIsNotASeal(unittest.TestCase):

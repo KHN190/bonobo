@@ -468,7 +468,11 @@ class ReachesShare(unittest.TestCase):
         rows = [
             ("no shape", None, walker, 1.0),
             ("block between delays only", ("between", 5), walker, 1.0),
-            ("walker, one block up", ("up", 1), walker, max(0.0, 1.0 - 1 / stop)),
+            # a step at melee_stop_blocks: one block up or down the boxes still meet and every hit lands
+            ("must fail: walker, one block up: still hit, all of it", ("up", 1), walker, 1.0),
+            ("must fail: walker, one block down (a 1-deep hole): still hit", ("down", 1), walker, 1.0),
+            ("walker, melee_stop_blocks down: out of reach", ("down", int(stop)), walker, 0.0),
+            ("walker, melee_stop_blocks up: out of reach", ("up", int(stop)), walker, 0.0),
             ("walker, far up: zero", ("up", 1000), walker, 0.0),
             ("archer, one down", ("down", 1), archer, max(0.0, 1.0 - hide)),
             ("archer, deep: zero", ("down", 1000), archer, 0.0),

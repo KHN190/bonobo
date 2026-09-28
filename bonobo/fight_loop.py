@@ -139,6 +139,10 @@ def same(a, b):
     return (isinstance(pa, tuple) and isinstance(pb, tuple) and len(pa) == len(pb) == 3
             and all(isinstance(v, (int, float)) for v in pa + pb) and math.dist(pa, pb) <= SAME_R)
 
+# answers that go on until the lease ends (a fight swings again, a bow shoots again): posted again when their task
+# ends. Every other answer (a dig, a pillar, a wall, a walk away, a bite) is done once its task is.
+CONTINUING = ("fight", "shoot")
+
 def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
     """The one loop carrying answers: while `going()`, the same answer keeps the posted task, a new one /stops it and
     posts its own. `failed(want, err)`: an answer that raised is decided again at once (without it) instead of
@@ -150,7 +154,11 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
         want = want_of()
         if want is None:
             return
-        if not same(want, held["done"]):
+        # a one-shot answer done is done: posted again only when perception decides it afresh (a new decision, not
+        # the held one) — re-posting a finished dig mined the air it had just dug (combat__dig_in 01:38:51)
+        fresh = (want.kind not in CONTINUING and held["task_id"] is None and held["done"] is not None
+                 and want is not held["done"])
+        if not same(want, held["done"]) or fresh:
             if held["task_id"] is not None:
                 api.post("/stop")
             try:
@@ -176,7 +184,7 @@ def carry(want_of, answer, going, held, again=False, stale=None, failed=None):
                 held["task_id"] = None
                 if stale is not None and any(w in str(r.get("message") or "") for w in STALE):
                     stale(want)          # the held choice is stale: decided again now, the next post carries it
-                if again:
+                if again and want.kind in CONTINUING:
                     held["done"] = None
                     # posted again at once: the body never idles on the decision (a POLL_S sleep here left it
                     # standing half a second after every attack ended); only a refusal backs off a poll, so a
@@ -488,6 +496,10 @@ def lend(kind, make, region=None):
     if region is not None:
         REGION[kind] = region
 
+def still_to_mine(tasks, solid):
+    """Pure: `tasks` without the mines whose cell holds nothing to dig now (`solid(cell)` False)."""
+    return [t for t in tasks if t.get("type") != "mine" or solid((t["x"], t["y"], t["z"]))]
+
 def engage(decision, s, ctx):
     """Carry out one threat answer: its batch is posted, not awaited."""
 
@@ -496,10 +508,18 @@ def engage(decision, s, ctx):
     rows, ids = threat.threats_seen()
     state = body_state(ctx, read(feet()) if read else None, threats=rows, threat_ids=ids)
     tasks = batch(decision, state)
+    mines = [(t["x"], t["y"], t["z"]) for t in tasks if t.get("type") == "mine"]
+    if mines:
+        # the blocks as they are NOW: a cell already dug is no task (it was posted and read back as air), and the
+        # pick is chosen for the block really there — not a hand for a cell last read as air (combat__dig_in 01:38:51)
+        from .world import Region
+        region = Region(tuple(min(c[i] for c in mines) for i in range(3)),
+                        tuple(max(c[i] for c in mines) for i in range(3)))
+        tasks = still_to_mine(tasks, region.solid)
     if not tasks:
         raise NotAvailable(f"{decision.kind}: nothing to do it with from here")
-    # the fight's bag is the one perception read for this answer; no block read (a weapon wants none)
-    armed = api.ARM(tasks, inv=state["inv"], read_blocks=False) if api.ARM else tasks
+    # the fight's bag is the one perception read for this answer; blocks read only for a dig (a weapon wants none)
+    armed = api.ARM(tasks, inv=state["inv"], read_blocks=bool(mines)) if api.ARM else tasks
     api.detail(f"  fight {decision.kind}: posts " + ", ".join(
         f"{t['type']}{'(' + str(t['item']) + ')' if t.get('item') else ''}" for t in armed))
     r = api.post("/task?wait=0", {"tasks": armed})

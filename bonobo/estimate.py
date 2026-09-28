@@ -50,7 +50,10 @@ def reaches_share(shape, mob):
         return 1.0
     if mob.get("ranged"):
         return max(0.0, 1.0 - float(ENGAGE["hide_per_block"]) * n) if where == "down" else 1.0
-    return max(0.0, 1.0 - n / float(ENGAGE["melee_stop_blocks"]))
+    # a step, not a slope: a walking mob hits while its attack box meets ours — one block down (or up) the boxes still
+    # overlap and every hit lands; at melee_stop_blocks they no longer do. A 1-deep hole was priced as halving the
+    # zombies' damage, chosen at 12 hp, and the bot died in it (combat__dig_in 01:38:51)
+    return 0.0 if n >= float(ENGAGE["melee_stop_blocks"]) else 1.0
 
 def pressure_hp_s(here, hazards, prot=0.0, ground=None, horizon=None, shape=None):
     """Health per second expected at `here`: each threat's rate, weighted by its reachable share of the horizon and its notice."""
