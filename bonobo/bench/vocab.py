@@ -165,14 +165,61 @@ def _snap_survival(ctx, seconds=20):
 _FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",
                "give @p dirt 576"]
 
-def _reflex_for(seconds):
+GHAST_MAX_HP = 10.0
+GHAST = {}              # the ghast row's watch: its fireballs, the player's start and worst health, the ghast's last read
+
+def ghast_health(lines):
+    """Pure: the ghast's health from '/data get entity … Health' feedback ('… has the following entity data: 7.5f'),
+    or None when no ghast answered (dead, or never there)."""
+    for line in lines:
+        m = re.search(r"entity data: ([0-9.]+)f?", line)
+        if m:
+            return float(m.group(1))
+    return None
+
+def ghast_was_answered(seen, ghast_hp, fireballs, start_hp, worst_hp):
+    """Pure: the ghast was answered — it was there and is now hurt or dead, or it fired and nothing hit us."""
+    if not seen:
+        return False                 # no ghast ever read: nothing was answered
+    if ghast_hp is None or ghast_hp < GHAST_MAX_HP:
+        return True
+    return fireballs >= 1 and worst_hp >= start_hp
+
+def _ghast_hp():
+    return ghast_health(_command("execute in minecraft:the_nether run data get entity "
+                                 "@e[type=minecraft:ghast,limit=1,sort=nearest] Health", []))
+
+def _ghast_watch(seconds=20):
+    """The reflexes (invariants: a fireball in reach is struck back) until the ghast is hurt or dead, or a fireball it
+    fired has resolved (hit, missed or struck back), at most `seconds` — never a fixed wait past the budget."""
     def run(ctx):
+        from .. import api
+        from ..world import entities
         t0 = time.time()
+        hp0 = float(api.get("/state")["health"])
+        GHAST.clear()
+        GHAST.update(fireballs=set(), start=hp0, worst=hp0, seen=False, hp=None)
         while time.time() - t0 < seconds:
             core.BRAIN.invariants()
+            GHAST["worst"] = min(GHAST["worst"], float(api.get("/state")["health"]))
+            flying = {e.get("id") for e in entities(64, ["minecraft:fireball"])}
+            resolved = bool(GHAST["fireballs"]) and not flying
+            GHAST["fireballs"] |= flying
+            GHAST["hp"] = _ghast_hp()
+            GHAST["seen"] = GHAST["seen"] or GHAST["hp"] is not None
+            if GHAST["seen"] and (GHAST["hp"] is None or GHAST["hp"] < GHAST_MAX_HP) or resolved:
+                break
             time.sleep(0.2)
         return True
     return run
+
+def _ghast_answered():
+    """Check (the server's word): the ghast hurt or dead, or ≥ 1 fireball fired and the player never hit."""
+    def check(api_, inv):
+        return ghast_was_answered(GHAST.get("seen", False), _ghast_hp() if GHAST.get("seen") else None,
+                              len(GHAST.get("fireballs", ())), GHAST.get("start", 0.0), GHAST.get("worst", 0.0)) \
+            and not api_.get("/state")["dead"]
+    return check
 
 FORTRESS_RUN = {}
 
@@ -256,7 +303,7 @@ def _road_reuse(ctx):
 
 ROAD_TIMES = []
 from .. import lifecycle as _lifecycle  # noqa: E402
-_lifecycle.in_place(__name__, "PORTAL_ROOM_OK", "FORTRESS_RUN", "TREK", "ROAD_TIMES")     # a row's own records
+_lifecycle.in_place(__name__, "PORTAL_ROOM_OK", "FORTRESS_RUN", "TREK", "ROAD_TIMES", "GHAST")     # a row's own records
 
 ROAD_LEG = 10      # three legs of 10 blocks: the reuse is what is judged, not the distance
 

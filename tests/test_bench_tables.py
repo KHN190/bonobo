@@ -401,6 +401,7 @@ NOT_ROW_TESTED = {
     "surfaced": "a hold over time of the body's height",
     "not_remembered": "the memory file",
     "threat_resolved": "a hold over time of hostiles, gap and health",
+    "ghast_answered": "the server's ghast health and the watch's fireballs (its rule: test_combat_harness.GhastAnswered)",
     "room_to_work": "free_spots_here over the live region",
     "found_near": "find() over the live world",
     "food_up": "bite_plan over the knowledge tables (fed_as_needed has its own tests)",

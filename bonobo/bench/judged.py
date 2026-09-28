@@ -14,6 +14,7 @@ WORLD = {
     "trek_check",               # the body's end position (/state) against the target
     "before_in_bag",            # FIRST: a watcher reading the bag (and the world's clock) through the run
     "walk_ate", "mine_fed",     # /state frames: food rose while x grew / while the jar's work task ran
+    "ghast_answered",           # the server's ghast Health, the fireballs /entities showed, the body's worst health
 }
 
 # words that read the bot: the fight loop, the brain, memory, the api calls made, the log, timings, the bench's own

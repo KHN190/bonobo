@@ -118,6 +118,32 @@ class Resolved(unittest.TestCase):
                 self.assertEqual(fight.resolved(start, now, first, last, kills), want)
 
 
+class GhastAnswered(unittest.TestCase):
+    """ghast_fireball passes on the server's word: the ghast hurt or dead, or it fired and nothing hit us."""
+
+    def test_health_from_the_reply(self):
+        from bonobo.bench import vocab
+        rows = [("full", ["Ghast has the following entity data: 10.0f"], 10.0),
+                ("hurt", ["Ghast has the following entity data: 3.5f"], 3.5),
+                ("must fail: no entity answered", ["No entity was found"], None), ("nothing said", [], None)]
+        for name, lines, want in rows:
+            with self.subTest(name):
+                self.assertEqual(vocab.ghast_health(lines), want)
+
+    def test_rows(self):
+        from bonobo.bench import vocab
+        # (ghast seen, its health now, fireballs seen, start hp, worst hp) → answered
+        rows = [("struck back: the ghast hurt", True, 4.0, 1, 20.0, 20.0, True),
+                ("the ghast dead", True, None, 2, 20.0, 14.0, True),
+                ("it fired, nothing hit us", True, 10.0, 1, 20.0, 20.0, True),
+                ("must fail: idle — it fired and hit us, unhurt itself", True, 10.0, 1, 20.0, 13.0, False),
+                ("must fail: idle — it never fired", True, 10.0, 0, 20.0, 20.0, False),
+                ("must fail: no ghast ever read", False, None, 0, 20.0, 20.0, False)]
+        for name, seen, ghp, fb, start, worst, want in rows:
+            with self.subTest(name):
+                self.assertEqual(vocab.ghast_was_answered(seen, ghp, fb, start, worst), want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 
