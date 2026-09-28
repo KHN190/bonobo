@@ -50,7 +50,7 @@ class Ground(unittest.TestCase):
 class Perceived(unittest.TestCase):
     def test_the_kit_does_not_wait_on_the_ground(self):
         def boom(_state):
-            raise AttributeError("module 'bonobo.field' has no attribute 'from_region'")
+            raise AttributeError("a reader failed (injected)")
         kit = {"sword_tier": 2, "armor": 7}
         flat = floor(R, R)
         rows = [  # (why, ground read, kit read) → (sword tier, the field's bucket or None)
@@ -62,8 +62,10 @@ class Perceived(unittest.TestCase):
              (None, "open")),
             ("must fail: both raise: the state as it came", boom, boom, (None, None)),
         ]
+        from unittest import mock
+        from bonobo import api
         for why, ground_of, kit_of, want in rows:
-            with self.subTest(why):
+            with self.subTest(why), mock.patch.object(api, "log"):      # the injected failure's own line, not noise
                 fresh()
                 got = perception.perceived(dict(HERE), 0.0, ground_of=ground_of, kit_of=kit_of)
                 ground = got.get("field")

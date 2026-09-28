@@ -795,6 +795,8 @@ def run(name, make_ctx):
             _command(f"tick rate {rate}", feedback)
         perception.PAUSED = True
         _api.clear_requests()      # nothing the last row left pending (a nightfall boundary) stops this one
+        from .. import fight_loop as _fight
+        _fight.reset()             # nor the fight's held decision (a target id from the last row)
         from .core import SWEEP
         SWEEP.pop(name, None)      # a sweep's check reads only the rows this run writes
         try:

@@ -38,6 +38,14 @@ def engaged():
     t = _ENG["thread"]
     return _ENG["intent"] if t is not None and t.is_alive() else None
 
+def reset():
+    """Forget the held decision and the chase clock: nothing a fight decided carries into work that starts now
+    (a bench row: the last row's Held named a dead zombie's id — the same leak as a pending AT_BOUNDARY)."""
+    global HELD
+    HELD = None
+    _CHASE["at"] = None
+
+
 def carrying():
     """The answer (a threat.Option) the running engagement is carrying out now, or None when none runs."""
     return _ENG["want"] if engaged() is not None else None

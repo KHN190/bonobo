@@ -272,7 +272,7 @@ BATCHES = [
      [{"type": "eat", "item": "minecraft:beef"}]),
     ("must fail: eat: nothing to eat — no answer", Decision("eat", None), fight_body(), []),
     ("shield up", Decision("shield", None), fight_body(offhand="shield"),
-     [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]),
+     [{"type": "input", "keys": ["use"], "ticks": 30}]),
     ("shield, but none in the offhand — no answer", Decision("shield", None), fight_body(), []),
     ("dig down two", Decision("reshape", ("down", 2)), fight_body(),
      [{"type": "mine", "x": 0, "y": 63, "z": 0}, {"type": "mine", "x": 0, "y": 62, "z": 0}]),

@@ -156,5 +156,23 @@ class DiedDuring(unittest.TestCase):
                 self.assertEqual(runner.died_during(trace), want)
 
 
+
+class FightReset(unittest.TestCase):
+    """fight_loop.reset: a row begins with no held decision from the last one."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import fight_loop
+        rows = [("a held decision dropped", object(), None), ("nothing held: still nothing", None, None)]
+        for name, held, want in rows:
+            with self.subTest(name), mock.patch.object(fight_loop, "HELD", held):
+                fight_loop.reset()
+                self.assertIs(fight_loop.HELD, want)
+        with self.subTest("must fail: without the reset the last row's decision is still held"):
+            marker = object()
+            with mock.patch.object(fight_loop, "HELD", marker):
+                self.assertIs(fight_loop.HELD, marker)
+
+
 if __name__ == "__main__":
     unittest.main()

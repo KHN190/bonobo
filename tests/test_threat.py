@@ -275,7 +275,7 @@ class EachAnswerIsABatch(unittest.TestCase):
              [{"type": "eat", "item": "minecraft:cooked_beef"}]),
             ("must fail: eat with nothing to eat: not an answer", ("eat",), {}, []),
             ("shield up with a shield in hand", ("shield",), {"offhand": "minecraft:shield"},
-             [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]),
+             [{"type": "input", "keys": ["use"], "ticks": 30}]),
             ("shield up without one: not an answer", ("shield",), {}, []),
             ("dig down two", ("reshape", ("down", 2)), {},
              [nav_mine((0, 63, 0), down=True), nav_mine((0, 62, 0), down=True)]),

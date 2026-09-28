@@ -575,8 +575,8 @@ class EngagementOver(unittest.TestCase):
 
 class StillWorth(unittest.TestCase):
     def test_table(self):
-        def opt(kind, leaves=0.0, blast=0.0, seconds=0.0, hp=0.0):
-            return SimpleNamespace(kind=kind, leaves=leaves, blast_after=blast, seconds=seconds, hp=hp)
+        def opt(kind, leaves=0.0, blast=0.0, seconds=0.0, hp=0.0, target=None):
+            return SimpleNamespace(kind=kind, target=target, leaves=leaves, blast_after=blast, seconds=seconds, hp=hp)
         ignore = opt("ignore", leaves=1.0)
 
         def model(*options):
@@ -592,9 +592,15 @@ class StillWorth(unittest.TestCase):
             ("answer gone", "fight", model(ignore, opt("evade", seconds=1)), False),
             ("no do-nothing column", "fight", model(opt("fight", seconds=1)), False),
         ]
+        with self.subTest("must fail: the held answer's target is not this reading's (a stale entity id)"):
+            held = SimpleNamespace(name="fight", action=SimpleNamespace(option=opt("fight", target=41)))
+            self.assertFalse(fight_loop.still_worth(held, model(ignore, opt("fight", seconds=2, hp=1, target=42)),
+                                                    price, 10.0))
         for name, choice, fm, want in rows:
             with self.subTest(name):
-                self.assertEqual(fight_loop.still_worth(SimpleNamespace(name=choice), fm, price, 10.0), want)
+                # the held choice as kernel.Held keeps it: its name and the action carrying the option it chose
+                held = SimpleNamespace(name=choice, action=SimpleNamespace(option=opt(choice)))
+                self.assertEqual(fight_loop.still_worth(held, fm, price, 10.0), want)
 
 
 class Lend(unittest.TestCase):
