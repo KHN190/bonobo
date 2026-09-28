@@ -154,7 +154,7 @@ def click_line(task, reply):
             f"yaw {f('yaw')} pitch {f('pitch')} reach {f('reach')} aimDist {f('aimDist')} "
             f"ray end ({f('rayEndX')}, {f('rayEndY')}, {f('rayEndZ')}) hit {res.get('hitX', '-')},{res.get('hitY', '-')},"
             f"{res.get('hitZ', '-')} {res.get('face', '')} {res.get('blockResult', '')} "
-            f"ticks {reply.get('startTick', '-')}→{reply.get('endTick', '-')}")
+            f"in {reply.get('seconds', '-')} s")
 
 def unreachable_cells(tasks, results):
     """Pure: the cells the jar refused as out of reach — the only ones a partial chain bans."""
@@ -289,7 +289,11 @@ def plant_farm(ctx):
     # one send for the whole ring (a segment is a round trip and an idle queue between): its time logged
     t0 = time.time()
     done = api.run_chain(ring, stop_on_failure=False, segment=max(1, len(ring))) if ring else []
-    api.detail(f"  plot ring: {len(ring)} clicks in {time.time() - t0:.2f} s")
+    wall = time.time() - t0
+    inside = sum(float(r.get("seconds") or 0) for r in done)
+    # each task's own seconds (turn, sneak, click) against the chain's wall: the rest is between tasks (queue, polls)
+    api.detail(f"  plot ring: {len(ring)} clicks, wall {wall:.2f} s, in the tasks {inside:.2f} s, between "
+               f"{wall - inside:.2f} s; per click " + " ".join(f"{float(r.get('seconds') or 0):.2f}" for r in done))
     for t, r in zip(ring, done):
         res = r.get("result") or {}
         hit = (res.get("hitX"), res.get("hitY"), res.get("hitZ"))
