@@ -363,6 +363,21 @@ class Escaped(unittest.TestCase):
                 self.assertEqual(len(fight.escaped(cells)), n_bad)
 
 
+class AnswersByTime(unittest.TestCase):
+    """A window's answers are read by time, not by an index into the capped look list."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import perception
+        looks = [{"t": 10.0, "outcome": "answered"}, {"t": 20.0, "outcome": "quiet"}, {"t": 30.0, "outcome": "answered"}]
+        rows = [("since 15: two", 15.0, 2), ("since 0: all", 0.0, 3),
+                ("must fail: after the last — none, whatever the index", 31.0, 0), ("since 30: one", 30.0, 1)]
+        with mock.patch.object(perception.STATE, "answered", looks):
+            for name, t0, n in rows:
+                with self.subTest(name):
+                    self.assertEqual(len(fight.answered_by_time(t0)), n)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

@@ -843,11 +843,17 @@ def open_window():
     from .. import perception
     perception.pause(False)
     ROW_MARK["mark"] = perception.looks_taken()
+    ROW_MARK["t"] = time.time()
 
 
 def take_row_mark():
     """The window's answer mark, once (the first recording of the row takes it; later cells mark their own)."""
     return ROW_MARK.pop("mark", None)
+
+
+def window_opened_at():
+    """When open_window last ran for this row (its time), or None — a path that never opened one reads None."""
+    return ROW_MARK.get("t")
 
 
 def _begin(name, sc, feedback, idle=False):
