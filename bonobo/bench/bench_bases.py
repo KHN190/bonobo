@@ -204,7 +204,7 @@ KIT = {n: list(jobs) for jobs, names in {
     ('sword',): ['combat__block_gap', 'combat__fight_and_block',
          'combat__fight_without_shield', 'combat__knocked_off_edge', 'combat__low_hp_eat', 'combat__pillar',
          'combat__shield_arrows', 'combat__surrounded_low', 'combat__wall_in', 'fight_blaze_3', 'fight_creeper_1',
-         'fight_creeper_by_home', 'fight_creeper_sword', 'fight_enderman_1', 'fight_skeleton_1', 'fight_zombie_1',
+         'fight_creeper_by_home', 'fight_creeper_sword', 'fight_skeleton_1', 'fight_zombie_1',
          'fight_zombie_1_full_bag', 'fight_zombie_3', 'hunt__base', 'hunt__lava_edge', 'hunt__one_slot',
          'hunt__pickup_lag', 'hunt__pillar', 'hunt__valuables_full', 'hunt_food', 'siege__w1', 'siege__w2',
          'siege__w3', 'siege__w4', 'siege__w5', 'siege__w6', 'siege__w7'],

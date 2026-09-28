@@ -807,6 +807,9 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
                 from .vocab import GHAST, ghast_readout
                 if GHAST:
                     CHECK_READOUT["ghast"] = ghast_readout(GHAST)      # what the ghast watch saw
+                from .words.fight import ENDERMEN
+                if ENDERMEN:
+                    CHECK_READOUT["endermen"] = dict(ENDERMEN)         # each one's AngerTime and place
                 try:
                     CHECK_READOUT["reflex"] = api.get("/reflex")        # the jar's policy as it holds it
                 except McError as e:

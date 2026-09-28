@@ -222,6 +222,18 @@ class Endermen(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(fight.angers(lines), want)
 
+    def test_positions(self):
+        rows = [("two", ["Enderman has the following entity data: [1.5d, 64.0d, -2.5d]",
+                         "Enderman has the following entity data: [-3.2d, 64.0d, 2.5d]"], [[1.5, 64.0, -2.5], [-3.2, 64.0, 2.5]]),
+                ("must fail: none found", ["No entity was found"], []), ("nothing said", [], [])]
+        for name, lines, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight.positions(lines), want)
+
+    def test_enderman_walk_has_no_sword(self):
+        from bonobo.bench import bench_bases
+        self.assertNotIn("sword", bench_bases.KIT.get("fight_enderman_1", []))
+
     def test_covered_in_time(self):
         cells = [(4, 64, 0)]
 
