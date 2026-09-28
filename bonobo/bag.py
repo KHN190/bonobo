@@ -3,7 +3,7 @@
 from .world import add, screen_slot
 from .knowledge import ALL_FOOD, RAW_MEAT, members
 from .api import NotAvailable
-from .data import VALUABLES
+from .data import TOOL_KINDS, VALUABLES
 
 PICKUP_FILTER_AT = 28
 
@@ -66,10 +66,25 @@ def dead(s):
     """A tool or armour at <= 1 durability: the mod refuses it, it only takes a slot."""
     return bool(s.get("maxDamage")) and s["maxDamage"] - s.get("damage", 0) <= 1
 
-def kept(slots):
-    """Pure: stacks kept whatever — one of each RESERVED id, working tools and armour, the biggest up to FLOOR."""
+REPAIRED = ("diamond_", "netherite_")     # a spent tool of these is kept for an anvil, never thrown
 
-    keep = list(reserved_stacks(slots)) + [s for s in slots if s.get("maxDamage") and not dead(s)]
+
+def repairable(s):
+    """Pure: a diamond or netherite tool — worth an anvil even at 1 durability."""
+    name = s["id"].split(":")[-1]
+    return name.startswith(REPAIRED) and name.rsplit("_", 1)[-1] in TOOL_KINDS
+
+
+def spent(s):
+    """Pure: a dead tool or armour nothing will repair: thrown first."""
+    return dead(s) and not repairable(s)
+
+
+def kept(slots):
+    """Pure: stacks kept whatever — one of each RESERVED id, working tools and armour (a spent diamond or netherite
+    tool too: repairable), the biggest up to FLOOR."""
+
+    keep = list(reserved_stacks(slots)) + [s for s in slots if s.get("maxDamage") and (not dead(s) or repairable(s))]
     for token, n in FLOOR.items():
         ids, have = set(_floor_ids(token)), 0
         for st in sorted((x for x in slots if x["id"] in ids), key=lambda x: -x.get("count", 1)):
@@ -89,7 +104,7 @@ def let_go(slots, need, price=None, chest_s=None, lava_near=False):
     """Pure: [(stack, "drop" | "deposit")] freeing `need` slots."""
 
     keep = kept(slots)
-    order = [s for s in slots if dead(s)] + sorted(
+    order = [s for s in slots if spent(s)] + sorted(
         (s for s in slots if s not in keep and not dead(s)), key=lambda s: (reget_seconds(s, price), s.get("count", 1)))
     out = []
     for s in order:
@@ -113,12 +128,12 @@ def empty_how(slots, need, price=None, chest_s=None, lava_near=False):
     return "deposit" if any(how == "deposit" for _s, how in plan) else "drop"
 
 def free_slots_plan(slots, need=0, price=None):
-    """Pure: the stacks to drop to free `need` slots (let_go without a chest); dead tools always go."""
+    """Pure: the stacks to drop to free `need` slots (let_go without a chest); spent tools always go."""
     try:
         plan = [s for s, how in let_go(slots, need, price) if how == "drop"]
     except NotAvailable:
         plan = []           # let_go's own answer: every stack is needed — a bug in it surfaces
-    return plan + [s for s in slots if dead(s) and s not in plan]
+    return plan + [s for s in slots if spent(s) and s not in plan]
 
 FREE_SLOTS_TARGET = 5     # keep this many slots free: crafting, pickups and loot need room
 

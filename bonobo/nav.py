@@ -776,3 +776,8 @@ def pit_exit_tasks(region, feet, block=None):
     _cost, step, cells = best
     return [mine_task(c) for c in cells if region.solid(c)] + \
         [{"type": "goto", "x": step[0], "y": step[1], "z": step[2], "range": 0.5}]
+
+
+def ride_boat(ctx, target):
+    """Shell, never planned: boat on water, row to `target`, boat taken back."""
+    raise NotImplementedError("ride_boat: a shell")
