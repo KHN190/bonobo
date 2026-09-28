@@ -1579,7 +1579,7 @@ def _villager(pos, buy, n_buy, sell, n_sell, profession="farmer"):
             f'sell:{{id:"minecraft:{sell}",count:{n_sell}}},maxUses:12}}]}}}}')
 
 FARM_KIT = ["give @p diamond_hoe", "give @p wheat_seeds 8", "give @p water_bucket"]
-FARM_TICK_SPEED = 1000      # random ticks per chunk section: a sown crop ripens within seconds (the bench keeps 0)
+FARM_TICK_SPEED = 4096      # random ticks per section per tick: every block ticked ~once a tick — a sown crop ripe in ~2-4 s (1000 left the 8 cells unripe 16 s after sowing: bread_from_a_farm 10:43 TIMEOUT); the bench keeps 0
 RIPE_PLOT = [f"fill {_c(at(4, -1, -1))} {_c(at(6, -1, 1))} farmland", f"fill {_c(at(4, 0, -1))} {_c(at(6, 0, 1))} wheat[age=7]"]
 
 def _growing(run):
