@@ -54,3 +54,24 @@ class APrebuildIsNeverWaitedOn(unittest.TestCase):
                 t0 = time.time()
                 self.assertIs(runner.take_prebuilt("r"), want)
                 self.assertLess(time.time() - t0, 0.5)
+
+
+class ACellWaitsOnItsSummons(unittest.TestCase):
+    def test_summoned(self):
+        # (situation, the cell's commands) → what it summons
+        rows = [("two zombies and a skeleton", ["summon zombie 1 2 3", "summon minecraft:zombie 1 2 4",
+                                                 "execute in minecraft:overworld run summon skeleton 0 0 0"],
+                 {"minecraft:zombie": 2, "minecraft:skeleton": 1}),
+                ("must fail: a fill summons nothing: no wait", ["fill 0 0 0 1 1 1 stone"], {})]
+        for name, cmds, want in rows:
+            with self.subTest(name):
+                self.assertEqual(core.summoned(cmds), want)
+
+    def test_ready_at_once(self):
+        """Counted on the server as soon as it is there: no fixed sleep (the old 0.5 s per cell)."""
+        import time
+        from unittest import mock
+        with mock.patch.object(core, "_command", return_value=["Test passed, count: 1"]):
+            t0 = time.time()
+            core._cell_ready(["summon zombie 0 0 0"], [])
+            self.assertLess(time.time() - t0, core.CELL_POLL_S)

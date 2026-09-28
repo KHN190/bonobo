@@ -134,16 +134,47 @@ def _platform(reach=9, walled=False):
             out.append(f"fill {_c(at(*a))} {_c(at(*b))} stone")
     return out
 
-def _sweep(name, cells, build, record, path, settle=0.5):
-    """One pass: build each cell, record one row, append it; returns this pass's rows."""
+def summoned(cmds):
+    """Pure: {entity type: n} that `cmds` summon (execute … run summon T … counts as a summon of T)."""
+    out = {}
+    for c in cmds:
+        while c.startswith("execute ") and " run " in c:
+            c = c.split(" run ", 1)[1]
+        w = c.split()
+        if len(w) > 1 and w[0] == "summon":
+            t = w[1] if ":" in w[1] else f"minecraft:{w[1]}"
+            out[t] = out.get(t, 0) + 1
+    return out
+
+
+CELL_POLL_S = 0.1
+CELL_CAP_S = 2.0        # a cell's summons counted on the server by then, or the row records what is there
+
+
+def _cell_ready(cmds, feedback):
+    """Until what the cell summoned is on the server (a cell with no summon: at once)."""
+    want = summoned(cmds)
+    t0 = time.time()
+    while want and time.time() - t0 < CELL_CAP_S:
+        if all(server_count(_command(f"execute as @p at @s if entity @e[type={t},distance=..40]", feedback)) >= n
+               for t, n in want.items()):
+            return
+        time.sleep(CELL_POLL_S)
+
+
+def _sweep(name, cells, build, record, path, settle=CELL_CAP_S):
+    """One pass: build each cell, record one row, append it; returns this pass's rows. `settle` > 0: wait for the
+    cell's summons (never a fixed sleep); 0: none (a window that must begin at once)."""
     def run(_ctx):
         feedback, rows = [], []
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a") as out:
             for cell in cells():
-                for cmd in build(cell):
+                cmds = list(build(cell))
+                for cmd in cmds:
                     _command(cmd, feedback)
-                time.sleep(settle)
+                if settle > 0:
+                    _cell_ready(cmds, feedback)
                 row = {"t": time.time(), **cell, **record(cell)}
                 rows.append(row)
                 out.write(json.dumps(row) + "\n")
