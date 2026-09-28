@@ -765,13 +765,18 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         here_now = feet()
 
         def workable(at):
-            """The vein cells the stand at `at` can break — the jar's own rule (nav.holds: sight, not distance; a pit
-            2 down cannot see an ore at its rim, search_night_resume 09:46:50 NO_STAND ×3), the vein's other cells
-            not in the way (they break in the same batch)."""
+            """The vein cells within reach of the stand at `at`, nearest first: the ones to work from here — sent
+            to the jar when it can hold them (`holdable`), else opened / walked beside by the buried path below."""
+            return sorted((p for p in vein if math.dist(p, at) <= nav.REACH), key=lambda p: math.dist(p, at))
+
+        def holdable(at, cells):
+            """The jar's own rule (nav.holds: sight, not distance — a pit 2 down cannot see an ore at its rim,
+            search_night_resume 09:46:50 NO_STAND ×3; a buried ore has no face to see), the vein's other cells not in
+            the way (they break in the same batch). Distance alone as the reach dropped buried ore before the opener
+            (a2d37ae: the diamond rows never sent theirs)."""
             x0, y0, z0 = at
             sight = Region((x0 - 5, y0 - 4, z0 - 5), (x0 + 5, y0 + 6, z0 + 5))
-            return sorted((p for p in vein if nav.holds(sight, at, p, through=set(vein))),
-                          key=lambda p: math.dist(p, at))
+            return {p for p in cells if nav.holds(sight, at, p, through=set(vein))}
         in_reach = workable(here_now)
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
@@ -790,8 +795,9 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                 _reach_budget(unreachable, blocks, f"got near {near_cell} but no way in to the {blocks[0]}")
                 continue
         # distance is not reachability: only open-faced blocks go to mine_many; travel digs a way to the nearest buried one
+        held = holdable(here_now, in_reach)
         open_faced = [p for p in mineable(in_reach, here_now, region, nav.SAFE_DROP)
-                      if exposed_cells is None or p in exposed_cells]
+                      if (exposed_cells is None or p in exposed_cells) and p in held]
         if not open_faced:
             buried = in_reach[0]
             if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
