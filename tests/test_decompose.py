@@ -596,8 +596,11 @@ class BreadFromTheBag(unittest.TestCase):
     farm__plant sows, bread_from_a_farm reaps a ripe field and bakes)."""
 
     def test_rows(self):
-        kit = {"minecraft:wheat_seeds": 8, "minecraft:water_bucket": 1, "minecraft:iron_hoe": 1,
-               "minecraft:crafting_table": 1}
+        # production's own path: the planner by decompose, over the real cost model and memory (tests.test_sources.world)
+        from bonobo import brain  # noqa: F401  (registers every skill: the farm step's producer)
+        from bonobo import decompose, goals
+        from tests.test_sources import world
+        kit = [("wheat_seeds", 8), ("water_bucket", 1), ("iron_hoe", 1), ("crafting_table", 1)]
         # (situation, wheat carried) → the plan has a farm step
         rows = [("no wheat: farmed", 0, True),
                 ("two wheat, bread takes three: farmed for the one short", 2, True),
@@ -605,8 +608,8 @@ class BreadFromTheBag(unittest.TestCase):
                 ("must fail: wheat to spare carried, a farm step would be waste", 9, False)]
         for name, wheat, farmed in rows:
             with self.subTest(name):
-                counts = dict(kit, **({"minecraft:wheat": wheat} if wheat else {}))
-                steps = Planner(counts, [], RipeFirst.Cost(0)).plan([("minecraft:bread", 1)])
+                inv, cost = world(items=kit + ([("wheat", wheat)] if wheat else []), finds={"grass_block": 3})
+                steps = decompose.decompose(inv, goals.have(("minecraft:bread", 1)), cost)
                 self.assertEqual(any(s.kind == "farm" for s in steps), farmed, [str(s) for s in steps])
 
 
