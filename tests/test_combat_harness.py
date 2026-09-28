@@ -65,6 +65,19 @@ class KillsWhileEngaged(unittest.TestCase):
                 self.assertEqual(fight.kills_while_engaged(samples, bids), want)
 
 
+class ColumnsPossible(unittest.TestCase):
+    """The columns a cell paid for: its kit's, less eating at full health; a siege cell names no kit."""
+
+    def test_rows(self):
+        rows = [("blocks, whole: the shaping columns", {"kit": "blocks", "blood": "whole"}, {"reshape", "wall_in"}),
+                ("food, hurt: eat", {"kit": "food", "blood": "hurt"}, {"eat"}),
+                ("must fail: food at full health is no eat column", {"kit": "food", "blood": "whole"}, set()),
+                ("a siege cell {wave, line_up}: nothing, no KeyError", {"wave": 1, "line_up": "one walker"}, set())]
+        for name, cell, want in rows:
+            with self.subTest(name):
+                self.assertEqual(fight._columns_possible(cell), want)
+
+
 class LastSeen(unittest.TestCase):
     """The readout of each mob that went: its last reading and the most health seen — why a kill counted or not."""
 

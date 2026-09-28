@@ -136,8 +136,9 @@ def _revive():
 
 def _columns_possible(cell):
     """The columns this cell paid for: what the kit gave, minus what the situation cannot use."""
-    want = set(NEEDS.get(cell["kit"], ()))
-    if cell["blood"] != "hurt":
+    # a siege cell ({wave, line_up}) names no kit: nothing was paid for, no column is missing
+    want = set(NEEDS.get(cell.get("kit"), ()))
+    if cell.get("blood") != "hurt":
         want.discard("eat")          # eating at full health is not an option anywhere
     return want
 
