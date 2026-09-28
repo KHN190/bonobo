@@ -73,7 +73,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 272)
+        self.assertEqual(len(rec), 270)
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -604,12 +604,13 @@ class DeflectCells(unittest.TestCase):
     def test_shot(self):
         from bonobo.bench.words import fight as wf
         eye = wf.deflect_eye()
-        ball, m = wf.shot_from((0, 0, -1), 12, 0.0)
+        ball, m = wf.shot_from((0, 0, -1), 12)
         self.assertAlmostEqual(math.dist(ball, eye), 12.0, places=6)
         self.assertAlmostEqual(math.hypot(*m), wf.FIREBALL_SPEED, places=9)
         self.assertGreater(m[2], 0, "aimed back at the eye")
-        turned, _m = wf.shot_from((0, 0, -1), 12, 15.0)
-        self.assertNotAlmostEqual(turned[0], ball[0], msg="each shot from its own angle")
+        places = {wf.shot_from(d, n)[0] for _t, d, n in wf.VOLLEY}
+        self.assertEqual(len(places), 3, "each shot from its own place")
+        self.assertEqual([t for t, *_ in wf.VOLLEY], sorted(t for t, *_ in wf.VOLLEY), "staggered")
 
     def test_fireball_end(self):
         from bonobo.bench.words import fight as wf

@@ -943,12 +943,13 @@ WORDS.update(siege_detail=siege_detail, escape_detail=escape_detail, behaviour=b
 from ..bench_combat import (ARMED, ARMOUR, BLOOD, COUNT, DIMS, DISTANCE, ENEMY, GROUND, KIT, NEEDS,  # noqa: E402
                            UNARMED, WAVES, WEAPON)     # combat's dimensions, its data; last: its rows use these words
 
-# -- deflect rows: a volley of 3 ghast fireballs at the eye on a fixed schedule; the jar's reflex punches each back -----
+# -- the deflect row: 3 ghast fireballs at the eye, each from its own place, staggered; the reflex punches each ---
 DEFLECT = {}            # the running volley: start hp, eye, fired, each fireball's end distance, done
 EYE_Y = 1.62
 FIREBALL_SPEED = 0.1    # a ghast's shot leaves at acceleration_power along its aim
 GHAST_HP = 10.0         # a ghast's max health
-VOLLEY = ((0.5, -15.0), (2.0, 0.0), (3.5, 15.0))     # (seconds after the hook, yaw off the row's line)
+# (seconds after the hook, where from (a direction from the player), how far): front, behind-left, above-right
+VOLLEY = ((0.5, (0, 0, -1), 12), (2.0, (-1, 0, 1), 8), (3.5, (1, 0.75, 0), 20))
 DEFLECTED_AT = 4.0      # a fireball that ends farther than this from the eye was punched away
 RECEDED_AT = 6.0        # past this and moving away after coming close: punched, resolved
 
@@ -967,11 +968,9 @@ def deflect_eye():
     return (o[0] + 0.5, o[1] + EYE_Y, o[2] + 0.5)
 
 
-def shot_from(direction, dist, yaw):
-    """Pure: (fireball centre, its motion) for a shot `dist` out along `direction` turned `yaw`° about y, at the eye."""
+def shot_from(direction, dist):
+    """Pure: (fireball centre, its motion) for a shot `dist` out along `direction`, aimed at the eye."""
     x, y, z = direction
-    c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
-    x, z = x * c - z * s, x * s + z * c
     n = math.sqrt(x * x + y * y + z * z)
     u = (x / n, y / n, z / n)
     eye = deflect_eye()
@@ -1004,15 +1003,17 @@ def _server_hp():
     return data_health(_command("data get entity @p Health", []))
 
 
-def _deflect_volley(direction, dist):
-    """`before` hook: the ghast behind the line, then 3 shots on VOLLEY's schedule, each tracked to its end (idle too:
-    no shot waits for a deflect)."""
+def _deflect_volley():
+    """`before` hook: a NoAI ghast behind each shot's line, then the shots on VOLLEY's schedule, each tracked to its
+    end (idle too: no shot waits for a deflect)."""
     def hook(ctx):
         from ..core import _command
         from ...world import entities
         eye = deflect_eye()
-        g, _m = shot_from(direction, dist + 3.5, 0.0)
-        _command(f"summon minecraft:ghast {g[0]:.2f} {g[1] - 2:.2f} {g[2]:.2f} {{NoAI:1b,PersistenceRequired:1b}}", [])
+        for _t, direction, dist in VOLLEY:
+            g, _m = shot_from(direction, dist + 3.5)
+            _command(f"summon minecraft:ghast {g[0]:.2f} {g[1] - 2:.2f} {g[2]:.2f} "
+                     "{NoAI:1b,PersistenceRequired:1b}", [])
         DEFLECT.clear()
         DEFLECT.update(start=_server_hp(), eye=eye, fired=0, ends=[], done=False)
 
@@ -1021,7 +1022,7 @@ def _deflect_volley(direction, dist):
             while time.time() - t0 < 20 and not DEFLECT["done"]:
                 now = time.time() - t0
                 while DEFLECT["fired"] < len(VOLLEY) and now >= VOLLEY[DEFLECT["fired"]][0]:
-                    ball, m = shot_from(direction, dist, VOLLEY[DEFLECT["fired"]][1])
+                    ball, m = shot_from(*VOLLEY[DEFLECT["fired"]][1:])
                     _command(f"summon minecraft:fireball {ball[0]:.3f} {ball[1] - 0.5:.3f} {ball[2]:.3f} "
                              f"{{Motion:[{m[0]:.4f}d,{m[1]:.4f}d,{m[2]:.4f}d],acceleration_power:0.1d,"
                              "ExplosionPower:1b}", [])
@@ -1068,17 +1069,16 @@ def _deflected():
     return check
 
 
-def deflect_row(name, direction, dist, kit):
-    """Open platform, a sword (a shield too): 3 fireballs from `direction` × `dist` → each punched back, unhurt."""
+def deflect_row(name):
+    """Open platform, sword and shield: 3 fireballs (front 12, behind-left 8, above-right 20, 1.5 s apart) → each
+    punched back, unhurt."""
     scene = [("cmd", c) for c in _platform(4)] + [
-        ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword")]
-    if kit == "shield":
-        scene.append(("cmd", "item replace entity @p weapon.offhand with shield"))
-    return _row(name, f"3 ghast fireballs {dist} blocks out, 1.5 s apart, a sword{' and shield' if kit == 'shield' else ''}"
-                      ": each punched back by the reflex, unhurt", "fight_loop",
-                scene, ("deflect_watch",), [("deflected",)], budget=25,
-                before=[("&deflect_volley", tuple(direction), dist)], combat=True, tier_fixed="exception",
-                tags={"base": "deflect", "distance": dist, "kit": kit})
+        ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword"),
+        ("cmd", "item replace entity @p weapon.offhand with shield")]
+    return _row(name, "3 ghast fireballs, front 12, behind-left 8, above-right 20, 1.5 s apart, sword and shield: "
+                      "each punched back by the reflex, unhurt", "fight_loop",
+                scene, ("deflect_watch",), [("deflected",)], budget=25, before=[("&deflect_volley",)], combat=True,
+                tier_fixed="exception", tags={"base": "deflect"})
 
 
 from ... import lifecycle as _deflect_lifecycle  # noqa: E402
