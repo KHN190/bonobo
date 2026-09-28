@@ -95,6 +95,7 @@ class Brain:
         self.place = None  # what causes are cooled against
         self.idle_since = None
         self.just_finished = False    # set by plan_proposals; idle_wait reads it on any round, a plan-less one too
+        self.wake = None              # fn() → True ends an idle wait at once (a bench row's `until`: its outcome)
         self.committed = None
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None
@@ -320,6 +321,8 @@ class Brain:
             return 0
         slices = 0
         for _ in range(max(1, IDLE_WAIT_TICKS // IDLE_SLICE_TICKS)):
+            if self.wake is not None and self.wake():
+                break
             api.run({"type": "wait", "ticks": IDLE_SLICE_TICKS}, wait=15, awaits="one task: a slice of the idle round's wait")
             slices += 1
             if work_queued():

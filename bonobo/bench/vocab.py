@@ -157,9 +157,14 @@ def _snap_survival(ctx, seconds=20):
     """Brain rounds until the body is back in the Overworld (leaving the Nether is an upkeep row)."""
     from .. import api
     t0 = time.time()
-    while time.time() - t0 < seconds and api.get("/state")["dimension"] != "minecraft:overworld":
-        core.BRAIN.round()
-    return api.get("/state")["dimension"] == "minecraft:overworld"
+    home = lambda: api.get("/state")["dimension"] == "minecraft:overworld"  # noqa: E731
+    core.BRAIN.wake = home               # an idle round ends the moment the body is home
+    try:
+        while time.time() - t0 < seconds and not home():
+            core.BRAIN.round()
+    finally:
+        core.BRAIN.wake = None
+    return home()
 
 # the bucket sits in the main bag, not the hotbar: the clutch must select it; the water is scooped back after
 _FALL_FLOOR = [f"fill {_c(at(-6, -2, -6))} {_c(at(6, -1, 6))} stone", f"tp @p {_c(at(0, 0, 0))}", "clear @p",

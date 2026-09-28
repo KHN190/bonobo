@@ -411,8 +411,12 @@ def _brain_rounds(seconds, until):
     """The whole cerebellum for up to `seconds` (L0 and upkeep included), until `until()`."""
     def run(ctx):
         t0 = time.time()
-        while time.time() - t0 < seconds and not until():
-            core.BRAIN.round()
+        core.BRAIN.wake = until          # an idle round ends the moment the outcome is there
+        try:
+            while time.time() - t0 < seconds and not until():
+                core.BRAIN.round()
+        finally:
+            core.BRAIN.wake = None
         return until()
     return run
 
