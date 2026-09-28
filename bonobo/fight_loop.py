@@ -223,6 +223,12 @@ def still_worth(choice, field_model, price, horizon):
     same = next((o for o in options if o.kind == choice.name), None)
     if same is None:
         return False
+    held = getattr(choice.action, "option", None)
+    if held is not None and held.target is not None and held.target != same.target:
+        # the held answer names a target this reading no longer has (the mob it chose died, a new one stands
+        # there): the same kind against a stale entity id is 'target not found' every half second, hitting
+        # nothing (fight_zombie_1 20260928-230218: 0 hits, the zombie at 1.3 blocks, 20 hp) — decide again
+        return False
     return threat.saves(same, options, price, horizon) > 0
 
 # -- the batches
@@ -298,7 +304,9 @@ def _eat(option, state):
 def _shield(option, state):
     if state["inv"].offhand() != "minecraft:shield":
         return []
-    return [{"type": "use_item", "hand": "offhand", "hold_ms": 1500}]
+    # the use key held 1.5 s (jar input task "use", anaka shield-input): a use_item names a hand item and has no
+    # "hand"/"hold_ms" — this batch was refused ('missing item') every time the shield alone was the answer
+    return [{"type": "input", "keys": ["use"], "ticks": 30}]
 
 def _reshape(option, state):
     """Change the ground: dig down n, stand n blocks up, or put n blocks between us and the nearest threat."""
