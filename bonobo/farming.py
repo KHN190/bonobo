@@ -49,23 +49,37 @@ def sow_commands(cells, seeds="minecraft:wheat_seeds"):
     """Pure: one sowing per soil cell, back to back (a harvest's resow)."""
     return [nav.use_on_top(seeds, c, top=nav.FARMLAND_TOP) for c in cells]      # seeds go on farmland: 15/16 high
 
-def plot_commands(centre, hoe, region=None):
-    """Pure: the plot as one chain — dig the centre, pour water, then till and sow the ring."""
+def plot_commands(centre, hoe, region=None, stand=None):
+    """Pure: the plot as one chain — dig the centre, till and sow the ring, then pour the water into the centre hole.
+    Water last: no click is made beside moving water. `stand`: each ring cell's pair is preceded by a walk back onto
+    it — the body drifted 4 blocks west during one chain (bread_from_a_farm 10:23:34: eye x 9999.6 → 9995.6) and
+    every far cell ran out of reach."""
 
     name = (lambda c: region.name(c)) if region is not None else (lambda c: None)
     below = add(centre, (0, -1, 0))
     out = []
     if name(centre) not in ("water", "air"):
         out.append(nav.mine_task(centre))
-    if name(centre) != "water":
-        out.append(nav.use_on_top("minecraft:water_bucket", below))
     for dx, dz in RING:
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
+        pair = []
         if name(cell) != "farmland":
-            out.append(nav.use_on_top(hoe, cell))
+            pair.append(nav.use_on_top(hoe, cell))
         if name(add(cell, (0, 1, 0))) != "wheat":
-            out.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
+            pair.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
+        if pair and stand is not None:
+            out.append({"type": "goto", "x": stand[0], "y": stand[1], "z": stand[2], "range": 0.5})
+        out += pair
+    if name(centre) != "water":
+        out.append(nav.use_on_top("minecraft:water_bucket", below))
     return out
+
+def water_contained(region, cell):
+    """Pure: water at `cell` stays a source there — solid under it and on its four sides at its own level, so it
+    flows nowhere (the plot's centre hole: the ring's blocks hold it). Water poured onto the ground, not into a hole,
+    is not contained: it runs over the ring."""
+    x, y, z = cell
+    return region.solid((x, y - 1, z)) and all(region.solid((x + dx, y, z + dz)) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
 
 def started_plot(region, here, radius=8):
     """Pure: the centre of a plot begun and unfinished here, nearest first, or None."""
@@ -80,7 +94,7 @@ def started_plot(region, here, radius=8):
             continue
         ring = [(c[0] + dx, c[1], c[2] + dz) for dx, dz in RING]
         if all(region.name(r) in SOIL + ("farmland",) for r in ring) and \
-                any(region.name(add(r, (0, 1, 0))) != "wheat" for r in ring):
+                (any(region.name(add(r, (0, 1, 0))) != "wheat" for r in ring) or region.name(c) != "water"):
             d = math.dist(c, here)
             if best is None or d < best[0]:
                 best = (d, c)
@@ -105,7 +119,7 @@ def unreachable_cells(tasks, results):
                    for t, r in zip(tasks, results)
                    if r.get("status") != "succeeded" and "reach" in str(r.get("message", "")).lower()})
 
-def plant_farm_commands(state, args):
+def plant_farm_commands(state, args, stand=None):
     """`commands` for plant_farm: the plot chain at the nearest flat 3×3 soil with the best hoe; NotAvailable names what is missing."""
 
     inv = state["inv"]
@@ -120,7 +134,7 @@ def plant_farm_commands(state, args):
         raise NotAvailable("no flat 3×3 soil nearby for a farm")
     if region.name(centre) != "water" and not inv.count("minecraft:water_bucket"):
         raise NotAvailable("need a water bucket for the plot")          # poured already: the bucket is not asked again
-    return plot_commands(centre, hoe, region)
+    return plot_commands(centre, hoe, region, stand)
 
 def feed_commands(pair, food):
     """Pure: feed both animals of a breeding pair, back to back (the second needs nothing from the first)."""
@@ -210,8 +224,8 @@ def plant_farm(ctx):
     state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
-    tasks = plant_farm_commands(state, ())
     stand = (centre[0] - 2, centre[1] + 1, centre[2])
+    tasks = plant_farm_commands(state, (), stand=stand)
     # on the stand, not a block off it: the ring's far side is 3 away and a sow aimed there from 4 ran past the
     # jar's 4.5 reach ("no block under the crosshair")
     if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
@@ -224,9 +238,11 @@ def plant_farm(ctx):
             api.detail("  " + click_line(t, r))
     for cell in unreachable_cells(tasks, done):
         ctx.ban(tuple(int(round(v)) for v in cell), 600)
-    after = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1)))
+    after = Region(add(centre, (-1, -1, -1)), add(centre, (1, 1, 1)))
     if after.name(centre) != "water":
         raise McError(f"could not pour the plot's water at {centre}")
+    if not water_contained(after, centre):
+        raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot")
     sown = sum(1 for dx, dz in RING if after.name((centre[0] + dx, centre[1] + 1, centre[2] + dz)) == "wheat")
     yield sown
     if not sown:
