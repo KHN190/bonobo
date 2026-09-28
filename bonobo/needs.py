@@ -19,7 +19,7 @@ from .world import Inventory
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
 DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
-WORKING = 3                # durability left for a tool to count as working
+WORKING = _k.TOOL_WORKING  # durability left for a tool to count as working (planning's margin; the jar holds from 2)
 NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
 BRIDGE_STOCK = 32          # the most to fetch when the path is blocked and there is less than BRIDGE_MIN
 

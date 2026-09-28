@@ -231,3 +231,19 @@ class WhatToHold(unittest.TestCase):
         for name, inv, want in rows:
             with self.subTest(name):
                 self.assertEqual(knowledge.weapon_for(inv), want)
+
+
+class ToolWear(unittest.TestCase):
+    """knowledge.usable (the jar's rule: remaining > 1) and knowledge.working (planning's replace-soon margin)."""
+
+    def test_rows(self):
+        from bonobo import knowledge
+        # (situation, uses left) → (usable, working)
+        rows = [("new", 250, (True, True)), ("at the margin: working", 3, (True, True)),
+                ("two left: held, not working", 2, (True, False)),
+                ("must fail: one left — the jar never holds it", 1, (False, False)),
+                ("must fail: broken", 0, (False, False))]
+        for name, left, want in rows:
+            with self.subTest(name):
+                self.assertEqual((knowledge.usable(left), knowledge.working(left)), want)
+        self.assertLess(knowledge.TOOL_USABLE, knowledge.TOOL_WORKING)

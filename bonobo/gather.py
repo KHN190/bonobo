@@ -15,7 +15,7 @@ from .skillcore import ToolMissing, feet, mine_cell, gained
 from .explore import surface_first, explore_for, approach_policy
 from .fluids import CAVE_AIR, fluid_faces, seal_plan, swimming
 
-def require_pickaxe(tier, min_left=3):
+def require_pickaxe(tier, min_left=K.TOOL_WORKING):
     if tier is None:
         return
     if not any(t >= tier and d >= min_left for t, d, _ in Inventory().tools("pickaxe")):
@@ -390,7 +390,7 @@ def strip_mine_step(ctx, length=16):
     s = api.get("/state")
     fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
     tools = Inventory().tools("pickaxe")
-    best_tier = max((t for t, d, _ in tools if d >= 3), default=0)
+    best_tier = max((t for t, d, _ in tools if K.working(d)), default=0)
     # diamonds peak near -58, bedrock starts at -60..-64: tunnel at -54
     depth = -54 if any(t >= 2 and d >= 20 for t, d, _ in tools) else 16
     if fy < depth - 3:

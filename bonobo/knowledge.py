@@ -244,6 +244,21 @@ def source(token):
             return src
     return None
 
+# -- tool wear, one reading each
+TOOL_USABLE = 2       # the jar's rule (InvUtil.java:109, Pathfinder:188/220: remaining > 1): a tool with 1 use left is never held
+TOOL_WORKING = 3      # planning's "replace soon" margin: a tool this worn still counts as working (needs, require_pickaxe)
+
+
+def usable(left):
+    """Pure: can the jar still hold a tool with `left` uses (TOOL_USABLE, the jar's own rule)?"""
+    return left >= TOOL_USABLE
+
+
+def working(left):
+    """Pure: does a tool with `left` uses still count as working for planning (TOOL_WORKING, a margin above usable)?"""
+    return left >= TOOL_WORKING
+
+
 # -- the remainder math goals and skills' `remaining` share ({} when met), here so skills need no planner
 TOOL_MIN_DURABILITY = 10
 

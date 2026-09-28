@@ -19,6 +19,7 @@ from .cost import Cost, Prices
 from .data import HAND_MINEABLE_SUFFIX, bare
 from .memory import Memory
 from . import memory as _memory
+from . import knowledge as _k
 _memory.TICK_READER = skillcore.game_time      # a look or note outside a round (bench achieve, CLI) reads the game's tick
 api.ARM = skillcore.arm                       # every task that breaks or fights names the item it holds (the jar picks none)
 from .planner import Unplannable, runnable
@@ -98,7 +99,7 @@ class Brain:
     # -- movement policy and the hooks that run between chain segments
     def policy(self, snap, night):
         # without a usable pickaxe a dig route would raise ToolMissing mid-trip
-        can_dig = any(d >= 3 for _, d, _ in snap.inv.tools("pickaxe"))
+        can_dig = any(_k.working(d) for _, d, _ in snap.inv.tools("pickaxe"))
         return nav.Policy(allow_dig=True, hand_only=not can_dig, allow_surface=not night,
                           protected=self.mem.protected_cells(snap.dimension),
                           before_segment=self.segment_reflexes if can_dig else self.hand_segment_reflexes)
@@ -117,7 +118,7 @@ class Brain:
             # A working pickaxe unless every block is hand-mineable; failing here re-plans the tool first.
             region = world.region_around(dug, pad=0)
             needs_pick = region is None or any(not bare(region.name(c)).endswith(HAND_MINEABLE_SUFFIX) for c in dug)
-            if needs_pick and not any(d >= 3 for _, d, _ in Inventory().tools("pickaxe")):
+            if needs_pick and not any(_k.working(d) for _, d, _ in Inventory().tools("pickaxe")):
                 raise skillcore.ToolMissing("pickaxe", 0)
             fluids.contain_lava(self.context(s["dimension"]))     # the last segment may have broken into lava
         self.invariants()

@@ -38,7 +38,7 @@ def _night_policy(ctx):
     return dataclasses.replace(ctx.policy, allow_surface=False)
 
 def require_pickaxe_ok():
-    return any(d >= 3 for _, d, _ in Inventory().tools("pickaxe"))
+    return any(_k.working(d) for _, d, _ in Inventory().tools("pickaxe"))
 
 # -- light, food, night
 

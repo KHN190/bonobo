@@ -451,14 +451,14 @@ def kit(signature):
     global _KIT, _KIT_SIG
     if signature == _KIT_SIG and _KIT:
         return _KIT
-    from .knowledge import food_count
+    from .knowledge import food_count, usable
     from .world import Inventory
     inv = Inventory()
-    _KIT = {"sword_tier": sword_level([t for t, d, _ in inv.tools("sword") if d >= 1]),
+    _KIT = {"sword_tier": sword_level([t for t, d, _ in inv.tools("sword") if usable(d)]),
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": food_count(inv),              # knowledge's one food table
             "blocks": inv.count("building"),
-            "dig_ok": any(d >= 1 for _t, d, _ in inv.tools("pickaxe")),
+            "dig_ok": any(usable(d) for _t, d, _ in inv.tools("pickaxe")),
             "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple")}     # a hole down needs no blocks
     _KIT_SIG = signature
     return _KIT
