@@ -324,10 +324,9 @@ def lend(kind, make, region=None):
 def engage(decision, s, ctx):
     """Carry out one threat answer: its batch is posted, not awaited."""
 
-    from . import perception
     from .skillcore import body_state, feet
     read = REGION.get(decision.kind)
-    rows, ids = perception.threats_seen()
+    rows, ids = threat.threats_seen()
     state = body_state(ctx, read(feet()) if read else None, threats=rows, threat_ids=ids)
     tasks = batch(decision, state)
     if not tasks:

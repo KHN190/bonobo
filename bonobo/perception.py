@@ -8,7 +8,7 @@ from . import api, arbiter, fight_loop, hazard, paths, estimate, field as _field
 from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
-from .threat import ENGAGE as _ENGAGE
+from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
 from .knowledge import food_count, sheltered, usable
 from .skill import HEARTBEAT
@@ -19,7 +19,6 @@ FLAG = paths.data("interrupt")
 HURT_RATE = 0.0       # health per second, measured
 _HP_SEEN = None       # (health, when) from the previous read
 
-THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 
 def note_hurt(state, now=None):
     """Differentiate the health bar. Called every perception round; decays to zero when nothing is hitting us."""
@@ -53,25 +52,12 @@ def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
 def note_threats(near, now=None, here=None):
     """Record the threat rows and their entity ids."""
 
-    global THREAT_ROWS, THREAT_IDS, THREAT_AT
     import time as _t
     now = now if now is not None else _t.time()
-    THREAT_ROWS = threat.hostile_rows(near or [], _SEEN, now, here=here)
-    THREAT_IDS = threat.ids_by_row(near or [], THREAT_ROWS)
-    THREAT_AT = now
-    return THREAT_ROWS
-
-def threats_seen(max_age_s=3.0, now=None):
-    """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""
-    import time as _t
-    if not THREAT_ROWS or (now or _t.time()) - THREAT_AT > max_age_s:
-        return [], []
-    return list(THREAT_ROWS), list(THREAT_IDS)
-
-def seen_at():
-    """When the rows above were read."""
-
-    return THREAT_AT
+    threat.THREAT_ROWS = threat.hostile_rows(near or [], _SEEN, now, here=here)
+    threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
+    threat.THREAT_AT = now
+    return threat.THREAT_ROWS
 
 _SEEN = {}            # entity id -> (pos, when): velocity differencing, owned by this thread
 PAUSED = False         # the scenario bench sets this while commands rebuild the world (no clutch on a setup fall)
@@ -226,11 +212,11 @@ class Watcher(threading.Thread):
         rows, _ids = threats_seen(now=now)
         if not rows:
             # no rows after our own fresh read means quiet, an answer; only a failed read is blindness
-            return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
+            return observe(now, "stale" if threat.THREAT_ROWS else "quiet", seen_at=seen_at())
         state = perceived(state, now)
         sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
         price = lambda dhp: threat.hp_seconds(sstate, dhp)
-        chosen = fight_loop.bid(state, rows, price, ids=THREAT_IDS)
+        chosen = fight_loop.bid(state, rows, price, ids=threat.THREAT_IDS)
         if chosen is None:
             return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at())
         option, worth = chosen
@@ -239,7 +225,7 @@ class Watcher(threading.Thread):
             return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at())
         self.last[key] = now
         taken, refused, failure = fight_loop.offer(
-            option, worth, key, now, release=lambda: fight_loop.lease_done(state, threats_seen()[0], price, THREAT_IDS),
+            option, worth, key, now, release=lambda: fight_loop.lease_done(state, threats_seen()[0], price, threat.THREAT_IDS),
             held=fight_loop.HELD, seen_at=seen_at() or now)
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
                 rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, **failure)

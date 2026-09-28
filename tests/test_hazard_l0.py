@@ -17,7 +17,7 @@ import tempfile  # noqa: E402
 import time  # noqa: E402
 from unittest import mock  # noqa: E402
 
-from bonobo import api, hazard, needs, perception, reflexes, retry, skillcore, skills  # noqa: E402
+from bonobo import api, hazard, needs, perception, reflexes, retry, skillcore, skills, threat  # noqa: E402
 from bonobo import brain as brainmod  # noqa: E402
 from bonobo.memory import Memory  # noqa: E402
 from tests.world import state  # noqa: E402
@@ -308,14 +308,14 @@ class FightBatches(unittest.TestCase):
               ("the game queues none of it", Decision("fight", 42), [], api.NotAvailable)]
 
     def test_engage_posts_the_batch(self):
-        from bonobo import fight_loop, perception
+        from bonobo import fight_loop
         for name, option, queued, want in self.ENGAGE:
             posted = []
             with self.subTest(name), \
                     mock.patch.object(skillcore, "feet", lambda: (0, 64, 0)), \
                     mock.patch.object(skillcore, "body_state", lambda ctx, region=None, **k: dict(
                         fight_body(_inv(cobblestone=4)), **k)), \
-                    mock.patch.object(perception, "threats_seen", lambda: ([], None)), \
+                    mock.patch.object(threat, "threats_seen", lambda: ([], None)), \
                     mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(body) or
                                       {"tasks": queued, "message": "full"}):
                 if isinstance(want, type):
