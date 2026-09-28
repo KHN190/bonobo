@@ -1058,49 +1058,47 @@ def _server_hp():
     return data_health(_command("data get entity @p Health", []))
 
 
-def _deflect_volley():
+def _deflect_volley(ctx):
     """`before` hook: a NoAI ghast behind each shot's line, then the shots on VOLLEY's schedule, each tracked to its
     end (idle too: no shot waits for a deflect)."""
-    def hook(ctx):
-        from ..core import _command
-        from ...world import entities
-        eye = deflect_eye()
-        for _t, direction, dist in VOLLEY:
-            g, _m = shot_from(direction, dist + 3.5)
-            _command(f"summon minecraft:ghast {g[0]:.2f} {g[1] - 2:.2f} {g[2]:.2f} "
-                     "{NoAI:1b,PersistenceRequired:1b}", [])
-        DEFLECT.clear()
-        DEFLECT.update(start=_server_hp(), eye=eye, fired=0, ends=[], done=False)
+    from ..core import _command
+    from ...world import entities
+    eye = deflect_eye()
+    for _t, direction, dist in VOLLEY:
+        g, _m = shot_from(direction, dist + 3.5)
+        _command(f"summon minecraft:ghast {g[0]:.2f} {g[1] - 2:.2f} {g[2]:.2f} "
+                 "{NoAI:1b,PersistenceRequired:1b}", [])
+    DEFLECT.clear()
+    DEFLECT.update(start=_server_hp(), eye=eye, fired=0, ends=[], done=False)
 
-        def volley():
-            t0, series, closed = time.time(), {}, set()
-            while time.time() - t0 < 20 and not DEFLECT["done"]:
-                now = time.time() - t0
-                while DEFLECT["fired"] < len(VOLLEY) and now >= VOLLEY[DEFLECT["fired"]][0]:
-                    ball, m = shot_from(*VOLLEY[DEFLECT["fired"]][1:])
-                    _command(f"summon minecraft:fireball {ball[0]:.3f} {ball[1] - 0.5:.3f} {ball[2]:.3f} "
-                             f"{{Motion:[{m[0]:.4f}d,{m[1]:.4f}d,{m[2]:.4f}d],acceleration_power:0.1d,"
-                             "ExplosionPower:1b}", [])
-                    DEFLECT["fired"] += 1
-                try:
-                    near = {e["id"]: math.dist((e["x"], e["y"] + 0.5, e["z"]), eye)
-                            for e in entities(64, ["minecraft:fireball"])}
-                except McError:
-                    near = {}
-                for i, d in near.items():
-                    series.setdefault(i, []).append(d)
-                for i, ds in series.items():
-                    if i in closed:
-                        continue
-                    done, end = fireball_end(ds, i not in near)
-                    if done:
-                        closed.add(i)
-                        DEFLECT["ends"].append(end)
-                DEFLECT["done"] = DEFLECT["fired"] == len(VOLLEY) and len(closed) == len(series) > 0
-                time.sleep(0.05)
-            DEFLECT["done"] = True
-        _threading.Thread(target=volley, daemon=True, name="deflect-volley").start()
-    return hook
+    def volley():
+        t0, series, closed = time.time(), {}, set()
+        while time.time() - t0 < 20 and not DEFLECT["done"]:
+            now = time.time() - t0
+            while DEFLECT["fired"] < len(VOLLEY) and now >= VOLLEY[DEFLECT["fired"]][0]:
+                ball, m = shot_from(*VOLLEY[DEFLECT["fired"]][1:])
+                _command(f"summon minecraft:fireball {ball[0]:.3f} {ball[1] - 0.5:.3f} {ball[2]:.3f} "
+                         f"{{Motion:[{m[0]:.4f}d,{m[1]:.4f}d,{m[2]:.4f}d],acceleration_power:0.1d,"
+                         "ExplosionPower:1b}", [])
+                DEFLECT["fired"] += 1
+            try:
+                near = {e["id"]: math.dist((e["x"], e["y"] + 0.5, e["z"]), eye)
+                        for e in entities(64, ["minecraft:fireball"])}
+            except McError:
+                near = {}
+            for i, d in near.items():
+                series.setdefault(i, []).append(d)
+            for i, ds in series.items():
+                if i in closed:
+                    continue
+                done, end = fireball_end(ds, i not in near)
+                if done:
+                    closed.add(i)
+                    DEFLECT["ends"].append(end)
+            DEFLECT["done"] = DEFLECT["fired"] == len(VOLLEY) and len(closed) == len(series) > 0
+            time.sleep(0.05)
+        DEFLECT["done"] = True
+    _threading.Thread(target=volley, daemon=True, name="deflect-volley").start()
 
 
 def _deflect_watch():
