@@ -1305,7 +1305,10 @@ class Upkeep(unittest.TestCase):
                 self.assertEqual(set(queued) & {(("bed", 1),)}, want)
 
     def test_dusk_clock(self):
-        for tod, secs in ((0, 600.0), (6000, 300.0), (11500, 25.0), (12000, 0.0), (18000, 0.0), (24000 + 6000, 300.0)):
+        from bonobo.data import DAY_END
+        # derived from the one dusk (data.DAY_END): seconds = ticks to it / 20; must fail: at dusk and after, none
+        for tod, secs in ((0, DAY_END / 20), (6000, (DAY_END - 6000) / 20), (11500, (DAY_END - 11500) / 20),
+                          (DAY_END, 0.0), (18000, 0.0), (24000 + 6000, (DAY_END - 6000) / 20)):
             with self.subTest(timeOfDay=tod):
                 self.assertEqual(needs.dusk_s(snapshot(state(timeOfDay=tod))), secs)
 

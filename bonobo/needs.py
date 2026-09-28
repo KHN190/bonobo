@@ -9,7 +9,7 @@ from . import api, decompose, goals, survive
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
 from .cost import Cost
-from .data import NIGHT_WORK, TOOL_KINDS, memo_ttl, mid
+from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid
 from .knowledge import food_count, food_points
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -17,7 +17,6 @@ from .skillcore import lost
 from .world import Inventory
 
 LEAD = 1.5                 # how much earlier than a plan's own seconds its upkeep starts: the one margin
-DAY_TICKS_END = 12000      # dusk, in timeOfDay ticks
 PLAN_S_TTL = 20            # seconds a "how long would that take" answer is kept
 WORKING = _k.TOOL_WORKING  # durability left for a tool to count as working (planning's margin; the jar holds from 2)
 NEAR_BREAK = 16            # durability a tool had last round for its disappearing to mean it broke (a round of work)
@@ -38,9 +37,10 @@ def bag_signature(inv):
     return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
 
 def dusk_s(snap):
-    """Seconds until dark: (12000 − timeOfDay) / 20, 0 once it is dark."""
+    """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / 20, 0 once
+    it is dark."""
     t = int(snap.time) % 24000
-    return max(0.0, (DAY_TICKS_END - t) / 20.0) if t < DAY_TICKS_END else 0.0
+    return max(0.0, (DAY_END - t) / 20.0) if t < DAY_END else 0.0
 
 def night_facts(soft, cooled=(), dig_site=True):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
