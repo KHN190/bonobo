@@ -8,7 +8,7 @@ from . import api, nav
 from . import combat_model
 from .data import EYE_HEIGHT
 from .api import McError, NotAvailable
-from .skill import skill
+from .skill import budget_end, skill
 from .world import Inventory, add, entities
 
 ARROW_SPEED = 3.0          # blocks per tick at full draw
@@ -77,7 +77,8 @@ def collect_blaze_rods(ctx, rods):
     """The rod-collecting step of "have blaze_rod" (L2 puts the fortress first: decompose)."""
 
     quiet_since = None
-    for _ in range(rods * 40):
+    end = budget_end()
+    while time.time() < end:     # waits on blaze deaths: bounded by time
         blazes = [e for e in entities(24, ["minecraft:blaze"]) if not ctx.blocked((e["id"], 0, 0))]
         floor = _rods_on_floor()
         if not blazes and not floor:

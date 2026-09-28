@@ -1,6 +1,7 @@
 """The stronghold and the End: fill the end portal frame with eyes of ender and go through; the dragon fight is in
 dragon.py. Pure `frames_missing_eye` / `portal_centre` are offline-tested."""
 import math
+import time
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav, skillcore
@@ -146,6 +147,8 @@ def _frame_region():
     xs, ys, zs = [h["x"] for h in hits], [h["y"] for h in hits], [h["z"] for h in hits]
     return Region((min(xs) - 2, min(ys), min(zs) - 2), (max(xs) + 2, max(ys), max(zs) + 2), props=True)
 
+PORTAL_ARRIVE_S = 10.0     # standing in the portal this long without a dimension change: it did not take us
+
 @skill(gives=["state:in_the_end"], remaining=_k.in_dimension(lambda c: "minecraft:the_end"), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
 def enter_end(ctx):
     """Jump into the activated end portal (the centre of the frame ring)."""
@@ -155,7 +158,8 @@ def enter_end(ctx):
     if not find(["end_portal"], radius=32, limit=1):
         raise NotAvailable("the end portal isn't active yet")
     nav.arrived(centre, ctx.policy, range_=0.6, attempts=1)
-    for _ in range(10):
+    end = time.time() + PORTAL_ARRIVE_S
+    while time.time() < end:
         api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the dimension change after stepping in")
         yield None
         if api.get("/state")["dimension"] == "minecraft:the_end":

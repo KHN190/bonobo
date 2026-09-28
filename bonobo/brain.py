@@ -324,7 +324,10 @@ class Brain:
         for _ in range(max(1, IDLE_WAIT_TICKS // IDLE_SLICE_TICKS)):
             if wake is not None and wake():
                 break
-            api.run({"type": "wait", "ticks": IDLE_SLICE_TICKS}, wait=15, awaits="one task: a slice of the idle round's wait")
+            try:
+                api.run({"type": "wait", "ticks": IDLE_SLICE_TICKS}, wait=15, awaits="one task: a slice of the idle round's wait")
+            except api.FightHolds:
+                break                            # a faster layer drives: no idling over it
             slices += 1
             if work_queued():
                 break

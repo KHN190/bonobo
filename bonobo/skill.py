@@ -10,7 +10,7 @@ import inspect
 import time
 from typing import Any, Callable, cast
 
-from . import api, lifecycle, paths, skillcore, tape, knowledge
+from . import api, arbiter, lifecycle, paths, skillcore, tape, knowledge
 from .api import McError, TaskStuck
 from .knowledge import have_remainder, needs_rows
 from .bag import has_room
@@ -33,6 +33,7 @@ class Call:
         self.want: Bag | None = None            # an item skill's desired bag, fixed at its start (skill.wanted)
         self.keep: dict[str, Any] = {}          # what the skill fixed at its first start (an anchor: a column, a direction)
         self.contract: "Contract | None" = None   # the skill this call runs (set by its runner)
+        self.began = time.time()
 
 # an interrupted call's base, wanted bag and anchors, for its resume (read off the world, never a step index); stale after RESUME_TTL_S
 RESUME = {}
@@ -56,6 +57,11 @@ api.BOUNDARY_EXEMPT = lambda: not CALLS or _night_way_running()     # only a ski
 def current():
     """The call running now (innermost); its `keep` survives an interruption for its resume."""
     return CALLS[-1] if CALLS else None
+
+def budget_end():
+    """When the running call's budget runs out: a loop waiting on the world stops by time, not by a count."""
+    c = current()
+    return c.began + c.contract.budget if c is not None and c.contract is not None else float("inf")
 
 def _resume_key(contract, args):
     return contract.name, repr(args[1:])
@@ -316,6 +322,16 @@ def skill(name=None, **options):
 
         @functools.wraps(fn)
         def runner(*args, **kwargs):
+            # a fight holding the body pauses the skill: wait it out, resume from the world (no try spent)
+            deadline = time.monotonic() + contract.budget
+            while True:
+                try:
+                    return once(*args, **kwargs)
+                except api.FightHolds:
+                    if not fight_over(deadline):
+                        raise
+
+        def once(*args, **kwargs):
             p0 = time.perf_counter()
             key = _resume_key(contract, args)
             c = Call(args, kwargs)
@@ -396,6 +412,16 @@ def skill(name=None, **options):
         return runner
 
     return wrap
+
+FIGHT_POLL_S = 0.5      # how often a paused skill looks whether the fight let the body go
+
+def fight_over(deadline, sleep=time.sleep, now=time.monotonic):
+    """Poll until no lease holds the body; False when the deadline came first."""
+    while arbiter.BODY.holder() is not None:
+        if now() >= deadline:
+            return False
+        sleep(FIGHT_POLL_S)
+    return True
 
 def bag_full_reason(message, free):
     """Pure: a failure re-said with "bag full" when there was no free slot; None when the bag had room or the message says so already."""

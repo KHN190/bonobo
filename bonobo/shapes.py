@@ -115,6 +115,7 @@ class EntityReading(TypedDict):
     angry: NotRequired[bool]      # an enderman's
     baby: NotRequired[bool]       # a passive mob's
     item: NotRequired[Stack]      # a dropped item's
+    velocity: NotRequired[list[float]]    # blocks per tick
 
 
 class BagState(TypedDict):

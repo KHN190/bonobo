@@ -485,6 +485,73 @@ class WaitOutFight(unittest.TestCase):
                 self.assertAlmostEqual(got, want)
 
 
+class WaitsEndByTime(unittest.TestCase):
+    """A skill waiting on the world stops by time, on a fake clock: wait_for_day by the night left on the game clock,
+    enter_end by PORTAL_ARRIVE_S. The clock moves only when the skill waits."""
+
+    class World:
+        def __init__(self, tod, runs, arrive_after=None):
+            self.s, self.tod, self.runs, self.waits, self.arrive_after = 0.0, tod, runs, 0, arrive_after
+
+        def time(self):
+            return self.s
+
+        def run(self, task, **kw):
+            from bonobo import beliefs
+            self.s += task["ticks"] / beliefs.TICKS_PER_S
+            self.tod += task["ticks"] if self.runs else 0
+            self.waits += 1
+            return {"status": "succeeded"}
+
+        def get(self, path):
+            there = self.arrive_after is not None and self.waits >= self.arrive_after
+            return {"timeOfDay": self.tod, "dimension": "minecraft:the_end" if there else "minecraft:overworld"}
+
+    def drive(self, gen):
+        try:
+            for _ in gen:
+                pass
+        except Exception as e:      # noqa: BLE001  (the row's answer)
+            return type(e)
+        return None
+
+    def test_wait_for_day(self):
+        from bonobo import beliefs
+        from bonobo.data import DAY_END, DAY_TICKS, NIGHT_END
+        wait_s = survive.DAY_WAIT_TICKS / beliefs.TICKS_PER_S
+        night_s = ((NIGHT_END - DAY_END) % DAY_TICKS + survive.DAY_WAIT_TICKS) / beliefs.TICKS_PER_S
+        # (situation, the clock runs) -> raised
+        rows = [("the night passes: ends at day, before the bound", True, None),
+                ("must fail: the clock stopped: NotAvailable once the night's length passed", False, NotAvailable)]
+        for name, runs, want in rows:
+            w = self.World(DAY_END, runs)
+            with self.subTest(name), mock.patch.object(survive, "time", w), mock.patch.object(api, "run", w.run), \
+                    mock.patch.object(api, "get", w.get):
+                self.assertEqual(self.drive(survive.wait_for_day.__wrapped__(None)), want)
+                if want is None:
+                    self.assertLessEqual(w.s, night_s)
+                else:
+                    self.assertGreater(w.s, night_s - wait_s)
+                    self.assertLessEqual(w.s, night_s + wait_s)
+
+    def test_enter_end(self):
+        from bonobo import end
+        ctx = mock.Mock(policy=None)
+        # (situation, waits before the dimension changes) -> raised
+        rows = [("the portal takes us after one wait", 1, None),
+                ("must fail: never arrives: McError once PORTAL_ARRIVE_S passed", None, api.McError)]
+        for name, after, want in rows:
+            w = self.World(0, True, after)
+            with self.subTest(name), mock.patch.object(end, "time", w), mock.patch.object(api, "run", w.run), \
+                    mock.patch.object(api, "get", w.get), \
+                    mock.patch.object(end, "portal_centre", lambda cells: (0, 64, 0)), \
+                    mock.patch.object(end, "find", lambda *a, **k: [{"x": 0, "y": 64, "z": 0}]), \
+                    mock.patch.object(end.nav, "arrived", lambda *a, **k: True):
+                self.assertEqual(self.drive(end.enter_end.__wrapped__(ctx)), want)
+                if want is not None:
+                    self.assertGreaterEqual(w.s, end.PORTAL_ARRIVE_S)
+
+
 class ChainStopsAtASegment(unittest.TestCase):
     """api.run_chain: an interrupt pending at a segment boundary stops the chain there — no later segment posted —
     and it is an interruption (no count, no cooling)."""
@@ -936,6 +1003,60 @@ class Runner(unittest.TestCase):
                     runner(None)
                 self.assertIn(want, str(caught.exception))
                 self.assertEqual(retry.cause_of(caught.exception), "stuck")
+
+    # a fight holds the body mid-skill: (situation, holder per poll, left after the fight, budget s, body answers)
+    #   → (what the call returns | raises, body runs)
+    HELD = [("held two polls, some left: waited, run again from the world", ["tactic", "tactic", None],
+             {"minecraft:stone": 1}, 5.0, "held", ("done", 2)),
+            ("held, done while away: not run again", ["tactic", None], {}, 5.0, "held", (None, 1)),
+            ("must fail: held past its budget: FightHolds up, no endless wait", ["tactic"], {"minecraft:stone": 1},
+             0.05, "held", (api.FightHolds, 1)),
+            ("must fail: a plain failure is not waited out", [None], {"minecraft:stone": 1}, 5.0, "fails",
+             (NotAvailable, 1))]
+
+    def test_a_held_body_is_waited_out(self):
+        for name, holds, left, budget, answers, (want, runs) in self.HELD:
+            calls = []
+
+            def fn(ctx, _a=answers):
+                calls.append(1)
+                if _a == "fails":
+                    raise NotAvailable("none here")
+                if len(calls) == 1:
+                    raise api.FightHolds("the body is held")
+                return "done"
+            fn.__name__ = f"held_{abs(hash(name))}"
+            seq = iter(holds)
+
+            class Body:
+                last = holds[0]
+
+                def holder(self, _seq=seq):
+                    Body.last = next(_seq, Body.last)
+                    return Body.last
+            with self.subTest(name), mock.patch.dict(skillkit.REGISTRY), mock.patch.dict(skillkit.RESUME), \
+                    mock.patch.object(skillkit, "STATS", None), mock.patch.object(skillkit, "VERIFY_SETTLE_S", 0.01), \
+                    mock.patch.object(skillkit, "FIGHT_POLL_S", 0.001), mock.patch.object(arbiter, "BODY", Body()), \
+                    mock.patch.object(skillcore, "body_state", lambda *a, **k: {}), \
+                    mock.patch.object(api, "api", side_effect=AssertionError("the runner read the world")):
+                runner = skillkit.skill(needs={}, speed={}, gives={}, remaining=lambda st, c, _l=left: _l,
+                                        budget=budget)(fn)
+                if isinstance(want, type):
+                    with self.assertRaises(want):
+                        runner(None)
+                else:
+                    self.assertEqual(runner(None), want)
+                self.assertEqual(len(calls), runs)
+
+    def test_budget_end(self):
+        """The running call's budget deadline: its start + its budget; none running, no deadline."""
+        c = skillkit.Call((), {})
+        c.contract = mock.Mock(budget=skillkit.Spec().budget)
+        rows = [("a call running: its start plus its budget", [c], c.began + c.contract.budget),
+                ("must fail: no call running: no deadline", [], float("inf"))]
+        for name, calls, want in rows:
+            with self.subTest(name), mock.patch.object(skillkit, "CALLS", calls):
+                self.assertEqual(skillkit.budget_end(), want)
 
     def test_can_run_asks_the_same_preconditions(self):
         ok = lambda c: None      # noqa: E731  (a precondition that passes)
