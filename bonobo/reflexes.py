@@ -191,7 +191,7 @@ class Maintain:
             return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site()),
                                      bed_too=False)
         view = View({
-            "died_recently": lambda: b.mem.recent_death(snap.dimension) is not None,
+            "died_recently": lambda: worth_recovering(b, snap),
             "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(
                 "furnace" in st["block"] for st in b.mem.stations(snap.dimension, near=snap.feet, within=STATION_R)))),
             "swimming": lambda: fluids.swimming(s),
@@ -376,6 +376,26 @@ class Maintain:
             return
         self.escalated[kind] = now
         log(f"?? STALL {kind}: {what}")
+
+def recovery_worth(value_s, dist, since_s, speed, despawn_s):
+    """Pure: what walking back to a death's drops is worth, in seconds: their value if reached before they despawn,
+    less the walk; ≤ 0 not worth it (a spot 10k blocks off was walked to)."""
+    trip = dist / speed
+    reached = trip < despawn_s - since_s
+    return (value_s if reached else 0.0) - trip
+
+
+def worth_recovering(b, snap, now=None):
+    """The last death (same dimension, drops not yet despawned) is worth the walk: its bag priced another way."""
+    from .memory import ITEM_DESPAWN_S
+    death = b.mem.recent_death(snap.dimension)
+    if death is None:
+        return False
+    prices = b.price_table(snap)
+    value = sum((prices.get(item) or 0.0) * n for item, n in death.get("carried", ()))
+    since = (now or time.time()) - death["t"]
+    return recovery_worth(value, math.dist(snap.feet, death["pos"]), since, nav.PLAYER_SPEED, ITEM_DESPAWN_S) > 0
+
 
 def _death_retired(c):
     """The death note this call walked to is spent: what was there is carried, what was not is not coming back."""

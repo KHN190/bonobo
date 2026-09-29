@@ -1112,6 +1112,22 @@ WELL_FED = [("cooked_beef", 8), ("white_bed", 1), ("stone_pickaxe", 1)]      # f
 HERD = {"cow": 12, "sheep": 20, "oak_log": 10, "stone": 2}
 
 
+class RecoveryWorth(unittest.TestCase):
+    def test_rows(self):
+        from bonobo import nav, reflexes
+        from bonobo.memory import ITEM_DESPAWN_S
+        speed = nav.PLAYER_SPEED
+        # (situation, value s, blocks away, seconds since death) → worth the walk
+        rows = [("near, soon after: worth it", 100.0, 20.0, 60.0, True),
+                ("must fail: a spot 10k blocks off (it despawns long before)", 100.0, 10_000.0, 60.0, False),
+                ("nothing of value there", 0.0, 20.0, 60.0, False),
+                ("must fail: reachable but despawned by arrival", 100.0, speed * 30, ITEM_DESPAWN_S - 20, False),
+                ("the walk costs more than it brings", 10.0, speed * 20, 0.0, False)]
+        for name, value, dist, since, want in rows:
+            with self.subTest(name):
+                self.assertEqual(reflexes.recovery_worth(value, dist, since, speed, ITEM_DESPAWN_S) > 0, want)
+
+
 class Row:
     """One upkeep situation: readings, the few world facts the table reads, and what it must conclude."""
 
@@ -1157,7 +1173,8 @@ UPKEEP = [
     Row("path failure somewhere else is not this path", None, inv=WELL_FED + [("cobblestone", 16)],
         blocked=(40, 64, 0), place=retry.place_signature((400, 64, 0), False)),
     Row("the same block and bag for 90 s", "unstuck", stuck=True),
-    Row("died a minute ago", "recover items", died=True),
+    Row("died a minute ago, the bag dropped there", "recover items", died=[("minecraft:iron_ingot", 3)]),
+    Row("must fail: died with nothing carried: no walk back for nothing", None, died=True),
     Row("no working pickaxe, no plan wanting one: nothing (a plan asks for its own)", None,
         inv=[("cooked_beef", 8), ("white_bed", 1)]),
     Row("the iron pickaxe broke under a mining plan, iron to make another: the same tier back", None,
@@ -1240,7 +1257,7 @@ def run_upkeep(row, tmp):
     for name in row.cooling:
         b.retry.failed(name, "error", "failed here", now, PLACE)
     if row.died:
-        b.mem.log_death((6, 64, 0), row.state["dimension"])
+        b.mem.log_death((6, 64, 0), row.state["dimension"], carried=row.died if isinstance(row.died, list) else ())
     if row.job:
         b.mem.add_job("smelt", row.job[0], row.state["dimension"], "minecraft:iron_ingot", 3, now + row.job[1], [])
     if row.machine:

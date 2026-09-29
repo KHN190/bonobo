@@ -101,6 +101,9 @@ def write_notes(path: str, data: "dict[str, Any]") -> None:
     os.replace(tmp, path)
 
 
+
+ITEM_DESPAWN_S = 300      # a dropped item despawns after 5 minutes (6000 ticks)
+
 class Memory:
     def tick(self):
         """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
@@ -564,9 +567,10 @@ class Memory:
                 return d
         return None
 
-    def recent_death(self, dimension, within_s=300, now=None):  # noqa: D401
+    def recent_death(self, dimension, within_s=None, now=None):  # noqa: D401
         """The last death if its dropped items are still there (they despawn after 5 minutes), else None."""
         now = now or time.time()
+        within_s = ITEM_DESPAWN_S if within_s is None else within_s
         d = next((d for d in reversed(self.data["deaths"]) if d.get("t") and not d.get("recovered")), None)
         if d and d["dimension"] == dimension and now - d["t"] < within_s:
             d.setdefault("carried", [])      # deaths recorded before the bag was kept
