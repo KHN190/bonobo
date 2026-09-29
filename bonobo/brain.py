@@ -69,6 +69,22 @@ def craft_run(steps, first):
         run.append(st)
     return run
 
+def keeps_table(steps, run):
+    """Pure: a craft later in the plan than `run` needs a table — the one placed now is left standing."""
+    if not run or run[-1] not in steps:
+        return False
+    return any(st.kind == "craft" and craft.recipe_needs_table(st.token) for st in steps[steps.index(run[-1]) + 1:])
+
+def craft_act(layer, name, ctx, steps, step, night, task=None):
+    """The act for `step`: a craft runs on through the crafts after it at one sitting (craft_run), the table left
+    standing when the plan crafts at one again (keeps_table); anything else as it is."""
+    run = craft_run(steps, step)
+    keep = step.kind == "craft" and keeps_table(steps, run)
+    if len(run) > 1 or keep:
+        recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
+        return Act(layer, name, lambda: craft.craft_chain(ctx, recipes, keep), task=task, step=step, steps=run)
+    return Act(layer, name, lambda: dispatch.execute(ctx, step, night), task=task, step=step)
+
 class Act:
     """What the round decided: the layer, a name (the failure key), and what to run. `task`/`step` for queue work."""
 
@@ -459,7 +475,7 @@ class Brain:
                     None)
         if step is None:
             return None
-        return Act("upkeep", name, lambda: dispatch.execute(ctx, step, snap.night), step=step)
+        return craft_act("upkeep", name, ctx, steps, step, snap.night)
 
     # -- the queue: hold a plan, check it cheaply, repair it on events
     def task_act(self, task, snap, ctx, cost):
@@ -518,12 +534,7 @@ class Brain:
         # never consume our own work: what held plans pass through is kept from tidying and storing
         bag.RESERVED = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
-        run = craft_run(held["steps"], step)
-        if len(run) > 1:
-            recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
-            return Act("task", f"task {task['id']}", lambda: craft.craft_chain(ctx, recipes), task=task, step=step,
-                       steps=run)
-        return Act("task", f"task {task['id']}", lambda: dispatch.execute(ctx, step, snap.night), task=task, step=step)
+        return craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task)
 
     def valid(self, step, snap, ctx=None):
         """The cheap per-round check: inputs held, and the skill's own preconditions pass."""

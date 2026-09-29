@@ -429,6 +429,16 @@ class CraftCommands(unittest.TestCase):
                     continue
                 self.assertEqual(self.shape(craft.craft_commands(st, (recipes,))), want)
 
+    def test_a_table_kept_for_the_next_sitting(self):
+        from tests.world import bag, inventory
+        st = {"inv": bag(inventory(oak_planks=12, cobblestone=3)), "table": None, "spot": (1, 64, 0)}
+        rows = [("kept: the plan crafts at a table again", True, False),
+                ("must fail: not kept: taken back", False, True)]
+        for name, keep, taken in rows:
+            with self.subTest(name):
+                got = self.shape(craft.craft_commands(dict(st, keep_table=keep), (self.PICK,)))
+                self.assertEqual("mine" in got, taken)
+
     def test_resumed_from_the_bag(self):
         """Interrupted after the bag's crafts: the chain rebuilt from the bag then holds only the pickaxe."""
         from tests.world import bag, inventory

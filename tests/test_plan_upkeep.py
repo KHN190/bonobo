@@ -2594,6 +2594,31 @@ class CraftInOneSitting(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(brainmod.craft_run(steps, first), want)
 
+    def test_the_table_stays_for_a_later_table_craft(self):
+        S = planner.Step
+        planks, table, pick = (S("craft", "planks", 8, {"times": 2}), S("craft", "minecraft:crafting_table", 1, {}),
+                               S("craft", "minecraft:wooden_pickaxe", 1, {}))
+        mine, stone_pick = S("mine", "stone", 3, {"tier": 0}), S("craft", "minecraft:stone_pickaxe", 1, {})
+        sticks = S("craft", "minecraft:stick", 4, {})
+        # (situation, plan, the run) → the table left standing
+        rows = [("a stone pickaxe after the mine: kept", [planks, table, pick, mine, stone_pick], [planks, table, pick],
+                 True),
+                ("must fail: nothing at a table after: taken back", [planks, table, pick, mine],
+                 [planks, table, pick], False),
+                ("a 2×2 craft after is no reason", [planks, table, pick, mine, sticks], [planks, table, pick], False)]
+        for name, steps, run, want in rows:
+            with self.subTest(name):
+                self.assertEqual(brainmod.keeps_table(steps, run), want)
+
+    def test_upkeep_crafts_at_one_sitting(self):
+        """need_act goes through craft_act too: the crafts in a row are one act (they were one per round)."""
+        S = planner.Step
+        planks, sticks, table, pick = (S("craft", "planks", 8, {"times": 2}), S("craft", "minecraft:stick", 4, {}),
+                                       S("craft", "minecraft:crafting_table", 1, {}),
+                                       S("craft", "minecraft:wooden_pickaxe", 1, {}))
+        act = brainmod.craft_act("upkeep", "idle: x", None, [planks, sticks, table, pick], planks, False)
+        self.assertEqual(act.steps, [planks, sticks, table, pick], "must fail: one craft a round")
+
 
 class Reflexes(unittest.TestCase):
     """reflexes.TABLE: each trigger over the round's view — fires, and does not."""

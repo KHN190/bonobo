@@ -198,6 +198,10 @@ def needs_table(concrete):
     """Pure: a resolved pattern needs the 3×3 grid (a crafting table); a 2×2 one is made in the bag."""
     return len(concrete) == 9
 
+def recipe_needs_table(token):
+    """Pure: the recipe for `token` is a 3×3 one (made at a table)."""
+    return needs_table(recipe_of(token)[0])
+
 def sittings(steps):
     """Pure: `craft_plan`'s steps cut where the grid changes — [(needs a table, [steps])], in plan order."""
 
@@ -261,7 +265,8 @@ def craft_commands(state, args):
             pos, placed = tuple(state["spot"]), True
             out.append({"type": "place", "item": "minecraft:crafting_table", "x": pos[0], "y": pos[1], "z": pos[2]})
         out += [{"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}] + crafts + [CLOSE]
-        if placed and takes_back("minecraft:crafting_table", bool(inv.tools("pickaxe"))):
+        # kept standing when the plan crafts at a table again soon (keep_table)
+        if placed and not state.get("keep_table") and takes_back("minecraft:crafting_table", bool(inv.tools("pickaxe"))):
             out.append(nav.mine_task(pos, collect=True))
     return out
 
@@ -279,8 +284,9 @@ def make_bag_room(ctx, need):
         api.post("/click", body)
     return clicks
 
-def _sitting(ctx, recipes):
-    """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once."""
+def _sitting(ctx, recipes, keep_table=False):
+    """Craft `recipes` in one sitting: the table opened (or placed) once and closed (or taken back) once — left
+    standing when `keep_table` (the plan crafts at a table again soon)."""
 
     inv = Inventory()
     if inv.used_slots() >= BAG_SLOTS:
@@ -290,7 +296,7 @@ def _sitting(ctx, recipes):
         inv = Inventory()
     steps, _, _ = craft_plan(recipes, inv)
     # world reads only when a table sitting is planned: a table near, else a spot for one
-    state = {"inv": inv, "table": None, "spot": None}
+    state = {"inv": inv, "table": None, "spot": None, "keep_table": keep_table}
     if any(table for table, _part in sittings(steps)):
         near = find(["crafting_table"], radius=6, limit=1)
         if near:
@@ -322,9 +328,9 @@ def craft(ctx, token, times):
 
 @skill(gives=["state:crafted"], remaining=_k.planned_items, needs={}, speed={}, start=lambda c: _plan_start(c.args[1]), verify=_plan_made, budget=120, stall=60, key=lambda c: "craft",
        commands=lambda state, args: craft_commands(state, (args[0],)))
-def craft_chain(ctx, recipes):
+def craft_chain(ctx, recipes, keep_table=False):
     """Consecutive crafts of one plan in one sitting (`_sitting`). `recipes`: [(token, times)] in plan order."""
-    return _sitting(ctx, recipes)
+    return _sitting(ctx, recipes, keep_table)
 
 def move_into(ids, target_slot, amount):
     moved = 0
