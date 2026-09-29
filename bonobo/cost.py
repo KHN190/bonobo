@@ -29,10 +29,12 @@ def walk_ticks(distance):
 class Cost:
     """The cost model a planner is given."""
 
-    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None):
-        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world)."""
+    def __init__(self, snap, mem=None, blacklist=None, known=None, finds=None, policy=None, ripe=None, reserved=()):
+        """`known`: fn(kinds) -> distance or None, standing in for memory (offline: no snapshot, no world).
+        `reserved`: item ids the held plans will consume (bag.RESERVED), kept from a better tool's material."""
 
         self.snap, self.mem = snap, mem
+        self.reserved = frozenset(reserved)
         self.blacklist = blacklist or {}
         self.cache = {}
         self._known_fn = known

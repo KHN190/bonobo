@@ -509,7 +509,7 @@ class Brain:
         name = f"{kind}: {goals.describe(goal)}"
         if not self.ready(name):
             return None
-        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache)
+        cost = Cost(snap, self.mem, self.blacklist, policy=self.policy_cache, reserved=bag.RESERVED)
         try:
             steps = decompose.decompose(snap.inv, goal, cost, pending=self.mem.pending_outputs(snap.dimension))
         except Unplannable:

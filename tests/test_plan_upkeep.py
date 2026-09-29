@@ -1440,8 +1440,11 @@ CRAFTABLE = [
     ("iron but raw: smelting is not crafting", inventory(("raw_iron", 3), ("stick", 2), ("crafting_table", 1),
                                                          ("cobblestone", 3)), "pickaxe", 1),
     ("diamonds", inventory(("diamond", 3), ("stick", 2), ("crafting_table", 1)), "pickaxe", 3),
-    ("two iron make a sword, not a pickaxe", inventory(("iron_ingot", 2), ("stick", 2), ("crafting_table", 1)),
-     "sword", 2),
+    # tools.use_order: iron goes to the pickaxe first; two are no pickaxe, and no sword either (kept for it)
+    ("two iron, no iron pickaxe: kept for the pickaxe, the sword wood", inventory(("iron_ingot", 2), ("stick", 2),
+                                                                          ("crafting_table", 1)), "sword", 0),
+    ("two iron, an iron pickaxe held: an iron sword", inventory(("iron_ingot", 2), ("stick", 2), ("crafting_table", 1),
+                                                               ("iron_pickaxe", 1)), "sword", 2),
     ("must fail: two iron make a sword, not a pickaxe (pickaxe side)", inventory(("iron_ingot", 2), ("stick", 2),
                                                                        ("crafting_table", 1)), "pickaxe", 0),
     ("logs only: planks are a craft, but wood is tier 0 anyway", inventory(("oak_log", 4)), "axe", 0),
@@ -2570,6 +2573,37 @@ class TheToolTheBagMakes(unittest.TestCase):
             with self.subTest(extra=extra):
                 inv = bag(inventory(("stick", 2), ("crafting_table", 1), *extra))
                 self.assertEqual(needs.craftable_tier(inv, "pickaxe"), tier)
+
+
+class ScarceToTheMostUsedTool(unittest.TestCase):
+    """The best tier the bag makes outright, a scarce material first to what the held plans reserve, then to the
+    tools by use (play.toml tools.use_order): one rule for idle prepare and the broken-tool upkeep (Planner.craftable_tier)."""
+
+    def plan(self, goal, *carried, reserved=()):
+        from bonobo.cost import Cost
+        from tests.world import finds
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = snapshot(state(), inventory(("stick", 4), ("crafting_table", 1), *carried))
+            c = Cost(snap, mem=Memory(os.path.join(tmp, "n.json")), finds=finds(), reserved=reserved)
+            return [st.token for st in decompose.decompose(snap.inv, goal, c) if st.kind == "craft"]
+
+    def test_rows(self):
+        from bonobo import goals as g
+        iron = "minecraft:iron_ingot"
+        rows = [("must fail: 3 diamonds, no diamond pickaxe: the tier-1 sword is not diamond",
+                 g.have(("tool", "sword", 1)), [("diamond", 3), ("cobblestone", 8)], (), "minecraft:stone_sword"),
+                ("iron pickaxe held, 3 iron: an iron sword, the diamonds kept for the pickaxe",
+                 g.have(("tool", "sword", 1)), [("diamond", 3), ("iron_ingot", 3), slot("iron_pickaxe")], (),
+                 "minecraft:iron_sword"),
+                ("the iron pickaxe broken, 3 iron and cobble, nothing reserved: iron (tool_tier__one_use)",
+                 g.have(("tool", "pickaxe", 1)), [slot("iron_pickaxe", 1, 250), ("iron_ingot", 3), ("cobblestone", 8)],
+                 (), "minecraft:iron_pickaxe"),
+                ("must fail: iron reserved for a bucket: the pickaxe stone",
+                 g.have(("tool", "pickaxe", 1)), [slot("iron_pickaxe", 1, 250), ("iron_ingot", 3), ("cobblestone", 8)],
+                 {iron}, "minecraft:stone_pickaxe")]
+        for name, goal, carried, reserved, want in rows:
+            with self.subTest(name):
+                self.assertEqual(self.plan(goal, *carried, reserved=reserved)[-1:], [want])
 
 
 class EatOnTheWay(unittest.TestCase):

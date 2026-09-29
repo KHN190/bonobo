@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .api import McError
-from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
-from .beliefs import fights_back
+from .data import GROUPS, MATERIAL_TOKEN, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
+from .beliefs import CONFIG, fights_back
 from .knowledge import (prior_ticks, COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MIN_DURABILITY,
                         have_remainder, members, needs_rows, source, step_call)
 
@@ -81,15 +81,29 @@ def cooked_from_carried(options, available, n):
             out.append((cooked, k))
     return out
 
+def material_per_tool(kind, tier):
+    """Pure: how much of its tier's material one `kind` of `tier` takes (its recipe)."""
+    material = TOOL_MATERIAL_FOR_TIER[tier]
+    src = source(f"minecraft:{material}_{kind}")
+    return src[1].count(MATERIAL_TOKEN[material]) if src else 0
+
+def used_before(kind):
+    """The tool kinds used more often than `kind` (play.toml tools.use_order's earlier groups)."""
+    order = CONFIG["tools"]["use_order"]
+    group = next(i for i, g in enumerate(order) if kind in g)
+    return [k for g in order[:group] for k in g]
+
 class Planner:
-    def __init__(self, counts, tools, cost, pending=None):
+    def __init__(self, counts, tools, cost, pending=None, reserved=None):
         self.inv = VirtualInventory(counts, tools, pending)
         self.cost = cost
+        # item ids the held plans will consume (bag.RESERVED): never a better tool's material
+        self.reserved = frozenset(reserved if reserved is not None else getattr(cost, "reserved", ()))
         self.probing = False       # a craftable_tier probe: plans the tier asked, never upgrades it again
         self.steps = []
 
     @classmethod
-    def from_inventory(cls, inv, cost, extra=None, pending=None):
+    def from_inventory(cls, inv, cost, extra=None, pending=None, reserved=None):
         """`extra`: items counted as held beyond the bag (a planned source's output, a running job's output), so
         nothing is made twice. `pending`: of `extra`, what a running job is still making (a sown crop, a furnace) — a
         step that takes from it awaits it first; a planned source's output (dirt the plan will dig) never does."""
@@ -107,7 +121,7 @@ class Planner:
             if s.get("count"):
                 counts[s["id"]] += 1
         tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)] if hasattr(inv, "tools") else []
-        return cls(counts, tools, cost, {mid(k): v for k, v in (pending or {}).items()})
+        return cls(counts, tools, cost, {mid(k): v for k, v in (pending or {}).items()}, reserved)
 
     # -- public
     def plan(self, needs):
@@ -139,12 +153,20 @@ class Planner:
         self.inv.tools.append((kind, tier, 999))
 
     def craftable_tier(self, kind):
-        """The best tier of `kind` this planned bag crafts with crafting steps only, or 0."""
+        """The best tier of `kind` this planned bag crafts with crafting steps only, or 0 — from what is left of the
+        tier's material once the held plans' reservation and every more-used tool still short of that tier took
+        theirs (play.toml tools.use_order)."""
 
         for tier in sorted((t for t in TOOL_MATERIAL_FOR_TIER if t > 0), reverse=True):
             probe = Planner(self.inv.counts, [], NullCost())
             probe.inv.produced = Counter(self.inv.produced)
             probe.probing = True
+            token = MATERIAL_TOKEN[TOOL_MATERIAL_FOR_TIER[tier]]
+            held = probe.inv.available(token)
+            taken = held if set(members(token)) & self.reserved else sum(
+                material_per_tool(k, tier) for k in used_before(kind)
+                if not self.inv.has_tool(k, tier, TOOL_MIN_DURABILITY))
+            probe.inv.consume(token, min(held, taken), awaits=False)
             try:
                 steps = probe.plan([("tool", kind, tier)])
             except Unplannable:

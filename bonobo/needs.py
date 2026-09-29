@@ -9,6 +9,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, decompose, goals, survive, beliefs
 from .reflexes import BAG_FULL, BRIDGE_MIN, EAT_BELOW, _once, ground, nether_retreat  # noqa: F401  (shared thresholds)
 from .api import McError, NotAvailable, log
+from . import bag
 from .bag import bag_signature
 from .cost import Cost
 from .decompose import cooled_ways, night_facts, way_key  # noqa: F401
@@ -93,10 +94,10 @@ def working_tiers(inv):
             out[kind] = max(tiers)
     return out
 
-def craftable_tier(inv, kind):
+def craftable_tier(inv, kind, reserved=()):
     """The best tier of `kind` this bag crafts outright, or 0."""
 
-    return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
+    return Planner.from_inventory(inv, NullCost(), reserved=reserved).craftable_tier(kind)
 
 def falls(step, known_y=None):
     """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)? The ore's
@@ -174,7 +175,7 @@ class Needs:
         # upkeep only replaces a tool that broke under a held plan still wanting it (a blanket "no pickaxe" put one before every task)
         wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
         for kind in sorted(self.broken & wanted):
-            self.need("broken tool", goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
+            self.need("broken tool", goals.have(("tool", kind, craftable_tier(inv, kind, bag.RESERVED))), f"the {kind} broke")
         if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()],
                               lambda st: known_ore_y(b.mem, snap, st)):
             self.need("water bucket", goals.have(("minecraft:water_bucket", 1)),
@@ -217,7 +218,7 @@ class Needs:
             self.need("night prep", goals.have(*src["needs"]), f"dark before {way} could be had")
 
     def cost(self, snap):
-        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache)
+        return Cost(snap, self.brain.mem, self.brain.blacklist, policy=self.brain.policy_cache, reserved=bag.RESERVED)
 
     def need(self, kind, goal, why):
         """Propose getting `goal` (kind: its place in arbiter.PLAN_ORDER)."""

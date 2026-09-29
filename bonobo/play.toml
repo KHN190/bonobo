@@ -33,6 +33,7 @@ mine_time_no_pickaxe = 4.0
 mine_time_stone = 1.5
 mine_time_iron = 1.0
 mining_share_of_day = 0.4  # how much of a day is spent mining or digging
+use_order = [["pickaxe"], ["axe", "sword"], ["shovel", "hoe"]]  # most used first: scarce material goes there first
 
 
 [mobs]
