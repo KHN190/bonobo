@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A Minecraft agent that plans and plays through the Agent Bridge mod's HTTP API"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.11"          # tomllib
+requires-python = ">=3.14"          # lazy annotations (TYPE_CHECKING-only names in class bodies)
 dependencies = []                    # standard library only, on purpose: this runs next to a game, not in a cluster
 
 [project.urls]
@@ -26,4 +26,4 @@ bonobo = ["fight.toml"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py314"
