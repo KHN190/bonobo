@@ -218,6 +218,22 @@ class CrossingFails(unittest.TestCase):
         self.assertFalse([t for t in posted if t["type"] == "travel" and t.get("break")])     # nothing dug
 
 
+class DoorwayIsNotInside(unittest.TestCase):
+    def test_the_rows_reach(self):
+        # the bench row's target and reach, one test for run, check and travel_to's verify (nav.there)
+        from bonobo.bench import bench_exception as bx
+        from bonobo.bench.vocab import pos
+        room = bx.DOOR_ROOM
+        inside, reach = pos(room["inside"]), room["reach"]
+        door = pos(room["door"][0])
+
+        def at(cell):
+            return {"x": cell[0] + 0.5, "y": float(cell[1]), "z": cell[2] + 0.5, "onGround": True}
+        # must fail: standing in the doorway counted arrived (025641: x 4.3, arrived by 1.5 + slack)
+        self.assertFalse(nav.there(at(door), inside, reach))
+        self.assertTrue(nav.there(at(inside), inside, reach))
+
+
 class Store(unittest.TestCase):
     def test_per_save_and_round_trip(self):
         self.assertIn(os.path.basename(mech.FILE), fresh.WORLD_SCOPED)

@@ -189,7 +189,7 @@ def seek(ctx, kinds, pos=None):
     return [target]
 
 @skill(gives=["state:there"], remaining=_k.near(lambda c: c.args[1], lambda c: c.args[2] if len(c.args) > 2 else 2), needs={}, speed={}, provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", 2))}, budget=900, stall=120,
-       verify=lambda c: math.dist(feet(), c.args[1]) <= (c.args[2] if len(c.args) > 2 else 2) + 1)
+       verify=lambda c: nav.there(api.get("/state"), tuple(c.args[1]), c.args[2] if len(c.args) > 2 else 2))
 def travel_to(ctx, pos, range_=2):
     """Be at `pos` (within `range_`): walk, dig and bridge there leg by leg (`nav.arrive`)."""
     return nav.arrive(tuple(pos), ctx.policy, range_=range_)

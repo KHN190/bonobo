@@ -21,6 +21,7 @@ WORLD = {
     "took_cover_alcove",        # the runner's /state trace: where the body stood, its health
     "deflected",                # the server's player Health, each volley fireball's end read off /entities
     "door_intact",              # the room's blocks: walls, roof and door standing
+    "arrived",                  # the body's /state by the walker's own arrival test (nav.there)
     "door_seen",                # a watcher reading the door's block state through the run
 }
 

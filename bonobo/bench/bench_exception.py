@@ -151,7 +151,7 @@ FAMILIES = [
 DOOR_ROOM = {"lo": ('@', 4, 0, -3), "hi": ('@', 8, 3, 3), "in_lo": ('@', 5, 0, -2), "in_hi": ('@', 7, 2, 2),
              "door": (('@', 4, 0, 0), ('@', 4, 1, 0)), "bulb": ('@', 4, 1, -2), "comparator": ('@', 4, 1, -1),
              "press_out": ('@', 3, 1, -2), "press_in": ('@', 5, 1, -2), "chest": ('@', 7, 0, 0),
-             "inside": ('@', 6, 0, 0)}
+             "inside": ('@', 6, 0, 0), "reach": 0.5}     # reach + the walker's slack short of the door cell
 ROWS = [
     dict(name='cast_portal', module='building',
          doc=('A 3×3 lava pool beside the body; water bucket, bucket, 16 cobblestone, flint and steel → a portal frame '
@@ -541,14 +541,14 @@ ROWS = [
                   ('setblock', R['press_in'], 'oak_button[face=wall,facing=east]'),
                   ('setblock', R['chest'], 'chest'), ('stand',), ('cmd', 'clear @p')],
            before=[(hook, R['press_out'], R['press_in'], list(R['door']))],
-           run=('into_room', R['inside']),
+           run=('into_room', R['inside'], R['reach']),
            check=[inside, ('door_intact', R['lo'], R['hi'], list(R['door']))] + seen, budget=25,
            expect=[(R['door'][0], R['door'][1], 'iron_door', 2, 2)])
       for R in [DOOR_ROOM]
       for name, skills, hook, inside, seen, doc in (
-          ('press_door_to_chest', ['press_mechanism'], 'door_taught', ('_at', R['inside'], 1.5), [('door_seen',)],
+          ('press_door_to_chest', ['press_mechanism'], 'door_taught', ('arrived', R['inside'], R['reach']), [('door_seen',)],
            'The door taught → pressed open from outside, walked in to the chest; walls and door intact'),
-          ('untaught_door_stays_shut', [], 'door_untaught', ('not', ('!_at', R['inside'], 1.5)), [],
+          ('untaught_door_stays_shut', [], 'door_untaught', ('not', ('!arrived', R['inside'], R['reach'])), [],
            'Must fail to enter: the same door NOT taught → stays outside, and still digs nothing'))],
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------

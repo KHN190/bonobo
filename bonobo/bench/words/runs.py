@@ -581,15 +581,23 @@ def door_untaught(press_out, press_in, cells):
     return _door_hook(press_out, press_in, cells, False)
 
 
-def into_room(pos):
+def into_room(pos, range_):
     """run: go to `pos` behind the shut door; a walk that cannot get in ends there (the check judges the world)."""
     def run(ctx):
         from ...api import McError
         try:
-            return _skill("travel_to")(ctx, pos, 1.5)
+            return _skill("travel_to")(ctx, pos, range_)
         except McError:
             return None
     return run
+
+
+def arrived(pos, range_):
+    """check: the body there by the walker's own test (nav.there) — the one travel_to's verify and the jar share."""
+    def check(api, inv):
+        from ... import nav
+        return nav.there(api.get("/state"), tuple(pos), range_)
+    return check
 
 
 def door_intact(lo, hi, cells):
@@ -611,4 +619,4 @@ def door_seen():
     return lambda api, inv: DOOR_SEEN.get(BASE.get("name"), False)
 
 
-__all__ = ['DOOR_SEEN', 'door_taught', 'door_untaught', 'into_room', 'door_intact', 'door_seen', 'HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
+__all__ = ['DOOR_SEEN', 'arrived', 'door_taught', 'door_untaught', 'into_room', 'door_intact', 'door_seen', 'HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
