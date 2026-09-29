@@ -156,8 +156,9 @@ def low_cover_at(region, here, radius=6, mob_width=TALL_WIDTH):
 
 
 def stand_level(solid, x, z, y, span=4):
-    """Pure: the y a body stands at in column (x, z) near `y` (floor under, feet and head clear), or None (a wall)."""
-    for yy in range(y + span, y - span - 1, -1):
+    """Pure: the y a body stands at in column (x, z) nearest `y` (floor under, feet and head clear), or None (a wall).
+    Nearest, not highest: the top of a ceiling overhead is no ground a walker reaches (escape__walker_open_blocks)."""
+    for yy in sorted(range(y - span, y + span + 1), key=lambda v: (abs(v - y), v)):
         if solid((x, yy - 1, z)) and not solid((x, yy, z)) and not solid((x, yy + 1, z)):
             return yy
     return None

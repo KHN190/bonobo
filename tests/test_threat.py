@@ -1287,7 +1287,10 @@ class WhereWeStandNow(unittest.TestCase):
         def mob(p, kind="minecraft:zombie"):
             return estimate.row(p, 3.0, (0, 0, 0), kind, 1.0, 6.25)
         # (situation, blocks, where we stand, the mob) → pressure now (0: it can't reach us here)
+        roofed = {**pillar, **{(x, 66 + 3, z): "stone" for x in span for z in span}}   # the escape bench's ceiling
         rows = [("2 up a pillar, a zombie below", pillar, (0.5, 66.0, 0.5), mob((2.0, 64.0, 0.5))),
+                ("2 up a pillar under a ceiling: its top is no ground (escape__walker_open_blocks)", roofed,
+                 (0.5, 66.0, 0.5), mob((2.0, 64.0, 0.5))),
                 ("2 down a hole, a zombie on the rim", hole, (0.5, 62.0, 0.5), mob((1.5, 64.0, 0.5))),
                 ("under a 3×3 lid, an enderman beside", lid, (0.5, 64.0, 0.5),
                  mob((1.9, 64.0, 0.5), "minecraft:enderman")),
