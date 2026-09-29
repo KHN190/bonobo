@@ -14,6 +14,7 @@ EVENTS_FILE = paths.data("events.jsonl")
 EVENTS_LOG = paths.data("events.log")
 SLOW_ROUND_S = 5.0              # a round slower than this is an anomaly
 ANOMALY_AT = (1, 10, 100, 1000)  # an anomaly is said at its 1st, 10th, 100th … time
+IDLE_GOAL = "holding: nothing to do"  # the goal when there is none
 MILESTONES = ("minecraft:iron_ingot", "minecraft:diamond", "minecraft:obsidian", "minecraft:blaze_rod",
               "minecraft:ender_pearl", "minecraft:ender_eye", "minecraft:bed", "minecraft:bucket",
               "minecraft:stone_pickaxe", "minecraft:iron_pickaxe", "minecraft:diamond_pickaxe",

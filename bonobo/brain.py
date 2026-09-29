@@ -300,8 +300,8 @@ class Brain:
             tape.end(self, None, snap)
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting")
-            intent.set("goal", "holding: nothing to do")
-            events.goal("holding: nothing to do", _bag_counts(snap))
+            intent.set("goal", events.IDLE_GOAL)
+            events.goal(events.IDLE_GOAL, _bag_counts(snap))
             if not self.planning:
                 return                         # a fight row's round: its caller polls again, no idle wait posted
             jobs = self.mem.jobs(snap.dimension)
