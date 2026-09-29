@@ -105,11 +105,38 @@ def gains(before, after):
 
 
 def hurt(amount, hp, source=None, t=None, sink=None):
+    if source:
+        STATE["hurt_by"] = source
     emit("hurt", f"hurt {amount:.1f} → {hp:.1f} hp" + (f" by {source}" if source else ""), t, sink,
          amount=round(amount, 1), hp=round(hp, 1), source=source)
 
 
+def last_hurt_by(path=None, tail=1 << 16):
+    """What last hurt us: this process's last hurt event, else the last one on file (a run that starts dead)."""
+    if STATE.get("hurt_by"):
+        return STATE["hurt_by"]
+    try:
+        with open(path or EVENTS_FILE, "rb") as f:
+            f.seek(max(0, os.fstat(f.fileno()).st_size - tail))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("kind") in ("death", "respawn"):
+            return None               # the last life's harm is not this death's
+        if rec.get("kind") == "hurt" and rec.get("source"):
+            return rec["source"]
+    return None
+
+
 def death(cause, place, t=None, sink=None):
+    """A death, named by its cause — the jar's, else the last damage source we saw."""
+    cause = cause or last_hurt_by() or "unknown"
+    STATE.pop("hurt_by", None)
     emit("death", f"DIED ({cause}) at {place}", t, sink, cause=cause, place=place)
 
 

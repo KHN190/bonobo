@@ -65,6 +65,26 @@ class Events(unittest.TestCase):
                 self.assertEqual(len([r for r in out if r["kind"] == "anomaly"]), n)
 
 
+    def test_death_named_by_last_hurt(self):
+        import json, tempfile
+        out = []
+        events.hurt(3.0, 2.0, "minecraft:zombie", t=1.0, sink=out)
+        events.death(None, (0, 64, 0), t=2.0, sink=out)
+        self.assertEqual(out[-1]["cause"], "minecraft:zombie")       # must fail: "?"
+        events.death(None, (0, 64, 0), t=3.0, sink=out)
+        # a new process that starts dead reads the file; a death since closes the last life's harm
+        rows = [("hurt on file", ["hurt"], "minecraft:zombie"),
+                ("must fail: the last life's harm", ["hurt", "death", "respawn"], None)]
+        for name, kinds, want in rows:
+            with self.subTest(name):
+                events.reset_state()
+                with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+                    for k in kinds:
+                        f.write(json.dumps({"t": 1.0, "kind": k, "line": k, "source": "minecraft:zombie"}) + "\n")
+                self.assertEqual(events.last_hurt_by(f.name), want)
+                os.unlink(f.name)
+
+
     def test_rows(self):
         out = []
         rows = [("a slow round is an anomaly", lambda: events.round_time(events.SLOW_ROUND_S + 1, t=1.0, sink=out), 1),
