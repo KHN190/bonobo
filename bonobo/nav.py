@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet
 from typing import TYPE_CHECKING
 
@@ -213,6 +213,8 @@ def ground_in_column(solid, x, z, y_hint, span=32):
     return None
 
 LEG = 48   # blocks per travel leg on long trips
+DOORS = None      # mechanisms.doors_on_way, wired by the brain: (here, there, policy) → a door's cells, opened first
+DOOR_ROUTE = None  # mechanisms.route_s, wired by the brain: (here, there, walk_s) → seconds through a door, or None
 ROAD_MEM: "Memory | None" = None   # the brain's memory: travelled legs are kept as a road network (roads.py) and reused
 
 BLOCK_RESERVE = 16   # blocks kept back from travel: shelter walls, a pillar out of a hole, the next bridge
@@ -547,7 +549,9 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
         if here is None:
             return stopped
     budget = place_budget(Inventory().count("building"))
-    avoid = avoid_cells(policy.protected, here, pos)
+    # taught doors (mechanisms): pressed open first when on the way, and never dug
+    doors = DOORS(here, pos, policy) if DOORS is not None else []
+    avoid = avoid_cells(set(policy.protected) | set(doors), here, pos)
     grounded = False
     brk, plc, void = may_alter(purpose, policy)
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
@@ -715,6 +719,11 @@ def plainly_below(feet, cell, max_drop=None):
 def reachable(cell, policy, range_=1.5, nodes=NAV_NODES, feet=None):
     """Is there a way to `cell` at all?"""
 
+    if DOOR_ROUTE is not None and feet is not None:
+        # a taught door on the way: the game sees it shut and solid; we know a press opens it
+        through = DOOR_ROUTE(tuple(feet), tuple(cell), lambda d: d / (WALK_BLOCKS_PER_TICK * 20))
+        if through is not None:
+            return True, through
     found, seconds = route_s(cell, policy, range_=range_, nodes=nodes)
     if found is None:
         found = not (feet is not None and plainly_below(feet, cell))

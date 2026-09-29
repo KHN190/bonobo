@@ -35,7 +35,7 @@ CLOSURE = {
     "bag": 11,
     "beliefs": 1,
     "blueprints": 1,
-    "brain": 56,            # + reflexes (the maintenance table split off needs)
+    "brain": 57,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors)
     "brewing": 21,
     "building": 19,
     "combat": 17,
@@ -66,6 +66,7 @@ CLOSURE = {
     "kernel": 5,
     "knowledge": 2,
     "loot": 17,
+    "mechanisms": 14,        # taught doors: the store, the press skill
     "memory": 4,
     "nav": 12,
     "nether": 18,

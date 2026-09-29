@@ -13,11 +13,12 @@ import traceback
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
                needs, reflexes, tape, tasks, world, perception)
 from . import skill as skillkit
-from . import craft, events, lifecycle, skillcore, survive
+from . import craft, events, lifecycle, mechanisms, skillcore, survive
 api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event (counted, said at 1st/10th/100th)
 # every module that registers skills: a new one is added here only
 from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
+from . import cost as costmod
 from .cost import Cost, Prices
 from .data import EYE_HEIGHT, HAND_MINEABLE_SUFFIX, bare
 from .memory import Memory
@@ -99,6 +100,8 @@ class Brain:
     def __init__(self):
         self.mem = Memory()
         skillkit.STATS = self.mem     # skills record measured durations; the cost model reads them back
+        nav.DOORS = mechanisms.doors_on_way   # taught doors: pressed on the way, never dug
+        nav.DOOR_ROUTE = costmod.DOOR_ROUTE = mechanisms.route_s     # and priced through, not as rock
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
         self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))

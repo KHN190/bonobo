@@ -1610,7 +1610,10 @@ def _blocks(*cells):
 DRAGON = {"type": "minecraft:ender_dragon", "id": 9}
 SITE = {"snapshot": {"blocks": {"1,64,0": "cobblestone", "2,64,0": "cobblestone"}}}
 # The other world-effect skills (gives a state, `remaining` a rest.* reader): (call, not done, done).
+_DOOR = [(2, 64, 0), (2, 65, 0)]          # a taught door's opens cells: shut (stone) or open (air)
 WORLD_LEFT.update({
+    "press_mechanism": (_with((1, 65, 1), _DOOR), lambda: body(world(*[(c, "stone") for c in _DOOR])),
+                        lambda: body(world())),
     "activate_end_portal": (_with(), lambda: body(world()), lambda: body(_blocks(((0, 60, 0), "end_portal")))),
     "anvil_repair": (_with("minecraft:diamond_pickaxe", "minecraft:diamond"),
                      lambda: body(inv=inventory(("diamond_pickaxe", 1, 1500))),

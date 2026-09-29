@@ -12,6 +12,7 @@ from .skill import MIN_SAMPLES
 from .planner import Planner, Unplannable
 
 TICKS_PER_S = 20
+DOOR_ROUTE = None      # mechanisms.route_s, wired by the brain: seconds through a taught door, or None
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours
 UNKNOWN_WALK_TICKS = 6000                   # nothing known nearby: what a search usually costs
@@ -183,7 +184,9 @@ class Cost:
             d = self._known(["water"])
             return walk_ticks(d) if d is not None else 1200
         if k in ("goto", "withdraw"):
-            return walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
+            through = self.door_s(tuple(step.detail["pos"]))
+            return round(through * TICKS_PER_S) if through is not None else \
+                walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return 0
 
     def _overburden_ticks(self, step):
@@ -194,6 +197,14 @@ class Cost:
         y = sight_y(step.detail.get("blocks", ()))
         over = 0 if y is None else max(0, int(self.snap.feet[1]) - 1 - int(y))
         return round(over * DIG_HAND_S * TICKS_PER_S)
+
+    def door_s(self, where):
+        """Seconds to `where` through a taught door on the way (mechanisms, wired as DOOR_ROUTE), else None: the
+        stored mechanisms and the snapshot's feet, never a world read."""
+        if DOOR_ROUTE is None or self.snap is None:
+            return None
+        return DOOR_ROUTE(tuple(self.snap.feet), tuple(where), lambda d: walk_ticks(d) / TICKS_PER_S,
+                          dimension=self.snap.dimension)
 
     def plan_s(self, steps):
         """Seconds a whole plan takes: Σ Step.est."""
@@ -226,11 +237,15 @@ class Cost:
         return max(1.0, round(walk_ticks(known) / TICKS_PER_S + 2.0, 1))
 
     def route_s(self, kinds):
-        """The game's own walk estimate when already asked this round (nav's route cache; read, never added to)."""
+        """The game's own walk estimate when already asked this round (nav's route cache; read, never added to);
+        through a taught door on the way, the walk to its press, the press and the walk through."""
 
         where = self.where(kinds)
         if where is None:
             return None
+        through = self.door_s(where)
+        if through is not None:
+            return through
         dig, build = (bool(self.policy.allow_dig), bool(self.policy.allow_build)) if self.policy else (True, True)
         key = (tuple(int(v) for v in where), dig, build, 2.0, NAV_NODES)
         found, seconds = ROUTES.get(key, (None, None))

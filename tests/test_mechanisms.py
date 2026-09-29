@@ -1,0 +1,149 @@
+"""Taught mechanisms (press this, those cells open): walks press a door open and never dig it; planning prices what
+lies behind it as walk + press + walk, never unreachable nor dug; the door is pressed from our own side, and only
+when it stands shut (read off the world)."""
+import math
+import os
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from bonobo import cost as costmod, fresh, mechanisms as mech, nav  # noqa: E402
+from bonobo.planner import Step  # noqa: E402
+
+DIM = "minecraft:overworld"
+WALL_X = 10                                            # the wall the door is set in: x = WALL_X
+DOOR = [(WALL_X, 64, 0), (WALL_X, 65, 0)]
+OUT_PRESS, IN_PRESS = (WALL_X - 1, 65, 1), (WALL_X + 1, 65, 1)
+OUTSIDE, INSIDE = (WALL_X - 10, 64, 0), (WALL_X + 10, 64, 0)
+
+
+def walk_s(d):
+    return d / 4.0
+
+
+def taught(tmp):
+    path = os.path.join(tmp, "mechanisms.json")
+    for press in (OUT_PRESS, IN_PRESS):
+        mech.add(DIM, press, DOOR, path=path)
+    return path
+
+
+class Geometry(unittest.TestCase):
+    def test_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mechs = mech.load(taught(tmp))
+        door = tuple(DOOR)
+        # (from, to) → the press used
+        rows = [("from outside: the outside button", OUTSIDE, INSIDE, OUT_PRESS),
+                ("must fail: from inside, the outside button", INSIDE, OUTSIDE, IN_PRESS)]
+        for name, here, there, want in rows:
+            with self.subTest(name):
+                self.assertEqual(mech.on_the_way(mechs, here, there), [door])
+                self.assertEqual(mech.press_for(mechs, door, here), want)
+                self.assertAlmostEqual(mech.door_route_s(mechs, here, there, walk_s),
+                                       walk_s(math.dist(here, want)) + mech.PRESS_S + walk_s(math.dist(want, there)))
+        # a way that passes nowhere near the door has none
+        far = (OUTSIDE[0], OUTSIDE[1], OUTSIDE[2] + 20)
+        self.assertIsNone(mech.door_route_s(mechs, OUTSIDE, far, walk_s))
+
+
+class Planning(unittest.TestCase):
+    """Estimates read the stored mechanisms and the snapshot, never the world."""
+
+    def test_a_chest_behind_a_door(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = taught(tmp)
+            route = lambda here, there, w, dimension=None: mech.door_route_s(      # noqa: E731
+                [m for m in mech.load(path) if m["dimension"] == dimension], here, there, w)
+            c = costmod.Cost(None)
+            c.snap = type("Snap", (), {"feet": OUTSIDE, "dimension": DIM})()
+            step = Step("withdraw", "minecraft:chest", 1, {"pos": list(INSIDE)})
+            through = mech.door_route_s(mech.load(path), OUTSIDE, INSIDE,
+                                        lambda d: costmod.walk_ticks(d) / costmod.TICKS_PER_S)
+            with mock.patch.object(costmod, "DOOR_ROUTE", route):
+                got = c._walk(step)
+            # must fail: priced as dug through or as the straight walk the shut door does not allow
+            self.assertEqual(got, round(through * costmod.TICKS_PER_S))
+            self.assertGreater(got, costmod.walk_ticks(math.dist(OUTSIDE, INSIDE)))
+            with mock.patch.object(costmod, "DOOR_ROUTE", route), mock.patch.object(c, "where", lambda k: INSIDE):
+                self.assertAlmostEqual(c.route_s(["chest"]), through)
+
+    def test_reachable_through_the_door(self):
+        # must fail: the game's plan sees the shut door as solid and says no way
+        with tempfile.TemporaryDirectory() as tmp:
+            path = taught(tmp)
+            route = lambda here, there, w, dimension=None: mech.door_route_s(mech.load(path), here, there, w)  # noqa: E731
+            with mock.patch.object(nav, "DOOR_ROUTE", route), \
+                    mock.patch.object(nav, "route_s", lambda *a, **k: (False, None)):
+                found, seconds = nav.reachable(INSIDE, nav.Policy(), feet=OUTSIDE)
+        self.assertTrue(found)
+        self.assertIsNotNone(seconds)
+
+
+class Press(unittest.TestCase):
+    def test_rows(self):
+        # (the door read as) → pressed?
+        rows = [("shut: pressed", True, True),
+                ("must fail: pressed when already open", False, False)]
+        for name, shut, pressed in rows:
+            with self.subTest(name):
+                with mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): shut for c in cells}), \
+                        mock.patch.object(mech.api, "run") as run:
+                    mech.press_mechanism.__wrapped__(None, OUT_PRESS, DOOR)
+                self.assertEqual(run.called, pressed)
+                if pressed:
+                    task = run.call_args[0][0]
+                    self.assertEqual((task["type"], (task["x"], task["y"], task["z"])), ("use", OUT_PRESS))
+
+    def test_verify_reads_the_cells(self):
+        call = type("Call", (), {"args": (None, OUT_PRESS, DOOR)})()
+        for name, shut, ok in [("open", False, True), ("must fail: verified while still solid", True, False)]:
+            with self.subTest(name), mock.patch.object(mech, "solid_map",
+                                                       lambda cells: {tuple(c): shut for c in cells}):
+                self.assertEqual(mech._opened_now(call), ok)
+
+
+class Walk(unittest.TestCase):
+    def test_a_walk_presses_and_never_digs_the_door(self):
+        # must fail: the walk digs the opens cells instead of pressing
+        with tempfile.TemporaryDirectory() as tmp:
+            path = taught(tmp)
+            posted = []
+            here = {"x": OUTSIDE[0] + 0.5, "y": float(OUTSIDE[1]), "z": OUTSIDE[2] + 0.5, "blockX": OUTSIDE[0],
+                    "blockY": OUTSIDE[1], "blockZ": OUTSIDE[2], "dimension": DIM, "onGround": True}
+
+            def run(task, **k):
+                posted.append(task)
+                return {"status": "succeeded", "message": "arrived"}
+
+            def door(cells):                 # shut until a use is posted
+                return {tuple(c): not any(t["type"] == "use" for t in posted) for c in cells}
+            with mock.patch.object(mech, "FILE", path), mock.patch.object(mech, "solid_map", door), \
+                    mock.patch.object(nav, "DOORS", mech.doors_on_way), \
+                    mock.patch.object(nav, "ROAD_MEM", None), \
+                    mock.patch.object(nav.api, "run", run), mock.patch.object(mech.api, "run", run), \
+                    mock.patch.object(nav.api, "get", lambda p: here), \
+                    mock.patch.object(nav, "feet", lambda: OUTSIDE), \
+                    mock.patch.object(nav, "Inventory", lambda: type("I", (), {"count": lambda s, k: 0})()), \
+                    mock.patch.object(nav, "_arrived", lambda *a, **k: True):
+                nav._travel(INSIDE, nav.Policy(), 1.5, 1, None, "work", OUTSIDE, 0.0)
+        kinds = [t["type"] for t in posted]
+        self.assertEqual(kinds[:2], ["use", "travel"])                    # the press first, then the walk
+        avoid = {(c["x"], c["y"], c["z"]) for c in posted[1]["avoid"]}
+        self.assertTrue(set(DOOR) <= avoid)                               # the door is never dug
+
+
+class Store(unittest.TestCase):
+    def test_per_save_and_round_trip(self):
+        self.assertIn(os.path.basename(mech.FILE), fresh.WORLD_SCOPED)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = taught(tmp)
+            self.assertEqual(len(mech.in_dimension(DIM, path)), 2)
+            self.assertEqual(mech.remove(DIM, OUT_PRESS, path), 1)
+            self.assertEqual([tuple(m["press"]) for m in mech.load(path)], [IN_PRESS])
+
+
+if __name__ == "__main__":
+    unittest.main()

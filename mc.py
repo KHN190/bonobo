@@ -415,6 +415,25 @@ def cmd_rounds(a):
     raise SystemExit(rounds.main([a.since] if a.since else []))
 
 
+def cmd_mech(a):
+    """Taught mechanisms (press this → these cells open): add, list, remove."""
+    from bonobo import mechanisms as mech
+    dim = api.get("/state")["dimension"] if a.action != "list" else None
+    press = tuple(a.press) if a.press else None
+    if a.action == "list":
+        for m in mech.load():
+            print(f"{m['dimension']} press {tuple(m['press'])} opens {[tuple(c) for c in m['opens']]}")
+        return
+    if press is None:
+        raise SystemExit("--press X Y Z is required")
+    if a.action == "remove":
+        print(f"removed {mech.remove(dim, press)}")
+        return
+    opens = [tuple(a.opens[i:i + 3]) for i in range(0, len(a.opens or ()), 3)]
+    if not opens or len(a.opens) % 3:
+        raise SystemExit("--opens takes X Y Z triples")
+    print("taught:", mech.add(dim, press, opens))
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -430,6 +449,11 @@ def main():
     p.add_argument("--half", type=int, default=10)
     p.set_defaults(fn=cmd_home)
     sub.add_parser("notes").set_defaults(fn=cmd_notes)
+    p = sub.add_parser("mech", help="taught mechanisms: add|list|remove --press X Y Z [--opens X Y Z ...]")
+    p.add_argument("action", choices=["add", "list", "remove"])
+    p.add_argument("--press", type=int, nargs=3)
+    p.add_argument("--opens", type=int, nargs="+")
+    p.set_defaults(fn=cmd_mech)
     sub.add_parser("skills", help="list skill contracts").set_defaults(fn=cmd_skills)
     p = sub.add_parser("task", help="task queue: add have|craft|milestone|goto|road|build|sleep|skill ... | list | "
                                      "cancel [id] | clear | milestones")
