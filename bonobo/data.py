@@ -289,3 +289,15 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
 }
 
 ITEM_DESPAWN_S = 300      # a dropped item despawns after 5 minutes (6000 ticks)
+
+# The chance a search finds a kind never seen, by how the game makes it; kinds not here use play.toml's exists_prior.
+# Minecraft Wiki, "Mob spawning": grassland passive weights sheep 12, pig 10, chicken 10, cow 8, rabbit 4.
+PASSIVE_WEIGHT = {"sheep": 12, "pig": 10, "chicken": 10, "cow": 8, "rabbit": 4}
+# Minecraft Wiki, "Village": one village per 34×34-chunk region; a search covers SEARCH_LEGS looks of SEARCH_LOOK_R.
+VILLAGE_REGION_BLOCKS = 34 * 16
+SEARCH_LEGS, SEARCH_LOOK_R = 6, 48
+VILLAGE_P = min(1.0, SEARCH_LEGS * __import__("math").pi * SEARCH_LOOK_R ** 2 / VILLAGE_REGION_BLOCKS ** 2)
+VILLAGE_ONLY = ([f"{c}_bed" for c in COLORS] + [f"{c}_wool" for c in COLORS] + ["villager", "hay_block", "bell",
+                "smithing_table", "stonecutter", "cauldron", "bookshelf", "wheat", "carrots", "potatoes", "beetroots"])
+FIND_P = {**{k: w / max(PASSIVE_WEIGHT.values()) for k, w in PASSIVE_WEIGHT.items()},
+          **{k: VILLAGE_P for k in VILLAGE_ONLY}}

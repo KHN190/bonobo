@@ -720,6 +720,22 @@ class CostModel(unittest.TestCase):
                 self.assertAlmostEqual(c.seek_s(["iron_ore"]), round(want if want is not None else prior, 1), places=1)
                 self.assertEqual(c.find_p(["iron_ore"]), float(costmod._PLAY["plan"]["exists_prior"]))
 
+    def test_find_chance_by_kind(self):
+        # unseen kinds priced by how the game makes them (data.FIND_P), the rest by the prior
+        from bonobo import actions, data
+        prior = float(costmod._PLAY["plan"]["exists_prior"])
+        c = costmod.Cost(None, known=lambda kinds: None)
+        sheep, bed = max(data.PASSIVE_WEIGHT, key=data.PASSIVE_WEIGHT.get), f"{data.COLORS[0]}_bed"
+        rows = [("the commonest animal: found every search", ["minecraft:" + sheep], 1.0),
+                ("a village-only block", [bed], data.VILLAGE_P),
+                ("a kind the table does not know: the prior", ["iron_ore"], prior)]
+        for name, kinds, want in rows:
+            with self.subTest(name):
+                self.assertAlmostEqual(c.find_p(kinds), want)
+        cols = {a.name: a.cost_s for a in actions._seek(c)}
+        # must fail: a bed priced as a sheep (free run 23:46: seek white_bed ~600s beat wool from sheep)
+        self.assertGreater(cols[f"seek:{bed}"], cols["seek:minecraft:" + sheep])
+
 
 def stone_tools(worn=0):
     return inventory(slot("stone_pickaxe", 1, worn), ("stone_sword", 1), ("stone_axe", 1), ("crafting_table", 1),

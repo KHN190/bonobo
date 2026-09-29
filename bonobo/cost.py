@@ -4,7 +4,7 @@ import math
 
 from .api import McError
 from .beliefs import CONFIG as _PLAY
-from .data import GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .data import FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
 from .knowledge import PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest
@@ -228,8 +228,9 @@ class Cost:
         return seconds if found else None
 
     def find_p(self, kinds):
-        """The chance a look for one of these finds it: the declared prior."""
-        return float(_PLAY["plan"]["exists_prior"])
+        """The chance a look for one of these finds it: by how the game makes it (data.FIND_P), else the prior."""
+        known = [FIND_P[bare(k)] for k in kinds if bare(k) in FIND_P]
+        return max(known) if known else float(_PLAY["plan"]["exists_prior"])
 
 class Prices:
     """{item: seconds to get one another way} for skills that ask what a thing is worth (the looter)."""
