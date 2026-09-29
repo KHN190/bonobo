@@ -8,7 +8,7 @@ from .core import BEST_TOOLS
 
 if TYPE_CHECKING:   # CODE_ROWS pulls vocab's words in at run time; pyright reads them here
     from .vocab import (BASE, EDGE_Y, FIRST, SHEET_EXPECT, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
-                        _first_times, _gone, _hooks, _hostiles, _hp_kept, _near, _record_bids, _start, _tp, at, limit)
+                        _first_times, _gone, _hooks, _hostiles, _hp_kept, _record_bids, _start, _tp, arrived, at, limit)
 # -- the dimensions of a fight cell (the combat table's own data; vocab's `_build` turns a cell into commands) -------
 # enemies named by what they do ("pack" is walker × count=three: the same world under another name)
 ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skeleton", "climber": "minecraft:spider",
@@ -166,7 +166,7 @@ ROWS = [
          scene=[('sheet', '_ARENA'), ('tp', ('@', -WALK_X, 0, 0)),
                 ('built', 'endermen_off_path', ('@', -WALK_X, 0, 0), ('@', WALK_X, 0, 0), 4)],
          run=('do', 'bonobo.nav.go_to', [('@', WALK_X, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
-         check=[('call', 'near', ['$api', ('@', WALK_X, 0, 0), 2.5]), ('endermen_calm',), ('hp_kept', 20)],
+         check=[('arrived', ('@', WALK_X, 0, 0), 1.5), ('endermen_calm',), ('hp_kept', 20)],
          budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
          expect_entities=[('minecraft:enderman', 4, 4)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
@@ -225,7 +225,7 @@ def CODE_ROWS():
              expect_entities=[("minecraft:zombie", 1)],
              before=_hooks(_start("fight_before_upkeep"), _first_times, _record_bids),
              run=_brain_rounds(24, lambda: not _hostiles(24, {"minecraft:zombie"})),
-             check=_all(_gone(["minecraft:zombie"]), _hp_kept(10), lambda api, inv: _near(api, at(0, 0, 0), 9),
+             check=_all(_gone(["minecraft:zombie"]), _hp_kept(10), arrived(at(0, 0, 0), 9),
                         lambda api, inv: FIRST.get("log") is None),
              budget=limit(), expect=SHEET_EXPECT),
         dict(name="combat__knocked_off_edge",

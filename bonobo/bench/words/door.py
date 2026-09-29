@@ -145,14 +145,6 @@ def walk(goal, range_, back=None):
     return run
 
 
-def arrived(pos, range_):
-    """check: the body there by the walker's own test (nav.there) — the one travel_to's verify and the jar share."""
-    def check(api, inv):
-        from ... import nav
-        return nav.there(api.get("/state"), tuple(pos), range_)
-    return check
-
-
 def door_state(cells, want):
     """check: the door cells read `want` — "shut" every cell solid, "open" none."""
     def check(api, inv):
@@ -183,5 +175,5 @@ def door_seen():
 TEMPLATES = {"door": door_row}
 NAMES = {"door": lambda name, *p: name}
 
-__all__ = ['DOORS', 'DOOR_S', 'DOOR_SEEN', 'DOOR_WATCH_S', 'REACH', 'arrived', 'door_parts', 'door_row', 'door_scene',
+__all__ = ['DOORS', 'DOOR_S', 'DOOR_SEEN', 'DOOR_WATCH_S', 'REACH', 'door_parts', 'door_row', 'door_scene',
            'door_seen', 'door_state', 'teach', 'unchanged', 'walk']

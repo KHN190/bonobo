@@ -1,6 +1,7 @@
 """Bench table, exception tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
+from ..explore import SEEK_RANGE, TRAVEL_RANGE
 
 FAMILIES = [
     ('base', [('eat', 'underwater'), ('hunt', 'pillar'), ('craft', 'cliff_edge'), ('smelt', 'nether'), ('sleep', 'rain'),
@@ -78,7 +79,7 @@ FAMILIES = [
            ('setblock', ('@', 17, 0, 0), 'iron_ore'), ('stand', -6)],
           ('seq', 1, ('!remember', 'note_seen', ['iron_ore', ('@', 17, 0, 0), 'minecraft:overworld'], {}),
            ('!skill', 'seek', ['iron_ore'])),
-          ('_at', ('@', 17, 0, 0), 6), 25),
+          ('arrived', ('@', 17, 0, 0), SEEK_RANGE), 25),
          ('open_space_from_shaft', ['move_to_open_space'],
           'a full bag at the bottom of a 1×1 shaft → out where it is open',
           [('floor', 'stone', 8, 4), ('floor', 'air', 0), ('stand', 0, -3), ('give', 'dirt', 2304),
@@ -121,7 +122,7 @@ FAMILIES = [
           ('gain', 'minecraft:iron_ingot', 8), 25),
          ('bridge_the_gap', ['bridge_toward'], 'a 6-block gap in the floor toward the target, blocks carried → across',
           [('floor',), ('fill', ('@', 2, -3, -8), ('@', 7, -1, 8), 'air'), ('stand',), ('give', 'cobblestone', 16)],
-          ('skill', 'bridge_toward', ('@', 9, 0, 0)), ('_at', ('@', 9, 0, 0), 4), 25),
+          ('skill', 'bridge_toward', ('@', 9, 0, 0)), ('arrived', ('@', 9, 0, 0), TRAVEL_RANGE), 25),
          ('plant_wheat', ['plant_farm'], 'grass, seeds, a hoe, a water bucket → a wheat plot growing',
           [('floor', 'grass_block'), ('stand',), ('give', 'wheat_seeds', 2), ('give', 'stone_hoe'),
            ('give', 'water_bucket')],
@@ -184,7 +185,7 @@ ROWS = [
                 ('fill', ('@', 14, -1, -3), ('@', 17, -1, 3), 'stone'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
                 ('give', 'cobblestone', 64), ('give', 'diamond_pickaxe')],
          run=('do', 'bonobo.nav.go_to', [('@', 15, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
-         check=[('call', 'near', ['$api', ('@', 15, 0, 0), 2.5]), ('state', 'health', '>', 10)], budget=25,
+         check=[('arrived', ('@', 15, 0, 0), 1.5), ('state', 'health', '>', 10)], budget=25,
          expect=[(('@', 2, -1, -3), ('@', 13, -1, 3), 'lava', 84, 84),
                  (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28), (('@', -2, 0, -3), ('@', 17, 4, 3), '*', 0, 0)],
          skills=['travel_to']),
@@ -379,7 +380,7 @@ ROWS = [
                 ('fill', ('@', 5, -1, -3), ('@', 8, -1, 3), 'stone'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
                 ('give', 'cobblestone', 64), ('give', 'diamond_pickaxe')],
          run=('do', 'bonobo.nav.go_to', [('@', 6, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
-         check=[('call', 'near', ['$api', ('@', 6, 0, 0), 2.5]), ('state', 'health', '>', 10)], budget=22,
+         check=[('arrived', ('@', 6, 0, 0), 1.5), ('state', 'health', '>', 10)], budget=22,
          expect=[(('@', 2, -1, -3), ('@', 4, -1, 3), 'lava', 21, 21),
                  (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28), (('@', -2, 0, -3), ('@', 8, 4, 3), '*', 0, 0)],
          skills=['travel_to']),
@@ -415,7 +416,7 @@ ROWS = [
                 ('fill', ('@', 6, -3, -6), ('@', 12, -1, 6), 'stone'),
                 ('fill', ('@', 0, -3, -6), ('@', 5, -1, 6), 'water'), ('stand', -2), ('give', 'oak_boat')],
          run=('skill', 'travel_to', ('@', 7, 0, 0), 2), before=[('start', 'boat_across_the_lake')],
-         check=[('_at', ('@', 7, 0, 0), 3), ('not', ('!state', 'inWater'))], budget=25, skills=['goto'],
+         check=[('arrived', ('@', 7, 0, 0), 2), ('not', ('!state', 'inWater'))], budget=25, skills=['goto'],
          tier_fixed='exception', tags={'base': 'nav', 'terrain': 'lake'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='pearls_from_barter', module='decompose',

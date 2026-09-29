@@ -237,6 +237,7 @@ class TierRules(unittest.TestCase):
 
 
 # -- words on recorded data ---------------------------------------------------------------------------------------
+from bonobo.bench.vocab import TREK_RANGE  # noqa: E402
 STATE = {"x": 10000.5, "y": 200.0, "z": 10000.5, "blockX": 10000, "blockY": 200, "blockZ": 10000, "health": 18.0,
          "dead": False, "food": 20, "timeOfDay": 1000, "dimension": "minecraft:overworld", "onGround": True,
          "inWater": False, "air": 300}
@@ -284,8 +285,10 @@ PRED_ROWS = [
     ("state truth no", ("state", "dead"), None, None, {}, False),
     ("bag reading yes", ("bag", "used_slots", [], "<", 34), None, LOG2, {}, True),
     ("bag reading no", ("bag", "used_slots", [], "<", 1), None, LOG2, {}, False),
-    ("call yes: near", ("call", "_near", ["$api", A0, 1.0]), None, None, {}, True),
-    ("call no: far", ("call", "_near", ["$api", ("@", 9, 0, 0), 1.0]), None, None, {}, False),
+    ("call yes: the trek ended in its range", ("call", "trek_check", ["$api"]), None, None,
+     {"TREK": {"end": (10000.5, 200.0, 10000.5), "target": (10000 + TREK_RANGE, 200, 10000)}}, True),
+    ("must fail: call no: the trek ended short of its range", ("call", "trek_check", ["$api"]), None, None,
+     {"TREK": {"end": (10000.5, 200.0, 10000.5), "target": (10000 + TREK_RANGE + 1, 200, 10000)}}, False),
     ("all yes", ("all", ("!state", "onGround"), ("!count", "log", ">=", 1)), None, LOG2, {}, True),
     ("all no", ("all", ("!state", "onGround"), ("!count", "log", ">=", 5)), None, LOG2, {}, False),
     ("any yes", ("any", ("!state", "dead"), ("!count", "log", ">=", 1)), None, LOG2, {}, True),
@@ -331,8 +334,9 @@ PRED_ROWS = [
     ("kept no", ("kept", "minecraft:diamond"), None, bag(("diamond", 4)), {"BASE": {"inv": bag(("diamond", 5))}}, False),
     ("alive yes", ("alive", 10), None, None, {}, True),
     ("alive no: dead", ("alive", 10), {"dead": True}, None, {}, False),
-    ("at yes", ("_at", A0, 2), None, None, {}, True),
-    ("at no", ("_at", ("@", 8, 0, 0), 2), None, None, {}, False),
+    ("arrived yes", ("arrived", A0, 2), None, None, {}, True),
+    ("must fail: arrived no — in the air over the cell", ("arrived", A0, 2), {"onGround": False}, None, {}, False),
+    ("must fail: arrived no — a range's slack short", ("arrived", ("@", 3, 0, 0), 2), None, None, {}, False),
     ("is day yes", ("is_day",), None, None, {}, True),
     ("is day no", ("is_day",), {"timeOfDay": 18000}, None, {}, False),
     ("free slots yes", ("free_slots", 2), None, LOG2, {}, True),
@@ -367,8 +371,8 @@ PRED_ROWS = [
      {"SWEEP": {}}, False),
     ("thunk yes", ("thunk", ("!constant", True)), None, None, {}, True),
     ("thunk no", ("thunk", ("!constant", False)), None, None, {}, False),
-    ("api only yes", ("api_only", ("!_at", A0, 2)), None, None, {}, True),
-    ("api only no", ("api_only", ("!_at", ("@", 8, 0, 0), 2)), None, None, {}, False),
+    ("api only yes", ("api_only", ("!arrived", A0, 2)), None, None, {}, True),
+    ("api only no", ("api_only", ("!arrived", ("@", 8, 0, 0), 2)), None, None, {}, False),
     ("no scan yes", ("no_scan",), None, None, {"FINDS": {"diamond": 0}}, True),
     ("no scan no", ("no_scan",), None, None, {"FINDS": {"diamond": 2}}, False),
 ]
@@ -508,8 +512,8 @@ class Predicates(unittest.TestCase):
         from bonobo import api
         rows = [("yes", ("now", ("!count", "log", ">=", 2)), True),
                 ("must fail: no", ("now", ("!count", "log", ">=", 3)), False),
-                ("api only yes", ("now_api", ("!_at", A0, 2)), True),
-                ("api only no", ("now_api", ("!_at", ("@", 8, 0, 0), 2)), False)]
+                ("api only yes", ("now_api", ("!arrived", A0, 2)), True),
+                ("api only no", ("now_api", ("!arrived", ("@", 8, 0, 0), 2)), False)]
         fake = Api(inv=LOG2)
         for why, word, want in rows:
             with self.subTest(why), mock.patch.object(api, "get", fake.get):

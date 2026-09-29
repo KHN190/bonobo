@@ -24,7 +24,7 @@ from .. import core, runner
 from ...data import DAY_TICKS, POD_BLOCKS  # noqa: F401
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
-                         _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
+                         _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
@@ -94,8 +94,12 @@ def _same_bag_and_place(r=1.5):
 def _alive(min_hp=1.0):
     return lambda api, inv: not api.get("/state")["dead"] and api.get("/state")["health"] >= min_hp
 
-def _at(pos, r):
-    return lambda api, inv: _near(api, pos, r)
+def arrived(pos, range_):
+    """check: the body there by the walker's own test (nav.there) — the one travel_to's verify and the jar share."""
+    def check(api, inv):
+        from ... import nav
+        return nav.there(api.get("/state"), tuple(pos), range_)
+    return check
 
 def _blocks(lo, hi, name, least, most=None):
     """`name` blocks (or any of a tuple of names) in the box: at least `least`, at most `most`."""
@@ -238,4 +242,4 @@ RESUMED_LEFT = {}          # row → what the resume found still to do (an inter
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "BASE", "FAILED_AS_EXPECTED", "INTERRUPTS", "FIRST", "RESUMED_LEFT")     # a row's own
 
-__all__ = ['FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', '_at', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']
+__all__ = ['FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', 'arrived', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']
