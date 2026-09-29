@@ -158,5 +158,28 @@ class SceneNow(unittest.TestCase):
         self.assertEqual(sent, ws.scene(words))                          # must fail: an absolute copy
 
 
+class TightDusk(unittest.TestCase):
+    """brain__tight's clock from DAY_END and the night's lead (words.brain.tight_dusk_time), never a literal."""
+
+    def test_the_night_is_due(self):
+        from types import SimpleNamespace
+        from bonobo import needs
+        for plan_s in (3.0, 12.0, 40.0):          # a bed carried in wool, one to make, a long way through
+            with self.subTest(plan_s=plan_s):
+                t = wb.tight_dusk_time(plan_s)
+                self.assertTrue(needs.due_now(needs.dusk_s(SimpleNamespace(time=t)), plan_s, True, False))
+                self.assertLess(t, DAY_END)
+        # must fail: the old literal against the bed the row carries wool for (3.0 s, 041700): not due, log first
+        self.assertFalse(needs.due_now(needs.dusk_s(SimpleNamespace(time=11930)), 3.0, True, False))
+        self.assertNotIn("time set 11930", [c for cs in wb.BRAIN_DIMS["dusk"].values() for c in cs])
+
+class FullBagStart(unittest.TestCase):
+    def test_a_full_bag_throws_away_from_the_tree(self):
+        # must fail: valuables_full started by the grove and the chop took the thrown junk back (041819)
+        for bag, fill in wb.BAG_FILL.items():
+            if fill:
+                with self.subTest(bag):
+                    self.assertEqual(wb.BRAIN_DIMS["bag"][bag], [ws._tp(*wb.THROW_START)])
+
 if __name__ == "__main__":
     unittest.main()

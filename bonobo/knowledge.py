@@ -628,7 +628,7 @@ def head_clear(st, c):
     s = body(st)
     x, z = st["feet"][0], st["feet"][2]
     eye = (x, math.floor(float(s.get("y", st["feet"][1])) + EYE_HEIGHT), z)
-    return left(not region.solid(eye), "state:head_clear")
+    return left(not region.buries(eye), "state:head_clear")
 
 
 COVERED_SKY = 4         # sky light at most this: rock overhead

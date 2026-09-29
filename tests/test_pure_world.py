@@ -1281,3 +1281,28 @@ class Pits(unittest.TestCase):
         for name, region, target, protected in rows:
             with self.subTest(name):
                 self.assertEqual(nav.stair_down_tasks(region, (0, 64, 0), target, protected), [])
+
+
+class HeadBuried(unittest.TestCase):
+    """skillcore.head_buried / Region.buries: a head suffocates in a full cube only (20260930-041238: the walk
+    through an open iron door read suffocating, the interrupt cut the crossing)."""
+
+    def test_rows(self):
+        from bonobo import api, skillcore
+        state = {"x": 4.5, "y": 64.0, "z": 0.5, "blockX": 4, "blockY": 64, "blockZ": 0}
+        eye = (4, 65, 0)
+        rows = [("stone: buried", "minecraft:stone", {}, True),
+                ("sand: buried", "minecraft:sand", {}, True),
+                ("must fail: an open iron door's upper half", "minecraft:iron_door", {"open": "true", "half": "upper"},
+                 False),
+                ("a shut iron door: no full cube either", "minecraft:iron_door", {"open": "false"}, False),
+                ("an open trapdoor", "minecraft:oak_trapdoor", {"open": "true"}, False),
+                ("a fence gate", "minecraft:oak_fence_gate", {"open": "false"}, False),
+                ("a slab", "minecraft:stone_slab", {}, False),
+                ("air", "minecraft:air", {}, False)]
+        for name, block, props, want in rows:
+            def get(path, block=block, props=props):
+                entry = [*eye, 0] + ([props] if "props=1" in path else [])
+                return {"palette": [block], "blocks": [entry]}
+            with self.subTest(name), mock.patch.object(api, "get", get):
+                self.assertEqual(skillcore.head_buried(state), want)

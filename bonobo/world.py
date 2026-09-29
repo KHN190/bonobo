@@ -7,8 +7,8 @@ import time
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from . import api, lifecycle
-from .data import (DAY_END, DAY_TICKS, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
-                   TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
+from .data import (DAY_END, DAY_TICKS, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE, PASSABLE_SUFFIX,
+                   PLAYER_MADE_SUFFIX, TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
 
 if TYPE_CHECKING:
     from .shapes import Cell, EntityReading, Equipment, InventoryReading, Slot, StateReading
@@ -273,6 +273,11 @@ class Region:
     def solid(self, p):
         n = self.name(p)
         return n != "air" and n not in PASSABLE and not n.endswith(PASSABLE_SUFFIX) and n not in HAZARD
+
+    def buries(self, p):
+        """A head in this cell suffocates: solid and a full cube — no slab, stair or snow, and no door, trapdoor or
+        gate (a block with an `open` state, read with props)."""
+        return self.solid(p) and not self.name(p).endswith(PARTIAL_SUFFIX) and self.prop(p, OPEN_PROP) is None
 
     def hazard(self, p):
         return self.name(p) in HAZARD

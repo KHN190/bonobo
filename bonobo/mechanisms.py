@@ -14,7 +14,7 @@ import os
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .data import EYE_HEIGHT
+from .data import EYE_HEIGHT, OPEN_PROP
 from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")
@@ -141,7 +141,6 @@ def route_s(here, there, walk_s, dimension=None):
 
 
 # -- the world
-OPEN_PROP = "open"         # a block state a door, trapdoor or gate stands open by: passable though still there
 
 
 def passable_now(solid, prop):
