@@ -65,13 +65,14 @@ def decision(layer, pick, worth=None, why="", t=None, sink=None):
          why=why)
 
 
-def task(name, outcome, seconds, source=None, t=None, sink=None):
-    """A task's end: outcome and seconds; an interruption names its source (and its next start is a resume)."""
-    src = f" by {source}" if source else ""
+def task(name, outcome, seconds, source=None, t=None, sink=None, cause=None):
+    """A task's end: outcome and seconds; an interruption names its source (and its next start is a resume), a
+    failure its cause (nav, unavailable, stuck…) — never the source: every failure's source reads "stuck"."""
+    src = f" by {source}" if source and outcome == "interrupted" else f" ({cause})" if cause else ""
     if outcome == "interrupted":
         STATE.setdefault("interrupted", {})[name] = source
     emit("task", f"{name}: {outcome}{src} ({seconds:.1f}s)", t, sink, name=name, outcome=outcome,
-         seconds=round(seconds, 1), source=source)
+         seconds=round(seconds, 1), source=source, cause=cause)
 
 
 def task_start(name, t=None, sink=None):

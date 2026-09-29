@@ -41,6 +41,22 @@ class Events(unittest.TestCase):
         events.task_start("chop", t=9.0, sink=out)          # never interrupted: nothing said
         self.assertEqual([r["kind"] for r in out], ["task", "resume"])
 
+    def test_a_failure_says_its_cause(self):
+        from bonobo import api, retry
+        # (situation, the error) → the line
+        rows = [("could not reach the cow: nav", api.NavFailed("could not get to the cow"),
+                 "hunt: failed (nav) (30.2s)"),
+                ("none found: unavailable", api.NotAvailable("no cow found"), "hunt: failed (unavailable) (30.2s)"),
+                ("must fail: said by its source ('stuck' for every failure)", api.NavFailed("x"), None)]
+        for name, err, want in rows:
+            with self.subTest(name):
+                out = []
+                events.task("hunt", "failed", 30.2, retry.source_of(err), t=1.0, sink=out, cause=retry.cause_of(err))
+                if want is None:
+                    self.assertNotIn("by stuck", out[0]["line"])
+                else:
+                    self.assertEqual(out[0]["line"], want)
+
     def test_goal_progress(self):
         out = []
         events.goal("gather logs", {"minecraft:oak_log": 1}, t=0.0, sink=out)

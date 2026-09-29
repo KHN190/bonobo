@@ -203,7 +203,8 @@ class Brain:
         except Exception as e:  # guard: any failure of a step is the failure policy's to count, with its traceback
             err, trace = e, traceback.format_exc()
         outcome, source = outcome_of(err)
-        events.task(name, outcome, time.time() - began, source)
+        events.task(name, outcome, time.time() - began, source,
+                    cause=retry.cause_of(err) if outcome == "failed" else None)
         if isinstance(err, api.TaskStuck):
             events.anomaly("task stuck", f"{name}: {err}")
         first = arbiter.resume_of(source)[1] if source is not None else None
