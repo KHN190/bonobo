@@ -62,12 +62,10 @@ def drop(names=WORLD_SCOPED):
             pass
     return gone
 
-def check(instance=None, always=True):
-    """(world, dropped): the world being played, and the place-memory dropped before it starts."""
+def check(instance=None):
+    """(world, dropped): the world being played, and the place-memory dropped when it is another save's."""
 
     world = world_id(instance)
-    if always:
-        return world, drop()
     if world is None:
         return None, []
     was = known()
