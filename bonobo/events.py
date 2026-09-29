@@ -12,6 +12,7 @@ from . import paths
 
 EVENTS_FILE = paths.data("events.jsonl")
 EVENTS_LOG = paths.data("events.log")
+MILESTONES_FILE = paths.data("milestones.json")      # per save (fresh.WORLD_SCOPED): a restart says none again
 SLOW_ROUND_S = 5.0              # a round slower than this is an anomaly
 ANOMALY_AT = (1, 10, 100, 1000)  # an anomaly is said at its 1st, 10th, 100th … time
 IDLE_GOAL = "holding: nothing to do"  # the goal when there is none
@@ -164,13 +165,31 @@ def ate(item, t=None, sink=None):
     emit("eat", f"ate {item}", t, sink, item=item)
 
 
-def milestones(counts, t=None, sink=None):
-    """The first time each milestone item is held this session."""
-    seen = STATE.setdefault("seen", set())
-    for item in MILESTONES:
-        if counts.get(item, 0) > 0 and item not in seen:
-            seen.add(item)
-            emit("milestone", f"first {item.split(':')[-1]}", t, sink, item=item)
+def _seen_milestones(path):
+    try:
+        with open(path) as f:
+            return set(json.load(f))
+    except (OSError, ValueError):
+        return set()
+
+
+def milestones(counts, t=None, sink=None, path=None):
+    """The first time each milestone item is held in this world (kept on disk: a restart does not say it again)."""
+    path = path or MILESTONES_FILE
+    if STATE.get("seen_path") != path:
+        STATE["seen"], STATE["seen_path"] = _seen_milestones(path), path
+    seen = STATE["seen"]
+    new = [item for item in MILESTONES if counts.get(item, 0) > 0 and item not in seen]
+    for item in new:
+        seen.add(item)
+        emit("milestone", f"first {item.split(':')[-1]}", t, sink, item=item)
+    if new:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump(sorted(seen), f)
+        except OSError:
+            pass        # the log must never stop the agent
 
 
 def anomaly(what, detail="", t=None, sink=None):

@@ -96,6 +96,18 @@ class Events(unittest.TestCase):
                 perception.note_hurt(state, now=1.0)
                 self.assertEqual(hurt.call_args.args[2], want)
 
+    def test_a_milestone_is_said_once_per_world(self):
+        import tempfile
+        from bonobo import fresh
+        path = os.path.join(tempfile.mkdtemp(), "milestones.json")
+        out = []
+        events.milestones({"minecraft:stone_pickaxe": 1}, t=1.0, sink=out, path=path)
+        events.STATE.clear()                   # a restart: this process's memory gone
+        events.milestones({"minecraft:stone_pickaxe": 1}, t=2.0, sink=out, path=path)
+        self.assertEqual([r["line"] for r in out], ["first stone_pickaxe"],
+                         "must fail: said again after a restart")
+        self.assertIn(os.path.basename(events.MILESTONES_FILE), fresh.WORLD_SCOPED, "per save: a new world starts over")
+
     def test_damage_label(self):
         rows = [("attacker first", {"source": "mob", "nearest": "minecraft:skeleton"}, "minecraft:skeleton"),
                 ("no attacker: the source", {"source": "onFire", "nearest": "none"}, "onFire"),

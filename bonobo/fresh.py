@@ -9,7 +9,8 @@ from . import paths
 FILE = paths.data("world.json", env="MC_WORLD")
 
 # what belongs to one save; the logs survive on purpose
-WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "rounds.jsonl", "tape-mem", "track.jsonl")
+WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "rounds.jsonl", "tape-mem", "track.jsonl",
+                "milestones.json")
 
 def saves_dir(instance=None):
     instance = instance or os.environ.get("MC_INSTANCE", "")
