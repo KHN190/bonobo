@@ -580,12 +580,20 @@ class Brain:
 
     # -- nothing queued
     def prepare(self, snap, ctx):
-        """Idle: a proposal toward the first of tools, food, light not held — never a task (queued, it took over whenever the row's task cooled)."""
+        """Idle: a proposal toward the first of tools, food, light not held, then the run's next milestone not met (its
+        first step) — never a task (queued, it took over whenever the row's task cooled; the queue outranks it)."""
         for needs in goals.PREPARE:
             if goals.short(snap.inv, [tuple(n) for n in needs]):
                 act = self.need_act("idle", goals.have(*needs), snap, ctx)
                 if act is not None:
                     return act
+        for name in goals.MILESTONES:
+            goal = goals.make("milestone", name=name)
+            if goals.remainder(goal, snap, self.mem) == {}:
+                continue                    # met: the next one
+            act = self.need_act("milestone", goal, snap, ctx)
+            if act is not None:
+                return act
         return None
 
     def night_stock(self, snap, ctx):

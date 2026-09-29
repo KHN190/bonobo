@@ -1032,16 +1032,22 @@ class HeldPlans(unittest.TestCase):
                (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),
                (inventory(("stone_pickaxe", 1), ("stone_sword", 1)), ("food", 8)),
                (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8)), ("minecraft:torch", 8)),
-               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), None)]  # must fail: everything held, nothing prepared
+               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), "milestone")]
 
     def test_prepare(self):
-        """Idle stocking is a proposal toward the first missing item, never a task."""
+        """Idle stocking is a proposal toward the first missing item, never a task; stocked, the run's next milestone
+        (must fail: everything held, holding idle)."""
         for inv, want in self.PREPARE:
             with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
                 act = q.b.prepare(snapshot(inv=inv), None)
                 self.assertEqual(tasks.load(), [], "idle stocking queued a task")
-                self.assertEqual(None if act is None else act.name,
-                                 None if want is None else f"idle: {goals.describe(goals.have(want))}")
+                if want == "milestone":
+                    first = next(n for n in goals.MILESTONES
+                                 if goals.remainder(goals.make("milestone", name=n), snapshot(inv=inv), q.b.mem) != {})
+                    self.assertIsNotNone(act, "must fail: PREPARE met, the queue empty: holding idle")
+                    self.assertEqual(act.name, f"milestone: {goals.describe(goals.make('milestone', name=first))}")
+                    continue
+                self.assertEqual(act.name, f"idle: {goals.describe(goals.have(want))}")
 
     def test_the_round_that_finishes_the_queue_proposes_nothing_more(self):
         """plan_proposals: the task met this round is finished and nothing else is offered — the next round (queue
@@ -1064,10 +1070,10 @@ class HeldPlans(unittest.TestCase):
         rows = [("a task that can run: the task, no stocking", True, False, ["queue"]),
                 ("nothing queued: stocking proposed", False, False, ["idle"]),
                 ("the task cooling: stocking may be picked", True, True, ["idle"]),
-                ("must fail: nothing queued, the bag full of what stocking wants: nothing", False, False, [])]
+                ("nothing queued, stocked: the next milestone (must fail: holding, nothing)", False, False, ["idle"])]
         for name, queued, cooling, want in rows:
             full = inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8))
-            inv = full if name.endswith("nothing") else inventory()
+            inv = full if "stocked" in name else inventory()
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
                 if queued:
                     q.task(goals.have(("log", 4)))
