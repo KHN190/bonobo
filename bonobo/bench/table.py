@@ -85,7 +85,18 @@ def _pred(kind, args):
 RESUMES_AFTER = (None, "fight")     # the arbiter's "what first" for which a run word calls its work again
 
 
-def resuming(call, holder=None, sleep=None, poll=0.1):
+def absorbed(err):
+    """An interruption a run word absorbed (resumed without raising): counted for the row (INTERRUPTS, as `_resume`
+    counts the ones that reach it) and said — resumed silently, the interrupt rows read 0 caught."""
+    from .. import api
+    from .words.checks import BASE, INTERRUPTS
+    row = BASE.get("name")
+    if row is not None:
+        INTERRUPTS[row] = INTERRUPTS.get(row, 0) + 1
+    api.detail(f"bench: {row} run word absorbed {type(err).__name__} ({err}), resumed ({INTERRUPTS.get(row, 0)})")
+
+
+def resuming(call, holder=None, sleep=None, poll=0.1, on_absorb=absorbed):
     """Run `call` to its end as the brain would (Brain.attempt): a McError the arbiter resumes — a faster layer took
     the body (a fight: CommitmentExpired, an interrupt) — waits for the body to be handed back and calls again, until
     the row's own limit stops it; the row judges the world at the end. Anything else is raised as before.
@@ -103,6 +114,7 @@ def resuming(call, holder=None, sleep=None, poll=0.1):
             resumes, first = arbiter.resume_of(source) if source in arbiter.RESUME_OF else (False, None)
             if not resumes or first not in RESUMES_AFTER:
                 raise
+            on_absorb(e)
             while holder() is not None:
                 sleep(poll)
 

@@ -108,6 +108,32 @@ class AnInjectionLandsWhileATaskRuns(unittest.TestCase):
                 self.assertEqual(runs.task_due(task, ids, caught, fired, times), want)
 
 
+class AnAbsorbedInterruptionIsCounted(unittest.TestCase):
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api
+        from bonobo.bench import table
+        from bonobo.bench.words import checks
+
+        def cut_once(_n=[0]):
+            _n[0] += 1
+            if _n[0] == 1:
+                raise api.Interrupted("bench: injected interrupt")
+            return True
+        # (situation, the absorb hook) → the row's count after, a detail line said
+        rows = [("absorbed: counted and said", table.absorbed, 1, True),
+                ("must fail: absorbed silently (no hook): nothing counted", lambda e: None, 0, False)]
+        for name, hook, want, said_it in rows:
+            said = []
+            with self.subTest(name), mock.patch.object(api, "detail", said.append), \
+                    mock.patch.dict(checks.INTERRUPTS, {"r": 0}), mock.patch.dict(checks.BASE, {"name": "r"}):
+                run = cut_once.__defaults__[0]
+                run[0] = 0
+                self.assertTrue(table.resuming(cut_once, holder=lambda: None, sleep=lambda s: None, on_absorb=hook))
+                self.assertEqual(checks.INTERRUPTS["r"], want)
+                self.assertEqual(any("absorbed Interrupted" in line for line in said), said_it)
+
+
 class AReportKeepsItsTrace(unittest.TestCase):
     """The failed row's report holds copies: the next row clears TRACE_NOW before the report's thread writes."""
 
