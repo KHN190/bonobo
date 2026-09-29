@@ -64,7 +64,6 @@ class Events(unittest.TestCase):
                 events.round_time(total, ran, t=1.0, sink=out)
                 self.assertEqual(len([r for r in out if r["kind"] == "anomaly"]), n)
 
-
     def test_death_named_by_last_hurt(self):
         import json, tempfile
         out = []
@@ -84,6 +83,17 @@ class Events(unittest.TestCase):
                 self.assertEqual(events.last_hurt_by(f.name), want)
                 os.unlink(f.name)
 
+    def test_goal_steps_said_as_steps(self):
+        out = []
+        head = "upkeep: idle: have pickaxe tier 1"
+        events.goal(head + events.STEP + "craft 12× planks", {}, t=1.0, sink=out)
+        events.goal(head + events.STEP + "craft 4× stick", {"minecraft:oak_planks": 12}, t=2.0, sink=out)
+        events.goal("other" + events.STEP + "craft 4× stick", {"minecraft:oak_planks": 12}, t=3.0, sink=out)
+        lines = [r["line"] for r in out]
+        self.assertEqual(lines[0], "goal: " + head + events.STEP + "craft 12× planks")
+        self.assertNotIn(head, lines[1] + lines[2])                  # must fail: the goal repeated on every step
+        self.assertTrue(lines[2].strip().startswith(events.STEP.strip() + " craft 4× stick"))
+        self.assertTrue(lines[3].startswith("goal: other"))          # a new goal said whole
 
     def test_rows(self):
         out = []

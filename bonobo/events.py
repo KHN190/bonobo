@@ -82,21 +82,28 @@ def task_start(name, t=None, sink=None):
         emit("resume", f"{name}: resumed after {source or 'an interruption'}", t, sink, name=name, source=source)
 
 
+STEP = " → "      # a goal's text: "<goal> → <step>"; a new step under the same goal is said as the step alone
+
+
 def goal(text, counts=None, t=None, sink=None):
     """The goal, when it changes — the goal it replaces closed with what the bag gained under it (`counts`: the bag
-    now, {id: n})."""
+    now, {id: n}). A new step of the same goal is said as its step only."""
     if STATE.get("goal") == text:
         return
     t = time.time() if t is None else t
     was, since, start = STATE.get("goal"), STATE.get("goal_t"), STATE.get("goal_bag")
+    head, step = text.split(STEP, 1) if STEP in text else (text, None)
+    same = step is not None and was is not None and was.split(STEP, 1)[0] == head
     if was is not None and counts is not None and start is not None:
         gained = gains(start, counts)
         if gained:
             took = f" in {t - since:.0f}s" if since is not None else ""
-            emit("progress", f"{was}: " + ", ".join(f"+{n} {k.split(':')[-1]}" for k, n in gained.items()) + took,
+            said = STEP.lstrip() + was.split(STEP, 1)[1] if same and STEP in was else was
+            emit("progress", ("  " if same else "") + f"{said}: "
+                 + ", ".join(f"+{n} {k.split(':')[-1]}" for k, n in gained.items()) + took,
                  t, sink, goal=was, gained=gained)
     STATE.update(goal=text, goal_t=t, goal_bag=dict(counts) if counts is not None else None)
-    emit("goal", f"goal: {text}", t, sink, goal=text)
+    emit("goal", f"  {STEP.lstrip()}{step}" if same else f"goal: {text}", t, sink, goal=text)
 
 
 def gains(before, after):
