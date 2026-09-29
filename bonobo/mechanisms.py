@@ -53,6 +53,15 @@ def remove(dimension, press, path=None):
     return len(mechs) - len(kept)
 
 
+def forget_door(dimension, opens, path=None):
+    """Every lesson whose opens cells are `opens` removed (whatever its press): a door re-taught from scratch."""
+    want = sorted(tuple(c) for c in opens)
+    mechs = load(path)
+    kept = [m for m in mechs if not (m["dimension"] == dimension and sorted(map(tuple, m["opens"])) == want)]
+    save(kept, path)
+    return len(mechs) - len(kept)
+
+
 def in_dimension(dimension, path=None):
     return [m for m in load(path) if m["dimension"] == dimension]
 
@@ -180,12 +189,12 @@ def cross(press, door, stand, past):
     for n in range(CROSS_TRIES):
         try:
             how = press_mechanism(None, press, door)
-        except api.NotAvailable as e:     # the jar's use refused: where we stood and how far, said, then again
+        except api.NotAvailable as e:     # the jar's use refused: where we stood and how far, said
             st = api.get("/state")
             eye = (st["x"], st["y"] + EYE_HEIGHT, st["z"])
             api.detail(f"   door press {tuple(press)} refused from feet {(st['blockX'], st['blockY'], st['blockZ'])}"
                        f" (eye {math.dist(eye, [c + 0.5 for c in press]):.2f} from its centre): {e}")
-            continue
+            raise
         got = solid_map(door)
         api.detail(f"   door {tuple(map(tuple, door))}: {how}, read {'open' if is_open(door, lambda p: got[tuple(p)]) else 'shut'}"
                    f" (try {n + 1})")

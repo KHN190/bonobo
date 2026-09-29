@@ -546,10 +546,16 @@ def _door_hook(press_out, press_in, cells, taught):
     def hook(ctx):
         from ... import mechanisms as mech
         from ...api import McError
+        from ...world import Region
         name = BASE.get("name")
+        # a press cell must hold what presses (a block with a `powered` state): else the scene is not what is taught
         for press in (press_out, press_in):
-            mech.remove("minecraft:overworld", press)
-            if taught:
+            r = Region(press, press, props=True)
+            if "powered" not in r.props.get(tuple(press), {}):
+                raise SetupInvalid(f"taught press {tuple(press)} is {r.name(tuple(press))}: nothing to press")
+        mech.forget_door("minecraft:overworld", cells)           # every older lesson of this door, stale presses too
+        if taught:
+            for press in (press_out, press_in):
                 mech.add("minecraft:overworld", press, cells)
         DOOR_SEEN[name] = False
         end = time.time() + DOOR_WATCH_S
