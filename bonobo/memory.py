@@ -5,7 +5,7 @@ import math
 import os
 import time
 from typing import Any
-from . import beliefs, paths, blueprints
+from . import paths, blueprints
 from .data import GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, mid, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
@@ -557,11 +557,6 @@ class Memory:
             if pos is None or tuple(d["pos"]) == tuple(int(c) for c in pos):
                 d["recovered"] = True
                 self.save()
-                # a death is paid for when the walk back is done: measured from the death, what `time.death_cost_s` claims to know
-                if d.get("t"):
-                    took = time.time() - float(d["t"])
-                    if 1.0 <= took <= 3600.0:
-                        beliefs.note("time.death_cost_s", took, where="death recovered")
                 return d
         return None
 

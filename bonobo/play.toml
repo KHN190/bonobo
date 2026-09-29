@@ -34,28 +34,13 @@ mine_time_stone = 1.5
 mine_time_iron = 1.0
 mining_share_of_day = 0.4  # how much of a day is spent mining or digging
 
-unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_night", "starving_slowdown", "hunger_slowdown", "meal_share_of_day",
-              "starving_death", "dark_work_death", "phantom_night_death", "mine_time_no_pickaxe",
-              "mine_time_stone", "mining_share_of_day", "death_cost_s", "armor_per_tier", "shield",
-              "encounters_per_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "night_bed_open",
-              "slot_fill_s",
-             
-              "notice_r", "follow_p", "seek_prior_s",
-             
-             
-             
-             
-             
-              "attack_s", "speed", "exists_prior",
-             
-              "max_prepare_blocks", "eat_s", "eat_heals", "golden_heals", "eat_safe_press", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain", "survive_margin_hp", "arrow_hp", "bow_hit_p", "shot_s", "fuse_stop_blocks"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
 # a mob that wanders, and `arrival_s` is about pursuit. Measured by the arena (`bench/combat.jsonl`) for the two
 # families it has fought so far — walkers and archers — and still a declared guess for the rest.
 # attack_s and speed are BEHAVIOUR, not published constants: they are what the mob does here, at this tick rate,
-# against this body. Measured ones (see MC_DATA/beliefs.jsonl) replace the guess below as the count grows.
+# against this body.
 "minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
 "minecraft:husk" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
 "minecraft:zombie_villager" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }

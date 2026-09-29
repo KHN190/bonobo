@@ -1,4 +1,4 @@
-"""Which world this is, and dropping what belonged to the last one. Everything the agent remembers about a place — sites and their structure snapshots, the task queue, the round tape — is about ONE save. Nothing in the data directory said which, so a new world inherited the old one's memory: the agent walked five hundred blocks to repair a shelter from a world that no longer existed, because nothing said the site belonged to another save. The mod does not report a world id, so the save itself is the signature: the newest world folder under the instance's `saves`, named by its folder and when it was created. What survives a change of world is what is not about a place — the model's beliefs, the benches, and the logs."""
+"""Which world this is, and dropping what belonged to the last one. Everything the agent remembers about a place — sites and their structure snapshots, the task queue, the round tape — is about ONE save. Nothing in the data directory said which, so a new world inherited the old one's memory: the agent walked five hundred blocks to repair a shelter from a world that no longer existed, because nothing said the site belonged to another save. The mod does not report a world id, so the save itself is the signature: the newest world folder under the instance's `saves`, named by its folder and when it was created. What survives a change of world is what is not about a place — the benches and the logs."""
 
 import json
 import os
@@ -8,7 +8,7 @@ from . import paths
 
 FILE = paths.data("world.json", env="MC_WORLD")
 
-# what belongs to one save; beliefs and logs survive on purpose
+# what belongs to one save; the logs survive on purpose
 WORLD_SCOPED = ("world-notes.json", "tasks.json", "intent.json", "rounds.jsonl", "tape-mem", "track.jsonl")
 
 def saves_dir(instance=None):

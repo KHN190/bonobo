@@ -1,18 +1,12 @@
-"""What this agent believes about the world, in one place, with how much each belief is worth trusting. Every number the planner uses is a belief about Minecraft: how far a skeleton shoots, what a death costs, how much of the damage a shield removes. They were spread across two TOML files and two Python tables, and the same fact was written down twice — a skeleton's reach was 15 in `play.toml` and 3 in `combat_model.HAZARD_R`, a death cost 240 s in ordinary play and 120 s in a fight. Nobody wrote a bug: two copies of one fact drift, always. So: one table, read through one door. value("time.death_cost_s")   → the number belief("time.death_cost_s")  → (number, observations behind it) mob("minecraft:skeleton")    → the row `observations` is 0 for everything today — every number here is a declared guess, which is what `unmeasured` says. The count is in the interface now, before anything reads it, because the thing that will read it (a planner that explores when it is unsure) must not require changing every call site again to arrive. `fit` raises the count as recorded play accumulates; until it does, nothing should pretend to know more than it does. Measurements are WRITTEN DOWN as they are taken (`note`), to `MC_DATA/beliefs.jsonl`, and read back at import. A count that lives only in one process is not an observation count: the bench measured a route, the run ended, and the next round believed the prior again. One line per measurement, never rewritten, so the history is the record and the count is derived from it — a wrong fit can be re-derived, a wrong average cannot be undone. This module imports one thing, `paths`, which is where a filesystem layout lives. It still depends on no decision: facts do not depend on decisions."""
+"""The numbers the planner believes about Minecraft (play.toml), read through one door: `value`, `mob`, the tables."""
 
-import json
 import os
 import tomllib
-
-from . import paths
 
 CONFIG_PATH = os.environ.get("MC_PLAY_CONFIG", os.path.join(os.path.dirname(__file__), "play.toml"))
 
 with open(CONFIG_PATH, "rb") as _f:
     CONFIG = tomllib.load(_f)
-
-WIKI_FIELDS = ("hp", "attack", "notice_r")
-WIKI_N = 10 ** 6  # "known", in observation counts, so one comparison works everywhere
 
 def _with_dps(row):
     """`dps` is derived, never stored: a published hit divided by how often it lands."""
@@ -25,138 +19,14 @@ MOBS = {kind: _with_dps(row) for kind, row in CONFIG["mobs"].items()}
 # a creeper is kept off past where its fuse stops (fight_creeper_1: backed to 6.9, blew)
 MOBS["minecraft:creeper"]["keep_out"] = float(CONFIG["engage"]["fuse_stop_blocks"]) + 0.5
 PLAYER = CONFIG["player"]
-# named so a ranking built on them is never mistaken for a measurement
-UNMEASURED = tuple(CONFIG["tools"].get("unmeasured", ()))
 
-# observation counts keyed like `value`; filled from the log at import
-COUNTS = {}
-LOG = paths.data("beliefs.jsonl", env="MC_BELIEFS")
-
-# prior observations' worth of doubt in a declared number: with n = 0 a benefit reads at half, climbing as measurements come
-PRIOR_STRENGTH = 1.0
-
-def declared(path):
-    """The number as written in play.toml: a guess, or something Mojang publishes; no measurement in it."""
+def value(path):
+    """The number at `section.key` (or `mobs.<kind>.<field>`); KeyError for one not in the table."""
     if path.startswith("mobs."):
         _, kind, field = path.split(".", 2)
         return MOBS[kind][field]
     section, _, key = path.partition(".")
     return CONFIG[section][key]
-
-def value(path):
-    """The believed number at `section.key`: the declared value weighed against what was measured."""
-
-    prior = declared(path)
-    if not is_unmeasured(path):
-        return prior
-    seen = [m for m, _at in OBSERVED.get(path, ())]
-    if not seen:
-        return prior
-    return (PRIOR_STRENGTH * float(prior) + len(seen) * _median(seen)) / (PRIOR_STRENGTH + len(seen))
-
-def is_unmeasured(path):
-    """Is this one of the numbers `play.toml` declares as a guess? Only those are ours to move."""
-    return path.rsplit(".", 1)[-1] in UNMEASURED
-
-def _median(xs):
-    """The median, not the mean: one bad round must not drag a belief."""
-
-    s = sorted(float(x) for x in xs)
-    mid = len(s) // 2
-    return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2.0
-
-def count(path):
-    """How many observations stand behind this belief."""
-
-    if path.startswith("mobs.") and path.rsplit(".", 1)[-1] in WIKI_FIELDS:
-        return WIKI_N
-    return int(COUNTS.get(path, 0))
-
-def belief(path):
-    return value(path), count(path)
-
-# what play measured, keyed like `value`: [(observed, when)]; CONFIG is never overwritten
-OBSERVED = {}
-
-def note(path, measured, now=None, where=""):
-    """Record one measurement of a believed number, and return (believed, observations)."""
-
-    import time as _time
-    believed = value(path)          # what was believed BEFORE this measurement joined the history
-    at = now if now is not None else _time.time()
-    OBSERVED.setdefault(path, []).append((float(measured), at))
-    COUNTS[path] = int(COUNTS.get(path, 0)) + 1
-    _append({"path": path, "measured": float(measured), "believed": believed,
-             "n": COUNTS[path], "at": at, "where": where})
-    return belief(path)
-
-# written in batches (one per broken block is too many); flushed when full, old, or at exit — nothing dropped
-_PENDING = []
-FLUSH_EVERY = 25
-FLUSH_AFTER_S = 30.0
-_last_flush = 0.0
-
-def _append(row):
-    """Queue one line."""
-
-    import time as _time
-    global _last_flush
-    # the row keeps its target path, so a test's temporary LOG never leaks into the real history
-    _PENDING.append((LOG, row))
-    now = _time.time()
-    if len(_PENDING) >= FLUSH_EVERY or now - _last_flush >= FLUSH_AFTER_S:
-        _last_flush = now
-        flush()
-
-def flush():
-    """Write the queued measurements out (safe any time; atexit calls it)."""
-    if not _PENDING:
-        return 0
-    written = 0
-    for target in dict.fromkeys(path for path, _row in _PENDING):
-        rows = [row for path, row in _PENDING if path == target]
-        try:
-            paths.ensure(target)
-            with open(target, "a") as out:
-                for row in rows:
-                    out.write(json.dumps(row) + "\n")
-            written += len(rows)
-        except OSError as err:
-            print(f"?? beliefs: {type(err).__name__} writing {target}: {len(rows)} measurements are not in it")
-    _PENDING.clear()
-    return written
-
-import atexit          # noqa: E402  (registered after `flush` exists, which is the only order that works)
-
-atexit.register(flush)
-
-def load(path=None):
-    """Read the measurement log back into OBSERVED/COUNTS."""
-
-    path = path or LOG
-    if not os.path.exists(path):
-        return 0
-    read = 0
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-                value(row["path"])
-            except (ValueError, KeyError):
-                continue
-            OBSERVED.setdefault(row["path"], []).append((float(row["measured"]), float(row.get("at", 0.0))))
-            COUNTS[row["path"]] = int(COUNTS.get(row["path"], 0)) + 1
-            read += 1
-    return read
-
-load()
-
-def observed(path):
-    """Every measurement of this belief, newest last."""
-    return list(OBSERVED.get(path, ()))
 
 def mob(kind):
     """One mob's row: `reach` (how far it hurts), `keep_out` (how close movement may plan), dps, speed, hp."""

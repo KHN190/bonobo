@@ -56,10 +56,8 @@ def run_group(names):
     return list(names), code, out, time.time() - began
 
 
-# Where a test process writes. The suite used to run against the PLAYER'S data directory, so a test that took a
-# measurement left it in `beliefs.jsonl` for the real agent to read back at start-up, because the start-up gate is
-# this suite. Tests read
-# the recorded tape (in the repo) and write nowhere that matters.
+# Where a test process writes: never the player's data directory. Tests read the recorded tape (in the repo) and
+# write nowhere that matters.
 _SANDBOX = None
 
 
@@ -71,7 +69,7 @@ def sandbox():
     env = dict(os.environ)
     env["MC_DATA"] = _SANDBOX
     # The per-file overrides too: a module that takes its own env var would otherwise still find the real file.
-    for var in ("MC_NOTES", "MC_ROUTE", "MC_DIRECTIVES", "MC_BELIEFS", "MC_WANTS", "MC_TAPE"):
+    for var in ("MC_NOTES", "MC_ROUTE", "MC_DIRECTIVES", "MC_WANTS", "MC_TAPE"):
         env.pop(var, None)
     return env
 
