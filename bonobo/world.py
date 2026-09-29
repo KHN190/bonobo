@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from . import api, lifecycle
 from .data import (DAY_END, DAY_TICKS, GROUPS, HAZARD, NIGHT_END, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX,
-                   TIER_OF_MATERIAL, UNBREAKABLE, bare, mid)
+                   TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
 
 if TYPE_CHECKING:
     from .shapes import Cell, EntityReading, Equipment, InventoryReading, Slot, StateReading
@@ -223,7 +223,7 @@ def find(blocks, radius=32, limit=50, exposed=False):
     return api.get(f"/find?blocks={ids}&radius={radius}&limit={limit}" + ("&exposed=true" if exposed else ""))["blocks"]
 
 def entities(radius=16, types=None) -> list[EntityReading]:
-    out = api.get(f"/entities?radius={radius}")["entities"]
+    out = living(api.get(f"/entities?radius={radius}")["entities"])
     return [e for e in out if types is None or e["type"] in types]
 
 def dark_spots(radius=4, max_light=7, limit=30):

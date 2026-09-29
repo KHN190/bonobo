@@ -63,6 +63,11 @@ def item_ids(tokens):
         out += [i for i in ids if i not in out]
     return out
 
+def living(entities):
+    """Pure: what /entities lists less the dead — a living entity at health ≤ 0 still shows while it dies
+    (hunt 03:54: a cow the row's setup killed, picked as prey)."""
+    return [e for e in entities if e.get("health", 1) > 0]
+
 def bare(name) -> str:
     """The short id: "minecraft:oak_planks" → "oak_planks"."""
     got = _BARE.get(name)

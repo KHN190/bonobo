@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping, Sequence, cast
 
 from . import arbiter, lifecycle, paths, tape
-from .data import EXCEPTIONS, TASK_WAIT_S, item_ids
+from .data import EXCEPTIONS, TASK_WAIT_S, item_ids, living
 
 if TYPE_CHECKING:
     from .shapes import Task, TaskResult
@@ -553,7 +553,7 @@ def vet_aim(task):
         st = get("/state")
         if st.get("dimension") != "minecraft:the_end":
             return None
-        near = get("/entities?radius=32")["entities"]
+        near = living(get("/entities?radius=32")["entities"])
         if combat_model.aim_hits_enderman((task["x"], task["y"], task["z"]), (st["x"], st["y"], st["z"]), near):
             return f"aim at {task['x']},{task['y']},{task['z']} crosses an enderman's head"
     except (McError, PlayerTookControl, KeyError, TypeError, ValueError):

@@ -7,7 +7,7 @@ import traceback
 from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
-from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat
+from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
 from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, critical_hp
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
@@ -269,7 +269,7 @@ class Watcher(threading.Thread):
         """One read of what is near, shared by everything that asks this tick."""
 
         try:
-            near = api.get("/entities?radius=24").get("entities", []) or []
+            near = world.entities(24)
         except (api.McError, KeyError):
             return None
         note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
@@ -323,7 +323,7 @@ class Watcher(threading.Thread):
             return getattr(self, "_breath_seen", False)
         self._breath_t = now
         try:
-            near = api.get(f"/entities?radius={int(radius)}").get("entities", [])
+            near = world.entities(int(radius))
             note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         except api.McError:
             return False
@@ -338,7 +338,7 @@ class Watcher(threading.Thread):
             return getattr(self, "_ender_seen", False)
         self._ender_t = now
         try:
-            near = api.get(f"/entities?radius={int(radius)}").get("entities", [])
+            near = world.entities(int(radius))
             note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         except api.McError:
             return False
