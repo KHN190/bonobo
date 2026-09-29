@@ -177,8 +177,7 @@ def head_buried(s=None):
     """The eyes are inside a solid block (falling sand/gravel, a placed block): suffocating."""
     s = s or api.get("/state")
     eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
-    r = Region(eye, eye)
-    return r.solid(eye) and not r.name(eye).endswith(("_slab", "_stairs", "snow", "_carpet"))
+    return Region(eye, eye, props=True).buries(eye)
 
 def close_screen():
     s = api.get("/state")

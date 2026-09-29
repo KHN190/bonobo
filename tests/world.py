@@ -6,6 +6,7 @@ names (`FakeRegion`, the interface `world.Region` offers with nothing behind it)
 `fights`) are cross-products of such readings, so one relation is claimed over hundreds of situations.
 """
 from bonobo.data import HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE
+from bonobo.world import Region
 
 FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}     # blocks that fall
 
@@ -28,6 +29,11 @@ class FakeRegion:
 
     def hazard(self, p):
         return self.name(p) in HAZARD
+
+    def prop(self, p, key):
+        return None               # no block states recorded
+
+    buries = Region.buries
 
     def falling(self, p):
         return self.name(p) in FALLING
