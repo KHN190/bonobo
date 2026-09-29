@@ -38,6 +38,27 @@ class AnIdleRoundWakesOnTheOutcome(unittest.TestCase):
                 self.assertEqual(brain.Brain.idle_wait(me, lambda: False), want)
 
 
+class AnInjectionIsPending(unittest.TestCase):
+    """A bench interrupt reaches the running work: api.request_interrupt, never a module attribute nobody reads."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api
+        from bonobo.bench.words import runs
+
+        def old_write(msg):         # what the injection did before: a write to a removed attribute
+            setattr(api, "INTERRUPT", msg)
+        # (situation, injection) → pending after it
+        rows = [("injected", lambda: runs._inject_interrupt(), runs.INJECTED),
+                ("with its own message", lambda: runs._inject_interrupt("bench: x"), "bench: x"),
+                ("must fail: the old attribute write leaves nothing pending", lambda: old_write(runs.INJECTED), None)]
+        for name, inject, want in rows:
+            with self.subTest(name), mock.patch.object(api.STATE, "interrupt", None), \
+                    mock.patch.object(api, "INTERRUPT", None, create=True):
+                inject()
+                self.assertEqual(api.interrupt_pending(), want)
+
+
 class AReportKeepsItsTrace(unittest.TestCase):
     """The failed row's report holds copies: the next row clears TRACE_NOW before the report's thread writes."""
 

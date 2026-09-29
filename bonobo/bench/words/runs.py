@@ -287,8 +287,13 @@ def _on_progress(name, base, action, times=1):
         _threading.Thread(target=watch, daemon=True).start()
     return hook
 
-def _inject_interrupt():
-    __import__("bonobo.api", fromlist=["INTERRUPT"]).INTERRUPT = "bench: injected interrupt"
+INJECTED = "bench: injected interrupt"
+
+
+def _inject_interrupt(message=INJECTED):
+    """Leave an interrupt for the running work, as perception does (api.request_interrupt)."""
+    from ... import api
+    api.request_interrupt(message)
 
 def _post_foreign_task():
     """Another commander posts a task straight to the mod (BodyContested for the skill)."""
@@ -346,7 +351,7 @@ def _when(progress, act, limit_s=120):
 def _interrupt_when(when, n=None, message="bench: interrupt at the moment of success"):
     """`before` hook: interrupt the moment progress is first seen (a progress predicate, or a token with `n`)."""
     progress = when if callable(when) else gained_at_least(when, n)
-    return _when(progress, lambda: setattr(__import__("bonobo.api", fromlist=["INTERRUPT"]), "INTERRUPT", message))
+    return _when(progress, lambda: _inject_interrupt(message))
 
 def _unless_done(check, run):
     """Resume only what is not done: an interruption that landed at the moment of success leaves nothing to redo."""
@@ -489,4 +494,4 @@ def hungry(ctx):
 
 HOOKS = {"hungry": hungry}
 
-__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
+__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
