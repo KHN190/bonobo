@@ -538,6 +538,7 @@ HOOKS = {"hungry": hungry}
 # -- a taught door (press_door_to_chest): the mechanism taught in `before`, never known to the code; a watcher notes
 # the door read open at some sample of the run (the press happened)
 DOOR_SEEN: dict = {}
+_lifecycle.on_reset(lambda: DOOR_SEEN.clear(), covers=("DOOR_SEEN",))     # each row watches its own door
 DOOR_WATCH_S = 30
 
 

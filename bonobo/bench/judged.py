@@ -20,6 +20,8 @@ WORLD = {
     "escaped",                  # an escape cell's outcome: alive, health lost (the body's /state at the window's end)
     "took_cover_alcove",        # the runner's /state trace: where the body stood, its health
     "deflected",                # the server's player Health, each volley fireball's end read off /entities
+    "door_intact",              # the room's blocks: walls, roof and door standing
+    "door_seen",                # a watcher reading the door's block state through the run
 }
 
 # words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode
