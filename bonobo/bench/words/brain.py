@@ -320,9 +320,9 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
 THROW_START = (6, 0, 3)     # east of the grove's oak (3, 3), clear of the stone at x 5..7, z -1..1; +x: 7, 8, the edge
 
 BRAIN_DIMS = {
-    # "tight": dusk inside the bed's lead (needs.due_now), so the bed comes first
+    # "tight": dusk inside the night's lead (needs.due_now), so the bed comes first — its clock set by `_tight_dusk`
     # night: a bed carried — the row proves the night comes first (slept, then the task), not the bed's crafting
-    "dusk": {"plenty": ["time set 1000"], "tight": ["time set 11930"], "night": ["time set 18000", "give @p white_bed"]},
+    "dusk": {"plenty": ["time set 1000"], "tight": [], "night": ["time set 18000", "give @p white_bed"]},
     # the effect only marks the row hungry for the body reset; the drain proper is the hook's
     "food": {"full": [], "low": ["effect give @p minecraft:hunger 1 0 true"]},
     # one_use: a crafting table stands by the start, so the table's place-and-take-back is not measured
@@ -458,7 +458,24 @@ def _cell_before(cell):
     hooks.append(_count_finds)
     if cell["food"] == "low":
         hooks.append(_drain_to(LOW_FOOD))       # setup's hunger drains the bar; cleared at LOW_FOOD
+    if cell["dusk"] == "tight":
+        hooks.append(_tight_dusk)
     return hooks
+
+def tight_dusk_time(plan_s):
+    """Pure: the clock whose dusk (DAY_END) falls inside the lead of a `plan_s` night (needs.due_now): half of it left."""
+    from ...beliefs import TICKS_PER_S
+    from ...needs import LEAD
+    return DAY_END - round(plan_s * LEAD / 2 * TICKS_PER_S)
+
+def _tight_dusk(ctx):
+    """`before` hook: the clock set inside the lead of the night this bag prices (the brain's own needs.overnight)."""
+    from ... import api
+    from ...world import Snapshot
+    _way, secs, _steps = core.BRAIN.needs.overnight(Snapshot.from_readings(api.get("/state"), bag_now()))
+    if not math.isfinite(secs):
+        raise SetupInvalid("no way through the night priced from this bag: no dusk is tight")
+    _chat(f"time set {tight_dusk_time(secs)}")
 
 def _cell_setup_hooks(cell):
     """`before` hooks that make the row's world, run before `_start` reads the base."""
@@ -773,4 +790,4 @@ NAMES = {"upkeep": lambda line, *p: f"upkeep__{line}",
          "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          "brain": lambda name, *p: name, "dirt": lambda name, *p: name}
 
-__all__ = ['_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_job_ready_at', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
+__all__ = ['tight_dusk_time', '_tight_dusk', '_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_job_ready_at', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']

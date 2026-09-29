@@ -158,5 +158,20 @@ class SceneNow(unittest.TestCase):
         self.assertEqual(sent, ws.scene(words))                          # must fail: an absolute copy
 
 
+class TightDusk(unittest.TestCase):
+    """brain__tight's clock from DAY_END and the night's lead (words.brain.tight_dusk_time), never a literal."""
+
+    def test_the_night_is_due(self):
+        from types import SimpleNamespace
+        from bonobo import needs
+        for plan_s in (3.0, 12.0, 40.0):          # a bed carried in wool, one to make, a long way through
+            with self.subTest(plan_s=plan_s):
+                t = wb.tight_dusk_time(plan_s)
+                self.assertTrue(needs.due_now(needs.dusk_s(SimpleNamespace(time=t)), plan_s, True, False))
+                self.assertLess(t, DAY_END)
+        # must fail: the old literal against the bed the row carries wool for (3.0 s, 041700): not due, log first
+        self.assertFalse(needs.due_now(needs.dusk_s(SimpleNamespace(time=11930)), 3.0, True, False))
+        self.assertNotIn("time set 11930", [c for cs in wb.BRAIN_DIMS["dusk"].values() for c in cs])
+
 if __name__ == "__main__":
     unittest.main()
