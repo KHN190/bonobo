@@ -190,6 +190,9 @@ class Brain:
             self.last_light = time.time()
             try:
                 spots = world.dark_spots(radius=survive.LIGHT_R, max_light=0, limit=40)
+            except McError as e:
+                spots = api.swallowed("brain: dark spots", e) or []     # unread: nothing lit this time, said
+            try:
                 if survive.light_due(s, False, len(spots)):
                     first = self.lit_place != self.place
                     self.lit_place = self.place
