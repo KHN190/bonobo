@@ -876,7 +876,7 @@ class Frontier(unittest.TestCase):
         m.see_sections("minecraft:overworld", self.HERE, 16 * 13, {}, [self.S])
         ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
         with mock.patch.object(explore, "feet", lambda: self.HERE), \
-                mock.patch.object(explore, "_ground", lambda tx, tz, y: None):     # no ground to walk to either
+                mock.patch.object(explore, "_ground", lambda tx, tz, y, **k: None):     # no ground to walk to either
             with self.assertRaises(NotAvailable) as e:
                 list(explore._search(ctx, [self.S], lambda: [], 64, 3))
         self.assertIn("searched", str(e.exception))
@@ -899,7 +899,7 @@ class Frontier(unittest.TestCase):
                     went.append(pos)
                     return (len(went) - 1) in reachable
                 with mock.patch.object(explore, "feet", lambda: self.HERE), \
-                        mock.patch.object(explore, "_ground", lambda tx, tz, y: 70), \
+                        mock.patch.object(explore, "_ground", lambda tx, tz, y, **k: (tx, 70, tz)), \
                         mock.patch.object(explore.nav, "go_to", walk), mock.patch.object(explore, "log"):
                     try:
                         next(explore._search(ctx, [self.S], lambda: [], 48, 3))
@@ -917,7 +917,7 @@ class Frontier(unittest.TestCase):
         grounds = iter([None, -55])                                   # the first candidate: no ground; the next: a cave
         ctx = type("Ctx", (), {"mem": m, "dimension": "minecraft:overworld", "policy": None})()
         with mock.patch.object(explore, "feet", lambda: self.HERE), \
-                mock.patch.object(explore, "_ground", lambda tx, tz, y: next(grounds)), \
+                mock.patch.object(explore, "_ground", lambda tx, tz, y, **k: (lambda g: g and (tx, g, tz))(next(grounds))), \
                 mock.patch.object(explore.nav, "go_to", lambda pos, *a, **k: went.append(pos) or True), \
                 mock.patch.object(explore, "log"):
             gen = explore._search(ctx, [self.D], lambda: [], 48, 1)
@@ -949,7 +949,7 @@ class Frontier(unittest.TestCase):
                         raise _e.pop()
                     return True
                 with mock.patch.object(explore, "feet", lambda: self.HERE), \
-                        mock.patch.object(explore, "_ground", lambda tx, tz, y: 70), \
+                        mock.patch.object(explore, "_ground", lambda tx, tz, y, **k: (tx, 70, tz)), \
                         mock.patch.object(explore.nav, "go_to", walk), mock.patch.object(explore, "log"):
                     with self.assertRaises(type(exc)):
                         next(explore._search(ctx, [self.S], lambda: [], 48, 3))
