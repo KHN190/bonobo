@@ -6,11 +6,11 @@ what the world shows (a mob gone is no kill, hp read after a respawn is no hp ke
 PASS_ALLOW names the few proxies a pass still reads, each with why; tests/test_judged.py holds every row to this."""
 # words that read the server (commands, /state, /inventory, /entities, regions) or a harness watcher over those
 WORLD = {
-    "gain", "count", "state", "bag", "alive", "blocks", "at", "same_bag", "same_bag_and_place", "placed_facing",
+    "gain", "count", "state", "bag", "alive", "blocks", "same_bag", "same_bag_and_place", "placed_facing",
     "gone", "hp_kept", "killed", "is_day", "food_up", "kept", "no_block_suffix", "free_slots", "breathing",
     "slot_has", "has_stone_pickaxe", "in_the_patch_underground", "surfaced", "shield_kept", "threat_resolved",
     "away_or_walled", "dropped_nothing", "under_feet", "room_to_work", "mobs_near", "found_near", "in_overworld",
-    "head_clear", "enclosed", "near", "count_blocks", "trades", "hostiles", "wave_cleared", "nether_kit_ready",
+    "head_clear", "enclosed", "count_blocks", "trades", "hostiles", "wave_cleared", "nether_kit_ready",
     "trek_check",               # the body's end position (/state) against the target
     "before_in_bag",            # FIRST: a watcher reading the bag (and the world's clock) through the run
     "walk_ate", "mine_fed",     # /state frames: food rose while x grew / while the jar's work task ran

@@ -1,6 +1,8 @@
 """Bench table, brain tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
+from ..explore import TRAVEL_RANGE
+from ..reflexes import UNSTUCK_MOVED
 
 from .core import ORIGIN
 from ..reflexes import BAG_FULL
@@ -85,19 +87,19 @@ FAMILIES = [
          ('path_blocked',
           'the last walk failed toward the far side of a 6-block gap, 16 blocks carried → bridged across',
           [('floor',), ('fill', ('@', 2, -3, -8), ('@', 7, -1, 8), 'air'), ('stand',), ('give', 'cobblestone', 16)],
-          [('blocked_toward', ('@', 9, 0, 0))], ('now_api', ('!_at', ('@', 9, 0, 0), 4)), ('_at', ('@', 9, 0, 0), 4)),
+          [('blocked_toward', ('@', 9, 0, 0))], ('now_api', ('!arrived', ('@', 9, 0, 0), TRAVEL_RANGE)), ('arrived', ('@', 9, 0, 0), TRAVEL_RANGE)),
          ('bridge_stock',
           'the same gap with 2 blocks carried (under BRIDGE_MIN), stone underfoot, a pickaxe → blocks fetched first, '
           'to what the way across takes (bridge_stock), then across',
           [('floor',), ('fill', ('@', 2, -3, -8), ('@', 7, -1, 8), 'air'), ('stand',), ('give', 'cobblestone', 2),
            ('give', 'diamond_pickaxe')],
           [('blocked_toward', ('@', 9, 0, 0))],
-          ('now', ('!any', ('!api_only', ('!_at', ('@', 9, 0, 0), 4)), ('!count', 'minecraft:cobblestone', '>=', 9))),
-          ('any', ('!_at', ('@', 9, 0, 0), 4), ('!count', 'minecraft:cobblestone', '>=', 9))),
-         ('unstuck', 'a minute in the same block with the same bag (history set), open ground → moved off (≥ 5 blocks)',
+          ('now', ('!any', ('!api_only', ('!arrived', ('@', 9, 0, 0), TRAVEL_RANGE)), ('!count', 'minecraft:cobblestone', '>=', 9))),
+          ('any', ('!arrived', ('@', 9, 0, 0), TRAVEL_RANGE), ('!count', 'minecraft:cobblestone', '>=', 9))),
+         ('unstuck', 'a minute in the same block with the same bag (history set), open ground → moved off (UNSTUCK_MOVED)',
           [('floor',), ('stand',)], [('stuck_for', 70)],
-          ('now', ('!not', ('!call', 'near', ['$api', ('@', 0, 0, 0), 5]))),
-          ('not', ('!call', 'near', ['$api', ('@', 0, 0, 0), 5]))),
+          ('now', ('!not', ('!arrived', ('@', 0, 0, 0), UNSTUCK_MOVED))),
+          ('not', ('!arrived', ('@', 0, 0, 0), UNSTUCK_MOVED))),
          ('collect_machine', 'a remembered auto smelter whose order is due, 8 ingots in its output chest → taken',
           [('floor',), ('chest', ('@', 3, 0, 0), 'iron_ingot 8'), ('stand',)], [('machine_due', ('@', 3, 0, 0), 8)],
           ('_count', 'minecraft:iron_ingot', 8), ('gain', 'minecraft:iron_ingot', 8)),

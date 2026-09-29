@@ -272,11 +272,6 @@ def _count_blocks(api, lo, hi, name):
     from ..world import Region
     return sum(1 for n in Region(lo, hi).blocks.values() if n == name)
 
-def _near(api, pos, r):
-    import math
-    s = api.get("/state")
-    return math.dist((s["x"], s["y"], s["z"]), pos) <= r
-
 def _chat_log():
     from .. import api
     return os.path.join(api.INSTANCE, "logs", "latest.log")

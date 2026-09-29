@@ -4,7 +4,7 @@ makes a row of (base, condition | surprise)). Plain data in `vocab`'s words; the
 BASES = {
     'nav': dict(skills=['goto'], doc='walk 8 blocks east over the arena', point='A',
               scene=[('floor',), ('fill', ('@', 8, -3, -3), ('@', 10, -1, 3), 'stone'), ('stand',)],
-              run=('skill', 'travel_to', ('@', 8, 0, 0), 2), check=('_at', ('@', 8, 0, 0), 3.5), budget=15, arena=16,
+              run=('skill', 'travel_to', ('@', 8, 0, 0), 2), check=('arrived', ('@', 8, 0, 0), 2), budget=15, arena=16,
               target=('@', 8, 0, 0)),
     'chop': dict(skills=['item:log'], bound=('log', 2, 10), doc='one oak beside the body → 2 logs', point='A',
                scene=[('grove', (2, 0)), ('stand',)], run=('skill', 'chop', 2), check=('gain', 'log', 2),
@@ -157,7 +157,7 @@ SURPRISES = {
                         scene=[('floor',), ('fill', ('@', -1, -1, -1), ('@', 1, 2, 1), 'bedrock'),
                                ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'), ('stand',)],
                         fails='no route|no path|unreachable|could not get|not reach',
-                        check=('all', ('!same_bag',), ('!_at', ('@', 0, 0, 0), 1.5))),
+                        check=('all', ('!same_bag',), ('!arrived', ('@', 0, 0, 0), 2))),
     'craft_short_of_planks': dict(base='craft', doc='two planks and no sticks for a pickaxe: missing, named',
                                 replace_setup=True,
                                 scene=[('floor',), ('stand',), ('give', 'oak_planks', 2), ('give', 'crafting_table')],

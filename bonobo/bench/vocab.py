@@ -37,7 +37,7 @@ from ..api import McError
 from ..data import DAY_TICKS, POD_BLOCKS
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
-                         _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
+                         _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
 from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
@@ -295,6 +295,8 @@ def _found_fortress_now():
             return True
     return False
 
+TREK_RANGE = 12          # a trek over real terrain: its walk's range, and the check's
+
 def _trek(dx, dz, dimension="minecraft:overworld"):
     """Walk a straight-line distance over real terrain; note seconds per 100 blocks (travel was 47 % of task time)."""
     def run(ctx):
@@ -305,11 +307,11 @@ def _trek(dx, dz, dimension="minecraft:overworld"):
         # in this process, not through the notes file: a reload from disk found no trek and failed a finished walk
         TREK.clear()
         TREK.update(start=start, target=target, t0=time.time())
-        ok = nav.go_to(target, ctx.policy, range_=12, attempts=1)
+        ok = nav.go_to(target, ctx.policy, range_=TREK_RANGE, attempts=1)
         stop = api.get("/state")
         TREK["end"] = (stop["x"], stop["y"], stop["z"])
         TREK["seconds"] = time.time() - TREK["t0"]
-        if not ok and math.hypot(stop["x"] - target[0], stop["z"] - target[2]) > 14:
+        if not ok and not nav.there(stop, target, TREK_RANGE):
             raise api.NavFailed(f"trek to {target} stopped short")
         return True
     return run
@@ -324,10 +326,9 @@ def _trek_detail(inv):
     return f"{dist:.0f} blocks, {TREK['seconds'] / dist * 100:.1f} s/100 (wall), ended {left:.0f} from target"
 
 def _trek_check(api):
-    if not TREK.get("end"):
-        return False
-    left = math.hypot(TREK["end"][0] - TREK["target"][0], TREK["end"][2] - TREK["target"][2])
-    return left <= 14 and not api.get("/state")["dead"]
+    from .. import nav
+    s = api.get("/state")
+    return bool(TREK.get("end")) and nav.there(s, TREK["target"], TREK_RANGE) and not s["dead"]
 
 def _road_reuse(ctx):
     """There, back, and there again over 150 blocks: the third trip follows the remembered legs, no slower than the first."""
@@ -677,7 +678,7 @@ def start_row(name, what, start_scene, stand):
                       f"here) → at the target", "nav",
                 [("floor",), ("fill", ("@", 8, -3, -3), ("@", 12, -1, 3), "stone")] + list(start_scene)
                 + [("stand",) + tuple(stand)], ("skill", "travel_to", ("@", 10, 0, 0), 2),
-                [("_at", ("@", 10, 0, 0), 3.5)], skills=["goto"], tier_fixed="common",
+                [("arrived", ("@", 10, 0, 0), 2)], skills=["goto"], tier_fixed="common",
                 tags={"base": "nav", "start": what})
 
 TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "one", "real", "place", "start")}

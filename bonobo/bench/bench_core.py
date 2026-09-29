@@ -44,7 +44,7 @@ ROWS = [
                 ('fill', ('@', 0, -1, -3), ('@', 13, -1, -1), 'lava'),
                 ('fill', ('@', 0, -1, 1), ('@', 13, -1, 3), 'lava'), ('stand', -1), ('give', 'cobblestone', 32)],
          run=('skill', 'travel_to', ('@', 14, 0, 0), 1.5), before=[('start', 'lava_edge_walk')],
-         check=[('_at', ('@', 14, 0, 0), 2.5), ('alive', 16)], budget=25, point='B', skills=['goto'],
+         check=[('arrived', ('@', 14, 0, 0), 1.5), ('alive', 16)], budget=25, point='B', skills=['goto'],
          tags={'base': 'nav', 'hazard': 'lava'}, expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='buried_by_sand', module='brain',
          doc="Sand dropped on the body mid-task → L0 rescues (unbury) through the brain's own round, then alive",

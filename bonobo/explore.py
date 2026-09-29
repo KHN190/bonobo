@@ -27,6 +27,8 @@ def surface_first(ctx, max_climb=90):
         raise api.NavFailed(f"could not reach the surface from y={y}")
 
 LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]
+TRAVEL_RANGE = 2          # travel_to's arrival range unless asked
+SEEK_RANGE = 3            # seek stops this near what it found
 LOOK_MOBS, LOOK_BLOCKS = 64, SEARCH_LOOK_R       # how far one look sees: /entities and /find radii
 
 CANOPY = ("leaves", "_log")      # a tree top is sky to a search, not ground to stand on
@@ -184,13 +186,13 @@ def seek(ctx, kinds, pos=None):
         return explore_for(ctx, list(kinds))      # an animal: look for it where animals are
     else:
         return seek_blocks(ctx, list(kinds))
-    nav.arrive(target, ctx.policy, range_=3)
+    nav.arrive(target, ctx.policy, range_=SEEK_RANGE)
     ctx.mem.note_here(kinds[0], target, ctx.dimension)     # standing at one: `at:<kind>` for the next plan
     return [target]
 
-@skill(gives=["state:there"], remaining=_k.near(lambda c: c.args[1], lambda c: c.args[2] if len(c.args) > 2 else 2), needs={}, speed={}, provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", 2))}, budget=900, stall=120,
-       verify=lambda c: nav.there(api.get("/state"), tuple(c.args[1]), c.args[2] if len(c.args) > 2 else 2))
-def travel_to(ctx, pos, range_=2):
+@skill(gives=["state:there"], remaining=_k.near(lambda c: c.args[1], lambda c: c.args[2] if len(c.args) > 2 else TRAVEL_RANGE), needs={}, speed={}, provides={"goto": lambda ctx, s: (tuple(s.detail["pos"]), s.detail.get("range", TRAVEL_RANGE))}, budget=900, stall=120,
+       verify=lambda c: nav.there(api.get("/state"), tuple(c.args[1]), c.args[2] if len(c.args) > 2 else TRAVEL_RANGE))
+def travel_to(ctx, pos, range_=TRAVEL_RANGE):
     """Be at `pos` (within `range_`): walk, dig and bridge there leg by leg (`nav.arrive`)."""
     return nav.arrive(tuple(pos), ctx.policy, range_=range_)
 
