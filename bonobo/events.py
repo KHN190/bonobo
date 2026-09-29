@@ -139,10 +139,11 @@ def anomaly(what, detail="", t=None, sink=None):
              what=what, detail=detail, count=n)
 
 
-def round_time(seconds, t=None, sink=None):
-    """A round, said only when slow."""
-    if seconds > SLOW_ROUND_S:
-        anomaly("slow round", f"{seconds:.1f}s", t, sink)
+def round_time(seconds, ran_s=0.0, t=None, sink=None):
+    """A round, said only when its deciding is slow: the round less `ran_s`, the task (or idle wait) it ran."""
+    deciding = seconds - ran_s
+    if deciding > SLOW_ROUND_S:
+        anomaly("slow round", f"{deciding:.1f}s deciding" + (f" (+{ran_s:.1f}s running)" if ran_s else ""), t, sink)
 
 
 def reset_state():

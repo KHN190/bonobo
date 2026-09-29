@@ -139,7 +139,7 @@ class Brain:
     def invariants(self):
         s = api.get("/state")
         if s["control"].get("paused"):
-            api.wait_for_handback()
+            self._running(api.wait_for_handback)
             s = api.get("/state")
         if skillcore.dead(s):
             # the carried items are unknowable after the respawn
@@ -169,7 +169,7 @@ class Brain:
         if time.time() - self.last_light > 5 and survive.dark_here(s) and not survive.enclosed():
             self.last_light = time.time()
             try:
-                survive.light_area(self.context(s["dimension"]), 4, 1)
+                self._running(lambda: survive.light_area(self.context(s["dimension"]), 4, 1))
             except api.INTERRUPTIONS:
                 raise
             except McError:
@@ -253,7 +253,7 @@ class Brain:
 
     def _round(self):
         """One round, its phases timed into one detail.log line (round_line): where an idle body's time goes."""
-        clock = {"t0": time.perf_counter(), "marks": [], "ended": api.clock_new_round()}
+        clock = {"t0": time.perf_counter(), "marks": [], "ended": api.clock_new_round(), "ran": 0.0}
         self._clock = clock
         try:
             self._round_body(clock)
@@ -263,13 +263,22 @@ class Brain:
             gap = (post - clock["ended"]) * 1000 if post is not None and clock["ended"] is not None else None
             ms = phase_ms(clock["t0"], clock["marks"], now)
             api.detail(round_line(ms, gap))
-            events.round_time(ms["t"] / 1000.0)
+            events.round_time(ms["t"] / 1000.0, clock["ran"])
 
     def _mark(self, name):
         """End of a timed phase of this round."""
         c = getattr(self, "_clock", None)
         if c is not None:
             c["marks"].append((name, time.perf_counter()))
+
+    def _running(self, fn):
+        """fn(), its time kept apart from the round's deciding (events.round_time: a long task is no slow round)."""
+        c, t = getattr(self, "_clock", None), time.perf_counter()
+        try:
+            return fn()
+        finally:
+            if c is not None:
+                c["ran"] += time.perf_counter() - t
 
     def _round_body(self, clock):
         self.invariants()
@@ -307,18 +316,19 @@ class Brain:
             jobs = self.mem.jobs(snap.dimension)
             if jobs:                           # only a furnace's clock is waited on: the bench may run it ahead
                 api.waiting_for_clock(max(0.0, min(j["ready_at"] for j in jobs) - time.time()))
-            self.idle_wait(lambda: any(t["state"] in tasks.LIVE for t in tasks.load()))
+            self._running(lambda: self.idle_wait(lambda: any(t["state"] in tasks.LIVE for t in tasks.load())))
             return
         self.idle_since = None
         intent.set("goal" if act.layer in ("task", "idle") else "safety", repr(act))
         events.goal(repr(act), _bag_counts(snap))
         if act.layer == "L0":
             tape.end(self, act, snap)
-            act.run()
+            self._running(act.run)
             return
         box = {}
         also = (step_key(act.step),) if getattr(act, "step", None) is not None else ()
-        ran = arbiter.BODY.drive("plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name)
+        ran = self._running(lambda: arbiter.BODY.drive(
+            "plan", lambda: box.update(outcome=self.attempt(act.name, act.run, also)), act.name))
         outcome = box.get("outcome", "interrupted") if ran else "interrupted"
         tape.event(act.name, outcome, str(self.last_failure.__dict__) if self.last_failure else "")
         tape.end(self, act, snap)

@@ -51,6 +51,20 @@ class Events(unittest.TestCase):
         events.goal("craft", {"minecraft:oak_log": 5, "minecraft:dirt": 1}, t=40.0, sink=out)
         self.assertEqual(len([r for r in out if r["kind"] == "progress"]), 1)
 
+    def test_slow_round_is_deciding_not_running(self):
+        # (round s, of it running a task s) → a slow-round anomaly?
+        slow = events.SLOW_ROUND_S
+        rows = [("slow deciding", slow + 1, 0.0, 1),
+                ("must fail: a long task read as a slow round", slow * 10, slow * 10 - 0.7, 0),
+                ("slow deciding around a task", slow * 10, slow * 10 - slow - 1, 1)]
+        for name, total, ran, n in rows:
+            with self.subTest(name):
+                events.reset_state()
+                out = []
+                events.round_time(total, ran, t=1.0, sink=out)
+                self.assertEqual(len([r for r in out if r["kind"] == "anomaly"]), n)
+
+
     def test_rows(self):
         out = []
         rows = [("a slow round is an anomaly", lambda: events.round_time(events.SLOW_ROUND_S + 1, t=1.0, sink=out), 1),
