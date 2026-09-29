@@ -29,15 +29,43 @@ def surface_first(ctx, max_climb=90):
 LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]
 LOOK_MOBS, LOOK_BLOCKS = 64, 48       # how far one look sees: /entities and /find radii
 
-def _ground(tx, tz, y):
-    """The y to walk to at (tx, tz): known land, else the column's ground, else None (never our own height far off)."""
+CANOPY = ("leaves", "_log")      # a tree top is sky to a search, not ground to stand on
 
-    land = [h for h in find(LAND, radius=48, limit=60) if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
-    if land:
-        return min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz)))["y"] + 1
+
+def surface_cell(name, solid, x, z, top, bottom):
+    """Pure: the standing y under open sky in column (x, z): the first ground from `top` down (a canopy passed
+    through), feet and head clear; None when the column has none or its first ground is covered."""
+    for y in range(top, bottom - 1, -1):
+        if solid((x, y, z)) and not name((x, y, z)).endswith(CANOPY):
+            return y + 1 if not solid((x, y + 1, z)) and not solid((x, y + 2, z)) else None
+    return None
+
+
+def _ground(tx, tz, y, surface=True, top=None):
+    """The y to walk to at (tx, tz). A surface search: the open-sky cell over the known land nearest it (a buried
+    hit's surface, never its y+1). An underground one: known land, else the column's ground near `y` (a cave floor)."""
     from .world import Region
+    land = [h for h in find(LAND, radius=48, limit=60) if math.dist((h["x"], h["z"]), (tx, tz)) <= 16]
+    if surface:
+        near = min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz))) if land else None
+        x, z = (near["x"], near["z"]) if near else (tx, tz)
+        top = top if top is not None else y + LOOK_BLOCKS
+        col = Region((x, y - LOOK_BLOCKS, z), (x, top + 2, z))
+        got = surface_cell(col.name, col.solid, x, z, top, y - LOOK_BLOCKS)
+        return None if got is None else (x, got, z)
+    if land:
+        return tx, min(land, key=lambda h: math.dist((h["x"], h["z"]), (tx, tz)))["y"] + 1, tz
     col = Region((tx, y - 40, tz), (tx, y + 20, tz))
-    return nav.ground_in_column(col.solid, tx, tz, y, span=40)
+    got = nav.ground_in_column(col.solid, tx, tz, y, span=40)
+    return None if got is None else (tx, got, tz)
+
+
+def underground_search(kinds):
+    """Pure: does a search for `kinds` go under the ground (an ore's band) — the one search that may dig?"""
+    return any(band(k) is not None for k in kinds)
+
+
+SKYLESS = ("minecraft:the_nether",)     # a column's top here is the roof: no open sky to stand under
 
 def stand_in_look_range(stand_y, band_y, radius, can_dig):
     """Pure: a look can cover a section at `band_y` — from the ground stood on (within `radius`), or from a stand dug
@@ -55,11 +83,15 @@ def _search(ctx, kinds, look, radius, legs):
             return hits
         todo = ctx.mem.frontier(ctx.dimension, here, kinds, band)
         target, tried = None, 0
+        deep = underground_search(kinds)
+        surface = not deep and ctx.dimension not in SKYLESS
         for section, (tx, sy, tz) in todo[:4]:
-            ty = _ground(tx, tz, sy)          # a cave floor counts: the column's ground near the band's height
-            if ty is None:
+            # a surface search stands under open sky; an underground one on a cave floor near the band
+            cell = _ground(tx, tz, sy, surface=surface, top=max(sy, here[1]) + LOOK_BLOCKS)
+            if cell is None:
                 continue
-            if not stand_in_look_range(ty, sy, radius, can_dig=False):     # a search walks, never digs down
+            tx, ty, tz = cell
+            if not stand_in_look_range(ty, sy, radius, can_dig=False):     # a leg's stand must see the band
                 # the band lies past a look's reach from the column's ground (coal's y 48 under a y 200 floor) and no
                 # stand down there is reachable: a skip for this search, never "looked over" (no look happened) —
                 # before, every leg walked there and re-picked it (×6, 20 s)
@@ -69,8 +101,9 @@ def _search(ctx, kinds, look, radius, legs):
                 continue
             tried += 1
             log(f"   looking for {bare(kinds[0])}: heading to section {section} ({tx}, {ty}, {tz})")
-            if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1, purpose="explore")):
-                target = (tx, ty, tz)          # looking: walk, never dig
+            if nav.moved(nav.go_to((tx, ty, tz), ctx.policy, range_=6, attempts=1,
+                                   purpose="explore_deep" if deep else "explore")):
+                target = (tx, ty, tz)          # a surface search walks; only an underground one digs
                 break
             # out of reach from here (walled in: the frontier lies past the walls) — the next candidate, never the
             # same one again next leg (a sealed bench arena walked into its walls six times, 20 s)

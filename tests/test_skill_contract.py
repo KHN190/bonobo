@@ -252,7 +252,9 @@ class Arrive(_Clean):
         P = nav.Policy
         rows = [("to work, the round allows digging: all three", "work", P(allow_dig=True), (True, True, True)),
                 ("to work, no digging this round", "work", P(allow_dig=False), (False, True, True)),
-                ("exploring: dig and bridge, never over the void", "explore", P(allow_dig=True), (True, True, False)),
+                ("must fail: a search digs (explore__white_bed shafts)", "explore", P(allow_dig=True),
+                 (False, True, False)),
+                ("a search for what lies underground digs", "explore_deep", P(allow_dig=True), (True, True, False)),
                 ("evading: dig into the hill, bridge the ditch, never over the void", "evade", P(allow_dig=True),
                  (True, True, False)),
                 ("must fail: evading with building off this round", "evade", P(allow_dig=True, allow_build=False),

@@ -401,7 +401,9 @@ def walked_closer(start, here, target):
     return math.dist(start, target) - math.dist(here, target) >= PROGRESS_BLOCKS
 
 # what a walk may do by its purpose (break, place, bridge over the void): only a walk with a known far side lays floor over a drop
-MOVES = {"work": (True, True, True), "explore": (True, True, False), "evade": (True, True, False)}
+# a search walks and never digs ("explore"), unless the thing sought lies underground ("explore_deep": ores, a fortress)
+MOVES = {"work": (True, True, True), "explore": (False, True, False), "explore_deep": (True, True, False),
+         "evade": (True, True, False)}
 SAFE_DROP = 3        # blocks a walk may drop onto dry ground unhurt; deeper only into water (`terrain.landing`)
 
 def landing(region, here, spot, max_drop=None, least=2):

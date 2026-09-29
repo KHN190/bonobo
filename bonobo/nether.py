@@ -108,7 +108,7 @@ def find_fortress(ctx, legs=8, leg=48):
         length = leg * (i // 2 + 1)
         # legs at y≈70: above the lava sea, below most ceilings
         nav.go_to((x + dx * length, EXPLORE_Y, z + dz * length), ctx.policy, range_=8, attempts=1,
-                  purpose="explore")
+                  purpose="explore_deep")          # a fortress sits in the netherrack: legs dig
         x, y, z = skillcore.feet()
         yield (x, z)
     # out of legs or supplies: back to the arrival portal
