@@ -168,6 +168,31 @@ def through_cell(door, there):
 CROSS_TRIES = 2           # a pulse door (a button) may shut before the body is through: pressed again, once
 
 
+def _walk(cell, range_, why):
+    """One leg that breaks and builds nothing; its result said (detail), a refusal returned, never raised."""
+    try:
+        r = api.run({"type": "travel", "x": cell[0], "y": cell[1], "z": cell[2], "range": range_, "break": False,
+                     "place": False, "voidBridge": False, "placeBudget": 0}, wait=30, awaits=why)
+    except api.NotAvailable as e:          # "target unreachable": a shut door is a wall to the walker
+        r = {"status": "failed", "message": str(e)}
+    api.detail(f"   door leg to {tuple(cell)}: {r.get('status')} {r.get('message', '')}".rstrip())
+    return r.get("status") == "succeeded"
+
+
+def cross(press, door, stand, past):
+    """A taught door in legs: onto `stand`, the cell before the door on our side (a pulse door must still be open
+    when the body steps), press from there, straight through to `past`; shut again first → pressed once more."""
+    _walk(stand, 0.5, "before the door: the use next")
+    for n in range(CROSS_TRIES):
+        how = press_mechanism(None, press, door)
+        got = solid_map(door)
+        api.detail(f"   door {tuple(map(tuple, door))}: {how}, read {'open' if is_open(door, lambda p: got[tuple(p)]) else 'shut'}"
+                   f" (try {n + 1})")
+        if _walk(past, 0.5, "through the door: read before the rest of the walk"):
+            return True
+    return False
+
+
 def doors_on_way(here, there, policy=None, dimension=None):
     """nav's wire: a taught door on the way here → there is crossed in legs — into reach of our side's press and
     pressed (only when shut), then straight through with nothing broken, pressed again if it shut first; returns
@@ -180,12 +205,5 @@ def doors_on_way(here, there, policy=None, dimension=None):
     doors = on_the_way(mechs, here, there)
     press = press_for(mechs, doors[0], here) if doors else None
     if press is not None:
-        door, past = [list(c) for c in doors[0]], through_cell(doors[0], there)
-        for _ in range(CROSS_TRIES):
-            press_mechanism(None, press, door)
-            r = api.run({"type": "travel", "x": past[0], "y": past[1], "z": past[2], "range": 0.5, "break": False,
-                         "place": False, "voidBridge": False, "placeBudget": 0},
-                        wait=30, awaits="through the door or not: read before the rest of the walk")
-            if r.get("status") == "succeeded":
-                break
+        cross(press, [list(c) for c in doors[0]], through_cell(doors[0], here), through_cell(doors[0], there))
     return [tuple(c) for m in mechs for c in m["opens"]]

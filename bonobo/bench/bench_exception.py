@@ -522,20 +522,23 @@ ROWS = [
          before=[('start', 'craft_chain_one_sitting')], check=[('gain', 'minecraft:wooden_pickaxe', 1, 1)], budget=15,
          skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
-    # a taught door: a closed stone room (walls x 4..8, z -2..2, roof y 3), an iron door in its west wall, a wooden
-    # button outside and inside on the wall block beside the door's top half, a chest within
+    # a taught door: a closed stone room (walls x 4..8, z -3..3, roof y 3), an iron door in its west wall held by a
+    # toggle — a waxed copper bulb in the wall with a button on each face (outside, inside), read by a comparator
+    # beside the door's top half: one press opens it and it stays open, the next shuts it — and a chest within
     *[dict(name=name, module='skills', point='A', skills=skills, stochastic=False,
            doc=doc,
-           scene=[('floor',), ('fill', ('@', 4, 0, -2), ('@', 8, 3, 2), 'stone'),
-                  ('fill', ('@', 5, 0, -1), ('@', 7, 2, 1), 'air'),
+           scene=[('floor',), ('fill', ('@', 4, 0, -3), ('@', 8, 3, 3), 'stone'),
+                  ('fill', ('@', 5, 0, -2), ('@', 7, 2, 2), 'air'),
                   ('setblock', ('@', 4, 0, 0), 'iron_door[facing=east,half=lower]'),
                   ('setblock', ('@', 4, 1, 0), 'iron_door[facing=east,half=upper]'),
-                  ('setblock', ('@', 3, 1, 1), 'oak_button[face=wall,facing=west]'),
-                  ('setblock', ('@', 5, 1, 1), 'oak_button[face=wall,facing=east]'),
+                  ('setblock', ('@', 4, 1, -2), 'waxed_copper_bulb[lit=false,powered=false]'),
+                  ('setblock', ('@', 4, 1, -1), 'comparator[facing=north]'),
+                  ('setblock', ('@', 3, 1, -2), 'oak_button[face=wall,facing=west]'),
+                  ('setblock', ('@', 5, 1, -2), 'oak_button[face=wall,facing=east]'),
                   ('setblock', ('@', 7, 0, 0), 'chest'), ('stand',), ('cmd', 'clear @p')],
-           before=[(hook, ('@', 3, 1, 1), ('@', 5, 1, 1), [('@', 4, 0, 0), ('@', 4, 1, 0)])],
+           before=[(hook, ('@', 3, 1, -2), ('@', 5, 1, -2), [('@', 4, 0, 0), ('@', 4, 1, 0)])],
            run=('into_room', ('@', 6, 0, 0)),
-           check=[inside, ('door_intact', ('@', 4, 0, -2), ('@', 8, 3, 2), [('@', 4, 0, 0), ('@', 4, 1, 0)])]
+           check=[inside, ('door_intact', ('@', 4, 0, -3), ('@', 8, 3, 3), [('@', 4, 0, 0), ('@', 4, 1, 0)])]
            + seen, budget=25, expect=[(('@', 4, 0, 0), ('@', 4, 1, 0), 'iron_door', 2, 2)])
       for name, skills, hook, inside, seen, doc in (
           ('press_door_to_chest', ['press_mechanism'], 'door_taught', ('_at', ('@', 6, 0, 0), 1.5), [('door_seen',)],

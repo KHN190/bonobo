@@ -153,13 +153,38 @@ class Walk(unittest.TestCase):
                     mock.patch.object(nav, "_arrived", lambda *a, **k: True):
                 nav._travel(INSIDE, nav.Policy(), 1.5, 1, None, "work", OUTSIDE, 0.0)
         kinds = [t["type"] for t in posted]
-        self.assertEqual(kinds[:3], ["use", "travel", "travel"])          # press, through, then the rest
-        cross = posted[1]
+        self.assertEqual(kinds[:4], ["travel", "use", "travel", "travel"])   # beside the press, press, through, rest
+        # the press from the cell before the door on our side, not from the press's reach
+        self.assertEqual((posted[0]["x"], posted[0]["y"], posted[0]["z"]), mech.through_cell(tuple(DOOR), OUTSIDE))
+        self.assertEqual(posted[0]["break"], False)
+        cross = posted[2]
         # must fail: the crossing leg may break (press_door_to_chest 022603: the door shut, the wall beside it dug)
         self.assertEqual((cross["break"], cross["place"]), (False, False))
         self.assertEqual((cross["x"], cross["y"], cross["z"]), mech.through_cell(tuple(DOOR), INSIDE))
-        avoid = {(c["x"], c["y"], c["z"]) for c in posted[2]["avoid"]}
+        avoid = {(c["x"], c["y"], c["z"]) for c in posted[3]["avoid"]}
         self.assertTrue(set(DOOR) <= avoid)                               # the door is never dug
+
+
+class Cross(unittest.TestCase):
+    def test_shut_before_through_is_pressed_again(self):
+        # must fail: the crossing refused ("target unreachable": the pulse over) raises out of the walk
+        # (press_door_to_chest 20260930-023025: None at 2 s, never through)
+        posted, refused = [], []
+
+        def run(task, **k):
+            posted.append(task)
+            if task["type"] == "travel" and (task["x"], task["y"], task["z"]) == mech.through_cell(tuple(DOOR), INSIDE) \
+                    and not refused:
+                refused.append(task)
+                raise mech.api.Unreachable("travel: target unreachable; stopped at the closest reachable point", ())
+            return {"status": "succeeded", "message": "ok"}
+        with mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): True for c in cells}), \
+                mock.patch.object(mech.api, "run", run), mock.patch.object(mech.api, "detail", lambda *a: None), \
+                mock.patch.object(mech, "press_mechanism", lambda ctx, p, d: posted.append({"type": "use"}) or "pressed"):
+            got = mech.cross(OUT_PRESS, [list(c) for c in DOOR], mech.through_cell(tuple(DOOR), OUTSIDE),
+                             mech.through_cell(tuple(DOOR), INSIDE))
+        self.assertTrue(got)
+        self.assertEqual([t["type"] for t in posted], ["travel", "use", "travel", "use", "travel"])
 
 
 class Store(unittest.TestCase):
