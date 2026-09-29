@@ -183,11 +183,20 @@ class Brain:
         self.mem.record_outcome(name, False)
         cause = retry.cause_of(err)
         self.reflexes.failed(cause, err, self.place)
-        verdict = self.retry.failed(name, cause, str(err), time.time(), self.place)
+        here = self.place_now()
+        verdict = self.retry.failed(name, cause, str(err), time.time(), self.place,
+                                    also_at=(here,) if here is not None else ())
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s)")
         return verdict
+
+    def place_now(self):
+        """Where the body stood at the last /state read, as causes are cooled (the round's start place may be 70
+        blocks back); no read of its own — a failure is counted without asking the world."""
+        feet = api.feet_seen()
+        night = self.place[1] if self.place else False
+        return retry.place_signature(feet, night) if feet is not None else None
 
     def ready(self, name, cause=None):
         return self.retry.ready(name, time.time(), self.place, cause)
@@ -580,12 +589,20 @@ class Brain:
 
     # -- nothing queued
     def prepare(self, snap, ctx):
-        """Idle: a proposal toward the first of tools, food, light not held — never a task (queued, it took over whenever the row's task cooled)."""
+        """Idle: a proposal toward the first of tools, food, light not held, then the run's next milestone not met (its
+        first step) — never a task (queued, it took over whenever the row's task cooled; the queue outranks it)."""
         for needs in goals.PREPARE:
             if goals.short(snap.inv, [tuple(n) for n in needs]):
                 act = self.need_act("idle", goals.have(*needs), snap, ctx)
                 if act is not None:
                     return act
+        for name in goals.MILESTONES:
+            goal = goals.make("milestone", name=name)
+            if goals.remainder(goal, snap, self.mem) == {}:
+                continue                    # met: the next one
+            act = self.need_act("milestone", goal, snap, ctx)
+            if act is not None:
+                return act
         return None
 
     def night_stock(self, snap, ctx):

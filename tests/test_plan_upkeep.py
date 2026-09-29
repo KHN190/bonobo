@@ -1032,16 +1032,22 @@ class HeldPlans(unittest.TestCase):
                (inventory(("stone_pickaxe", 1)), ("tool", "sword", 1)),
                (inventory(("stone_pickaxe", 1), ("stone_sword", 1)), ("food", 8)),
                (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8)), ("minecraft:torch", 8)),
-               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), None)]  # must fail: everything held, nothing prepared
+               (inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8)), "milestone")]
 
     def test_prepare(self):
-        """Idle stocking is a proposal toward the first missing item, never a task."""
+        """Idle stocking is a proposal toward the first missing item, never a task; stocked, the run's next milestone
+        (must fail: everything held, holding idle)."""
         for inv, want in self.PREPARE:
             with self.subTest(want=want), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
                 act = q.b.prepare(snapshot(inv=inv), None)
                 self.assertEqual(tasks.load(), [], "idle stocking queued a task")
-                self.assertEqual(None if act is None else act.name,
-                                 None if want is None else f"idle: {goals.describe(goals.have(want))}")
+                if want == "milestone":
+                    first = next(n for n in goals.MILESTONES
+                                 if goals.remainder(goals.make("milestone", name=n), snapshot(inv=inv), q.b.mem) != {})
+                    self.assertIsNotNone(act, "must fail: PREPARE met, the queue empty: holding idle")
+                    self.assertEqual(act.name, f"milestone: {goals.describe(goals.make('milestone', name=first))}")
+                    continue
+                self.assertEqual(act.name, f"idle: {goals.describe(goals.have(want))}")
 
     def test_the_round_that_finishes_the_queue_proposes_nothing_more(self):
         """plan_proposals: the task met this round is finished and nothing else is offered — the next round (queue
@@ -1058,16 +1064,35 @@ class HeldPlans(unittest.TestCase):
                 got = q.b.plan_proposals(snapshot(state(), inventory(*items)), None)
                 self.assertEqual([i.kind for i in got], want)
 
+    def test_a_failure_cools_where_it_happened(self):
+        """A step that walked away from where its round began is cooled at both places (the feet at the failure: the
+        last /state read, no read of its own)."""
+        from unittest import mock
+        start, far = (0.0, 64.0, 0.0), (70.0, 64.0, 0.0)
+        # (situation, the feet last read at the failure) → (ready at the start, ready where it failed)
+        rows = [("failed 70 blocks away: cooled at both", far, (False, False)),
+                ("must fail: the failure's place unread: retried where it failed", None, (False, True))]
+        for name, seen, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q, \
+                    mock.patch.object(api.STATE, "feet_seen", seen):
+                q.b.place = retry.place_signature(start, False)
+                q.b.failed("seek bed", api.NotAvailable("could not find white_bed"))
+                got = []
+                for at in (start, far):
+                    q.b.place = retry.place_signature(at, False)
+                    got.append(q.b.ready("seek bed"))
+                self.assertEqual(tuple(got), want)
+
     def test_idle_beside_the_queue(self):
         """plan_proposals: stocking only when the queue has nothing that can run now, and never into the queue
         (tool_tier__one_use: a queued sword took over whenever the row's own task cooled)."""
         rows = [("a task that can run: the task, no stocking", True, False, ["queue"]),
                 ("nothing queued: stocking proposed", False, False, ["idle"]),
                 ("the task cooling: stocking may be picked", True, True, ["idle"]),
-                ("must fail: nothing queued, the bag full of what stocking wants: nothing", False, False, [])]
+                ("nothing queued, stocked: the next milestone (must fail: holding, nothing)", False, False, ["idle"])]
         for name, queued, cooling, want in rows:
             full = inventory(("stone_pickaxe", 1), ("stone_sword", 1), ("cooked_beef", 8), ("torch", 8))
-            inv = full if name.endswith("nothing") else inventory()
+            inv = full if "stocked" in name else inventory()
             with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q:
                 if queued:
                     q.task(goals.have(("log", 4)))
@@ -1085,6 +1110,22 @@ PLACE = retry.place_signature((0, 64, 0), False)
 DAY, DUSK, NIGHT = 2000, DAY_END - 25 * 20, 18000     # DUSK: 25 s before the one dusk (data.DAY_END)
 WELL_FED = [("cooked_beef", 8), ("white_bed", 1), ("stone_pickaxe", 1)]      # fixture: the default bag
 HERD = {"cow": 12, "sheep": 20, "oak_log": 10, "stone": 2}
+
+
+class RecoveryWorth(unittest.TestCase):
+    def test_rows(self):
+        from bonobo import nav, reflexes
+        from bonobo.memory import ITEM_DESPAWN_S
+        speed = nav.PLAYER_SPEED
+        # (situation, value s, blocks away, seconds since death) → worth the walk
+        rows = [("near, soon after: worth it", 100.0, 20.0, 60.0, True),
+                ("must fail: a spot 10k blocks off (it despawns long before)", 100.0, 10_000.0, 60.0, False),
+                ("nothing of value there", 0.0, 20.0, 60.0, False),
+                ("must fail: reachable but despawned by arrival", 100.0, speed * 30, ITEM_DESPAWN_S - 20, False),
+                ("the walk costs more than it brings", 10.0, speed * 20, 0.0, False)]
+        for name, value, dist, since, want in rows:
+            with self.subTest(name):
+                self.assertEqual(reflexes.recovery_worth(value, dist, since, speed, ITEM_DESPAWN_S) > 0, want)
 
 
 class Row:
@@ -1132,7 +1173,8 @@ UPKEEP = [
     Row("path failure somewhere else is not this path", None, inv=WELL_FED + [("cobblestone", 16)],
         blocked=(40, 64, 0), place=retry.place_signature((400, 64, 0), False)),
     Row("the same block and bag for 90 s", "unstuck", stuck=True),
-    Row("died a minute ago", "recover items", died=True),
+    Row("died a minute ago, the bag dropped there", "recover items", died=[("minecraft:iron_ingot", 3)]),
+    Row("must fail: died with nothing carried: no walk back for nothing", None, died=True),
     Row("no working pickaxe, no plan wanting one: nothing (a plan asks for its own)", None,
         inv=[("cooked_beef", 8), ("white_bed", 1)]),
     Row("the iron pickaxe broke under a mining plan, iron to make another: the same tier back", None,
@@ -1215,7 +1257,7 @@ def run_upkeep(row, tmp):
     for name in row.cooling:
         b.retry.failed(name, "error", "failed here", now, PLACE)
     if row.died:
-        b.mem.log_death((6, 64, 0), row.state["dimension"])
+        b.mem.log_death((6, 64, 0), row.state["dimension"], carried=row.died if isinstance(row.died, list) else ())
     if row.job:
         b.mem.add_job("smelt", row.job[0], row.state["dimension"], "minecraft:iron_ingot", 3, now + row.job[1], [])
     if row.machine:
