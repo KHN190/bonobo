@@ -18,7 +18,37 @@ PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOX = ((-10, -17, -10), (20, 9, 10))   # down to -17: the underground rows (cave_escape, night_mines) are reset too
 UNCOUNTED = ("setup", "harness")
 
-# the row runs at site A while the next row's world is built at B, then cloned over
+# the world settings a row changes, as the bench holds them (runner's setup), and the game's normal value of every
+# setting the bench changes anywhere — restored before a free run (tools.leave_bench); a bench frozen clock kept
+# free play at noon for 8 min, no night ever planned for
+BENCH_WORLD = {"gamerule spawn_mobs": "false", "gamerule random_tick_speed": "0", "gamerule advance_weather": "false"}
+WORLD_NORMAL = {"gamerule spawn_mobs": "true", "gamerule random_tick_speed": "3", "gamerule advance_weather": "true",
+                "gamerule advance_time": "true", "gamerule natural_regeneration": "true", "tick rate": "20",
+                "difficulty": "normal"}
+RESTORE_ALSO = ("forceload remove all",)        # the site chunks the rows force-loaded
+
+
+def restore_commands():
+    """Pure: the commands that put every bench-changed setting back to the game's normal."""
+    return [f"{k} {v}" for k, v in WORLD_NORMAL.items()] + list(RESTORE_ALSO)
+
+
+def settings_in(text):
+    """Pure: the world settings a stretch of bench source changes — "gamerule <rule>", "tick rate", "difficulty" —
+    with a {NAME} rule resolved over this package's constants (REGEN_RULE)."""
+    import re
+    out = set()
+    for m in re.finditer(r"gamerule \{?([A-Za-z_]+)\}? ", text):
+        out.add("gamerule " + _rule_constants().get(m.group(1), m.group(1)))
+    out |= {k for k in ("tick rate", "difficulty") if re.search(rf"[\"'(]{k} \S", text)}
+    return out
+
+
+def _rule_constants():
+    from .words.brain import REGEN_RULE
+    return {"REGEN_RULE": REGEN_RULE}
+
+
 SITE_B = (100, 0, 0)
 
 # the kit rule: a row whose work uses a tool gets the best one, unless the tool is what is tested

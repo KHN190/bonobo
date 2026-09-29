@@ -13,7 +13,7 @@ import time
 
 from ..api import McError
 from .core import bag_now
-from .core import (BENCH, BOX, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
+from .core import (BENCH, BENCH_WORLD, BOX, WORLD_NORMAL, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
 
 # -- pure helpers (tested offline)
@@ -515,9 +515,8 @@ def _setup(name, sc, feedback):
     # global state in one batch: empty bag, difficulty (its reply read back), no chance left in the world
     want = difficulty_of(sc)
     said = _batch([ex(c) for c in ("clear @p", "gamemode survival @p", "effect clear @p", "time set day",
-                                   "weather clear", "gamerule spawn_mobs false",
-                                   f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}", f"difficulty {want}",
-                                   "gamerule random_tick_speed 0", "gamerule advance_weather false",
+                                   "weather clear", f"forceload add {lo[0]} {lo[2]} {hi[0]} {hi[2]}",
+                                   f"difficulty {want}", *(f"{k} {v}" for k, v in BENCH_WORLD.items()),
                                    f"gamerule advance_time {'true' if needs_clock(sc) else 'false'}")], feedback)
     if not difficulty_set(said, want):
         raise SetupInvalid(f"difficulty not {want}: {[l for l in said if 'ifficulty' in l][:1] or said[:1]}")
@@ -971,7 +970,7 @@ def run(name, make_ctx):
         stop.set()
         sys.stdout = console.real
         if rate:
-            _command("tick rate 20", feedback)
+            _command(f"tick rate {WORLD_NORMAL['tick rate']}", feedback)
         _api.CLOCK_HOOK = None
     cls = classify(exc, ok)
     if not ok and cls not in UNCOUNTED and generic_failure(note):
@@ -1081,7 +1080,7 @@ def run_idle(name, make_ctx):
         stop.set()
         perception.pause(False)
         if rate:
-            _command("tick rate 20", feedback)
+            _command(f"tick rate {WORLD_NORMAL['tick rate']}", feedback)
     os.makedirs(os.path.dirname(IDLE_TABLE), exist_ok=True)
     table = load_table(IDLE_TABLE)
     save_table(record_idle(table, name, code, verdict_, note), IDLE_TABLE)

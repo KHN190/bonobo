@@ -467,7 +467,8 @@ def _growing(run):
             return run(ctx)
         finally:
             stop.set()
-            _checked("execute in minecraft:overworld run gamerule random_tick_speed 0", [])
+            _checked("execute in minecraft:overworld run gamerule random_tick_speed "
+                     + core.BENCH_WORLD["gamerule random_tick_speed"], [])
     return go
 
 # == tiers: core runs on every change, common when a related module changed, exception before a merge, acceptance alone

@@ -33,5 +33,36 @@ class BenchSite(unittest.TestCase):
         self.assertLess(max(kills), cmds.index(next(c for c in cmds if c.endswith("kill @p"))))
 
 
+class BenchRestores(unittest.TestCase):
+    """Every world setting the bench changes has a normal value to go back to (core.WORLD_NORMAL)."""
+
+    def test_every_setting_the_bench_changes_is_restored(self):
+        import glob
+        from bonobo.bench import core
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        files = [f for f in glob.glob(os.path.join(root, "bonobo/bench/**/*.py"), recursive=True)
+                 if not f.endswith("core.py")]
+        changed = set(core.BENCH_WORLD).union(*(core.settings_in(open(f).read()) for f in files))
+        self.assertIn("gamerule advance_time", changed)           # the reader sees the frozen clock
+        self.assertEqual(changed - set(core.WORLD_NORMAL), set())
+        restore = core.restore_commands()
+        for k in changed:
+            self.assertIn(f"{k} {core.WORLD_NORMAL[k]}", restore)
+
+    def test_rows(self):
+        from bonobo.bench import core
+        # (a line of bench source) → every setting it changes is restored?
+        rows = [("runner's clock", "f\"gamerule advance_time {x}\"", True),
+                ("regen by its constant", "_chat(f\"gamerule {REGEN_RULE} false\")", True),
+                ("tick rate", "_command(f\"tick rate {rate}\", feedback)", True),
+                ("must fail: a rule the bench sets but restore misses", "_chat(\"gamerule keep_inventory true\")",
+                 False)]
+        for name, line, ok in rows:
+            with self.subTest(name):
+                got = core.settings_in(line)
+                self.assertTrue(got)
+                self.assertEqual(got <= set(core.WORLD_NORMAL), ok)
+
+
 if __name__ == "__main__":
     unittest.main()

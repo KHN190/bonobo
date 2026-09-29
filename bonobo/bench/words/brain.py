@@ -286,7 +286,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
         from ..runner import SETUP_READOUT
         reads = SETUP_READOUT.setdefault("drain", [])
         # unread: the game's default
-        was = gamerule_value(core._command(f"gamerule {REGEN_RULE}", [])) or "true"
+        was = gamerule_value(core._command(f"gamerule {REGEN_RULE}", [])) or core.WORLD_NORMAL[f"gamerule {REGEN_RULE}"]
         _chat(f"gamerule {REGEN_RULE} false")
         try:
             _chat("effect clear @p minecraft:saturation")      # a refill still running would undo the drain
