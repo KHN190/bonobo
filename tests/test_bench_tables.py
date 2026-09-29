@@ -757,14 +757,16 @@ class DeflectCells(unittest.TestCase):
 
     def test_next_shot(self):
         from bonobo.bench.words import fight as wf
-        # (situation, fired, closed shots) → a shot goes out now
-        rows = [("the first at once", 0, {}, True),
-                ("must fail: the next before the last resolves", 1, {}, False),
-                ("the next while the last resolves", 1, {0: True}, 1 < wf.SHOTS),
-                ("must fail: never past SHOTS", wf.SHOTS, {k: True for k in range(wf.SHOTS)}, False)]
-        for name, fired, closed, want in rows:
+        # (situation, fired, closed shots, shots still read) → a shot goes out now
+        rows = [("the first at once", 0, {}, set(), True),
+                ("must fail: the next before the last resolves", 1, {}, {0}, False),
+                ("must fail: the last turned but still in the air (it flies back down the corridor)", 1, {0: True},
+                 {0}, False),
+                ("the next once the last resolved and is gone", 1, {0: True}, set(), 1 < wf.SHOTS),
+                ("must fail: never past SHOTS", wf.SHOTS, {k: True for k in range(wf.SHOTS)}, set(), False)]
+        for name, fired, closed, alive, want in rows:
             with self.subTest(name):
-                self.assertEqual(wf.next_shot_due(fired, closed), want)
+                self.assertEqual(wf.next_shot_due(fired, closed, alive), want)
 
     def test_done(self):
         from bonobo.bench.words import fight as wf

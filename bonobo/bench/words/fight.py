@@ -1250,9 +1250,10 @@ def tag_shots(tags, seen, fired):
     return out
 
 
-def next_shot_due(fired, closed):
-    """Pure: the next shot goes out while the last one resolves (its end read), never before the first."""
-    return fired == 0 or (fired < SHOTS and (fired - 1) in closed)
+def next_shot_due(fired, closed, alive=()):
+    """Pure: the next shot goes out once the last one resolved and is gone (no longer read): a turned one flies back
+    down the corridor, into the next (231825: both gone together, the second never in reach)."""
+    return fired == 0 or (fired < SHOTS and (fired - 1) in closed and (fired - 1) not in alive)
 
 
 def volley_done(fired, closed):
@@ -1289,9 +1290,9 @@ def _deflect_volley(ctx):
         DEFLECT["fired"] += 1
 
     def volley():
-        t0, series, tags, closed = time.time(), {}, {}, {}
+        t0, series, tags, closed, alive = time.time(), {}, {}, {}, set()
         while time.time() - t0 < VOLLEY_WATCH_S and not DEFLECT["done"]:
-            if next_shot_due(DEFLECT["fired"], closed):
+            if next_shot_due(DEFLECT["fired"], closed, alive):
                 fire()
             try:
                 s = api.get("/state")
@@ -1303,6 +1304,7 @@ def _deflect_volley(ctx):
                 time.sleep(0.05)
                 continue
             tags = tag_shots(tags, near, DEFLECT["fired"])
+            alive = {tags[i] for i in near if i in tags}          # the shots still in the air
             DEFLECT["reads"].append(volley_read(time.time() - t0, s, views, tags))
             del DEFLECT["reads"][:-VOLLEY_READS]
             for i, (p, v) in near.items():
