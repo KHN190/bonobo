@@ -208,6 +208,7 @@ def _named_all(named):
                 __import__("bonobo.api", fromlist=["log"]).log(f"check: False — {why} (first seen: {dict(FIRST)})")
                 return False
         return True
+    check.parts = [c for c, _why in named]      # read back part by part, like `_all` (runner.check_parts)
     return check
 
 # -- predicates: (kind, *args) over (api, inv) ---------------------------------------------------------------------

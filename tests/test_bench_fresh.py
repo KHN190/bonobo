@@ -149,6 +149,25 @@ class Windows(unittest.TestCase):
             self.assertTrue(runs._brain_idle())              # must fail: a constant False (the whole budget)
 
 
+class CheckParts(unittest.TestCase):
+    def test_a_rule_is_read_down_to_its_words(self):
+        from bonobo.bench import runner
+        yes = lambda api, inv: True          # noqa: E731
+        no = lambda api, inv: False          # noqa: E731
+        no.why = lambda: "said why"
+        rule = wc._all(yes, no)
+        row = wc._named_all([(rule, "the brain rule"), (yes, "the slice")])
+        parts = runner.check_parts(row, None, None)
+        # must fail: the rule reported as one part (seen_store__noted 044949: parts empty)
+        self.assertEqual(len(parts), 4)
+        self.assertEqual([v for _w, v in parts], [False, True, "said why", True])
+
+    def test_no_scan_names_its_scans(self):
+        with mock.patch.dict(wb.FINDS, {"diamond": 1, "paths": [(1.0, "/find?blocks=minecraft:diamond_ore")]}):
+            check = wb._no_scan()
+            self.assertIn("diamond_ore", check.why())
+
+
 class SceneNow(unittest.TestCase):
     def test_sent_as_the_scene_words_build_it(self):
         words = [("fill", ("@", -1, 0, -1), ("@", 1, 1, 1), "stone"), ("stand", 0, 30)]

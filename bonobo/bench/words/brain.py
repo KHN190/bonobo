@@ -200,7 +200,10 @@ def _seen(kind, pos):
     return before
 
 def _not_remembered(kind):
-    return lambda api, inv: core.BRAIN.mem.seen(kind, "minecraft:overworld") == []
+    def check(api, inv):
+        return core.BRAIN.mem.seen(kind, "minecraft:overworld") == []
+    check.why = lambda: f"{kind} still noted at {[r['pos'] for r in core.BRAIN.mem.seen(kind, 'minecraft:overworld')]}"
+    return check
 
 def _remembered_any(kinds):
     """The skill noted one of `kinds` (memory's sightings): false at setup once `_forget_all` ran for each."""
@@ -424,6 +427,7 @@ def _count_finds(ctx):
     def get(path, *a, **k):
         if is_diamond_scan(path):
             FINDS["diamond"] += 1
+            FINDS.setdefault("paths", []).append((round(time.time(), 2), path))
         return real(path, *a, **k)
     api.get = get
 
@@ -432,6 +436,7 @@ def _no_scan():
         from ... import api
         api.get = FINDS.get("real", api.get)
         return FINDS["diamond"] == 0
+    check.why = lambda: f"{FINDS['diamond']} diamond scans: {FINDS.get('paths', [])}"
     return check
 
 def _seen_rule(cell):

@@ -787,13 +787,15 @@ def check_parts(check, api, inv):
     a failed row whose note only says 'without the outcome' named nothing."""
     out = []
     for part in getattr(check, "parts", ()):
-        word = getattr(part, "__table__", None) or getattr(part, "__name__", "?")
+        word = getattr(part, "__table__", None) or getattr(part, "__qualname__", None) or getattr(part, "__name__", "?")
         try:
             ok = bool(part(api, inv))
             # a part that can say why (a sweep's rule: its messages) is read back in words, not as False
             out.append((str(word), ok if ok or not hasattr(part, "why") else part.why()))
         except Exception as e:  # guard: a check word that raised is a readout of the failed row, not a bench crash
             out.append((str(word), f"{type(e).__name__}: {e} @ {traceback_of(e)}"))
+        # a part made of parts (a brain rule's `_all`) is read down to its own words
+        out += [(f"{word} > {w}", v) for w, v in check_parts(part, api, inv)]
     return out
 
 
