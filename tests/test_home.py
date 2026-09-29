@@ -148,6 +148,17 @@ class NoDigThroughTheHome(unittest.TestCase):
         self.assertIn((5, 64, 9), cells, "must fail: an approach digging the home wall")
         self.assertTrue(all(memory.in_box((LO, HI), c) for c in cells))
 
+    def test_doors_and_home_both(self):
+        """A walk's avoid: a taught door's cells (mechanisms, pressed not dug) and the home's cells, together."""
+        door = (5, 64, 10)
+        got = nav.avoid_fields(memory.Protected((), [(LO, HI)]) | {door}, (5, 64, 12))
+        cells = {(c["x"], c["y"], c["z"]) for c in got["avoid"]}
+        self.assertIn(door, cells, "must fail: the door dug")
+        self.assertIn((5, 64, 9), cells, "must fail: the home wall dug")
+        press = {"type": "use", "x": 5, "y": 65, "z": 9}
+        self.assertIsNone(memory.home_refusal(press, [{"snapshot": {"lo": list(LO), "hi": list(HI)}}], set()),
+                          "must fail: pressing a button in the home refused as a break")
+
 
 class Unbury(unittest.TestCase):
     def test_step_out(self):
