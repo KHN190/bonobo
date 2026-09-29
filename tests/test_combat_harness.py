@@ -174,6 +174,28 @@ class RunWordsResume(unittest.TestCase):
                     self.assertTrue(waited, "it waited for the body to be handed back")
 
 
+class GhastCage(unittest.TestCase):
+    """The ghast kept within vanilla's targeting band: a barrier shell whose ceiling stops its feet at the band's top."""
+
+    def test_rows(self):
+        from bonobo.bench import vocab
+        from bonobo.bench.core import BOX
+        lo, hi = vocab.ghast_cage()
+        band = vocab.GHAST_TARGET_DY
+        feet_top = hi[1] - vocab.GHAST_HEIGHT          # the highest its feet stand under the ceiling
+        spot = (vocab.GHAST_OFF, band - 1.0, 0)
+        # (situation, got, want)
+        rows = [("its feet never over the band's top", feet_top <= band, True),
+                ("its feet never under the band's bottom", lo[1] + 1 >= -band, True),
+                ("summoned inside", all(lo[i] < spot[i] < hi[i] for i in range(3)), True),
+                ("inside the row's box (the next row's setup clears it)",
+                 all(BOX[0][i] <= lo[i] and hi[i] <= BOX[1][i] for i in range(3)), True),
+                ("must fail: a ceiling one higher lets its feet out of the band", feet_top + 1 <= band, False)]
+        for name, got, want in rows:
+            with self.subTest(name):
+                self.assertEqual(got, want)
+
+
 class GhastReadout(unittest.TestCase):
     def test_rows(self):
         from bonobo.bench import vocab
@@ -283,7 +305,8 @@ class GhastSpawn(unittest.TestCase):
         said = []
         with mock.patch.object(vocab, "_chat", said.append):
             vocab._summon_ghast(None)
-        x, y, z = (float(v) for v in said[0].split("summon ghast ")[1].split()[:3])
+        summon = next(c for c in said if "summon ghast " in c)     # after its cage
+        x, y, z = (float(v) for v in summon.split("summon ghast ")[1].split()[:3])
         dy = y - vocab.at(0, 0, 0)[1]
         self.assertLessEqual(abs(dy), vocab.GHAST_TARGET_DY)
         self.assertLess(abs(x - vocab.at(0, 0, 0)[0]), vocab.GHAST_FIRE_R)
