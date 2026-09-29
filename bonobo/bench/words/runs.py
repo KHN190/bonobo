@@ -24,7 +24,7 @@ from .. import core, runner
 from ...data import DAY_TICKS, POD_BLOCKS  # noqa: F401
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
-                         _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
+                         _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
@@ -353,8 +353,8 @@ def _sand_on_head():
     _chat(f"fill {x} {y + 1} {z} {x} {y + 3} {z} sand")
 
 def gained_at_least(token, n):
-    """Progress: the bag holds `n` more `token` than at the start."""
-    return lambda: _inv_now().count(token) - _base_count(token) >= n
+    """Progress: the bag holds `n` more `token` than at the start — the gain check, read now."""
+    return _now(_gain(token, n))
 
 def placed_at_least(lo, hi, block, n):
     """Progress: `n` or more `block` stand in the box lo..hi (a build's parts in the world)."""

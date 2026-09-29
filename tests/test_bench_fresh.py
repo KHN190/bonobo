@@ -76,6 +76,24 @@ class Floors(unittest.TestCase):
         self.assertFalse(wb.slept_through(SLEEP_FROM_TICKS, DAY_END))         # the night not over
 
 
+class OneWordPerJudgement(unittest.TestCase):
+    def test_duplicates_gone(self):
+        from bonobo.bench import vocab
+        # must fail: a second word for a judgement another word makes (holds n, day, nothing lost, hp)
+        for name in ("_inv_has", "_is_day_now", "_kept", "_hp_kept", "_count", "_regen_fed"):
+            self.assertNotIn(name, vocab.REGISTRY)
+
+    def test_progress_is_the_gain_check_read_now(self):
+        from bonobo.bench.words import runs
+        rows = [(5, 3, 2, True), (4, 3, 2, False)]
+        for held, start, n, want in rows:
+            inv = type("I", (), {"count": lambda s, t, h=held: h})()
+            with mock.patch.object(wc, "BASE", {"inv": type("I", (), {"count": lambda s, t, h=start: h})()}), \
+                    mock.patch.object(wc, "bag_now", lambda i=inv: i):
+                self.assertEqual(runs.gained_at_least("log", n)(), want)
+                self.assertEqual(wc._now(wc._gain("log", n))(), want)
+
+
 class SceneNow(unittest.TestCase):
     def test_sent_as_the_scene_words_build_it(self):
         words = [("fill", ("@", -1, 0, -1), ("@", 1, 1, 1), "stone"), ("stand", 0, 30)]

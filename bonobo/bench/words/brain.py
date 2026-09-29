@@ -25,7 +25,7 @@ from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
 from ...survive import DIG_IN_DEPTH, SLEEP_FROM_TICKS
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
-                         _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
+                         _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
@@ -47,10 +47,6 @@ def _fill_bag(free, item="dirt", stack=64):
             _chat(f"give @p {item} {room * stack}")
             time.sleep(0.5)
     return hook
-
-def _kept(token):
-    """None of `token` left the bag (what the start held is still there)."""
-    return lambda api, inv: inv.count(token) >= _base_count(token)
 
 def _bench_machine(ctx, origin):
     """The arena's auto smelter as memory knows a built one (the dict `upkeep.ready_machine` hands the skill)."""
@@ -169,7 +165,6 @@ def _replans_at_most(n):
 def _have(*needs):
     return __import__("bonobo.goals", fromlist=["goals"]).have(*needs)
 
-_count = gained_at_least          # a queue's done: the same progress
 
 def _remove_table_when_placed(ctx):
     """`before` hook: remove the plan's crafting table the moment it stands (the plan must repair one step, not restart)."""
@@ -402,7 +397,7 @@ def _night_rule(cell):
 
 def _bag_rule(cell):
     if cell["bag"] == "valuables_full":
-        return _kept("minecraft:diamond"), "a bag of diamonds: not one thrown to make room (must not)"
+        return _gain("minecraft:diamond", 0), "a bag of diamonds: not one thrown to make room (must not)"
     if cell["bag"] == "junk_full":
         return (_all(_gain("log", LOG_GOAL - KIT_LOG),
                      lambda api, inv: inv.count("minecraft:dirt") < _base_count("minecraft:dirt")),
@@ -524,9 +519,6 @@ def _interrupt_counted(token, n):
         _inject_interrupt()
     return _when(gained_at_least(token, n), act)
 
-def _is_day_now():
-    return _is_day()(__import__("bonobo.api", fromlist=["get"]), None)
-
 def _blocked_toward(pos):
     """`before` hook: upkeep's memory of a walk that failed here, toward `pos` (what `Upkeep.failed` writes)."""
     def hook(ctx):
@@ -557,11 +549,6 @@ def _machine_due(origin, n):
 
 _st = lambda api: api.get("/state")     # noqa: E731
 
-def _regen_fed(api, inv):
-    """eat_to_regen's eating: bread went down and the bar reached 18 (regen's threshold) or more."""
-    from ...world import Inventory
-    inv = inv if inv is not None else bag_now()
-    return inv.count("minecraft:bread") < 4 and api.get("/state")["food"] >= 18
 
 # the night's shelter by what the bag allows; a bed makes none of them (must not)
 _NIGHT_FLOOR = [f"fill {_c(at(-8, -6, -8))} {_c(at(8, -1, 8))} stone", _tp(), "time set 18000"]
@@ -786,4 +773,4 @@ NAMES = {"upkeep": lambda line, *p: f"upkeep__{line}",
          "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          "brain": lambda name, *p: name, "dirt": lambda name, *p: name}
 
-__all__ = ['_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_is_day_now', '_job_ready_at', '_kept', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_regen_fed', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
+__all__ = ['_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_job_ready_at', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']

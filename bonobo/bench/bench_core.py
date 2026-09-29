@@ -13,7 +13,7 @@ ROWS = [
               'furnace in parallel (load, start, wait, collect).'),
          scene=[('floor', 'stone', 8, 4), ('fill', ('@', 2, 0, -1), ('@', 2, 0, 1), 'furnace'), ('tp', ('@', 0, 0, 0)),
                 ('cmd', 'clear @p'), ('give', 'raw_iron', 3), ('give', 'coal', 3)],
-         run=('do', 'achieve', ['$ctx', [('minecraft:iron_ingot', 3)], ('!inv_has', 'minecraft:iron_ingot', 3)],
+         run=('do', 'achieve', ['$ctx', [('minecraft:iron_ingot', 3)], ('!now', ('!count', 'minecraft:iron_ingot', '>=', 3))],
               {'rounds': 10}),
          before=[('start', 'iron_ingots'), ('sprint_after', 4, 700), ('sprint_after', 10, 700)],
          check=[('count', 'minecraft:iron_ingot', '>=', 3), ('count', 'minecraft:raw_iron', '==', 0)], budget=25,

@@ -37,7 +37,7 @@ from ..api import McError
 from ..data import DAY_TICKS, POD_BLOCKS
 from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
-                         _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
+                         _command, _count_blocks, _drain, at, server_count, set_brain)
 from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
@@ -725,7 +725,7 @@ _OWN = set(globals()) - _BEFORE - {"TEMPLATES", "NAMES", "NAMED", "WORD_MODULES"
 merged([dict.fromkeys(m.__all__) for m in WORD_MODULES] + [dict.fromkeys(_OWN)], "words")    # one home each
 # pyright's view of the words: a static __all__ it can follow; at run time every name here is a word (below)
 __all__ = ["BASES", "FLAG", "MAX_RUNS", "NEXT_ROW", "NOTES", "PORTAL_8_OF_10", "ROAD_TIMES", "SCENARIOS", "_achieve", "_c",
-           "_chat", "_count_blocks", "_drain", "_inv_has", "_queue", "_road_reuse", "_worn_head", "at", "base_row",
+           "_chat", "_count_blocks", "_drain", "_queue", "_road_reuse", "_worn_head", "at", "base_row",
            "cached_timeout", "code_for", "core", "diff_hunks", "failed_last", "jar_matches_source", "load_table",
            "one_row", "pending", "real_row", "fresh_row", "reset_brain", "run", "save_table", "select", "set_brain", "skill_spans",
            "status", "tier_of", "time", "touched_skills", "verdict"]

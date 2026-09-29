@@ -70,12 +70,7 @@ def _pred(kind, args):
             return p(api, None)
         return now_api
     if kind == "now":
-        p = dec(args[0])
-        def now():
-            from .. import api
-            from ..world import Inventory
-            return p(api, bag_now())
-        return now
+        return vocab._now(dec(args[0]))
     f = vocab.PREDICATES[kind]
     vals = [dec(a) for a in args]
     if kind == "call":

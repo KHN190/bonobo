@@ -144,10 +144,6 @@ def _achieve(ctx, needs, done, rounds=12):
         raise McError(f"needs {needs} not met after {rounds} plan steps")
     return True
 
-def _inv_has(item, n):
-    from ..world import Inventory
-    return lambda: bag_now().count(item) >= n
-
 # the engine under every sweep bench: cells, their build commands, what a row records, rules over the table
 
 SWEEP = {}

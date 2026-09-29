@@ -8,7 +8,7 @@ from .core import BEST_TOOLS
 
 if TYPE_CHECKING:   # CODE_ROWS pulls vocab's words in at run time; pyright reads them here
     from .vocab import (BASE, EDGE_Y, FIRST, SHEET_EXPECT, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
-                        _first_times, _gone, _hooks, _hostiles, _hp_kept, _record_bids, _start, _tp, arrived, at, limit)
+                        _first_times, _gone, _hooks, _hostiles, _record_bids, _start, _tp, arrived, at, limit)
 # -- the dimensions of a fight cell (the combat table's own data; vocab's `_build` turns a cell into commands) -------
 # enemies named by what they do ("pack" is walker × count=three: the same world under another name)
 ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skeleton", "climber": "minecraft:spider",
@@ -124,7 +124,7 @@ ROWS = [
             ('cmd', 'scoreboard players set @p bk_zombie 0')],      # the kill statistic (fight.kill_stat_scene)
          run=('fight_until', ['minecraft:zombie'], 23),
          before=[('hooks', ('!start', 'fight_zombie_1'), ('&record_bids',)), ('fill_bag', 0)],
-         check=[('hp_kept', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], budget=25, combat=True,
+         check=[('alive', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], budget=25, combat=True,
          point='B', tier_fixed='exception',
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
          expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
@@ -166,7 +166,7 @@ ROWS = [
          scene=[('sheet', '_ARENA'), ('tp', ('@', -WALK_X, 0, 0)),
                 ('built', 'endermen_off_path', ('@', -WALK_X, 0, 0), ('@', WALK_X, 0, 0), 4)],
          run=('do', 'bonobo.nav.go_to', [('@', WALK_X, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
-         check=[('arrived', ('@', WALK_X, 0, 0), 1.5), ('endermen_calm',), ('hp_kept', 20)],
+         check=[('arrived', ('@', WALK_X, 0, 0), 1.5), ('endermen_calm',), ('alive', 20)],
          budget=25, point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderman'},
          expect_entities=[('minecraft:enderman', 4, 4)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
@@ -190,7 +190,7 @@ ROWS = [
          doc='Iron sword, a creeper 4 blocks off → the creeper gone (dead or blown up in the air), health ≥ 16',
          scene=[('sheet', '_ARENA'), ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
          run=('fight_until', ['minecraft:creeper'], 25), before=[('start', 'fight_creeper_sword'), ('&record_bids',)],
-         check=[('gone', ['minecraft:creeper']), ('hp_kept', 16)], budget=25, point='B', combat=True, stochastic=True,
+         check=[('gone', ['minecraft:creeper']), ('alive', 16)], budget=25, point='B', combat=True, stochastic=True,
          tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'open'}, expect_entities=[('minecraft:creeper', 1)],
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='fight_creeper_by_home', module='fight_loop',
@@ -202,7 +202,7 @@ ROWS = [
                 ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
          run=('fight_until', ['minecraft:creeper'], 25),
          before=[('start', 'fight_creeper_by_home'), ('&record_bids',), ('&home_is_ours',)],
-         check=[('gone', ['minecraft:creeper']), ('hp_kept', 16),
+         check=[('gone', ['minecraft:creeper']), ('alive', 16),
                 ('blocks', ('@', 4, 0, 2), ('@', 5, 0, 2), ('red_bed',), 2),
                 ('blocks', ('@', 4, 0, -2), ('@', 4, 0, -2), ('furnace',), 1)],
          budget=25, point='B', combat=True, stochastic=True,
@@ -225,7 +225,7 @@ def CODE_ROWS():
              expect_entities=[("minecraft:zombie", 1)],
              before=_hooks(_start("fight_before_upkeep"), _first_times, _record_bids),
              run=_brain_rounds(24, lambda: not _hostiles(24, {"minecraft:zombie"})),
-             check=_all(_gone(["minecraft:zombie"]), _hp_kept(10), arrived(at(0, 0, 0), 9),
+             check=_all(_gone(["minecraft:zombie"]), _alive(10), arrived(at(0, 0, 0), 9),
                         lambda api, inv: FIRST.get("log") is None),
              budget=limit(), expect=SHEET_EXPECT),
         dict(name="combat__knocked_off_edge",

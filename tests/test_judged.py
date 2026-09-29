@@ -35,11 +35,11 @@ class PassReadsTheWorld(unittest.TestCase):
     def test_rows(self):
         from bonobo.bench.words.fight import FIGHT_LOG  # noqa: F401  (the name a hand-written check reads)
         rows = [
-            ("the world: hp, gone, the server's kills", [("hp_kept", 12), ("gone", ["minecraft:zombie"]),
+            ("the world: hp, gone, the server's kills", [("alive", 12), ("gone", ["minecraft:zombie"]),
                                                          ("killed", ["minecraft:zombie"], 1)], [], []),
             ("a call to a world helper", [("call", "hostiles", [24, ("$set", ["minecraft:zombie"])])], [], []),
             ("an allowed proxy beside the world", [("all", ("!failed_as_expected",), ("!alive",))], [], []),
-            ("must fail: the fight's own kill count", [("hp_kept", 12), ("kills_by_the_fight", 1)],
+            ("must fail: the fight's own kill count", [("alive", 12), ("kills_by_the_fight", 1)],
              ["kills_by_the_fight"], []),
             ("must fail: the decision rhythm nested in all", [("all", ("!gain", "log", 1), ("!no_stall",))],
              ["no_stall"], []),
@@ -54,7 +54,7 @@ class PassReadsTheWorld(unittest.TestCase):
 
     def test_a_row_passing_on_a_proxy_is_caught(self):
         # must fail: fight_zombie_1 as it was — kills and stalls from the fight's own log in the pass
-        row = dict(all_rows()["fight_zombie_1"], check=[("hp_kept", 12), ("gone", ["minecraft:zombie"]),
+        row = dict(all_rows()["fight_zombie_1"], check=[("alive", 12), ("gone", ["minecraft:zombie"]),
                                                        ("kills_by_the_fight", 1), ("no_stall",)])
         self.assertEqual(judged.verdict_of_words(judged.row_pass_words(row))[0], ["kills_by_the_fight", "no_stall"])
 

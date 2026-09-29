@@ -24,7 +24,7 @@ from .. import core, runner
 from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
-                         _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
+                         _command, _count_blocks, _drain, at, server_count, set_brain)
 from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
@@ -68,6 +68,14 @@ def _start(name):
 def _base_count(token):
     from ...world import Inventory
     return _base_bag().count(token) if BASE.get("inv") else 0
+
+def _now(check):
+    """A check read now (a done condition): the world as it stands, the bag read once."""
+    def now():
+        from ... import api
+        return check(api, bag_now())
+    return now
+
 
 # -- checks: what the world must show afterwards
 def _gain(token, n, at_most=None):
@@ -238,4 +246,4 @@ RESUMED_LEFT = {}          # row → what the resume found still to do (an inter
 from ... import lifecycle as _lifecycle  # noqa: E402
 _lifecycle.in_place(__name__, "BASE", "FAILED_AS_EXPECTED", "INTERRUPTS", "FIRST", "RESUMED_LEFT")     # a row's own
 
-__all__ = ['FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', 'arrived', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']
+__all__ = ['_now', 'FIRST', 'RESUMED_LEFT', 'ACCEPTANCE_D', 'BASE', 'FAILED_AS_EXPECTED', 'INTERRUPTS', 'LOGIC', 'OPS', 'PREDICATES', '_alive', '_all', 'arrived', '_base_count', '_blocks', '_dropped_nothing', '_failed_as_expected', '_food_up', '_free_slots', '_gain', '_interrupted', '_inv_now', '_is_day', '_mobs_near', '_named_all', '_no_block_suffix', '_not', '_room_to_work', '_same_bag', '_same_bag_and_place', '_skill', '_slot_has', '_start', '_threading', '_under_feet', 'bag', 'call', 'cmp', 'count', 'fed_as_needed', 'state']

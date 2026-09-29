@@ -7,7 +7,7 @@ PASS_ALLOW names the few proxies a pass still reads, each with why; tests/test_j
 # words that read the server (commands, /state, /inventory, /entities, regions) or a harness watcher over those
 WORLD = {
     "gain", "count", "state", "bag", "alive", "blocks", "same_bag", "same_bag_and_place", "placed_facing",
-    "gone", "hp_kept", "killed", "is_day", "food_up", "kept", "no_block_suffix", "free_slots", "breathing",
+    "gone", "killed", "is_day", "food_up", "no_block_suffix", "free_slots", "breathing",
     "slot_has", "has_stone_pickaxe", "in_the_patch_underground", "surfaced", "shield_kept", "threat_resolved",
     "away_or_walled", "dropped_nothing", "under_feet", "room_to_work", "mobs_near", "found_near", "in_overworld",
     "head_clear", "enclosed", "count_blocks", "trades", "hostiles", "wave_cleared", "nether_kit_ready",
@@ -18,7 +18,6 @@ WORLD = {
     "endermen_calm",            # the server's anger of each enderman
     "kept_health",              # the body's /state: alive, health against the row's start
     "rose",                     # a /state field against where it stood as the run began
-    "regen_fed",                # the bag's bread and the /state food bar
     "escaped",                  # an escape cell's outcome: alive, health lost (the body's /state at the window's end)
     "took_cover_alcove",        # the runner's /state trace: where the body stood, its health
     "deflected",                # the server's player Health, each volley fireball's end read off /entities
@@ -30,7 +29,7 @@ WORLD = {
 
 # words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode
 # judges them there, never early)
-HOLD = {"alive", "hp_kept", "kept_health", "escaped", "shield_kept", "endermen_calm"}
+HOLD = {"alive", "kept_health", "escaped", "shield_kept", "endermen_calm"}
 
 # words that read the bot: the fight loop, the brain, memory, the api calls made, the log, timings, the bench's own
 # records of what the bot did

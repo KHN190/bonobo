@@ -24,7 +24,7 @@ FAMILIES = [
                 'Two free iron ores, the walk to the second interrupted once (the bench\'s own interrupt) → nothing '
                 'banned: an interruption teaches nothing about the place (control)',
                 IRON_TWO + [('give', 'stone_pickaxe')], [{'goal': 'have', 'args': {'needs': [['minecraft:raw_iron', 2]]}}],
-                ('_count', 'minecraft:raw_iron', 2), 1,
+                ('now', ('!gain', 'minecraft:raw_iron', 2)), 1,
                 ('all', ('!gain', 'minecraft:raw_iron', 2), *[('!not_banned', c) for c in IRON_CELLS], ('!interrupted',)),
                 [('&clear_bans',), ('interrupt_counted', 'minecraft:raw_iron', 1)], ['_clear_bans', '_interrupt_counted']),
                # at most what was carried plus the one tree's trunk; a zombie summoned beside the body 1.5 s in
@@ -49,8 +49,8 @@ FAMILIES = [
                  [('drain_to', 16, ('&LOW_FOOD_MAX_S',), (EAT_BELOW - 1, 18)),
                   ('command_then', 'effect give @p minecraft:instant_damage 1 0 true', 0.5),
                   ('state_before', 'food', 'health')],
-                 ('now_api', ('!all', ('&regen_fed',), ('!rose', 'health'))),
-                 ('all', ('&regen_fed',), ('!rose', 'health')))]),
+                 ('now', ('!all', ('!food_up',), ('!rose', 'health'))),
+                 ('all', ('!food_up',), ('!rose', 'health')))]),
     ('brain', [('plan_repair_on_event',
           'Planks + cobblestone + a wooden pickaxe carried (upkeep quiet), a stone pickaxe asked; the table the plan '
           'puts down is taken away → that step is redone, the plan is not started over (≤ 2 plans)',
@@ -69,7 +69,7 @@ FAMILIES = [
           [('floor',), ('fill', ('@', -5, -1, -1), ('@', -3, 1, 1), 'barrier'),
            ('setblock', ('@', -4, 0, 0), 'iron_ore'), ('setblock', ('@', 4, 0, 0), 'iron_ore'), ('stand',),
            ('give', 'stone_pickaxe')],
-          [{'goal': 'have', 'args': {'needs': [['minecraft:raw_iron', 1]]}}], ('_count', 'minecraft:raw_iron', 1), 1,
+          [{'goal': 'have', 'args': {'needs': [['minecraft:raw_iron', 1]]}}], ('now', ('!gain', 'minecraft:raw_iron', 1)), 1,
           ('all', ('!gain', 'minecraft:raw_iron', 1),
            ('!blocks', ('@', -4, 0, 0), ('@', -4, 0, 0), ('iron_ore',), 1, 1),
            ('!blocks', ('@', 4, 0, 0), ('@', 4, 0, 0), ('iron_ore',), 0, 0)),
@@ -77,9 +77,9 @@ FAMILIES = [
          ('chop_without_interrupt', 'The same with no zombie → no fight is logged, the same 4 logs (control)',
           [('grove', (3, 0)), ('stand',), ('give', 'iron_sword'), ('give', 'diamond_axe'), ('give', 'oak_log', 2)],
           [{'goal': 'have', 'args': {'needs': [['log', 4]]}}], ('now', ('!count', 'log', '>=', 4)), 0.75,
-          ('all', ('!count', 'log', '>=', 4), ('!hp_kept', 20), ('!gone', ['minecraft:zombie'])), [], []),
+          ('all', ('!count', 'log', '>=', 4), ('!alive', 20), ('!gone', ['minecraft:zombie'])), [], []),
          *[(name, doc, L3_SCENE, [{'goal': 'have', 'args': {'needs': [[t, L3_EACH]]}} for t in order],
-            ('now', ('!all', *[('!thunk', ('!_count', t, L3_EACH)) for t in L3_GOALS])), 1,
+            ('now', ('!all', *[('!gain', t, L3_EACH) for t in L3_GOALS])), 1,
             ('all', ('!before_in_bag', *order), *[('!gain', t, L3_EACH) for t in L3_GOALS]),
             [('&first_times',)], ['_first_times'])
            for name, doc, order in (
@@ -107,7 +107,7 @@ FAMILIES = [
          ('collect_job', 'a finished background smelt remembered at a furnace 2 blocks off → the ingots in the bag',
           [('floor',), ('setblock', ('@', 2, 0, 0), 'furnace'),
            ('at', 'item replace block {0} container.2 with iron_ingot 3', ('@', 2, 0, 0)), ('stand',)],
-          [('job_ready_at', ('@', 2, 0, 0), 'minecraft:iron_ingot', 3)], ('_count', 'minecraft:iron_ingot', 3),
+          [('job_ready_at', ('@', 2, 0, 0), 'minecraft:iron_ingot', 3)], ('now', ('!gain', 'minecraft:iron_ingot', 3)),
           ('gain', 'minecraft:iron_ingot', 3)),
          ('empty_the_bag', 'a full bag (dirt in every slot) → room made',
           [('floor',), ('stand',), ('give', 'dirt', 2304), ('give', 'stone_pickaxe')], [],
@@ -133,7 +133,7 @@ FAMILIES = [
           ('not', ('!arrived', ('@', 0, 0, 0), UNSTUCK_MOVED))),
          ('collect_machine', 'a remembered auto smelter whose order is due, 8 ingots in its output chest → taken',
           [('floor',), ('chest', ('@', 3, 0, 0), 'iron_ingot 8'), ('stand',)], [('machine_due', ('@', 3, 0, 0), 8)],
-          ('_count', 'minecraft:iron_ingot', 8), ('gain', 'minecraft:iron_ingot', 8)),
+          ('now', ('!gain', 'minecraft:iron_ingot', 8)), ('gain', 'minecraft:iron_ingot', 8)),
          ('eat_when_full', 'fed (food 20), bread carried → not eaten: the bread count unchanged (must not)',
           [('floor',), ('stand',), ('give', 'bread', 4)], [], ('now', ('!constant', False)),
           ('count', 'minecraft:bread', '==', 4)),
@@ -150,7 +150,7 @@ FAMILIES = [
           ('all', ('!call', 'enclosed', []), ('!blocks', ('@', -1, 0, -1), ('@', 1, 2, 1), ('cobblestone',),
                                                len(_pod_cells((0, 0, 0)))))),
          ('shelter_not_with_a_bed', 'night, a bed and cobblestone carried → slept, no shelter built (must not)',
-          [('sheet', '_NIGHT_FLOOR'), ('give', 'white_bed'), ('give', 'cobblestone', 16)], [], ('&is_day_now',),
+          [('sheet', '_NIGHT_FLOOR'), ('give', 'white_bed'), ('give', 'cobblestone', 16)], [], ('now', ('!is_day',)),
           ('all', ('!is_day',), ('!blocks', ('@', -3, 0, -3), ('@', 3, 2, 3), ('cobblestone',), 0, 0)))]),
     ('dirt', [('night_dig_in_dirt',
           'dusk on stone, an empty bag, dirt three deep 8 blocks along the platform → walked there, dug in by hand: '
@@ -179,7 +179,7 @@ CODE_ROWS = [
                        _when(walked_at_least(6), _set_time(13000)),
                        _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)()))),
          queue=[_have(("minecraft:diamond", 1))],
-         run=_slice(_inv_has("minecraft:diamond", 1), 0.45, queue=[_have(("minecraft:diamond", 1))]),
+         run=_slice(_now(lambda api, inv: count(api, inv, "minecraft:diamond", ">=", 1)), 0.45, queue=[_have(("minecraft:diamond", 1))]),
          check=_all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False)),
          budget=limit(), expect=SHEET_EXPECT),
 ]
