@@ -348,6 +348,11 @@ PRED_ROWS = [
      {"BASE": {"inv": LOG2, "state": STATE}}, False),
     ("hp kept yes", ("hp_kept", 16), None, None, {}, True),
     ("hp kept no", ("hp_kept", 20), None, None, {}, False),
+    ("rose yes", ("rose", "health"), {"health": 19.0}, None, {"BASE": {"health_before": 18.0}}, True),
+    ("must fail: rose no — where it stood", ("rose", "health"), {"health": 18.0}, None,
+     {"BASE": {"health_before": 18.0}}, False),
+    ("regen fed yes", ("&regen_fed",), {"food": 18}, bag(("bread", 3)), {}, True),
+    ("must fail: regen fed no — no bread eaten", ("&regen_fed",), {"food": 18}, bag(("bread", 4)), {}, False),
     ("slot has yes", ("slot_has", "minecraft:iron_pickaxe", "efficiency"), None,
      bag(("iron_pickaxe", 1), iron_pickaxe={"enchantments": {"efficiency": 1}}), {}, True),
     ("slot has no", ("slot_has", "minecraft:iron_pickaxe", "efficiency"), None, bag(("iron_pickaxe", 1)), {}, False),
@@ -428,6 +433,7 @@ WORLD_ROWS = [
 # decision log, the slice's trace, a fight's recorded rows, the memory file): each named, with what it reads.
 NOT_ROW_TESTED = {
     "door_seen": "the run's watcher over the door's open state (bench words DOOR_SEEN)",
+    "not_banned": "the brain's blacklist (core.BRAIN)",
     "slice_check": "the slice's trace and decision lines (SLICE, LAST_LINES) through review",
     "placed_facing": "a placed block's facing property from the world",
     "surfaced": "a hold over time of the body's height",
@@ -949,4 +955,32 @@ class DoorFamily(unittest.TestCase):
         from bonobo.bench.words import door as dw
         with self.assertRaises(ValueError):
             dw.door_parts("wall", "piston", 2)
+
+
+class BrainHookWords(unittest.TestCase):
+    """The hooks the brain/upkeep rows are written in (words.brain)."""
+
+    def test_the_interrupt_counts_once_gained(self):
+        # must fail: counted (or injected) before the bag gained — a slice absorbs it unseen otherwise
+        from bonobo.bench.words import brain as wb, checks as wc
+        seen = {}
+        with mock.patch.object(wb, "_when", lambda progress, act: seen.update(progress=progress, act=act)), \
+                mock.patch.object(wb, "_inject_interrupt") as inject, \
+                mock.patch.dict(wc.BASE, {"name": "r"}, clear=True), mock.patch.dict(wc.INTERRUPTS, {}, clear=True), \
+                mock.patch.object(wb, "gained_at_least", lambda token, n: ("gained", token, n)):
+            wb._interrupt_counted("minecraft:raw_iron", 1)
+            self.assertEqual(seen["progress"], ("gained", "minecraft:raw_iron", 1))
+            self.assertEqual((wc.INTERRUPTS, inject.call_count), ({}, 0))
+            seen["act"]()
+            self.assertEqual((wc.INTERRUPTS, inject.call_count), ({"r": 1}, 1))
+
+    def test_state_before_feeds_rose(self):
+        from bonobo import api
+        from bonobo.bench.words import brain as wb, checks as wc
+        with mock.patch.dict(wc.BASE, {}, clear=True):
+            with mock.patch.object(api, "get", Api({"health": 12.0}).get):
+                wb._state_before("health", "food")(None)
+            self.assertEqual(wc.BASE, {"health_before": 12.0, "food_before": STATE["food"]})
+            self.assertFalse(wb._rose("health")(Api({"health": 12.0}), None))
+            self.assertTrue(wb._rose("health")(Api({"health": 13.0}), None))
 

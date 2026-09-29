@@ -672,6 +672,26 @@ def place_row(name, item, asked, want, tier):
                 [("placed_facing", p, want, item)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
                 variant=(item, asked))
 
+def lava_strip_row(name, width, budget, point="A"):
+    """A `width`-block lava strip between two 4-block stone platforms, cobblestone and a pickaxe → the far side alive."""
+    half, near = 3, (-2, 1)                   # the strip's half-width (z), the near platform's x
+    far, end = width + 2, width + 5
+    span, target = 2 * half + 1, ("@", far + 1, 0, 0)
+    return dict(name=name, module="nav",
+                doc=f"A {width}-block lava strip between two stone platforms; cobblestone → reach the far side alive.",
+                scene=[("fill", ("@", near[0] - 1, -3, -half - 1), ("@", end + 1, -3, half + 1), "stone"),
+                       ("fill", ("@", near[0], -2, -half), ("@", end, -1, half), "lava"),
+                       ("fill", ("@", near[0], -1, -half), ("@", near[1], -1, half), "stone"),
+                       ("fill", ("@", far, -1, -half), ("@", end, -1, half), "stone"), ("tp", ("@", 0, 0, 0)),
+                       ("cmd", "clear @p"), ("give", "cobblestone", 64), ("give", "diamond_pickaxe")],
+                run=("do", "bonobo.nav.go_to", [target, ("$ctx", "policy")], {"range_": 1.5}),
+                check=[("arrived", target, 1.5), ("state", "health", ">", 10)], budget=budget,
+                expect=[(("@", near[1] + 1, -1, -half), ("@", far - 1, -1, half), "lava", span * width, span * width),
+                        (("@", near[0], -1, -half), ("@", near[1], -1, half), "stone",
+                         span * (near[1] - near[0] + 1), span * (near[1] - near[0] + 1)),
+                        (("@", near[0], 0, -half), ("@", end, 4, half), "*", 0, 0)],
+                point=point, skills=["travel_to"])
+
 def start_row(name, what, start_scene, stand):
     """Walk 10 blocks from an awkward start cell → at the target."""
     return _row(name, f"Walk 10 blocks starting on {what} (GotoTask's start cell: '1 positions explored' reproduces "
@@ -681,10 +701,10 @@ def start_row(name, what, start_scene, stand):
                 [("arrived", ("@", 10, 0, 0), 2)], skills=["goto"], tier_fixed="common",
                 tags={"base": "nav", "start": what})
 
-TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "one", "real", "place", "start")}
+TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "one", "real", "place", "start", "lava_strip")}
 NAMES = {"base": lambda base, cond=None, surprise=None: surprise or f"{base}__{cond or 'base'}",
-         **{t: (lambda name, *p: name) for t in ("one", "real", "place", "start")}}
-NAMED = {"arena", "fight_cell", "deflect", "one", "real", "place", "start", "brain", "dirt", "door"}  # templates whose first parameter is only the row's name
+         **{t: (lambda name, *p: name) for t in ("one", "real", "place", "start", "lava_strip")}}
+NAMED = {"arena", "fight_cell", "deflect", "one", "real", "place", "start", "brain", "dirt", "door", "lava_strip"}  # templates whose first parameter is only the row's name
 WORD_MODULES = (_scene_words, checks, runs, fight, brain, door)
 
 

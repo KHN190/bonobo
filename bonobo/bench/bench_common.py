@@ -3,6 +3,7 @@ FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). 
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
 FAMILIES = [
+    ('lava_strip', [('cross_lava_8', 8, 25, 'B')]),
     ('base', [('nav', 'canopy'), ('loot', 'canopy'), ('mine_stone', 'cave'), ('chop', 'night'),
          ('mine_stone', 'interrupt_mid_work'), ('mine_stone', 'full_bag')]),
     ('one', [('dig_in_night', ['shelter:dig in'], 'night on stone, a pickaxe → three down, sealed',
@@ -54,18 +55,6 @@ ROWS = [
          check=[('slice_check', ('!now', ('!all', ('!call', 'nether_kit_ready', []), ('!call', 'in_overworld', []))))],
          detail=('&slice_detail',), budget=25, expect=[(('@', 1, 0, -1), ('@', 1, 1, 1), 'stone', 6, 6)],
          expect_entities=[('minecraft:cow', 1)], point='C', chain=2),
-    dict(name='cross_lava_8', module='nav',
-         doc='A 8-block lava strip between two stone platforms; cobblestone → reach the far side alive.',
-         scene=[('fill', ('@', -3, -3, -4), ('@', 14, -3, 4), 'stone'),
-                ('fill', ('@', -2, -2, -3), ('@', 13, -1, 3), 'lava'),
-                ('fill', ('@', -2, -1, -3), ('@', 1, -1, 3), 'stone'),
-                ('fill', ('@', 10, -1, -3), ('@', 13, -1, 3), 'stone'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
-                ('give', 'cobblestone', 64), ('give', 'diamond_pickaxe')],
-         run=('do', 'bonobo.nav.go_to', [('@', 11, 0, 0), ('$ctx', 'policy')], {'range_': 1.5}),
-         check=[('arrived', ('@', 11, 0, 0), 1.5), ('state', 'health', '>', 10)], budget=25,
-         expect=[(('@', 2, -1, -3), ('@', 9, -1, 3), 'lava', 56, 56),
-                 (('@', -2, -1, -3), ('@', 1, -1, 3), 'stone', 28, 28), (('@', -2, 0, -3), ('@', 13, 4, 3), '*', 0, 0)],
-         point='B', skills=['travel_to']),
     dict(name='eat_while_walking', module='skills',
          doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '
               "forward while it chewed (ate_on_the_way over the walk's trace)"),

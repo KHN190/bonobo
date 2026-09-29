@@ -491,6 +491,38 @@ def _job_ready_at(pos, item, n):
         ctx.mem.add_job("furnace", pos, "minecraft:overworld", item, n, time.time() - 1, False)
     return hook
 
+def _state_before(*fields):
+    """`before` hook: each /state field as the run starts, BASE[f"{field}_before"] (what `rose` and food_up read)."""
+    def hook(ctx):
+        s = __import__("bonobo.api", fromlist=["get"]).get("/state")
+        BASE.update({f"{f}_before": s[f] for f in fields})
+    return hook
+
+def _rose(field):
+    """check: the /state field above where it stood before the run (`state_before`)."""
+    return lambda api, inv: api.get("/state")[field] > BASE[f"{field}_before"]
+
+def _command_then(text, settle_s):
+    """`before` hook: one console command, then `settle_s` for it to land."""
+    def hook(ctx):
+        _chat(text)
+        time.sleep(settle_s)
+    return hook
+
+def _summon_after(seconds, mob, pos):
+    """`before` hook: a persistent `mob` summoned at `pos` `seconds` into the run."""
+    def hook(ctx):
+        _threading.Timer(seconds, lambda: _chat(f"summon {mob} {_c(pos)} {{PersistenceRequired:1b}}")).start()
+    return hook
+
+def _interrupt_counted(token, n):
+    """`before` hook: an interrupt the moment `n` more `token` are held, counted for the row (a slice absorbs it)."""
+    def act():
+        row = BASE.get("name")
+        INTERRUPTS[row] = INTERRUPTS.get(row, 0) + 1
+        _inject_interrupt()
+    return _when(gained_at_least(token, n), act)
+
 def _is_day_now():
     return _is_day()(__import__("bonobo.api", fromlist=["get"]), None)
 
@@ -753,4 +785,4 @@ NAMES = {"upkeep": lambda line, *p: f"upkeep__{line}",
          "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          "brain": lambda name, *p: name, "dirt": lambda name, *p: name}
 
-__all__ = ['BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_is_day_now', '_job_ready_at', '_kept', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_regen_fed', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
+__all__ = ['_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_is_day_now', '_job_ready_at', '_kept', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_regen_fed', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
