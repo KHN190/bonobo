@@ -80,6 +80,30 @@ class Events(unittest.TestCase):
                 events.round_time(total, ran, t=1.0, sink=out)
                 self.assertEqual(len([r for r in out if r["kind"] == "anomaly"]), n)
 
+    def test_a_hurt_is_named_by_the_games_source(self):
+        from unittest import mock
+        from bonobo import perception
+        # (situation, /state lastDamage) → the source said
+        rows = [("a fall: the game's own source", {"source": "fall", "nearest": "none", "gameTime": 5}, "fall"),
+                ("a zombie: its attacker", {"source": "mob", "nearest": "minecraft:zombie", "gameTime": 6},
+                 "minecraft:zombie"),
+                ("must fail: no jar damage: the nearest threat guessed (none seen)", None, None)]
+        for name, hit, want in rows:
+            with self.subTest(name), mock.patch.object(events, "hurt") as hurt, \
+                    mock.patch.object(perception, "threats_seen", return_value=([], set())):
+                perception.STATE.hp_seen, perception.STATE.damage_at = (20.0, 0.0), None
+                state = {"health": 19.0, "x": 0, "y": 64, "z": 0, **({"lastDamage": hit} if hit else {})}
+                perception.note_hurt(state, now=1.0)
+                self.assertEqual(hurt.call_args.args[2], want)
+
+    def test_damage_label(self):
+        rows = [("attacker first", {"source": "mob", "nearest": "minecraft:skeleton"}, "minecraft:skeleton"),
+                ("no attacker: the source", {"source": "onFire", "nearest": "none"}, "onFire"),
+                ("must fail: nothing read", None, None)]
+        for name, last, want in rows:
+            with self.subTest(name):
+                self.assertEqual(events.damage_label(last), want)
+
     def test_death_named_by_last_hurt(self):
         import json, tempfile
         out = []

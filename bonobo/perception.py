@@ -38,13 +38,14 @@ class PerceptionState(lifecycle.State):
     region: Any = None                # the blocks the grid was read from: evade asks where a walk lands
     kit: dict = _dc_field(default_factory=dict)        # what we carry (`kit`), re-read when kit_sig changes
     kit_sig: Any = None
+    damage_at: Any = None             # gameTime of the last jar damage already said
     # per process
     paused: bool = False              # the scenario bench sets this while it rebuilds the world
     failed: set = _dc_field(default_factory=set)       # what perceived() already logged once
     lock: Any = _dc_field(default_factory=threading.RLock, repr=False, compare=False)
 
     LIFE = ("hurt_rate", "hp_seen", "seen", "last_here", "answered", "grid", "grid_at", "grid_at_pos", "ground",
-            "region", "kit", "kit_sig")
+            "region", "kit", "kit_sig", "damage_at")
 
 
 STATE = lifecycle.owns(__name__, PerceptionState())
@@ -70,9 +71,15 @@ def note_hurt(state, now=None):
             return STATE.hurt_rate
         lost = prev[0] - hp
         if lost >= 1.0:
-            rows, _ids = threats_seen(now=now)
-            src = min(rows, key=lambda r: math.dist(r[0], (state.get("x", 0), state.get("y", 0), state.get("z", 0))))[3] \
-                if rows and "x" in state else None
+            hit = state.get("lastDamage")
+            if hit and hit.get("gameTime") != STATE.damage_at:
+                # the game's own source (a fall has no mob to guess from)
+                STATE.damage_at = hit.get("gameTime")
+                src = events.damage_label(hit)
+            else:
+                rows, _ids = threats_seen(now=now)
+                src = min(rows, key=lambda r: math.dist(r[0], (state.get("x", 0), state.get("y", 0),
+                                                              state.get("z", 0))))[3] if rows and "x" in state else None
             events.hurt(lost, hp, src, t=now)
         rate = max(0.0, lost / dt)
         # rise at once, fall slowly: one arrow is evidence, one quiet second is not

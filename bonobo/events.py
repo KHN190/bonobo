@@ -141,6 +141,14 @@ def last_hurt_by(path=None, tail=1 << 16):
     return None
 
 
+def damage_label(last):
+    """Pure: /state `lastDamage` said as a cause — its attacker, else the game's damage source (fall, onFire…)."""
+    if not last:
+        return None
+    nearest = last.get("nearest")
+    return nearest if nearest and nearest != "none" else last.get("source")
+
+
 def death(cause, place, t=None, sink=None):
     """A death, named by its cause — the jar's, else the last damage source we saw."""
     cause = cause or last_hurt_by() or "unknown"

@@ -146,7 +146,7 @@ class Brain:
             self.mem.log_death((s["blockX"], s["blockY"], s["blockZ"]), s["dimension"],
                                carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
             log("died → respawning")
-            events.death(s.get("lastDamage") or s.get("damageSource"), (s["blockX"], s["blockY"], s["blockZ"]))
+            events.death(events.damage_label(s.get("lastDamage")), (s["blockX"], s["blockY"], s["blockZ"]))
             api.post("/respawn")
             lifecycle.reset_all()     # a new life: nothing the last one held (a target id, a boundary, a threat) carries over
             s = skillcore.settle(lambda: api.get("/state"), lambda st: not st.get("dead"), timeout=5.0, soft=True)
