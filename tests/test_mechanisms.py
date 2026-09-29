@@ -188,6 +188,29 @@ class Cross(unittest.TestCase):
         self.assertEqual([t["type"] for t in posted], ["travel", "use", "travel", "use", "travel"])
 
 
+class PressRefused(unittest.TestCase):
+    def test_a_refused_use_is_said_and_tried_again(self):
+        # must fail: the jar's use refused ("cannot reach block") raises out of the walk (20260930-023648: None at 1 s)
+        tries, lines = [], []
+
+        def press(ctx, p, d):
+            tries.append(p)
+            if len(tries) == 1:
+                raise mech.api.NotAvailable("use: cannot reach block: no way dug through")
+            return "pressed"
+        state = {"x": OUTSIDE[0] + 0.5, "y": float(OUTSIDE[1]), "z": 0.5, "blockX": OUTSIDE[0], "blockY": OUTSIDE[1],
+                 "blockZ": 0}
+        with mock.patch.object(mech, "press_mechanism", press), \
+                mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): False for c in cells}), \
+                mock.patch.object(mech.api, "run", lambda t, **k: {"status": "succeeded"}), \
+                mock.patch.object(mech.api, "get", lambda p: state), mock.patch.object(mech.api, "detail", lines.append):
+            got = mech.cross(OUT_PRESS, [list(c) for c in DOOR], mech.through_cell(tuple(DOOR), OUTSIDE),
+                             mech.through_cell(tuple(DOOR), INSIDE))
+        self.assertTrue(got)
+        self.assertEqual(len(tries), 2)
+        self.assertTrue(any("refused from feet" in line for line in lines))
+
+
 class Store(unittest.TestCase):
     def test_per_save_and_round_trip(self):
         self.assertIn(os.path.basename(mech.FILE), fresh.WORLD_SCOPED)

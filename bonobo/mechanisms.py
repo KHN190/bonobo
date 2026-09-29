@@ -14,6 +14,7 @@ import os
 from . import api, paths
 from .knowledge import left
 from .skill import skill
+from .data import EYE_HEIGHT
 from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")
@@ -177,7 +178,14 @@ def cross(press, door, stand, past):
     when the body steps), press from there, straight through to `past`; shut again first → pressed once more."""
     _walk(stand, 0.5, "before the door: the use next")
     for n in range(CROSS_TRIES):
-        how = press_mechanism(None, press, door)
+        try:
+            how = press_mechanism(None, press, door)
+        except api.NotAvailable as e:     # the jar's use refused: where we stood and how far, said, then again
+            st = api.get("/state")
+            eye = (st["x"], st["y"] + EYE_HEIGHT, st["z"])
+            api.detail(f"   door press {tuple(press)} refused from feet {(st['blockX'], st['blockY'], st['blockZ'])}"
+                       f" (eye {math.dist(eye, [c + 0.5 for c in press]):.2f} from its centre): {e}")
+            continue
         got = solid_map(door)
         api.detail(f"   door {tuple(map(tuple, door))}: {how}, read {'open' if is_open(door, lambda p: got[tuple(p)]) else 'shut'}"
                    f" (try {n + 1})")
