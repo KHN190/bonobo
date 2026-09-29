@@ -136,6 +136,11 @@ def slept_before(item, or_never=False):
     """The day came back (a sleep: FIRST's "morning", read from the world's clock) before `item` rose in the bag."""
     return _before_in_bag("morning", item, or_never)
 
+def _first_seen(*orders):
+    """Progress: each order (items) decided — one of its items has shown in the bag (FIRST): which came first is
+    then known, the rest of the run judges nothing more."""
+    return lambda: all(any(FIRST.get(i) is not None for i in items) for items in orders)
+
 def _before_in_bag(first, then, or_never=False):
     """`first` appeared in the bag before `then` did (with `or_never`: or `then` never did)."""
     def check(api, inv):
@@ -372,7 +377,7 @@ def _bed_then_log(cell):
         return _all(food_first, kept), "hungry: food before the task (cooking it counts)"
     if cell["dusk"] == "night":
         return slept_before("log"), "night on the surface, a bed carried: slept before the task"
-    return _before_in_bag("bed", "log"), "dusk or night on the surface, no bed: the night first"
+    return _before_in_bag("bed", "log", or_never=True), "dusk or night on the surface, no bed: the night first"
 
 def _tool_rule(cell):
     if cell["tool"] == "one_use":
@@ -435,6 +440,12 @@ def _seen_rule(cell):
         return (_all(_gain("minecraft:diamond", 1), _not_remembered("diamond_ore"), _no_scan()),
                 "noted: straight there without a scan (must not scan), the note retired")
     return _gain("minecraft:diamond", 1), "not noted: found anyway, by scanning"
+
+# a family's rule that is an order in the bag is decided once either item shows (cell → the order's items, or None:
+# decided at the queue's end)
+DECIDED = {"night_first": lambda c: ("bed", "log") if c["dusk"] == "tight" and c["food"] == "full" else None,
+           "night_under": lambda c: ("bed", "minecraft:raw_iron") if c["dusk"] == "tight" and c["head"] == "surface"
+           else None}
 
 # one value off the base at a time: which combination wins is tested offline; a row confirms the decision is carried out
 BRAIN_FAMILIES = {
@@ -763,9 +774,11 @@ def cell_row(name, *key):
     entry = _grid_cells()[key]
     cell, fams = entry["cell"], entry["families"]
     judged = [BRAIN_FAMILIES[f][2](cell) for f in fams]
+    orders = [DECIDED.get(f, lambda c: None)(cell) for f in fams]
+    decided = ("!first_seen", *[list(o) for o in orders]) if all(orders) else None
     row = _row(name, f"{'+'.join(fams)}: " + ", ".join(f"{d} {cell[d]}" for d in BRAIN_DIMS) + " → "
                + "; ".join(why for _c, why in judged), "brain", [("sheet", "BRAIN_WORLD"), ("brain_dims",) + key],
-               ("slice", None, 0.4, None, list(entry["queue"])),
+               ("slice", decided, 0.4, None, list(entry["queue"])),
                [("brain_rule", f) + key for f in fams] + [("slice_check", None)], point="C", skills=[],
                tier_fixed="brain", combat=False, queue=list(entry["queue"]),
                tags={"base": "brain", "family": "+".join(fams), **{d: cell[d] for d in BRAIN_DIMS}},
@@ -792,4 +805,4 @@ NAMES = {"upkeep": lambda line, *p: f"upkeep__{line}",
          "cell": lambda *key: grid_name(_grid_cells()[key]["families"], _grid_cell(key)),
          "brain": lambda name, *p: name, "dirt": lambda name, *p: name}
 
-__all__ = ['tight_dusk_time', '_tight_dusk', '_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_job_ready_at', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
+__all__ = ['DECIDED', '_first_seen', 'tight_dusk_time', '_tight_dusk', '_state_before', '_rose', '_command_then', '_summon_after', '_interrupt_counted', 'BAG_FILL', 'BITE_S', 'BRAIN_BASE', 'BRAIN_DIMS', 'BRAIN_FAMILIES', 'BRAIN_LOG', 'BRAIN_WORLD', 'COBBLE_MORE', 'DIAMOND_DOWN', 'DIAMOND_UP', 'DIRT_PATCH', 'DRAIN_OVER', 'EXHAUSTION_PER_POINT', 'HUNGER_MAX_AMP', 'HUNGER_PER_TICK', 'EDGE_Y', 'FINDS', 'FIRST_WATCH', 'HOME_BED', 'HOME_FURNACE', 'IRON_ORE_CAGED', 'IRON_ORE_FREE', 'KIT_COBBLE', 'KIT_LOG', 'LOG_GOAL', 'LOW_FOOD', 'LOW_FOOD_MAX_S', 'POCKET', 'REGEN_RULE', 'SEARCH_ARENA', 'SEARCH_FLAGS', 'SEARCH_ORE', 'SMELT_FURNACES', 'THROW_START', 'WALK', '_ARENA_B', '_NIGHT_FLOOR', '_bag_rule', '_bed_then_log', '_before_in_bag', '_bench_machine', '_blocked_toward', '_cell_before', '_cell_name', '_cell_setup_hooks', '_clear_bans', '_count_finds', '_count_replans', '_diamond_of', '_drain_to', '_fill_bag', '_first_times', '_forget_all', '_furnace_holds', '_grid_cell', '_grid_cells', '_have', '_home_is_ours', '_hunger_drained', '_in_the_patch_underground', '_interrupt_once_loaded', '_iron_in_furnaces', '_job_ready_at', '_load_the_rest', '_machine_due', '_mine_hungry', '_night_rule', '_no_scan', '_not_banned', '_not_remembered', '_remembered_any', '_remove_table_when_placed', '_replans_at_most', '_seen', '_seen_rule', '_set_time', '_st', '_stuck_for', '_tool_rule', '_walk_once', 'ate_on_the_way', 'brain_cell_hooks', 'brain_row', 'brain_rule', 'cell_row', 'dirt_row', 'drain_plan', 'fed_up', 'first_step', 'furnace_slots', 'gamerule_value', 'grid_name', 'is_diamond_scan', 'mine_fed', 'slept_before', 'slept_through', 'upkeep_row', 'walk_ate', 'worked_fed']
