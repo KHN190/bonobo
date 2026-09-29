@@ -484,7 +484,7 @@ def _respawn(api):
     raise SetupInvalid(f"still dead after {RESPAWN_TRIES} respawns")
 
 
-PAUSE_SCREEN = "class_433"   # the game menu's screen class (/state screen)
+from ..api import PAUSE_SCREEN  # noqa: E402,F401  (the game menu's screen class: one place, api)
 LEFTOVER_R = 64             # blocks round the site cleared of the last row's mobs: past the 40 a scene is counted in
 
 
@@ -493,8 +493,9 @@ def _setup(name, sc, feedback):
     SETUP_S.clear()
     died = _respawn(api)         # the last row may have died (fight rows do)
     s0 = api.get("/state")
-    if s0.get("screen") == PAUSE_SCREEN:
-        api.post("/resume")      # a pause menu freezes the integrated server: commands would do nothing
+    if api.control_lost(s0):
+        # control lost between rows (a pause menu freezes the integrated server): taken again before the row
+        api.take_control()
         time.sleep(0.5)
     lo, hi = at(*BOX[0]), at(*BOX[1])
     dim = sc.get("dimension", "minecraft:overworld")

@@ -453,6 +453,25 @@ def wait_for_game(poll=10):
             announced = True
         time.sleep(poll)
 
+PAUSE_SCREEN = "class_433"   # the game menu's screen class (/state screen): it freezes the integrated server
+
+
+def control_lost(state):
+    """Pure: the agent must take the body again — the player holds it (the K toggle), the pause menu is open, or
+    the agent is not driving."""
+    control = state.get("control") or {}
+    return bool(control.get("paused")) or not control.get("active") or state.get("screen") == PAUSE_SCREEN
+
+
+def take_control():
+    """A script's start takes the body: the player's toggle lifted, the pause menu closed, the agent driving. Only at
+    a start (and between bench rows): mid-run a K press still wins (wait_for_handback)."""
+    if status().get("paused"):
+        post("/control", {"paused": False})     # the one POST the jar takes while the player holds control
+    post("/resume")
+    post("/takeover")
+
+
 def wait_for_handback(poll=3):
     announced = False
     while True:

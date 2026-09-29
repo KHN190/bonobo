@@ -778,6 +778,11 @@ def autoplay(hours):
         log("!! another autoplay process is already running; aborting")
         return
     log(f"autoplay start: brain code {code_version()}")
+    try:
+        api.take_control()     # the start takes the body (the pause menu closed, the player's toggle lifted)
+    except GameUnreachable:
+        api.wait_for_game()
+        api.take_control()
     perception.start()  # ~5 Hz
     brain = Brain()
     deadline = time.time() + hours * 3600

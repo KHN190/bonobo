@@ -183,6 +183,7 @@ def cmd_scenario(a):
         if a.action == "all" else a.names
     if point:
         names = [n for n in names if sheet.SCENARIOS[n].get("point", "A") == point]
+    api.take_control()       # the bench's start takes the body (the pause menu closed, the player's toggle lifted)
     brain = Brain()
     sheet.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
     perception.start()   # same danger interrupts as a real run

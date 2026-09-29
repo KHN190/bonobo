@@ -134,6 +134,35 @@ class AnAbsorbedInterruptionIsCounted(unittest.TestCase):
                 self.assertEqual(any("absorbed Interrupted" in line for line in said), said_it)
 
 
+class AStartTakesTheBody(unittest.TestCase):
+    """api.take_control: a script's start (autoplay, the bench) lifts the player's toggle, closes the pause menu and
+    drives; control_lost says when a bench row must take it again."""
+
+    def test_control_lost(self):
+        from bonobo import api
+        driving = {"control": {"active": True, "paused": False}, "screen": "none"}
+        rows = [("driving: nothing to take", driving, False),
+                ("must fail: the player's toggle read as driving", {**driving, "control": {"active": True, "paused": True}},
+                 True),
+                ("the pause menu open", {**driving, "screen": api.PAUSE_SCREEN}, True),
+                ("not driving", {**driving, "control": {"active": False, "paused": False}}, True)]
+        for name, state, want in rows:
+            with self.subTest(name):
+                self.assertEqual(api.control_lost(state), want)
+
+    def test_take_control(self):
+        from unittest import mock
+        from bonobo import api
+        for name, paused, want in [("the player holds it: toggle lifted first", True,
+                                    ["/control", "/resume", "/takeover"]),
+                                   ("must fail: not paused, no toggle posted", False, ["/resume", "/takeover"])]:
+            posted = []
+            with self.subTest(name), mock.patch.object(api, "status", return_value={"paused": paused}), \
+                    mock.patch.object(api, "post", side_effect=lambda path, body=None: posted.append(path)):
+                api.take_control()
+                self.assertEqual(posted, want)
+
+
 class AReportKeepsItsTrace(unittest.TestCase):
     """The failed row's report holds copies: the next row clears TRACE_NOW before the report's thread writes."""
 
