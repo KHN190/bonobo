@@ -1115,7 +1115,7 @@ HERD = {"cow": 12, "sheep": 20, "oak_log": 10, "stone": 2}
 class RecoveryWorth(unittest.TestCase):
     def test_rows(self):
         from bonobo import nav, reflexes
-        from bonobo.memory import ITEM_DESPAWN_S
+        from bonobo.data import ITEM_DESPAWN_S
         speed = nav.PLAYER_SPEED
         # (situation, value s, blocks away, seconds since death) → worth the walk
         rows = [("near, soon after: worth it", 100.0, 20.0, 60.0, True),

@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 from . import beliefs, paths, blueprints
-from .data import GROUPS, VOLATILITY, bare, mid, seen_class
+from .data import GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, mid, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
@@ -101,8 +101,6 @@ def write_notes(path: str, data: "dict[str, Any]") -> None:
     os.replace(tmp, path)
 
 
-
-ITEM_DESPAWN_S = 300      # a dropped item despawns after 5 minutes (6000 ticks)
 
 class Memory:
     def tick(self):

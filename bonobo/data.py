@@ -287,3 +287,5 @@ EXCEPTIONS: "dict[str, tuple[Cause, Source]]" = {
     "Unplannable": ("error", "stuck"), "Unsolvable": ("error", "crash"), "ReplayMiss": ("error", "crash"),
     "SetupInvalid": ("error", "crash"),
 }
+
+ITEM_DESPAWN_S = 300      # a dropped item despawns after 5 minutes (6000 ticks)

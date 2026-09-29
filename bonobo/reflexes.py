@@ -387,7 +387,7 @@ def recovery_worth(value_s, dist, since_s, speed, despawn_s):
 
 def worth_recovering(b, snap, now=None):
     """The last death (same dimension, drops not yet despawned) is worth the walk: its bag priced another way."""
-    from .memory import ITEM_DESPAWN_S
+    from .data import ITEM_DESPAWN_S      # data, not memory: the needs closure stays as it was
     death = b.mem.recent_death(snap.dimension)
     if death is None:
         return False
