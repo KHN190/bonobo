@@ -214,6 +214,8 @@ def doors_on_way(here, there, policy=None, dimension=None):
     mechs = [m for m in mechs if m["dimension"] == dimension]
     doors = on_the_way(mechs, here, there)
     press = press_for(mechs, doors[0], here) if doors else None
-    if press is not None:
-        cross(press, [list(c) for c in doors[0]], through_cell(doors[0], here), through_cell(doors[0], there))
+    if press is not None and not cross(press, [list(c) for c in doors[0]], through_cell(doors[0], here),
+                                       through_cell(doors[0], there)):
+        # never an ordinary walk round a taught door: it would dig beside it (024258: the wall and comparator dug)
+        raise api.NavFailed(f"door crossing failed at {doors[0][0]}: pressed from {press}, not through")
     return [tuple(c) for m in mechs for c in m["opens"]]

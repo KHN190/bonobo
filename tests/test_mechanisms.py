@@ -188,6 +188,36 @@ class Cross(unittest.TestCase):
         self.assertEqual([t["type"] for t in posted], ["travel", "use", "travel", "use", "travel"])
 
 
+class CrossingFails(unittest.TestCase):
+    def test_a_failed_crossing_fails_the_walk(self):
+        # must fail: the walk falls back to an ordinary travel that digs beside the taught door (024258)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = taught(tmp)
+            posted = []
+            here = {"x": OUTSIDE[0] + 0.5, "y": float(OUTSIDE[1]), "z": OUTSIDE[2] + 0.5, "blockX": OUTSIDE[0],
+                    "blockY": OUTSIDE[1], "blockZ": OUTSIDE[2], "dimension": DIM, "onGround": True}
+
+            def run(task, **k):
+                posted.append(task)
+                if task["type"] == "travel" and task.get("break") is False and \
+                        (task["x"], task["y"], task["z"]) == mech.through_cell(tuple(DOOR), INSIDE):
+                    raise mech.api.Unreachable("travel: target unreachable", ())
+                return {"status": "succeeded", "message": "arrived"}
+            with mock.patch.object(mech, "FILE", path), \
+                    mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): False for c in cells}), \
+                    mock.patch.object(mech, "press_mechanism", lambda ctx, p, d: posted.append({"type": "use"}) or "open"), \
+                    mock.patch.object(nav, "DOORS", mech.doors_on_way), mock.patch.object(nav, "ROAD_MEM", None), \
+                    mock.patch.object(nav.api, "run", run), mock.patch.object(mech.api, "run", run), \
+                    mock.patch.object(nav.api, "get", lambda p: here), mock.patch.object(mech.api, "detail", lambda *a: None), \
+                    mock.patch.object(nav, "feet", lambda: OUTSIDE), \
+                    mock.patch.object(nav, "Inventory", lambda: type("I", (), {"count": lambda s, k: 0})()), \
+                    mock.patch.object(nav, "_doorways_between", lambda a, b: {}):
+                with self.assertRaises(mech.api.NavFailed) as e:
+                    nav._travel(INSIDE, nav.Policy(), 1.5, 1, None, "work", OUTSIDE, 0.0)
+        self.assertIn("door crossing failed", str(e.exception))
+        self.assertFalse([t for t in posted if t["type"] == "travel" and t.get("break")])     # nothing dug
+
+
 class Store(unittest.TestCase):
     def test_per_save_and_round_trip(self):
         self.assertIn(os.path.basename(mech.FILE), fresh.WORLD_SCOPED)
