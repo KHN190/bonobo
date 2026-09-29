@@ -35,7 +35,7 @@ CLOSURE = {
     "bag": 11,
     "beliefs": 2,
     "blueprints": 1,
-    "brain": 55,            # + reflexes (the maintenance table split off needs)
+    "brain": 56,            # + reflexes (the maintenance table split off needs)
     "brewing": 21,
     "building": 19,
     "combat": 17,
@@ -49,6 +49,7 @@ CLOSURE = {
     "dispatch": 22,
     "end": 17,
     "estimate": 5,
+    "events": 2,             # the concise event log: paths only
     "explore": 17,
     "farming": 22,
     "field": 1,
@@ -69,7 +70,7 @@ CLOSURE = {
     "nav": 12,
     "nether": 18,
     "paths": 1,
-    "perception": 22,
+    "perception": 23,
     "planner": 10,
     "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
     "review": 7,
@@ -77,16 +78,16 @@ CLOSURE = {
     "shapes": 1,                    # types only (TypedDicts, Literals): imported under TYPE_CHECKING
     "skill": 13,
     "skillcore": 12,
-    "skills": 26,
+    "skills": 27,
     "solve": 1,
     "store": 22,
-    "survive": 22,
+    "survive": 23,
     "tape": 2,
     "tasks": 5,
     "terrain": 15,
     "threat": 7,
     "ui": 21,
-    "needs": 36,
+    "needs": 37,
     "reflexes": 36,
     "wood": 24,
     "world": 9,

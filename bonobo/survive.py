@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import time
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
+from . import events
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
@@ -124,6 +125,8 @@ def eat(ctx=None, raw_ok=False):
     target = min(FULL_BAR, food + sum(NUTRITION[str(t.get("item", "")).split(":")[-1]] for t in tasks))
     started = time.time()
     api.run_chain(tasks, stop_on_failure=True)
+    for t in tasks:
+        events.ate(str(t.get("item", "")).split(":")[-1])
     took = (time.time() - started) / len(tasks)
     if 0.05 <= took <= 30.0:            # a queued or interrupted bite times the queue, not the bite
         beliefs.note("engage.eat_s", round(took, 3), where="eat")

@@ -28,6 +28,7 @@ ALLOW = {
     ("bonobo.actions", "_SMELT_SPEC"): "a cache derived from the recipe tables",
     ("bonobo.beliefs", "_last_flush"): "the belief log's flush throttle (output bookkeeping)",
     ("bonobo.intent", "_last_sent"): "publish dedupe: a resend is harmless (output bookkeeping)",
+    ("bonobo.events", "STATE"): "the session's event log bookkeeping (dedupe, milestones seen): outlives a life",
     ("bonobo.tape", "_calls"): "the tape recorder's session: spans a recording, not a life",
     # containers mutated in place
     ("bonobo.lifecycle", "_RESETS"): "the registry itself",

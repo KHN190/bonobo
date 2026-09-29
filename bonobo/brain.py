@@ -13,7 +13,8 @@ import traceback
 from . import (api, arbiter, bag, decompose, dispatch, explore, goals, hazard, intent, nav, nether, paths, retry,
                needs, reflexes, tape, tasks, world, perception)
 from . import skill as skillkit
-from . import craft, lifecycle, skillcore, survive
+from . import craft, events, lifecycle, skillcore, survive
+api.ANOMALY = events.anomaly      # a swallowed or unexpected error is an event (counted, said at 1st/10th/100th)
 # every module that registers skills: a new one is added here only
 from . import brewing, combat, dragon, end, farming, fluids, gather, loot, store, ui, wood  # noqa: F401,E402
 from .api import GameUnreachable, McError, NotAvailable, PlayerTookControl, log
@@ -145,9 +146,11 @@ class Brain:
             self.mem.log_death((s["blockX"], s["blockY"], s["blockZ"]), s["dimension"],
                                carried=[(x["id"], x.get("count", 1)) for x in Inventory().slots])
             log("died → respawning")
+            events.death(s.get("lastDamage") or s.get("damageSource") or "?", (s["blockX"], s["blockY"], s["blockZ"]))
             api.post("/respawn")
             lifecycle.reset_all()     # a new life: nothing the last one held (a target id, a boundary, a threat) carries over
             s = skillcore.settle(lambda: api.get("/state"), lambda st: not st.get("dead"), timeout=5.0, soft=True)
+            events.respawn((s.get("blockX"), s.get("blockY"), s.get("blockZ")))
         if s["screen"] == "class_433":
             api.post("/resume")
         # a fireball in reach is punched back by the jar's reflex (anaka combat.Reflex, policy fight_loop.ALWAYS)
@@ -192,12 +195,16 @@ class Brain:
     def attempt(self, name, fn, also=()):
         """Run fn under the failure policy; returns "ok", "failed" or "interrupted". Failures also count under `also`."""
         self.last_failure = None
+        began = time.time()
         try:
             fn()
             err = None
         except Exception as e:  # guard: any failure of a step is the failure policy's to count, with its traceback
             err, trace = e, traceback.format_exc()
         outcome, source = outcome_of(err)
+        events.task(name, outcome, time.time() - began, source)
+        if isinstance(err, api.TaskStuck):
+            events.anomaly("task stuck", f"{name}: {err}")
         first = arbiter.resume_of(source)[1] if source is not None else None
         if outcome == "ok":
             self.retry.succeeded(name)
@@ -253,7 +260,9 @@ class Brain:
             now = time.perf_counter()
             post = api.clock_first_post()
             gap = (post - clock["ended"]) * 1000 if post is not None and clock["ended"] is not None else None
-            api.detail(round_line(phase_ms(clock["t0"], clock["marks"], now), gap))
+            ms = phase_ms(clock["t0"], clock["marks"], now)
+            api.detail(round_line(ms, gap))
+            events.round_time(ms["t"] / 1000.0)
 
     def _mark(self, name):
         """End of a timed phase of this round."""
@@ -268,6 +277,7 @@ class Brain:
         nav.forget_routes()
         snap = Snapshot.from_readings(api.get("/state"), Inventory())
         self._mark("snap")
+        events.milestones({x["id"]: x.get("count", 1) for x in snap.inv.slots})
         self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
         self.mem.observe_phase(snap.night)
         self.place = retry.place_signature(snap.feet, snap.night)
@@ -290,6 +300,7 @@ class Brain:
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting")
             intent.set("goal", "holding: nothing to do")
+            events.goal("holding: nothing to do")
             if not self.planning:
                 return                         # a fight row's round: its caller polls again, no idle wait posted
             jobs = self.mem.jobs(snap.dimension)
@@ -299,6 +310,7 @@ class Brain:
             return
         self.idle_since = None
         intent.set("goal" if act.layer in ("task", "idle") else "safety", repr(act))
+        events.goal(repr(act))
         if act.layer == "L0":
             tape.end(self, act, snap)
             act.run()

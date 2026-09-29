@@ -7,7 +7,7 @@ import traceback
 from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
-from . import api, arbiter, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat
+from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat
 from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
@@ -69,6 +69,11 @@ def note_hurt(state, now=None):
         if dt <= 0.01 or dt > 3.0:
             return STATE.hurt_rate
         lost = prev[0] - hp
+        if lost >= 1.0:
+            rows, _ids = threats_seen(now=now)
+            src = min(rows, key=lambda r: math.dist(r[0], (state.get("x", 0), state.get("y", 0), state.get("z", 0))))[3] \
+                if rows and "x" in state else None
+            events.hurt(lost, hp, src, t=now)
         rate = max(0.0, lost / dt)
         # rise at once, fall slowly: one arrow is evidence, one quiet second is not
         was = STATE.hurt_rate
@@ -298,7 +303,10 @@ class Watcher(threading.Thread):
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
                 rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, look=detail, **failure)
         if taken:
-            api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
+            api.detail(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
+            events.decision("fight", option.kind, worth, option.why)       # said once per change, not per bid
+        elif refused:
+            events.anomaly("answer refused", f"{option.kind}: {refused}")
 
     def _breath_within(self, radius):
         """A dragon breath cloud within `radius`."""

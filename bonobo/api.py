@@ -51,11 +51,16 @@ class ApiState(lifecycle.State):
 STATE = lifecycle.owns(__name__, ApiState())
 
 
+ANOMALY = None      # events.anomaly, wired by the brain (api stays below the event log)
+
+
 def swallowed(where, err):
     """Record a world read failed and ignored; returns None so a handler can `return api.swallowed(...)`."""
     key = f"{where}: {type(err).__name__}"
     with STATE.lock:
         n = STATE.swallowed[key] = STATE.swallowed.get(key, 0) + 1
+    if ANOMALY is not None:
+        ANOMALY(f"swallowed {key}")
     if n in (1, 10, 100):
         log(f"?? {where}: {type(err).__name__} ignored ({n}×) — that feature is off in this round")
     return None
@@ -67,6 +72,8 @@ def unexpected(where, err, why):
     key = f"{where}: {type(err).__name__}"
     with STATE.lock:
         n = STATE.swallowed[key] = STATE.swallowed.get(key, 0) + 1
+    if ANOMALY is not None:
+        ANOMALY(f"exception {key}", str(err)[:120])
     if n in (1, 10, 100):
         log(f"!! {where}: {type(err).__name__}: {err} — {why} ({n}×)")
         detail("".join(traceback.format_exception(type(err), err, err.__traceback__)).rstrip())
