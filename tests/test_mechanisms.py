@@ -105,6 +105,18 @@ class Press(unittest.TestCase):
                 self.assertEqual(mech._opened_now(call), ok)
 
 
+class OpenState(unittest.TestCase):
+    def test_rows(self):
+        # (solid by name, its open state) → shut
+        rows = [("a wall", True, None, True), ("air", False, None, False),
+                ("a door standing open: passable though still there", True, "true", False),
+                ("must fail: a shut door read as open", True, "false", True)]
+        for name, solid, opened, want in rows:
+            with self.subTest(name):
+                shut = mech.passable_now(lambda c: solid, lambda c, k: opened if k == mech.OPEN_PROP else None)
+                self.assertEqual(shut((0, 0, 0)), want)
+
+
 class Walk(unittest.TestCase):
     def test_a_walk_presses_and_never_digs_the_door(self):
         # must fail: the walk digs the opens cells instead of pressing

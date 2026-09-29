@@ -112,13 +112,22 @@ def route_s(here, there, walk_s, dimension=None):
 
 
 # -- the world
+OPEN_PROP = "open"         # a block state a door, trapdoor or gate stands open by: passable though still there
+
+
+def passable_now(solid, prop):
+    """Pure: a cell passes when not solid, or when it stands `open` (a door keeps its name open or shut)."""
+    return lambda c: solid(c) and prop(c, OPEN_PROP) != "true"
+
+
 def solid_map(cells):
-    """{cell: solid} over `cells`, one region read."""
+    """{cell: solid} over `cells`, one region read with block states (an open door is no wall)."""
     cells = [tuple(c) for c in cells]
     lo = tuple(min(c[i] for c in cells) for i in range(3))
     hi = tuple(max(c[i] for c in cells) for i in range(3))
-    r = Region(lo, hi)
-    return {c: r.solid(c) for c in cells}
+    r = Region(lo, hi, props=True)
+    shut = passable_now(r.solid, r.prop)
+    return {c: shut(c) for c in cells}
 
 
 def opens_left(st, c):
@@ -126,7 +135,8 @@ def opens_left(st, c):
     region, opens = st.get("region"), c.args[2]
     if region is None:
         return {"unread:mechanism": 1}
-    return left(is_open(opens, region.solid), "state:opened")
+    shut = passable_now(region.solid, getattr(region, "prop", lambda c, k: None))
+    return left(is_open(opens, shut), "state:opened")
 
 
 def _opened_now(c):

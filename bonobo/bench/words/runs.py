@@ -535,4 +535,73 @@ def hungry(ctx):
 
 HOOKS = {"hungry": hungry}
 
-__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
+# -- a taught door (press_door_to_chest): the mechanism taught in `before`, never known to the code; a watcher notes
+# the door read open at some sample of the run (the press happened)
+DOOR_SEEN: dict = {}
+DOOR_WATCH_S = 30
+
+
+def _door_hook(press_out, press_in, cells, taught):
+    def hook(ctx):
+        from ... import mechanisms as mech
+        from ...api import McError
+        name = BASE.get("name")
+        for press in (press_out, press_in):
+            mech.remove("minecraft:overworld", press)
+            if taught:
+                mech.add("minecraft:overworld", press, cells)
+        DOOR_SEEN[name] = False
+        end = time.time() + DOOR_WATCH_S
+
+        def watch():
+            while time.time() < end and not DOOR_SEEN[name]:
+                try:
+                    DOOR_SEEN[name] = not all(mech.solid_map(cells).values())
+                except McError:
+                    pass
+                time.sleep(0.1)
+        _threading.Thread(target=watch, daemon=True).start()
+    return hook
+
+
+def door_taught(press_out, press_in, cells):
+    """before: the door taught, both buttons (outside, inside)."""
+    return _door_hook(press_out, press_in, cells, True)
+
+
+def door_untaught(press_out, press_in, cells):
+    """before: the must-fail twin — the same door, nothing taught."""
+    return _door_hook(press_out, press_in, cells, False)
+
+
+def into_room(pos):
+    """run: go to `pos` behind the shut door; a walk that cannot get in ends there (the check judges the world)."""
+    def run(ctx):
+        from ...api import McError
+        try:
+            return _skill("travel_to")(ctx, pos, 1.5)
+        except McError:
+            return None
+    return run
+
+
+def door_intact(lo, hi, cells):
+    """check: walls, roof and door all standing — the room's shell counted solid-by-name, nothing dug."""
+    shell = sum(1 for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1) for z in range(lo[2], hi[2] + 1)
+                if not (lo[0] < x < hi[0] and y < hi[1] and lo[2] < z < hi[2]))
+    def check(api, inv):
+        from ...world import Region
+        r = Region(lo, hi)
+        doors = {r.name(tuple(c)) for c in cells}
+        return len(doors) == 1 and sum(1 for p, n in r.blocks.items() if n != "air"
+                                       and not (lo[0] < p[0] < hi[0] and p[1] < hi[1] and lo[2] < p[2] < hi[2])) \
+            == shell
+    return check
+
+
+def door_seen():
+    """check: the door read open at some sample while the row ran (pressed, not dug)."""
+    return lambda api, inv: DOOR_SEEN.get(BASE.get("name"), False)
+
+
+__all__ = ['DOOR_SEEN', 'door_taught', 'door_untaught', 'into_room', 'door_intact', 'door_seen', 'HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']

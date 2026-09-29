@@ -73,7 +73,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 271)          # + fight_enderman_provoked
+        self.assertEqual(len(rec), 273)          # + fight_enderman_provoked; + the taught door and its untaught twin
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -370,6 +370,10 @@ PRED_ROWS = [
     ("no scan no", ("no_scan",), None, None, {"FINDS": {"diamond": 2}}, False),
 ]
 # world readers: the recorded blocks (FakeRegion) and entities
+# a 3×3×3 shell (inner x 1, z 1, y 0..1 open) with a door in its west face: door_intact's scene
+DOOR = [("@", 0, 0, 1), ("@", 0, 1, 1)]
+SHELL = {(10000 + x, 200 + y, 10000 + z): ("iron_door" if (x, z) == (0, 1) and y < 2 else "stone")
+         for x in range(3) for y in range(3) for z in range(3) if not (x == 1 and z == 1 and y < 2)}
 WORLD_ROWS = [
     ("blocks yes", ("blocks", A0, ("@", 2, 0, 0), "torch", 2), {(10000, 200, 10000): "torch", (10001, 200, 10000): "torch"},
      [], True),
@@ -391,12 +395,19 @@ WORLD_ROWS = [
      {**{(10000 + dx, 200 + dy, 10000 + dz): "cobblestone" for dy in (0, 1) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))},
       (10000, 202, 10000): "cobblestone"},
      [{"type": "minecraft:zombie", "x": 10001.5, "y": 200.0, "z": 10000.5, "health": 20}], True),
+    ("door intact yes: shell and door standing", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
+     SHELL, [], True),
+    ("must fail: door intact no — a wall block dug", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
+     {c: n for c, n in SHELL.items() if c != (10002, 201, 10002)}, [], False),
+    ("must fail: door intact no — the door broken", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
+     {c: n for c, n in SHELL.items() if c != (10000, 201, 10001)}, [], False),
     ("must fail: away or walled no — stood beside it in the open", ("away_or_walled", ["minecraft:zombie"]), {},
      [{"type": "minecraft:zombie", "x": 10001.5, "y": 200.0, "z": 10000.5, "health": 20}], False),
 ]
 # Words used in checks whose yes/no needs more than a state, a bag, blocks or entities recorded (the brain's
 # decision log, the slice's trace, a fight's recorded rows, the memory file): each named, with what it reads.
 NOT_ROW_TESTED = {
+    "door_seen": "the run's watcher over the door's open state (bench words DOOR_SEEN)",
     "slice_check": "the slice's trace and decision lines (SLICE, LAST_LINES) through review",
     "placed_facing": "a placed block's facing property from the world",
     "surfaced": "a hold over time of the body's height",
