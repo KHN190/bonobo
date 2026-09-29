@@ -1217,6 +1217,18 @@ def fireball_end(reads, gone):
     return False, None
 
 
+VOLLEY_READS = 120      # the newest reads kept for the readout (~6 s at the volley's pace)
+
+
+def volley_read(t, state, views, tags):
+    """Pure: one read for the readout — whether the agent drives (the reflex runs only then) and, per fireball
+    (its shot), the jar's own prediction: ticks-to-hit as seconds, in reach, where it lands."""
+    control = state.get("control") or {}
+    return {"t": round(t, 2), "active": control.get("active"), "paused": control.get("paused"),
+            "balls": [{"shot": tags.get(e["id"]), "hit_s": e.get("hit_s"), "reach_now": e.get("reach_now"),
+                       "impact_at": e.get("impact_at")} for e in views]}
+
+
 def tag_shots(tags, seen, fired):
     """Pure: each fireball id tagged with its shot index in the order first seen, never past the shots fired."""
     out = dict(tags)
@@ -1256,7 +1268,7 @@ def _deflect_volley(ctx):
     from ...world import entities
     from ...perception import read_combat
     DEFLECT.clear()
-    DEFLECT.update(start=_server_hp(), fired=0, ends=[], done=False)
+    DEFLECT.update(start=_server_hp(), fired=0, ends=[], done=False, reads=[])
 
     def fire():
         ball, m = shot_at()
@@ -1273,12 +1285,14 @@ def _deflect_volley(ctx):
                 s = api.get("/state")
                 eye = (s["x"], s["y"] + EYE_Y, s["z"])
                 # the one reader: vel (blocks/s) from the jar's velocity
-                near = {e["id"]: ((e["x"], e["y"] + 0.5, e["z"]), e["vel"])
-                        for e in read_combat(entities(64, [FIREBALL])) if "vel" in e}
+                views = [e for e in read_combat(entities(64, [FIREBALL])) if "vel" in e]
+                near = {e["id"]: ((e["x"], e["y"] + 0.5, e["z"]), e["vel"]) for e in views}
             except McError:
                 time.sleep(0.05)
                 continue
             tags = tag_shots(tags, near, DEFLECT["fired"])
+            DEFLECT["reads"].append(volley_read(time.time() - t0, s, views, tags))
+            del DEFLECT["reads"][:-VOLLEY_READS]
             for i, (p, v) in near.items():
                 series.setdefault(i, []).append((p, v, eye))
             for i, reads in series.items():
@@ -1317,7 +1331,8 @@ def _deflected():
         hp = _server_hp()
         CHECK_READOUT["deflect"] = {"start_hp": DEFLECT.get("start"), "end_hp": hp, "fired": DEFLECT.get("fired", 0),
                                     "shots": [{"shot": k, "deflected": e}
-                                              for k, e in enumerate(DEFLECT.get("ends", []))]}
+                                              for k, e in enumerate(DEFLECT.get("ends", []))],
+                                    "reads": list(DEFLECT.get("reads", []))}
         return volley_verdict(DEFLECT.get("start"), hp, DEFLECT.get("fired", 0), DEFLECT.get("ends", []))
     return check
 
@@ -1343,4 +1358,4 @@ NAMES = {"arena": lambda i, *cell: f"combat_arena__{i}", "siege": lambda w: f"si
          "behaviour": lambda b: f"combat__{b}", "fight_cell": lambda name, *p: name,
          "deflect": lambda name, *p: name}
 
-__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', 'trapped_room', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']
+__all__ = ['IN_REACH', 'STALL_OK', 'longest_stall', '_no_stall', '_stall_now', 'PROVEN', '_gap_is_open', 'gap_open', '_loose', '_away_or_walled', 'kept_off', 'ARENA_EXPECT', 'ARENA_GEAR', '_answered_with', '_kills_by_the_fight', '_shield_kept', 'engaged_gaps', 'kills_while_engaged', 'last_seen', 'ARENA_REACH', 'ARMED', 'ARMOUR', 'BEHAVIOURS', 'BEHAVIOUR_SECONDS', 'BLIND_SHARE', 'BLOOD', 'CELL_SECONDS', 'COUNT', 'DIMS', 'DISTANCE', 'ENEMY', 'ESCAPE_SECONDS', 'ESCAPE_WATCH', 'FIGHT_BUCKET', 'FIGHT_EXPECT', 'FIGHT_LOG', 'GAP', 'MOUTH', 'GROUND', 'KIT', 'NEEDS', 'NETHER_LAVA', 'RESOLVE_GAP', 'RESOLVE_HOLD_S', 'RESOLVE_HP_LOSS', 'RULES', 'SHAPE_COLUMNS', 'START_Y', 'SWEEP', 'TRACE_EVERY_S', 'UNARMED', 'WAVES', 'WEAPON', '_ARENA', '_FIGHT_SETUP', '_answers_are_closed', '_behaviour_check', '_build', '_carry', '_cells', '_columns_possible', '_combat_execute', 'ENGAGED_INTENT', 'WINDOW_PROBE', 'answered_by_time', 'perception_probe', 'missing_columns', '_combat_intent', '_decision_gaps_ok', '_fight_row', '_fight_until', '_first_out', '_fought', '_fought_for', '_gap_blocked', '_gone', '_hostiles', '_hp_kept', '_killed', 'kill_stat', 'kill_stat_scene', 'stat_count', '_kinds_of', '_last', '_less_hurt_than', '_more_of_them_costs_more', '_offhand_shield', '_plain', '_platform', '_record_bids', '_record_with_start', '_restock', '_revive', '_roof', '_sampler', 'reflex_last', '_scatter', '_seed_of', '_shapes_fit_the_enemy', 'escaped', '_escaped', '_siege_build', '_siege_detail_of', '_siege_kit', '_siege_record', '_summon', '_threat_kinds', '_threat_resolved', 'resolved', 'angers', 'game_time', 'provoked', '_endermen_calm', 'ENDERMEN', 'positions', 'covered_in_time', '_took_cover', 'trapped_room', '_kept_health', 'endermen_off_path', 'alcove', 'alcove_cover', '_took_cover_alcove', '_walled', '_wave_cleared', '_went_out', '_blocked', 'DEFLECT', 'EYE_Y', 'FIREBALL_SPEED', 'GHAST_HP', 'heading', 'FIREBALL', 'SHOTS', 'SHOT_DIST', 'CORRIDOR', 'CORRIDOR_LEN', 'VOLLEY_WATCH_S', 'corridor', 'shot_at', 'tag_shots', 'next_shot_due', 'VOLLEY_READS', 'volley_read', '_deflect_volley', '_deflect_watch', '_deflected', '_server_hp', 'data_health', 'deflect_eye', 'deflect_row', 'fireball_end', 'volley_done', 'volley_verdict', '_where', '_ys', 'arena_row', 'behaviour', 'behaviour_row', 'blind_s', 'escape_detail', 'escape_row', 'estimate', 'fight_cell_row', 'paths', 'random', 'siege_detail', 'siege_row']

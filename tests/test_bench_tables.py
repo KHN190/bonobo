@@ -784,6 +784,23 @@ class DeflectCells(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(wf.volley_verdict(h0, h1, fired, ends), want)
 
+    def test_a_read(self):
+        from bonobo.bench.words import fight as wf
+        state = {"control": {"active": True, "paused": False}}
+        seen = {"id": 7, "hit_s": 0.1, "reach_now": True, "impact_at": (1.0, 2.0, 3.0)}
+        # (situation, state, views, tags) → the read
+        rows = [("driving, one tagged fireball with the jar's prediction", state, [seen], {7: 0},
+                 {"t": 1.0, "active": True, "paused": False,
+                  "balls": [{"shot": 0, "hit_s": 0.1, "reach_now": True, "impact_at": (1.0, 2.0, 3.0)}]}),
+                ("must fail: not driving is said (the reflex runs only then)", {"control": {"active": False}}, [],
+                 {}, {"t": 1.0, "active": False, "paused": None, "balls": []}),
+                ("no prediction: said as none", {}, [{"id": 9}], {},
+                 {"t": 1.0, "active": None, "paused": None,
+                  "balls": [{"shot": None, "hit_s": None, "reach_now": None, "impact_at": None}]})]
+        for name, st, views, tags, want in rows:
+            with self.subTest(name):
+                self.assertEqual(wf.volley_read(1.0, st, views, tags), want)
+
     def test_the_row_has_no_ghast(self):
         from bonobo.bench.words import fight as wf
         row = wf.deflect_row("deflect__volley")
