@@ -117,6 +117,7 @@ class Brain:
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None
         self.last_light = self.last_offhand = self.last_scan = self.last_track = self.last_hold_log = 0
+        self.lit_place = None      # where the last first lighting was done (a place signature)
         fight_loop.wire(self.mem, lambda snap: self.policy(snap, snap.night), self.blacklist,
                         prices=self.price_table)
 
@@ -182,10 +183,18 @@ class Brain:
         if s["screen"] == "none" and craft.shield_wanted_in_offhand() and time.time() - self.last_offhand > 30:
             self.last_offhand = time.time()
             craft.shield_to_offhand()
-        if time.time() - self.last_light > 5 and survive.dark_here(s) and not survive.enclosed():
+        # an open dark area underground: lit first where work starts, then a torch a segment (never the surface,
+        # a short shaft or a sealed night hole)
+        if time.time() - self.last_light > 5 and _k.under_rock(s.get("skyLight", 15)) and survive.dark_here(s) \
+                and not survive.enclosed():
             self.last_light = time.time()
             try:
-                self._running(lambda: survive.light_area(self.context(s["dimension"]), 4, 1))
+                spots = world.dark_spots(radius=survive.LIGHT_R, max_light=0, limit=40)
+                if survive.light_due(s, False, len(spots)):
+                    first = self.lit_place != self.place
+                    self.lit_place = self.place
+                    self._running(lambda: survive.light_area(self.context(s["dimension"]), survive.LIGHT_R,
+                                                             survive.LIGHT_FIRST if first else 1, spots=spots))
             except api.INTERRUPTIONS:
                 raise
             except McError:

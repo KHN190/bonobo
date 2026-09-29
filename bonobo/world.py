@@ -156,7 +156,7 @@ class Snapshot:
         return self.state.get(key, default)
 
 SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
-_SIGHT = {"key": None, "t": 0.0, "near": {}}
+_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}}
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
 lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
 _PER_BLOCK = []            # [bool] once known: the running jar answers /find?perBlock (≥ 0.1.55)
@@ -178,7 +178,7 @@ def nearest(kinds, feet, dimension, radius=48, union=()):
     key = (tuple(feet), dimension)
     fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
     if not fresh:
-        _SIGHT.update(key=key, t=time.time(), near={})
+        _SIGHT.update(key=key, t=time.time(), near={}, y={})
     near = _SIGHT["near"]
     missing = [n for n in names if n not in near]
     if missing:
@@ -196,8 +196,16 @@ def nearest(kinds, feet, dimension, radius=48, union=()):
             b = bare(h["block"])
             if near.get(b) is None or h["distance"] < near[b]:
                 near[b] = h["distance"]
+                if "y" in h:
+                    _SIGHT["y"][b] = h["y"]
     got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
+
+def sight_y(kinds):
+    """The y of the nearest of `kinds` the last look saw (`nearest`), or None: no read of its own."""
+    near, ys = _SIGHT["near"], _SIGHT["y"]
+    got = [(near[n], ys[n]) for n in (bare(k) for k in kinds) if near.get(n) is not None and n in ys]
+    return min(got)[1] if got else None
 
 def find(blocks, radius=32, limit=50, exposed=False):
     """What `/find` sees."""

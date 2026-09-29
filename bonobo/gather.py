@@ -9,7 +9,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
-from .knowledge import DIG_SHOVEL_S, HUNT_SWORD_S, members, MINE_YIELD
+from .knowledge import DIG_SHOVEL_S, FIND_AT, HUNT_SWORD_S, members, MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
 from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
 from .skillcore import ToolMissing, feet, mine_cell, gained
@@ -86,6 +86,20 @@ def spent_cells(sent, name_at, blocks) -> list[Cell]:
 def deep_below(cell: Cell, feet_at: Cell) -> bool:
     """Pure: `cell` lies more than 2 below the feet: a staircase down, not a walk."""
     return cell[1] < feet_at[1] - 2
+
+def shaft_plan(region, feet_at: Cell, target: Cell, carried: int, protected=()):
+    """Pure: (tasks, why not) for a straight shaft from the feet down to a buried `target`'s level: dug only as deep as
+    nav.dig_down_tasks finds safe (lava, water, a cave stop it) and the blocks carried can pillar back out of."""
+    depth = feet_at[1] - target[1]
+    try:
+        tasks, safe = nav.dig_down_tasks(region, feet_at, depth, protected)
+    except NotAvailable as e:
+        return None, str(e)
+    if safe < depth:
+        return None, f"lava, water or a cave {safe + 1} down"
+    if carried < depth:
+        return None, f"{carried} blocks carried, {depth} to pillar back out"
+    return tasks, None
 
 def stair_leg_end(start: Cell, target: Cell) -> Cell:
     """Pure: where one staircase segment from `start` toward `target` ends (nav.stair_dir, nav.STAIR_STEPS down)."""
@@ -169,10 +183,12 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]
-        raw = noted or find(blocks, radius=radius, limit=60)
+        # an open face first: a buried one is dug to (surface kinds: a shaft, priced with its overburden)
+        exposed_hits = find(blocks, radius=radius, limit=60, exposed=True)
+        raw = noted or exposed_hits or find(blocks, radius=radius, limit=60)
         digs = "approach_dig" in nav.mod_features()
-        exposed_cells = None if digs else {(h["x"], h["y"], h["z"])
-                                           for h in find(blocks, radius=radius, limit=60, exposed=True)}
+        open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}
+        exposed_cells = None if digs else open_set
         fresh = [h for h in raw if (h["x"], h["y"], h["z"]) not in no_cell]
         if raw and not fresh:
             if radius < SEEK_RADII[-1]:
@@ -223,6 +239,19 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         vein = set(sorted(vein, key=lambda p: math.dist(p, start))[: max(want, len(vein) if tier else want)])
         # reach a vein by walking if there is a way, else by digging one: buried ore has no path, and banning it left coal inside a wall forever
         near = min(vein, key=lambda p: math.dist(p, start))
+        if (FIND_AT.get(mid(drop)) is None and near not in open_set and near[1] < start[1]
+                and ctx.policy.allow_dig):
+            # a buried surface kind (stone under the soil): straight down, with a way back out and no lava below
+            shaft, why = shaft_plan(nav.dig_down_region(start, start[1] - near[1]), start, near,
+                                    Inventory().count("building"), ctx.policy.protected)
+            if shaft is None:
+                for p in vein:
+                    ctx.ban(p)
+                unreachable += 1
+                _reach_budget(unreachable, blocks, f"no shaft down to the {blocks[0]} at {near}: {why}")
+                continue
+            api.run_chain(shaft, stop_on_failure=True, wait=120)
+            continue
         if deep_below(near, start) and ctx.policy.allow_dig:
             # far below: a staircase the body can walk back up, never travel's 1-wide shaft (brain__base: 9 deep,
             # no way out and no sight of the ore 2 blocks off)

@@ -4,7 +4,7 @@ import math
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, nav
 from .api import NotAvailable, log
-from .data import RARE_SIGHTINGS, bare
+from .data import RARE_SIGHTINGS, SEARCH_LEGS, SEARCH_LOOK_R, bare
 from .skill import skill
 from .skillcore import feet
 from .knowledge import FIND_AT, MINE, takeable_blocks
@@ -27,7 +27,7 @@ def surface_first(ctx, max_climb=90):
         raise api.NavFailed(f"could not reach the surface from y={y}")
 
 LAND = ["grass_block", "dirt", "stone", "sand", "podzol", "snow_block"]
-LOOK_MOBS, LOOK_BLOCKS = 64, 48       # how far one look sees: /entities and /find radii
+LOOK_MOBS, LOOK_BLOCKS = 64, SEARCH_LOOK_R       # how far one look sees: /entities and /find radii
 
 CANOPY = ("leaves", "_log")      # a tree top is sky to a search, not ground to stand on
 
@@ -136,7 +136,7 @@ def _by_kind(hits):
 
 @skill(gives=["state:seen"], remaining=_k.some_of(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"explore:mobs": lambda ctx, s: (list(s.detail["types"]),)})
-def explore_for(ctx, types, legs=6, leg=40):
+def explore_for(ctx, types, legs=SEARCH_LEGS, leg=40):
     """Find entities of `types`: remembered sightings first, then the unsearched frontier (`_search`)."""
 
     for kind in types:
@@ -155,7 +155,7 @@ def explore_for(ctx, types, legs=6, leg=40):
 
 @skill(gives=["state:found"], remaining=_k.found(lambda c: c.args[1]), needs={}, speed={}, start=lambda c: feet(), verify=_searched, budget=900, stall=120,
        provides={"explore:blocks": lambda ctx, s: (list(s.detail["blocks"]),)})
-def seek_blocks(ctx, blocks, legs=6, leg=40):
+def seek_blocks(ctx, blocks, legs=SEARCH_LEGS, leg=40):
     """Find a block type not in range: the unsearched frontier (`_search`), looking after every leg."""
 
     if not find(blocks, radius=LOOK_BLOCKS, limit=1):

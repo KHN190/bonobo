@@ -54,6 +54,17 @@ def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
     return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
 
+LIGHT_R = 4                # blocks round the feet a lighting looks over
+LIGHT_FIRST = 4            # torches placed where we start work in the dark: lit first, then one a segment
+OPEN_DARK_SPOTS = 4        # dark floor cells within LIGHT_R that make an open dark area: a 1-wide shaft's floor is
+                           # the body's own cell, a 2-high tunnel's is LIGHT_R cells each way
+
+def light_due(s, sealed, dark_spots_near):
+    """Pure: light before working here — under rock, standing dark, not sealed in (a night hole), and open (a tunnel,
+    a cave, a vein, a base; not a short shaft). Upkeep, not danger: darkness alone never raises a threat."""
+    return (_k.under_rock(s.get("skyLight", 15)) and dark_here(s) and not sealed
+            and dark_spots_near >= OPEN_DARK_SPOTS)
+
 def torch_commands(state: "BodyState", args=(4, 1)) -> "list[PlaceTask]":
     """Pure: place tasks for up to `limit` of the darkest floor spots within `radius`, never the body's cells; [] when none."""
 
@@ -685,12 +696,14 @@ def _torches_standing(radius=12):
 @skill(gives=["state:lit"], remaining=_k.few_dark, speed={}, pre=[_has_torches_to_spare], needs={"minecraft:torch": 3}, start=lambda c: _torches_standing(),
        verify=lambda c: _torches_standing() > c.base, commands=torch_commands, budget=180, stall=60,
        provides={"light": lambda ctx, s: (int(s.detail.get("radius", 10)), max(1, s.count))})
-def light_area(ctx, radius=10, limit=6):
-    """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2."""
+def light_area(ctx, radius=10, limit=6, spots=None):
+    """Spawn-proof the surroundings: torches on the darkest reachable spots (block light 0) nearby, keeping 2.
+    `spots`: the dark spots already read (light_due's look), else read here."""
 
-    if enclosed():
+    if spots is None and enclosed():
         raise NotAvailable("sealed in: nothing outside to light")
-    spots = [p for p in dark_spots(radius=radius, max_light=0, limit=40) if not ctx.blocked((p["x"], p["y"], p["z"]))]
+    spots = [p for p in (spots if spots is not None else dark_spots(radius=radius, max_light=0, limit=40))
+             if not ctx.blocked((p["x"], p["y"], p["z"]))]
     tasks = torch_commands(body_state(ctx, spots=spots), (radius, limit * 2))
     if not tasks:
         raise NotAvailable("nothing dark nearby")
