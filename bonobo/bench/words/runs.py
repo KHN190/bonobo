@@ -240,13 +240,18 @@ def _resume(name, run, resume, tries=4):
             for _ in range(tries):
                 try:
                     return fn(ctx)
-                except api.INTERRUPTIONS:
+                except api.INTERRUPTIONS as e:
                     INTERRUPTS[name] = INTERRUPTS.get(name, 0) + 1
+                    api.detail(f"bench: {name} caught {type(e).__name__} ({e}), resumed ({INTERRUPTS[name]})")
                     fn = resume
             raise api.McError(f"still interrupted after {tries} tries")
         finally:
-            if str(api.interrupt_pending() or "").startswith("bench:"):
+            left = api.interrupt_pending()
+            if str(left or "").startswith("bench:"):
                 api.consume_interrupt()    # an injected interrupt that landed after the end must not stop the next row
+            api.detail(f"bench: {name} run over, interrupts caught {INTERRUPTS.get(name, 0)}"
+                       + (f", a bench interrupt still pending consumed ({left})" if left and str(left).startswith("bench:")
+                          else ""))
     return go
 
 def _progress_of(base):
@@ -278,6 +283,7 @@ def _on_progress(name, base, action, times=1):
             while k <= times and time.time() - t0 < 120 and BASE.get("name") == name:
                 try:
                     if made(k):
+                        api.detail(f"bench: {name} progress {k} seen at {time.time() - t0:.1f}s")
                         action()
                         k += 1
                         continue
@@ -294,6 +300,8 @@ def _inject_interrupt(message=INJECTED):
     """Leave an interrupt for the running work, as perception does (api.request_interrupt)."""
     from ... import api
     api.request_interrupt(message)
+    t = time.time() - BASE.get("t", time.time())
+    api.detail(f"bench: {BASE.get('name')} interrupt injected at {t:.1f}s ({message})")
 
 def _post_foreign_task():
     """Another commander posts a task straight to the mod (BodyContested for the skill)."""

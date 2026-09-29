@@ -59,6 +59,38 @@ class AnInjectionIsPending(unittest.TestCase):
                 self.assertEqual(api.interrupt_pending(), want)
 
 
+class TheInterruptIsSaid(unittest.TestCase):
+    """The bench's interrupts in detail.log: each injection, each one caught, and one left pending at the end."""
+
+    def test_rows(self):
+        from unittest import mock
+        from bonobo import api
+        from bonobo.bench.words import runs
+
+        def cut_once(ctx, _n=[0]):
+            _n[0] += 1
+            if _n[0] == 1:
+                raise api.Interrupted("bench: x")
+            return True
+
+        def ends_then_injected(ctx):
+            runs._inject_interrupt()           # landed after the work's last check
+            return True
+        # (situation, run) → what detail.log says
+        rows = [("caught and resumed", cut_once, ["caught Interrupted", "interrupts caught 1"]),
+                ("must fail: landed after the end — said consumed, not caught", ends_then_injected,
+                 ["interrupt injected", "interrupts caught 0, a bench interrupt still pending consumed"])]
+        for name, run, want in rows:
+            said = []
+            with self.subTest(name), mock.patch.object(api, "detail", said.append), \
+                    mock.patch.object(api.STATE, "interrupt", None), mock.patch.dict(runs.INTERRUPTS, clear=True), \
+                    mock.patch.dict(runs.BASE, {"name": "r", "t": 0.0}):
+                runs._resume("r", run, lambda ctx: True)(None)
+                for w in want:
+                    self.assertTrue(any(w in line for line in said), f"{w!r} not in {said}")
+                self.assertIsNone(api.interrupt_pending(), "nothing left for the next row")
+
+
 class AReportKeepsItsTrace(unittest.TestCase):
     """The failed row's report holds copies: the next row clears TRACE_NOW before the report's thread writes."""
 
