@@ -4,13 +4,13 @@ import argparse
 import json
 import sys
 
-from bonobo import api, skillcore, skills, store
+from bonobo import api, skillcore, skills
 from bonobo.api import McError, log
 from bonobo.brain import Brain, autoplay
 from bonobo.data import bare
 from bonobo.memory import Memory
 from bonobo.planner import Unplannable
-from bonobo.world import Inventory, Snapshot, find
+from bonobo.world import Inventory, Region, Snapshot, find
 
 
 def cmd_state(_):
@@ -55,14 +55,28 @@ def cmd_autoplay(a):
 
 
 def cmd_home(a):
-    """Record the base as the home site (with a structure snapshot for repairs)."""
+    """The player's home: add NAME X1 Y1 Z1 X2 Y2 Z2 (the box read, every block protected, its beds, chests and
+    stations found) | list | remove NAME."""
     mem = Memory()
-    pos = tuple(a.pos) if a.pos else store.find_base()
-    if pos is None:
-        raise McError("no base found nearby; stand at home or pass --pos x y z")
-    snap = skillcore.snapshot(pos, half=a.half, down=4, up=6)
-    site = mem.add_site("home", pos, api.get("/state")["dimension"], snapshot=snap, name="home")
-    log(f"home recorded at {site['pos']} with {len(snap['blocks'])} structure blocks")
+    if a.action == "list":
+        for h in mem.sites(kinds=["home"]):
+            snap, parts = h.get("snapshot") or {}, h.get("parts") or {}
+            print(f"{h['name']:<12} {h['dimension']} {snap.get('lo')}..{snap.get('hi')} "
+                  f"{len(snap.get('blocks', {}))} blocks, beds {len(parts.get('beds', []))}, "
+                  f"chests {len(parts.get('chests', []))}, stations {[b for b, _p in parts.get('stations', [])]}")
+        return
+    if a.action == "remove":
+        print("removed" if mem.remove_home(a.name) else f"no home named {a.name}")
+        return
+    if a.name is None or a.box is None or len(a.box) != 6:
+        raise McError("home add NAME X1 Y1 Z1 X2 Y2 Z2")
+    lo, hi = a.box[:3], a.box[3:]
+    dim = a.dim or api.get("/state")["dimension"]
+    region = Region([min(x, y) for x, y in zip(lo, hi)], [max(x, y) for x, y in zip(lo, hi)])
+    site = mem.add_home(a.name, lo, hi, dim, region.blocks)
+    parts = site["parts"]
+    log(f"home {a.name}: {len(site['snapshot']['blocks'])} blocks protected, beds {len(parts['beds'])}, "
+        f"chests {len(parts['chests'])}, stations {[b for b, _p in parts['stations']]}")
 
 
 def cmd_skills(_):
@@ -444,9 +458,11 @@ def main():
     p = sub.add_parser("autoplay")
     p.add_argument("--hours", type=float, default=10)
     p.set_defaults(fn=cmd_autoplay)
-    p = sub.add_parser("home", help="record home site + snapshot")
-    p.add_argument("--pos", type=int, nargs=3)
-    p.add_argument("--half", type=int, default=10)
+    p = sub.add_parser("home", help="the player's home: add NAME X1 Y1 Z1 X2 Y2 Z2 | list | remove NAME")
+    p.add_argument("action", choices=["add", "list", "remove"])
+    p.add_argument("name", nargs="?")
+    p.add_argument("box", type=int, nargs="*")
+    p.add_argument("--dim", help="dimension (default: where the body is)")
     p.set_defaults(fn=cmd_home)
     sub.add_parser("notes").set_defaults(fn=cmd_notes)
     p = sub.add_parser("mech", help="taught mechanisms: add|list|remove --press X Y Z [--opens X Y Z ...]")

@@ -116,6 +116,7 @@ class Brain:
         self.idle_since = None
         self.just_finished = False    # set by plan_proposals; idle_wait reads it on any round, a plan-less one too
         self.wake = None              # fn() → True ends an idle wait at once (a bench row's `until`: its outcome)
+        api.GUARD = self.home_guard   # every task posted passes the home's rules
         self.committed = None
         self.task_writes = None       # while task_act / after_step decide: the task's fields they change (writes)
         self.last_failure = None
@@ -123,6 +124,34 @@ class Brain:
         self.lit_place = None      # where the last first lighting was done (a place signature)
         fight_loop.wire(self.mem, lambda snap: self.policy(snap, snap.night), self.blacklist,
                         prices=self.price_table)
+
+    def home_guard(self, task):
+        """api's door for a home: a refused task raises (memory.home_refusal); a home block broken at a rescue's
+        allowance is said as an event; a block we place inside is ours to take back later."""
+        dim = api.dim_seen()
+        homes = self.mem.homes(dim) if dim else []
+        if not homes:
+            return
+        mine = self.mem.placed_in_home(dim)
+
+        def entity_at(eid):
+            e = next((e for e in world.entities(24) if e.get("id") == eid), None)
+            return (e["type"], (e["x"], e["y"], e["z"])) if e else None
+        why = _memory.home_refusal(task, homes, mine, entity_at, allow_break=api.STATE.home_break is not None)
+        if why:
+            raise NotAvailable(why)
+        if "x" not in task or task.get("type") not in ("mine", "place"):
+            return
+        cell = (int(task["x"]), int(task["y"]), int(task["z"]))
+        if not any(_memory.in_box(b, cell) for b in _memory.home_boxes(homes)):
+            return
+        if task["type"] == "place":
+            self.mem.note_placed(cell, dim)
+        elif cell in mine:
+            self.mem.note_placed(cell, dim, placed=False)        # ours, taken back
+        else:
+            events.emit("home_break", f"broke home block {cell}: {api.STATE.home_break}", cell=cell,
+                        cause=api.STATE.home_break)
 
     # -- movement policy and the hooks that run between chain segments
     def policy(self, snap, night):

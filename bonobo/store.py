@@ -120,7 +120,8 @@ def deposit(ctx, local_only=False):
             break
         if not site_trek_ok(ctx, site):
             continue
-        if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
+        chest = ctx.mem.home_part("chests", ctx.dimension, here, anywhere=True) if site.get("kind") == "home" else None
+        if not nav.arrived(chest or tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
             ctx.ban(tuple(site["pos"]))      # a failed trek costs a minute of travel replans: not again soon
             # a cache chest unreachable for 3 treks is forgotten
             if site.get("kind") == "cache":
@@ -132,8 +133,8 @@ def deposit(ctx, local_only=False):
                 else:
                     ctx.mem.update_site(site["name"], misses=misses)
             continue
-        chests = [c for c in find(["chest", "barrel"], radius=8, limit=6)
-                  if openable_container((c["x"], c["y"], c["z"]))]
+        chests = [c for c in ([{"x": chest[0], "y": chest[1], "z": chest[2]}] if chest else [])
+                  + find(["chest", "barrel"], radius=8, limit=6) if openable_container((c["x"], c["y"], c["z"]))]
         if chests:
             c = (chests[0]["x"], chests[0]["y"], chests[0]["z"])
             break

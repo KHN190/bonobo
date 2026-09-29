@@ -75,6 +75,12 @@ class Station:
     def __enter__(self):
         close_screen()
         near = find([self.block], radius=6, limit=1)
+        mem = getattr(self.ctx, "mem", None)
+        home = mem.home_part("stations", self.ctx.dimension, feet(), self.block) if mem else None
+        if home is not None and not near:
+            # inside the home: its own station, walked to — never a new one placed there
+            nav.arrived(home, self.ctx.policy, range_=3, attempts=1)
+            near = [{"x": home[0], "y": home[1], "z": home[2]}]
         if near:
             self.pos = (near[0]["x"], near[0]["y"], near[0]["z"])
         elif Inventory().count(self.block):
@@ -299,6 +305,12 @@ def _sitting(ctx, recipes, keep_table=False):
     state = {"inv": inv, "table": None, "spot": None, "keep_table": keep_table}
     if any(table for table, _part in sittings(steps)):
         near = find(["crafting_table"], radius=6, limit=1)
+        mem = getattr(ctx, "mem", None)
+        home = mem.home_part("stations", ctx.dimension, feet(), "crafting_table") if mem else None
+        if home is not None and not near:
+            # inside the home: its table, walked to — never a new one placed (nor taken back: not placed)
+            nav.arrived(home, ctx.policy, range_=3, attempts=1)
+            near = [{"x": home[0], "y": home[1], "z": home[2]}]
         if near:
             state["table"] = (near[0]["x"], near[0]["y"], near[0]["z"])
         else:

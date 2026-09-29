@@ -148,11 +148,16 @@ def dead(state=None, readings=None):
         return False
     return bool(settle(lambda: api.get("/state").get("dead"), bool, timeout=1.5, stable_s=0.5, soft=True))
 
+def _protected(ctx):
+    """The policy's protected set as it is (a memory.Protected keeps its home boxes; a set() copy dropped them)."""
+    p = getattr(getattr(ctx, "policy", None), "protected", None)
+    return p.copy() if p is not None else set()
+
 def body_state(ctx, region=None, **extra) -> "BodyState":
     """The state `commands` are built from — body, bag, protected cells, blocks around; read once here."""
     s = api.get("/state")
     out = dict({"state": s, "feet": (s["blockX"], s["blockY"], s["blockZ"]), "inv": Inventory(),
-                "protected": set(getattr(getattr(ctx, "policy", None), "protected", ()) or ()), "region": region},
+                "protected": _protected(ctx), "region": region},
                **extra)
     return cast("BodyState", out)      # `extra`: a BodyState key each (the NotRequired ones)
 

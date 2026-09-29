@@ -270,7 +270,7 @@ def plant_farm(ctx):
     if hoe is None:
         raise NotAvailable("no hoe")
     # every walk here keeps off the plot's cells (no dig, no floor block: a walk once filled the dug centre)
-    policy = dataclasses.replace(ctx.policy, protected=set(ctx.policy.protected) | plot_cells(centre))
+    policy = dataclasses.replace(ctx.policy, protected=ctx.policy.protected | plot_cells(centre))    # home boxes kept
     below = add(centre, (0, -1, 0))
 
     def column():

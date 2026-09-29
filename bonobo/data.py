@@ -301,3 +301,11 @@ VILLAGE_ONLY = ([f"{c}_bed" for c in COLORS] + [f"{c}_wool" for c in COLORS] + [
                 "smithing_table", "stonecutter", "cauldron", "bookshelf", "wheat", "carrots", "potatoes", "beetroots"])
 FIND_P = {**{k: w / max(PASSIVE_WEIGHT.values()) for k, w in PASSIVE_WEIGHT.items()},
           **{k: VILLAGE_P for k in VILLAGE_ONLY}}
+
+CRITICAL_HP = 4            # health at or below which danger overrides everything (perception's critical_health)
+CRITICAL_HP_END = 12       # in the End: a breath or head butt takes 10+
+
+
+def critical_hp(state):
+    """Pure: the critical-health floor where the body stands."""
+    return CRITICAL_HP_END if state.get("dimension") == "minecraft:the_end" else CRITICAL_HP

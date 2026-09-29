@@ -154,7 +154,7 @@ def _once(reads, key, read):
 
 # a shelter step's token → the skill that makes it
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
-               "hut": lambda ctx: building.build_shelter(ctx)}
+               "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
 
 class Maintain:
     """The reflex table's executor, remembering where the body has been (stuck) and where the last path failed (blocked)."""
@@ -188,7 +188,9 @@ class Maintain:
         enclosed, soft_ground, dig_site = ground(reads)
 
         def night_way():
-            return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site()),
+            bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
+            home_s = math.dist(bed, snap.feet) / (WALK_BLOCKS_PER_TICK * 20) if bed is not None else None
+            return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_s),
                                      bed_too=False)
         view = View({
             "died_recently": lambda: worth_recovering(b, snap),
@@ -198,7 +200,8 @@ class Maintain:
             "nether_bad": lambda: nether_retreat(snap) is not None,
             "enclosed": enclosed,
             "bed_works": lambda: survive.can_sleep(s) is None,
-            "bed_near": _once(reads, "bed_near", lambda: in_sight(snap, BASE_MARKERS["bed"], 48)),
+            "bed_near": _once(reads, "bed_near", lambda: home_bed_near(b.mem, snap)
+                              or in_sight(snap, BASE_MARKERS["bed"], survive.HOME_BED_R)),
             "night_way": night_way,
             "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
                                                                         lambda: b.needs.bed_tonight(snap))()
@@ -417,6 +420,12 @@ def on_column(region, feet):
     x, y, z = feet
     ring = [(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz]
     return all(region.inside(c) for c in ring) and not any(region.solid(c) for c in ring)
+
+
+def home_bed_near(mem, snap):
+    """A home bed within the night's reach (memory, no read)."""
+    bed = mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
+    return bed is not None and math.dist(bed, snap.feet) <= survive.HOME_BED_R
 
 
 def recovery_worth(value_s, dist, since_s, speed, despawn_s):

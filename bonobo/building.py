@@ -400,7 +400,7 @@ def _blueprint_spot(state, args):
     if state.get("region") is None:
         return None
     near = tuple(args[1]) if len(args) > 1 and args[1] is not None else tuple(state["feet"])
-    options = spot_options(bp, near, state["region"], nav.Policy(protected=set(state.get("protected") or ())),
+    options = spot_options(bp, near, state["region"], nav.Policy(protected=state.get("protected") or set()),
                            body=state.get("feet"))
     return options[0][1:] if options else None
 

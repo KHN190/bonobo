@@ -38,6 +38,8 @@ class ApiState(lifecycle.State):
     soft: bool = False                   # a soft skill runs: perception's request stays for it to read, no cut
     last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
     feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
+    dim_seen: "str | None" = None                              # its dimension then
+    home_break: "str | None" = None      # a rescue's reason while it may break a home block (home_break_allowed)
     # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
     # first posted since the round began (perf_counter seconds; None when not yet)
     clock: dict = field(default_factory=lambda: {"ended": None, "first_post": None, "ended_id": -1})
@@ -382,6 +384,7 @@ def get(path) -> Any:
     r = api("GET", path)
     if path.startswith("/state") and isinstance(r, dict) and "x" in r:
         STATE.feet_seen = (r["x"], r["y"], r["z"])      # read for free where a failure happened
+        STATE.dim_seen = r.get("dimension", STATE.dim_seen)
     return r
 
 
@@ -400,9 +403,32 @@ def with_item_ids(body):
         return dict(body, only=item_ids(body["only"]))
     return body
 
+def dim_seen():
+    """The body's dimension at the last /state read, or None."""
+    return STATE.dim_seen
+
+
+class home_break_allowed:
+    """`with home_break_allowed(reason):` — a rescue at critical hp may break a home block (GUARD lets it through)."""
+
+    def __init__(self, reason):
+        self.reason = reason
+
+    def __enter__(self):
+        STATE.home_break = self.reason
+
+    def __exit__(self, *exc):
+        STATE.home_break = None
+
+
+GUARD = None     # fn(task) → raises NotAvailable for a task the home refuses (brain wires memory.home_refusal)
+
 def post(path, body=None):
     if path.startswith("/task"):
         body = with_item_ids(body)
+        if GUARD is not None and isinstance(body, dict):
+            for t in body.get("tasks") or [body]:
+                GUARD(t)        # the one door every task passes: a missed caller can't break the home
     if path.startswith(BODY_PATHS):
         if not arbiter.BODY.owns(f"api.post({path.split('?')[0]})"):
             return {"status": "failed", "message": "body owned by the arbiter", "tasks": []}

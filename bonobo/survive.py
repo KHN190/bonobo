@@ -9,7 +9,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
 from .data import (BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
-                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_TICK)
+                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_TICK, MAX_HP, critical_hp)
 from .knowledge import DIG_SHOVEL_S, RAW_MEAT, ALL_FOOD
 from .world import Inventory, Region, add, dark_spots, find
 from .bag import throw_direction
@@ -308,12 +308,37 @@ def dig_out(ctx):
 
 @skill(gives=["state:head_clear"], remaining=_k.head_clear, needs={}, speed={}, done=lambda c: not head_buried(), budget=30, stall=15)
 def unbury(ctx):
-    """Suffocating in a block: break the block at eye level, then the one above it if sand/gravel keeps falling."""
+    """Suffocating in a block: step out to a free side cell first; else break the block at eye level (then the one
+    above it if sand/gravel keeps falling). A home block is broken only at critical hp, said as an event (api)."""
     for _ in range(4):
         s = api.get("/state")
+        here = (s["blockX"], s["blockY"], s["blockZ"])
+        out = step_out_cell(Region(add(here, (-1, -1, -1)), add(here, (1, 2, 1))), here)
+        if out is not None:
+            api.run({"type": "goto", "x": out[0] + 0.5, "y": out[1], "z": out[2] + 0.5, "range": 0.5},
+                    wait=10, awaits="the head read again after the step out")
+            yield out
+            continue
         eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
-        api.run(nav.mine_task(eye), wait=15, awaits="the eye cell read again (sand keeps falling)")
+        if eye not in ctx.policy.protected:
+            api.run(nav.mine_task(eye), wait=15, awaits="the eye cell read again (sand keeps falling)")
+        elif s.get("health", MAX_HP) <= critical_hp(s):
+            with api.home_break_allowed(f"buried at {s.get('health')} hp"):
+                api.run(nav.mine_task(eye), wait=15, awaits="the eye cell read again (sand keeps falling)")
+        else:
+            raise NotAvailable(f"buried in a home block at {eye}, no side to step out to: not broken above critical hp")
         yield eye
+
+
+def step_out_cell(region, feet_at):
+    """Pure: a side cell the body can stand in — feet and head free, a floor under it — or None."""
+    x, y, z = feet_at
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        c = (x + dx, y, z + dz)
+        if all(region.inside(p) for p in (c, add(c, (0, 1, 0)), add(c, (0, -1, 0)))) \
+                and not region.solid(c) and not region.solid(add(c, (0, 1, 0))) and region.solid(add(c, (0, -1, 0))):
+            return c
+    return None
 
 BREATH_HOLD_S = 2.0     # the head out of the water this long, lungs full: breathing, not a surfacing that sinks back
 
@@ -433,10 +458,15 @@ def wait_for_day(ctx):
 @skill(gives=["state:day"], remaining=_k.daytime, needs={}, speed={}, verify=lambda c: _k.daytime({"state": api.get("/state")}, c) == {}, budget=240, stall=60,
        provides={"sleep": lambda ctx, s: (_night_policy(ctx),)})
 def sleep(ctx, night_policy):
-    """Sleep through the night: carried bed first (placed next to us, picked up after), then a nearby site bed."""
-    why = can_sleep(api.get("/state"))
+    """Sleep through the night: the home's bed when it is within reach of the night (HOME_BED_R), else a carried bed
+    (placed next to us, picked up after), else a nearby site bed."""
+    s = api.get("/state")
+    why = can_sleep(s)
     if why:
         raise NotAvailable(why)
+    home = ctx.mem.home_part("beds", s["dimension"], feet(), anywhere=True) if getattr(ctx, "mem", None) else None
+    if home is not None and math.dist(home, feet()) <= HOME_BED_R:
+        return _sleep_in(ctx, home, night_policy, "home bed")
     inv = Inventory()
     bed = next((b for b in GROUPS["bed"] if inv.count(b)), None)
     if bed:
@@ -457,19 +487,34 @@ def sleep(ctx, night_policy):
             raise NotAvailable("could not fall asleep (monsters nearby?)")
         finally:
             mine_cell(ctx.policy, spot, wait=60)
-    beds = find(BASE_MARKERS["bed"], radius=48, limit=1)
+    beds = find(BASE_MARKERS["bed"], radius=HOME_BED_R, limit=1)
     if not beds:
         raise NotAvailable("no bed carried or nearby")
-    b = (beds[0]["x"], beds[0]["y"], beds[0]["z"])
+    return _sleep_in(ctx, (beds[0]["x"], beds[0]["y"], beds[0]["z"]), night_policy, "site bed")
+
+
+HOME_BED_R = 48       # a bed this near is walked to for the night (the site-bed search radius)
+
+
+def sleep_at_home(ctx):
+    """The night's way "home": walk to the home's bed, however far, and sleep in it."""
+    bed = ctx.mem.home_part("beds", ctx.dimension, feet(), anywhere=True)
+    if bed is None:
+        raise NotAvailable("no home bed in this dimension")
+    return _sleep_in(ctx, bed, ctx.policy, "home bed")
+
+
+def _sleep_in(ctx, b, night_policy, label):
+    """Walk to the standing bed `b` and sleep in it."""
     if not nav.arrived(b, night_policy, range_=2.5, attempts=2):
         raise NotAvailable("bed not walkable tonight")
     for _ in range(3):
         api.run_chain([{"type": "use", "x": b[0], "y": b[1], "z": b[2]}], wait=30)
         if _morning():
             ctx.mem.slept()
-            log("slept (site bed)")
+            log(f"slept ({label})")
             return
-    raise NotAvailable("could not fall asleep in the site bed")
+    raise NotAvailable(f"could not fall asleep in the {label}")
 
 DIG_IN_DEPTH = 3
 

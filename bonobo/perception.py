@@ -8,7 +8,7 @@ from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat
-from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
+from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, critical_hp
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
@@ -186,8 +186,8 @@ def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=No
     if env is not None:
         return env
     hp = state.get("health", 20)
-    # a breath or head butt in the End takes 10+ hp, so the End's floor is higher
-    if hp <= (12 if state.get("dimension") == "minecraft:the_end" else 4):
+    # a breath or head butt in the End takes 10+ hp, so the End's floor is higher (data.critical_hp)
+    if hp <= critical_hp(state):
         return "critical_health"
     # dragon breath burns ~10 hp a second: an emergency at any health
     if breath_within is not None and state.get("dimension") == "minecraft:the_end" and breath_within(8):

@@ -102,6 +102,99 @@ def write_notes(path: str, data: "dict[str, Any]") -> None:
 
 
 
+
+
+def in_box(box, p):
+    """Pure: cell `p` inside `box` ((lo, hi), inclusive)."""
+    lo, hi = box
+    return all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))
+
+
+def home_boxes(homes):
+    return [(tuple(h["snapshot"]["lo"]), tuple(h["snapshot"]["hi"])) for h in homes]
+
+
+class Protected(set):
+    """Cells never broken, plus whole boxes (a home) less the cells we placed there: `p in it` asks both; iterating
+    gives the cells only (a box is asked, never listed)."""
+
+    def __init__(self, cells=(), boxes=(), mine=()):
+        super().__init__(cells)
+        self.boxes = [(tuple(lo), tuple(hi)) for lo, hi in boxes]
+        self.mine = set(mine)           # ours inside a box: may be taken back
+
+    def __contains__(self, p):
+        p = tuple(p)
+        return super().__contains__(p) or (p not in self.mine and any(in_box(b, p) for b in self.boxes))
+
+    def __or__(self, other):
+        return Protected(set.__or__(self, other), self.boxes + list(getattr(other, "boxes", ())),
+                         self.mine | set(getattr(other, "mine", ())))
+
+    def copy(self):
+        return Protected(self, self.boxes, self.mine)
+
+    def near_cells(self, points, radius, most):
+        """Box cells within `radius` (a cube) of any of `points`, nearest first, at most `most` — what a digging walk
+        carries as "avoid" (the jar asks cells)."""
+        out = set()
+        for lo, hi in self.boxes:
+            a = [min(lo[i], hi[i]) for i in range(3)]
+            b = [max(lo[i], hi[i]) for i in range(3)]
+            for p in points:
+                r = [range(max(a[i], int(p[i]) - radius), min(b[i], int(p[i]) + radius) + 1) for i in range(3)]
+                out.update(c for c in ((x, y, z) for x in r[0] for y in r[1] for z in r[2]) if c not in self.mine)
+        return sorted(out, key=lambda c: min(sum((c[i] - p[i]) ** 2 for i in range(3)) for p in points))[:most]
+
+
+# a home's parts, found by the scan: block-name suffixes (a bed is two cells, a chest one or two)
+HOME_BEDS = ("_bed",)
+HOME_CHESTS = ("chest", "barrel")
+HOME_STATIONS = ("crafting_table", "furnace", "blast_furnace", "smoker", "anvil", "chipped_anvil", "damaged_anvil",
+                 "smithing_table", "stonecutter", "grindstone", "enchanting_table")
+
+
+def home_parts(blocks):
+    """Pure: {beds: [cells], chests: [cells], stations: [(block, cell)]} of a home's blocks ({cell: name})."""
+    out = {"beds": [], "chests": [], "stations": []}
+    for c, n in sorted(blocks.items()):
+        name = str(n).split(":")[-1]
+        if name.endswith(HOME_BEDS):
+            out["beds"].append(list(c))
+        elif name.endswith(HOME_CHESTS) and "ender" not in name:
+            out["chests"].append(list(c))
+        elif name in HOME_STATIONS:
+            out["stations"].append((name, list(c)))
+    return out
+
+
+# entities a home keeps (never struck inside it), and what is never placed or poured there
+HOME_ENTITIES = ("minecraft:armor_stand", "minecraft:item_frame", "minecraft:glow_item_frame", "minecraft:painting",
+                 "minecraft:minecart", "minecraft:chest_minecart", "minecraft:hopper_minecart",
+                 "minecraft:furnace_minecart", "minecraft:tnt_minecart")
+HOME_NO_POUR = ("minecraft:water_bucket", "minecraft:lava_bucket", "minecraft:flint_and_steel", "minecraft:fire_charge")
+
+
+def home_refusal(task, homes, mine, entity_at=None, allow_break=False):
+    """Pure: why `task` must not go out at a home, or None — a break of a home block (not ours), a strike on what a
+    home keeps, water, lava or fire placed inside. `entity_at(id)` → (type, pos) or None; `allow_break`: the
+    rescue's critical-hp allowance (a break then goes out, said as an event by the caller)."""
+    boxes = home_boxes(homes)
+    kind = task.get("type")
+    if kind == "mine" and "x" in task:
+        cell = (int(task["x"]), int(task["y"]), int(task["z"]))
+        if cell not in mine and any(in_box(b, cell) for b in boxes) and not allow_break:
+            return f"{cell} is part of the home"
+    elif kind == "attack" and entity_at is not None:
+        seen = entity_at(task.get("entity"))
+        if seen is not None and seen[0] in HOME_ENTITIES and any(in_box(b, seen[1]) for b in boxes):
+            return f"{seen[0]} is kept by the home"
+    elif kind in ("place", "use_item") and task.get("item") in HOME_NO_POUR and "x" in task:
+        cell = (int(task["x"]), int(task["y"]), int(task["z"]))
+        if any(in_box(b, cell) for b in boxes):
+            return f"no {task['item'].split(':')[-1]} inside the home"
+    return None
+
 class Memory:
     def tick(self):
         """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
@@ -214,13 +307,69 @@ class Memory:
         self.save()
 
     def protected_cells(self, dimension):
-        """Every recorded structure block of every site: planners must not dig these."""
+        """Every recorded structure block of every site, and every cell of a home's box but the blocks we placed
+        there ourselves: planners must never break these (Protected: `in` asks the cells, then the boxes)."""
         cells = set()
         for s in self.sites(dimension):
             snap = s.get("snapshot")
             if snap:
                 cells.update(tuple(int(v) for v in key.split(",")) for key in snap["blocks"])
-        return cells | self.machine_cells(dimension) | self.build_cells(dimension)
+        return Protected(cells | self.machine_cells(dimension) | self.build_cells(dimension),
+                         home_boxes(self.homes(dimension)), self.placed_in_home(dimension))
+
+    # -- the home: a player-declared site with a box (its snapshot's lo..hi) and its parts
+    def homes(self, dimension):
+        """Home sites of this dimension that carry a box (a snapshot's lo/hi)."""
+        return [s for s in self.sites(dimension, kinds=["home"]) if (s.get("snapshot") or {}).get("lo")]
+
+    def add_home(self, name, lo, hi, dimension, blocks):
+        """Record a home: every solid block of the box (`blocks`: {cell: name}) as its snapshot, its parts (beds,
+        chests, stations — the stations also as memory stations)."""
+        lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
+        parts = home_parts(blocks)
+        centre = [(lo[i] + hi[i]) // 2 for i in range(3)]
+        site = self.add_site("home", centre, dimension, name=name,
+                             snapshot={"lo": lo, "hi": hi,
+                                       "blocks": {f"{x},{y},{z}": n for (x, y, z), n in blocks.items()
+                                                  if n not in ("air", "cave_air", "void_air")}})
+        self.update_site(name, parts=parts)
+        for block, pos in parts["stations"]:
+            self.add_station(f"minecraft:{block}", pos, dimension)
+        return next(s for s in self.data["sites"] if s["name"] == name)
+
+    def remove_home(self, name):
+        """Forget the home `name` (its stations stay: they still stand)."""
+        before = len(self.data["sites"])
+        self.data["sites"] = [s for s in self.data["sites"] if not (s["name"] == name and s["kind"] == "home")]
+        self.save()
+        return len(self.data["sites"]) != before
+
+    def home_part(self, kind, dimension, feet, block=None, anywhere=False):
+        """The nearest part of `kind` ("beds", "chests", "stations" of `block`) of the home the feet stand in (or of
+        any home here, `anywhere`), or None."""
+        best = None
+        for h in self.homes(dimension):
+            box = (h["snapshot"]["lo"], h["snapshot"]["hi"])
+            if not anywhere and not in_box(box, [int(v) for v in feet]):
+                continue
+            parts = (h.get("parts") or {}).get(kind, [])
+            cells = [tuple(p[1]) for p in parts if bare(p[0]) == bare(block)] if kind == "stations" else \
+                [tuple(p) for p in parts]
+            for c in cells:
+                if best is None or math.dist(c, feet) < math.dist(best, feet):
+                    best = c
+        return best
+
+    def placed_in_home(self, dimension):
+        """Cells inside a home we placed ourselves: ours to take back."""
+        return {tuple(p["pos"]) for p in self.data.get("home_placed", []) if p["dimension"] == dimension}
+
+    def note_placed(self, cell, dimension, placed=True):
+        """A block we placed inside a home (or took back: `placed` False)."""
+        rows = [p for p in self.data.setdefault("home_placed", [])
+                if not (p["dimension"] == dimension and p["pos"] == list(cell))]
+        self.data["home_placed"] = rows + ([{"pos": list(cell), "dimension": dimension}] if placed else [])
+        self.save()
 
     def build_cells(self, dimension):
         """Cells of started, unfinished builds: never mined (the portal goal once took its own frame apart)."""

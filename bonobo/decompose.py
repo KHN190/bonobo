@@ -152,6 +152,9 @@ SOURCES = {
                    "when": ("soft_ground", "no ground near digs by hand: it needs a pickaxe"),
                    "extra_s": "soft_walk_s"},        # the walk to that ground (survive.soft_spot) is part of it
                   {"name": "wall in", "steps": [("shelter", "pod", {})], "yields": 1, "needs": [("building", POD_BLOCKS)]},
+                  # the home's bed, however far: priced by the walk to it (night_facts home_walk_s)
+                  {"name": "home", "steps": [("shelter", "home", {})], "yields": 1, "needs": [],
+                   "when": ("home_bed", "no home bed in this dimension"), "extra_s": "home_walk_s"},
                   # the hut's needs are read from its blueprint (a hand copy named the wrong stone)
                   {"name": "hut", "steps": [("shelter", "hut", {})], "yields": 1,
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items())}],
@@ -329,7 +332,7 @@ def to_dict(step: Step) -> dict:
 def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
-def night_facts(soft, cooled=(), dig_site=True):
+def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),
     the ways that failed here lately (`cooled`: their names, dropped from the pricing), and whether a dig-in can
     finish here (`dig_site`, survive.dig_in_site: False → dig in is not offered)."""
@@ -338,6 +341,8 @@ def night_facts(soft, cooled=(), dig_site=True):
         {"soft_ground": True, "soft_walk_s": 0.0 if soft is True else float(soft)}
     if not dig_site:
         out["no_dig_site"] = True
+    if home_walk_s is not None:
+        out.update(home_bed=True, home_walk_s=float(home_walk_s))      # a home bed here, this walk away
     if cooled:
         out["cooled"] = sorted(cooled)
     return out

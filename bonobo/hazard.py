@@ -120,6 +120,7 @@ def extinguish_commands(s, has_bucket, water):
         raise api.NotAvailable("on fire with no water to put it out")
     return [{"type": "goto", "x": water["x"], "y": water["y"], "z": water["z"], "range": 0.5, "partial": True}]
 
+# the suffocation rescue may break a home block at critical hp (survive.unbury): a life before a build
 RESCUE = {"lava": _leave_lava, "drowning": _surface, "suffocating": _unbury, "burning": _extinguish}
 # stopped and nothing more: a fall is over before a round acts; the landing is the jar's WaterClutch
 STOP_ONLY = ("falling",)

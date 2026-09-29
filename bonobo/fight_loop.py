@@ -485,7 +485,7 @@ def _attack(option, state, **extra):
             brk, plc, void = nav.MOVES["evade"]
             out.append({"type": "travel", "x": spot[0], "y": spot[1], "z": spot[2], "range": 2, "break": brk,
                         "place": plc, "voidBridge": void, "placeBudget": int(state["inv"].count("building")),
-                        "avoid": nav.avoid_cells(state.get("protected", ()), spot, state["feet"])})
+                        **nav.avoid_fields(state.get("protected", ()), spot, state["feet"])})
     keep = {"keepOff": float(MOBS["minecraft:creeper"]["keep_out"])} if step == "keepoff" else {}   # jar default 5
     return out + [dict(task, footwork=step, **keep)]
 
@@ -497,7 +497,7 @@ def _evade(option, state):
     brk, plc, void = nav.MOVES["evade"]            # digs and bridges as priced, never out over the void (nav.MOVES)
     return [{"type": "travel", "x": x, "y": y, "z": z, "range": 3, "break": brk, "place": plc, "voidBridge": void,
              "placeBudget": int(state["inv"].count("building")),
-             "avoid": nav.avoid_cells(state.get("protected", ()), (x, y, z), state["feet"])}]
+             **nav.avoid_fields(state.get("protected", ()), (x, y, z), state["feet"])}]
 
 def _eat(option, state):
     wanted = [option.target] if option.target else list(ALL_FOOD) + list(RAW_MEAT)
@@ -534,8 +534,8 @@ def _cover(option, state):
     x, y, z = option.target
     brk, plc, void = nav.MOVES["evade"]
     return [{"type": "travel", "x": x + 0.5, "y": y, "z": z + 0.5, "range": 0.4, "break": brk, "place": plc,
-             "voidBridge": void, "placeBudget": 0, "avoid": nav.avoid_cells(state.get("protected", ()), (x, y, z),
-                                                                          state["feet"])}]
+             "voidBridge": void, "placeBudget": 0, **nav.avoid_fields(state.get("protected", ()), (x, y, z),
+                                                                      state["feet"])}]
 
 def _bait(option, state):
     x, y, z = option.target

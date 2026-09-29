@@ -278,12 +278,24 @@ def avoid_cells(protected, *near):
     return [{"x": c[0], "y": c[1], "z": c[2]} for c in sorted(protected)
             if any(math.dist(c, n) <= AVOID_RADIUS for n in near)][:AVOID_MAX]
 
+HOME_AVOID_R = 8       # home cells this near a walk's ends go in its "avoid" (a cube: 17³ at most per end)
+
+def avoid_fields(protected, *near):
+    """Pure: a digging walk's "avoid": the protected cells near its ends (avoid_cells) and, for a home's box, its
+    cells nearest them (Protected.near_cells), within AVOID_MAX."""
+    cells = avoid_cells(protected, *near)
+    boxed = getattr(protected, "near_cells", None)
+    if boxed is not None:
+        cells = cells + [{"x": c[0], "y": c[1], "z": c[2]}
+                         for c in boxed(near, HOME_AVOID_R, max(0, AVOID_MAX - len(cells)))]
+    return {"avoid": cells}
+
 def with_avoid(task, protected):
     """Pure: `task` with its "avoid" when its type approaches by digging (APPROACHING) and it names none; else the task as it was."""
 
     if task.get("type") not in APPROACHING or "avoid" in task:
         return task
-    return {**task, "avoid": avoid_cells(protected, (task["x"], task["y"], task["z"]))}
+    return {**task, **avoid_fields(protected, (task["x"], task["y"], task["z"]))}
 
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 
@@ -549,9 +561,9 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
         if here is None:
             return stopped
     budget = place_budget(Inventory().count("building"))
-    # taught doors (mechanisms): pressed open first when on the way, and never dug
+    # taught doors (mechanisms): pressed open first when on the way, and never dug; the home's cells too
     doors = DOORS(here, pos, policy) if DOORS is not None else []
-    avoid = avoid_cells(set(policy.protected) | set(doors), here, pos)
+    avoid = avoid_fields(policy.protected | set(doors), here, pos)
     grounded = False
     brk, plc, void = may_alter(purpose, policy)
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
@@ -561,7 +573,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
         try:
             r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                          "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                         "avoid": avoid}, wait=TASK_WAIT_S, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+                         **avoid}, wait=TASK_WAIT_S, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
         except api.TaskStuck as e:
             # stuck: decide again from where we stand (the target may sit by a hazard that moved), never stand still
             log(f"   travel stuck ({e}): deciding again from {feet()}")
@@ -587,7 +599,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
         pos = (pos[0], fy, pos[2])
         api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
                  "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                 "avoid": avoid}, wait=TASK_WAIT_S, awaits="the retry's arrival is read before anything else is asked")
+                 **avoid}, wait=TASK_WAIT_S, awaits="the retry's arrival is read before anything else is asked")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
     # a leg that ended nearer is progress; the next round continues from there
