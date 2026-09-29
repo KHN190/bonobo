@@ -49,6 +49,17 @@ class Geometry(unittest.TestCase):
         self.assertIsNone(mech.door_route_s(mechs, OUTSIDE, far, walk_s))
 
 
+class Through(unittest.TestCase):
+    def test_rows(self):
+        foot = min(DOOR, key=lambda c: c[1])
+        # (walking toward) → the cell past the door
+        rows = [("in from outside", INSIDE, (foot[0] + 1, foot[1], foot[2])),
+                ("must fail: out from inside, stepped the wrong way", OUTSIDE, (foot[0] - 1, foot[1], foot[2]))]
+        for name, there, want in rows:
+            with self.subTest(name):
+                self.assertEqual(mech.through_cell(tuple(DOOR), there), want)
+
+
 class Planning(unittest.TestCase):
     """Estimates read the stored mechanisms and the snapshot, never the world."""
 
@@ -142,8 +153,12 @@ class Walk(unittest.TestCase):
                     mock.patch.object(nav, "_arrived", lambda *a, **k: True):
                 nav._travel(INSIDE, nav.Policy(), 1.5, 1, None, "work", OUTSIDE, 0.0)
         kinds = [t["type"] for t in posted]
-        self.assertEqual(kinds[:2], ["use", "travel"])                    # the press first, then the walk
-        avoid = {(c["x"], c["y"], c["z"]) for c in posted[1]["avoid"]}
+        self.assertEqual(kinds[:3], ["use", "travel", "travel"])          # press, through, then the rest
+        cross = posted[1]
+        # must fail: the crossing leg may break (press_door_to_chest 022603: the door shut, the wall beside it dug)
+        self.assertEqual((cross["break"], cross["place"]), (False, False))
+        self.assertEqual((cross["x"], cross["y"], cross["z"]), mech.through_cell(tuple(DOOR), INSIDE))
+        avoid = {(c["x"], c["y"], c["z"]) for c in posted[2]["avoid"]}
         self.assertTrue(set(DOOR) <= avoid)                               # the door is never dug
 
 

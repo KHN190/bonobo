@@ -155,9 +155,23 @@ def press_mechanism(ctx, press, opens):
     return "pressed"
 
 
+def through_cell(door, there):
+    """Pure: the cell one step past the door toward `there` — its foot cell moved along the axis `there` lies
+    farthest on (the walk's third leg ends there: through, not round)."""
+    foot = min(door, key=lambda c: c[1])
+    c = centre(door)
+    axis = max((0, 2), key=lambda i: abs(there[i] - c[i]))
+    step = 1 if there[axis] > c[axis] else -1
+    return tuple(foot[i] + (step if i == axis else 0) for i in range(3))
+
+
+CROSS_TRIES = 2           # a pulse door (a button) may shut before the body is through: pressed again, once
+
+
 def doors_on_way(here, there, policy=None, dimension=None):
-    """nav's wire: the taught door on the way here → there opened from our side's press first (pressed only when
-    closed); returns every taught opens cell, which a walk may cross but never dig."""
+    """nav's wire: a taught door on the way here → there is crossed in legs — into reach of our side's press and
+    pressed (only when shut), then straight through with nothing broken, pressed again if it shut first; returns
+    every taught opens cell, which the rest of the walk may cross but never dig."""
     mechs = load()
     if not mechs:
         return []              # nothing taught: no read at all
@@ -166,5 +180,12 @@ def doors_on_way(here, there, policy=None, dimension=None):
     doors = on_the_way(mechs, here, there)
     press = press_for(mechs, doors[0], here) if doors else None
     if press is not None:
-        press_mechanism(None, press, [list(c) for c in doors[0]])
+        door, past = [list(c) for c in doors[0]], through_cell(doors[0], there)
+        for _ in range(CROSS_TRIES):
+            press_mechanism(None, press, door)
+            r = api.run({"type": "travel", "x": past[0], "y": past[1], "z": past[2], "range": 0.5, "break": False,
+                         "place": False, "voidBridge": False, "placeBudget": 0},
+                        wait=30, awaits="through the door or not: read before the rest of the walk")
+            if r.get("status") == "succeeded":
+                break
     return [tuple(c) for m in mechs for c in m["opens"]]
