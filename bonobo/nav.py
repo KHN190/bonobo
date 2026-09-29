@@ -581,6 +581,15 @@ def _doorways_between(here, there):
         return api.swallowed("nav.doorways", e) or {}
 
 
+def _leg(task, awaits):
+    """One travel leg: its answer, a refusal ("target unreachable") read as a leg that got no further — the walk
+    judges it (no nearer → not there), never raised past the caller's own no-way handling."""
+    try:
+        return api.run(task, wait=TASK_WAIT_S, awaits=awaits)
+    except api.Unreachable as e:
+        return {"status": "failed", "message": str(e)}
+
+
 def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     """The mod plans and runs the whole route, so Python never plans moves the walker can't make."""
     here = feet()
@@ -611,9 +620,9 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
         api.at_boundary()                # nightfall between legs: never inside a walk
         was = feet()
         try:
-            r = api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                         "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                         **avoid}, wait=TASK_WAIT_S, awaits="where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
+            r = _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
+                      "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+                      **avoid}, "where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
         except api.TaskStuck as e:
             # stuck: decide again from where we stand (the target may sit by a hazard that moved), never stand still
             log(f"   travel stuck ({e}): deciding again from {feet()}")
@@ -637,9 +646,9 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
             continue
         log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
         pos = (pos[0], fy, pos[2])
-        api.run({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                 "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
-                 **avoid}, wait=TASK_WAIT_S, awaits="the retry's arrival is read before anything else is asked")
+        _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
+              "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+              **avoid}, "the retry's arrival is read before anything else is asked")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
     if locked:

@@ -184,11 +184,13 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]
         # an open face first: a buried one is dug to (surface kinds: a shaft, priced with its overburden)
-        exposed_hits = find(blocks, radius=radius, limit=60, exposed=True)
+        # remembered cells are not searched again: the look only when memory holds none
+        exposed_hits = [] if noted else find(blocks, radius=radius, limit=60, exposed=True)
         raw = noted or exposed_hits or find(blocks, radius=radius, limit=60)
         digs = "approach_dig" in nav.mod_features()
         open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}
-        exposed_cells = None if digs else open_set
+        exposed_cells = None if digs else open_set if not noted else \
+            {(h["x"], h["y"], h["z"]) for h in find(blocks, radius=radius, limit=60, exposed=True)}
         fresh = [h for h in raw if (h["x"], h["y"], h["z"]) not in no_cell]
         if raw and not fresh:
             if radius < SEEK_RADII[-1]:

@@ -729,7 +729,8 @@ def brain_row(name, doc, scene, queue, done, minutes, check, hooks=(), variant=(
     """The whole brain on a private queue, the world built up to the decision; the slice judged too."""
     return _row(name, doc, "brain", scene, ("slice", nest(done), min(minutes, 0.4), None, queue),
                 [top(check), ("slice_check", None)], point="C", before=hooks, skills=[], tier_fixed="brain",
-                combat=name == "resume_after_combat", tags={"base": "brain"}, queue=queue, variant=list(variant))
+                combat=any(isinstance(h, tuple) and h[0] == "fight_recorded" for h in hooks), tags={"base": "brain"},
+                queue=queue, variant=list(variant))
 
 def dirt_row(name, doc, extra, done, check):
     """Dusk on stone, an empty bag, a dirt patch along the platform: dug in there by hand (or never walked to)."""
