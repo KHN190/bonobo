@@ -41,6 +41,7 @@ def run(cmds):
 def main():
     if not os.path.exists(FLAG):
         return 0                    # the bench runs only in a test world: a real world's settings are the player's
+    api.take_control()              # a script's start takes the body: a paused toggle refused every post
     run(restore_commands())
     print("world settings back to the game's normal: " + ", ".join(restore_commands()))
     s = api.get("/state")

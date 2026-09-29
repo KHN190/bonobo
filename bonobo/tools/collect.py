@@ -80,6 +80,7 @@ def main():
     cycles = int(args[0]) if args else 5
     ticks = int(args[1]) if len(args) > 1 else 3600              # 3 min of game time per cycle
     park = park_bait if bait else park_observer
+    api.take_control()
     park()
     t0 = time.time()
     tag = "bait" if bait else "observe"

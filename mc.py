@@ -47,6 +47,7 @@ def cmd_plan(_):
 
 
 def cmd_step(_):
+    api.take_control()
     Brain().round()
 
 
