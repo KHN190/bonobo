@@ -1,6 +1,8 @@
 """What the world looks like right now: player snapshot, inventory, block regions, searches."""
 from __future__ import annotations
 
+import math
+
 import time
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
@@ -15,6 +17,13 @@ if TYPE_CHECKING:
 ROUTES = {}
 
 NEIGHBOURS6 = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
+
+def to_segment(p, a, b):
+    """Pure: the distance from point `p` to the segment a → b."""
+    ab = [b[i] - a[i] for i in range(3)]
+    n = sum(v * v for v in ab)
+    t = 0.0 if n == 0 else max(0.0, min(1.0, sum((p[i] - a[i]) * ab[i] for i in range(3)) / n))
+    return math.dist(p, [a[i] + t * ab[i] for i in range(3)])
 
 def add(p, d) -> Cell:
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]

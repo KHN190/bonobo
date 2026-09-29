@@ -150,7 +150,8 @@ class Walk(unittest.TestCase):
                     mock.patch.object(nav.api, "get", lambda p: here), \
                     mock.patch.object(nav, "feet", lambda: OUTSIDE), \
                     mock.patch.object(nav, "Inventory", lambda: type("I", (), {"count": lambda s, k: 0})()), \
-                    mock.patch.object(nav, "_arrived", lambda *a, **k: True):
+                    mock.patch.object(nav, "_arrived", lambda *a, **k: True), \
+                    mock.patch.object(nav, "_doorways_between", lambda a, b: {}):
                 nav._travel(INSIDE, nav.Policy(), 1.5, 1, None, "work", OUTSIDE, 0.0)
         kinds = [t["type"] for t in posted]
         self.assertEqual(kinds[:4], ["travel", "use", "travel", "travel"])   # beside the press, press, through, rest

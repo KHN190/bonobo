@@ -14,7 +14,7 @@ import os
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .world import Region
+from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")
 DOOR_NEAR = 2.0           # an opens cell this near the straight way from here to there puts the door on the way
@@ -62,13 +62,6 @@ def is_open(opens, solid):
     return all(not solid(tuple(c)) for c in opens)
 
 
-def _to_segment(p, a, b):
-    ab = [b[i] - a[i] for i in range(3)]
-    n = sum(v * v for v in ab)
-    t = 0.0 if n == 0 else max(0.0, min(1.0, sum((p[i] - a[i]) * ab[i] for i in range(3)) / n))
-    return math.dist(p, [a[i] + t * ab[i] for i in range(3)])
-
-
 def centre(cells):
     return tuple(sum(c[i] for c in cells) / len(cells) for i in range(3))
 
@@ -76,7 +69,7 @@ def centre(cells):
 def on_the_way(mechs, here, there, near=DOOR_NEAR):
     """Pure: the doors (their opens cells, a tuple) with a cell near the straight way here → there, nearest first."""
     doors = {tuple(map(tuple, m["opens"])) for m in mechs}
-    hit = [d for d in doors if any(_to_segment(c, here, there) <= near for c in d)]
+    hit = [d for d in doors if any(to_segment(c, here, there) <= near for c in d)]
     return sorted(hit, key=lambda d: math.dist(centre(d), here))
 
 

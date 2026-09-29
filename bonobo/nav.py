@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
 from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
-from .world import NEIGHBOURS6, Inventory, Region, add, feet
+from .world import NEIGHBOURS6, Inventory, Region, add, feet, to_segment
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -550,6 +550,37 @@ def _long_trip(here, pos, policy, min_hp, purpose, _from, _began):
                       start, here, time.time() - t_start, time.time())
     return here, None
 
+# -- doors a walk meets: never dug. A block with an `open` state opens and shuts; a hand opens all but these two
+# (vanilla: redstone only) — the jar's /blocks gives names and states, no tags
+LOCKED = ("iron_door", "iron_trapdoor")
+DOOR_NEAR = 2.0          # a door this near the straight way here → there is on the way
+DOOR_PAD = 2             # the bounded read round the way: its box, this much wider
+
+
+def doorways(region):
+    """Pure: {cell: (by hand, open)} of every block in `region` (read with states) that opens and shuts."""
+    return {c: (region.name(c) not in LOCKED, st.get("open") == "true")
+            for c, st in getattr(region, "props", {}).items() if "open" in st}
+
+
+def door_steps(ways, here, there, near=DOOR_NEAR):
+    """Pure: (shut doors on the way a hand opens — one cell a door, its lower half; shut ones it cannot), nearest
+    first. An open door is walked through, never used (a use would shut it)."""
+    on = sorted((c for c in ways if to_segment(c, here, there) <= near and (c[0], c[1] - 1, c[2]) not in ways),
+                key=lambda c: math.dist(c, here))
+    return ([c for c in on if ways[c] == (True, False)], [c for c in on if ways[c] == (False, False)])
+
+
+def _doorways_between(here, there):
+    """One bounded read with states over the box from here to there: {} when it cannot be read."""
+    lo = tuple(min(here[i], there[i]) - (DOOR_PAD if i != 1 else 1) for i in range(3))
+    hi = tuple(max(here[i], there[i]) + (DOOR_PAD if i != 1 else 2) for i in range(3))
+    try:
+        return doorways(Region(lo, hi, props=True))
+    except McError as e:
+        return api.swallowed("nav.doorways", e) or {}
+
+
 def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     """The mod plans and runs the whole route, so Python never plans moves the walker can't make."""
     here = feet()
@@ -563,9 +594,18 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     budget = place_budget(Inventory().count("building"))
     # taught doors (mechanisms): pressed open first when on the way, and never dug; the home's cells too
     doors = DOORS(here, pos, policy) if DOORS is not None else []
-    avoid = avoid_fields(policy.protected | set(doors), here, pos)
+    # every other door on the way: a wooden one opened by hand when shut, an iron one a wall — none ever dug
+    ways = _doorways_between(here, pos)
+    by_hand, locked = door_steps(ways, here, pos)
+    for cell in by_hand:
+        r = api.run({"type": "use", "x": cell[0], "y": cell[1], "z": cell[2]}, wait=30,
+                    awaits="the door opened: the walk goes through it next")
+        api.detail(f"   door {cell} on the way opened by hand: {r.get('status')}")
+    avoid = avoid_fields(policy.protected | set(doors) | set(ways), here, pos)
     grounded = False
     brk, plc, void = may_alter(purpose, policy)
+    if locked:
+        brk = False          # a shut door no hand opens: never dug round either — through another way, or no way
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
     for _ in range(max(attempts, LEGS)):
         api.at_boundary()                # nightfall between legs: never inside a walk
@@ -602,6 +642,8 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
                  **avoid}, wait=TASK_WAIT_S, awaits="the retry's arrival is read before anything else is asked")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)
+    if locked:
+        raise api.NavFailed(f"blocked by a door at {locked[0]}: shut, no hand opens it, nothing taught")
     # a leg that ended nearer is progress; the next round continues from there
     return _arrived(_from, pos, _began, False, closer=walked_closer(_from, feet(), pos))
 
