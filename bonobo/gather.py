@@ -473,6 +473,10 @@ def strip_mine_step(ctx, length=16):
             except NotAvailable:
                 pass
 
+def _hunt_seen(types):
+    """The prey in sight as a detail line: id and distance each."""
+    return ", ".join(f"{n['id']}@{n['distance']:.1f}" for n in entities(64, types)) or "none"
+
 def _hunt_progress(token, types):
     near = entities(64, types)
     # closing in (4-block bins) or collecting drops is progress; circling is not
@@ -512,10 +516,16 @@ def hunt(ctx, token, count, types, night):
             if e is None or e["distance"] > 6:
                 ctx.ban((prey[0]["id"], 0, 0), 300)
                 raise api.NavFailed(f"could not get to the {bare(types[0])}")
+        api.detail(f"   hunt: prey {e['id']} at {(round(e['x'], 1), round(e['y'], 1), round(e['z'], 1))} "
+                   f"{e['distance']:.1f} off; {_hunt_seen(types)}")
         try:
-            api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
+            got = api.run({"type": "attack", "entity": e["id"]}, wait=30, awaits="the mob dead")
+            api.detail(f"   hunt: attack {got.get('status')} {got.get('message', '')}; after: {_hunt_seen(types)}")
+            bagged = Inventory().count(token)
             # the drop can land where nothing stands: `sweep` makes a way to it before a kill is written off
             nav.sweep(ctx, radius=6, only=[token], wait=60)
+            api.detail(f"   hunt: {bare(token)} {before} before, {bagged} after the attack, "
+                       f"{Inventory().count(token)} after the sweep")
         except api.TaskStuck:
             ctx.ban((prey[0]["id"], 0, 0), BAN_MAX_S)  # unreachable (across water, on a ledge)
             raise api.NavFailed(f"the {bare(types[0])} is out of reach for attacks")
