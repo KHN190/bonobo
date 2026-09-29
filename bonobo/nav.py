@@ -755,17 +755,30 @@ def route_s(cell, policy, range_=1.5, nodes=NAV_NODES):
         return (None, None)          # this round has asked enough: unknown, and the caller estimates instead
     _ROUTE_BUDGET[0] += 1
     try:
-        r = api.get(f"/plan?to={cell[0]},{cell[1]},{cell[2]}&range={range_}"
-                    f"&break={'true' if policy.allow_dig else 'false'}"
-                    f"&place={'true' if policy.allow_build else 'false'}&nodes={nodes}")
-        out = (bool(r.get("found")), r.get("seconds"))
+        out = _plan(cell, policy.allow_dig, policy.allow_build, range_, nodes)
     except tape.ReplayMiss:
         return (None, None)                 # a recorded round: not an answer, and never cached as one
-    except McError as err:
-        api.swallowed("nav.route_s", err)
-        out = (None, None)
     _ROUTES[key] = out
     return out
+
+def _plan(cell, dig, build, range_, nodes=NAV_NODES):
+    """The game's /plan to `cell`: (found, seconds), (None, None) when it cannot be asked."""
+    try:
+        r = api.get(f"/plan?to={cell[0]},{cell[1]},{cell[2]}&range={range_}"
+                    f"&break={'true' if dig else 'false'}&place={'true' if build else 'false'}&nodes={nodes}")
+    except McError as err:
+        api.swallowed("nav.plan", err)
+        return (None, None)
+    found = r.get("found")
+    return (None if found is None else bool(found)), r.get("seconds")
+
+def walks_to(cell, range_):
+    """Is there a walk (nothing dug, nothing built) between the body and `cell` — the game's pathfinder; None when
+    it cannot be asked. What a walking mob there needs to reach us, read from our side."""
+    try:
+        return _plan(cell, False, False, range_)[0]
+    except tape.ReplayMiss:
+        return None
 
 def forget_routes():
     """New round, new body position: the routes priced from the old one say nothing about this one."""

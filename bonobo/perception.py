@@ -35,6 +35,7 @@ class PerceptionState(lifecycle.State):
     grid_at: float = 0.0
     grid_at_pos: Any = None
     ground: dict = _dc_field(default_factory=dict)     # here → (at, (grid, region)): one slot, data.memo_ttl
+    reach: dict = _dc_field(default_factory=dict)      # (body cell, mob cell) → (at, walks to us): data.memo_ttl
     region: Any = None                # the blocks the grid was read from: evade asks where a walk lands
     kit: dict = _dc_field(default_factory=dict)        # what we carry (`kit`), re-read when kit_sig changes
     kit_sig: Any = None
@@ -45,7 +46,7 @@ class PerceptionState(lifecycle.State):
     lock: Any = _dc_field(default_factory=threading.RLock, repr=False, compare=False)
 
     LIFE = ("hurt_rate", "hp_seen", "seen", "last_here", "answered", "grid", "grid_at", "grid_at_pos", "ground",
-            "region", "kit", "kit_sig", "damage_at")
+            "reach", "region", "kit", "kit_sig", "damage_at")
 
 
 STATE = lifecycle.owns(__name__, PerceptionState())
@@ -125,13 +126,30 @@ def read_combat(near):
     return out
 
 
+REACH_KEPT = 64          # (body, mob) answers kept at most
+
+
+def reaches_us(here, now):
+    """(pos, reach) → can a mob there walk to us (nav.walks_to, read from our side), kept GRID_TTL_S per pair of
+    cells: this runs at 5 Hz."""
+    body = tuple(int(math.floor(c)) for c in here)
+
+    def ask(pos, reach):
+        cell = tuple(int(math.floor(c)) for c in pos)
+        if len(STATE.reach) > REACH_KEPT:
+            STATE.reach.clear()          # the mobs round us change: old pairs are no answer to keep
+        return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S, lambda: nav.walks_to(cell, reach), now)
+    return ask
+
+
 def note_threats(near, now=None, here=None, context=None):
     """Record the threat rows and their entity ids (`context`: threat.context_of — who is after us)."""
 
     import time as _t
     now = now if now is not None else _t.time()
     near = read_combat(near)
-    threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context)
+    reaches = reaches_us(here, now) if here is not None else None
+    threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context, reaches=reaches)
     threat.THREAT_IMPACTS = threat.impacts_of(near)
     threat.THREAT_LIT = {e.get("id") for e in near if e.get("type") == "minecraft:creeper" and threat.fuse_lit(e)}
     threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
