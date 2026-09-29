@@ -3,14 +3,13 @@
 import argparse
 import json
 import sys
-import time
 
-from bonobo import api, skills
+from bonobo import api, skillcore, skills, store
 from bonobo.api import McError, log
-from bonobo.brain import Brain, LiveCost, autoplay, goals
+from bonobo.brain import Brain, autoplay
 from bonobo.data import bare
 from bonobo.memory import Memory
-from bonobo.planner import Planner, Unplannable
+from bonobo.planner import Unplannable
 from bonobo.world import Inventory, Snapshot, find
 
 
@@ -22,24 +21,29 @@ def cmd_state(_):
 
 def cmd_inv(_):
     inv = Inventory()
-    print(", ".join(f"{bare(s['id'])}×{s['count']}" + (f"({s['maxDamage'] - s['damage']})" if "damage" in s else "")
+    print(", ".join(f"{bare(s['id'])}×{s['count']}" + (f"({s.get('maxDamage', 0) - s.get('damage', 0)})" if "damage" in s else "")
                     for s in inv.slots))
     print("worn:", {k: bare(v["id"]) for k, v in inv.equipment.items() if v["count"]})
 
 
 def cmd_plan(_):
-    """Shows every goal, whether it's done, and the plan the brain would follow for open ones."""
-    snap = Snapshot()
+    """Every live task, whether it is done, and the plan the brain would follow for it from this bag."""
+    from bonobo import decompose, goals, tasks
+    from bonobo.cost import Cost
+    snap = Snapshot.from_readings(api.get("/state"), Inventory())
     mem = Memory()
-    for g in goals(snap, mem):
-        if g.done():
-            print(f"✔ [p{g.phase}] {g.name}")
+    for t in tasks.load():
+        if t["state"] not in tasks.LIVE:
+            continue
+        goal = tasks.goal_of(t)
+        if goals.done(goal, snap, mem):
+            print(f"✔ {tasks.describe(t)}")
             continue
         try:
-            plan = Planner.from_inventory(snap.inv, LiveCost(snap)).plan(g.needs)
-            print(f"· [p{g.phase}] {g.name} (value {g.value}): " + (" → ".join(str(s) for s in plan) or "finish"))
+            plan = decompose.decompose(snap.inv, goal, Cost(snap, mem))
+            print(f"· {tasks.describe(t)}: " + (" → ".join(str(s) for s in plan) or "finish"))
         except Unplannable as e:
-            print(f"✗ [p{g.phase}] {g.name}: {e}")
+            print(f"✗ {tasks.describe(t)}: {e}")
 
 
 def cmd_step(_):
@@ -53,10 +57,10 @@ def cmd_autoplay(a):
 def cmd_home(a):
     """Record the base as the home site (with a structure snapshot for repairs)."""
     mem = Memory()
-    pos = tuple(a.pos) if a.pos else skills.find_base()
+    pos = tuple(a.pos) if a.pos else store.find_base()
     if pos is None:
         raise McError("no base found nearby; stand at home or pass --pos x y z")
-    snap = skills.snapshot(pos, half=a.half, down=4, up=6)
+    snap = skillcore.snapshot(pos, half=a.half, down=4, up=6)
     site = mem.add_site("home", pos, api.get("/state")["dimension"], snapshot=snap, name="home")
     log(f"home recorded at {site['pos']} with {len(snap['blocks'])} structure blocks")
 
@@ -64,192 +68,283 @@ def cmd_home(a):
 def cmd_skills(_):
     """Every skill with its contract (budget, stall limit, purpose)."""
     from bonobo.skill import REGISTRY
-    mem = Memory()
     for c in REGISTRY.values():
-        print(c.describe(mem))
+        print(c.describe())
 
 
-def cmd_direct(a):
-    """Claude's instructions to the script (above normal goals, below survival)."""
-    from bonobo import directives
+def cmd_task(a):
+    """The task queue (tasks.json): what the cerebrum wants done, in order. The only door in."""
+    from bonobo import goals, tasks
     if a.action == "list":
-        for d in directives.load():
-            print(d["id"], directives.describe(d))
-    elif a.action == "clear":
-        directives.save([d for d in directives.load() if d["status"] != "pending"])
-        print("pending directives cleared")
-    else:
-        # Dependency graph + mode: --after ID... waits for those directives; --mode boost/background joins the pool.
-        common = {"note": a.note, "requires": a.after or [], "mode": a.mode}
-        if a.x is not None:
-            common["x"] = a.x
-        if a.action == "goal":
-            pairs = [[a.args[i], int(a.args[i + 1])] for i in range(0, len(a.args) - 1, 2)]
-            d = directives.add("goal", needs=pairs, **common)
-        elif a.action == "goto":
-            d = directives.add("goto", target=[int(v) for v in a.args[:3]], **common)
-        else:
-            args = [int(v) if v.lstrip("-").isdigit() else v for v in a.args[1:]]
-            d = directives.add("skill", name=a.args[0], args=args, **common)
-        print(d["id"], directives.describe(d))
-
-
-def cmd_want(a):
-    """The cerebrum's door (docs/api.md): a wanted state and what it is worth in seconds. Nothing else gets in."""
-    from bonobo import want
-    want.load()
-    if a.action == "list":
-        for w in want.list(active=a.all is False):
-            print(w)
-    elif a.action == "status":
-        print(json.dumps(want.status(a.args[0] if a.args else None), indent=1))
-    elif a.action == "stop":
-        for w in want.stop(a.args[0] if a.args else None, hard=a.hard, reason=a.note):
-            print("stopped", w)
-    else:
-        pairs = {a.args[i]: float(a.args[i + 1]) for i in range(0, len(a.args) - 1, 2)}
-        w = want.offer(pairs, a.worth_s, deadline_s=a.deadline_s, expires_s=a.expires_s,
-                       scope=a.scope, note=a.note, id=a.id)
-        print(w.id, w.state, json.dumps(want.status(w.id)[0]))
-
-
-def cmd_prio(a):
-    """Claude's priority adjustments (priorities.json): hot-reloaded every round, always expiring."""
-    from bonobo import priority
-    if a.action == "list":
-        for target, w in priority.load().items():
-            print(target, {k: v for k, v in w.items() if k != "target"})
+        for t in tasks.load():
+            if a.all or t["state"] in tasks.LIVE:
+                print(tasks.describe(t))
+        return
+    if a.action == "cancel":
+        tasks.cancel(a.args[0] if a.args else None)
+        print("cancelled", a.args[0] if a.args else "every live task")
         return
     if a.action == "clear":
-        with open(priority.FILE, "w") as f:
-            json.dump({"weights": []}, f)
-        print("priorities cleared")
+        tasks.clear()
+        print("finished tasks cleared")
         return
-    if a.action == "profile":
-        print(f"{priority.apply_profile(a.target, ttl=a.ttl)} weights from profile {a.target}")
+    if a.action == "milestones":
+        for name, needs in goals.MILESTONES.items():
+            print(f"{name:16} {needs}")
         return
-    fields = {"ttl": a.ttl, "why": a.why}
-    if a.action == "set":
-        fields["x"] = float(a.value)
+    template, rest = a.args[0], a.args[1:]
+    if template in ("have", "craft"):
+        needs = [goals.parse_need(rest[i], rest[i + 1] if i + 1 < len(rest) and not rest[i].startswith("tool:")
+                                  else 1)
+                 for i in _need_starts(rest)]
+        goal = goals.make(template, needs=needs)
+    elif template == "milestone":
+        goal = goals.make("milestone", name=" ".join(rest))
+    elif template == "goto":
+        goal = goals.make("goto", pos=[int(v) for v in rest[:3]], range=float(rest[3]) if len(rest) > 3 else 2)
+    elif template == "road":
+        goal = goals.make("road", a=[int(v) for v in rest[:3]], b=[int(v) for v in rest[3:6]])
+    elif template == "build":
+        goal = goals.make("build", bp=rest[0], at=[int(v) for v in rest[1:4]] if len(rest) >= 4 else None)
+    elif template == "sleep":
+        goal = goals.make("sleep")
+    elif template == "skill":
+        goal = goals.make("skill", name=rest[0],
+                          args=[int(v) if v.lstrip("-").isdigit() else v for v in rest[1:]])
+    elif template == "effect":
+        goal = goals.make("effect", effect=rest[0], count=int(rest[1]) if len(rest) > 1 else 1)
     else:
-        fields[a.action] = True       # ban | pin
-    print(priority.add_weight(a.target, **fields))
+        raise McError(f"unknown goal {template}: one of {', '.join(goals.TEMPLATES)}")
+    t = tasks.add(goal, expires_s=a.expires_s, front=a.front)
+    print(tasks.describe(t))
+
+
+def _need_starts(rest):
+    """Indexes where each need begins in `TOKEN N TOKEN N tool:KIND:TIER ...`."""
+    out, i = [], 0
+    while i < len(rest):
+        out.append(i)
+        i += 1 if rest[i].startswith("tool:") else 2
+    return out
 
 
 def cmd_scenario(a):
     """Scenario bench (test world only): enable | disable | list | run NAME... | all | table."""
     import os
-    from bonobo import scenarios, skills
-    from bonobo.brain import Brain, code_version
+    from bonobo.bench import table as sheet
+    from bonobo.brain import Brain
     from bonobo.world import Snapshot
     if a.action == "enable":
-        open(scenarios.FLAG, "w").write("test world confirmed by the user\n")
+        open(sheet.FLAG, "w").write("test world confirmed by the user\n")
         print("scenario commands enabled for this world — never enable in the real world")
         return
     if a.action == "disable":
-        if os.path.exists(scenarios.FLAG):
-            os.remove(scenarios.FLAG)
+        if os.path.exists(sheet.FLAG):
+            os.remove(sheet.FLAG)
         print("scenario commands disabled")
         return
+    point = getattr(a, "point", None)
+    selected = set(_scenario_selection(a, sheet))
     if a.action == "list":
-        for name, sc in scenarios.SCENARIOS.items():
+        for name, sc in sheet.SCENARIOS.items():
+            if (point and sc.get("point", "A") != point) or name not in selected:
+                continue
             print(f"{name:20} budget {sc['budget']:>3}s  {sc['doc']}")
         return
+    if a.action == "migrate":
+        _scenario_migrate(sheet)
+        return
     if a.action == "table":
-        table = scenarios.load_table()
-        for name in scenarios.SCENARIOS:
-            code = scenarios.code_for(name)
-            st, med = scenarios.status(table, name, code)
+        table = sheet.load_table()
+        for name in sheet.SCENARIOS:
+            code = sheet.code_for(name)
+            st, med = sheet.status(table, name, code)
             print(f"{name:20} {code} {st:9} {'' if med is None else f'median {med}s'}")
         return
     from bonobo import perception
-    from bonobo import skill as skillkit
     # `all` skips release-only scenarios (the dragon, the portal room, long real-world searches): run them by name.
-    names = [n for n, sc in scenarios.SCENARIOS.items() if not sc.get("release")] if a.action == "all" else a.names
+    # `all` skips release-only rows (minutes each) unless a tier was named: a tier's rows are the tier, all of them.
+    tiered = getattr(a, "tier", "core") not in (None, "all")
+    names = [n for n, sc in sheet.SCENARIOS.items() if (tiered or not sc.get("release")) and n in selected] \
+        if a.action == "all" else a.names
+    if point:
+        names = [n for n in names if sheet.SCENARIOS[n].get("point", "A") == point]
     brain = Brain()
-    scenarios.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
+    sheet.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
     perception.start()   # same danger interrupts as a real run
-    same, running, built = scenarios.jar_matches_source()
+    same, running, built = sheet.jar_matches_source()
     if not same:
         raise McError(f"game runs mod {running} but the sources are {built}: install the jar and restart first")
     # A scenario that SWEEPS (the arena) is its own sample: one pass writes dozens of rows, and running it three
     # times only re-measures the same code against the same cells. Yes/no scenarios still repeat until two
     # counted runs agree, because one of those is a coin toss about flaky execution, not a measurement.
+    # Each row runs once; a failure is re-run, three runs at most, ≥ 2 of 3 passes (runner.verdict_of). A row the
+    # current code already has a verdict for is not run again (unless --force, once).
+    if getattr(a, "idle", False):
+        _scenario_idle(sheet, names, brain)
+        return
     runs = [(name, attempt) for name in names
-            for attempt in range(1 if scenarios.SCENARIOS[name].get("sweep") else 5)]
-    for name, attempt in runs:
-        # Run only until the current code has a verdict (2 agreeing counted runs): an already-decided scenario isn't
-        # run at all; setup/harness failures retry up to 5 times.
-        table = scenarios.load_table()
-        decided = scenarios.settled(table, name) or scenarios.verdict(table, name, scenarios.code_for(name))
-        if (decided and not (a.force and attempt == 0)) or attempt >= 4:
+            for attempt in range(1 if sheet.SCENARIOS[name].get("sweep") else sheet.MAX_RUNS)]
+    for i, (name, attempt) in enumerate(runs):
+        # The row after this one, so its world is built at site B while this one runs (runner.prebuild).
+        sheet.NEXT_ROW[0] = next((n for n, _a in runs[i + 1:] if n != name), None)
+        table = sheet.load_table()
+        code = sheet.code_for(name)
+        cached = sheet.cached_timeout(table, name, code)
+        if cached and not (a.force and attempt == 0):
+            if attempt == 0:
+                print(f"FAIL {name} 0s {cached}")      # stopped at its limit last time, nothing changed since
+            continue
+        decided = sheet.verdict(table, name, code)
+        if decided and not (a.force and attempt == 0):
             continue
         # Fresh memory per scenario: the real world's remembered pools/builds must not steer the test, and the
         # test must not write into the real world's notes.
-        if os.path.exists(scenarios.NOTES):
-            os.remove(scenarios.NOTES)
-        brain.mem = Memory(scenarios.NOTES)
-        skillkit.STATS = brain.mem
-        from bonobo import nav as _nav
-        _nav.ROAD_MEM = brain.mem
-        brain.blacklist = {}
+        if os.path.exists(sheet.NOTES):
+            os.remove(sheet.NOTES)
+        sheet.reset_brain(brain, Memory(sheet.NOTES))
         def make_ctx():
-            snap = Snapshot()
+            snap = Snapshot.from_readings(api.get("/state"), Inventory())
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
             # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
-            return skills.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
+            return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
                                   prices=brain.price_table)
-        ok, seconds, note, cls, code = scenarios.run(name, make_ctx)
+        ok, seconds, note, cls, code = sheet.run(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
 
 
-def cmd_decide(a):
-    """Decisions without the game: diff recorded rounds against the current code, list golden cases, simulate loops."""
-    from bonobo import decide
-    if a.action == "golden":
-        for name, ok, msg in decide.golden_results():
-            print(f"{'ok  ' if ok else 'FAIL'} {name}: {msg}")
-        return
-    rows = decide.load(last=a.last)
-    if a.action == "diff":
-        changed = decide.diff(rows)
-        for t, old, new, top in changed:
-            print(f"{time.strftime('%H:%M:%S', time.localtime(t))}  {old} → {new}  {top or ''}")
-        print(f"{len(changed)} of {len(rows)} recorded rounds decide differently now")
-    elif a.action == "simulate":
-        row = rows[-1]
-        fails = set(a.fail or [])
-        picks = decide.simulate(row, lambda name, i: McError("scripted failure") if name in fails else True,
-                                rounds=a.rounds)
-        names = [p for _, p in picks]
-        for n in sorted(set(names), key=names.count, reverse=True):
-            print(f"{names.count(n):4}× {n} (longest run {decide.longest_run(picks, n)})")
+def _idle_ctx(brain):
+
+    def make_ctx():
+        snap = Snapshot.from_readings(api.get("/state"), Inventory())
+        return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
+                                 prices=brain.price_table)
+    return make_ctx
 
 
-def cmd_route(a):
-    """Follow a route (speedrun) or turn routes off; shows the active segment."""
-    from bonobo import route
-    from bonobo.world import Snapshot
-    mem = Memory()
-    if a.name == "off":
-        route.choose(None)
-    elif a.name != "show":
-        if a.name not in route.ROUTES:
-            raise McError(f"unknown route {a.name}; have {sorted(route.ROUTES)}")
-        route.choose(a.name)
-    name = route.current()
-    if name:
-        snap = Snapshot()
-        seg = route.active_segment(route.ROUTES[name], snap.inv, mem, snap.dimension)
-        print(f"route {name}: active segment {seg['name'] if seg else 'finished'}")
-        if seg and seg["name"] == "nether kit":
-            print("  kit missing:", route.nether_kit_missing(snap.inv))
+def _scenario_idle(sheet, names, brain):
+    """Idle mode: each row set up as normal, then a body that does nothing for its budget, then its check — once,
+    no retries, no cache. INVALID: an idle body passes it (it tests nothing). Written to runner.IDLE_TABLE only."""
+    import os
+    out = {}
+    for i, name in enumerate(names):
+        sheet.NEXT_ROW[0] = names[i + 1] if i + 1 < len(names) else None
+        if os.path.exists(sheet.NOTES):
+            os.remove(sheet.NOTES)
+        sheet.reset_brain(brain, Memory(sheet.NOTES))
+        verdict, note, _code = sheet.run_idle(name, _idle_ctx(brain))
+        out.setdefault(verdict, []).append(name)
+        print(f"IDLE {verdict} {name} {note}", flush=True)
+    print("idle: " + ", ".join(f"{v} {len(n)}" for v, n in sorted(out.items())))
+    if out.get(sheet.INVALID):
+        print("INVALID (an idle body passes them): " + " ".join(out[sheet.INVALID]))
+    if out.get(sheet.DIED_ONLY):
+        print("DIED_ONLY (the idle check passed; only the death failed them): " + " ".join(out[sheet.DIED_ONLY]))
+
+
+MIGRATE_KEYS = r"""
+import importlib.util, json, os, sys
+wt, rowkey = sys.argv[1], sys.argv[2]
+sys.path.insert(0, wt)
+spec = importlib.util.spec_from_file_location("rowkey_now", rowkey)
+rk = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rk)
+from bonobo import brain  # noqa: F401  (every skill registers)
+from bonobo.bench import table as sc
+from bonobo import skill
+pkg = os.path.join(wt, "bonobo")
+index = rk.code_index(pkg)
+print(json.dumps({n: rk.reach_hash(r, index, skill.REGISTRY, pkg) + rk.row_hash(r) for n, r in sc.SCENARIOS.items()}))
+"""
+
+
+def _scenario_migrate(sheet):
+    """Carry the readiness table's old verdicts over to the current key format (runner.migrate): each old record's
+    code — the commit that was HEAD when it ran, checked out in a temporary worktree — keyed the new way. Reusable
+    whenever the key format changes."""
+    import json
+    import os
+    import subprocess
+    import tempfile
+    from bonobo.bench import runner
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+    here = os.path.dirname(os.path.abspath(__file__))
+    rowkey = os.path.join(here, "bonobo", "bench", "rowkey.py")
+    rel = os.path.relpath(here, root)
+    current = {n: sheet.code_for(n) for n in sheet.SCENARIOS}
+    if any(k.endswith("jar-unknown") for k in current.values()):
+        # The game is down: the mod part is the version the sources build (the bench demands jar == source).
+        props = os.path.expanduser("~/minecraft-claude-bridge/anaka/gradle.properties")
+        version = next((l.split("=", 1)[1].strip() for l in open(props) if l.startswith("mod_version=")), "unknown")
+        current = {n: k.replace("jar-unknown", f"jar-{version}") for n, k in current.items()}
+    keys_at, commit_of = {}, {}
+
+    def key_then(name, t):
+        stamp = int(t)
+        if stamp not in commit_of:
+            commit_of[stamp] = subprocess.run(["git", "rev-list", "-1", f"--before={stamp}", "HEAD"],
+                                              capture_output=True, text=True, cwd=root).stdout.strip()
+        commit = commit_of[stamp]
+        if not commit:
+            return None
+        if commit not in keys_at:
+            wt = tempfile.mkdtemp(prefix="migrate-")
+            try:
+                subprocess.run(["git", "worktree", "add", "--detach", wt, commit], cwd=root, capture_output=True,
+                               check=True)
+                out = subprocess.run([sys.executable, "-c", MIGRATE_KEYS, os.path.join(wt, rel), rowkey],
+                                     capture_output=True, text=True, timeout=300)
+                keys_at[commit] = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 else {}
+                if out.returncode != 0:
+                    print(f"  {commit[:8]}: its code could not be keyed ({out.stderr.strip().splitlines()[-1:]})")
+            except (subprocess.SubprocessError, ValueError, IndexError) as e:
+                keys_at[commit] = {}
+                print(f"  {commit[:8]}: {e}")
+            finally:
+                subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=root, capture_output=True)
+        return keys_at[commit].get(name)
+
+    table = sheet.load_table()
+    moved = runner.migrate(table, current, key_then)
+    sheet.save_table(table)
+    pend = set(runner.pending(table, current))
+    by = {}
+    for n, sc in sheet.SCENARIOS.items():
+        tier = sc.get("tier") or sheet.tier_of(n, sc)
+        total, left = by.get(tier, (0, 0))
+        by[tier] = (total + 1, left + (n in pend))
+    print(f"migrated {len(moved)} rows over {len(keys_at)} commits; pending: "
+          + ", ".join(f"{t} {left}/{total}" for t, (total, left) in sorted(by.items())))
+
+
+def _scenario_selection(a, sheet):
+    """The rows `--tier` / `--changed` name (sheet.select): the diff against the merge-base with main, mapped to
+    the skills whose functions it touched."""
+    import subprocess
+    # Acceptance is its own run; a tier narrows --failed and --pending alike when one is named.
+    in_tier = set(sheet.tier_rows(sheet.SCENARIOS, a.tier, "--tier" in sys.argv))
+    if getattr(a, "failed", False):
+        return [n for n in sheet.failed_last(sheet.load_table()) if n in in_tier]
+    if getattr(a, "pending", False):
+        return sheet.pending(sheet.load_table(), {n: sheet.code_for(n) for n in sheet.SCENARIOS
+                                                           if n in in_tier})
+    changed = None
+    if getattr(a, "changed", False):
+        from bonobo import brain  # noqa: F401  (every skill module registers)
+        from bonobo.skill import REGISTRY
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+        base = subprocess.run(["git", "merge-base", "HEAD", "main"], capture_output=True, text=True).stdout.strip()
+        diff = subprocess.run(["git", "diff", "-U0", base or "HEAD"], capture_output=True, text=True, cwd=root).stdout
+        changed = sheet.touched_skills(sheet.diff_hunks(diff), sheet.skill_spans(REGISTRY, root))
+        print(f"changed skills: {', '.join(sorted(changed)) or 'none (core rows)'}")
+        from bonobo.skill import REGISTRY as registry
     else:
-        print("no route")
+        registry = None
+    return sheet.select(sheet.SCENARIOS, getattr(a, "tier", "core") or "core", changed, registry)
 
 
 def cmd_interrupt(a):
-    """End the running skill now (via the perception thread) so override directives run next round."""
+    """End the running skill now (via the perception thread) so the queue's head runs next round."""
     from bonobo import perception
     with open(perception.FLAG, "w") as f:
         f.write(a.why)
@@ -263,7 +358,12 @@ def cmd_review(a):
         state, inv = api.get("/state"), Inventory()
     except McError:
         state, inv = None, None
-    print(review.packet(a.minutes, state, inv, Memory()))
+    try:
+        from bonobo.bench import table as sheet
+        readiness = sheet.readiness_lines()
+    except Exception as e:      # the review must never fail because of the bench table
+        readiness = [f"  unavailable: {e}"]
+    print(review.packet(a.minutes, state, inv, Memory(), readiness=readiness))
 
 
 def cmd_notes(_):
@@ -310,6 +410,11 @@ def cmd_incidents(a):
     raise SystemExit(incidents.main())
 
 
+def cmd_rounds(a):
+    from bonobo.tools import rounds
+    raise SystemExit(rounds.main([a.since] if a.since else []))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -326,53 +431,41 @@ def main():
     p.set_defaults(fn=cmd_home)
     sub.add_parser("notes").set_defaults(fn=cmd_notes)
     sub.add_parser("skills", help="list skill contracts").set_defaults(fn=cmd_skills)
-    p = sub.add_parser("direct", help="Claude directives: list | clear | goal TOKEN N ... | goto X Y Z | skill NAME ARGS")
-    p.add_argument("action", choices=["list", "clear", "goal", "goto", "skill"])
+    p = sub.add_parser("task", help="task queue: add have|craft|milestone|goto|road|build|sleep|skill ... | list | "
+                                     "cancel [id] | clear | milestones")
+    p.add_argument("action", choices=["add", "list", "cancel", "clear", "milestones"])
     p.add_argument("args", nargs="*")
-    p.add_argument("--note", default="")
-    p.add_argument("--after", nargs="*", help="directive ids this one waits for")
-    p.add_argument("--mode", choices=["override", "boost", "background"], default="override")
-    p.add_argument("--x", type=float, default=None, help="boost multiplier")
-    p.set_defaults(fn=cmd_direct)
-    p = sub.add_parser("want", help="LLM door: offer TOKEN N --worth-s S | stop [id] | status [id] | list")
-    p.add_argument("action", choices=["offer", "stop", "status", "list"])
-    p.add_argument("args", nargs="*")
-    p.add_argument("--worth-s", dest="worth_s", type=float, default=None, help="seconds the wanted state is worth")
-    p.add_argument("--deadline-s", dest="deadline_s", type=float, default=None, help="only steepens the discount")
-    p.add_argument("--expires-s", dest="expires_s", type=float, default=600.0)
-    p.add_argument("--scope", default=None, help="narrows the candidate pool; never widens it")
-    p.add_argument("--note", default="")
-    p.add_argument("--id", default=None, help="re-offering an id re-prices that want")
-    p.add_argument("--hard", action="store_true", help="stop: take the body now (arbiter), not at the next round")
-    p.add_argument("--all", action="store_true", help="list: include expired, stopped and refused")
-    p.set_defaults(fn=cmd_want)
-    p = sub.add_parser("prio", help="priority weights: list | clear | set TARGET X | ban TARGET | pin TARGET")
-    p.add_argument("action", choices=["list", "clear", "set", "ban", "pin", "profile"])
-    p.add_argument("target", nargs="?")
-    p.add_argument("value", nargs="?")
-    p.add_argument("--ttl", type=int, default=1800)
-    p.add_argument("--why", default="")
-    p.set_defaults(fn=cmd_prio)
+    p.add_argument("--front", action="store_true", help="put it at the head of the queue")
+    p.add_argument("--expires-s", dest="expires_s", type=float, default=None)
+    p.add_argument("--all", action="store_true", help="list: include finished tasks")
+    p.set_defaults(fn=cmd_task)
     p = sub.add_parser("scenario", help="scenario bench (test world only): enable|disable|list|table|run NAME|all")
-    p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all"])
+    p.add_argument("action", choices=["enable", "disable", "list", "table", "run", "all", "migrate"])
     p.add_argument("names", nargs="*")
     p.add_argument("--force", action="store_true", help="run once even when the current code already has a verdict")
+    p.add_argument("--idle", action="store_true",
+                   help="run/all: set each row up at 1 hp, do nothing until its check passes, it dies or its budget "
+                        "— a row that passes is INVALID, one that passed but died DIED_ONLY (recorded apart from the "
+                        "readiness table)")
+    p.add_argument("--point", choices=["A", "B", "C", "D"], help="only the scenarios of this test point")
+    p.add_argument("--tier", choices=["core", "common", "brain", "combat", "exception", "acceptance", "all"], default="core",
+                   help="which tier to run with `all` / list (default core)")
+    p.add_argument("--changed", action="store_true",
+                   help="only rows proving skills changed since the merge-base with main (else core)")
+    p.add_argument("--failed", action="store_true",
+                   help="only rows whose latest run failed (FAIL or TIMEOUT in the readiness table)")
+    p.add_argument("--pending", action="store_true",
+                   help="rows with no result under their current key (new or changed) or whose last run failed")
     p.set_defaults(fn=cmd_scenario)
-    p = sub.add_parser("decide", help="decision tests offline: diff | golden | simulate")
-    p.add_argument("action", choices=["diff", "golden", "simulate"])
-    p.add_argument("--last", type=int, default=200)
-    p.add_argument("--rounds", type=int, default=200)
-    p.add_argument("--fail", nargs="*", help="candidate names that always fail in the simulation")
-    p.set_defaults(fn=cmd_decide)
-    p = sub.add_parser("route", help="follow a route: speedrun | off | show")
-    p.add_argument("name")
-    p.set_defaults(fn=cmd_route)
-    p = sub.add_parser("interrupt", help="end the running skill so a directive runs next")
+    p = sub.add_parser("interrupt", help="end the running skill so the queue's head runs next")
     p.add_argument("--why", default="Claude redirected")
     p.set_defaults(fn=cmd_interrupt)
     p = sub.add_parser("review", help="review packet for the last N minutes")
     p.add_argument("--minutes", type=int, default=5)
     p.set_defaults(fn=cmd_review)
+    p = sub.add_parser("rounds", help="round phase times from detail.log: median/max per phase, the 3 longest gaps")
+    p.add_argument("since", nargs="?", help="HH:MM:SS: only rounds from then on")
+    p.set_defaults(fn=cmd_rounds)
     p = sub.add_parser("find")
     p.add_argument("blocks")
     p.add_argument("--radius", type=int, default=32)

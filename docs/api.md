@@ -1,22 +1,32 @@
-# API
+# Jar HTTP API
 
-Hands over to LLM.
+Anaka mod at `MC_API` (default `http://127.0.0.1:27599`), `Authorization: Bearer <token>` from
+`$MC_INSTANCE/config/agent-bridge.json`. Client: `bonobo/api.py` (`get`, `post`, `run`, `run_chain`).
 
-```python
-offer(want: dict, worth_s: float, *, deadline_s=None, expires_s=600, scope=None, note="", id=None) -> Want
-    want: {"token": n} or {"end:sheltered": 1} # an effect on the state vector, entering gates.V as a temporary terminal dimension
-    # deadline_s only steepens the discount; scope only narrows the candidate pool; neither makes an infeasible skill feasible
-stop(id=None, *, hard=False, reason="") -> list[Want]      # soft = remaining value zeroed; hard = arbiter.BODY.preempt
-status(id=None) -> list[dict]  # {id, want, worth_s, priced_s, chosen, blocked_by, age_s, expires_in_s, state}
-list(active=True) -> list[Want]
-Want = {id, want, worth_s, deadline_s, expires_s, scope, note, state}
-# state: pending | chosen | running | met | expired | refused(reason)
+| Endpoint | Use |
+|---|---|
+| `GET /status` | mod version, features |
+| `GET /state` | body: pos, look, health, food, light, dimension, control, lastDamage |
+| `GET /inventory` | bag and equipment |
+| `GET /entities?radius=` | nearby entities; combat fields (velocity, tti_ticks, impact, in_reach…) |
+| `GET /container` | the open screen's slots |
+| `GET /blocks?…` | a region's blocks |
+| `GET /find?…` | block search (`exposed=true`: open faces only) |
+| `GET /dark?…` | spots at low block light |
+| `GET /plan?to=…` | path plan and seconds, no walking |
+| `POST /task?wait=0` | queue tasks (`{"tasks": [...]}`); `GET /task?id=` watches one |
+| `GET /tasks` | recent tasks |
+| `POST /stop` | cancel the running task |
+| `POST /takeover`, `/release` | the agent drives / hands back |
+| `POST /control` | pause as the player's toggle key does |
+| `POST /resume` | close the pause menu |
+| `POST /respawn` | respawn after death |
+| `POST /reflex` | reflex policy (shield, counter, deflect); `GET` adds last and recent acts |
+| `POST /autoeat` | eat-while-walking policy |
+| `POST /click`, `/close` | inventory clicks; close the screen |
+| `POST /button`, `/trade`, `/rename` | screens with buttons |
+| `POST /chat` | a chat line or command |
+| `GET /events?since=` | jar event ring (damage, …) |
+| `GET /combat/frames?since=` | recorded combat frames |
 
-```
-
-```sh
-mc.py want offer <token> <n> --worth-s S [--deadline-s D] [--expires-s E] [--scope name]
-mc.py want stop [id] [--hard] | want status [id] | want list
-
-priority.py and directives.py become sugar over this door: a nudge is an offer of extra seconds on an existing goal; goto/skill is an offer with a scope.
-```
+`POST /hud` is tried by `intent.py`; jars without it fall back to chat.

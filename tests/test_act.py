@@ -44,6 +44,43 @@ class OneCurrency(unittest.TestCase):
             self.assertEqual(seen, sorted(seen), f"{cell}: {seen}")
 
 
+HERE = (0, 64, 0)          # fixture: where we stand
+
+
+def mob(kind, x):
+    return ((x, 64, 0), 3.0, (0.0, 0.0, 0.0), f"minecraft:{kind}")
+
+
+class AFightExactly(unittest.TestCase):
+    """`fight_cost` on hand-placed rows, to the hundredth. From the belief table: a fist does 3 dps, a stone sword
+    12; a zombie has 20 hp and does 6.25 dps, a skeleton 20 hp at 2 dps and shoots; melee reach 3, speed 4.3.
+    walk = (distance − 3) / 4.3; kill = 20 / sword dps; lost = walk × ranged still alive + kill × all still alive,
+    all incoming capped at 6 hp/s (a 3-hp hit every 0.5 s of hurt immunity)."""
+
+    def test_the_belief_table_is_what_the_rows_assume(self):
+        from bonobo.beliefs import MOBS, PLAYER
+        self.assertEqual((PLAYER["dps"]["0"], PLAYER["dps"]["1"], PLAYER["melee_reach"], PLAYER["speed"]),
+                         (3.0, 12.0, 3.0, 4.3))
+        rows = [MOBS[f"minecraft:{k}"] for k in ("zombie", "skeleton")]
+        self.assertEqual([(m["hp"], m["dps"]) for m in rows], [(20, 6.25), (20, 2.0)])
+
+    # (situation, rows, sword tier, protection) → (seconds, hp lost)
+    ROWS = [("must fail: nothing to fight", [], 1, 0.0, (0.0, 0.0)),
+            ("a zombie in reach, bare hands: 20/3 s under the 6 hp/s cap", [mob("zombie", 2)], 0, 0.0, (6.67, 40.0)),
+            ("a zombie in reach, stone sword: 20/12 s", [mob("zombie", 2)], 1, 0.0, (1.67, 10.0)),
+            ("a zombie 10 away: the walk is free of a melee mob", [mob("zombie", 10)], 1, 0.0, (3.29, 10.0)),
+            ("two zombies: hurt immunity, not the sum — 6 hp/s throughout", [mob("zombie", 2), mob("zombie", 4)], 1,
+             0.0, (3.33, 20.0)),
+            ("a skeleton 10 away: shot at on the walk", [mob("skeleton", 10)], 1, 0.0, (3.29, 6.59)),
+            ("zombie then skeleton, half the damage armoured off", [mob("zombie", 2), mob("skeleton", 10)], 1,
+             0.5, (4.5, 9.5))]
+
+    def test_fight_cost_over_the_table(self):
+        for name, rows, sword, prot, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(estimate.fight_cost(HERE, rows, sword, prot), want)
+
+
 class AFight(unittest.TestCase):
     def test_it_takes_time_and_health_whenever_there_is_anything_to_kill(self):
         for cell in dangers():
@@ -68,8 +105,8 @@ class AFight(unittest.TestCase):
             pack = cell.with_(enemy="pack")
             one = estimate.fight_cost(cell.here, cell.rows(), cell.sword, cell.armour)
             many = estimate.fight_cost(pack.here, pack.rows(), pack.sword, pack.armour)
-            self.assertGreater(many[0], one[0], cell)
-            self.assertGreater(many[1], one[1], cell)
+            with self.subTest(cell=repr(cell)):
+                self.assertEqual((many[0] > one[0], many[1] > one[1]), (True, True), f"{many} vs {one}")
 
     def test_armour_buys_health_and_not_speed(self):
         for cell in dangers(enemy="archer", distance="across", armour="skin"):
@@ -93,8 +130,9 @@ class WalkingAway(unittest.TestCase):
             for seconds in SECONDS:
                 if press == 0.0 or seconds == 0.0:
                     continue
-                self.assertLess(estimate.leaving_hp(press, seconds), press * seconds)
-                self.assertGreater(estimate.leaving_hp(press, seconds), 0.0)
+                with self.subTest(press=press, seconds=seconds):
+                    got = estimate.leaving_hp(press, seconds)
+                    self.assertEqual(0.0 < got < press * seconds, True, got)
 
     def test_it_grows_along_both_ladders(self):
         for seconds in SECONDS[1:]:
@@ -118,7 +156,8 @@ class WalkingAway(unittest.TestCase):
             spot = threat.escape_spot(cell.here, rows)
             before = estimate.pressure_hp_s(cell.here, rows, 0.0)
             after = estimate.pressure_hp_s(spot, rows, 0.0)
-            self.assertLessEqual(after, before + 1e-9, f"{cell}: walked into it")
+            with self.subTest(cell=repr(cell)):
+                self.assertEqual(max(after - before, 0.0) <= 1e-9, True, f"walked into it: {after} > {before}")
 
 
 class EveryColumnIsPricedThroughIt(unittest.TestCase):

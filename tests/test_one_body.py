@@ -51,8 +51,7 @@ def sweep(seed, ticks=40):
         now += rng.choice((0.0, 0.05, 0.3, 1.0))
         layer = rng.choice(LAYERS)
         if layer == "plan":
-            body.submit("plan", seen.action(body, "plan"), "work", cost_rate=1.0, cost_s=100.0)
-            body.step(now)
+            body.drive("plan", seen.action(body, "plan"), "work")
         else:
             body.preempt(layer, seen.action(body, layer), f"{layer} says so", worth_s=1e6, now=now)
     return body, seen
@@ -70,38 +69,34 @@ class OnlyOneDrives(unittest.TestCase):
         for seed in self.SEEDS:
             _body, seen = sweep(seed)
             for victim, winner in seen.interruptions:
-                self.assertLess(arbiter.SCALES[winner], arbiter.SCALES[victim],
-                                f"seed {seed}: {winner} interrupted the faster {victim}")
+                faster = {layer for layer in LAYERS if arbiter.SCALES[layer] < arbiter.SCALES[victim]}
+                self.assertIn(winner, faster, f"seed {seed}: {winner} interrupted {victim}")
 
-    def test_a_running_answer_is_not_cut_off_by_its_own_layer(self):
-        body, ran = arbiter.Motion(), []
+    # (the layer whose answer is running, the layer that speaks from inside it) → does it cut in?
+    NESTED = [(outer, inner, arbiter.SCALES[inner] < arbiter.SCALES[outer])
+              for outer in LAYERS[:-1] for inner in LAYERS]
 
-        def slow():
-            ran.append("first")
-            self.assertIsNone(body.preempt("tactic", lambda: ran.append("second"), "again",
-                                           worth_s=1e6, now=1.0)[0],
-                              "a tactic answer interrupted itself")
+    def test_who_may_cut_into_a_running_answer(self):
+        """Only a faster layer; never the answer's own layer (it would interrupt itself), never a slower one."""
+        self.assertEqual(len(self.NESTED), 12)
+        for outer, inner, cuts in self.NESTED:
+            with self.subTest(outer=outer, inner=inner):
+                body, ran = arbiter.Motion(), []
 
-        body.preempt("tactic", slow, "first", worth_s=1e6, now=0.0)
-        self.assertEqual(ran, ["first"])
+                def running(_inner=inner):
+                    ran.append("outer")
+                    taken, why = body.preempt(_inner, lambda: ran.append("inner"), "inner", worth_s=1e6, now=1.0)
+                    ran.append(taken is not None)
 
-    def test_a_faster_layer_may_still_cut_in(self):
-        body, ran = arbiter.Motion(), []
-
-        def slow():
-            ran.append("tactic")
-            self.assertIsNotNone(body.preempt("safety", lambda: ran.append("safety"), "lava",
-                                              worth_s=1e6, now=1.0)[0])
-
-        body.preempt("tactic", slow, "position", worth_s=1e6, now=0.0)
-        self.assertEqual(ran, ["tactic", "safety"])
+                body.preempt(outer, running, "outer", worth_s=1e6, now=0.0)
+                self.assertEqual(ran, ["outer", "inner", True] if cuts else ["outer", False])
 
     def test_nothing_running_means_anyone_may_speak(self):
-        body, ran = arbiter.Motion(), []
         for layer in LAYERS[:-1]:
-            self.assertIsNotNone(body.preempt(layer, lambda l=layer: ran.append(l), "x",
-                                              worth_s=1e6, now=0.0)[0])
-        self.assertEqual(ran, list(LAYERS[:-1]))
+            with self.subTest(layer):
+                body, ran = arbiter.Motion(), []
+                taken, why = body.preempt(layer, lambda: ran.append(layer), "x", worth_s=1e6, now=0.0)
+                self.assertEqual((taken, why, ran), ((layer, "x"), None, [layer]))
 
 
 class TheLease(unittest.TestCase):
@@ -134,35 +129,41 @@ class TheLease(unittest.TestCase):
             self.assertEqual([w for w, allowed in before if allowed], [],
                              f"seed {seed}: another thread drove while answering still paid")
 
-    def test_the_lease_ends_when_answering_stops_paying(self):
-        body = arbiter.Motion()
-        worth = [1.0]
-        body.preempt("tactic", lambda: None, "answer", worth_s=1e6, now=0.0,
-                     release=lambda: worth[0] <= 0)
-        self.assertFalse(body.owns("nav.go_to"), "the lease should still stand")
-        worth[0] = -1.0
-        self.assertTrue(body.owns("nav.go_to"), "the lease should have been given back")
+    # (the lease holder's layer, is it still paying, who asks next) → taken by the asker?
+    LEASE = [("tactic", True, "safety", True), ("tactic", True, "reflex", True), ("tactic", True, "tactic", False),  # must fail: its own layer while it pays is not taken
+             ("tactic", True, "plan", False), ("tactic", False, "tactic", True), ("tactic", False, "plan", True),
+             ("safety", True, "tactic", False), ("safety", False, "tactic", True)]
 
-    def test_a_faster_layer_takes_the_lease_from_a_slower_one(self):
-        body, ran = arbiter.Motion(), []
-        body.preempt("tactic", lambda: ran.append("tactic"), "position", worth_s=1e6, now=0.0,
-                     release=lambda: False)
-        self.assertIsNotNone(body.preempt("safety", lambda: ran.append("safety"), "lava",
-                                          worth_s=1e6, now=0.1)[0])
-        self.assertIsNone(body.preempt("plan", lambda: ran.append("plan"), "mine", worth_s=1e6, now=0.2)[0])
-        self.assertEqual(ran, ["tactic", "safety"])
+    def test_the_lease_over_the_table(self):
+        """It stands while answering pays; a faster layer takes it regardless; once it stops paying anyone may."""
+        for holder, paying, asker, taken in self.LEASE:
+            with self.subTest(holder=holder, paying=paying, asker=asker):
+                body = arbiter.Motion()
+                body.preempt(holder, lambda: None, "answer", worth_s=1e6, now=0.0, seen_at=0.0,
+                             release=lambda p=paying: not p)
+                self.assertEqual(body.owns("nav.go_to"), not paying, "the stray caller while the lease stands")
+                got, why = body.preempt(asker, lambda: None, "next", worth_s=1e6, now=0.1, seen_at=0.1)
+                self.assertEqual(got is not None, taken, why)
 
-    def test_a_refused_thread_is_told_to_re_plan_not_that_it_was_robbed(self):
+    # (the layer holding a lease, the path posted from outside it) → what the post answers, before the game is asked
+    POSTS = [("tactic", "/task?wait=0", "failed"), ("tactic", "/stop", "failed"), ("safety", "/task?wait=0", "failed"),  # must fail: a post from outside the lease fails
+             ("tactic", "/close", "sent"), (None, "/task?wait=0", "sent")]
+
+    def test_a_refused_thread_is_told_so_not_robbed(self):
+        from unittest import mock
         from bonobo import api
-        body = arbiter.Motion()
-        body.preempt("tactic", lambda: None, "answer", worth_s=1e6, now=0.0, release=lambda: False)
-        arbiter.BODY, saved = body, arbiter.BODY
-        try:
-            r = api.post("/task?wait=0", {"type": "travel"})
-            self.assertEqual(r["status"], "failed")
-            self.assertIn("arbiter", r["message"])
-        finally:
-            arbiter.BODY = saved
+        for holder, path, want in self.POSTS:
+            with self.subTest(holder=holder, path=path):
+                body = arbiter.Motion()
+                if holder:
+                    body.preempt(holder, lambda: None, "answer", worth_s=1e6, now=0.0, release=lambda: False)
+                with mock.patch.object(arbiter, "BODY", body), \
+                        mock.patch.object(api, "api", return_value={"status": "sent"}):
+                    r = api.post(path, {"type": "travel"})
+                self.assertEqual(r["status"], want)
+                if want == "failed":
+                    self.assertEqual(r["message"], "body owned by the arbiter")
+                api.STATE.interrupt = None            # a safety preemption leaves its message: not for the next test
 
 
 class TwoRealThreads(unittest.TestCase):
@@ -180,19 +181,27 @@ class TwoRealThreads(unittest.TestCase):
         what the log showed for three fixes running."""
         from unittest import mock
         from bonobo import api
-        body = arbiter.Motion()
-        seen = []
+        box, seen = {}, []
 
         def stopped(path, body_=None):
             if path == "/stop":
                 # A thread woken by this cancel is about to ask; the answer must already be "no".
-                seen.append(body.holder() is not None)
+                seen.append(box["body"].holder() is not None)
             return {"status": "succeeded", "message": "", "tasks": []}
 
+        for layer in ("tactic", "safety", "reflex"):
+            with self.subTest(layer), mock.patch.object(api, "post", side_effect=stopped):
+                seen.clear()
+                body = box["body"] = arbiter.Motion()
+                body.preempt(layer, lambda: None, "answer", worth_s=1e6, now=0.0,
+                             clear_first=True, release=lambda: False)
+                self.assertEqual(seen, [True], "the body was announced taken only after the stop went out")
+                api.STATE.interrupt = None
         with mock.patch.object(api, "post", side_effect=stopped):
-            body.preempt("tactic", lambda: None, "answer", worth_s=1e6, now=0.0,
-                         clear_first=True, release=lambda: False)
-        self.assertEqual(seen, [True], "the body was announced taken only after the stop went out")
+            seen.clear()
+            box["body"] = arbiter.Motion()
+            box["body"].preempt("tactic", lambda: None, "answer", worth_s=1e6, now=0.0, clear_first=False)
+            self.assertEqual(seen, [], "no clear_first, no /stop")
 
     def test_no_foreign_task_goes_out_during_a_lease(self):
         for seed in range(50):

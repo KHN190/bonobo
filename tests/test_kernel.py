@@ -35,96 +35,51 @@ class Model:
 
 
 class Scoring(unittest.TestCase):
-    def test_score_is_seconds_saved_minus_seconds_spent(self):
-        m = Model([Act("cheap", after=80.0, cost_s=5.0)])
-        c = kernel.choose(m, {"price": 100.0})
-        self.assertEqual(c.name, "cheap")
-        self.assertAlmostEqual(c.value_s, 20.0)
-        self.assertAlmostEqual(c.cost_s, 5.0)
-        self.assertAlmostEqual(c.score, 15.0)
+    # (actions offered, the default, refused) at price 100 → (chosen, value_s, cost_s, score, rejected, fault kinds)
+    ROWS = [
+        ("seconds saved minus seconds spent", [("cheap", 80.0, 5.0)], None, (),
+         ("cheap", 20.0, 5.0, 15.0, [], [])),
+        ("two hours saved for three of work loses to a small cheap saving",
+         [("grand", 0.0, 500.0), ("small", 90.0, 1.0)], None, (), ("small", 10.0, 1.0, 9.0, [], [])),
+        ("must fail: saving less than it costs is not offered", [("busywork", 99.0, 10.0)], ("idle", 100.0, 0.0), (),
+         ("idle", 0.0, 0.0, 0.0, [], [])),
+        ("making things worse is not offered", [("harmful", 150.0, 0.0)], ("idle", 100.0, 0.0), (),
+         ("idle", 0.0, 0.0, 0.0, [], [])),
+        ("refused actions are reported, not ranked", [("best", 0.0, 0.0), ("worse", 50.0, 0.0)], None, ("best",),
+         ("worse", 50.0, 0.0, 50.0, [("best", "refused")], [])),
+        ("the default is exempt from the veto", [("a", 0.0, 0.0)], ("idle", 99.0, 0.0), ("a", "idle"),
+         ("idle", 1.0, 0.0, 1.0, [("a", "refused")], ["no action"])),
+        ("everything productive refused is a fault, not a decision", [("a", 0.0, 0.0)], ("idle", 100.0, 0.0), ("a",),
+         ("idle", 0.0, 0.0, 0.0, [("a", "refused")], ["no action"])),
+    ]
 
-    def test_the_big_saving_can_lose_to_the_cheap_one(self):
-        """The whole point of subtracting instead of dividing: two hours saved for three hours of work is a loss."""
-        m = Model([Act("grand", after=0.0, cost_s=500.0), Act("small", after=90.0, cost_s=1.0)])
-        self.assertEqual(kernel.choose(m, {"price": 100.0}).name, "small")
-
-    def test_an_action_that_saves_less_than_it_costs_is_not_offered(self):
-        idle = Act("idle", after=100.0)
-        m = Model([Act("busywork", after=99.0, cost_s=10.0)], default=idle)
-        self.assertEqual(kernel.choose(m, {"price": 100.0}).name, "idle")
-
-    def test_making_things_worse_is_not_offered(self):
-        idle = Act("idle", after=100.0)
-        m = Model([Act("harmful", after=150.0)], default=idle)
-        self.assertEqual(kernel.choose(m, {"price": 100.0}).name, "idle")
-
-
-class Veto(unittest.TestCase):
-    def test_refused_actions_are_not_ranked_but_are_reported(self):
-        m = Model([Act("best", after=0.0), Act("worse", after=50.0)], refuse=["best"])
-        c = kernel.choose(m, {"price": 100.0})
-        self.assertEqual(c.name, "worse")
-        self.assertEqual(c.rejected, [("best", "refused")])
-
-    def test_the_default_is_exempt_from_the_veto(self):
-        """A veto that can refuse "get into cover" leaves no answer, and no answer is standing still."""
-        idle = Act("idle", after=99.0)
-        m = Model([Act("a", after=0.0)], default=idle, refuse=["a", "idle"])
-        self.assertEqual(kernel.choose(m, {"price": 100.0}).name, "idle")
-
-    def test_everything_refused_is_a_fault_not_a_decision(self):
-        m = Model([Act("a", after=0.0)], default=Act("idle", after=100.0), refuse=["a"])
-        self.assertTrue(any(k == "no action" for k, _ in kernel.choose(m, {"price": 100.0}).fault))
+    def test_choose_over_the_table(self):
+        for name, acts, default, refuse, (pick, value, cost, score, rejected, faults) in self.ROWS:
+            with self.subTest(name):
+                m = Model([Act(n, after=a, cost_s=c) for n, a, c in acts],
+                          default=Act(default[0], after=default[1], cost_s=default[2]) if default else None,
+                          refuse=refuse)
+                c = kernel.choose(m, {"price": 100.0})
+                self.assertEqual(c.name, pick)
+                self.assertAlmostEqual(c.value_s, value)
+                self.assertAlmostEqual(c.cost_s, cost)
+                self.assertAlmostEqual(c.score, score)
+                self.assertEqual(c.rejected, rejected)
+                self.assertEqual([k for k, _ in c.fault], faults)
 
 
 class Commitment(unittest.TestCase):
-    def test_commitment_defaults_to_the_whole_action(self):
-        """Unsaid means atomic — the safe direction to be wrong in."""
-        self.assertEqual(kernel.commitment(Act("a", after=0.0, cost_s=6.0)), 6.0)
+    # (cost_s, declared commitment or None) → what the kernel commits to: unsaid means atomic
+    ROWS = [(6.0, None, 6.0), (6.0, 0.8, 0.8), (0.0, None, 0.0), (6.0, 6.0, 6.0), (6.0, 0.0, 0.0)]  # must fail: a declared zero commits to nothing, not to the cost
 
-    def test_an_interruptible_action_commits_only_to_its_segment(self):
-        self.assertEqual(kernel.commitment(Act("dig", after=0.0, cost_s=6.0, commitment_s=0.8)), 0.8)
-
-    def test_the_choice_carries_the_commitment_not_the_cost(self):
-        """The next decision point is when the atomic part ends, not when the action does."""
-        m = Model([Act("dig", after=50.0, cost_s=6.0, commitment_s=0.8)])
-        c = kernel.choose(m, {"price": 100.0})
-        self.assertEqual((c.cost_s, c.commitment_s), (6.0, 0.8))
-
-
-class Markers(unittest.TestCase):
-    """The markers are the acceptance criteria themselves, so the judging has to be right even when no game is
-    running: a marker that passes an empty log would let everything through."""
-
-    def setUp(self):
-        from bonobo import scenarios
-        self.sc = scenarios
-
-    def rounds(self, *picks, top=2):
-        return [{"pick": p, "top": [None] * top} for p in picks]
-
-    def test_no_rounds_is_not_a_pass(self):
-        for check in (self.sc._never_idle, self.sc._knows_how, self.sc._multitasks, self.sc._plans_far):
-            self.assertFalse(check([])[0], check.__name__)
-
-    def test_idling_fails_even_once(self):
-        rounds = self.rounds(*(["mine"] * 30))
-        self.assertTrue(self.sc._never_idle(rounds)[0])
-        self.assertFalse(self.sc._never_idle(rounds + [{"pick": None, "top": []}])[0])
-
-    def test_all_five_abilities_are_required(self):
-        did = ["sleep", "eat anything", "craft table", "threat:fight", "threat:evade"]
-        self.assertTrue(self.sc._knows_how(self.rounds(*did))[0])
-        for drop in range(len(did)):
-            self.assertFalse(self.sc._knows_how(self.rounds(*(did[:drop] + did[drop + 1:])))[0])
-
-    def test_a_queue_is_not_multitasking(self):
-        """Doing one thing over and over, with nothing else in the pool, is what this must catch."""
-        self.assertFalse(self.sc._multitasks(self.rounds(*(["mine"] * 20), top=1))[0])
-
-    def test_near_term_work_alone_is_not_far_sighted(self):
-        self.assertFalse(self.sc._plans_far(self.rounds(*(["stone pickaxe", "food (≥8)"] * 10)))[0])
-        self.assertTrue(self.sc._plans_far(self.rounds("blaze rods (7)"))[0])
+    def test_commitment_over_the_table(self):
+        for cost, commit, want in self.ROWS:
+            with self.subTest(cost=cost, commit=commit):
+                act = Act("a", after=50.0, cost_s=cost, commitment_s=commit)
+                self.assertEqual(kernel.commitment(act), want)
+                c = kernel.choose(Model([act]), {"price": 100.0})
+                self.assertEqual((c.cost_s, c.commitment_s), (cost, want),
+                                 "the choice carries the commitment, not the cost")
 
 
 class HoldingADecision(unittest.TestCase):
@@ -178,12 +133,19 @@ class HoldingADecision(unittest.TestCase):
                 last = choice.name
         return switches, reasons
 
+    # margin → (switches, re-decisions with a reason) over the seeded sweep (200 runs: 200 switches = never changed
+    # after the first choice). Every switch has a reason on record; a wider margin holds longer.
+    MARGINS = [(1.0, (506, 1166)), (kernel.MARGIN, (379, 1163)), (1.5, (212, 1004)),  # must fail: no margin switches the most
+               (3.0, (200, 1000))]      # boundary: nothing ever beats the held choice by 3×
+
     def test_it_changes_no_more_often_than_it_has_reason_to(self):
-        switches, reasons = self.sweep()
-        self.assertLessEqual(switches, reasons + len(self.SEEDS))
+        for margin, want in self.MARGINS:
+            with self.subTest(margin=margin):
+                self.assertEqual(self.sweep(margin=margin), want)
 
     def test_re_deciding_every_tick_would_dither(self):
-        """The control: without holding, this fixture really does flip about — otherwise the test above is empty."""
+        """The control: without holding, this fixture really does flip about — otherwise the test above is empty.
+        Seeded, so the counts are exact: 1239 flips re-deciding every tick, 379 holding at the kernel's margin."""
         flips = 0
         for seed in self.SEEDS:
             last = None
@@ -191,17 +153,25 @@ class HoldingADecision(unittest.TestCase):
                 name = kernel.choose(self.model(), state).name
                 flips += name != last
                 last = name
-        self.assertGreater(flips, len(self.SEEDS), "the jitter is too small to prove anything")
+        self.assertEqual(flips, 1239)
+        self.assertEqual(self.sweep()[0], 379)
 
-    def test_a_broken_assumption_releases_it_at_once(self):
-        held = kernel.Held()
+    # (does the held choice's assumption still stand, seconds later) → why it was re-decided (None: it was kept)
+    RELEASE = [(True, 0.01, None), (False, 0.01, "assumption"), (True, 60.0, "commitment"),  # must fail: an assumption standing, early: kept, no re-decision
+               (False, 60.0, "assumption"), (None, 0.01, None)]
+
+    def test_what_releases_a_held_decision(self):
         states = self.states(1)
-        held.decide(self.model(), states[0], now=0.0)
-        held.decide(self.model(), states[1], now=0.01, holds=lambda *_: False)
-        self.assertEqual(held.because, "assumption")
+        for holds, later, because in self.RELEASE:
+            with self.subTest(holds=holds, later=later):
+                held = kernel.Held()
+                first = held.decide(self.model(), states[0], now=0.0)
+                ask = None if holds is None else (lambda *_, h=holds: h)
+                again = held.decide(self.model(), states[1], now=later, holds=ask)
+                self.assertEqual(held.because, because)
+                if because is None:
+                    self.assertIs(again, first)
 
-    def test_a_challenger_must_win_by_more_than_the_margin(self):
-        self.assertLess(self.sweep(margin=1.5)[0], self.sweep(margin=1.0)[0])
 
 
 if __name__ == "__main__":

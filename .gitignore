@@ -10,26 +10,24 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
-# Runtime data. None of this belongs in the repository: it is one player's world memory, decision recordings,
-# bench output and combat tapes. The data directory is configurable (MC_DATA) and defaults outside the package,
-# but these patterns catch a run that was pointed here on purpose.
+# Runtime data. None of this belongs in the repository:
+# The data directory is configurable (MC_DATA) and defaults
+# outside the package, but these patterns catch a run that 
+# was pointed here on purpose.
 world-notes.json
-test-world-notes.json
-test-world
-route.json
-priorities.json
+world.json
+tasks.json
 slice-*.json
-directives.json
+intent.json
 readiness*.json
 skill-heartbeat
-decisions.jsonl
-decisions-mem/
-ranking.jsonl
+tape-mem/
 track.jsonl
 plan-bench.jsonl
-autoplay.log
+autoplay.lock
 autoplay.pid
-bench/
+supervise.pid
+runs/
 combat-tapes/
 *.log
 

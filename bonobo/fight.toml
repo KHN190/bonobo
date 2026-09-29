@@ -5,7 +5,6 @@
 
 [geometry]
 # Blocks from the exit portal's centre, along the side the player approaches from.
-bed_r = 2              # bed_cell: on the fountain, one block above the bedrock top
 mouth_r = 5            # the shaft beside the fountain; the bed's top is 3.57 blocks from an eye here (reach 4.5)
 tunnel_len = 3         # corridor cells running outward from the mouth
 pit_depth = 2          # blocks below the floor plane: deep enough to put the eye under it
@@ -17,9 +16,6 @@ reinforce = "minecraft:obsidian"   # a bed blast eats end stone, including the b
 [phases]
 # Seconds. Quantiles are computed from the observed samples in fight_plan.OBSERVED, not stored here.
 window_phases = [6, 7]
-announce_phase = 3     # landing: ≥4.5 s of warning in 150 observations — everything must be in place by its end
-takeoff_s = 0.85       # sd 0.10 across 139 observations: effectively a constant, and shorter than any reaction
-sitting_s = 4.95       # 139 of 149 sitting phases, to the tick; the other 10 were cut short
 
 [combat]
 dragon_hp = 200.0
@@ -85,9 +81,3 @@ approach = 2
 landing = 3
 takeoff = 4
 sitting = 6
-
-[targets]
-# What a run has to achieve for a change to count as an improvement. One metric per scenario.
-hold_60s_hp_lost = 4.0        # sixty seconds in the tunnel beside a perched dragon
-window_exposure_s = 1.0       # seconds outside cover per firing window
-window_dragon_hp = 20.0       # dragon health per window, minimum

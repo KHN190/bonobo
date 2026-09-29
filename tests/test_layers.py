@@ -1,6 +1,6 @@
 """Layering. A test, because the damage is silent.
 
-`scenarios.module_deps` is the bench's re-run key: a scenario is re-run when one of the modules its skill actually
+`runner.module_deps` is the bench's re-run key: a scenario is re-run when one of the modules its skill actually
 depends on changes. When a low module reaches upward — perception importing the brain to ask whether a mob is
 hostile, the transport layer importing a fight skill to check an aim, the tape importing the four modules whose
 state it records — every closure becomes the whole package. Nothing fails. The bench simply re-runs everything,
@@ -9,34 +9,92 @@ for every change, forever, and looks slow rather than broken.
 So: facts live at the bottom (a mob's reach, whether it is hostile, the geometry of a line of sight), decisions at
 the top, and the top is wired INTO the bottom rather than imported from it (`brain._wire_tape`).
 """
-import ast
 import os
 import pathlib
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import scenarios  # noqa: E402
+from bonobo.bench import runner  # noqa: E402
 
 PKG = pathlib.Path(__file__).resolve().parent.parent / "bonobo"
 
 # The two modules that decide things. Nothing may import them: they are where the wiring is done, not a library.
-TOP = {"brain", "scenarios"}
+TOP = {"brain"}
 # Replaying and reviewing a decision means building the decider — that is the whole job, not a layering slip.
-MAY_IMPORT_TOP = {"brain", "scenarios", "decide", "review"}
+MAY_IMPORT_TOP = {"brain", "review"}
 
 # How many modules each one drags in, frozen. A ratchet, not a target: these may fall, never rise. When one rises
 # the bench's re-run key has just got coarser, and this is the only place that will say so. Rebased when the belief
 # table was introduced: one leaf module that genuinely belongs in every closure raises them all by one.
-CLOSURE = {"actions": 22, "api": 9, "arbiter": 9, "bag": 11, "beliefs": 2, "value": 8, "gates": 7, "blueprints": 1, "brain": 57,   # +want: the cerebrum's door is a thing the planner must know about
-    "brewing": 30, "building": 23, "bunker": 35, "combat": 35, "combat_model": 3, "combat_tape": 10, "data": 1,
-    "decide": 58, "directives": 2, "end": 35, "explore": 21, "farming": 29, "field": 1, "fight_plan": 6, "estimate": 4, "fit": 1, "fresh": 2, "measure": 7,
-    "fluids": 19, "intent": 10, "jobs": 29, "kernel": 5, "knowledge": 2, "lookahead": 2, "loot": 18, "memory": 4,
-    "nav": 17, "nether": 21, "paths": 1, "perception": 15, "planner": 13, "pool": 1, "priority": 6, "recovery": 1,
-    "retry": 1, "review": 41, "roads": 1, "route": 4, "scenarios": 41, "skill": 10, "skillcore": 12, "skills": 29,
-    "solve": 1, "survival": 5, "tape": 2, "terrain": 20, "threat": 6, "ui": 30, "upkeep": 18, "want": 15, "wood": 29,
+# 重构后基线（refactor 1–5 之后的当前值），只降不升。
+CLOSURE = {
+    "actions": 15,
+    "api": 8,
+    "arbiter": 2,            # arbiter no longer imports api: api wires its message and /stop in (arbiter.WIRE)
+    "bag": 11,
+    "beliefs": 1,
+    "blueprints": 1,
+    "brain": 56,            # + reflexes (the maintenance table split off needs)
+    "brewing": 21,
+    "building": 19,
+    "combat": 17,
+    "combat_model": 3,
+    "combat_tape": 9,
+    "cost": 15,
+    "craft": 20,
+    "data": 1,
+    "decompose": 23,
+    "dragon": 14,
+    "dispatch": 22,
+    "end": 17,
+    "estimate": 4,
+    "events": 2,             # the concise event log: paths only
+    "explore": 17,
+    "farming": 22,
+    "field": 1,
+    "fight_loop": 19,
+    "fight_plan": 6,
+    "fluids": 18,
+    "fresh": 2,
+    "gather": 20,
+    "goals": 3,
+    "hazard": 13,
+    "intent": 9,
+    "jobs": 21,
+    "lifecycle": 1,
+    "kernel": 5,
+    "knowledge": 2,
+    "loot": 17,
+    "memory": 4,
+    "nav": 12,
+    "nether": 18,
+    "paths": 1,
+    "perception": 23,
+    "planner": 10,
+    "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
+    "review": 7,
+    "roads": 1,
+    "shapes": 1,                    # types only (TypedDicts, Literals): imported under TYPE_CHECKING
+    "skill": 13,
+    "skillcore": 12,
+    "skills": 27,
+    "solve": 1,
+    "store": 22,
+    "survive": 23,
+    "tape": 2,
+    "tasks": 5,
+    "terrain": 15,
+    "threat": 6,
+    "ui": 21,
+    "needs": 37,
+    "reflexes": 36,
+    "wood": 24,
     "world": 9,
 }
+
+# And by one again for `lifecycle`: a leaf with no imports where per-life state registers its reset beside itself,
+# so a bench row, a death and a dimension change forget it in one call (lifecycle.reset_all).
 
 # And by one again when the arbiter stopped holding the body with a lock and started holding a DECISION: keeping
 # or replacing one is `kernel`'s rule, and a second copy of it here is what made every answer after the first an
@@ -47,18 +105,8 @@ CLOSURE = {"actions": 22, "api": 9, "arbiter": 9, "bag": 11, "beliefs": 2, "valu
 # read from wherever it is needed, rather than re-derived by each caller.
 
 # The bottom: pure facts and pure functions over them. Anything here that grows an import has stopped being a fact.
-FACTS = {"data", "kernel", "pool", "solve", "combat_model", "recovery", "retry", "roads", "blueprints",
-         "paths", "fit", "beliefs", "field", "estimate"}
-
-
-def imports_of(module):
-    """Every module of this package `module` imports, at any nesting (deferred imports count — they are still
-    edges in the graph the bench keys on)."""
-    out = set()
-    for node in ast.walk(ast.parse((PKG / f"{module}.py").read_text())):
-        if isinstance(node, ast.ImportFrom) and node.level == 1:
-            out |= {node.module.split(".")[0]} if node.module else {a.name for a in node.names}
-    return {m for m in out if (PKG / f"{m}.py").exists()}
+FACTS = {"data", "shapes", "kernel", "solve", "combat_model", "retry", "roads", "blueprints",
+         "paths", "beliefs", "field", "estimate", "lifecycle"}
 
 
 def modules():
@@ -66,16 +114,43 @@ def modules():
 
 
 class Direction(unittest.TestCase):
+    """Asked of the bench's own key (`runner.module_deps`), which is what an upward edge damages."""
+
+    # fixture: (situation, {module: source} of a package, the module asked) → its key's closure
+    KEYS = [("a fact alone", {"data": "X = 1\n"}, "data", ["data"]),
+            ("transitive: a → b → c", {"a": "from . import b\n", "b": "from .c import X\n", "c": "X = 1\n"}, "a",
+             ["a", "b", "c"]),
+            ("a deferred import is still an edge", {"a": "def f():\n    from . import brain\n", "brain": ""}, "a",
+             ["a", "brain"]),
+            ("a cycle ends", {"a": "from . import b\n", "b": "from . import a\n"}, "a", ["a", "b"]),
+            ("must fail: a type-only import is no edge",
+             {"a": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from .shapes import Cell\n", "shapes": ""},
+             "a", ["a"]),
+            ("a fact reaching a decider: the key shows it (what the tests below fail on)",
+             {"data": "from .brain import decide\n", "brain": ""}, "data", ["brain", "data"]),
+            ("must fail: not edges: the standard library, a module that is not there", {"a": "import os\nfrom .gone import X\n"},
+             "a", ["a"])]
+
+    def test_the_key_follows_every_package_import(self):
+        import tempfile
+        for name, files, asked, want in self.KEYS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                for m, src in files.items():
+                    (pathlib.Path(tmp) / f"{m}.py").write_text(src)
+                self.assertEqual(runner.module_deps(asked, tmp), want)
+
     def test_nothing_imports_the_deciders(self):
         for m in modules():
             if m in MAY_IMPORT_TOP:
                 continue
-            self.assertFalse(imports_of(m) & TOP,
-                             f"{m} imports {sorted(imports_of(m) & TOP)}; move the fact down, or wire it from the top")
+            with self.subTest(m):
+                self.assertEqual(sorted(set(runner.module_deps(m)) & TOP), [],
+                                 f"{m}'s key reaches deciders; move the fact down, or wire it from the top")
 
     def test_facts_import_only_facts(self):
         for m in sorted(FACTS):
-            self.assertFalse(imports_of(m) - FACTS, f"{m} is a fact module but imports {sorted(imports_of(m) - FACTS)}")
+            with self.subTest(m):
+                self.assertEqual(sorted(set(runner.module_deps(m)) - FACTS), [], f"{m} is a fact module")
 
 
 class ReRunKey(unittest.TestCase):
@@ -84,14 +159,14 @@ class ReRunKey(unittest.TestCase):
     def test_no_closure_has_grown(self):
         for m in modules():
             self.assertIn(m, CLOSURE, f"new module {m}: add it to CLOSURE with its size")
-            self.assertLessEqual(len(scenarios.module_deps(m)), CLOSURE[m],
+            self.assertLessEqual(len(runner.module_deps(m)), CLOSURE[m],
                                  f"{m} now drags in more of the package; the bench will re-run more than it must")
 
     def test_a_skill_does_not_depend_on_the_whole_package(self):
         """The failure this file exists for: every closure equal to the package means no scenario is ever skipped."""
         whole = len(modules())
         for m in ("fluids", "nav", "perception", "api", "tape"):
-            self.assertLess(len(scenarios.module_deps(m)), whole // 2, m)
+            self.assertLess(len(runner.module_deps(m)), whole // 2, m)
 
 
 if __name__ == "__main__":

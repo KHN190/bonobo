@@ -1,43 +1,128 @@
-"""Persistent world memory shared across sessions: sites, stations, sightings, veins, deaths, night record.
+"""Persistent world memory shared across sessions: sites, stations, what was seen where, deaths, night record. A *site* is any protected structure: the home base or a built shelter. Each may carry a snapshot of its solid blocks so damage can be detected and repaired. Digging near sites is allowed; digging *their blocks* is not."""
 
-A *site* is any protected structure: the home base or a built shelter. Each may carry a snapshot of its solid
-blocks so damage can be detected and repaired. Digging near sites is allowed; digging *their blocks* is not.
-"""
 import json
 import math
 import os
 import time
-from . import beliefs, paths
+from typing import Any
+from . import paths, blueprints
+from .data import GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, mid, seen_class
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
-
-
-def _stamp_s(stamp):
-    """A "%Y-%m-%d %H:%M" note stamp as epoch seconds; the epoch when it is missing or unreadable."""
-    if not stamp:
-        return 0.0
-    try:
-        return time.mktime(time.strptime(stamp, "%Y-%m-%d %H:%M"))
-    except (ValueError, TypeError):
-        return 0.0
-
 
 def _now():
     return time.strftime("%Y-%m-%d %H:%M")
 
+# -- the section grid explore searches (Minecraft's 16³ sections): looked over when, holding what, and the frontier; pure
+SECTION = 16
+
+def section_of(pos):
+    """Pure: the (cx, cy, cz) section a position lies in."""
+    return int(math.floor(pos[0])) // SECTION, int(math.floor(pos[1])) // SECTION, int(math.floor(pos[2])) // SECTION
+
+def sections_within(pos, radius):
+    """Pure: every section whose centre lies within `radius` blocks of `pos` (in 3-D: a look sees above and below)."""
+    cx, cy, cz = section_of(pos)
+    r = int(radius) // SECTION + 1
+    return [(cx + dx, cy + dy, cz + dz) for dx in range(-r, r + 1) for dy in range(-r, r + 1) for dz in range(-r, r + 1)
+            if math.dist(((cx + dx) * SECTION + 8, (cy + dy) * SECTION + 8, (cz + dz) * SECTION + 8),
+                         pos) <= radius]
+
+def absent_ttl(kind):
+    """Game ticks "looked over, none here" holds for `kind` (data.VOLATILITY's `absent`, by the kind's class)."""
+    rule = VOLATILITY.get(seen_class(kind)) or VOLATILITY["slow"]
+    return rule.get("absent") or VOLATILITY["slow"]["absent"]
+
+def covered(row, kinds, tick):
+    """Pure: this section's looks still answer every one of `kinds` within its `absent` TTL."""
+
+    if row is None:
+        return False
+    looked = row.get("looked", {})
+    for k in map(bare, kinds):
+        if k in row["kinds"]:
+            continue
+        t = looked.get(k)
+        if t is None:
+            return False        # never looked, or a look with no game time: not an answer that can expire
+        if tick is not None and tick - t > absent_ttl(k):
+            return False
+    return True
+
+def out_of_look(skips, section, kinds, tick):
+    """Pure: `section` was found out of look range from any reachable stand, recently enough for `kinds` (the absent
+    TTL): a skip for the search, never a look — the section is not answered."""
+    t = (skips or {}).get(section)
+    if t is None:
+        return False
+    return tick is None or all(tick - t <= absent_ttl(k) for k in kinds)
+
+def frontier(smap, here, kinds, tick, band=lambda kind: None, radius=12, skips=None):
+    """Pure: sections to look next for `kinds`, nearest first, at each kind's own height, never or long ago looked
+    over — and not out of look range from any reachable stand lately (`skips`)."""
+
+    hx, hy, hz = section_of(here)
+    layers = {(hy if band(k) is None else int(band(k)) // SECTION) for k in kinds}
+    out = set()
+    for cy in layers:
+        want = [k for k in kinds if (hy if band(k) is None else int(band(k)) // SECTION) == cy]
+        for dx in range(-radius, radius + 1):
+            for dz in range(-radius, radius + 1):
+                s = (hx + dx, cy, hz + dz)
+                if s != (hx, hy, hz) and not covered(smap.get(s), want, tick) and not out_of_look(skips, s, want, tick):
+                    out.add(s)
+    return sorted(out, key=lambda s: (math.dist(s, (hx, hy, hz)), s))
+
+def section_centre(section):
+    """Pure: the block at a section's centre (x, y, z)."""
+    return tuple(c * SECTION + 8 for c in section)
+
+SECTION_CAP = 4096      # sections explore remembers per dimension (the oldest, farthest go first)
+
+TICK_READ_S = 1.0       # a tick read outside a round serves this long (a burst of stamps and judgements)
+TICK_READER = None      # fn() → the game's tick now (skillcore wires /state gameTime): a look outside a round reads it
+
+def read_notes(path: str) -> "dict[str, Any]":
+    """The notes file's top level; {} when missing or unreadable."""
+    try:
+        with open(path) as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def write_notes(path: str, data: "dict[str, Any]") -> None:
+    """Write the notes atomically (a tmp file, then a rename)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)
+
+
 
 class Memory:
+    def tick(self):
+        """The game time a look or a note is stamped with and judged by: the round's clock, else — a skill run with
+        no brain round (the bench's achieve, the CLI) — the game's tick read now (else None: nothing to read)."""
+        if self.clock is not None or TICK_READER is None:
+            return self.clock
+        cached = getattr(self, "_tick_read", None)
+        if cached is not None and time.time() - cached[0] < TICK_READ_S:
+            return cached[1]                 # one read serves a burst (seen() judges every note)
+        value = TICK_READER()                # None when there is no game to ask (skillcore.game_time_or_none)
+        self._tick_read = (time.time(), value)
+        return value
+
     def __init__(self, path=NOTES_FILE):
         self.path = path
-        try:
-            with open(path) as f:
-                self.data = json.load(f)
-        except (OSError, ValueError):
-            self.data = {}
+        self.data: dict[str, Any] = read_notes(path)
         d = self.data
-        for key, default in (("sites", []), ("stations", []), ("sightings", {}), ("veins", []), ("deaths", []),
+        self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
+        for key, default in (("sites", []), ("stations", []), ("seen", []), ("deaths", []),
                              ("night", {"phase": "day", "slept": False, "missed": 0}), ("machines", []),
-                             ("orientation", {}), ("stats", {}), ("durations", {}), ("jobs", [])):
+                             ("stats", {}), ("durations", {}), ("jobs", [])):
             d.setdefault(key, default)
         self._migrate()
 
@@ -71,8 +156,7 @@ class Memory:
             changed = True
         d.pop("base_snapshot", None)
         # Duplicates from before the writers deduplicated.
-        for key, ident in (("stations", lambda s: (tuple(s["pos"]), s["dimension"])),
-                           ("veins", lambda v: (v["ore"], tuple(v["pos"]), v["dimension"]))):
+        for key, ident in (("stations", lambda s: (tuple(s["pos"]), s["dimension"])),):
             seen, unique = set(), []
             for item in d[key]:
                 if ident(item) not in seen:
@@ -81,183 +165,35 @@ class Memory:
             if len(unique) != len(d[key]):
                 d[key] = unique
                 changed = True
+        if d.pop("progress", None) is not None:      # half-finished work is no longer kept: re-plan by search
+            changed = True
+        changed = self._fold_old_notes() or changed
         if changed:
             self.save()
 
-    def save(self):
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(self.data, f, indent=1)
-        os.replace(tmp, self.path)
+    def _fold_old_notes(self):
+        """Four old stores of "seen X at Y" on the wall clock, folded into one."""
 
-    # ---- sites
+        d = self.data
+        old = [(r["kind"], r["pos"], r["dimension"]) for r in d.pop("resources", []) if not r.get("depleted")]
+        old += [(k, x["pos"], x["dimension"]) for k, rows in d.pop("sightings", {}).items() for x in rows]
+        old += [("lava", p["pos"], p["dimension"]) for p in d.pop("lava", [])]
+        had_veins = d.pop("veins", None) is not None
+        for kind, pos, dim in old:
+            if seen_class(kind) in ("static", "slow"):
+                self._put(kind, pos, dim, verify=True)
+        return bool(old) or had_veins
+
+    def save(self):
+        write_notes(self.path, self.data)
+
+    # -- sites
     def sites(self, dimension=None, kinds=None):
         return [s for s in self.data["sites"]
                 if (dimension is None or s["dimension"] == dimension) and (kinds is None or s["kind"] in kinds)]
 
     def home(self):
         return next((s for s in self.data["sites"] if s["kind"] == "home"), None)
-
-    # ---- half-finished work. Progress belongs in the world, not in the planner: a task is re-derived from
-    # scratch every round, so anything it got done must be readable from outside it or it is lost on the first
-    # interruption. Items record themselves (they are in the bag); holes, tunnels and half-built huts do not.
-
-    def note_progress(self, kind, pos, dimension, done, of=None):
-        """Record that `done` units of `kind` are finished at `pos` (out of `of`, when the size is known)."""
-        key = f"{kind}:{int(pos[0])},{int(pos[1])},{int(pos[2])}"
-        entries = self.data.setdefault("progress", {})
-        entry = entries.setdefault(key, {"kind": kind, "pos": [int(c) for c in pos], "dimension": dimension})
-        entry["done"] = max(float(entry.get("done", 0)), float(done))
-        if of:
-            entry["of"] = float(of)
-        entry["t"] = _now()
-        self.save()
-        return entry
-
-    def clear_progress(self, kind, pos):
-        key = f"{kind}:{int(pos[0])},{int(pos[1])},{int(pos[2])}"
-        if self.data.get("progress", {}).pop(key, None) is not None:
-            self.save()
-
-    def progress(self, dimension, kind=None, near=None, within=64.0):
-        """Half-finished work in this dimension, nearest first. `near` is a position to measure from."""
-        out = [e for e in self.data.get("progress", {}).values()
-               if e.get("dimension") == dimension and (kind is None or e.get("kind") == kind)]
-        if near is not None:
-            out = [e for e in out if math.dist(e["pos"], near) <= within]
-            out.sort(key=lambda e: math.dist(e["pos"], near))
-        return out
-
-    def note_search(self, kind, distance):
-        """Record how far away one of these actually turned out to be. The geometric growth used when nothing is
-        known is a prior; this is the measurement that replaces it."""
-        found = self.data.setdefault("searches", {}).setdefault(kind, {"n": 0, "total": 0.0})
-        found["n"] += 1
-        found["total"] += float(distance)
-        self.save()
-
-    # -- did looking for this kind ever find one, here?
-    LOOK_PRIOR_N = 3.0         # weight of the declared chance, in looks
-
-    def note_look(self, kind, found):
-        """Record one look for `kind` that did or did not find one. The measurement behind `exists_rate`.
-
-        "Could not find white_wool" was said sixty times and cost nothing: the errand was priced by distance
-        alone, so a thing that is not in this biome stayed as cheap as one underfoot. This is the counter that
-        makes looking for it get more expensive.
-        """
-        row = self.data.setdefault("looks", {}).setdefault(str(kind), {"found": 0.0, "n": 0.0})
-        row["found"] += 1.0 if found else 0.0
-        row["n"] += 1.0
-        self.save()
-
-    def exists_rate(self, kind, prior):
-        """How often looking for this kind finds one, long run: the declared chance as pseudo-counts, plus what
-        happened. A COUNTER behind `gates.p("find")`: this remembers, the door decides what it means."""
-        row = self.data.get("looks", {}).get(str(kind))
-        if not row or row["n"] <= 0:
-            return float(prior)
-        return (self.LOOK_PRIOR_N * float(prior) + row["found"]) / (self.LOOK_PRIOR_N + row["n"])
-
-    def search_distance(self, kind):
-        """The average distance one of these was found at, or None if never measured.
-
-        A COUNTER behind `gates.takes_s`: this remembers what happened, the door decides what it means."""
-        found = self.data.get("searches", {}).get(kind)
-        return (found["total"] / found["n"]) if found and found["n"] else None
-
-    # -- how dangerous it is out there, over the long run
-    #
-    # Kept per (night/day × surface/underground) and across sessions, because that is what it is: a property of the
-    # world, not of this minute. This round's sightings are the threat layer's business — a fact to react to, not
-    # a price to plan with. The declared `risk.encounters_per_day` enters as PSEUDO-COUNTS, so a fresh world plans
-    # on the belief and a played one plans on what actually happened, with no switch between the two.
-    PRIOR_S = 600.0        # weight of the prior, in seconds of exposure. The prior RATE is passed in: beliefs
-                           # belong to whoever prices the work, and memory stays a leaf module that only counts.
-
-    def _exposure_bin(self, dark, underground):
-        # By LIGHT, not by the clock. An unlit cave at noon is neither night nor (until it is deep) underground, so
-        # both of the old bins called it safe — and the agent mined in the dark with "ignore — carrying on takes
-        # ~4.1 hp/s" until it died. Mobs spawn where the light is low, whatever the hour.
-        return f"{'dark' if dark else 'lit'}/{'under' if underground else 'surface'}"
-
-    def note_exposure(self, seconds, dark, underground, encounters):
-        """Record `seconds` spent out with `encounters` hostiles met. The measurement behind `encounter_rate`."""
-        if seconds <= 0:
-            return
-        row = self.data.setdefault("exposure", {}).setdefault(self._exposure_bin(dark, underground),
-                                                              {"s": 0.0, "n": 0.0})
-        row["s"] += float(seconds)
-        row["n"] += float(encounters)
-        self.save()
-        # The same fact, told to the belief history as well: this table is how OFTEN it happened in this world,
-        # `risk.encounters_per_day` is what the model believes in general, and it was a guess with nothing behind
-        # it while this counter filled up right next to it.
-        day_s = float(beliefs.value("time.day_s"))
-        if seconds >= self.EXPOSURE_SAMPLE_S:
-            beliefs.note("risk.encounters_per_day", float(encounters) / float(seconds) * day_s,
-                         where=f"exposure:{self._exposure_bin(dark, underground)}")
-
-    # A stretch shorter than this is not a rate: one hostile in four seconds is not sixty an hour.
-    EXPOSURE_SAMPLE_S = 60.0
-
-    def encounter_rate(self, dark, underground=False, prior_rate=None):
-        """Hostiles met per second out there, long run: (prior + observed) / (prior seconds + observed seconds).
-
-        `prior_rate` is what to believe before anything has been seen in this bin (`actions.encounter_prior`).
-        
-
-        A COUNTER behind `gates.p("encounter")`: this remembers what happened, the door decides what it means."""
-        prior = float(prior_rate if prior_rate is not None else 0.0)
-        row = self.data.get("exposure", {}).get(self._exposure_bin(dark, underground), {"s": 0.0, "n": 0.0})
-        return (prior * self.PRIOR_S + row["n"]) / (self.PRIOR_S + row["s"])
-
-    # -- what an attempt actually brought back, against what was expected of it
-    YIELD_PRIOR_N = 5.0        # weight of the declared yield, in attempts
-
-    def note_yield(self, name, got, expected):
-        """Record one attempt of `name` that returned `got` where `expected` was hoped for (both in seconds or in
-        the same units). The measurement behind `yield_rate`."""
-        if expected <= 0:
-            return
-        row = self.data.setdefault("yields", {}).setdefault(name, {"n": 0.0, "ratio": 0.0})
-        row["n"] += 1.0
-        row["ratio"] += float(got) / float(expected)
-        self.save()
-        # Errands whose whole worth is declared in seconds (`[yield_s]`: explore, enchant, potions) have a belief
-        # of their own, and this attempt is a measurement of it.
-        if name in beliefs.CONFIG.get("yield_s", {}):
-            beliefs.note(f"yield_s.{name}", float(got), where="attempt")
-
-    def yield_rate(self, name):
-        """How much of the declared yield this world actually gives, long run: 1.0 until anything is recorded, then
-        the declared prior as pseudo-counts and the attempts on top. A chest run that keeps coming back empty stops
-        being worth a walk without anyone editing a number.
-
-        A COUNTER behind `gates.p("yield")`: this remembers what happened, the door decides what it means."""
-        row = self.data.get("yields", {}).get(name)
-        if not row or row["n"] <= 0:
-            return 1.0
-        return (self.YIELD_PRIOR_N * 1.0 + row["ratio"]) / (self.YIELD_PRIOR_N + row["n"])
-
-    # -- how often each kind of tool is actually reached for
-    TOOL_PRIOR_S = 1200.0      # weight of the declared rate, in seconds of play
-
-    def note_tool_use(self, kind, seconds=0.0, uses=1):
-        """Record `uses` uses of a `kind` of tool over `seconds` of play. The measurement behind `tool_use_rate`."""
-        row = self.data.setdefault("tool_use", {}).setdefault(kind, {"s": 0.0, "n": 0.0})
-        row["s"] += float(seconds)
-        row["n"] += float(uses)
-        self.save()
-
-    def tool_use_rate(self, kind, prior_rate):
-        """Uses per second for this kind, long run: the declared rate as pseudo-counts, then what happened.
-
-        A COUNTER behind `gates.p("tool_use")`: this remembers what happened, the door decides what it means."""
-        prior = float(prior_rate)
-        row = self.data.get("tool_use", {}).get(kind, {"s": 0.0, "n": 0.0})
-        return (prior * self.TOOL_PRIOR_S + row["n"]) / (self.TOOL_PRIOR_S + row["s"])
 
     def nearest_site(self, pos, dimension, kinds=None):
         options = self.sites(dimension, kinds)
@@ -287,9 +223,8 @@ class Memory:
         return cells | self.machine_cells(dimension) | self.build_cells(dimension)
 
     def build_cells(self, dimension):
-        """Cells of blueprint builds that were started but not finished: never mined (the portal goal once took its
-        own half-built frame apart for obsidian)."""
-        from . import blueprints
+        """Cells of started, unfinished builds: never mined (the portal goal once took its own frame apart)."""
+
         cells = set()
         for name, b in self.data.get("builds", {}).items():
             bp = blueprints.REGISTRY.get(name)
@@ -316,8 +251,8 @@ class Memory:
         self.save()
 
     def settle_pending(self, name, got):
-        """Subtract collected items from a machine's pending outputs; stale or empty entries go away, entries that
-        yielded nothing yet are rescheduled a minute later."""
+        """Subtract collected items from a machine's pending outputs; empty ones reschedule a minute later."""
+
         got, now = dict(got), time.time()
         for m in self.data["machines"]:
             if m["name"] != name:
@@ -348,12 +283,22 @@ class Memory:
     def jobs(self, dimension=None):
         return [j for j in self.data["jobs"] if dimension is None or j["dimension"] == dimension]
 
-    def add_job(self, kind, pos, dimension, item, count, ready_at, carried):
-        job = {"id": f"{kind}-{int(time.time())}", "kind": kind, "pos": list(pos), "dimension": dimension,
-               "item": item, "count": count, "ready_at": ready_at, "carried": carried}
+    def add_job(self, kind, pos, dimension, item, count, ready_at, carried, **contents):
+        """A background job; `contents` records what went in, so what the furnace holds is known, never guessed."""
+
+        # one id per job: jobs started in the same second shared an id and finished together
+        self.data["job_seq"] = self.data.get("job_seq", 0) + 1
+        job = {"id": f"{kind}-{int(time.time())}-{self.data['job_seq']}", "kind": kind, "pos": list(pos), "dimension": dimension,
+               "item": item, "count": count, "ready_at": ready_at, "carried": carried, **contents}
         self.data["jobs"].append(job)
         self.save()
         return job
+
+    def update_job(self, job_id, **fields):
+        for j in self.data["jobs"]:
+            if j["id"] == job_id:
+                j.update(fields)
+        self.save()
 
     def finish_job(self, job_id):
         self.data["jobs"] = [j for j in self.data["jobs"] if j["id"] != job_id]
@@ -366,7 +311,6 @@ class Memory:
         self.save()
 
     def machine_cells(self, dimension):
-        from . import blueprints
         cells = set()
         for m in self.machines(dimension):
             bp = blueprints.REGISTRY.get(m["blueprint"])
@@ -377,7 +321,7 @@ class Memory:
     # -- skill outcomes (DEPS-style selector: plans through steps that keep failing get dearer)
     def record_outcome(self, key, ok):
         s = self.data["stats"].setdefault(key, {"ok": 0.0, "fail": 0.0})
-        # Exponential forgetting: new tools or a new area can redeem a step that used to fail.
+        # exponential forgetting: new tools or a new area can redeem a step
         s["ok"] = s["ok"] * 0.9 + (1 if ok else 0)
         s["fail"] = s["fail"] * 0.9 + (0 if ok else 1)
         self.save()
@@ -403,16 +347,23 @@ class Memory:
             return 1.0
         return (s["ok"] + 1) / (s["ok"] + s["fail"] + 1)
 
-    def orientation_rule(self, item):
-        """How an item's `facing` follows the body at placement: learned per item, default toward the player."""
-        return self.data["orientation"].get(item, "toward_player")
-
-    def set_orientation_rule(self, item, rule):
-        self.data["orientation"][item] = rule
-        self.save()
-
     def mark_dirty_near(self, positions, dimension, radius=6):
+        """Our own digging: sites near it turn dirty, slow notes to-verify, and a static note on the dug cell goes."""
+
         changed = False
+        dug = [tuple(p) for p in positions]
+        keep = []
+        for r in self.data["seen"]:
+            if r["dimension"] == dimension:
+                cls = seen_class(r["kind"])
+                if cls == "static" and any(math.dist(r["pos"], p) <= 1 for p in dug):
+                    changed = True
+                    continue
+                if cls == "slow" and not r.get("verify") and any(math.dist(r["pos"], p) <= radius for p in dug):
+                    r["verify"] = True
+                    changed = True
+            keep.append(r)
+        self.data["seen"] = keep
         for s in self.sites(dimension):
             if s.get("snapshot") and not s.get("dirty") and any(
                     math.dist((p[0], p[2]), (s["pos"][0], s["pos"][2])) <= radius for p in positions):
@@ -421,7 +372,7 @@ class Memory:
         if changed:
             self.save()
 
-    # ---- stations we placed (persist across restarts so they get picked back up)
+    # -- stations we placed (persisted so they get picked back up)
     def add_station(self, block, pos, dimension):
         if any(s["pos"] == list(pos) and s["dimension"] == dimension for s in self.data["stations"]):
             return
@@ -429,10 +380,8 @@ class Memory:
         self.save()
 
     def stations(self, dimension=None, near=None, within=None):
-        """Placed single-block stations (a crafting table, a furnace), optionally near a point.
+        """Placed single-block stations (a crafting table, a furnace), optionally near a point."""
 
-        One reader for what we have put down, so "is there a furnace here" is asked the same way everywhere
-        rather than each caller digging through `data["stations"]` its own way."""
         out = [s for s in self.data["stations"] if dimension is None or s["dimension"] == dimension]
         if near is not None and within is not None:
             out = [s for s in out if math.dist(s["pos"], near) <= within]
@@ -442,159 +391,186 @@ class Memory:
         self.data["stations"] = [s for s in self.data["stations"] if s["pos"] != list(pos)]
         self.save()
 
-    # ---- sightings, veins, deaths
-    def add_sighting(self, kind, pos, dimension):
-        self.data["sightings"].setdefault(kind, []).append({"pos": list(pos), "dimension": dimension, "at": _now()})
-        self.save()
+    # -- sections looked over and what they held: explore's frontier
+    def see_sections(self, dimension, pos, radius, found, looked=()):
+        """Sections within `radius` of `pos` were looked over now for `looked`; each `found` kind marks its own section."""
 
-    def sightings(self, kind, dimension, max_age_min=None):
-        """What we have seen of this kind here, newest first. `max_age_min` filters for callers that really mean
-        "right now" (is one within arm's reach); by default nothing is filtered out.
+        smap = self.data.setdefault("sections", {}).setdefault(dimension, {})
+        now = self.tick()
+        asked = {bare(k) for k in looked} | {bare(k) for k in found}
+        for c in sections_within(pos, radius):
+            row = smap.setdefault(",".join(map(str, c)), {"t": now, "kinds": {}, "looked": {}})
+            row["t"] = now
+            row.setdefault("looked", {}).update({k: now for k in asked})
+        for kind, spots in found.items():
+            for p in spots:
+                key = ",".join(map(str, section_of(p)))
+                smap.setdefault(key, {"t": now, "kinds": {}, "looked": {}})["kinds"][bare(kind)] = now
+        if len(smap) > SECTION_CAP:
+            here = section_of(pos)
+            by = sorted(smap, key=lambda k: ((smap[k]["t"] or 0), -math.dist(here, tuple(map(int, k.split(","))))))
+            for k in by[:len(smap) - SECTION_CAP]:
+                del smap[k]
 
-        Animals wander, so an old sighting is a worse guess — but it is still a guess, and the cutoff that used to
-        stand here threw away a field of sheep mapped the night before and sent the agent exploring instead. Age is
-        priced in seconds now (`gates.marginal("staleness")`), where the pool can weigh it against everything else.
-        """
-        rows = [s for s in self.data["sightings"].get(kind, []) if s["dimension"] == dimension]
-        if max_age_min is not None:
-            cutoff = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time() - max_age_min * 60))
-            rows = [s for s in rows if s.get("at", "") >= cutoff]
-        return sorted(rows, key=lambda s: s.get("at", ""), reverse=True)
+    def frontier(self, dimension, here, kinds, band=lambda kind: None):
+        """[(section, centre)] to look next for `kinds` from `here`, nearest first."""
 
-    def note_age_s(self, kinds, dimension, now=None):
-        """Seconds since the freshest note about any of these kinds, or 0.0 when there is none.
+        skips = {tuple(map(int, k.split(","))): t
+                 for k, t in self.data.get("out_of_look", {}).get(dimension, {}).items()}
+        return [(s, section_centre(s))
+                for s in frontier(self.section_map(dimension), here, kinds, self.tick(), band, skips=skips)]
 
-        One reader for "how old is what we know", so the seek column and the walk agree about it.
-        
+    def skip_section(self, dimension, section):
+        """`section` is out of look range from any reachable stand (a band far under the ground we stand on): the
+        search skips it until its absence TTL runs out. Not a look: nothing is recorded as seen or looked over."""
+        self.data.setdefault("out_of_look", {}).setdefault(dimension, {})[",".join(map(str, section))] = self.tick()
 
-        A COUNTER behind `gates.marginal("staleness")`: this remembers what happened, the door decides what it means."""
-        now = now or time.time()
-        best = None
-        for kind in kinds:
-            for s in self.data["sightings"].get(kind, ()):
-                if s["dimension"] != dimension:
-                    continue
-                age = now - _stamp_s(s.get("at"))
-                best = age if best is None else min(best, age)
-            for r in self.data.get("resources", ()):
-                if r["kind"] == kind and r["dimension"] == dimension and r.get("last"):
-                    age = now - float(r["last"])
-                    best = age if best is None else min(best, age)
-        return max(0.0, best) if best is not None else 0.0
+    def section_map(self, dimension):
+        """{(cx, cy, cz): {"t", "kinds"}} of this dimension (`frontier` reads it)."""
+        return {tuple(map(int, k.split(","))): v for k, v in self.data.get("sections", {}).get(dimension, {}).items()}
 
-    def log_vein(self, ore, pos, size, dimension):
-        if any(v["ore"] == ore and v["dimension"] == dimension and math.dist(v["pos"], pos) <= 3
-               for v in self.data["veins"]):
-            return
-        self.data["veins"].append({"ore": ore, "pos": list(pos), "size": size, "dimension": dimension, "at": _now()})
-        self.save()
-
-    # ---- resource points: trees, herds, water — a map that changes (harvested, depleted, regrown)
-    REGROW_S = {"tree": 20 * 60, "herd": 10 * 60, "water": 0, "grass": 5 * 60}
-
-    def note_resource(self, kind, pos, dimension, depleted=False):
-        """Record (or refresh) a resource point; points within 12 blocks of one another are the same point."""
-        res = self.data.setdefault("resources", [])
-        now = time.time()
-        for r in res:
-            if r["kind"] == kind and r["dimension"] == dimension and math.dist(r["pos"], pos) <= 12:
-                r["last"] = now
-                r["depleted"] = depleted
-                break
-        else:
-            res.append({"kind": kind, "pos": list(pos), "dimension": dimension, "last": now, "depleted": depleted})
-        self.save()
-
+    # -- what was seen where: one store by volatility, on the game clock
     CONFIRM_R = 12.0      # a note and a sighting within this are the same thing
 
-    def confirm(self, kind, pos, dimension, found):
-        """Arriving settles a note: `found` keeps it, otherwise it is retired at once.
+    def _put(self, kind, pos, dimension, verify=False, cls=None):
+        kind = bare(kind)
+        cls = cls or seen_class(kind)
+        rule = VOLATILITY.get(cls)
+        if rule is None:
+            return None                                   # hostile: perception only
+        pos = [int(c) for c in pos]
+        if rule["area"]:
+            a = rule["area"]
+            pos = [pos[0] // a * a + a // 2, pos[1], pos[2] // a * a + a // 2]
+        for row in self.data["seen"]:
+            if row["kind"] == kind and row["dimension"] == dimension \
+                    and math.dist(row["pos"], pos) <= max(rule["merge"], 0.5):
+                row.update(t=self.tick(), verify=verify)
+                return row
+        row = {"kind": kind, "pos": pos, "dimension": dimension, "t": self.tick(), "verify": verify}
+        if cls != seen_class(kind):
+            row["cls"] = cls
+        self.data["seen"].append(row)
+        return row
 
-        One rule for every kind of note — resources, sites, veins — because they fail the same way. Left to a
-        timer, a felled tree stays on the resource map, is priced, walked to, found missing, and priced again next
-        round; the agent walks the same sixty blocks until something else happens to win. Recovery already worked
-        this way (`forget_death`); this is the same thing for everything else.
-        """
+    def _fresh(self, row, within=None):
+        """Within its class's TTL (and `within` ticks, when asked). A note or a clock we cannot date is kept."""
+        rule = VOLATILITY.get(row.get("cls") or seen_class(row["kind"]))
+        if rule is None:
+            return False
+        limit = min(x for x in (rule["ttl"], within, float("inf")) if x is not None)
+        now = self.tick() if limit != float("inf") and row.get("t") is not None else None
+        if now is None:
+            return True
+        return now - row["t"] <= limit
+
+    def note_seen(self, kind, pos, dimension):
+        """One of `kind` is at `pos` (a block or mob name, or an alias: "tree", "herd")."""
+
+        self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
+        if self._put(kind, pos, dimension) is not None:
+            self.save()
+
+    def note_here(self, kind, pos, dimension):
+        """Standing at one of `kind`: noted as its class keeps it, else for two minutes ("here") — never a map of common blocks."""
+
+        self.data["seen"] = [r for r in self.data["seen"] if self._fresh(r)]
+        cls = seen_class(kind)
+        if self._put(kind, pos, dimension, cls=cls if VOLATILITY.get(cls) else "here") is not None:
+            self.save()
+
+    def seen(self, kind, dimension, within=None):
+        """Live notes of this kind here, newest first: {kind, pos, dimension, t, verify}."""
+
+        kind = bare(kind)
+        rows = [r for r in self.data["seen"] if r["kind"] == kind and r["dimension"] == dimension
+                and self._fresh(r, within)]
+        return sorted(rows, key=lambda r: r.get("t") or 0, reverse=True)
+
+    def forget_seen(self, kind, pos, dimension, radius=CONFIRM_R):
+        """The world said no (we took it, mined it, or it was not there): retire the notes of `kind` near `pos`."""
+        kind, before = bare(kind), len(self.data["seen"])
+        self.data["seen"] = [r for r in self.data["seen"]
+                             if not (r["kind"] == kind and r["dimension"] == dimension
+                                     and math.dist(r["pos"], pos) <= radius)]
+        if len(self.data["seen"]) != before:
+            self.save()
+
+    @staticmethod
+    def blocks_of(kind):
+        """The blocks that prove a note on arrival."""
+        return GROUPS["log"] if bare(kind) == "tree" else [bare(kind)]
+
+    def confirm(self, kind, pos, dimension, found):
+        """Arriving settles a note: `found` keeps it (and clears to-verify), otherwise it is retired at once."""
+
         if found:
             if kind != "site":
-                self.note_resource(kind, pos, dimension)
+                self.note_here(kind, pos, dimension)
             return True
         if kind == "site":
             before = len(self.data.get("sites", []))
             self.data["sites"] = [x for x in self.data.get("sites", [])
                                   if not (x.get("dimension") == dimension
                                           and math.dist(x["pos"], pos) <= self.CONFIRM_R)]
-            changed = len(self.data["sites"]) != before
+            if len(self.data["sites"]) != before:
+                self.save()
         else:
-            before = len(self.data.get("resources", []))
-            self.data["resources"] = [r for r in self.data.get("resources", [])
-                                      if not (r["kind"] == kind and r["dimension"] == dimension
-                                              and math.dist(r["pos"], pos) <= self.CONFIRM_R)]
-            changed = len(self.data.get("resources", [])) != before
-        if changed:
-            self.save()
+            self.forget_seen(kind, pos, dimension)
         return False
 
-    def resources(self, kind, dimension, now=None):
-        """Available points of a kind: never depleted, or depleted long enough ago to have regrown."""
-        now = now or time.time()
-        regrow = self.REGROW_S.get(kind, 600)
-        return [r["pos"] for r in self.data.get("resources", [])
-                if r["kind"] == kind and r["dimension"] == dimension
-                and (not r.get("depleted") or now - r.get("last", 0) >= regrow)]
-
-    # ---- lava pools (obsidian casting): remembered so the portal goal can go back to one
-    def add_lava(self, hit, dimension):
-        pos = [hit["x"], hit["y"], hit["z"]] if isinstance(hit, dict) else list(hit)
-        pools = self.data.setdefault("lava", [])
-        if any(p["dimension"] == dimension and math.dist(p["pos"], pos) <= 16 for p in pools):
-            return
-        pools.append({"pos": pos, "dimension": dimension, "at": _now()})
+    # -- what containers held when last open: decompose's "take it from a chest"
+    def note_container(self, pos, dimension, slots):
+        """Record what a container held when it was last open (`slots`: /container rows; the player's own skipped)."""
+        items = {}
+        for s in slots:
+            if s.get("owner") != "player" and s.get("id") not in (None, "minecraft:air"):
+                items[s["id"]] = items.get(s["id"], 0) + int(s.get("count", 1))
+        key = ",".join(str(int(c)) for c in pos)
+        self.data.setdefault("containers", {})[key] = {"pos": [int(c) for c in pos], "dimension": dimension,
+                                                      "items": items, "t": self.tick()}
         self.save()
 
-    def lava_pools(self, dimension):
-        return [p["pos"] for p in self.data.get("lava", []) if p["dimension"] == dimension]
+    def forget_container(self, pos):
+        if self.data.setdefault("containers", {}).pop(",".join(str(int(c)) for c in pos), None) is not None:
+            self.save()
 
-    def forget_lava(self, pos):
-        self.data["lava"] = [p for p in self.data.get("lava", []) if math.dist(p["pos"], pos) > 16]
-        self.save()
+    def stored(self, token, dimension):
+        """[(pos, item id, count)] of `token` (an item or a group) in containers seen here."""
+        ids = {mid(x) for x in GROUPS.get(token, [token])}
+        return [(tuple(c["pos"]), item, n) for c in self.data.get("containers", {}).values()
+                if c["dimension"] == dimension for item, n in c["items"].items() if item in ids and n > 0]
 
     def log_death(self, pos, dimension, carried=()):
-        """Record a death and WHAT WAS ON US. The pile on the ground is the only thing that says whether walking
-        back is worth it: a flat cost priced a corpse holding two blocks of dirt the same as one holding iron."""
+        """Record a death and what was carried."""
+
         self.data["deaths"].append({"pos": list(pos), "dimension": dimension, "at": _now(), "t": time.time(),
                                     "carried": [[str(i), int(n)] for i, n in carried]})
         self.save()
 
     def forget_death(self, pos=None):
-        """Mark the last death recovered — or this one, by position. A note the world has contradicted must stop
-        being an errand at once; leaving it to time out means walking the same sixty blocks again in a minute."""
+        """Mark the last death recovered — or this one, by position."""
+
         for d in reversed(self.data["deaths"]):
             if d.get("recovered"):
                 continue
             if pos is None or tuple(d["pos"]) == tuple(int(c) for c in pos):
                 d["recovered"] = True
                 self.save()
-                # A death is paid for when the walk back is done, and how long that took is exactly what
-                # `time.death_cost_s` claims to know. Measured from the death itself: the respawn, the walk and
-                # the re-gearing are all of it, which is what makes dying cost a run its time.
-                if d.get("t"):
-                    took = time.time() - float(d["t"])
-                    if 1.0 <= took <= 3600.0:
-                        beliefs.note("time.death_cost_s", took, where="death recovered")
                 return d
         return None
 
-    def recent_death(self, dimension, within_s=300, now=None):  # noqa: D401
+    def recent_death(self, dimension, within_s=None, now=None):  # noqa: D401
         """The last death if its dropped items are still there (they despawn after 5 minutes), else None."""
         now = now or time.time()
+        within_s = ITEM_DESPAWN_S if within_s is None else within_s
         d = next((d for d in reversed(self.data["deaths"]) if d.get("t") and not d.get("recovered")), None)
         if d and d["dimension"] == dimension and now - d["t"] < within_s:
             d.setdefault("carried", [])      # deaths recorded before the bag was kept
             return d
         return None
 
-    # ---- nights: counted once per night, on the night→day transition
+    # -- nights: counted once, on the night→day transition
     def observe_phase(self, night):
         n = self.data["night"]
         phase = "night" if night else "day"
@@ -611,9 +587,4 @@ class Memory:
         self.data["night"]["slept"] = True
         self.data["night"]["missed"] = 0
         self.save()
-
-    @property
-    def nights_missed(self):
-        return self.data["night"]["missed"]
-
 

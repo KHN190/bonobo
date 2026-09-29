@@ -1,29 +1,27 @@
-"""The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them
-(tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
-from .data import GROUPS, KEEP_BUILDING_BLOCKS
-from .world import add
+"""The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
+
+from .world import add, screen_slot
+from .knowledge import ALL_FOOD, RAW_MEAT, members
+from .api import NotAvailable
+from .data import TOOL_KINDS, VALUABLES
 
 PICKUP_FILTER_AT = 28
 
-# Item ids the committed plan will consume (set by the brain every round). Throwing, storing and slot freeing never
-# touch them: tidy once threw the planks a wheat-farm plan had just crafted, every 8 s, and the plan re-crafted them.
+# item ids the committed plan will consume: never thrown or stored (tidy once threw a plan's fresh planks every 8 s)
 RESERVED = set()
 
-
 def reserved_stacks(slots):
-    """Pure: the stacks kept for open goals' plans — the biggest stack of each reserved item id, not all of them
-    (reserving every cobblestone stack would make the bag impossible to tidy)."""
+    """Pure: the biggest stack of each reserved item id (reserving every stack would make the bag untidyable)."""
+
     best = {}
     for s in slots:
         if s["id"] in RESERVED and (s["id"] not in best or s.get("count", 1) > best[s["id"]].get("count", 1)):
             best[s["id"]] = s
     return list(best.values())
 
-
 def reserved_ids(plan, needs=()):
-    """Pure: every item id a plan consumes or produces on the way (step inputs, intermediate outputs) plus the goal's
-    own needs — the one reservation list bag, deposit and free_slots all read."""
-    from .knowledge import members
+    """Pure: every item id a plan passes through plus the goal's needs — the one reservation list."""
+
     tokens = set()
     for step in plan:
         tokens.add(step.token)
@@ -36,214 +34,112 @@ def reserved_ids(plan, needs=()):
         ids.update(members(t))
     return ids
 
+# what a nearly full bag still picks up: the floor and what the route to the dragon is made of
+PICKUP_ALWAYS = ("minecraft:raw_iron", "minecraft:raw_gold", "minecraft:iron_ingot", "minecraft:gold_ingot",
+                 "minecraft:diamond", "minecraft:ender_pearl", "minecraft:blaze_rod", "minecraft:obsidian",
+                 "minecraft:string", "minecraft:flint")
 
 def pickup_whitelist(used_slots, wanted=()):
-    """Pure: None (collect everything) below PICKUP_FILTER_AT slots; from there only the keep list, basic supplies
-    and what the task is for. Vanilla pickup itself can't be filtered, but the collect sweep can stop walking onto
-    cobblestone and dirt — the source of the bag filling up in tunnels and shafts."""
+    """Pure: None (collect all) below PICKUP_FILTER_AT slots; above, only the keep list, supplies and the task's own items."""
+
     if used_slots < PICKUP_FILTER_AT:
         return None
-    from .knowledge import members
-    ids = set(KEEP_ITEMS)
+    ids = {i for token in FLOOR if token != "building" for i in _floor_ids(token)} | set(PICKUP_ALWAYS)
     for token in ("food", "coal", "log", "planks", "wool"):
         ids |= set(members(token))
     for token in wanted:
         ids |= set(members(token))
     return sorted(ids)
 
+# what the bag never goes below; working tools and armour are kept whole; everything else is priced (`let_go`)
+FLOOR = {"food": 8, "building": 64, "minecraft:torch": 16, "minecraft:bucket": 1, "minecraft:water_bucket": 1,
+         "minecraft:lava_bucket": 1, "bed": 1, "minecraft:crafting_table": 1, "minecraft:furnace": 1,
+         "minecraft:flint_and_steel": 1, "minecraft:shield": 1, "coal": 16}
+UNPRICED_S = 1.0          # seconds to get again when nothing prices an item: it goes first (junk)
 
-# What travels with us; everything else goes into the home chest. Amounts are caps per item group.
-KEEP_ALWAYS_SUFFIX = ("_pickaxe", "_axe", "_shovel", "_sword", "_helmet", "_chestplate", "_leggings", "_boots",
-                      "_bed", "_boat")
+def _floor_ids(token):
+    if token == "food":
+        return list(ALL_FOOD) + list(RAW_MEAT)     # raw meat is the next meal while cooked food is short
+    return list(members(token))
 
+def dead(s):
+    """A tool or armour at <= 1 durability: the mod refuses it, it only takes a slot."""
+    return bool(s.get("maxDamage")) and s["maxDamage"] - s.get("damage", 0) <= 1
 
-KEEP_ITEMS = {"minecraft:torch": 64, "minecraft:ladder": 32, "minecraft:crafting_table": 1, "minecraft:furnace": 1,
-              "minecraft:bucket": 2, "minecraft:water_bucket": 1, "minecraft:lava_bucket": 1, "minecraft:shield": 1,
-              "minecraft:flint_and_steel": 1, "minecraft:iron_ingot": 64, "minecraft:raw_iron": 64,
-              "minecraft:raw_gold": 64, "minecraft:gold_ingot": 64, "minecraft:diamond": 64, "minecraft:flint": 8,
-              "minecraft:stick": 32, "minecraft:ender_pearl": 16, "minecraft:blaze_rod": 16,
-              "minecraft:ender_eye": 16, "minecraft:obsidian": 16, "minecraft:bow": 1, "minecraft:arrow": 64,
-              "minecraft:string": 16, "minecraft:feather": 16, "minecraft:beef": 32, "minecraft:porkchop": 32,
-              "minecraft:mutton": 32, "minecraft:chicken": 32, "minecraft:rabbit": 32,
-              # The carried chest is kept (deposit used to store it, then the goal crafted another, over and over);
-              # farming supplies travel with us.
-              "minecraft:chest": 1, "minecraft:wheat_seeds": 32, "minecraft:wheat": 32, "minecraft:carrot": 16,
-              "minecraft:stone_hoe": 1, "minecraft:iron_hoe": 1, "minecraft:wooden_hoe": 1,
-              "minecraft:oak_sapling": 8, "minecraft:spruce_sapling": 8, "minecraft:birch_sapling": 8}
+REPAIRED = ("diamond_", "netherite_")     # a spent tool of these is kept for an anvil, never thrown
 
 
-KEEP_GROUPS = {"food": 64, "coal": 64, "log": 32, "planks": 32, "wool": 3, "door": 3, "building": KEEP_BUILDING_BLOCKS}
+def repairable(s):
+    """Pure: a diamond or netherite tool — worth an anvil even at 1 durability."""
+    name = s["id"].split(":")[-1]
+    return name.startswith(REPAIRED) and name.rsplit("_", 1)[-1] in TOOL_KINDS
 
 
-def tidy_plan(slots):
-    """Pure: the slots to throw away on the spot — DISCARD items and stacks beyond EXCESS_CAP (smaller stacks go
-    first). Worn-out tools are not thrown: a player standing still picks them straight back up; deposit stores them."""
-    from .data import DISCARD, EXCESS_CAP, KEEP_BUILDING_BLOCKS
-    slots = [s for s in slots if s not in reserved_stacks(slots)]
-    throw, kept = [], {}
-    # Building blocks beyond the keep cap (plain cobble/deepslate kept first, then the biggest stacks). A full
-    # inventory makes crafting fail, so this cap is enforced on the spot, not only at a chest.
-    plain = ("minecraft:cobblestone", "minecraft:cobbled_deepslate")
-    building = sorted((s for s in slots if s["id"] in GROUPS["building"]),
-                      key=lambda s: (s["id"] not in plain, -s.get("count", 1)))
-    held = 0
-    for s in building:
-        if held + s["count"] <= KEEP_BUILDING_BLOCKS:
-            held += s["count"]
-        else:
-            throw.append(s)
-    for s in sorted(slots, key=lambda s: -s.get("count", 1)):
-        if s in throw:
-            continue
-        item = s["id"]
-        if item in DISCARD:
-            throw.append(s)
-        elif item in EXCESS_CAP:
-            # Keep stacks until the cap is reached, then drop the rest: a cap never empties an item completely
-            # just because its single stack is bigger than the cap.
-            if kept.get(item, 0) >= EXCESS_CAP[item]:
-                throw.append(s)
-            else:
-                kept[item] = kept.get(item, 0) + s["count"]
-    # A tool at <= 1 durability is dead weight: the mod refuses to use it (tidy_inventory steps away after throwing).
-    throw += [s for s in slots if s not in throw and s.get("maxDamage") and s["maxDamage"] - s.get("damage", 0) <= 1]
-    return throw
+def spent(s):
+    """Pure: a dead tool or armour nothing will repair: thrown first."""
+    return dead(s) and not repairable(s)
 
 
-# Materials with little use on the route to the dragon, kept only up to a cap when slots are needed.
-LOW_VALUE_CAPS = {"minecraft:redstone": 64, "minecraft:lapis_lazuli": 0, "minecraft:rabbit_hide": 0,
-                  "minecraft:leather": 0, "_sapling": 0, "minecraft:crafting_table": 1, "door": 1, "wool": 3,
-                  "minecraft:raw_copper": 0, "minecraft:copper_ingot": 0, "minecraft:bone_meal": 0,
-                  "minecraft:string": 16, "minecraft:feather": 16}
+def kept(slots):
+    """Pure: stacks kept whatever — one of each RESERVED id, working tools and armour (a spent diamond or netherite
+    tool too: repairable), the biggest up to FLOOR."""
 
+    keep = list(reserved_stacks(slots)) + [s for s in slots if s.get("maxDamage") and (not dead(s) or repairable(s))]
+    for token, n in FLOOR.items():
+        ids, have = set(_floor_ids(token)), 0
+        for st in sorted((x for x in slots if x["id"] in ids), key=lambda x: -x.get("count", 1)):
+            if have >= n:
+                break
+            if st not in keep:
+                keep.append(st)
+            have += st.get("count", 1)
+    return keep
 
-# Rough value for the last-resort ordering (default 1). Higher = dropped later.
-STACK_VALUE = {"minecraft:redstone": 2, "minecraft:lapis_lazuli": 2, "minecraft:coal": 6, "minecraft:dirt": 1,
-               "minecraft:tuff": 1, "minecraft:cobbled_deepslate": 2, "minecraft:cobblestone": 2,
-               "minecraft:beef": 3, "minecraft:porkchop": 3, "minecraft:mutton": 3, "minecraft:chicken": 3,
-               "minecraft:rabbit": 3, "minecraft:flint": 3, "minecraft:stick": 3, "log": 4}
+def reget_seconds(s, price=None):
+    """Seconds to get this stack again: the planner's price of one (cost.Prices, `price(item)`) × its count."""
+    one = price(s["id"]) if price else None
+    return (UNPRICED_S if one is None else float(one)) * s.get("count", 1)
 
+def let_go(slots, need, price=None, chest_s=None, lava_near=False):
+    """Pure: [(stack, "drop" | "deposit")] freeing `need` slots."""
 
-def _stack_value(s):
-    """Last-resort drop order: explicit item value, else the value of its group (logs), else 1."""
-    item = s["id"]
-    if item in STACK_VALUE:
-        return STACK_VALUE[item]
-    for token, value in STACK_VALUE.items():
-        if token in GROUPS and item in GROUPS[token]:
-            return value
-    return 1
+    keep = kept(slots)
+    order = [s for s in slots if spent(s)] + sorted(
+        (s for s in slots if s not in keep and not dead(s)), key=lambda s: (reget_seconds(s, price), s.get("count", 1)))
+    out = []
+    for s in order:
+        if len(out) >= need:
+            break
+        worth = reget_seconds(s, price)
+        valuable = s["id"] in VALUABLES
+        if chest_s is not None and (valuable or worth > chest_s or lava_near):
+            out.append((s, "deposit"))
+        elif not lava_near and not valuable:        # a valuable is never dropped: deposited, or kept
+            out.append((s, "drop"))
+    if need > 0 and not out:
+        raise NotAvailable("bag: every stack is needed (plans, working tools, the upkeep floor)"
+                           + (" and lava is near: nothing is dropped" if lava_near else ""))
+    return out
 
+def empty_how(slots, need, price=None, chest_s=None, lava_near=False):
+    """Pure: "deposit" when let_go puts a stack in an existing chest, else "drop" (the cheapest stacks thrown)."""
 
-PROTECTED_IDS = {"minecraft:bucket", "minecraft:water_bucket", "minecraft:lava_bucket", "minecraft:flint_and_steel",
-                 "minecraft:furnace", "minecraft:torch", "minecraft:shield", "minecraft:bow", "minecraft:arrow",
-                 "minecraft:ender_pearl", "minecraft:ender_eye", "minecraft:blaze_rod", "minecraft:blaze_powder",
-                 "minecraft:obsidian", "minecraft:chest", "minecraft:wheat_seeds",
-                 # fuel: every smelt (gold helmet, cooked food) and torch needs it — it was thrown while both waited
-                 "minecraft:coal", "minecraft:charcoal"}
+    plan = let_go(slots, need, price, chest_s, lava_near)
+    return "deposit" if any(how == "deposit" for _s, how in plan) else "drop"
 
-
-PROTECTED_SUFFIX = ("_ingot", "diamond", "emerald", "_bed", "raw_iron", "raw_gold", "_helmet", "_chestplate",
-                    "_leggings", "_boots",
-                    # things goals make or need (dropping them makes the goal craft them again, forever)
-                    "_wool", "_door", "crafting_table", "ladder")
-
-
-def _protected_stack(s):
-    item = s["id"]
-    if s.get("maxDamage"):
-        return s["maxDamage"] - s.get("damage", 0) > 1          # working tools and armor
-    if item in PROTECTED_IDS or item.endswith(PROTECTED_SUFFIX):
-        return True
-    return item.startswith("minecraft:cooked_") or item in ("minecraft:bread", "minecraft:golden_carrot")
-
-
-RAW_MEAT = ("minecraft:beef", "minecraft:porkchop", "minecraft:mutton", "minecraft:chicken", "minecraft:rabbit")
-
-
-SURPLUS_CAP = {"log": 16, "minecraft:stick": 16, "minecraft:flint": 4, "minecraft:sand": 0, "minecraft:gravel": 0}
-
-
-def free_slots_plan(slots, need=0):
-    """Pure: which stacks to drop to free `need` slots, least valuable first. Tiers 1–3 (tidy_plan: junk, stacks over
-    caps, building blocks over 128) always go; then only as many as needed, smallest stacks first within a tier:
-      4. building blocks beyond 64 (plain cobble/deepslate kept longest)
-      5. raw meat, when 8+ other food is carried
-      6. surplus materials: logs / sticks beyond 16, flint beyond 4, sand, leftover gravel
-    Never: tools (spares included), armor, ingots / gems, torches, beds, doors, ladders, buckets, stations, cooked food."""
-    from .data import GROUPS as G, KEEP_BUILDING_BLOCKS
-    from .knowledge import ALL_FOOD, members as mem_of
-    throw = tidy_plan(slots)
-    missing = need - len(throw)
-    if missing <= 0:
-        return throw
-    kept_for_plans = reserved_stacks(slots)
-    left = [s for s in slots if s not in throw and s not in kept_for_plans]
-    cooked = sum(s["count"] for s in slots if s["id"] in ALL_FOOD)
-    if cooked < 8:   # same threshold as the raw-meat tier below: with 8+ other food raw meat may go
-        # Raw meat is the next meal while cooked food is short: never a slot-freeing candidate (it was thrown ten
-        # times while the food stock was being hunted).
-        left = [s for s in left if s["id"] not in RAW_MEAT]
-        throw = [s for s in throw if s["id"] not in RAW_MEAT]
-    tiers = []
-    plain = ("minecraft:cobblestone", "minecraft:cobbled_deepslate")
-    building = sorted((s for s in left if s["id"] in G["building"]), key=lambda s: (s["id"] not in plain, -s["count"]))
-    held, t4 = 0, []
-    for s in building:
-        if held + s["count"] <= min(64, KEEP_BUILDING_BLOCKS):
-            held += s["count"]
-        else:
-            t4.append(s)
-    tiers.append(t4)
-    other_food = sum(s["count"] for s in left if s["id"] in ALL_FOOD)
-    tiers.append([s for s in left if s["id"] in RAW_MEAT] if other_food >= 8 else [])
-    t6 = []
-    for token, cap in SURPLUS_CAP.items():
-        stacks = sorted((s for s in left if s["id"] in mem_of(token)), key=lambda s: -s["count"])
-        kept = 0
-        for s in stacks:
-            if kept >= cap:
-                t6.append(s)
-            else:
-                kept += s["count"]
-    tiers.append(t6)
-    # Tools are never dropped while they still work: a "worn duplicate" is the spare that saves the day when the
-    # main one breaks deep underground. A tool at <= 1 durability is useless (the mod refuses it) and may go.
-    t7 = []
-    for token, cap in LOW_VALUE_CAPS.items():
-        stacks = sorted((s for s in left if (s["id"] in mem_of(token) or (token.startswith("_") and s["id"].endswith(token)))
-                         and not _protected_stack(s)), key=lambda s: -s["count"])
-        kept = 0
-        for s in stacks:
-            if kept >= cap:
-                t7.append(s)
-            else:
-                kept += s["count"]
-    t7 += [s for s in left if s.get("maxDamage") and s["maxDamage"] - s.get("damage", 0) <= 1]
-    tiers.append(t7)
-    # Last resort, so a full bag can ALWAYS be emptied: anything not protected, cheapest first — except the
-    # building blocks goals keep (<= 64): dropping those just sends a goal off to mine them again.
-    building_total = sum(s["count"] for s in left if s["id"] in G["building"])
-    tiers.append(sorted((s for s in left if not _protected_stack(s)
-                         and not (s["id"] in G["building"] and building_total <= 64)),
-                        key=lambda s: (_stack_value(s), s["count"])))
-    for tier in tiers:
-        # Cheapest first (value), then smaller stacks: re-sorting by count alone threw logs before cobblestone.
-        for s in sorted(tier, key=lambda s: (_stack_value(s), s["count"])):
-            if missing <= 0:
-                return throw
-            if s not in throw:
-                throw.append(s)
-                missing -= 1
-    return throw
-
+def free_slots_plan(slots, need=0, price=None):
+    """Pure: the stacks to drop to free `need` slots (let_go without a chest); spent tools always go."""
+    try:
+        plan = [s for s, how in let_go(slots, need, price) if how == "drop"]
+    except NotAvailable:
+        plan = []           # let_go's own answer: every stack is needed — a bug in it surfaces
+    return plan + [s for s in slots if spent(s) and s not in plan]
 
 FREE_SLOTS_TARGET = 5     # keep this many slots free: crafting, pickups and loot need room
 
-
 def throw_direction(region, inside):
-    """Pure: a horizontal side open at feet and head height to throw items into — the one with the most open room
-    beyond (a tunnel's way back rather than a 1-block niche), or None in a sealed shaft."""
+    """Pure: the side open at feet and head with the most room beyond to throw into, or None in a sealed shaft."""
+
     x, y, z = inside
     best, best_room = None, 0
     for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
@@ -255,38 +151,140 @@ def throw_direction(region, inside):
             room += 1
         if room > best_room:
             best, best_room = (dx, dz), room
-    # Thrown items fly ~2 blocks: into a 1–2 block niche they land back at our feet and get picked up again.
+    # thrown items fly ~2 blocks: into a smaller niche they land back at our feet
     return best if best_room >= 3 else None
 
-
 def store_plan(slots):
-    """Returns the player slots to move into storage: anything not on the keep list, or beyond its cap."""
-    from .knowledge import members
-    budget = dict(KEEP_ITEMS)
-    group_budget = dict(KEEP_GROUPS)
-    group_of = {m: g for g in KEEP_GROUPS for m in members(g)}
-    move = []
-    kept_for_plans = reserved_stacks(slots)
-    for s in slots:
-        item = s["id"]
-        if s in kept_for_plans:
-            continue   # an open goal's plan needs it
-        if item.endswith(KEEP_ALWAYS_SUFFIX):
-            # Worn-out tools (the mod refuses to use them at <= 1) only take up slots.
-            if "maxDamage" in s and s["maxDamage"] - s["damage"] <= 2:
-                move.append(s)
+    """Pure: player stacks to move into a chest — everything not kept, dead tools too."""
+    keep = kept(slots)
+    return [s for s in slots if s not in keep]
+
+STACK = 64
+
+def has_room(slots, free, ids):
+    """Pure: can one more of these (`ids`) go in the bag — a free slot, or a stack of one of them not yet full."""
+
+    return free > 0 or any(s["id"] in ids and int(s.get("count", 1)) < STACK for s in slots)
+
+def supports(feet):
+    """Pure: the cells the body stands on, never mined unless digging down on purpose (a full-bag miner fell through its floor)."""
+
+    x, y, z = feet
+    return {(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+
+def under(feet, cell):
+    """Pure: `cell` is in the body's own column below the feet, at any depth."""
+
+    return cell[0] == feet[0] and cell[2] == feet[2] and cell[1] < feet[1]
+
+FACES = ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0))
+
+def floored(region, cell, drop):
+    """Pure: a body standing in `cell` has ground within `drop` blocks under it."""
+
+    x, y, z = cell
+    for k in range(1, drop + 2):
+        c = (x, y - k, z)
+        if not region.inside(c):
+            return False
+        if region.solid(c) or region.name(c).endswith("water"):
+            return True
+    return False
+
+def buried(region, cell):
+    """Pure: every face of `cell` is solid (read): no way at it but digging."""
+    return all(region.inside(f) and region.solid(f) for f in (add(cell, d) for d in FACES))
+
+def stand_spot(region, cell, drop):
+    """Pure: `cell` can be worked at — some open face has a standing place beside it (ground within `drop`), or its
+    open faces are only pockets too small to stand in (a neighbour mined out): the approach digs to it as to a
+    buried cell. Refused only when an open face gives onto air over a fall deeper than `drop`."""
+
+    if buried(region, cell):
+        return True
+    over_a_fall = False
+    for face in (add(cell, d) for d in FACES):
+        if region.inside(face) and region.solid(face):
             continue
-        # A stack moves only when the allowance is already used up: shift-click moves whole stacks, and keeping a
-        # little extra beats storing the one furnace we carry.
-        if item in budget:
-            if budget[item] <= 0:
-                move.append(s)
-            budget[item] -= s["count"]
-        elif item in group_of:
-            g = group_of[item]
-            if group_budget[g] <= 0:
-                move.append(s)
-            group_budget[g] -= s["count"]
-        else:
-            move.append(s)
-    return move
+        for s in (face, add(face, (0, -1, 0))):
+            head = add(s, (0, 1, 0))
+            if not all(region.inside(c) for c in (s, head)):
+                return True                     # beyond what was read: not a drop the blocks show
+            if not region.solid(s) and not region.solid(head):
+                if floored(region, s, drop):
+                    return True
+                over_a_fall = True              # room to stand, nothing under it
+    return not over_a_fall
+
+def standable_face(region, cell, drop):
+    """Pure: some open face of `cell` has a standing place beside it (2 high, ground within `drop`) — a spot the jar's
+    mine task can hold while it breaks the cell."""
+    for face in (add(cell, d) for d in FACES):
+        if region.inside(face) and region.solid(face):
+            continue
+        for s in (face, add(face, (0, -1, 0))):
+            head = add(s, (0, 1, 0))
+            if not all(region.inside(c) for c in (s, head)):
+                return True
+            if not region.solid(s) and not region.solid(head) and floored(region, s, drop):
+                return True
+    return False
+
+def opener(region, cell, feet, drop, forced=False):
+    """Pure: the block to break first so the jar can see `cell` — for a cell that is not buried but whose open faces
+    are only pockets too small to stand in (the jar's mine task never digs for a line of sight): the solid face
+    neighbour nearest the body's eye, never the body's own floor. None when the cell needs no opening (a
+    standable face)."""
+    cell, feet = tuple(cell), tuple(feet)
+    if region is None or (not forced and standable_face(region, cell, drop)):
+        return None
+    # buried: the jar's approach digs a way to it, but the drop then lies in a sealed cavity its collect never
+    # enters (brain__base 09:17:59: DIAMOND_UP mined, "collecting items (0)", then a shaft dug for the next seed) —
+    # a side face on the body's side is opened first, the way in for the eye and for the pickup
+    forced = forced or buried(region, cell)
+    # `forced`: the jar refused every stand it tried (NO_STAND) though a face looked standable — a side face then
+    # (the one above would put the body on the cell's own column, which the jar's mine never stands on)
+    eye = (feet[0], feet[1] + 1, feet[2])
+    floor = supports(feet)
+    options = [f for f in (add(cell, d) for d in FACES)
+               if region.inside(f) and region.solid(f) and f not in floor and not under(feet, f)
+               and not (forced and f[1] != cell[1])
+               and not getattr(region, "unbreakable", lambda p: False)(f)]
+    return min(options, key=lambda f: (sum((a - b) ** 2 for a, b in zip(f, eye)), f), default=None)
+
+def mineable(cells, feet, region=None, drop=None):
+    """Pure: the cells breakable from `feet`, in order — never the floor, our own column below, or a face only over a deep drop."""
+
+    feet = tuple(feet)
+    floor = supports(feet)
+    ok = [tuple(c) for c in cells if tuple(c) not in floor and not under(feet, tuple(c))
+          and (region is None or stand_spot(region, tuple(c), drop))]
+    if region is None:
+        return ok
+    # open-faced first, buried only when nothing open is left (else a batch undermined its own floor)
+    open_ = [c for c in ok if not buried(region, c)]
+    return open_ or ok
+
+def refused(cells, refused_before, jar_digs):
+    """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped)."""
+
+    cells = {tuple(c) for c in cells}
+    if jar_digs:
+        return set(), cells
+    drop = cells & set(refused_before)
+    return cells - drop, drop
+
+def bag_signature(inv):
+    """What the bag holds, exactly: a change the plan did not make is an event."""
+    return tuple(sorted((s["id"], s.get("count", 1)) for s in inv.slots))
+
+
+# -- the /click bodies that drop a bag stack or move one between the bag and an open container: built here only
+def throw(slot, one=False):
+    """Pure: the /click that throws the stack in bag slot `slot` (0-35) out of the inventory screen — one item of
+    it when `one` (button 0), else the whole stack (button 1)."""
+    return {"slot": screen_slot(slot), "button": 0 if one else 1, "action": "THROW"}
+
+def quick_move(screen):
+    """Pure: the /click that shift-moves the stack at `screen` (the open screen's own slot id) to the other side."""
+    return {"slot": screen, "button": 0, "action": "QUICK_MOVE"}

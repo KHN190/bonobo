@@ -7,7 +7,6 @@ death_cost_s = 240.0       # respawn, walk back, re-gear: what a death costs the
 # p(death) per night by how the night is spent. Sleeping skips it entirely.
 night_open = 0.35          # on the surface, no shelter, no bed
 night_sheltered = 0.03     # walled in or underground
-night_bed = 0.0
 # Extra p(death) per night without a weapon / per hunt without one.
 no_sword_night = 0.10
 # Starvation: below this food level nothing sprints or regenerates; the run slows and every hit sticks.
@@ -18,15 +17,11 @@ hunger_slowdown = 0.25     # fraction of working time lost at an empty bar, scal
 meal_share_of_day = 0.25   # how long a hunger level is carried before there is a chance to eat
 starving_slowdown = 0.5    # fraction of working time lost while low on food
 starving_death = 0.15      # p(death) per day at low food with no food carried
-dark_light = 7
 # Dark workplaces spawn mobs; torches remove that for the work site.
 dark_work_death = 0.05     # p(death) per working session with no torches
 encounters_per_day = 3.0
-night_encounter_share = 0.85    # fraction of a day's encounters that happen after dark
-night_share_of_day = 0.29       # 7000 of 24000 ticks
 reference_mob = "minecraft:zombie"   # what "a hostile" means when pricing a day
 regen_s_per_hp = 4.0                 # seconds to regenerate one health, fed and undisturbed
-regen_food_floor = 18                # health only regenerates above this food level
 food_drain_s = 80.0                  # seconds of ordinary activity per point of the food bar
 hurt_decay = 0.7
 # A bed only skips the night where we can actually sleep: in the open, mobs interrupt it.
@@ -39,29 +34,13 @@ mine_time_stone = 1.5
 mine_time_iron = 1.0
 mining_share_of_day = 0.4  # how much of a day is spent mining or digging
 
-unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_night", "starving_slowdown", "hunger_slowdown", "meal_share_of_day",
-              "starving_death", "dark_work_death", "dark_light", "phantom_night_death", "mine_time_no_pickaxe",
-              "mine_time_stone", "mining_share_of_day", "death_cost_s", "armor_per_tier", "shield",
-              "encounters_per_day", "night_encounter_share", "night_share_of_day", "regen_s_per_hp", "hurt_decay", "food_drain_s", "regen_food_floor", "night_bed_open",
-              "fresh_s", "drift_s_per_log2", "slot_fill_s", "food_point_s", "tax_bin", "health_bin", "commit_floor_s",
-              "pickaxe_s", "bed_s", "rounds",
-              "pickaxe", "shovel", "axe", "sword", "hoe", "bucket", "other",
-              "notice_r", "follow_p", "portal_trip_s", "seek_prior_s", "nether portal", "nether kit",
-              "nether fortress", "blaze rods (7)", "gold helmet for piglins", "piglin barter", "ender pearls (12)",
-              "eyes of ender (12)", "stronghold located", "portal room found", "beds for the dragon",
-              "activate end portal", "enter the End", "defeat the ender dragon",
-              "breed animals", "loot nearby chests", "villager pearls", "repair worn pickaxe", "strip mine",
-              "enchant the pickaxe", "fire resistance potions", "explore",
-              "attack_s", "speed", "block_half_life_s", "mob_half_life_s", "exists_prior",
-              "plans_per_round", "plan_sample_floor", "plan_stale_s", "stickiness", "premise_reach_s",
-              "max_prepare_blocks", "pick_s", "unit_s", "probe_r", "eat_s", "eat_heals", "shield_s", "shield_protects", "block_s", "dig_s", "hide_per_block", "melee_stop_blocks", "shape_min_gain"]
 
 [mobs]
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
 # a mob that wanders, and `arrival_s` is about pursuit. Measured by the arena (`bench/combat.jsonl`) for the two
 # families it has fought so far — walkers and archers — and still a declared guess for the rest.
 # attack_s and speed are BEHAVIOUR, not published constants: they are what the mob does here, at this tick rate,
-# against this body. Measured ones (see MC_DATA/beliefs.jsonl) replace the guess below as the count grows.
+# against this body.
 "minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
 "minecraft:husk" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
 "minecraft:zombie_villager" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
@@ -70,16 +49,19 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 "minecraft:stray" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 3.5, ranged = true }
 "minecraft:pillager" = { hp = 24, attack = 4.0, notice_r = 16.0, attack_s = 1.6, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }
 "minecraft:witch" = { hp = 26, attack = 3.0, notice_r = 16.0, attack_s = 1.5, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }
-"minecraft:creeper" = { hp = 20, attack = 43.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 5.0, speed = 2.5, burst = true }
+"minecraft:creeper" = { hp = 20, attack = 43.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, speed = 2.5, burst = true }   # keep_out: fuse_stop_blocks + 0.5 (beliefs)
 "minecraft:spider" = { hp = 16, attack = 3.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.0, squeezes = true }
 "minecraft:cave_spider" = { hp = 12, attack = 2.0, notice_r = 16.0, attack_s = 1.0, reach = 3.0, keep_out = 3.0, speed = 3.0, squeezes = true }
 "minecraft:phantom" = { hp = 20, attack = 6.0, notice_r = 64.0, attack_s = 3.0, reach = 3.0, keep_out = 3.0, speed = 6.0, squeezes = true }
 "minecraft:slime" = { hp = 16, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 3.0, keep_out = 3.0, speed = 2.0, squeezes = true }
 "minecraft:vindicator" = { hp = 24, attack = 13.0, notice_r = 16.0, attack_s = 2.0, reach = 3.0, keep_out = 3.0, speed = 2.5 }
 "minecraft:wither_skeleton" = { hp = 20, attack = 8.0, notice_r = 16.0, attack_s = 2.0, reach = 3.0, keep_out = 3.0, speed = 2.5 }
+"minecraft:ghast" = { hp = 10, attack = 6.0, notice_r = 64.0, attack_s = 3.0, reach = 48.0, keep_out = 6.0, speed = 2.0, ranged = true, squeezes = true }
+"minecraft:piglin" = { hp = 16, attack = 5.0, notice_r = 16.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.5 }
+"minecraft:zombified_piglin" = { hp = 20, attack = 5.0, notice_r = 35.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 3.5 }
 "minecraft:blaze" = { hp = 20, attack = 5.0, notice_r = 48.0, attack_s = 1.7, reach = 12.0, keep_out = 3.0, speed = 2.0, ranged = true, squeezes = true }
 "minecraft:ender_dragon" = { hp = 200, attack = 10.0, notice_r = 64.0, attack_s = 1.0, reach = 8.0, keep_out = 8.0, speed = 8.0, squeezes = true }
-"minecraft:enderman" = { hp = 40, attack = 7.0, notice_r = 64.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 4.3, squeezes = true }
+"minecraft:enderman" = { hp = 40, attack = 7.0, notice_r = 64.0, attack_s = 1.5, reach = 3.0, keep_out = 3.0, speed = 4.3, squeezes = true, tall = true }
 "minecraft:area_effect_cloud" = { hp = 1, attack = 6.0, notice_r = 0.0, attack_s = 1.0, reach = 6.0, keep_out = 6.0, speed = 0.0, squeezes = true }
 "minecraft:dragon_fireball" = { hp = 1, attack = 6.0, notice_r = 0.0, attack_s = 1.0, reach = 7.0, keep_out = 7.0, speed = 8.0, burst = true, squeezes = true }
 "minecraft:fireball" = { hp = 1, attack = 6.0, notice_r = 0.0, attack_s = 1.0, reach = 6.0, keep_out = 6.0, speed = 12.0, burst = true, squeezes = true }
@@ -88,150 +70,53 @@ unmeasured = ["night_open", "night_sheltered", "bag_comfortable", "no_sword_nigh
 [player]
 speed = 4.3                 # sprinting, blocks per second
 melee_reach = 3.0
+eye_height = 1.62
 dps = { "0" = 3.0, "1" = 12.0, "2" = 18.0, "3" = 24.0 }   # by sword tier: fist, wood/stone, iron, diamond
 protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
 protection_cap = 0.8
+hurt_immunity_s = 0.5       # the game ignores further damage for 10 ticks after a hit: incoming dps has a ceiling
 
 [engage]
 horizon_s = 4.0             # how far ahead arrival is predicted, like the fight
-hp_reserve = 8.0            # fight only if the expected damage leaves this much
 evade_blocks = 16.0
-wall_in_blocks = 9          # blocks needed to pod
+wall_in_blocks = 10         # blocks needed to pod (data.POD_BLOCKS: 9 cells + the roof's cap)
 wall_in_s = 8.0             # seconds exposed while building the pod
 notice_r = 16.0            # how far a hostile mob notices us; beyond it awareness fades over the same distance
-follow_p = 0.6             # of a threat's pressure that follows us when we walk away instead of killing it
+follow_p = 0.35            # of a threat's pressure that follows us when we walk away instead of killing it
 work_horizon_s = 20.0      # how long we would stay in their reach if we simply carried on working
+react_s = 3.0              # a threat further out than this is the next decision's: nothing is owed to it yet
 no_go_margin = 2.0         # blocks added to a mob's reach before ordinary planning refuses to route through it
-flee_leaves = 0.35         # a threat walked away from is not gone: this much of its pressure comes back
 fuse_s = 1.5               # a creeper's fuse: how long we have to be out of its blast
+fuse_stop_blocks = 7.0     # a lit creeper's fuse runs on while we are this near
+swing_s = 0.625            # a sword's swing refilling (attack speed 1.6/s): one hit per swing
+keepoff_risk = 0.05        # of a creeper's blast a hit-and-back-off fight still takes, per hit (a late step back)
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after
-eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed
-shield_s = 0.3             # raising a shield
-shield_protects = 0.15     # damage removed while it is up, on top of armour
+eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed (regen from saturation)
+golden_heals = 8.0         # a golden apple: health back at once (4) and absorption (4) — the only food that heals now
+eat_safe_press = 0.2       # hp/s: below this nothing is reaching us (walled in, left behind) and regen can run
 block_s = 0.6              # placing one block in the way
 dig_s = 0.9                # digging one block down, out of sight
 hide_per_block = 0.45      # of an archer's fire that a block of depth takes out of the line
 melee_stop_blocks = 2      # blocks of height or depth that put us out of a walking mob's reach entirely
+survive_margin_hp = 1.0    # an answer must leave at least this much health after what it expects to lose while under way
+arrow_hp = 6.0             # a fully drawn arrow's damage
+bow_hit_p = 0.6            # of full draws that hit a mob at range
+shot_s = 1.1               # one full draw and loose (22 ticks)
 shape_min_gain = 0.1       # a shape must cut this share of the pressure to be worth offering at all      # of what is coming at us that a block of height or depth takes out of the line
-detour_blocks = 8.0        # how far a placed block sends a mob around, where it cannot squeeze past
 interrupt_ttd_s = 4.0      # perception stops a task only when death is closer than one planning round      # perception interrupts a task when death is this close at the current pressure
-
-[milestone]
-pickaxe_s = 900.0          # a stone pickaxe in hand
-bed_s = 2400.0             # wool, planks, a bed
-rounds = 40                # give up after this many decisions, however the clock stands
-
-[tool_use]
-pickaxe = 50.0
-shovel = 20.0
-axe = 15.0
-sword = 8.0
-hoe = 4.0
-bucket = 3.0
-other = 2.0                # anything not named above
-
-[goals]
-unmodelled = []   # empty: every goal is priced in seconds. Adding a name here is taking on a debt.
-
-[progress]
-# The run itself, in seconds: how much of the way to the credits each stage removes. Declared budgets, not
-# measurements (listed unmeasured) — but they are SECONDS, so a portal can be compared with a bed instead of
-# being compared with nothing. Read downward: entering the End is worth what is left after it, and so on back.
-# A stage is only ever worth this once; the goals that reach it carry it (`Brain.progress_worth_s`).
-"nether portal" = 900.0
-"nether kit" = 400.0
-"nether fortress" = 700.0
-"blaze rods (7)" = 900.0
-"gold helmet for piglins" = 200.0
-"piglin barter" = 600.0
-"ender pearls (12)" = 900.0
-"eyes of ender (12)" = 400.0
-"stronghold located" = 700.0
-"portal room found" = 500.0
-"beds for the dragon" = 900.0
-"activate end portal" = 300.0
-"enter the End" = 300.0
-"defeat the ender dragon" = 1800.0
-
-[yield]
-"breed animals" = { "minecraft:beef" = 6 }
-"loot nearby chests" = { "minecraft:iron_ingot" = 2, "minecraft:bread" = 3, "minecraft:coal" = 4 }
-"villager pearls" = { "minecraft:ender_pearl" = 4 }
-"repair worn pickaxe" = { "minecraft:stone_pickaxe" = 0.5 }
-"strip mine" = { "minecraft:cobblestone" = 40, "minecraft:coal" = 6, "minecraft:raw_iron" = 3 }
-
-[yield_s]
-"enchant the pickaxe" = 600.0        # efficiency and unbreaking over the pickaxe's remaining life
-"fire resistance potions" = 400.0    # the Nether trips that do not end in a respawn
-"explore" = 120.0                    # a leg of exploring pays for itself by what it puts on the map
-
-[memory]
-# A note gets dearer as it ages; it never stops being a note. A cutoff cannot tell "the sheep wandered off" from
-# "there were never sheep there", and throwing the note away at thirty minutes is what made the agent explore past
-# a field it had mapped the night before. Cost in seconds, growing with the LOGARITHM of age, so a day-old note is
-# dearer than an hour-old one by a few doublings — never by infinity, never to zero worth.
-fresh_s = 600.0            # age at which a note has taken its first doubling's worth of drift
-drift_s_per_log2 = 25.0    # seconds added per doubling of (1 + age / fresh_s)
-# How fast a note stops being TRUE, as a half-life. A block stays where it is until somebody takes it; an animal
-# walks away, despawns, or is eaten by something else. Same note, two different chances of still being right.
-block_half_life_s = 3600.0
-mob_half_life_s = 240.0
 
 [build]
 max_prepare_blocks = 12
-
-[batch]
-# How much a step actually takes is a margin, not a number: one more unit is worth its shadow price (what the
-# round's own solve says another one saves) and costs the seconds to pick it up plus the slot it eats
-# (`actions.slot_cost_s`, from `pool.slot_fill_s`). Stone and logs, which half of every plan passes through, come
-# back by the stack; gold nothing asks for comes back in the quantity that was planned.
-pick_s = 0.35              # seconds to pick up one more item once it is broken and we are standing there
-
-[nav]
-unit_s = 0.5               # seconds per move unit
-probe_r = 14               # blocks: how far from the body a target is priced by route search rather than by the
-                           # straight line. Beyond this the box to fetch is too big to be worth a query. Zero
-                           # switches route pricing OFF entirely — which is how a bed behind a lava sheet came to
-                           # cost exactly what a bed on flat ground costs.
 
 [water]
 surface_s = 4.0            # seconds to swim out from a working depth
 reaction_s = 1.5           # perception round, /stop, and the rescue getting under way
 air_floor = 120            # ticks: a hard floor under the clock, in case the clock's own inputs are wrong
 
-[pool]
-# How much planning one round may do, and how it is spent. Planning every candidate to the end, every round, is
-# what put a thousand look-ahead lines a minute in the log and left the body waiting — while the answer barely
-# moved from round to round. Instead: a fixed budget per round, spent on candidates drawn BY WEIGHT (their worth
-# in seconds), keeping what was worked out last time for the ones not drawn. The estimate improves round by round
-# instead of being rebuilt from nothing; the choice is always the best of what is known so far.
-plans_per_round = 4          # candidates planned in full each round (the rest keep their last plan)
-plan_sample_floor = 0.15     # weight every candidate keeps however poor, so nothing is never looked at again
-plan_stale_s = 30.0          # a kept plan older than this is refreshed before it is trusted
-# How much better a challenger must be before the body changes its mind, ON TOP of what switching costs in
-# seconds (the walk, and redoing the piece of work in hand). A pure number, because it is not a fact about the
-# world but a taste: how much thrash is worth how much responsiveness. 0 = switch on any improvement.
-stickiness = 0.10
-# Which threats count as "on us" for the premise a plan is held under. Not every mob the threat model can see
-# within its 20 s account: a zombie sixty blocks away arrives in fourteen seconds and changes nothing about
-# whether this plan is still the right one. What matters is what can reach us inside a piece of work.
-premise_reach_s = 6.0
-unmodelled = []   # empty: every candidate is priced in seconds.
+[plan]
 slot_fill_s = 90.0         # seconds of work per inventory slot filled: how fast a bag fills while mining
-portal_trip_s = 180.0      # there and back through a portal: what work in another dimension costs extra
 # The chance the thing is HERE AT ALL before anything has been looked for: a world where half the errands find
-# what they went for. Measurement replaces it per kind (`memory.exists_rate`), which is what stops the planner
-# pricing "find wool" the same in a forest and in a desert.
+# what they went for.
 exists_prior = 0.5
-seek_prior_s = 300.0       # seconds to find one of something never seen and never measured. A declared
-                           # guess, used ONLY without a sample; one real find replaces it outright — it does not
-                           # decay, compound, or grow with failures, because none of those are measurements.
-tax_bin = 0.5              # health per second per bin
-health_bin = 4.0           # health per bin (two hearts)
-food_point_s = 12.0        # seconds of play per point of the food bar
-commit_floor_s = 6.0       # what CHANGING YOUR MIND costs: re-planning, walking off the old route, dropping
-                           # what was in hand. No commitment may be shorter, however cheap the step looks —
-                           # a step estimated at 0 s ("seek 1× stone, already here") expired the moment it was
-                           # made, so the same decision was re-taken every tick and the same refusal logged
-                           # a hundred times in twenty seconds.
+seek_prior_s = 300.0       # seconds to find one of something never seen (the column solver)

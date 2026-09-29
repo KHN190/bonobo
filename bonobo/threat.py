@@ -1,25 +1,15 @@
-"""Ordinary play's threat layer: who can hurt us, how soon, and whether to fight, walk away or wall in. Pure.
+"""Ordinary play's threat layer: who can hurt us, how soon, and whether to fight, walk away or wall in. Pure. The old rule was two if-statements — "hostile within 5 blocks and hp > 10 → attack it", "hp ≤ 10 and hostile within 6 → run straight away" — so a skeleton twelve blocks out shot the agent dead while it kept mining, and a zombie was punched bare-handed for thirty seconds. Neither statement knew what the enemy does, only where it stands. Same shape as the fight planner: threats are (centre, reach, velocity, kind) rows with several futures each (combat_model.hypotheses), the state is a dict, the currency is seconds and hit points, and the answer is the cheapest option — fight when the expected damage of killing everything leaves a reserve, otherwise leave its reach, or wall in when leaving costs more than building does. Numbers live in play.toml under [mobs], [player], [engage]."""
 
-The old rule was two if-statements — "hostile within 5 blocks and hp > 10 → attack it", "hp ≤ 10 and hostile within
-6 → run straight away" — so a skeleton twelve blocks out shot the agent dead while it kept mining, and a zombie was
-punched bare-handed for thirty seconds. Neither statement knew what the enemy does, only where it stands.
-
-Same shape as the fight planner: threats are (centre, reach, velocity, kind) rows with several futures each
-(combat_model.hypotheses), the state is a dict, the currency is seconds and hit points, and the answer is the cheapest
-option — fight when the expected damage of killing everything leaves a reserve, otherwise leave its reach, or wall in
-when leaving costs more than building does. Numbers live in play.toml under [mobs], [player], [engage].
-"""
 import math
+from typing import Any
 
-from . import beliefs, combat_model, estimate
+from . import beliefs, estimate, kernel, lifecycle
 
 CONFIG = beliefs.CONFIG
 MOBS = beliefs.MOBS
 PLAYER = beliefs.PLAYER
 ENGAGE = CONFIG["engage"]
-# How long the account runs is `estimate.horizon_s`, and there is only one of it: a second horizon here meant
-# pressure was measured over four seconds and charged over twenty.
-
+# the account's length is `estimate.horizon_s`, only one (two horizons measured over 4 s and charged over 20)
 
 class Decision:
     """kind: ignore | fight | evade | wall_in. target: entity id (fight) or spot (evade). why: for the log."""
@@ -30,32 +20,41 @@ class Decision:
     def __repr__(self):
         return f"Decision({self.kind}, {self.target}, {self.why!r})"
 
+# -- perception → rows
 
-# -- perception → rows -------------------------------------------------------------------------------------------------
-
-# Facts about mobs. Not decisions: whether to fight one is priced below, but WHICH ones are worth noticing at all
-# is a property of the mob.
+# facts about mobs: which ones are worth noticing is the mob's property; fighting is priced below
 
 NEUTRAL_MOBS = {"minecraft:zombified_piglin", "minecraft:piglin", "minecraft:enderman", "minecraft:wolf",
                 "minecraft:bee", "minecraft:iron_golem", "minecraft:polar_bear", "minecraft:llama", "minecraft:panda",
                 "minecraft:dolphin", "minecraft:spider", "minecraft:cave_spider"}
 
+def aggro(e, context=None):
+    """Pure: is this mob after us, from its reading and ours — the one place neutral is told from hostile.
+    A provoked mob (the jar's `angry`) always is; a hostile kind always is; a spider only out of daylight; a piglin
+    unless we wear gold; every other neutral (enderman, zombified piglin, wolf …) only when provoked.
+    `context`: {"day": the sun is up where we are, "gold_worn": a golden armour piece on}."""
+    kind = e.get("type")
+    if e.get("provoked") or e.get("angry") or kind not in NEUTRAL_MOBS:     # perception.read_combat
+        return True
+    ctx = context or {}
+    if kind in ("minecraft:spider", "minecraft:cave_spider"):
+        return not ctx.get("day", True)
+    if kind == "minecraft:piglin":
+        return not ctx.get("gold_worn", False)
+    return False
 
-def awareness(e, here=None):
-    """0..1: how much of this mob's damage is actually coming at us.
+def context_of(state, kit):
+    """Pure: what `aggro` reads from our side — daylight (the overworld's day half) and gold worn (the kit)."""
+    day = (state.get("dimension", "minecraft:overworld") == "minecraft:overworld"
+           and int(state.get("timeOfDay", 6000)) % 24000 < 12000)
+    return {"day": day, "gold_worn": bool((kit or {}).get("gold_worn"))}
 
-    Three things about a threat vary, and all three used to be constants: how far it is, whether it has noticed
-    us, and how hard it hits. This is the second one, and it replaces the old boolean `is_threat`. A neutral mob
-    that has not been provoked is a 0 — not "not a threat", but a threat with nothing coming out of it, which is
-    the same number the model already knows how to handle. Anger it and it becomes a 1 without a single branch
-    changing anywhere. Outside its detection range a hostile mob is not yet a fight, but it is not nothing either:
-    it fades in over the last stretch, so the planner starts drifting away before the aggro line rather than
-    discovering it.
-    """
-    if e.get("type") in NEUTRAL_MOBS and not e.get("angry"):
+def awareness(e, here=None, context=None):
+    """0..1: how much of this mob's damage is coming at us (a neutral not after us is 0)."""
+
+    if not aggro(e, context):
         return 0.0
-    # Being in the hazard table IS the hostility test: `rows` is only ever given types its caller already calls
-    # dangerous. Reading `hostile` here as well dropped every dragon body part, which carries no such flag.
+    # being in the hazard table is the hostility test (reading `hostile` too dropped the dragon's parts)
     if here is None:
         return 1.0
     d = math.dist(here, (e["x"], e["y"], e["z"]))
@@ -64,31 +63,17 @@ def awareness(e, here=None):
         return 1.0
     return max(0.0, 1.0 - (d - notice) / notice)
 
+def rows(near, memory, now, kinds, here=None, context=None):
+    """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach})."""
 
-def is_threat(e):
-    """Whether this mob is worth noticing at all: hostile, and not a neutral standing about. Kept as a name
-    because the perception watcher reads it."""
-    return bool(e.get("hostile")) and awareness(e) > 0.0
-
-
-
-
-
-def rows(near, memory, now, kinds, here=None):
-    """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach}).
-
-    Velocity is differenced against `memory` ({entity id: (pos, when)}), which the caller keeps between rounds.
-    Declaring (0,0,0) instead made every closed-form root return infinity: "nothing is coming" no matter what came.
-
-    The last two are the two things about a threat that a table cannot know: whether it has noticed us, and how
-    hard this particular one hits. Rows with no awareness at all are dropped — a neutral mob standing there is not
-    a hazard to route around — but the moment it is angered `awareness` returns 1 and it appears, with no branch
-    anywhere else changing.
-    """
     out = []
     for e in near or []:
         kind = e.get("type")
         if kind not in kinds:
+            continue
+        if e.get("health") is not None and float(e["health"]) <= 0:
+            # dying: listed through its death animation (~1 s), no longer a target — as the nearest row it was
+            # chosen again and again, 'target not found' with a live zombie beside us (fight_zombie_3 23:46:01)
             continue
         pos = (e["x"], e["y"], e["z"])
         vel = (0.0, 0.0, 0.0)
@@ -99,7 +84,7 @@ def rows(near, memory, now, kinds, here=None):
                 dt = now - prev[1]
                 vel = tuple((pos[i] - prev[0][i]) / dt for i in range(3))
             memory[key] = (pos, now)
-        seen = awareness(e, here)
+        seen = awareness(e, here, context)
         if seen <= 0.0:
             continue
         out.append(row(pos, kinds[kind], vel, kind, aware=seen, dps=e.get("dps")))
@@ -107,43 +92,93 @@ def rows(near, memory, now, kinds, here=None):
         del memory[key]          # or the table grows for the length of the session
     return out
 
+def hostile_rows(near, memory, now, here=None, context=None):
+    """Rows for the mobs the table knows."""
 
-def hostile_rows(near, memory, now, here=None):
-    """Rows for the mobs the table knows. Neutral and unnoticing mobs fall out by having no awareness, not by a
-    filter: `rows` drops what is not coming at us (see `awareness`).
-
-    `here` is where we stand; without it every hostile counts as having noticed us, which is the old behaviour and
-    the safe direction to be wrong in.
-    """
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
-    return rows(near or [], memory, now, kinds, here=here)
+    return rows(near or [], memory, now, kinds, here=here, context=context)
 
+BAIT_R = 6.0      # blocks: inside the fuse's range (7), outside most of the blast
+
+def bait_spot(here, creeper, lit, clear):
+    """Pure: where to stand baiting a creeper — out to `clear` while it walks, hold there, then a short step to
+    BAIT_R once lit (still inside 7: it blows, we are past the blast)."""
+    d = math.dist(here, creeper) or 1e-6
+    want = BAIT_R if lit else clear
+    if not lit and d >= clear:
+        return tuple(round(c) for c in here)               # hold: let it close to lit
+    if lit and d >= BAIT_R:
+        return tuple(round(c) for c in here)
+    k = want / d
+    return (round(creeper[0] + (here[0] - creeper[0]) * k), round(here[1]), round(creeper[2] + (here[2] - creeper[2]) * k))
+
+def bait_blast(d, attack, prot):
+    """Pure: a creeper's blast at `d` blocks (falls off to nothing at 6)."""
+    return round(float(attack) * max(0.0, 1.0 - d / 6.0) ** 2 * (1.0 - prot), 2)
+
+def bait_option(here, hazards, ids, creepers, lit, clear, prot):
+    first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
+    h = hazards[first]
+    is_lit = ids[first] in lit
+    spot = bait_spot(here, h[0], is_lit, clear)
+    walk_s = math.dist(here, spot) / float(PLAYER["speed"])
+    return Option("bait", spot, bait_blast(BAIT_R, MOBS[h[3]]["attack"], prot), round(walk_s + float(ENGAGE["fuse_s"]), 2),
+                  "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come"))
+
+def fuse_lit(e):
+    """Pure: this creeper's fuse is lit (perception.read_combat)."""
+    return bool(e.get("lit"))
+
+ARROWS = {"minecraft:arrow": 1.0, "minecraft:spectral_arrow": 1.0, "minecraft:trident": 1.0}   # radius
+
+def dodgeable(kind):
+    """Pure: a hit worth side-stepping — a projectile or a blast; a melee lunge follows us (dodging it only postpones:
+    escape__walker_open_blocks sidestepped a walker to death)."""
+    return kind in ARROWS or bool(MOBS.get(kind, {}).get("burst"))
+
+def impacts_of(near):
+    """Pure: [(point, seconds, radius)] where each predicted projectile or blast lands (read_combat's impact_at,
+    hit_s)."""
+    return [(e["impact_at"], float(e["hit_s"]),
+             ARROWS.get(e.get("type"), float(MOBS.get(e.get("type"), {}).get("keep_out", 3.0))))
+            for e in near or [] if e.get("impact_at") is not None and e.get("hit_s") is not None
+            and dodgeable(e.get("type"))]
+
+def dodge_spot(here, impacts, candidates, speed=None):
+    """Pure: the nearest candidate out of every predicted impact that we reach before the impact it leaves lands,
+    or None. An impact we already stand outside of needs no race."""
+    speed = float(PLAYER["speed"]) if speed is None else speed
+    best = None
+    for spot in candidates:
+        walk_s = math.dist(here, spot) / speed
+        clear = all(math.dist(spot, p) > r and (math.dist(here, p) > r or walk_s < t) for p, t, r in impacts)
+        if clear and (best is None or walk_s < best[0]):
+            best = (walk_s, spot)
+    return None if best is None else best[1]
 
 def ids_by_row(near, hazards):
     """Entity id for each row (matched on position), so a fight decision can name its target."""
     by_pos = {(e["x"], e["y"], e["z"]): e.get("id") for e in near or []}
     return [by_pos.get(h[0]) for h in hazards]
 
-
-# The quantities live in `estimate`; these are the names this module's readers know them by. Aliases, not copies —
-# a second definition here is exactly what put four of this agent's deaths in the log. Anything this module adds is
-# a COLUMN (an answer, priced) or a SHAPE (a row, a zone), never another arithmetic for one of the five.
+# names for `estimate`'s quantities: aliases, never copies; this module adds only columns and shapes
 protection = beliefs.protection       # one definition, in the belief table
 row = estimate.row
 arrival = estimate.arrival_s
 pressure = estimate.pressure_hp_s
 burst_damage = estimate.burst_hp
+keepoff_cost = estimate.keepoff_cost
 time_to_die = estimate.time_to_die_s
 fight_cost = estimate.fight_cost
-leaving_cost = estimate.leaving_hp
 hide_ratio = estimate.reaches_share
 
+# -- the model
 
-# -- the model ---------------------------------------------------------------------------------------------------------
+FIREBALLS = ("minecraft:fireball", "minecraft:small_fireball", "minecraft:dragon_fireball")
 
-def escape_spot(here, hazards, blocks=None, cover=None):
-    """Where to walk to leave every threat's reach: away from the dps-weighted centre of the threats, `blocks` far,
-    checked with the same slack rule the fight uses; `cover` (a known safe cell) is offered as a candidate."""
+def escape_spot(here, hazards, blocks=None, cover=None, footing=None, impacts=None):
+    """Where to leave every threat's reach: `blocks` away from their dps-weighted centre, under the fight's slack rule; `cover` a candidate."""
+
     blocks = float(ENGAGE["evade_blocks"]) if blocks is None else blocks
     weights = [float(MOBS.get(h[3], {}).get("dps", 1.0)) for h in hazards]
     wsum = sum(weights) or 1.0
@@ -159,9 +194,24 @@ def escape_spot(here, hazards, blocks=None, cover=None):
         rx = dx * math.cos(a) - dz * math.sin(a)
         rz = dx * math.sin(a) + dz * math.cos(a)
         options.append((here[0] + blocks * rx / norm, here[1], here[2] + blocks * rz / norm))
+    if footing is not None:
+        options = [s for s in (footing(o) for o in options) if s is not None]
     if cover is not None:
         options.append(tuple(cover))
     speed = float(PLAYER["speed"])
+    if impacts:
+        # what the jar predicts lands where and when: a step out of its path in time, the nearest that clears it
+        ring = [(here[0] + (max(r for _p, _t, r in impacts) + 1.0) * math.cos(k * math.pi / 4), here[1],
+                 here[2] + (max(r for _p, _t, r in impacts) + 1.0) * math.sin(k * math.pi / 4)) for k in range(8)]
+        if footing is not None:
+            ring = [s for s in (footing(o) for o in ring) if s is not None]
+        spot = dodge_spot(here, impacts, ring + options, speed)
+        if spot is not None:
+            return tuple(round(c) for c in spot)
+    if any(h[3] in FIREBALLS for h in hazards):
+        return None      # a fireball not outrun in time: hold, the jar's reflex swings (ghast_fireball: walked into it)
+    if not options:
+        return None
     best, best_key = None, None
     for opt in options:
         p = pressure(opt, hazards)
@@ -169,60 +219,105 @@ def escape_spot(here, hazards, blocks=None, cover=None):
         key = (-round(p, 3), -round(walk_s, 2))
         if best_key is None or key > best_key:
             best, best_key = opt, key
+    assert best is not None, "options is not empty"
     return tuple(round(c) for c in best)
 
-
-def evade_cost(here, spot, hazards, prot):
-    """hp lost walking from here to `spot`: the pressure here, over the walk, as an integral."""
+def evade_cost(here, spot, hazards, prot, ground=None):
+    """hp lost walking from here to `spot`: the pressure here (over the ground we stand in), over the walk."""
     walk_s = math.dist(here, spot) / float(PLAYER["speed"])
-    return estimate.leaving_hp(estimate.pressure_hp_s(here, hazards, prot), walk_s)
-
+    return estimate.leaving_hp(estimate.pressure_hp_s(here, hazards, prot, ground=ground), walk_s)
 
 class Option:
-    """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind.
+    """One answer to the threats, priced: `hp` lost, `seconds` spent acting, and what it leaves behind."""
 
-    Priced, not ranked. The pool converts health into seconds with the survival model and compares these against
-    mining and crafting in the same currency — which is the whole point: "run away" and "keep digging" were never
-    comparable while one was an if-statement above the other.
-    """
-
-    def __init__(self, kind, target, hp, seconds, why, leaves=0.0, heals=0.0, protects=0.0, blast_after=0.0):
+    def __init__(self, kind: str, target: Any, hp: float, seconds: float, why: str, leaves: float = 0.0,
+                 heals: float = 0.0, blast_after: float = 0.0):
         self.kind, self.target, self.hp, self.seconds, self.why = kind, target, hp, seconds, why
-        self.heals, self.protects = heals, protects
+        self.heals = heals
         self.leaves = leaves          # hp/s still coming at us after this answer (fleeing does not kill anything)
         self.blast_after = blast_after   # one-off damage still owed afterwards; a rate cannot carry an explosion
 
     def __repr__(self):
         return f"Option({self.kind}, {self.hp}hp, {self.seconds}s, {self.why!r})"
 
-    # -- kernel's action contract (see kernel.py). An option is an action; the field below is the model.
+    # -- kernel's action contract: an option is an action, the field below the model
 
     @property
     def name(self):
         return self.kind
 
     def effect(self, state):
-        """The state afterwards: what is still coming at us for the rest of the work.
+        """The state afterwards: what is still coming at us for the rest of the work."""
 
-        `hp` is not here — it is what the answer COSTS, not what the world looks like after it, and putting a
-        transition cost into a state is how the same health came to be counted twice.
-        """
         return dict(state, pending_hp=self.leaves * state["work_s"] + self.blast_after)
 
+SHAPES = ("between", "under", "down", "roof")      # roof: a 3×3 lid 2 up, too low for a tall mob
+ROOF_BLOCKS = 9     # one block over the head is not enough: a tall mob hits from the next cell, diagonals too
 
-SHAPES = ("between", "under", "down")
+def _sealed_off(ground, h, here=None):
+    """Pure: the ground shuts this mob out for good (a sealed passage on its side: its slowdown is infinite)."""
+    if ground is None:
+        return False
+    side = ground.side_of(here, h[0]) if here is not None and hasattr(ground, "side_of") else None
+    return ground.slowdown(bool(MOBS[h[3]].get("squeezes")), side) == float("inf")
 
+DETOUR_BLOCKS = 2.0     # a block that seals nothing is walked round: about two blocks more of the mob's walk
+
+def delayed_pressure(here, hazards, prot, before, after, work_s):
+    """Pure: hp/s over the work that the mobs still coming put on us once `after` delays them: each one's rate now
+    (over `before`), for the share of the work left after its new arrival. A block that seals nothing costs a mob
+    its detour round it (DETOUR_BLOCKS at its speed), not a multiple of its whole walk: 1.8^4 read four blocks on
+    open ground as a 30 s wall and the walker as never coming (escape__walker_open_blocks walled in the open)."""
+    added = (after.blocks - before.blocks) if after is not None and before is not None else 0
+    total = 0.0
+    for h in hazards:
+        rate = pressure(here, [h], prot, ground=before)
+        if rate <= 0.0 or _sealed_off(after, h, here):
+            continue
+        t = arrival(here, h, ground=before, horizon=work_s)
+        if t == float("inf"):
+            continue
+        t += added * DETOUR_BLOCKS / float(MOBS[h[3]].get("speed", 2.5))
+        total += rate * max(0.0, work_s - t) / work_s
+    return total
+
+def knockback_rate(here, hazards, within_s, ground=None):
+    """Pure: hits per second landing on us while we shape — each melee mob that reaches us within `within_s`."""
+    return sum(1.0 / float(MOBS[h[3]]["attack_s"]) for h in hazards
+               if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") and arrival(here, h, ground=ground) <= within_s)
+
+def shaping_s(where, each_s, n, here, hazards, ground=None):
+    """Pure: seconds to build `n` of a shape — quiet until the first walker reaches us, then each block knocked back
+    by its hits (block_under_hits_s): a pillar rose nothing in 4 s and a dig never went down in 2.7 s under hits, but
+    blocks set before it arrives cost only their time. A roof is a lid over the head: priced quiet."""
+    quiet = each_s * n
+    if where == "roof":
+        return quiet
+    melee = [h for h in hazards if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst")]
+    t_free = min((arrival(here, h, ground=ground) for h in melee), default=float("inf"))
+    if quiet <= t_free:
+        return round(quiet, 2)
+    rate = knockback_rate(here, melee, quiet, ground=ground)
+    # the rest, block by block, each a hit-free each_s: exp(each_s × rate) tries (block_under_hits_s per block)
+    return round(t_free + (quiet - t_free) * math.exp(each_s * rate), 2)
+
+
+def block_under_hits_s(each_s, rate):
+    """Pure: expected seconds to stand one block up while hit `rate` times a second: a hit knocks us off the cell and
+    the jump starts again, so a block needs a hit-free `each_s` — exp(each_s × rate) tries of it on average."""
+    return each_s * math.exp(each_s * rate)
 
 def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
-    """Blocking the way, standing on a block and digging down are one column with a different place to put the
-    work: each is n units of the same currency (seconds, and blood while exposed) buying the same two effects —
-    they take longer to reach us, or they stop being able to see us.
+    """Blocking, standing on a block and digging down are one column: seconds (and blood while exposed) buying delay or no sight."""
 
-    The effects are heuristics; what they are worth is not. Seconds come from the one price function, as always.
-    """
     carried = int(state.get("blocks", 0))
-    most = min(carried, int(ENGAGE.get("block_max", 4)))
-    if most < 1:
+    cap = int(ENGAGE.get("block_max", 4))
+    creeper = any(h[3] == "minecraft:creeper" for h in hazards)     # a blast breaks a wall and a hole
+    # digging down spends no blocks, only diggable ground; the other two shapes spend what is carried
+    most_of = {"between": min(carried, cap), "under": min(carried, cap),
+               "down": cap if state.get("dig_ok") else 0,
+               "roof": ROOF_BLOCKS if carried >= ROOF_BLOCKS and any(MOBS[h[3]].get("tall") for h in hazards) else 0}
+    if not any(most_of.values()):
         return []
     nearest = min(hazards, key=lambda h: math.dist(here, h[0]))
     cell = grid.choke(here, nearest[0], within=float(ENGAGE.get("block_reach", 4.0)))
@@ -230,20 +325,27 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
     for where in SHAPES:
         if where == "between" and (cell is None or not grid.blocks_worth_placing()):
             continue
+        if creeper and where in ("between", "down"):
+            continue
         each_s = float(ENGAGE["dig_s"] if where == "down" else ENGAGE["block_s"])
         after = grid
-        for n in range(1, most + 1):
+        for n in ((most_of[where],) if where == "roof" and most_of[where] else range(1, most_of[where] + 1)):
             if where == "between":
                 after = after.with_block()
-            seconds = each_s * n
-            # The one pressure function, with the shaped ground and the shape's reach in it. Shaping kills
-            # nothing, so what it leaves can never fall below what walking away leaves: the mob is still under the
-            # pillar when the shape ends. Without that floor, standing on two blocks priced as if the fight were
-            # over and outbid killing a single zombie with an iron sword.
-            leaves = max(estimate.pressure_hp_s(here, hazards, prot, ground=after, shape=(where, n)),
-                         press * float(ENGAGE["follow_p"]))
-            still = [h for h in hazards
-                     if arrival(here, h, ground=after) <= work_s]
+            seconds = shaping_s(where, each_s, n, here, hazards, grid)
+            # shaping kills nothing: what can still come at us afterwards follows as walking away's does (else a pillar
+            # outbid killing a zombie) — but what the shape shuts out for good (a sealed passage: arrival inf over the
+            # ground after) follows no one, and leaves nothing
+            coming = [h for h in hazards if not _sealed_off(after, h, here)]
+            if where == "between":
+                # blocks in the way buy time, they kill nothing: what still comes is the pressure from its new, later
+                # arrival to the end of the work — a seal buys it all (0), a delay part of it (neither 0 nor full; a
+                # delay past the 4 s look-ahead read as a seal: escape__walker_open_blocks walled in the open)
+                leaves = delayed_pressure(here, coming, prot, grid, after, work_s)
+            else:
+                follows = pressure(here, coming, prot, ground=grid) * float(ENGAGE["follow_p"]) if coming else 0.0
+                leaves = max(estimate.pressure_hp_s(here, hazards, prot, ground=after, shape=(where, n)), follows)
+            still = [h for h in coming if arrival(here, h, ground=after) <= work_s]
             blast_after = burst_damage(here, still, prot) if still else 0.0
             if leaves > press - float(ENGAGE["shape_min_gain"]) * max(press, 1e-6) \
                     and blast_after >= blast_here - 1e-6:
@@ -252,28 +354,47 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
                               f"{where}: {n} × {each_s}s", leaves=round(leaves, 3), blast_after=blast_after))
     return out
 
+def eat_options(state, hp, press, blast_here):
+    """Pure: eating in a fight."""
+
+    max_hp = float(PLAYER.get("max_hp", 20))
+    if hp >= max_hp:
+        return []
+    eat_s = float(ENGAGE["eat_s"])
+    if int(state.get("golden_apples", 0)) > 0:
+        heal = min(float(ENGAGE["golden_heals"]), max_hp - hp)
+        return [Option("eat", "minecraft:golden_apple", round(press * eat_s + blast_here, 2), eat_s,
+                       f"a golden apple: +{heal:.0f} hp now", leaves=press, heals=heal)]
+    if int(state.get("food_items", 0)) > 0 and estimate.eat_due(float(state.get("hunger", 0)), hp, 0, max_hp, float(_R["food_full"])) \
+            and press <= float(ENGAGE["eat_safe_press"]):
+        heal = min(float(ENGAGE["eat_heals"]), max_hp - hp)
+        return [Option("eat", None, round(press * eat_s + blast_here, 2), eat_s,
+                       f"eat: +{heal:.0f} hp by regen, nothing reaching us", leaves=press, heals=heal)]
+    return []
 
 def horizon_for(state):
-    """Seconds of "carrying on" the options are priced over, which is `estimate.horizon_s` and nothing else.
+    """Seconds of "carrying on" the options are priced over, which is `estimate.horizon_s` and nothing else."""
 
-    It used to stop at our own death, because with a flat horizon every answer priced out as the same certain
-    death and the cheapest one (doing nothing) won. That flattening had a different cause — `ignore` was charged
-    for its damage AND for the state that damage is — and truncating the horizon was how the symptom was held
-    down. With the double count gone the cap does the harm instead: the account ends at death, so dying costs
-    whatever health is left and any answer dearer than that looks worse than dying. A hundred and eight cells of
-    the swept table stood still with a sword in hand; without the cap, twelve, and those are the ones where
-    nothing genuinely helps.
-    """
     return estimate.horizon_s(state.get("work_s"))
 
+def _evade_option(here, spot, hazards, prot, press, out, ground=None):
+    """Pure: the evade column to `spot`, priced against the options already in `out` (a fight on offer)."""
+    walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
+    # leaving costs the walk out and back; what follows is the next round's account — unless every threat still reaches us there and a fight is on offer (then leaving only postpones it)
+    # a melee follower walks after us: leaving only postpones it, fight or not (combat__dig_in evaded instead of digging)
+    melee = all(not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") for h in hazards)
+    postpones = (melee or any(o.kind == "fight" for o in out)) and all(estimate.follows_to(spot, h) for h in hazards)
+    follows = round(press if postpones else press * float(ENGAGE["follow_p"]), 3)
+    # a creeper is not a rate that leaving ends: with a fight on offer its blast stays owed
+    fight_on = any(o.kind == "fight" for o in out)
+    blast = burst_damage(here, hazards, prot, fuse_s=float("inf")) if fight_on else burst_damage(spot, hazards, prot)
+    return Option("evade", spot, evade_cost(here, spot, hazards, prot, ground=ground),
+                  round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
+                  blast_after=blast)
 
 def options(state):
-    """Pure: every answer worth considering, priced. Always includes `ignore` — carrying on is a choice with a cost.
+    """Pure: every answer worth considering, priced."""
 
-    state: here (x,y,z), hp, sword (tier), protection (0..1), night (bool), blocks (building blocks carried),
-           hazards (rows), ids (entity id per row, optional), cover (spot, optional), work_s (how long we would
-           stay exposed if we carried on)
-    """
     here, hp = tuple(state["here"]), float(state["hp"])
     hazards = [h for h in state.get("hazards", ()) if h[3] in MOBS]
     prot = float(state.get("protection", 0.0))
@@ -282,78 +403,117 @@ def options(state):
     blast_here = burst_damage(here, hazards, prot) if hazards else 0.0
     work_s = horizon_for(state)
     if not hazards or (press <= 0.0 and blast_here <= 0.0):
-        # A creeper exerts no pressure — a blast is not a rate — so testing pressure alone made the one threat that
-        # must never be ignored the only one that always was.
+        # a creeper exerts no pressure (a blast is not a rate): tested separately, or it is always ignored
         return [Option("ignore", None, 0.0, 0.0, "nothing in reach")]
     ids = list(state.get("ids") or [None] * len(hazards))
     out = [Option("ignore", None, 0.0, 0.0,
                   f"carrying on takes ~{press:.1f} hp/s"
                   + (f" and a {blast_here:.0f} hp blast" if blast_here else ""),
                   leaves=press, blast_after=blast_here)]
-    # Fighting: kill them, then nothing is coming. Creepers are never traded with — the burst is not a rate.
-    if not any(MOBS[h[3]].get("burst") for h in hazards):
-        t_fight, lost = fight_cost(here, hazards, state.get("sword", 0), prot)
-        nearest = min(range(len(hazards)), key=lambda i: math.dist(here, hazards[i][0]))
+    # fight: kill them and nothing is coming; a creeper with a sword is fought hit-and-back first (walking away only postpones it)
+    sword = int(state.get("sword", 0))
+    creepers = [i for i, h in enumerate(hazards) if MOBS[h[3]].get("burst") and h[3] == "minecraft:creeper"]
+    clear = float(MOBS["minecraft:creeper"]["keep_out"])
+    lit = set(state.get("lit") or ())
+    # armed, lit or not: hit-and-back — the jar's keepoff steps out past keep_out while it swells and strikes again
+    # once it stops (a baited creeper blows up: no kill, fight_creeper_1 05:07)
+    if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
+                                       for i, h in enumerate(hazards)):
+        first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
+        t_c, lost_c = keepoff_cost(here, hazards[first], sword, prot)
+        rest = [h for i, h in enumerate(hazards) if i != first]
+        t_r, lost_r = fight_cost(hazards[first][0], rest, sword, prot) if rest else (0.0, 0.0)
+        out.append(Option("fight", ids[first], round(lost_c + lost_r, 2), round(t_c + t_r, 2),
+                          f"kill the creeper hit-and-back in ~{t_c}s"
+                          + (f", then {len(rest)} more" if rest else "")))
+    # bait: no sword, no timed hit — it fuses out away from us
+    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and sword < 1 else None
+    if bait is not None:
+        out.append(bait)
+    # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)
+    reach = [i for i, h in enumerate(hazards) if estimate.melee_reachable(here, h, ground=grid)]
+    above = [hazards[i] for i in range(len(hazards)) if i not in reach]
+    if reach and not any(MOBS[h[3]].get("burst") for h in hazards):
+        t_fight, lost = fight_cost(here, [hazards[i] for i in reach], sword, prot)
+        nearest = min(reach, key=lambda i: math.dist(here, hazards[i][0]))
         out.append(Option("fight", ids[nearest], lost + blast_here, t_fight,
-                          f"kill {len(hazards)} in ~{t_fight}s for ~{lost} hp"))
-    spot = escape_spot(here, hazards, cover=state.get("cover"))
-    walk_s = round(math.dist(here, spot) / float(PLAYER["speed"]), 2)
-    # Leaving costs the walk out AND the walk back: the work is where we were standing. What it does not cost is a
-    # discounted forecast of being chased — leaving their reach ends the pressure, and if they follow, that is the
-    # next round's situation with its own answer. Predicting it here meant paying for the same threat twice and
-    # made every escape look fatal.
-    # Leaving does not kill anything. Most of what was coming at us follows, at its own speed, and the same
-    # account is opened again next round — which is exactly why killing a zombie can be worth the blood it costs.
-    # With `leaves` at zero, walking away was free of everything but the walk, so the fight column existed and was
-    # never once chosen: 56 evades, 0 fights in a session's log.
-    follows = round(press * float(ENGAGE["follow_p"]), 3)
-    out.append(Option("evade", spot, evade_cost(here, spot, hazards, prot),
-                      round(walk_s * 2, 2), f"leave their reach, ~{walk_s}s out and back", leaves=follows,
-                      blast_after=burst_damage(spot, hazards, prot)))
-    hurt = hp < float(PLAYER.get("max_hp", 20))
-    if hurt and int(state.get("food_items", 0)) > 0:
-        heal = min(float(ENGAGE["eat_heals"]), float(PLAYER.get("max_hp", 20)) - hp)
-        eat_s = float(ENGAGE["eat_s"])
-        out.append(Option("eat", None, round(press * eat_s + blast_here, 2), eat_s,
-                          f"eat: +{heal:.0f} hp for {eat_s}s exposed", leaves=press, heals=heal))
-    if state.get("shield") and prot < float(PLAYER["protection_cap"]):
-        up = float(ENGAGE["shield_protects"])
-        shield_s = float(ENGAGE["shield_s"])
-        out.append(Option("shield", None, round(press * shield_s, 2), shield_s,
-                          f"shield up: -{up:.0%} of what lands", leaves=press * (1.0 - up), protects=up))
-    if grid is not None and int(state.get("blocks", 0)) >= 1:
+                          f"kill {len(reach)} in ~{t_fight}s for ~{lost} hp",
+                          leaves=pressure(here, above, prot, ground=grid) if above else 0.0))
+    if above and state.get("bow"):
+        # out of reach: the bow; else evade or hold (the jar deflects)
+        first = min(above, key=lambda h: math.dist(here, h[0]))
+        t_shoot = estimate.shoot_cost(here, above, prot)
+        i = hazards.index(first)
+        out.append(Option("shoot", {"id": ids[i], "x": first[0][0], "y": first[0][1], "z": first[0][2],
+                                    "height": 1.0},
+                          round(press * t_shoot + blast_here, 2), t_shoot,
+                          f"shoot {len(above)} out of reach in ~{t_shoot}s",
+                          leaves=pressure(here, [h for i2, h in enumerate(hazards) if i2 in reach], prot, ground=grid)
+                          if reach else 0.0))
+    # no shield column: the jar's reflex raises the shield for every predicted hit, whatever the answer (a shield in
+    # the offhand is protection, `state["protection"]`), so it is never an answer of its own
+    spot = escape_spot(here, hazards, cover=state.get("cover"), footing=state.get("footing"),
+                       impacts=state.get("impacts"))
+    if spot is not None:             # else nowhere to leave to (a lethal drop all round): fight, eat, wall in
+        # a fight the veto removes is not "a fight on offer" for leaving to postpone (before the one veto, the fight's
+        # own gate kept it out of `out`: evade at low health priced as postponing a fight nobody could take)
+        out.append(_evade_option(here, spot, hazards, prot, press, [o for o in out if survivable(o, hp)], ground=grid))
+    cover = state.get("low_cover")
+    tall = [h for h in hazards if MOBS[h[3]].get("tall")]
+    if tall and cover is not None:
+        # a 2-high space near: under it a tall mob can't reach (fight_enderman_provoked)
+        walk_s = round(math.dist(here, cover) / float(PLAYER["speed"]), 2)
+        rest = [h for h in hazards if not MOBS[h[3]].get("tall")]
+        out.append(Option("cover", tuple(cover), round(press * walk_s, 2), walk_s, f"under a 2-high roof, {walk_s}s off",
+                          leaves=pressure(here, rest, prot, ground=grid) if rest else 0.0))
+    for option in eat_options(state, hp, press, blast_here):
+        out.append(option)
+    if grid is not None:
         for option in reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
             out.append(option)
     if int(state.get("blocks", 0)) >= int(ENGAGE["wall_in_blocks"]):
         wall_s = float(ENGAGE["wall_in_s"])
-        # A pod stops what has to walk in; what climbs, squeezes or teleports is still coming. That is the one
-        # pressure function again, asked about the rows a wall does nothing to — a `leaves` of zero said otherwise
-        # and the sweep found the model walling itself in against spiders and endermen.
+        # a pod stops only what walks in; climbers and teleporters are still coming
         through = estimate.pressure_hp_s(here, [h for h in hazards if MOBS[h[3]].get("squeezes")], prot,
                                          ground=grid)
         out.append(Option("wall_in", None, round(press * wall_s + blast_here, 2), wall_s,
                           f"wall in, ~{wall_s}s exposed", leaves=round(through, 3)))
-    return out
+    return survivors(out, hp)
 
+def survivable(option, hp):
+    """Pure: what this answer expects to lose over its own seconds stays under the health we have, less a margin."""
 
-def action_cost(option, price):
-    """kernel's `cost_s` for an option: `estimate.act_cost_s` of what the option spends.
+    return float(option.hp) < hp - float(ENGAGE["survive_margin_hp"])
 
-    Health spent acting is a cost, not a state: after the fight the mobs are gone either way, and what separates
-    the answers is what getting there took out of us.
-    """
-    return estimate.act_cost_s(option.seconds, option.hp, price)
+def survivors(out, hp):
+    """Pure: the one veto every column passes (`survivable`) — only the fight had it, and a 1.2 s pillar at 3.1 hp
+    beside three zombies was offered, taken, and died on (fight_zombie_3). It removes an answer only while a survivable
+    one remains: when none does, the one expected to lose least is kept (leaving, usually), or low health would have
+    no way out left at all — never a fight, which ends nothing before it has cost what we have. Carrying on is never vetoed: it is the account the others are priced against."""
 
+    acts = [o for o in out if o.kind != "ignore"]
+    kept = [o for o in acts if survivable(o, hp)]
+    # a fight expected to cost all we have is never the way out (the fight's own gate before): it kills nothing first
+    way_out = [o for o in acts if not o.kind.startswith("fight")]
+    if way_out and not kept:
+        kept = [min(way_out, key=lambda o: float(o.hp))]
+    return [o for o in out if o.kind == "ignore" or o in kept]
+
+def action_cost(option, price, work_s=None):
+    """kernel's `cost_s` for an option: its seconds plus its health spent, priced on top of what it leaves owed — one damage price."""
+
+    if work_s is None:
+        return estimate.act_cost_s(option.seconds, option.hp, price)
+    left = owed(option, work_s)
+    return float(option.seconds) + price(left + float(option.hp)) - price(left)
 
 class Answer:
-    """One option, wearing kernel's action contract. The option prices health and time; what turns that into a
-    single `cost_s` is the price of health, which belongs to the caller, so the two are joined here and not in
-    `Option` — the same option costs different seconds to a full-health agent and a dying one."""
+    """One option, wearing kernel's action contract."""
 
     __slots__ = ("option", "name", "cost_s")
 
-    def __init__(self, option, price):
-        self.option, self.name, self.cost_s = option, option.kind, action_cost(option, price)
+    def __init__(self, option, price, work_s=None):
+        self.option, self.name, self.cost_s = option, option.kind, action_cost(option, price, work_s)
 
     def effect(self, state):
         return self.option.effect(state)
@@ -361,32 +521,46 @@ class Answer:
     def __repr__(self):
         return f"Answer({self.name}, {self.cost_s:.1f}s)"
 
+FALLBACK = (("reshape", "cover", "wall_in"), ("evade",), ("fight", "fight_shielded"))   # shape, flee, fists
+
+
+def fallback(opts, state):
+    """Pure: the answer when nothing saves but a melee follower is closing and would hurt us — never ignore: a
+    shape if one is on offer, else flight while every follower is slower than us, else the fight; the least costly
+    of the first group there is. None when nothing melee closes (ignore stands)."""
+    here, grid = tuple(state["here"]), state.get("field")
+    melee = [h for h in state.get("hazards", ()) if h[3] in MOBS and not MOBS[h[3]].get("ranged")
+             and not MOBS[h[3]].get("burst")]
+    if not melee or pressure(here, melee, float(state.get("protection", 0.0)), ground=grid) <= 0.0:
+        return None
+    slower = all(float(MOBS[h[3]].get("speed", 2.5)) < float(PLAYER["speed"]) for h in melee)
+    for kinds in FALLBACK:
+        if kinds == ("evade",) and not slower:
+            continue
+        group = [o for o in opts if o.kind in kinds]
+        if group:
+            return min(group, key=lambda o: float(o.hp) + float(o.seconds))
+    return None
+
 
 class Field:
-    """The threats around us, as a kernel model: one state, one price, a column per answer.
+    """The threats around us, as a kernel model: one state, one price, a column per answer."""
 
-    The same planner the fight uses (kernel.choose), with a horizon of one decision round instead of one fight.
-    `decide` and the pool's `saves` are both this — there is no second opinion left to disagree with.
-
-    The state is one number: the health still owed to us if we carry on for `work_s`. Everything else about the
-    field (who, where, how fast) is in the options, which price it.
-    """
-
-    def __init__(self, state, price=None):
+    def __init__(self, state, price=None, refused=None):
         self.field = state
         self.price_hp = price or (lambda dhp: dhp)
+        self.refused = refused          # option → why it may not be chosen now (fight_loop: it just failed), or None
         self.work_s = horizon_for(state)
-        self.opts = [Answer(o, self.price_hp) for o in options(state)]
-        self.default = next(a for a in self.opts if a.name == "ignore")
+        self.opts = [Answer(o, self.price_hp, self.work_s) for o in options(state)]
+        self.idle = next(a for a in self.opts if a.name == "ignore")
+        # the answer when nothing saves: never standing still under a closing melee follower (fallback)
+        forced = fallback([a.option for a in self.opts], state)
+        self.default = next((a for a in self.opts if a.option is forced), self.idle) if forced else self.idle
 
     def state(self):
-        """The kernel state: what carrying on still owes us, which is exactly what the `ignore` column leaves.
+        """The kernel state: what carrying on still owes us, which is exactly what the `ignore` column leaves."""
 
-        Read off that column rather than recomputed, so the state and the do-nothing action cannot disagree — when
-        they did, `ignore` scored its own damage twice and every other answer looked four times better than the
-        planner thought it was.
-        """
-        return {"pending_hp": self.default.option.leaves * self.work_s + self.default.option.blast_after,
+        return {"pending_hp": self.idle.option.leaves * self.work_s + self.idle.option.blast_after,
                 "work_s": self.work_s}
 
     def price(self, state):
@@ -396,68 +570,216 @@ class Field:
         return self.opts
 
     def admissible(self, state, option):
-        """Nothing here is refused. The veto exists for actions that can strand us — an answer to a threat cannot:
-        the worst of them is priced, and a price is the pool's business, not the veto's."""
-        return True, ""
+        """Refused only what the caller says it may not choose now (an answer that just failed)."""
 
+        why = self.refused(getattr(option, "option", option)) if self.refused is not None else None
+        return (False, why) if why else (True, "")
 
 def owed(option, work_s):
-    """Pure: health still owed to us after this answer — the rate it leaves, over the work, plus any blast that
-    still reaches us. The state, in other words: `Option.effect` is this and nothing else."""
+    """Pure: health still owed to us after this answer — the rate it leaves, over the work, plus any blast that still reaches us."""
+
     return option.leaves * work_s + option.blast_after
 
-
-def total_cost(option, price, work_s):
-    """Pure: everything this answer costs — the time and health it takes (`action_cost`) plus what it leaves
-    owed. THE comparison; there is only this one."""
-    return action_cost(option, price) + price(owed(option, work_s))
-
-
 def saves(option, opts, price, work_s):
-    """Pure: seconds this answer saves against carrying on.
+    """Pure: seconds this answer saves against carrying on."""
 
-    Literally kernel's score — `price(state) − price(effect) − cost_s` — for a caller that already has the options
-    in hand (the pool offers each one separately and lets them compete with mining). It was written as the
-    difference of two `total_cost`s, which charged carrying on for its damage AND for the state that damage IS:
-    the numbers came out about four times too big, and the live bench caught the planner holding `ignore` in a row
-    whose columns claimed to save a hundred and sixty seconds.
-    """
     doing_nothing = next((o for o in opts if o.kind == "ignore"), None)
     if doing_nothing is None:
         return 0.0
     return estimate.saved_s(price, owed(doing_nothing, work_s), owed(option, work_s),
-                            action_cost(option, price))
-
+                            action_cost(option, price, work_s))
 
 def decide(state, price=None):
-    """Pure: the best answer, decided by `kernel.choose` like every other plan this agent makes.
+    """Pure: the best answer, decided by `kernel.choose` like every other plan this agent makes."""
 
-    `price(hp)` turns health into seconds; without it health counts as itself, which is only right for tests — the
-    pool passes the survival model.
-    """
-    from . import kernel
     field = Field(state, price)
     best = (kernel.choose(field, field.state()).action or field.default).option
     return Decision(best.kind, best.target, best.why, best.hp)
 
-
-# -- what the fight tells ordinary play ---------------------------------------------------------------------------
-# Two things, never a decision: a RATE and a set of circles. The rate is `estimate.pressure_hp_s` — the same
-# quantity the columns are priced against, read by the other planner under its own name (`brain.hp_tax_rate`,
-# which takes the worse of it and what the health bar is actually doing). There is no tax function here: a second
-# name for one number is how the two planners came to disagree about what a corridor costs.
-
+# -- what the fight tells ordinary play: a rate (estimate.pressure_hp_s) and no-go circles, never a decision
 
 def no_go(state, margin=None):
-    """Pure: [(centre, radius)] the normal planner must not route through or plan work inside.
+    """Pure: [(centre, radius)] the normal planner must not route through or plan work inside."""
 
-    A field, not an answer. It is true of the world for as long as those mobs are there, so it can be consulted
-    when a plan is MADE — which is the whole reason the two planners exchange prices and not decisions.
-    """
     margin = float(ENGAGE["no_go_margin"] if margin is None else margin)
     return [(tuple(h[0]), float(h[1]) + margin) for h in state.get("hazards", ()) if h[3] in MOBS]
 
+# -- the price of health: depends on the state it is lost from (death chance plus lost margin)
+_T, _R, _K = beliefs.CONFIG["time"], beliefs.CONFIG["risk"], beliefs.CONFIG["tools"]
 
-def inside_no_go(spot, zones):
-    """Pure: does this position sit in one of `no_go`'s circles?"""
-    return any(math.dist(spot, centre) <= radius for centre, radius in zones)
+def bag_loss(s):
+    """Seconds lost to a full bag: work whose output falls on the floor."""
+
+    free = float(s.get("bag_free", 36))
+    if free >= _R["bag_comfortable"]:
+        return 0.0
+    share = (_R["bag_comfortable"] - free) / _R["bag_comfortable"]
+    return share * _T["day_s"] * _K["mining_share_of_day"]
+
+def price_state(**kw):
+    """The survival state health and time are priced in (`hp_seconds`); unknown keys are refused."""
+    s = {"night": False, "ticks_until_dusk": 6000, "hp": 20, "food": 20, "bed": False, "sheltered": False,
+         "torches": False, "sword": 0, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
+         "shield": False, "bag_free": 36,
+         # dark where we stand, where mobs come from — not the same as night
+         "dark": False}
+    unknown = set(kw) - set(s)
+    if unknown:
+        raise KeyError(f"not survival state: {sorted(unknown)}")
+    s.update(kw)
+    return s
+
+def _protection(s):
+    """This state's damage reduction, from the belief table."""
+
+    return beliefs.protection(s["armor"], s["shield"])
+
+def encounter_damage(s):
+    """(seconds, health) one ordinary encounter costs at this weapon and armour."""
+
+    kind = _R["reference_mob"]
+    here = (0.0, 0.0, 0.0)
+    row = estimate.row((float(beliefs.PLAYER["melee_reach"]), 0.0, 0.0), beliefs.mob(kind)["reach"],
+                       (0.0, 0.0, 0.0), kind)
+    return estimate.fight_cost(here, [row], s["sword"], _protection(s))
+
+_fatal_chance = estimate.fatal_chance     # one curve, in the module that owns the five quantities
+
+def fight_loss(s):
+    """Seconds a day of ordinary encounters costs at this weapon and armour — at full health."""
+
+    kill_s, damage = encounter_damage(s)
+    return _R["encounters_per_day"] * (kill_s + _fatal_chance(20, damage) * _T["death_cost_s"])
+
+def hurt_loss(s):
+    """Seconds the current health deficit costs: regeneration time plus the extra death chance before it is back."""
+
+    hp = max(0.1, float(s["hp"]))
+    if hp >= 20:
+        return 0.0
+    _kill_s, damage = encounter_damage(s)
+    regen_s = (20.0 - hp) * _R["regen_s_per_hp"]
+    meetings = _R["encounters_per_day"] * regen_s / _T["day_s"]
+    extra = _fatal_chance(hp, damage) - _fatal_chance(20, damage)
+    return regen_s + meetings * max(0.0, extra) * _T["death_cost_s"]
+
+def night_loss(s):
+    """Seconds the coming night is expected to cost."""
+
+    if s["bed"]:
+        return 0.0 if s["sheltered"] else _R["night_bed_open"] * (1.0 - _protection(s)) * _T["death_cost_s"]
+    p = _R["night_sheltered"] if s["sheltered"] else _R["night_open"]
+    if s["sword"] == 0:
+        p += _R["no_sword_night"]
+    if s["nights_missed"] >= 3:
+        p += _R["phantom_night_death"]
+    # without a bed the night is also 420 s of not working (underground counts as working)
+    idle = 0.0 if s["sheltered"] else _T["night_s"]
+    return p * (1.0 - _protection(s)) * _T["death_cost_s"] + idle
+
+def hunger_loss(s):
+    """Seconds the CURRENT hunger costs before the next meal: work lost to not sprinting and not regenerating."""
+
+    food = float(s["food"])
+    if food >= _R["food_full"]:
+        return 0.0
+    span = _T["day_s"] * _R["meal_share_of_day"]        # how long this hunger has to be carried
+    slowed = (_R["food_full"] - food) / _R["food_full"] * _R["hunger_slowdown"]
+    if food <= _R["food_low"]:
+        slowed = max(slowed, _R["starving_slowdown"])   # below the floor nothing sprints and nothing heals
+    return span * slowed
+
+def larder_loss(s):
+    """Seconds the lack of MEALS costs over the next day: hunger we will not be able to answer."""
+    if s["food_items"] >= 8:
+        return 0.0
+    if s["food_items"] >= 2:
+        return 0.15 * _T["day_s"]           # will run out before the day is done
+    loss = _R["starving_slowdown"] * _T["day_s"]
+    if s["food_items"] == 0:
+        loss += _R["starving_death"] * _T["death_cost_s"]
+    return loss
+
+def food_loss(s):
+    """What hunger costs: what it is costing now, plus what having nothing to eat will cost."""
+
+    return hunger_loss(s) + larder_loss(s)
+
+def tool_loss(s):
+    """Seconds the day's mining costs beyond what an iron pickaxe would take, plus fighting unarmed."""
+    mult = {0: _K["mine_time_no_pickaxe"], 1: _K["mine_time_stone"]}.get(s["pickaxe"], _K["mine_time_iron"])
+    mining = _K["mining_share_of_day"] * _T["day_s"]
+    loss = mining * (mult - _K["mine_time_iron"])
+    return loss
+
+def light_loss(s):
+    return 0.0 if s["torches"] else _R["dark_work_death"] * _T["death_cost_s"]
+
+def expected_loss(s):
+    """The fifth quantity for ordinary play: seconds expected to be lost from here, given what we lack."""
+
+    return (night_loss(s) + food_loss(s) + tool_loss(s) + light_loss(s) + fight_loss(s) + hurt_loss(s)
+            + bag_loss(s))
+
+def hp_seconds(s, dhp):
+    """Seconds that expecting to lose `dhp` health costs from this state."""
+
+    if dhp <= 0:
+        return 0.0
+    hp = float(s["hp"])
+    p = _fatal_chance(hp, dhp)
+    survived = dict(s, hp=max(1.0, hp - min(dhp, hp - 1.0)))
+    margin = expected_loss(survived) - expected_loss(s)
+    # a death costs the respawn and walk back, never less for being hurt already
+    reset = max(0.0, expected_loss(dict(s, hp=20)) - expected_loss(s))
+    return round(p * (_T["death_cost_s"] + reset) + (1.0 - p) * margin, 1)
+
+THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
+THREAT_ALIVE: set = set()   # every living entity id the last reading listed (x-ray: an occluded mob is still there)
+THREAT_IMPACTS: list = []   # the jar's predicted impacts in the last reading (impacts_of)
+THREAT_LIT: set = set()     # ids of creepers whose fuse the last reading shows lit
+# seconds until the soonest hit on the body lands, as the JAR predicts it (/entities tti_ticks: every projectile and
+# melee mob stepped as the game ticks them, anaka combat.Impact), or None: no hit coming. Never re-derived here.
+THREAT_HIT_S = None
+
+
+def _forget_threats():
+    """The last life's threats (their ids, their rows, the hit it predicted) are nobody's now."""
+    global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S, THREAT_LIT
+    THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S = [], [], 0.0, set(), [], None
+    THREAT_LIT = set()
+
+
+lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE",
+                                            "THREAT_IMPACTS", "THREAT_HIT_S", "THREAT_LIT"))
+
+def alive_ids(near):
+    """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""
+    return {e.get("id") for e in near or [] if e.get("id") is not None
+            and (e.get("health") is None or float(e["health"]) > 0)}
+
+
+def soonest_hit_s(near):
+    """Pure: seconds until the soonest predicted hit among `near` (read_combat rows), or None."""
+    hits = [float(e["hit_s"]) for e in near or [] if e.get("hit_s") is not None]
+    return min(hits) if hits else None
+
+
+def hit_due_s(max_age_s=3.0, now=None):
+    """The jar's soonest predicted hit (seconds) as perception last read it, or None (none, or not read lately)."""
+    import time as _t
+    if THREAT_HIT_S is None or (now or _t.time()) - THREAT_AT > max_age_s:
+        return None
+    return THREAT_HIT_S
+
+def threats_seen(max_age_s=3.0, now=None):
+    """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""
+    import time as _t
+    if not THREAT_ROWS or (now or _t.time()) - THREAT_AT > max_age_s:
+        return [], []
+    return list(THREAT_ROWS), list(THREAT_IDS)
+
+def seen_at():
+    """When the rows above were read."""
+
+    return THREAT_AT

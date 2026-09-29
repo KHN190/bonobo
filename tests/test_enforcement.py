@@ -9,42 +9,40 @@ Unit tests cannot catch this, because the unit passes. These tests read the call
 there a path from the code that actually executes to the function that enforces it?
 """
 import ast
+import contextlib
+import pathlib
 import os
+import sys
 import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from bonobo import api, nav  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
 
 
-def source(module):
-    """A module's text. One reader, and it closes the file — ten bare `open()` calls left ten descriptors to the
-    garbage collector, which is a warning in every run and a leak in none of nobody's control."""
-    with open(os.path.join(PKG, module if module.endswith(".py") else module + ".py")) as f:
-        return f.read()
+def interrupt_writes(src):
+    """Pure: writes of a message (anything but None) into the interrupt in a module's source (its AST): a call of
+    `api.request_interrupt(msg)`, the arbiter's `WIRE["tell"](msg)`, or an assignment to `api.STATE.interrupt`."""
+    def message(v):
+        return not (isinstance(v, ast.Constant) and v.value is None)
+    n = 0
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr == "request_interrupt" and isinstance(node.func.value, ast.Name) \
+                and node.func.value.id == "api" and node.args and message(node.args[0]):
+            n += 1
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) \
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "WIRE" \
+                and isinstance(node.func.slice, ast.Constant) and node.func.slice.value == "tell" \
+                and node.args and message(node.args[0]):
+            n += 1          # the arbiter's wire to api.request_interrupt (arbiter never imports api)
+        elif isinstance(node, ast.Assign) and message(node.value):
+            n += sum(1 for t in node.targets if isinstance(t, ast.Attribute) and t.attr == "interrupt"
+                     and isinstance(t.value, ast.Attribute) and t.value.attr == "STATE"
+                     and isinstance(t.value.value, ast.Name) and t.value.value.id == "api")
+    return n
 
-
-def call_graph():
-    """{module: {called names}} across the package — attribute calls included (`combat.shoot` → `shoot`)."""
-    graph = {}
-    for name in sorted(os.listdir(PKG)):
-        if not name.endswith(".py"):
-            continue
-        tree = ast.parse(source(name))
-        called = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                f = node.func
-                if isinstance(f, ast.Name):
-                    called.add(f.id)
-                elif isinstance(f, ast.Attribute):
-                    called.add(f.attr)
-            elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                for a in node.names:
-                    called.add((a.asname or a.name).split(".")[-1])
-        graph[name[:-3]] = called
-    return graph
-
-
-GRAPH = call_graph()
 
 # Modules that execute: they talk to the game or decide what to do. A rule enforced only in a module that never
 # runs during play is not enforced.
@@ -52,171 +50,282 @@ GRAPH = call_graph()
 # must not be opt-in. Leaving it out made this test blind to exactly the fix it asks for.
 # `api` is the funnel every task passes through; `fight_plan` decides once per fight round. Both are execution,
 # and leaving either out makes this check blind to the wiring it exists to guard.
-EXECUTING = {"end", "combat", "brain", "skills", "nav", "perception", "skillcore", "skill", "nether", "api",
-             "fight_plan", "threat"}
+POST_REFUSED = {"status": "failed", "message": "body owned by the arbiter", "tasks": []}
 
 
-def callers_of(func, among=EXECUTING):
-    return {m for m in among if func in GRAPH.get(m, ())}
+class Recorder:
+    """An arbiter that records each preemption (layer, why) and keeps the action, to be run by the test."""
+
+    def __init__(self):
+        self.preempted, self.action = [], None
+
+    def preempt(self, layer, action, why, **kw):
+        self.preempted.append((layer, why))
+        self.action = action
+
+
+def _raised(call):
+    """The exception class name `call` raised, or its value."""
+    try:
+        return call()
+    except Exception as e:
+        return type(e).__name__
 
 
 class RulesAreWired(unittest.TestCase):
-    def test_the_planner_is_called_by_the_fight(self):
-        self.assertIn("end", callers_of("plan"), "the fight must ask the planner, not hold its own order")
+    # The wiring rules (planner, bunker, threat model, safe step, bids, interrupts, the answer loop, rows) are
+    # shown by behaviour in tests/test_wiring.py.
 
-    def test_the_recovery_table_is_consulted(self):
-        # Not `_recover` — that is our own wrapper. The table itself must be reached.
-        wired = callers_of("explain") | callers_of("recovery_for")
-        self.assertTrue(wired, "the recovery table is written but nothing looks anything up in it")
-
-    def test_the_bunker_geometry_is_used_by_the_fight(self):
-        self.assertIn("end", callers_of("mouth") | callers_of("tunnel") | callers_of("dig_plan"),
-                      "bunker.py is geometry nobody digs")
-
-    def test_the_threat_model_is_used_by_something_that_runs(self):
-        # combat_model computes time-to-impact and phase statistics. If only the offline report imports it, the
-        # fight is not using the model the design is built on — and the documentation says otherwise.
-        self.assertTrue(callers_of("threats") | callers_of("tti") | callers_of("exposure")
-                        | callers_of("window_summary"),
-                        "combat_model is documented as part of the fight but no executing module calls it")
-
-    def test_every_look_is_vetted_for_endermen(self):
-        # The rule says looking at an enderman's head provokes it, so aims are checked. If only the bow checks,
-        # then digging, walking, placing and bombing all look wherever they like — which is what happened.
-        callers = callers_of("aim_hits_enderman")
-        self.assertGreater(len(callers), 1,
-                           f"only {callers or 'nothing'} checks its aim; every other action looks freely")
-
-    def test_the_safety_choice_is_made_by_the_model(self):
-        # best_step / slack_at are the closed-form safety rule. They have been written, deleted and rewritten;
-        # what keeps failing is not the algorithm but its call site.
-        self.assertTrue(callers_of("best_step") | callers_of("slack_at") | callers_of("min_tti"),
-                        "nothing on the execution path asks the model where it is safe to stand")
+    # (the entity's last reading (pos, seconds ago) or None, now) → the velocity its row carries
+    VELOCITY = [("never seen before: at rest", None, (10.0, 64.0, 0.0), (0.0, 0.0, 0.0)),
+                ("moved 2 blocks toward us in 1 s", ((12.0, 64.0, 0.0), 1.0), (10.0, 64.0, 0.0), (-2.0, 0.0, 0.0)),
+                ("fell a block in half a second", ((10.0, 65.0, 0.0), 0.5), (10.0, 64.0, 0.0), (0.0, -2.0, 0.0)),
+                ("must fail: the last reading is stale (3 s): at rest", ((20.0, 64.0, 0.0), 3.0), (10.0, 64.0, 0.0),
+                 (0.0, 0.0, 0.0))]
 
     def test_threats_carry_velocity(self):
-        # A hazard list with hardcoded zero velocity makes every closed-form root return infinity, so the
-        # prediction reports "nothing is coming" regardless of what is coming.
-        import re
-        src = source("threat")
-        body = src[src.index("def rows("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertNotIn("(0.0, 0.0, 0.0)) for", body, "threats must be differenced, not declared stationary")
-        self.assertIn("prev", body, "velocity comes from comparing two rounds")
-        self.assertIn("rows", GRAPH["end"], "the fight builds its rows with the shared differencing")
+        """A hazard row with a declared (0,0,0) makes every closed-form root infinite: velocity is differenced."""
+        from bonobo import threat
+        now = 1000.0
+        for name, prev, pos, want in self.VELOCITY:
+            with self.subTest(name):
+                memory = {} if prev is None else {7: (prev[0], now - prev[1])}
+                e = {"id": 7, "type": "minecraft:zombie", "x": pos[0], "y": pos[1], "z": pos[2]}
+                got = threat.rows([e], memory, now, {"minecraft:zombie": 3.0})
+                self.assertEqual(len(got), 1)
+                self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
+                self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")
 
-    def test_ordinary_play_asks_the_threat_layer(self):
-        # "hostile within 5 → attack, hp ≤ 10 and within 6 → flee" was two literals pretending to be a policy. The
-        # answer comes from the threat model, and from ONE place: perception, at its own cadence. The brain had a
-        # second copy that ran once a round, could choose `ignore` as though doing nothing were a rescue, and held
-        # the body while the real answer waited for a lease. That cost a death.
-        self.assertIn("perception", callers_of("bid") | callers_of("options"),
-                      "nothing bids for the body when something is hitting us")
-        self.assertNotIn("brain", callers_of("decide"), "the brain answers threats again: one decider, not two")
-        self.assertIn("perception", callers_of("pressure") | callers_of("time_to_die"),
-                      "perception interrupts on health alone: deaths by arrows are invisible to it")
-        src = source("brain")
-        self.assertNotIn('e["distance"] <= 5', src, "a distance literal decides a fight again")
+    # fixture: (module source) → how many assignments write a message (not None) into api.STATE.interrupt
+    WRITES = [("a message written", "api.request_interrupt('stop')\n", 1),
+              ("the field written directly", "api.STATE.interrupt = 'stop'\n", 1),
+              ("must fail: cleared with None: not a writer", "api.request_interrupt(None)\n", 0),
+              ("must fail: the field cleared with None", "api.STATE.interrupt = None\n", 0),
+              ("the arbiter's wire", "WIRE['tell'](reason)\n", 1),
+              ("must fail: another wire is not the message", "WIRE['stop']()\n", 0),
+              ("two writes in one function", "def f():\n    api.request_interrupt(x)\n    api.request_interrupt('y')\n", 2),
+              ("another module's interrupt is not api's", "other.request_interrupt('x')\nother.STATE.interrupt = 'x'\n", 0),
+              ("reading it is not writing it", "x = api.interrupt_pending()\ny = api.STATE.interrupt\n", 0)]
 
-    def test_the_body_has_one_exit(self):
-        # Written and wired in the same turn, and watched from the same turn, because every other rule in this
-        # suite was written first and wired later — or never.
-        self.assertTrue(callers_of("submit") | callers_of("Motion"),
-                        "nothing submits intents: the fight is driving the body from several places again")
-
-    def test_perception_does_not_halt_the_body_itself(self):
-        # The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's. Two direct stops here were
-        # two of the commanders a multi-threat fight cannot afford.
-        src = source("perception")
-        direct = src.replace('lambda: api.post("/stop")', "").count('api.post("/stop")')
-        self.assertEqual(direct, 0, "perception must preempt through the arbiter, never call /stop directly")
-        self.assertIn("preempt", GRAPH["perception"])
-
-    def test_the_funnels_check_who_owns_the_body(self):
-        for mod in ("nav", "api"):
-            self.assertIn("owns", GRAPH[mod], f"{mod} drives the body without asking the arbiter who owns it")
-
-    def test_recoveries_preempt_rather_than_walk_inline(self):
-        src = source("end")
-        body = src[src.index("def _recover("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertIn("preempt", body, "a recovery is the safety layer speaking; it must own the body while it runs")
+    def test_the_writer_count_over_the_fixture(self):
+        for name, src, want in self.WRITES:
+            with self.subTest(name):
+                self.assertEqual(interrupt_writes(src), want)
 
     def test_the_interrupt_message_has_one_writer(self):
-        import re
-        writers = {}
-        for name in ("perception", "end", "brain", "skill", "arbiter", "api"):
-            src = source(name)
-            n = sum(1 for rhs in re.findall(r"api\.INTERRUPT\s*=\s*(\S+)", src) if rhs != "None")
-            if n:
-                writers[name] = n
+        writers = {p.stem: n for p in sorted(pathlib.Path(PKG).glob("*.py")) if (n := interrupt_writes(p.read_text()))}
         # perception may still hand a message to a soft skill without stopping it; every stop-and-tell goes
-        # through the arbiter.
-        self.assertEqual(set(writers) - {"perception"}, {"arbiter"}, f"writers: {writers}")
+        # through the arbiter (the bench, which plays the interrupting player, lives in bonobo/bench).
+        self.assertEqual(sorted(set(writers) - {"perception"}), ["arbiter"], f"writers: {writers}")
         self.assertLessEqual(writers.get("perception", 0), 1)
 
-    def test_raw_posts_that_drive_the_body_are_guarded(self):
-        src = source("api")
-        body = src[src.index("def post("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertIn("owns", body, "run_chain posts /task directly; the gate must be on post, not only on run")
+    # Every funnel that drives the body asks the arbiter, by name, before the game hears of it.
+    # (situation, the call, does the arbiter let it drive?) → (what it asked, reached the game, what came back)
+    FUNNELS = [
+        ("post /task, the owner", lambda: api.post("/task", {}), True, ["api.post(/task)"], True, {"status": "sent"}),
+        ("post /stop, the owner", lambda: api.post("/stop", {}), True, ["api.post(/stop)"], True, {"status": "sent"}),
+        ("must fail: post /task, not the owner: refused (run_chain posts it directly)", lambda: api.post("/task", {}), False,
+         ["api.post(/task)"], False, POST_REFUSED),
+        ("post /stop?wait=1, not the owner: the query is not part of the name", lambda: api.post("/stop?wait=1", {}),
+         False, ["api.post(/stop)"], False, POST_REFUSED),
+        ("post /close: not the body's, never asks", lambda: api.post("/close", {}), False, [], True, {"status": "sent"}),
+        ("post /click: likewise", lambda: api.post("/click", {}), False, [], True, {"status": "sent"}),
+        ("run a mine task, not the owner: FightHolds, like run_chain and a walk (never a failed try a loop counts)",
+         lambda: _raised(lambda: api.run({"type": "mine"}, awaits="the funnel test: refused or run")), False,
+         ["api.run(mine)"], False, "FightHolds"),
+        ("walk, not the owner: no walk, the interruption raised (never False: a False banned the target)",
+         lambda: _raised(lambda: nav.go_to((5, 64, 5), None)), False, ["nav.go_to"], False, "FightHolds")]
 
-    def test_tactics_are_preempted_not_nested_in_plans(self):
-        src = source("end")
-        body = src[src.index("def _carry_out("):]
-        body = body[:body.index("\ndef ", 1)]
-        self.assertNotIn("        _retreat(ctx, near)\n", body, "a retreat inside a plan is a plan sub-step, not a tactic")
-        self.assertIn('preempt("tactic"', body)
+    def test_every_funnel_asks_who_owns_the_body(self):
+        from unittest import mock
+        from bonobo import arbiter
+        for name, call, owns, want_asked, reached, want in self.FUNNELS:
+            asked = []
+            with self.subTest(name), \
+                    mock.patch.object(arbiter.BODY, "owns", side_effect=lambda who, o=owns: asked.append(who) or o), \
+                    mock.patch.object(api, "api", return_value={"status": "sent"}) as wire:
+                self.assertEqual(call(), want)
+                self.assertEqual((asked, wire.called), (want_asked, reached))
 
-    def test_danger_kinds_and_the_recovery_table_agree(self):
-        # Perception emits kinds; the table keys on them exactly. A kind with no row falls to the default, which
-        # is allowed; a row for a kind perception can never emit is a dead entry pretending to be a rule.
-        from bonobo import perception, recovery
-        emitted = set(perception.DANGERS) | {"airborne", "stale"}       # the two non-perception triggers
-        for kind, _, _ in recovery.TABLE:
-            self.assertIn(kind, emitted, f"recovery row {kind!r} can never fire")
-        src = source("perception")
-        import re
-        body = src[src.index("def danger("):src.index("\ndef ", src.index("def danger(") + 1)]
-        for lit in re.findall(r'return "([a-z_]+)"', body):
-            self.assertIn(lit, perception.DANGERS, f"danger() returns {lit!r} which is not a declared kind")
+class TheSafetyLayerStopsTheBody(unittest.TestCase):
+    """The message (INTERRUPT) is perception's; the command (/stop) is the arbiter's — two direct stops were two of
+    the commanders a multi-threat fight cannot afford. It is run here over a recording arbiter."""
+
+    RUNNING = {"active": True, "paused": False, "allowed": True, "task": {"type": "mine"}, "queued": 0}
+    # One perception tick. (situation, the state read, a soft skill running?, Claude's flag text) →
+    # (preemptions (layer, why), the message left in api.STATE.interrupt)
+    TICKS = [("lava under a running task: a safety preemption", dict(inLava=True, control=RUNNING), False, None,
+              [("safety", "lava")], None),
+             ("Claude asks: preempted with the reason", dict(control=RUNNING), False, "look at this",
+              [("safety", "claude: look at this")], None),
+             ("lava under a soft skill: the message only, the skill takes cover itself",
+              dict(inLava=True, control=RUNNING), True, None, [], "lava"),
+             ("must fail: lava, nothing running: nothing to stop", dict(inLava=True), False, None, [], None),
+             ("all well under a running task: nothing", dict(control=RUNNING), False, None, [], None)]
+
+    def test_perception_stops_only_through_the_arbiter(self):
+        import tempfile
+        import types
+        from unittest import mock
+        from bonobo import arbiter, perception
+        from tests.world import state
+        for name, changes, soft, flag, want_pre, want_msg in self.TICKS:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                w, body, posts = perception.Watcher(), Recorder(), []
+                path = os.path.join(tmp, "interrupt")
+                if flag:
+                    with open(path, "w") as f:
+                        f.write(flag)
+
+                def one_tick(_s, w=w):
+                    w.stopped = True
+                # One ExitStack, not one `with` of twenty patches: Python caps statically nested blocks at 20.
+                with contextlib.ExitStack() as stack:
+                    for target, attr, kw in [
+                            (perception.time, "sleep", {"side_effect": one_tick}),
+                            (perception.fight_loop, "active", {"return_value": False}),
+                            (perception, "FLAG", {"new": path}), (perception.STATE, "paused", {"new": False}),
+                            (perception, "_eating", {"return_value": False}), (perception, "note_hurt", {}),
+                            (api.STATE, "mode", {"new": "normal"}), (api.STATE, "soft", {"new": soft}),
+                            (api.STATE, "interrupt", {"new": None}), (api, "log", {}),
+                            (api, "get", {"return_value": state(**changes)}),
+                            (api, "post", {"side_effect": lambda p, b=None: posts.append(p)}),
+                            (arbiter, "BODY", {"new": body}), (w, "_look", {}), (w, "_answer_threats", {}),
+                            (w, "_time_to_die", {"return_value": None}),
+                            (w, "_enderman_after_us", {"return_value": False}),
+                            (w, "_breath_within", {"return_value": False}),
+                            (w, "hazard", {"new": types.SimpleNamespace(buried=lambda s: False, fallen=lambda s: 0.0)})]:
+                        stack.enter_context(mock.patch.object(target, attr, **kw))
+                    w.run()
+                    self.assertEqual((body.preempted, api.STATE.interrupt, posts), (want_pre, want_msg, []),
+                                     "perception never posts the /stop itself")
+                    if want_pre:
+                        body.action()
+                        self.assertEqual(posts, ["/stop"], "the preemption's action is the /stop")
+
+ENDERMEN = [{"type": "minecraft:enderman", "id": 7, "x": 6, "y": 64, "z": 0, "angry": True},
+            {"type": "minecraft:enderman", "id": 8, "x": 3, "y": 64, "z": 0},
+            {"type": "minecraft:end_crystal", "id": 9, "x": 0, "y": 80, "z": 20}]
+
+
+class EveryLookIsVetted(unittest.TestCase):
+    """Looking at an enderman provokes it: the task funnel warns of such an aim, the bow refuses one. Standing at
+    (0, 64, 0), endermen at 3 and 6 blocks east; a rising line to (12, 69, 0) crosses the head band."""
+
+    END = {"dimension": "minecraft:the_end", "x": 0, "y": 64, "z": 0}
+    # (situation, task, the state read) → the funnel's warning
+    VET = [("a look through an enderman's head, in the End", {"type": "look", "x": 12, "y": 69, "z": 0}, END,
+            "aim at 12,69,0 crosses an enderman's head"),
+           ("the same direction below the head", {"type": "look", "x": 12, "y": 64, "z": 0}, END, None),
+           ("must fail: the same aim in the Overworld: no endermen to vet for",
+            {"type": "look", "x": 12, "y": 69, "z": 0}, dict(END, dimension="minecraft:overworld"), None),
+           ("a task that does not aim", {"type": "goto", "x": 12, "y": 69, "z": 0}, END, None),
+           ("an aiming task with no place to aim at", {"type": "attack", "entity": 7}, END, None)]
+
+    def test_the_funnel_warns_of_a_provoking_aim(self):
+        from unittest import mock
+        for name, task, st, want in self.VET:
+            def got(path, st=st):
+                return {"entities": list(ENDERMEN)} if path.startswith("/entities") else st
+            with self.subTest(name), mock.patch.object(api, "get", side_effect=got):
+                self.assertEqual(api.vet_aim(task), want)
+
+    # (situation, the target, the entities handed in as `near`) → shot (else refused)
+    SHOOT = [("must fail: through an enderman's head: refused", {"id": 1, "x": 12, "y": 69, "z": 0}, ENDERMEN, False),
+             ("level, below the heads: shot", {"id": 1, "x": 12, "y": 64, "z": 0}, ENDERMEN, True),
+             ("the crystal, well clear of them: shot", ENDERMEN[2], ENDERMEN, True),
+             ("through a head, but nothing handed in to vet against: shot", {"id": 1, "x": 12, "y": 69, "z": 0},
+              None, True)]
+
+    def test_the_bow_refuses_a_provoking_aim(self):
+        from unittest import mock
+        from bonobo import combat
+        for name, target, near, shot in self.SHOOT:
+            with self.subTest(name), mock.patch.object(api, "get", return_value=self.END), \
+                    mock.patch.object(api, "run", return_value={"status": "succeeded"}) as run:
+                if shot:
+                    combat.shoot(target, near=near)
+                else:
+                    with self.assertRaisesRegex(api.NotAvailable, "enderman stands in the line of aim"):
+                        combat.shoot(target, near=near)
+                self.assertEqual([c.args[0]["item"] for c in run.call_args_list], ["minecraft:bow"] if shot else [])
 
 
 class OneDecisionPoint(unittest.TestCase):
-    """Staying alive is priced, not sequenced.
+    """A fixed order, no scores: the first layer that has something to do takes the round (brain.py docstring).
+    Asked of `Brain.decide` itself, with each layer replaced by a recorder that says whether it has work."""
 
-    `_round` used to be four layers of if: survival, then night safety, then directives, then the pool — each
-    returning early, so the order of the ifs WAS the priority and nothing could say what any layer was worth. Both
-    survival and safety already had a model in seconds; they just had no way to say it. The only thing that may
-    still jump the queue is what kills inside one round, because a round is the deliberation time.
-    """
+    LAYERS = ("hazard", "upkeep", "queue", "prepare")
+    # (which layers have something to do) → the layers asked, in order, and the one that took the round
+    ROWS = [(set(), ["hazard", "upkeep", "queue", "prepare"], None),  # must fail: nothing to do, no layer takes the round
+            ({"prepare"}, ["hazard", "upkeep", "queue", "prepare"], "prepare"),
+            ({"queue", "prepare"}, ["hazard", "upkeep", "queue"], "queue"),
+            ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
+            ({"hazard", "upkeep", "queue", "prepare"}, ["hazard"], "hazard")]
 
-    def test_only_what_kills_inside_a_round_pre_empts_the_pool(self):
-        import inspect
-        from bonobo.brain import Brain
-        src = inspect.getsource(Brain._round)
-        early = [ln.strip() for ln in src.splitlines() if ln.strip() == "return" or ln.strip().startswith("return ")]
-        # Three, and each is named: the survival floor (dead inside a round), an operator directive (a person
-        # saying what to do is authority, not a bid, so it does not get priced), and the pool's own "nothing
-        # runnable" hold. Everything about staying alive that used to sit here is now a priced candidate.
-        self.assertLessEqual(len(early), 3, f"_round still decides by the order of its ifs: {early}")
-        self.assertIn("self.survival(snap, ctx)", src)
-        self.assertNotIn("self.safety(snap, ctx)", src, "night safety must be priced in the pool, not sequenced")
+    # a fight row's round (Brain.round(plan=False)): reflexes and safety only — the queue and idle stocking never
+    # asked (combat__low_hp_eat mined coal for 14 s after the fight)
+    NO_PLAN = [({"queue", "prepare"}, ["hazard", "upkeep"], None),   # must fail: plan work would take the round
+               ({"prepare"}, ["hazard", "upkeep"], None),
+               ({"upkeep", "queue"}, ["hazard", "upkeep"], "upkeep"),
+               ({"hazard", "queue"}, ["hazard"], "hazard")]
 
-    def test_the_rescues_are_offered_as_candidates(self):
-        self.assertIn("_rescue_candidates", GRAPH["brain"])
+    def test_decide_asks_the_layers_in_their_fixed_order(self):
+        self.over(self.ROWS, planning=True)
+
+    def test_a_round_without_the_plan_layer(self):
+        self.over(self.NO_PLAN, planning=False)
+
+    def over(self, rows, planning):
+        from unittest import mock
+        from bonobo import api, brain, retry, tasks
+        from bonobo.world import Snapshot
+        snap = Snapshot.from_readings({"dimension": "minecraft:overworld", "timeOfDay": 2000},
+                                      {"slots": [], "equipment": {}})
+        for busy, want_asked, want_taker in rows:
+            asked = []
+
+            def layer(name, result):
+                def ask(*a, **k):
+                    asked.append(name)
+                    return result if name in busy else None
+                return ask
+            b = brain.Brain.__new__(brain.Brain)
+            b.retry, b.place, b.planning = retry.Retry(), None, planning
+            ask_upkeep = layer("upkeep", [(0, "u", None)])
+            b.needs = type("Needs", (), {"working": {}, "needs_now": [], "round": {},
+                                         "propose": lambda self, *a, **k: None})()
+            b.reflexes = type("Reflexes", (), {"proposals": lambda self, *a, **k: ask_upkeep() or []})()
+            ask_queue = layer("queue", brain.Act("task", "t", None))
+            b.task_act = lambda *a: (ask_queue(*a), {})
+            b.mem, b.blacklist, b.policy_cache = None, {}, None
+            b.prepare = layer("prepare", brain.Act("idle", "p", None))
+            with self.subTest(busy=sorted(busy)), mock.patch.object(api.STATE, "mode", "normal"), \
+                    mock.patch.object(brain.hazard, "due", layer("hazard", "drowning")), \
+                    mock.patch.object(tasks, "load", return_value=[{"id": "t1", "state": "pending"}]), \
+                    mock.patch.object(tasks, "expire", return_value=False):
+                act = b.decide(snap, None)
+                self.assertEqual(asked, want_asked)
+                taker = None if act is None else {"L0": "hazard", "upkeep": "upkeep", "task": "queue",
+                                                  "idle": "prepare"}[act.layer]
+                self.assertEqual(taker, want_taker)
 
 
 class SafetyIsNotOptIn(unittest.TestCase):
     """A guard that each call site must remember to ask for is a guard whose coverage decays."""
 
-    def test_travel_health_guard_is_not_per_call(self):
-        src = source("nav")
-        tree = ast.parse(src)
-        go_to = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "go_to")
-        default = dict(zip([a.arg for a in go_to.args.args][-len(go_to.args.defaults):],
-                           go_to.args.defaults)).get("min_hp")
-        self.assertFalse(isinstance(default, ast.Constant) and default.value is None,
-                         "min_hp defaults to None: every walk is unguarded unless the caller remembers")
+    def test_guards_are_on_by_default(self):
+        """A guard each caller must remember to ask for is a guard whose coverage decays: the safe value is the
+        default, stated exactly."""
+        import inspect
+        from bonobo import api, nav, skillcore
+        rows = [("every walk guards health", nav.go_to, "min_hp", nav.MIN_WALK_HP),
+                ("every walk avoids hazards", nav.go_to, "avoid_hazards", True),
+                ("every wait for the world yields to an interrupt", skillcore.settle, "soft", False),
+                ("every interrupt check applies to hard work", api.check_interrupt, "soft", False)]
+        for name, fn, param, want in rows:
+            with self.subTest(name):
+                self.assertEqual(inspect.signature(fn).parameters[param].default, want)
 
 
 if __name__ == "__main__":

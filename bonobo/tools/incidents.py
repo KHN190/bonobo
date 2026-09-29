@@ -1,21 +1,16 @@
-"""Incidents: captured planner states from live failures, replayed offline, adopted into the test library.
+"""Incidents: captured planner states from live failures, replayed offline, adopted into the test library. mc.py incidents               list captured incidents in the data directory with the planner's current answer mc.py incidents adopt NAME    copy one into tests/incidents/ (edit `expect` afterwards) The bench writes a capture whenever a combat scenario dies; nothing here talks to the game."""
 
-    mc.py incidents               list captured incidents in the data directory with the planner's current answer
-    mc.py incidents adopt NAME    copy one into tests/incidents/ (edit `expect` afterwards)
-
-The bench writes a capture whenever a combat scenario dies; nothing here talks to the game.
-"""
 import json
 import os
 import shutil
 import sys
+import traceback
 
 from .. import fight_plan as fp, paths
 
 DIR = paths.data("incidents")
 LIBRARY = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                        "tests", "incidents")
-
 
 def capture(scenario, note, state, intent):
     """Called by the bench on a combat failure. Returns the path, or None when there was no planning round."""
@@ -29,13 +24,11 @@ def capture(scenario, note, state, intent):
         json.dump({"scenario": scenario, "note": note, "intent": intent, "state": state}, f, indent=1, default=list)
     return path
 
-
 def replay(path):
     from tests.test_incidents import thaw
     inc = json.load(open(path))
     plan = fp.Fight().plan(thaw(inc["state"]))
     return inc, plan
-
 
 def main():
     args = sys.argv[1:]
@@ -58,6 +51,6 @@ def main():
             inc, plan = replay(os.path.join(DIR, n))
             print(f"{n}\n   then: {(inc.get('intent') or {}).get('intent')}   now: {plan['intent']}   "
                   f"fault: {plan['fault'] or '-'}\n   {inc.get('note', '')[:110]}")
-        except Exception as e:
-            print(f"{n}\n   unreplayable: {e}")
+        except Exception as e:  # guard: one unreplayable incident file must not stop the listing of the rest
+            print(f"{n}\n   unreplayable: {e}\n" + traceback.format_exc(limit=3))
     return 0

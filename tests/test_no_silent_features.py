@@ -10,6 +10,7 @@ the failure has to leave a mark (`api.swallowed`). This scans for the shape rath
 the deciding modules that catches a world read and quietly returns nothing.
 """
 import ast
+import pathlib
 import os
 import sys
 import unittest
@@ -18,17 +19,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api  # noqa: E402
 
 PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bonobo")
-# Where a silent failure changes a DECISION rather than an action: the brain's pricing and the value module.
-DECIDING = ("brain.py", "value.py", "actions.py", "priority.py", "pool.py", "solve.py", "memory.py")
+# Where a silent failure changes a DECISION rather than an action: the brain, the planners and their cost model.
+DECIDING = ("brain.py", "actions.py", "solve.py", "memory.py", "decompose.py", "cost.py", "goals.py", "tasks.py")
 WORLD = {"find", "entities", "region_around", "Region", "Snapshot", "Inventory", "status", "container",
          "dark_spots", "mod_features"}
-# Read-only bookkeeping: failing to read these changes nothing about what is chosen.
-ALLOWED = {"note_yield_of"}
+# Read-only bookkeeping that may fail quietly because it changes nothing about what is chosen. Empty: every
+# function it once named is gone, and a name that matches nothing would silently exempt the next one given it.
+ALLOWED = set()
 
 
 def quiet_handlers(path):
     """[(line, function, what it swallows)] for handlers that catch a world read and return nothing."""
-    src = open(path).read()
+    return quiet_in(pathlib.Path(path).read_text())
+
+
+def quiet_in(src):
+    """Pure: `quiet_handlers` over a module's source (its AST)."""
     tree = ast.parse(src)
     out = []
     for fn in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
@@ -65,13 +71,30 @@ class NothingTurnsItselfOffInSilence(unittest.TestCase):
                     found.append(f"{name}:{line} {fn}() swallows [{reads}]")
         self.assertEqual(found, [], "these decide something and hide it when the world does not answer")
 
+    # fixture: (module source) → the functions whose handler swallows a world read silently
+    SHAPES = [("a world read swallowed with pass", "def f():\n    try:\n        find(x)\n    except Exception:\n"
+               "        pass\n", ["f"]),
+              ("returns None: silent", "def f():\n    try:\n        return Region(a, b)\n    except E:\n"
+               "        return None\n", ["f"]),
+              ("marked with api.swallowed: fine", "def f():\n    try:\n        find(x)\n    except E as e:\n"
+               "        return api.swallowed('f', e)\n", []),
+              ("must fail: not a world read: fine", "def f():\n    try:\n        int(x)\n    except E:\n        pass\n", []),
+              ("re-raised: not silent", "def f():\n    try:\n        find(x)\n    except E:\n        raise\n", []),
+              ("a real fallback value is not silence", "def f():\n    try:\n        find(x)\n    except E:\n"
+               "        return 5\n", [])]
+
+    def test_the_shape_over_the_fixture(self):
+        for name, src, want in self.SHAPES:
+            with self.subTest(name):
+                self.assertEqual([fn for _line, fn, _r in quiet_in(src)], want)
+
     def test_the_mark_is_countable(self):
         """However many times it is ignored, that is how many the tally shows."""
         for times in (1, 3, 7):
-            api.SWALLOWED.clear()
+            api.STATE.swallowed.clear()
             for _ in range(times):
                 got = api.swallowed("a test", ValueError("no"))
-            self.assertEqual(api.SWALLOWED["a test: ValueError"], times)
+            self.assertEqual(api.STATE.swallowed["a test: ValueError"], times)
             self.assertIsNone(got, "a handler can return it directly")
 
 

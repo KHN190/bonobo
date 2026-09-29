@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import estimate, field  # noqa: E402
-from tests.world import WALKS, dangers, learner  # noqa: E402
+from tests.world import WALKS, dangers  # noqa: E402
 
 INF = float("inf")
 
@@ -24,10 +24,9 @@ def soonest(cell):
 
 class ItIsSecondsAndNeverNegative(unittest.TestCase):
     def test_over_every_cell(self):
-        for cell in dangers():
-            for hazard in cell.rows():
-                seconds = estimate.arrival_s(cell.here, hazard, cell.ground())
-                self.assertGreaterEqual(seconds, 0.0, f"{cell}: {seconds}")
+        negative = [(repr(cell), s_) for cell in dangers() for hazard in cell.rows()
+                    for s_ in [estimate.arrival_s(cell.here, hazard, cell.ground())] if s_ < 0.0]
+        self.assertEqual(negative, [], "an arrival in the past")
 
     def test_what_is_already_inside_its_own_reach_is_here_now(self):
         """Inside its reach means now, and the world decides who is inside it — a test that knows where the sweep
@@ -97,16 +96,15 @@ class TheGroundOnlySlowsThingsDown(unittest.TestCase):
                 if delayed == INF:
                     continue
                 (climbers if cell.mob_of(hazard).get("squeezes") else walkers).append(delayed / plain)
-        if walkers and climbers:
-            self.assertGreater(min(walkers), max(climbers))
+        self.assertEqual((bool(walkers), bool(climbers)), (True, True), "the sweep has both kinds to compare")
+        self.assertEqual([w for w in walkers if w <= max(climbers)], [], "a walker delayed no more than a climber")
 
     def test_nothing_the_ground_does_can_make_it_arrive_sooner(self):
-        for cell in dangers(distance="across"):
-            for hazard in cell.rows():
-                over_nothing = estimate.arrival_s(cell.here, hazard, None)
-                for world in cell.along("ground"):
-                    self.assertGreaterEqual(estimate.arrival_s(world.here, hazard, world.ground()),
-                                            over_nothing - 1e-9, world)
+        sooner = [repr(world) for cell in dangers(distance="across") for hazard in cell.rows()
+                  for world in cell.along("ground")
+                  if estimate.arrival_s(world.here, hazard, world.ground())
+                  < estimate.arrival_s(cell.here, hazard, None) - 1e-9]
+        self.assertEqual(sooner, [], "ground made something arrive sooner than over nothing")
 
 
 class OneJourney(unittest.TestCase):
@@ -137,45 +135,42 @@ class TheGroundLearnsWhatWalkingCosts(unittest.TestCase):
     STRAIGHT = 10.0
 
     def learned(self, ratio, times=1, bucket="open"):
-        ground = learner()
+        ground = field.Terrain(prior=1.0, memory=0.5)
         for _ in range(times):
             ground.observed(bucket, straight_s=self.STRAIGHT, actual_s=self.STRAIGHT * ratio)
         return ground.of(bucket)
 
-    def test_it_follows_the_walks_it_has_seen(self):
-        seen = [self.learned(ratio) for ratio in WALKS.values()]
-        self.assertEqual(seen, sorted(seen), f"{list(WALKS)}: {seen}")
+    # (walk as a multiple of the straight line, samples) → the factor learned, from a prior of 1 at memory 0.5:
+    # it moves halfway to each sample, never below the straight line (1.0), never past the bound (12.0).
+    LEARNED = [(0.5, 1, 1.0), (0.5, 20, 1.0),                     # quicker than straight is not believed (must fail: a walk quicker than straight is not learned)
+               (1.0, 1, 1.0), (1.0, 20, 1.0),
+               (2.0, 1, 1.5), (2.0, 20, 1.9999990463256836),
+               (4.0, 1, 2.5), (4.0, 20, 3.999997138977051),
+               (10000.0, 1, 6.5), (10000.0, 20, 11.99998950958252)]   # absurd walks stop at the bound
 
-    def test_it_settles_on_what_walking_costs(self):
-        for name, ratio in WALKS.items():
-            if ratio < 1.0 or ratio > field.MAX_FACTOR:
-                continue
-            self.assertAlmostEqual(self.learned(ratio, times=20), ratio, places=1, msg=name)
-
-    def test_no_route_is_ever_shorter_than_the_straight_line(self):
-        for name, ratio in WALKS.items():
-            self.assertGreaterEqual(self.learned(ratio, times=20), 1.0, name)
-
-    def test_no_walk_however_absurd_leaves_the_bound(self):
-        for name, ratio in WALKS.items():
-            self.assertLessEqual(self.learned(ratio, times=20), field.MAX_FACTOR, name)
+    def test_it_learns_exactly_this(self):
+        self.assertEqual(field.MAX_FACTOR, 12.0)
+        for ratio, times, want in self.LEARNED:
+            with self.subTest(ratio=ratio, times=times):
+                self.assertEqual(self.learned(ratio, times=times), want)
 
     def test_each_kind_of_ground_learns_on_its_own(self):
-        ground = learner()
+        ground = field.Terrain(prior=1.0, memory=0.5)
         for _ in range(10):
             ground.observed("underground", self.STRAIGHT, self.STRAIGHT * WALKS["much_slower"])
-        self.assertGreater(ground.of("underground"), ground.of("open"))
+        self.assertEqual({b: ground.of(b) for b in ("underground", "open", "enclosed")},
+                         {"underground": 3.9970703125, "open": 1.0, "enclosed": 1.0})
 
     def test_a_state_picks_the_ground_it_is_standing_on(self):
         for state, bucket in (({"skyLight": 15, "y": 70}, "open"), ({"skyLight": 0, "y": 30}, "underground"),
                               ({"enclosed": True}, "enclosed")):
-            self.assertEqual(field.for_state(state).bucket, bucket, state)
+            self.assertEqual(field.bucket_of(state), bucket, state)
 
     def test_only_a_walk_that_arrived_teaches_anything(self):
         from unittest import mock
         from bonobo import nav
         for ok in (True, False):
-            ground = learner()
+            ground = field.Terrain(prior=1.0, memory=0.5)
             with mock.patch.object(field, "TERRAIN", ground), \
                  mock.patch.object(nav.api, "get", return_value={"skyLight": 15, "y": 64}):
                 nav._arrived((0, 64, 0), (43, 64, 0), began=nav.time.time() - 30.0, ok=ok)
@@ -188,19 +183,15 @@ class WhereToPutABlock(unittest.TestCase):
     worlds, so what "between" means is the world's geometry rather than a pair of coordinates written here."""
 
     def test_the_choke_lies_between_us_and_what_is_coming(self):
-        for cell in dangers():
-            for hazard in cell.rows():
-                spot = cell.ground().choke(cell.here, hazard[0])
-                if spot is None:
-                    continue
-                self.assertLess(math.dist(cell.here, spot), math.dist(cell.here, hazard[0]) + 1e-9, cell)
-                self.assertGreater(math.dist(cell.here, spot), 0.0, cell)
+        outside = [repr(cell) for cell in dangers() for hazard in cell.rows()
+                   for spot in [cell.ground().choke(cell.here, hazard[0])] if spot is not None
+                   and not 0.0 < math.dist(cell.here, spot) < math.dist(cell.here, hazard[0]) + 1e-9]
+        self.assertEqual(outside, [], "a choke not strictly between us and the mob")
 
     def test_there_is_nothing_to_block_when_it_is_already_on_us(self):
-        for cell in dangers(distance="touching"):
-            for hazard in cell.rows():
-                if math.dist(cell.here, hazard[0]) < 2.0:
-                    self.assertIsNone(cell.ground().choke(cell.here, hazard[0]), cell)
+        chokes = [repr(cell) for cell in dangers(distance="touching") for hazard in cell.rows()
+                  if math.dist(cell.here, hazard[0]) < 2.0 and cell.ground().choke(cell.here, hazard[0]) is not None]
+        self.assertEqual(chokes, [], "a choke offered against something already on us")
 
     def test_placing_a_block_leaves_the_ground_it_came_from_alone(self):
         for cell in dangers():

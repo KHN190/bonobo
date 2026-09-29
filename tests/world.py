@@ -1,10 +1,13 @@
-"""Stand-ins the offline tests share: a world without a world.
+"""What the offline tests are fed: readings, not a world.
 
-`world.Region` fetches its blocks from the game the moment it is built, so nothing that reads a region can be
-tested without one — and both the route pricing and the building code read regions. This is the same interface,
-filled from a dict, so a test can state the terrain it means in three lines.
+The game is the only simulator. Offline tests are pure functions over what the game ANSWERED: a `/state`, an
+`/inventory`, what `/find` saw (`state`, `inventory`, `Seen`), and — for pure geometry — a read-only box of block
+names (`FakeRegion`, the interface `world.Region` offers with nothing behind it). The sweeps (`worlds`, `dangers`,
+`fights`) are cross-products of such readings, so one relation is claimed over hundreds of situations.
 """
-from bonobo.data import FALLING, HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE
+from bonobo.data import HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE
+
+FALLING = {"sand", "red_sand", "gravel", "suspicious_sand", "suspicious_gravel"}     # blocks that fall
 
 
 class FakeRegion:
@@ -46,133 +49,150 @@ def flat(lo=(-20, 60, -20), hi=(20, 76, 20), floor_y=63, block="stone"):
     return FakeRegion(lo, hi, blocks)
 
 
-def planner_brain(mem=None):
-    """A Brain with just enough wired up to price things, and no world behind it.
+# ---------------------------------------------------------------- readings, in the shapes the game answers with
+# Offline tests are pure functions fed real readings: a `/state` dict, an `/inventory` dict, what `/find` and
+# `/entities` saw. These are those shapes (copied from a recorded round), with the fields a row moves. Nothing here
+# answers a request or runs anything: the game is the only simulator.
 
-    The pricing door (`Brain.worth_of_change`) needs three things: a memory, an action table, and to know which
-    stages of the run are done. A test about prices should not have to start a game to say so.
-    """
-    import os
-    import tempfile
-    from bonobo import actions, brain, memory
-
-    b = brain.Brain.__new__(brain.Brain)
-    b.mem = mem or memory.Memory(os.path.join(tempfile.mkdtemp(prefix="brain"), "notes.json"))
-    b.blacklist = {}
-    b.expand_hint = 5
-
-    def action_table(snap, cost_model=None):
-        state = {}
-        for slot in getattr(snap, "inv", None).slots if getattr(snap, "inv", None) else []:
-            state[slot["id"]] = state.get(slot["id"], 0) + slot.get("count", 1)
-        return actions.table(actions.Costs(lambda kinds: 20.0), state), state
-
-    b.action_table = action_table
-    b.stage_done = lambda name, snap: True          # nothing of the run is outstanding in a pricing test
-    return b
+STATE = {"x": 0.5, "y": 64.0, "z": 0.5, "blockX": 0, "blockY": 64, "blockZ": 0, "yaw": 0.0, "pitch": 0.0,
+         "dimension": "minecraft:overworld", "blockLight": 0, "skyLight": 15, "timeOfDay": 2658, "health": 20.0,
+         "maxHealth": 20.0, "food": 20, "saturation": 5.0, "air": 300, "armor": 0, "xpLevel": 0, "onGround": True,
+         "inWater": False, "inPortal": False, "inLava": False, "onFire": False, "dead": False, "selectedSlot": 0,
+         "mainHand": {"id": "minecraft:air", "count": 0}, "screen": "none", "lookingAt": {"kind": "none"},
+         "control": {"active": False, "paused": False, "allowed": True, "task": None, "queued": 0}}
+AIR = {"id": "minecraft:air", "count": 0}
+TOOL_MAX = {"wooden": 59, "stone": 131, "iron": 250, "golden": 32, "diamond": 1561, "netherite": 2031}
 
 
-class PricingSnap:
-    """The snapshot a pricing test needs: a bag, a clock, and nothing else.
-
-    `survival_state` reads a dozen fields off a real snapshot; a test about what a stack of iron is worth should
-    not have to build one, and every such test was building its own half of it.
-    """
-    dimension = "minecraft:overworld"
-    feet = (0, 64, 0)
-    night = False
-    ticks_until_dusk = 6000
-
-    def __init__(self, counts=None, **state):
-        counts = counts or {}
-        slots = [{"id": item, "count": n} for item, n in counts.items()]
-        self.state = {"health": 20, "food": 20, "skyLight": 15, "armor": 0, **state}
-        self.inv = _Inv(slots)
-
-    def get(self, key, default=None):
-        return self.state.get(key, default)
+def state(**changes):
+    """A `/state` answer: the recorded one with `changes` applied (blockX/Y/Z follow x/y/z when those move)."""
+    s = dict(STATE, **changes)
+    for axis, block in (("x", "blockX"), ("y", "blockY"), ("z", "blockZ")):
+        if axis in changes and block not in changes:
+            s[block] = int(changes[axis] // 1)
+    return s
 
 
-class _Inv:
-    def __init__(self, slots):
-        self.slots = slots
-        self.equipment = {}
-
-    def tools(self, kind):
-        return []
-
-    def count(self, token):
-        return sum(s["count"] for s in self.slots if s["id"] == token)
-
-    def usable(self, token):
-        return self.count(token)
-
-    def used_slots(self):
-        return len(self.slots)
-
-    def free_slots(self):
-        return max(0, 36 - len(self.slots))
-
-    def offhand(self):
-        return "minecraft:air"
+def slot(item, count=1, worn=0, i=0):
+    """One `/inventory` slot. A tool carries damage/maxDamage like the mod reports it; `worn` = uses already spent."""
+    item = item if ":" in item else f"minecraft:{item}"
+    out = {"id": item, "count": int(count), "slot": i}
+    material, _, kind = item.split(":")[1].rpartition("_")
+    if material in TOOL_MAX and kind in ("pickaxe", "axe", "sword", "shovel", "hoe"):
+        out.update(damage=int(worn), maxDamage=TOOL_MAX[material])
+    return out
 
 
-# ---------------------------------------------------------------- the parameterised world the property tests use
-# Four dimensions, swept as a product rather than written out as cases: what is AROUND us, what is BETWEEN us and
-# it, what we ARE, and what we already CARRY. Every property test runs over the same worlds, so a relation that
-# holds "for every world" is stated once and covers hundreds of situations — and adding a dimension covers them
-# all again without another test being written.
+def inventory(*items, head=None, offhand=None, **counts):
+    """An `/inventory` answer. `items` are slot dicts or (item, count[, worn]) tuples; `counts` is item=count."""
+    slots = []
+    for it in list(items) + list(counts.items()):
+        s = it if isinstance(it, dict) else slot(*it)
+        slots.append(dict(s, slot=len(slots)))
+    eq = {k: dict(AIR) for k in ("head", "chest", "legs", "feet", "offhand")}
+    if head:
+        eq["head"] = {"id": f"minecraft:{head}", "count": 1}
+    if offhand:
+        eq["offhand"] = {"id": f"minecraft:{offhand}", "count": 1}
+    return {"slots": slots, "selectedSlot": 0, "equipment": eq}
 
+
+def full_bag(filler="dirt"):
+    """Thirty-six stacks of something: no room for anything new."""
+    return inventory(*[(filler, 64)] * 36)
+
+
+def bag(data):
+    """The real `world.Inventory`, built from an answer instead of a request."""
+    from bonobo.world import Inventory
+    return Inventory(data)
+
+
+def snapshot(st=None, inv=None):
+    """The real `world.Snapshot`, from readings (`Snapshot.from_readings`): no world read."""
+    from bonobo.world import Snapshot
+    return Snapshot.from_readings(st if st is not None else state(), inv if inv is not None else inventory())
+
+
+def finds(**seen):
+    """What /find and /entities saw, {name: distance}, keyed both ways the cost model may ask (bare and namespaced)."""
+    out = {}
+    for k, v in seen.items():
+        name = k.replace("minecraft:", "")
+        out[name] = out[f"minecraft:{name}"] = float(v)
+    return out
+
+
+def cost(snap=None, mem=None, **seen):
+    """The real `cost.Cost` over readings (`finds=`): what is in sight at what distance, no query made."""
+    from bonobo.cost import Cost
+    return Cost(snap if snap is not None else snapshot(), mem=mem, finds=finds(**seen))
+
+
+def places(seconds):
+    """A cost model with no snapshot where every kind is `seconds` of walking away (None: nowhere known) — for the
+    column solver's tables, which ask only how far things are."""
+    from bonobo.cost import TICKS_PER_S, WALK_TICKS_PER_BLOCK, Cost
+    blocks = None if seconds is None else max(0.0, (float(seconds) - 2.0) * TICKS_PER_S / WALK_TICKS_PER_BLOCK)
+    return Cost(None, known=lambda kinds: blocks)
+
+
+def places_by(fn):
+    """Like `places`, with the seconds decided per kind: fn(kinds) -> seconds or None."""
+    from bonobo.cost import TICKS_PER_S, WALK_TICKS_PER_BLOCK, Cost
+
+    def known(kinds):
+        s = fn(kinds)
+        return None if s is None else max(0.0, (float(s) - 2.0) * TICKS_PER_S / WALK_TICKS_PER_BLOCK)
+    return Cost(None, known=known)
+
+
+# The planner's sweep, as readings. Three dimensions of a situation a plan is made in: what is AROUND us (what the
+# look-around saw), what we ARE (the body's /state), and what we already CARRY (/inventory). Every decompose row
+# runs over the product, so "the plan contains X" is claimed for every situation and not for one.
 RESOURCES = {
     "bare": {},
-    "village": {"at:white_bed": 1, "at:furnace": 1, "at:crafting_table": 1},
-    "seam": {"at:coal_ore": 1, "at:stone": 1},
-    "herd": {"at:minecraft:sheep": 1},
+    "forest": {"oak_log": 6.0, "stone": 3.0},
+    "village": {"white_bed": 12.0, "furnace": 10.0, "crafting_table": 9.0, "oak_log": 20.0, "stone": 3.0},
+    "seam": {"stone": 1.0, "coal_ore": 5.0, "iron_ore": 7.0, "oak_log": 30.0},
+    "herd": {"cow": 10.0, "sheep": 14.0, "pig": 40.0, "oak_log": 12.0, "stone": 3.0},
 }
-
-TERRAIN = {"flat": 6.0, "room": 30.0, "water": 60.0, "lava": 240.0}   # seconds to reach what is over there
-
-# Levers are ABSOLUTE here (what the body is), not deltas: a delta only means something against a base, and a
-# world of the sweep IS the base. `value.worth_s` adds deltas on top when it imagines a change.
-# What the BODY is. The last three are the body's own preconditions (`actions.body_dims`) as sweep values: a
-# swimmer can act but has nothing to stand on, a drowning body must breathe first, a falling one owns nothing.
-# They are dimensions of the sweep rather than tests of their own, so every relation this file already states —
-# V, Δt, p, κ, worth, the pool's rules — is asked about them too, for free.
 SELF = {
-    "ready": {"bag_free": 30, "food": 16, "lever:hp": 20, "footing": 1, "hands_free": 1},
-    "full_bag": {"bag_free": 1, "food": 16, "lever:hp": 20, "footing": 1, "hands_free": 1},
-    "hungry": {"bag_free": 30, "food": 2, "lever:hp": 20, "footing": 1, "hands_free": 1},
-    "hurt": {"bag_free": 30, "food": 16, "lever:hp": 8, "footing": 1, "hands_free": 1},
-    "swimming": {"bag_free": 30, "food": 16, "lever:hp": 20, "hands_free": 1},
-    "drowning": {"bag_free": 30, "food": 16, "lever:hp": 20},
-    "falling": {"bag_free": 30, "food": 16, "lever:hp": 16},
+    "ready": {},
+    "hungry": {"food": 3},
+    "hurt": {"health": 7.0},
+    "swimming": {"inWater": True, "onGround": False},
+    "underground": {"skyLight": 0, "y": 20.0},
+    "nether": {"dimension": "minecraft:the_nether", "skyLight": 0},
 }
-
-# A station is not a thing carried, it is a thing that makes half the action table possible: the fuzz table had
-# 137 of 218 columns never once admissible, and "needs minecraft:crafting_table, have 0" was almost all of it.
-# Without these two values the sweep asks what the planner does in a world where nothing can be crafted.
+# The clock, as its own dimension: what upkeep's lead time (bed before dark) is judged against.
+TIME = {"day": 2000, "dusk_near": 11700, "night": 18000}
 STOCK = {
     "none": {},
-    "has_wool": {"wool": 3, "planks": 3},
-    "has_iron": {"minecraft:iron_ingot": 3, "planks": 8},
-    "has_tools": {"tool:pickaxe:1": 1, "uses:pickaxe": 120, "tool:sword:1": 1},
-    "has_station": {"minecraft:crafting_table": 1, "minecraft:furnace": 1, "planks": 8},
-    "has_kit": {"minecraft:crafting_table": 1, "minecraft:furnace": 1, "planks": 16,
-                "minecraft:iron_ingot": 3, "minecraft:coal": 8, "minecraft:stick": 4},
+    "logs": {"oak_log": 3},
+    "wood_tools": {"wooden_pickaxe": 1, "oak_planks": 4, "stick": 4, "crafting_table": 1},
+    "stone_tools": {"stone_pickaxe": 1, "stone_sword": 1, "stone_axe": 1, "crafting_table": 1, "furnace": 1},
+    "worn_pickaxe": {"stone_pickaxe": ("stone_pickaxe", 1, 130), "crafting_table": 1},
+    "iron": {"iron_ingot": 3, "stick": 2, "crafting_table": 1, "furnace": 1, "coal": 8},
+    "kit": {"iron_pickaxe": 1, "iron_sword": 1, "cooked_beef": 8, "cobblestone": 64, "golden_helmet": 1,
+            "crafting_table": 1, "furnace": 1, "bucket": 1},
+    "full_bag": "full",
 }
 
-CONFIDENCE = {"unmeasured": 0.0, "measured": 40.0}    # observations behind the beliefs a world's rates come from
+
+def stock_inventory(name):
+    rows = STOCK[name]
+    if rows == "full":
+        return full_bag()
+    return inventory(*[v if isinstance(v, tuple) else (k, v) for k, v in rows.items()])
+
+
+PLANNER_DIMS = ("resource", "self_", "stock", "time")
 
 
 class World:
-    """One cell of the sweep: everything a property test needs about a situation, in one object.
-
-    The same cell is read three ways, because the planner, the threat model and the dragon are looking at the same
-    world from different sides:
-
-        state()         the solver's state vector — what we hold, what is in reach, what we are
-        threat_state()  what is coming at us, on the ground we are standing on
-        fight_state()   the dragon's phase, what is left of it, what we have built
+    """One cell of the sweep. The planner reads it as readings (`game_state`, `inventory`, `snapshot`, `cost`);
+    the threat model and the dragon fight read it as their own state dicts (`threat_state`, `fight_state`).
 
     Every dimension is named once, in `DIMS`, and `with_` moves exactly one of them — which is how a relation is
     stated: "the same world, one thing changed, and the number may only move this way".
@@ -184,57 +204,29 @@ class World:
             raise KeyError(f"no such dimension: {sorted(unknown)}")
         self.dims = dict(DEFAULTS, **{k: v for k, v in dims.items() if k in DIMS})
         self.elapsed = float(dims.get("elapsed", 0.0))
-        self.walk_s = TERRAIN[self.dims["terrain"]]
-        self.mem = _Notes(CONFIDENCE[self.dims["confidence"]])
         self.kit = dict(KIT[self.dims["kit"]],
                         sword=WEAPON[self.dims["weapon"]], armour=ARMOUR[self.dims["armour"]],
                         hp=BLOOD[self.dims["blood"]])
 
     def __getattr__(self, name):
-        """A dimension reads like an attribute (`world.terrain`), without shadowing the readings: `ground` is a
-        method that builds the field, and `world.dims["ground"]` is the name of the ground it builds."""
         if name != "dims" and name in self.__dict__.get("dims", {}):
             return self.dims[name]
         raise AttributeError(name)
 
-    # -- the planner's reading -------------------------------------------------------------------------------
-    def state(self):
-        """What the solver sees: what we hold, what is within reach, what we are."""
-        out = {"tool:pickaxe:0": 1, "uses:pickaxe": 100}
-        for part in (RESOURCES[self.dims["resource"]], SELF[self.dims["self_"]], STOCK[self.dims["stock"]]):
-            out.update(part)
-        return out
+    # -- the planner's reading: the game's own answers ---------------------------------------------------------
+    def game_state(self):
+        return state(**dict({"timeOfDay": TIME[self.dims["time"]]}, **SELF[self.dims["self_"]]))
 
-    def costs(self):
-        """One cost model per world, kept: the columns it answers for are cached against its identity, and a new
-        one per call threw that away (and with it most of the time a sweep spends)."""
-        from bonobo import actions
-        if getattr(self, "_costs", None) is None:
-            self._costs = actions.Costs(lambda kinds: self.walk_s)
-        return self._costs
+    def inventory(self):
+        return stock_inventory(self.dims["stock"])
 
-    def columns(self, state=None):
-        """The columns this world offers, for the state given (its own by default). A FACT the doors are handed."""
-        from bonobo import actions
-        return actions.table(self.costs(), state if state is not None else self.state())
+    def snapshot(self):
+        return snapshot(self.game_state(), self.inventory())
 
-    def situation(self, state=None, region=None, policy=None):
-        """This cell as the four doors see it. One builder, so no test assembles a situation by hand."""
-        from bonobo import gates
-        state = self.state() if state is None else state
-        from bonobo import nav
-        return gates.Situation(state=state, columns=self.columns(state), costs=self.costs(), mem=self.mem,
-                               region=region, policy=policy, route=nav.estimate_price_s, here=HERE,
-                               hp=state.get("lever:hp", 20), inv_free=state.get("bag_free", 36),
-                               dark=bool(state.get("lever:dark")))
-
-    def sstate(self):
-        from bonobo import gates
-        return gates.survival_of(self.state())
+    def cost(self):
+        return cost(self.snapshot(), **RESOURCES[self.dims["resource"]])
 
     # -- what is coming at us --------------------------------------------------------------------------------
-    # What we are, as readings rather than a dict a test indexes into. `world.sword` is the world answering;
-    # `world.kit["sword"]` was the test reaching past it into how the kit happens to be stored.
     @property
     def sword(self):
         return self.kit["sword"]
@@ -260,15 +252,11 @@ class World:
         return self.kit["shield"]
 
     def mob_of(self, hazard):
-        """What the beliefs say about the mob a row came from: the table is the authority, the row is the sample."""
         from bonobo import beliefs
         return beliefs.mob(hazard[3])
 
     @property
     def here(self):
-        """Where we are standing in this world. A reading, not a constant a test keeps: every property about a
-        rate or an arrival is about the distance between this and the rows, and a test that carries its own copy
-        of one end of that distance is carrying half the world."""
         return HERE
 
     def rows(self):
@@ -292,26 +280,26 @@ class World:
         return {"here": HERE, "hp": self.kit["hp"], "sword": self.kit["sword"],
                 "protection": self.kit["armour"], "night": False, "blocks": self.kit["blocks"],
                 "hazards": rows, "ids": list(range(len(rows))),
-                "food_items": self.kit["food"], "shield": self.kit["shield"], "field": self.ground()}
+                "food_items": self.kit["food"], "shield": self.kit["shield"], "field": self.ground(),
+                "golden_apples": self.kit.get("golden", 0)}
 
     def fight_sstate(self):
-        from bonobo import survival
-        return survival.make_state(hp=max(1, int(self.kit["hp"])), sword=self.kit["sword"], pickaxe=1,
-                                   food_items=self.kit["food"], shield=self.kit["shield"], bed=True)
+        from bonobo import threat
+        return threat.price_state(hp=max(1, int(self.kit["hp"])), sword=self.kit["sword"], pickaxe=1,
+                                 food_items=self.kit["food"], shield=self.kit["shield"], bed=True)
 
     def price(self):
-        """What health costs this body, in seconds — the scarcity door, as the caller would pass it."""
-        from bonobo import gates
+        """What health costs this body, in seconds (`threat.hp_seconds`), as the fight's caller passes it."""
+        from bonobo import threat
         sstate = self.fight_sstate()
-        per_hp = gates.marginal("blood", sstate=sstate)
-        return lambda dhp: per_hp * float(dhp)
+        return lambda dhp: threat.hp_seconds(sstate, float(dhp))
 
     # -- the dragon ------------------------------------------------------------------------------------------
     def fight_state(self):
         from bonobo import fight_plan
         tunnel, bed = BUILT[self.dims["built"]]
         hp, in_cover = FIGHT_BODY[self.dims["fight_body"]]
-        return fight_plan.make_state(
+        return fight_plan.fight_state(
             self_={"pos": (8.0, 65.0, 0.0), "hp": hp, "in_cover": in_cover,
                    "cover": (8, 65, 0) if in_cover else None},
             boss={"phase": PHASES[self.dims["phase"]], "phase_elapsed_s": self.elapsed,
@@ -325,73 +313,26 @@ class World:
 
     # -- moving one variable ---------------------------------------------------------------------------------
     def with_(self, **changes):
-        """The same world with one dimension changed — how a relation between two cells is stated."""
         return World(**dict(self.dims, elapsed=self.elapsed, **changes))
 
     def along(self, dimension):
-        """This world, once per value of `dimension`, in the order the dimension is declared in.
-
-        The only honest way to state a direction. `with_(blood="low")` says nothing on its own — "low" is only
-        lower than what the cell happened to start at, and when the sweep moved the cell to `dregs` the claim
-        inverted. A ladder has an order; two cells picked by hand do not.
-        """
+        """This world, once per value of `dimension`, in declared order: the only honest way to state a direction."""
         return [self.with_(**{dimension: value}) for value in DIMS[dimension]]
 
     def __repr__(self):
-        named = "/".join(str(self.dims[k]) for k in ("resource", "terrain", "self_", "stock", "confidence"))
-        fight = "/".join(str(self.dims[k])
-                         for k in ("enemy", "distance", "ground", "weapon", "armour", "blood", "kit"))
+        named = "/".join(str(self.dims[k]) for k in PLANNER_DIMS)
+        fight = "/".join(str(self.dims[k]) for k in COMBAT_DIMS)
         return f"World({named} | {fight})"
 
 
-class _Notes:
-    """A memory with a dial: how much this world has been observed. Zero means every rate is still a prior."""
-
-    def __init__(self, observations):
-        self.observations = float(observations)
-
-    def yield_rate(self, _name):
-        return 1.0 if self.observations else 0.5
-
-    def encounter_rate(self, _dark, _underground=False, prior_rate=None):
-        return float(prior_rate or 0.0) * (1.0 if self.observations else 1.0)
-
-    def tool_use_rate(self, _kind, prior_rate):
-        return float(prior_rate)
-
-    def success_rate(self, _key):
-        return 1.0 if self.observations else None
-
-    def duration(self, _key):
-        return None
-
-    def search_distance(self, _kind):
-        return None
-
-    def resources(self, *_a, **_k):
-        return []
-
-    def sightings(self, *_a, **_k):
-        return []
-
-    def note_age_s(self, _kinds, _dimension, now=None):
-        return 0.0 if self.observations else 3600.0
-
-
 def _axis(value, whole):
-    """One name, a list of names, or the whole dimension."""
     if value is None:
         return list(whole)
     return [value] if isinstance(value, str) else list(value)
 
 
 def sweep(**fixed):
-    """Every cell of the product, or a slice of it.
-
-    `sweep(terrain="flat")` holds terrain still and varies the rest; `sweep(terrain=["water", "lava"])` takes two.
-    Dimensions nobody names stay at their default, so a planner test does not pay for the dragon's phases and a
-    fight test does not pay for the planner's stock — the product is over what the test actually varies.
-    """
+    """Every cell of the product over the dimensions named; the rest at their default."""
     import itertools
     varying = {name: _axis(fixed.get(name), DIMS[name]) if name in fixed else [DEFAULTS[name]] for name in DIMS}
     keys = list(varying)
@@ -400,12 +341,9 @@ def sweep(**fixed):
 
 
 def worlds(**fixed):
-    """The planner's slice of the sweep: everything it varies, the rest at its default."""
-    fixed.setdefault("resource", list(RESOURCES))
-    fixed.setdefault("terrain", list(TERRAIN))
-    fixed.setdefault("self_", list(SELF))
-    fixed.setdefault("stock", list(STOCK))
-    fixed.setdefault("confidence", list(CONFIDENCE))
+    """The planner's slice of the sweep: around × body × bag × clock."""
+    for name in PLANNER_DIMS:
+        fixed.setdefault(name, list(DIMS[name]))
     return sweep(**fixed)
 
 
@@ -441,9 +379,9 @@ WEAPON = {"fist": 0, "stone": 1, "iron": 2, "diamond": 3}
 ARMOUR = {"skin": 0.0, "leather": 0.2, "iron": 0.4, "diamond": 0.7}
 BLOOD = {"whole": 20.0, "half": 10.0, "low": 6.0, "dregs": 2.0}
 KIT = {                                      # what is in the bag, other than a weapon
-    "nothing": {"blocks": 0, "food": 0, "shield": False},
-    "blocks": {"blocks": 32, "food": 0, "shield": False},
-    "full": {"blocks": 64, "food": 16, "shield": True},
+    "nothing": {"blocks": 0, "food": 0, "shield": False, "golden": 0},
+    "blocks": {"blocks": 32, "food": 0, "shield": False, "golden": 0},
+    "full": {"blocks": 64, "food": 16, "shield": True, "golden": 1},     # a golden apple: the one food a fight eats
 }
 
 PHASES = {"circling": 0, "landing": 2, "flaming": 3, "sitting": 6}
@@ -505,12 +443,6 @@ def unaware(rows, aware):
     return [estimate.row(r[0], r[1], r[2], r[3], aware=aware) for r in rows]
 
 
-def learner(prior=1.0, memory=0.5):
-    """A terrain that has observed nothing, for a property about what observing does to it."""
-    from bonobo import field
-    return field.Terrain(prior=prior, memory=memory)
-
-
 # ---------------------------------------------------------------- the plain numbers, as ladders too
 # A property about arithmetic still needs values to feed it, and a test that writes its own is a table nobody else
 # can see. These are the ladders for the bare quantities: seconds an action takes, health it spends, the rate we
@@ -542,8 +474,8 @@ DAY = dict(hp=14, food=14, food_items=3, sword=1, pickaxe=1, armor=0, shield=Fal
 
 def day_state(**changes):
     """One survival state: the middle of an ordinary day, with whatever the caller moves."""
-    from bonobo import survival
-    return survival.make_state(**dict(DAY, **changes))
+    from bonobo import threat
+    return threat.price_state(**dict(DAY, **changes))
 
 
 def along_day(dimension, **fixed):
@@ -623,8 +555,8 @@ def intent(kind="walk", layer="plan", elapsed="just_started", at=0.0, **kw):
 # this file does not matter — what matters is that there is exactly one list of what can vary.
 
 DIMS = {
-    # what the planner sees
-    "resource": RESOURCES, "terrain": TERRAIN, "self_": SELF, "stock": STOCK, "confidence": CONFIDENCE,
+    # what the planner reads: the game's answers
+    "resource": RESOURCES, "self_": SELF, "stock": STOCK, "time": TIME,
     # what is coming at us
     "enemy": ENEMIES, "distance": RANGE, "ground": GROUND,
     "weapon": WEAPON, "armour": ARMOUR, "blood": BLOOD, "kit": KIT,
@@ -632,30 +564,11 @@ DIMS = {
     "phase": PHASES, "boss": BOSS, "built": BUILT, "carry": CARRY, "fight_body": FIGHT_BODY,
 }
 
-DEFAULTS = {"resource": "bare", "terrain": "flat", "self_": "ready", "stock": "none", "confidence": "unmeasured",
+DEFAULTS = {"resource": "bare", "self_": "ready", "stock": "none", "time": "day",
             "enemy": "walker", "distance": "near", "ground": "open",
-            # The combat baseline carries everything, so that moving ONE dimension can reach every column: with
-            # an empty-handed baseline no cell of the sweep could both be hurt and hold food, and "eat" was a
-            # column no world could offer.
+            # The combat baseline carries everything, so that moving ONE dimension can reach every column.
             "weapon": "stone", "armour": "leather", "blood": "whole", "kit": "full",
             "phase": "sitting", "boss": "whole", "built": "ready", "carry": "beds", "fight_body": "fresh"}
-
-
-# The four dimensions a running game also builds are named in `bonobo.bench.cells` — one vocabulary for the
-# offline sweep and the in-game sheet, so a value added to one cannot go missing from the other. Here they are
-# seconds and state vectors, there they are setup commands; the NAMES are not ours to redefine.
-_SHARED = {"resource": "resource", "terrain": "terrain", "self_": "self", "stock": "stock"}
-
-
-def _check_shared_vocabulary():
-    from bonobo.bench.cells import DIMENSIONS
-    for ours, theirs in _SHARED.items():
-        here, there = tuple(DIMS[ours]), tuple(DIMENSIONS[theirs])
-        if set(here) != set(there):
-            raise AssertionError(f"dimension {theirs!r} differs: offline {here} vs in-game {there}")
-
-
-_check_shared_vocabulary()
 
 
 COMBAT_DIMS = ("enemy", "distance", "ground", "weapon", "armour", "blood", "kit")

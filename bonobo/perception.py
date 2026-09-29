@@ -1,234 +1,215 @@
-"""Perception thread: watches /state ~5 times a second and interrupts whatever long task is running when life is at
-risk. Reflexes used to run only between tasks and chain segments, so a 5-minute hunt or tunnel kept going while
-the agent burned or was beaten down. The mod still owns per-tick nets (LavaGuard, forced surfacing); this is the
-layer between those nets and the brain: stop the task, let the survival mode (brain.survival) act next round.
+"""Perception thread: watches /state ~5 times a second and sorts what it sees into two kinds of trouble. environment (hazard.py)    lava, fire, water, a fall, a buried head: preempt at SAFETY with a /stop, and let the brain run the rescue at the top of its next round (hazard.handle). hostiles (fight_loop.py)   critical health, dragon breath, a provoked enderman, mobs that would kill us before the planner decides again: the threat model chooses an answer and fight_loop carries it out. Hunger is not trouble here: eating belongs to the brain's upkeep. The mod still owns per-tick nets (LavaGuard, forced surfacing, WaterClutch); this is the layer between those nets and the brain. Never acts while the player holds control, and never interrupts a rescue already running (api.mode() == "survival")."""
 
-Only interrupts — never acts on the game itself beyond /stop, never while the player holds control, and never
-while the brain is already running a survival rescue (api.MODE == "survival")."""
 import math
 import threading
 import time
+import traceback
+from dataclasses import dataclass, field as _dc_field
+from typing import Any
 
-from . import api, arbiter, paths
-from .survival import CONFIG as _CONFIG
-from .threat import ENGAGE as _ENGAGE
+from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat
+from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
+from .beliefs import CONFIG as _CONFIG
+from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
+from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
+from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
+from .knowledge import food_count, sheltered, usable
+from .skill import HEARTBEAT
 
 POLL_S = 0.2
-FIGHT_POLL_S = 0.1     # while arbiter.BODY is engaged: a window is 0.4 s at worst, a 0.2 s poll sees half of it
-# The operator's interrupt (mc.py interrupt): end the running skill so an override directive runs next round. /stop
-# alone only cancels the current mod task; a skill (a hunt exploring leg after leg) keeps going.
+# the operator's interrupt ends the running skill (/stop only cancels the current mod task)
 FLAG = paths.data("interrupt")
-HURT_RATE = 0.0       # health per second, measured
-_HP_SEEN = None       # (health, when) from the previous read
-
-HAZARDS = []          # [(point, radius)], newest perception round wins
-HAZARDS_AT = 0.0      # when it was refreshed; stale hazards are worse than none
-THREAT_ROWS, THREAT_IDS, THREAT_AT = [], [], 0.0
 
 
-def note_hazards(near, now=None):
-    """Record what can hurt us right now. Pure apart from the clock; called from the perception round."""
-    global HAZARDS, HAZARDS_AT
-    import time as _t
-    from . import combat_model
-    HAZARDS = combat_model.hazard_points(near or [])
-    HAZARDS_AT = now if now is not None else _t.time()
-    return HAZARDS
+@dataclass
+class PerceptionState(lifecycle.State):
+    """What the perception thread (5 Hz) measures and reads, shared with the body's and the fight's threads."""
+
+    # per life (lifecycle.reset_all): what was measured and read in it
+    hurt_rate: float = 0.0            # health per second, measured
+    hp_seen: Any = None               # (health, when) from the previous read
+    seen: dict = _dc_field(default_factory=dict)       # entity id -> (pos, when): velocity differencing
+    last_here: Any = None             # where we stood when the rows were read: one observation with the reading
+    answered: list = _dc_field(default_factory=list)   # every look taken and what it came to (`observe`)
+    grid: Any = None                  # the walkable field around us (`ground`)
+    grid_at: float = 0.0
+    grid_at_pos: Any = None
+    ground: dict = _dc_field(default_factory=dict)     # here → (at, (grid, region)): one slot, data.memo_ttl
+    region: Any = None                # the blocks the grid was read from: evade asks where a walk lands
+    kit: dict = _dc_field(default_factory=dict)        # what we carry (`kit`), re-read when kit_sig changes
+    kit_sig: Any = None
+    damage_at: Any = None             # gameTime of the last jar damage already said
+    # per process
+    paused: bool = False              # the scenario bench sets this while it rebuilds the world
+    failed: set = _dc_field(default_factory=set)       # what perceived() already logged once
+    lock: Any = _dc_field(default_factory=threading.RLock, repr=False, compare=False)
+
+    LIFE = ("hurt_rate", "hp_seen", "seen", "last_here", "answered", "grid", "grid_at", "grid_at_pos", "ground",
+            "region", "kit", "kit_sig", "damage_at")
+
+
+STATE = lifecycle.owns(__name__, PerceptionState())
+
+
+def pause(on):
+    """The bench rebuilds the world: no clutch on a setup fall while `on`."""
+    STATE.paused = bool(on)
 
 
 def note_hurt(state, now=None):
     """Differentiate the health bar. Called every perception round; decays to zero when nothing is hitting us."""
-    global HURT_RATE, _HP_SEEN
     import time as _t
     now = now if now is not None else _t.time()
     hp = float(state.get("health", 20))
-    prev = _HP_SEEN
-    _HP_SEEN = (hp, now)
-    if prev is None:
-        return HURT_RATE
-    dt = now - prev[1]
-    if dt <= 0.01 or dt > 3.0:
-        return HURT_RATE
-    lost = prev[0] - hp
-    rate = max(0.0, lost / dt)
-    # Rise at once, fall slowly: one arrow is evidence of a shooter, one quiet second is not evidence of safety.
-    HURT_RATE = rate if rate > HURT_RATE else HURT_RATE * _CONFIG["risk"]["hurt_decay"]
-    return HURT_RATE
-
+    with STATE.lock:
+        prev = STATE.hp_seen
+        STATE.hp_seen = (hp, now)
+        if prev is None:
+            return STATE.hurt_rate
+        dt = now - prev[1]
+        if dt <= 0.01 or dt > 3.0:
+            return STATE.hurt_rate
+        lost = prev[0] - hp
+        if lost >= 1.0:
+            hit = state.get("lastDamage")
+            if hit and hit.get("gameTime") != STATE.damage_at:
+                # the game's own source (a fall has no mob to guess from)
+                STATE.damage_at = hit.get("gameTime")
+                src = events.damage_label(hit)
+            else:
+                rows, _ids = threats_seen(now=now)
+                src = min(rows, key=lambda r: math.dist(r[0], (state.get("x", 0), state.get("y", 0),
+                                                              state.get("z", 0))))[3] if rows and "x" in state else None
+            events.hurt(lost, hp, src, t=now)
+        rate = max(0.0, lost / dt)
+        # rise at once, fall slowly: one arrow is evidence, one quiet second is not
+        was = STATE.hurt_rate
+        STATE.hurt_rate = rate if rate > was else was * _CONFIG["risk"]["hurt_decay"]
+        return STATE.hurt_rate
 
 def hurt_rate():
-    """The pressure, MEASURED: how fast the health bar has actually been falling. The estimated twin is
-    `estimate.pressure_hp_s`; keeping both is the point — the residual between them is what `fit` reads."""
-    return HURT_RATE
+    """The pressure, MEASURED: how fast the health bar has actually been falling."""
 
+    return STATE.hurt_rate
 
 def pressure_now(here, rows, prot=0.0, field=None, horizon=None):
-    """The pressure we are actually under: the model's rate or the measured one, whichever is worse.
+    """The pressure we are actually under: the model's rate or the measured one, whichever is worse."""
 
-    The one place the two twins meet. Both are the same quantity — one estimated from what is in reach, one read
-    off the health bar — and every caller that needs "what is happening to us now" asks here rather than picking
-    a side: a skeleton that aims well outdoes the model, and that difference was a death.
-
-    `horizon` is the seconds the question is about, and the caller owns it: "what presses me while I work" is the
-    work horizon, "what can kill me before the planner decides again" is the interrupt window. Asked over twenty
-    seconds, two zombies seventeen blocks away came out at 8.5 hp/s and the interrupt fired every round for a
-    danger that was still four seconds' walk away — while every column priced over the same seconds saved
-    nothing, so the body was stopped over and over and never answered.
-    """
-    from . import estimate
     return max(estimate.pressure_hp_s(here, rows, prot, ground=field, horizon=horizon), hurt_rate())
 
+# /entities combat fields (jar): read here only, threat and fight read `read_combat`'s view
+COMBAT_KEYS = ("velocity", "in_reach", "shooting", "drawing", "pull_ticks", "charging", "attacking", "ignited",
+               "fuse_ticks", "tti_ticks", "impact")
 
-def note_threats(near, now=None, here=None):
-    """Record the threat rows and their entity ids. Pure apart from the clock and the differencing memory.
 
-    `here` is where we stand: a mob that has not noticed us yet is less of a threat than one that has, and how far
-    it notices from is a distance, so the rows cannot be built without knowing where we are. Without it every
-    hostile counts as having noticed us — the old behaviour, and the safe direction to be wrong in.
-    """
-    global THREAT_ROWS, THREAT_IDS, THREAT_AT
+def read_combat(near):
+    """Pure: /entities rows as the fight reads them — the jar's combat fields turned into provoked, lit, hit_s,
+    impact_at (x, y, z), vel (blocks/s), reach_now, busy (shooting/drawing/charging); the raw fields dropped."""
+    out = []
+    for e in near or []:
+        d = {k: v for k, v in e.items() if k not in COMBAT_KEYS}
+        d["provoked"] = bool(e.get("angry") or e.get("attacking"))
+        d["lit"] = bool(e.get("ignited"))
+        d["reach_now"] = bool(e.get("in_reach"))
+        d["busy"] = bool(e.get("shooting") or e.get("drawing") or e.get("charging"))
+        if e.get("tti_ticks") is not None:
+            d["hit_s"] = float(e["tti_ticks"]) / 20.0
+        p = e.get("impact")
+        if p is not None:
+            d["impact_at"] = tuple(float(p[k]) for k in ("x", "y", "z")) if isinstance(p, dict) else tuple(map(float, p))
+        v = e.get("velocity")
+        if v is not None:
+            d["vel"] = tuple(float(c) * 20.0 for c in v)
+        out.append(d)
+    return out
+
+
+def note_threats(near, now=None, here=None, context=None):
+    """Record the threat rows and their entity ids (`context`: threat.context_of — who is after us)."""
+
     import time as _t
-    from . import threat
     now = now if now is not None else _t.time()
-    THREAT_ROWS = threat.hostile_rows(near or [], _SEEN, now, here=here)
-    THREAT_IDS = threat.ids_by_row(near or [], THREAT_ROWS)
-    THREAT_AT = now
-    return THREAT_ROWS
+    near = read_combat(near)
+    threat.THREAT_ROWS = threat.hostile_rows(near or [], STATE.seen, now, here=here, context=context)
+    threat.THREAT_IMPACTS = threat.impacts_of(near)
+    threat.THREAT_LIT = {e.get("id") for e in near if e.get("type") == "minecraft:creeper" and threat.fuse_lit(e)}
+    threat.THREAT_IDS = threat.ids_by_row(near or [], threat.THREAT_ROWS)
+    threat.THREAT_ALIVE = threat.alive_ids(near)
+    threat.THREAT_HIT_S = threat.soonest_hit_s(near)
+    threat.THREAT_AT = now
+    return threat.THREAT_ROWS
 
-
-def threats_seen(max_age_s=3.0, now=None):
-    """(rows, ids) as perception last saw them, or ([], []) when it has not looked recently enough to be trusted."""
-    import time as _t
-    if not THREAT_ROWS or (now or _t.time()) - THREAT_AT > max_age_s:
-        return [], []
-    return list(THREAT_ROWS), list(THREAT_IDS)
-
-
-def seen_at():
-    """When the rows above were read. Every layer polls the same world at its own rate, so a reading has to say
-    when it was taken or nothing can tell whether two decisions describe the same world."""
-    return THREAT_AT
-
-
-def hazards(max_age_s=3.0, now=None):
-    """The current hazard set, or empty when perception has not looked recently enough to be trusted."""
-    import time as _t
-    if not HAZARDS or (now or _t.time()) - HAZARDS_AT > max_age_s:
-        return []
-    return HAZARDS
-
-
-_SEEN = {}            # entity id -> (pos, when): velocity differencing, owned by this thread
-PAUSED = False         # the scenario bench sets this while commands rebuild the world (no clutch on a setup fall)
 INTERRUPT_TTD_S = float(_ENGAGE["interrupt_ttd_s"])     # floor: never look less far ahead than this
 
-
 def interrupt_within_s():
-    """Seconds until the planner next gets to decide — the running commitment, measured from the last segment.
+    """Seconds until the planner next gets to decide — the running commitment, measured from the last segment."""
 
-    Not a horizon: `estimate.horizon_s` is how long the account runs, this is how soon a danger has to land for
-    the reflex to be the one that answers it. Sharing the word was enough to make them look like one number.
-
-    A constant here, beside a skill that held the body until it finished, was wrong at both ends: too short to
-    catch anything while the skill ran, too long once the skill yields every block.
-    """
-    from . import api as _api
-    return max(INTERRUPT_TTD_S, _api.LAST_SEGMENT_S)
+    return max(INTERRUPT_TTD_S, api.last_segment_s())
 REPEAT_S = 10         # the same danger interrupts at most once per 10 s (let the rescue work)
 
+HOSTILE = ("critical_health", "breath", "enderman", "hostiles")
+DANGERS = hazard.KINDS + HOSTILE
 
-DANGERS = ("lava", "burning", "drowning", "critical_health", "breath", "enderman", "hostiles", "starving")
-
-
-TICKS_PER_S = 20.0
-REFLEX_SLACK_S = 2.0      # between tasks: surface while there is still room, rather than at the last moment
-_W = _CONFIG["water"]
+NIGHTFALL = "night"
 
 
-def drowning_in(state):
-    """Pure: seconds of slack before we must leave the water, or inf when not submerged. Zero or less = leave now.
-
-    Air is a clock, not a threshold: what matters is whether the breath left covers getting out plus the time it
-    takes us to notice and start. The old rule compared air to a constant AND required `not onGround` — so standing
-    on the bottom of a lake, which is where digging puts you, read as safe all the way to zero.
-    """
-    if not state.get("inWater"):
-        return float("inf")
-    air_s = state.get("air", 300) / TICKS_PER_S
-    return round(air_s - _W["surface_s"] - _W["reaction_s"], 2)
+IN_SITE = None      # (feet, dimension) → inside a site's interior: set by every Brain built (Brain.__init__)
 
 
-def drowning(state):
-    """Pure: leave the water now? Either clock says so — the computed one, or a hard floor under it.
+def nightfall(state, enclosed, in_site=lambda: False):
+    """Pure given its readers: the soft boundary request for surface work at dusk or night — "night" in the
+    Overworld between DAY_END and NIGHT_END unless sheltered by the night way's own judgement (knowledge.sheltered:
+    under rock, walled in, inside a site); None by day or in another dimension."""
+    if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
+        return None
+    t = int(state.get("timeOfDay", 0)) % DAY_TICKS
+    if not DAY_END <= t < NIGHT_END or sheltered(state.get("skyLight", 15), enclosed, in_site):
+        return None
+    return NIGHTFALL
 
-    OR, not AND, and on purpose. The clock is the better rule but it rests on `air` meaning what we think it means
-    and on `surface_s` being roughly right; the floor costs an early surfacing when they are not. A death is not a
-    thing to be clever about twice.
-    """
-    if not state.get("inWater"):
-        return False
-    return drowning_in(state) <= 0.0 or state.get("air", 300) < _W["air_floor"]
+
+def _enclosed_now(state):
+    """The walls around the feet read now (terrain.is_enclosed over the 3×4×3 box): the shelter's remainder is
+    empty."""
+    from .world import Region, is_enclosed
+    x, y, z = state["blockX"], state["blockY"], state["blockZ"]
+    return is_enclosed(Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1)), (x, y, z))
 
 
-def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None):
-    """Pure: the danger kind to interrupt for (one of DANGERS), or None. `hostiles_within(r)` → nearest hostile distance or None; it is only
-    called when health is low (entity queries cost more than a state read)."""
+def danger(state, hostiles_within=None, breath_within=None, enderman_after_us=None, time_to_die=None,
+           buried=False, fallen=0.0):
+    """Pure: the danger kind to interrupt for (one of DANGERS), or None."""
+
     if state.get("dead") or state.get("control", {}).get("paused"):
         return None
-    hp, food = state.get("health", 20), state.get("food", 20)
-    if state.get("inLava"):
-        return "lava"
-    # A blaze fight sets you on fire every few seconds: interrupting at 14 hp made fight_blaze impossible (bench
-    # 04:06). Burning only interrupts when it has really hurt.
-    if state.get("onFire") and hp <= 8:
-        return "burning"
-    if drowning(state):
-        return "drowning"
-    # One breath or head butt in the End takes 10+ hp, so 4 is far too late there — and 10 still leaves no room for
-    # the hit that is already on its way.
+    env = hazard.kind(state, buried=buried, fallen=fallen)
+    if env is not None:
+        return env
+    hp = state.get("health", 20)
+    # a breath or head butt in the End takes 10+ hp, so the End's floor is higher
     if hp <= (12 if state.get("dimension") == "minecraft:the_end" else 4):
         return "critical_health"
-    # Dragon breath burns the floor we stand on and takes ~10 hp a second: being in it is an emergency at any health.
+    # dragon breath burns ~10 hp a second: an emergency at any health
     if breath_within is not None and state.get("dimension") == "minecraft:the_end" and breath_within(8):
         return "breath"
-    # Endermen are their own signal, never mixed into "hostiles": a provoked one follows through teleports and the
-    # answer is water or cover, not a fight.
+    # endermen are their own signal: a provoked one follows through teleports; the answer is water or cover
     if enderman_after_us is not None and enderman_after_us(12):
         return "enderman"
-    # A fight is supposed to have hostiles close: while attacking, only critical health (above) interrupts. A blaze
-    # fight was stopped at 10 hp "hurt with hostiles close" (bench 05:36).
+    # a fight expects hostiles close: while attacking only critical health interrupts
     fighting = ((state.get("control") or {}).get("task") or {}).get("type") == "attack"
     if hp <= 10 and hostiles_within is not None and not fighting:
         d = hostiles_within(8)
         if d is not None and d <= 6:
             return "hostiles"
-    # The model's version of the same rule: at the current pressure (threat.pressure — a skeleton's arrows count
-    # from fifteen blocks, a zombie's reach from three), how long until dead? Close enough → stop and let the
-    # threat layer answer. Health alone missed every death by arrows.
+    # time to die at the current pressure (arrows count from far): health alone missed every death by arrows
     if time_to_die is not None and not fighting:
         t = time_to_die()
-        # Only what would kill us before the planner next decides is worth interrupting for.
+        # only what would kill us before the planner next decides is worth an interrupt
         if t is not None and t <= interrupt_within_s():
             return "hostiles"
-    if food <= 2:
-        return "starving"
     return None
 
-
-def clutch_needed(fallen, gap, state, has_water_bucket):
-    """Pure: place water under us now? Falling (not on ground, not in water) for 5+ blocks already and the ground
-    within 2–5 blocks below (placing too early wastes it, too late does nothing)."""
-    if not has_water_bucket or state.get("onGround") or state.get("inWater") or state.get("inLava"):
-        return False
-    return fallen >= 5 and gap is not None and 2 <= gap <= 5
-
-
-FIGHT_SKILLS = ("fight_blaze", "fight_dragon", "slay_dragon", "build_bed_pit", "await_perch",
-                "bed_bomb_window", "break_caged_crystal", "station")
-
-
 def _running_skill():
-    from .skill import HEARTBEAT
     try:
         with open(HEARTBEAT) as f:
             t, name = f.read().split()[:2]
@@ -236,17 +217,10 @@ def _running_skill():
     except (OSError, ValueError):
         return None
 
-
-def _fighting():
-    """A fight skill is running (its heartbeat is fresh)."""
-    return _running_skill() in FIGHT_SKILLS
-
-
 def _eating():
-    """Eating is running: nothing may cut in. Every bite in the dragon bench was cancelled by the next task and the
-    log filled with "no bite" while health went to zero."""
-    return _running_skill() == "eat"
+    """Eating is running: nothing may cut in."""
 
+    return _running_skill() == "eat"
 
 class Watcher(threading.Thread):
     def __init__(self):
@@ -255,26 +229,23 @@ class Watcher(threading.Thread):
         self._seen = {}           # entity id -> (pos, when) for the threat layer's velocity differencing
         self._ttd_t, self._ttd = 0.0, None
         self.stopped = False
-        self.fall_top = None     # highest y since leaving the ground
+        self.hazard = hazard.Watch()     # how far we have fallen, whether the head is in a block
 
     def _hostiles_within(self, radius):
-        """How close the nearest thing that can hurt us is, from THIS tick's reading.
+        """How close the nearest thing that can hurt us is, from THIS tick's reading."""
 
-        It used to take a reading of its own. Two reads a tick is two worlds a tick, and the danger check could
-        disagree with the answer chosen a millisecond later about whether anything was there at all.
-        """
         try:
             rows, _ids = threats_seen()
-            here = LAST_HERE
+            here = STATE.last_here
             near = [math.dist(here, row[0]) for row in rows] if here else []
             near = [d for d in near if d <= radius]
-        except Exception:
+        except (TypeError, ValueError, IndexError):      # a row short of its centre: no distance this tick
             return None
         return min(near, default=None)
 
     def _time_to_die(self, s):
-        """Seconds to death at the current threat pressure, or None. At most once a second: entity queries cost
-        more than a state read, and one second is inside the interrupt threshold anyway."""
+        """Seconds to death at the current threat pressure, or None."""
+
         now = time.time()
         if now - self._ttd_t < 1.0:
             return self._ttd
@@ -295,99 +266,80 @@ class Watcher(threading.Thread):
         return self._ttd
 
     def _look(self, s):
-        """One read of what is near, shared by everything that asks this tick.
+        """One read of what is near, shared by everything that asks this tick."""
 
-        `note_threats` stamps the rows with when they were taken (`seen_at`), so a decision made from them can say
-        which world it describes — and a decision made from rows nobody refreshed can be told apart from a
-        decision that the world was quiet.
-        """
-        global LAST_HERE
         try:
             near = api.get("/entities?radius=24").get("entities", []) or []
         except (api.McError, KeyError):
             return None
-        note_hazards(near)
-        LAST_HERE = (s["x"], s["y"], s["z"])
-        return note_threats(near, time.time(), here=LAST_HERE)
+        note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
+        here = STATE.last_here = (s["x"], s["y"], s["z"])
+        return note_threats(near, time.time(), here=here, context=threat.context_of(s, STATE.kit))
 
     def _answer_threats(self, state):
-        """One look at the world, one outcome recorded — an answer, or a named reason there was none.
+        """One look at the world, one outcome recorded — an answer, or a named reason there was none."""
 
-        Every tick writes exactly one entry (`observe`). Silence used to be indistinguishable from "nothing was
-        worth answering": a bench read fourteen empty cells and could not tell a model that chose to carry on
-        from a layer that never looked.
-        """
-        from . import survival
         now = time.time()
-        if ANSWER is None:
+        if not fight_loop.wired():
             return observe(now, "unwired")
-        if api.SOFT:
+        if api.soft():
             return observe(now, "soft")
         if _eating():
             return observe(now, "eating")
         rows, _ids = threats_seen(now=now)
         if not rows:
-            # Nothing there, or nothing fresh: the tick read the world itself a moment ago, so "no rows" now means
-            # the world was quiet — which is an answer, not a blind spot. `stale` can only happen if the read
-            # failed, and that is the one case worth counting as blindness.
-            return observe(now, "stale" if THREAT_ROWS else "quiet", seen_at=seen_at())
-        try:
-            state = dict(state, field=ground(state), **kit(state.get("selected", "") + str(state.get("screen"))))
-        except Exception:
-            pass
-        sstate = survival.make_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
-        price = lambda dhp: survival.hp_seconds(sstate, dhp)
-        chosen = bid(state, rows, price)
+            # no rows after our own fresh read means quiet, an answer; only a failed read is blindness
+            return observe(now, "stale" if threat.THREAT_ROWS else "quiet", seen_at=seen_at())
+        state = perceived(state, now)
+        sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
+        price = lambda dhp: threat.hp_seconds(sstate, dhp)
+        chosen = fight_loop.bid(state, rows, price, ids=threat.THREAT_IDS)
+        # each look carries the bid's detail: the field's shape and read time, our height, the options with their
+        # worth, why none went out, the engagement (fight_loop.LAST_LOOK)
+        detail = dict(fight_loop.look_detail(), field_at=round(STATE.grid_at, 2))
         if chosen is None:
-            return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at())
+            return observe(now, "nothing_pays", rows=len(rows), seen_at=seen_at(), look=detail)
         option, worth = chosen
         key = f"threat:{option.kind}"
         if now - self.last.get(key, 0) < 1.0:
-            return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at())
+            return observe(now, "repeat", kind=option.kind, rows=len(rows), seen_at=seen_at(), look=detail)
         self.last[key] = now
-        failure = {}
-
-        def run():
-            try:
-                ANSWER(option)
-            except Exception as e:
-                failure["failed"] = f"{type(e).__name__}: {e}"
-                raise
-
-        taken, refused = arbiter.BODY.preempt(
-            "tactic", run, key, worth_s=worth, now=now, clear_first=True,
-            release=lambda: lease_done(state, threats_seen()[0], price),
-            held=HELD, seen_at=seen_at() or now)
+        taken, refused, failure = fight_loop.offer(
+            option, worth, key, now, release=lambda: fight_loop.lease_done(state, threats_seen()[0], price, threat.THREAT_IDS),
+            held=fight_loop.held(), seen_at=seen_at() or now)
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
-                rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, **failure)
+                rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, look=detail, **failure)
         if taken:
-            api.log(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
+            api.detail(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
+            events.decision("fight", option.kind, worth, option.why)       # said once per change, not per bid
+        elif refused:
+            events.anomaly("answer refused", f"{option.kind}: {refused}")
 
     def _breath_within(self, radius):
-        """A dragon breath cloud within `radius`. Only asked in the End, and at most every second: entity queries
-        cost more than a state read."""
+        """A dragon breath cloud within `radius`."""
+
         now = time.time()
         if now - getattr(self, "_breath_t", 0) < 1.0:
             return getattr(self, "_breath_seen", False)
         self._breath_t = now
         try:
             near = api.get(f"/entities?radius={int(radius)}").get("entities", [])
-            note_hazards(near)
+            note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         except api.McError:
             return False
         self._breath_seen = any(e["type"] == "minecraft:area_effect_cloud" for e in near)
         return self._breath_seen
 
     def _enderman_after_us(self, radius):
-        """An enderman that is actually provoked within `radius` (mod ≥0.1.33 reports `angry`). Same 1 s cache as the
-        breath check."""
+        """An enderman provoked within `radius` (mod ≥0.1.33 reports `angry`); same 1 s cache as the breath check."""
+
         now = time.time()
         if now - getattr(self, "_ender_t", 0) < 1.0:
             return getattr(self, "_ender_seen", False)
         self._ender_t = now
         try:
             near = api.get(f"/entities?radius={int(radius)}").get("entities", [])
-            note_hazards(near)
+            note_hazards(read_combat(near), hostile=threat.aggro)    # a calm neutral is no hazard
         except api.McError:
             return False
         self._ender_seen = any(e["type"] == "minecraft:enderman" and e.get("angry") for e in near)
@@ -395,28 +347,26 @@ class Watcher(threading.Thread):
 
     def run(self):
         while not self.stopped:
-            time.sleep(FIGHT_POLL_S if arbiter.BODY.engaged else POLL_S)
-            if api.MODE == "survival" or PAUSED:
+            time.sleep(fight_loop.FIGHT_POLL_S if fight_loop.active() else POLL_S)
+            if api.mode() == "survival" or STATE.paused:
                 continue
             try:
                 s = api.get("/state")
-            except Exception:   # game restarting, network hiccup: the main loop handles those
+            except (api.McError, api.PlayerTookControl, ValueError):
+                continue        # game restarting, network hiccup, the player's turn: the main loop handles those
+            except Exception as e:  # guard: the only watcher for lava, drowning and mobs: a read failure never kills it
+                api.unexpected("perception: /state", e, "this tick is skipped")
                 continue
             note_hurt(s)
-            # Look at the world FIRST, once, and hand that one reading to everything below. The entity read used
-            # to happen at most once a second inside `_time_to_die` while the answering ran at every tick, so the
-            # rows were either absent or seconds old: a bench window of eight seconds took forty looks and found
-            # rows in two of them. One read per tick, one timestamp, one answer.
+            # look once per tick and hand that one reading to everything below (rows were absent or seconds old)
             self._look(s)
             try:
                 self._answer_threats(s)
-            except Exception as e:
-                # This thread is the only thing watching for lava, drowning and mobs: an answer that fails must
-                # never take the watcher with it. It died once here (BodyContested) and the agent was beaten to
-                # death with a perfectly good threat model and nobody reading it.
+            except Exception as e:  # guard: the only watcher for lava, drowning, mobs: a failing answer never kills it
                 if time.time() - getattr(self, "_answer_logged", 0) > 30:
                     self._answer_logged = time.time()
                     api.log(f"!! threat answer failed: {type(e).__name__}: {e}")
+                    api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
             import os
             if os.path.exists(FLAG):
                 try:
@@ -426,193 +376,172 @@ class Watcher(threading.Thread):
                 except OSError:
                     why = "Claude asked"
                 try:
-                    # The message (INTERRUPT) is ours to set; the command (/stop) goes through the one exit.
+                    # the message is ours to set; /stop goes through the one exit
                     arbiter.BODY.preempt("safety", lambda: api.post("/stop"), f"claude: {why}")
-                except Exception:
-                    pass
+                except Exception as e:  # guard: the watcher outlives a failed stop; said, and Claude may ask again
+                    api.unexpected("perception: Claude's stop", e, "the task was not stopped")
                 api.log(f"!! perception: interrupt requested by Claude ({why})")
                 continue
-            # A fight skill handles "hurt with hostiles close" itself (retreat, eat, shield): only the life-or-death
-            # reasons interrupt it. Picking up or shielding inside a blaze fight got interrupted at 9 hp (bench 06:20).
+            # a fight skill handles "hurt with hostiles close" itself: only life-or-death interrupts it
             if _eating():
                 continue        # a bite takes ~1.6 s and is what saves us: never interrupt it
-            # A fight skill deals with breath and endermen itself (pit, water, escape line): only give it the
-            # life-or-death reasons, or every bomb window is interrupted before it starts.
-            # api.SOFT is set for the whole run of a soft skill; the heartbeat can still name a nested one (eat).
-            fighting = _fighting() or api.SOFT
+            # nightfall on the surface: once per night, a soft request honoured between tasks (api.at_boundary);
+            # the brain then takes the night's way and resumes the same target (arbiter.RESUME_OF "night")
+            told = getattr(self, "_night_told", False)
+            running = (s.get("control") or {}).get("task")
+            night = nightfall(s, lambda: running and not told and _enclosed_now(s),
+                              lambda: IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]),
+                                                                      s.get("dimension")))
+            if night is None:
+                self._night_told = False        # day, or sheltered: asked again when exposed next
+            elif not told and running:
+                self._night_told = True
+                api.request_boundary(night)
+                api.log("!! perception: night on the surface → the work stops at its next boundary")
+            # a fight skill handles breath and endermen itself: only life-or-death reasons, or every window is cut
+            fighting = fight_loop.active() or api.soft()
             reason = danger(s, None if fighting else self._hostiles_within,
                             None if fighting else self._breath_within,
                             None if fighting else self._enderman_after_us,
-                            None if fighting else (lambda: self._time_to_die(s)))
+                            None if fighting else (lambda: self._time_to_die(s)),
+                            buried=self.hazard.buried(s), fallen=self.hazard.fallen(s))
             now = time.time()
             if reason is None or now - self.last.get(reason, 0) < REPEAT_S:
                 continue
             if not (s.get("control") or {}).get("task"):
                 continue        # nothing running to interrupt; the next round's survival check will see it
             if reason == "hostiles" and not answering(now):
-                # Stopping the body is not an answer. While this was a rule of its own, the interrupt fired on one
-                # number (time to die) and the answer was chosen on another (what a column saves), the two
-                # disagreed, and the agent spent whole sessions having every task cut short by a threat no layer
-                # ever did anything about. What may stop the work is the layer that is about to answer it.
+                # stopping the body is not an answer: only the layer about to answer a threat may stop the work
                 continue
             self.last[reason] = now
-            if api.SOFT:
-                api.INTERRUPT = reason      # soft skill: message only, no /stop — the skill takes cover itself
-                # A soft skill reads the reason and takes cover itself. Cancelling its task instead cost two travels
-                # mid-dig and left the player stranded on the surface ("the hole's rim is not reachable").
+            if api.soft():
+                api.request_interrupt(reason)     # soft skill: message only, no /stop — the skill takes cover itself
+                # a soft skill takes cover itself; cancelling its task stranded the player
                 api.log(f"!! perception: {reason} → handed to the running skill")
                 continue
             try:
                 arbiter.BODY.preempt("safety", lambda: api.post("/stop"), reason)
-            except Exception:
-                pass
+            except Exception as e:  # guard: the watcher outlives a failed stop; said, the danger repeats after REPEAT_S
+                api.unexpected("perception: safety stop", e, "the task was not stopped")
             api.log(f"!! perception: {reason} → interrupting the current task")
 
-
-ANSWER = None
-LAST_HERE = None       # where we stood when the rows were read: the reading and the position are one observation
-OUTCOMES = ("answered", "refused", "nothing_pays", "quiet", "stale", "repeat", "eating", "soft", "unwired")
-ANSWERED = []
 ANSWERED_MAX = 500
-
 
 def answering(now=None, within=2.0):
     """Did the threat layer just choose an answer? The interrupt's one permission to stop ordinary work."""
     now = time.time() if now is None else now
-    return any(now - a["t"] <= within and a["outcome"] in ("answered", "refused") for a in ANSWERED[-20:])
-
+    return any(now - a["t"] <= within and a["outcome"] in ("answered", "refused") for a in STATE.answered[-20:])
 
 def observe(t, outcome, **facts):
     """Record what this look at the world came to. Returns None so a caller can `return observe(...)`."""
-    ANSWERED.append({"t": round(t, 2), "outcome": outcome, **facts})
-    del ANSWERED[:-ANSWERED_MAX]
+    with STATE.lock:
+        looks = STATE.answered
+        looks.append({"t": round(t, 2), "outcome": outcome, **facts})
+        del looks[:-ANSWERED_MAX]
     return None
 
+def looks_taken():
+    """How many looks are recorded now: a mark for `answered_since`."""
+    return len(STATE.answered)
 
 def answered_since(mark=0):
     """Every look taken after `mark` (a length read before the stretch of interest)."""
-    return list(ANSWERED[mark:])
-
+    return list(STATE.answered[mark:])
 
 def watching():
-    """Is the layer that answers threats actually running? A bench that does not ask this measures nothing and
-    says nothing: the body was never going to move."""
-    return ANSWER is not None and any(t.name == "perception" and t.is_alive()
+    """Is the layer that answers threats actually running?"""
+
+    return fight_loop.wired() and any(t.name == "perception" and t.is_alive()
                                       for t in threading.enumerate())
-GRID, GRID_AT, GRID_AT_POS = None, 0.0, None
 GRID_R = 8
 GRID_TTL_S = 2.0
-_KIT, _KIT_SIG = {}, None
+
+def dig_ok(ground, pick_tier):
+    """Pure: the floor under us digs as deep as a hole must be to keep a walker off (melee_stop_blocks), with what we
+    carry — the hand for dirt, sand, gravel; a pickaxe for stone (knowledge.diggable, the one rule)."""
+    from .knowledge import diggable
+    depth = int(float(_ENGAGE["melee_stop_blocks"]))
+    floor = tuple(getattr(ground, "floor", ()) or ())[:depth]
+    return len(floor) == depth and all(diggable(b, pick_tier) for b in floor)
 
 
-def ground(state, now=None, radius=GRID_R):
+def perceived(state, now, ground_of=None, kit_of=None):
+    """The state the threat model prices: kit, ground (`field`) and the footing evade walks on, each read on its own."""
+
+    ground_of = ground_of or ground
+    kit_of = kit_of or (lambda st: kit(kit_signature(st, now)))
+    out = dict(state)
+    for name, read in (("kit", lambda: out.update(kit_of(state))),
+                       ("ground", lambda: out.update(field=ground_of(state))),
+                       ("footing", lambda: out.update(footing=footing(state))),
+                       ("dig", lambda: out.update(dig_ok=dig_ok(out.get("field"), out.get("pick_tier"))))):
+        try:
+            read()
+        except Exception as e:  # guard: a reading we cannot take (kit, ground, footing) never stops the answer
+            if name not in STATE.failed:
+                STATE.failed.add(name)
+                api.log(f"!! perception: {name}: {type(e).__name__}: {e}")
+                api.detail("".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip())
+    return out
+
+def ground(state, now=None, radius=GRID_R, region_of=None):
     """The walkable field around us, re-read at most every GRID_TTL_S and only when we have moved."""
-    global GRID, GRID_AT, GRID_AT_POS
-    from . import field as _field
+
     from .world import Region
+    region_of = region_of or Region
     now = now if now is not None else time.time()
     here = tuple(int(math.floor(state[k])) for k in ("x", "y", "z"))
-    if GRID is not None and now - GRID_AT < GRID_TTL_S and GRID_AT_POS == here:
-        return GRID
+    def read():
+        region = region_of(tuple(here[i] - radius for i in range(3)), tuple(here[i] + radius for i in range(3)))
+        return _field.from_region(region, here, radius), region
+    cache = STATE.ground              # one read: a reset may rebind it meanwhile
     try:
-        lo = tuple(here[i] - radius for i in range(3))
-        hi = tuple(here[i] + radius for i in range(3))
-        region = Region(lo, hi)
-    except Exception:
-        return GRID
-    GRID = _field.from_region(region, here, radius)
-    GRID_AT, GRID_AT_POS = now, here
-    return GRID
+        grid, region = memo_ttl(cache, here, GRID_TTL_S, read, now, one=True)
+    except (api.McError, api.PlayerTookControl, ValueError):
+        return STATE.grid            # a failed read keeps the last field
+    except Exception as e:  # guard: a field we cannot build keeps the last one (the answer runs at 5 Hz)
+        return api.unexpected("perception: ground", e, "the last field is kept") or STATE.grid
+    with STATE.lock:
+        STATE.grid, STATE.region = grid, region
+        STATE.grid_at, STATE.grid_at_pos = cache.get(here, (now,))[0], here
+    return grid
 
+def footing(state):
+    """spot → where a walk toward it lands (nav.landing), for evade; None before the ground was read."""
+
+    region, here = STATE.region, (state["x"], state["y"], state["z"])
+    return None if region is None else (lambda spot: nav.landing(region, here, spot))
+
+KIT_TTL_S = 2.0      # the bag is re-read at least this often: /state says nothing of a sword given or picked up
+
+def kit_signature(state, now):
+    """Pure: when the kit must be read again — the held slot, a screen, the armour changed, or KIT_TTL_S passed."""
+
+    return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // KIT_TTL_S))
+
+def sword_level(tiers):
+    """Pure: the dps table's sword level from working sword tiers: 0 = fist, wood/gold = 1, at most 3."""
+
+    return min(3, max(1, max(tiers))) if tiers else 0
 
 def kit(signature):
-    """What we are carrying, re-read only when the inventory signature changes: this runs at 5 Hz."""
-    global _KIT, _KIT_SIG
-    if signature == _KIT_SIG and _KIT:
-        return _KIT
+    """What we are carrying, re-read only when `kit_signature` changes: this runs at 5 Hz."""
+    if signature == STATE.kit_sig and STATE.kit:
+        return STATE.kit
     from .world import Inventory
     inv = Inventory()
-    _KIT = {"sword_tier": max((t for t, d, _ in inv.tools("sword") if d >= 1), default=0),
+    got = {"sword_tier": sword_level([t for t, d, _ in inv.tools("sword") if usable(d)]),
             "shield": inv.offhand() == "minecraft:shield",
-            "food_items": sum(inv.count(f) for f in ("minecraft:cooked_beef", "minecraft:cooked_porkchop",
-                                                     "minecraft:bread", "minecraft:cooked_mutton")),
-            "blocks": inv.count("building")}
-    _KIT_SIG = signature
-    return _KIT
-
-
-def wire_answer(fn):
-    global ANSWER
-    ANSWER = fn
-
-
-HELD = None
-
-
-def threat_state(state, rows, work_s=None):
-    """The threat model's state vector, read off a player state and the rows the watcher last saw.
-
-    One builder: the live bid and the bench have to ask the same question, and a bench that assembles its own
-    state vector is testing its own arithmetic.
-    """
-    from . import threat
-    from . import field as _field
-    st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
-          "sword": int(state.get("sword_tier", 0)), "protection": threat.protection(state.get("armor", 0), False),
-          "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
-          "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")),
-          "field": state.get("field") or _field.Field(), "ids": list(THREAT_IDS)}
-    if work_s is not None:
-        st["work_s"] = work_s
-    return st
-
-
-def bid(state, rows, price, work_s=None, now=None):
-    from . import threat
-    if not rows:
-        return None
-    st = threat_state(state, rows, work_s)
-    global HELD
-    from . import kernel
-    field_model = threat.Field(st, price)
-    if HELD is None:
-        HELD = kernel.Held()
-    horizon_now = threat.horizon_for(st)
-    choice = HELD.decide(field_model, field_model.state(), now if now is not None else time.time(),
-                         holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
-    option = choice.action.option if choice.action is not None else None
-    if option is None or option.kind == "ignore":
-        return None
-    worth = threat.saves(option, [a.option for a in field_model.opts], price, horizon_now)
-    return (option, round(worth, 1)) if worth > 0 else None
-
-
-def lease_done(state, rows, price):
-    """Has answering stopped paying? The lease's release condition, and nothing else releases it.
-
-    Blind moments are NOT an answer: the entity read is a second old, the watcher was busy, the rows aged out. A
-    lease that reads "nothing visible" as "nothing to deal with" hands the body back in the middle of a fight, and
-    the planner's next mine task lands on top of the answer — which is what `BodyContested` was, all along.
-    """
-    if not rows:
-        return False
-    try:
-        fresh = bid(state, rows, price, now=time.time())
-    except Exception:
-        return False
-    return fresh is None or fresh[1] <= 0
-
-
-def still_worth(choice, field_model, price, horizon):
-    """The assumption behind a threat answer: that it still beats carrying on. A held answer that has stopped
-    paying (the sword broke, the crowd doubled) is not a commitment, it is a mistake with a timer."""
-    from . import threat as _threat
-    options = [a.option for a in field_model.opts]
-    same = next((o for o in options if o.kind == choice.name), None)
-    if same is None:
-        return False
-    return _threat.saves(same, options, price, horizon) > 0
-
+            "food_items": food_count(inv),              # knowledge's one food table
+            "blocks": inv.count("building"),
+            "pick_tier": max((t for t, d, _ in inv.tools("pickaxe") if usable(d)), default=None),
+            "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple"),
+            "bow": inv.count("minecraft:bow") > 0 and inv.count("minecraft:arrow") > 0,
+            "gold_worn": any(str((inv.equipment.get(k) or {}).get("id", "")).startswith("minecraft:golden_")
+                             for k in ("head", "chest", "legs", "feet"))}     # a piglin leaves the gold-clad alone
+    with STATE.lock:
+        STATE.kit, STATE.kit_sig = got, signature
+    return got
 
 def start():
     w = Watcher()

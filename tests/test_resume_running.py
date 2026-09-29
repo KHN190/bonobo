@@ -21,51 +21,43 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api  # noqa: E402
 
-WALK = [{"type": "goto", "x": 10, "y": 64, "z": -3}]
-DIG = [{"type": "mine", "x": 10, "y": 63, "z": -3}]
-RUNNING = {"id": 273, "type": "goto", "status": "running"}
+WALK = [{"type": "goto", "x": 10, "y": 64, "z": -3}]          # fixture: a one-task walk
+WALK_ON = [{"type": "goto", "x": 11, "y": 64, "z": -3}]          # fixture: the same walk, a block further
+DIG = [{"type": "mine", "x": 10, "y": 63, "z": -3}]          # fixture: a one-task dig
+DIG_THEN_WALK = DIG + WALK
+WALK_THEN_DIG = WALK + DIG
+RUNNING = {"id": 273, "type": "goto", "status": "running"}          # fixture: the task the mod reports running
+POSTED_WALK = (api.chain_signature(WALK), 273)          # fixture: what we posted last
+
+# (what we would post now, what the mod is running, what we posted last) → the id to attach to, or None to post
+RESUME = [
+    ("the same walk still running: attach", WALK, RUNNING, POSTED_WALK, 273),
+    ("a different task: post fresh", DIG, RUNNING, POSTED_WALK, None),
+    ("the same kind of task, a block further: different work", WALK_ON, RUNNING, POSTED_WALK, None),
+    ("the same tasks in another order: different work", WALK_THEN_DIG,
+     RUNNING, (api.chain_signature(DIG_THEN_WALK), 273), None),
+    ("the same two-task chain: attach", DIG_THEN_WALK, RUNNING, (api.chain_signature(DIG_THEN_WALK), 273), 273),
+    ("must fail: nothing running", WALK, None, POSTED_WALK, None),
+    ("our walk already finished", WALK, dict(RUNNING, status="succeeded"), POSTED_WALK, None),
+    ("our walk failed", WALK, dict(RUNNING, status="failed"), POSTED_WALK, None),
+    ("somebody else's goto (another id) is not ours", WALK, dict(RUNNING, id=999), POSTED_WALK, None),
+    ("nothing posted yet", WALK, RUNNING, None, None),
+    ("an empty chain never attaches", [], RUNNING, POSTED_WALK, None),
+]
 
 
 class SameWorkIsResumed(unittest.TestCase):
-    def test_the_same_chain_still_running_is_attached_to(self):
-        self.assertEqual(api.resume_id(WALK, RUNNING, (api.chain_signature(WALK), 273)), 273)
+    def test_resume_over_the_table(self):
+        for name, tasks, running, posted, want in RESUME:
+            with self.subTest(name):
+                self.assertEqual(api.resume_id(tasks, running, posted), want)
 
-    def test_different_work_is_posted_fresh(self):
-        self.assertIsNone(api.resume_id(DIG, RUNNING, (api.chain_signature(WALK), 273)))
-
-    def test_nothing_running_means_nothing_to_resume(self):
-        self.assertIsNone(api.resume_id(WALK, None, (api.chain_signature(WALK), 273)))
-        self.assertIsNone(api.resume_id(WALK, dict(RUNNING, status="succeeded"),
-                                        (api.chain_signature(WALK), 273)))
-
-    def test_a_different_task_id_is_not_ours(self):
-        """Someone else's goto is not our goto: resuming it would report their work as our progress."""
-        self.assertIsNone(api.resume_id(WALK, dict(RUNNING, id=999), (api.chain_signature(WALK), 273)))
-
-    def test_nothing_posted_yet_means_nothing_to_resume(self):
-        self.assertIsNone(api.resume_id(WALK, RUNNING, None))
-
-
-class TheSignatureIsTheWorkNotTheWording(unittest.TestCase):
-    def test_the_same_tasks_in_the_same_order_are_the_same_work(self):
-        self.assertEqual(api.chain_signature(WALK), api.chain_signature([dict(WALK[0])]))
-
-    def test_a_different_destination_is_different_work(self):
-        self.assertNotEqual(api.chain_signature(WALK), api.chain_signature([dict(WALK[0], x=11)]))
-
-
-class ItIsWiredIn(unittest.TestCase):
-    def test_run_chain_resumes_instead_of_reposting(self):
-        import inspect
-        src = inspect.getsource(api.run_chain)
-        self.assertIn("resume_id", src, "the rule has to be where the tasks are posted, or it is only a function")
-
-    def test_expiry_still_leaves_the_task_running(self):
-        """The other half of the same rule: the waiter raises, it does not stop the body."""
-        import inspect
-        src = inspect.getsource(api.await_task)
-        raise_line = next(ln for ln in src.splitlines() if "CommitmentExpired" in ln and "raise" in ln)
-        self.assertNotIn("/stop", raise_line)
+    def test_the_signature_is_the_work_not_the_wording(self):
+        """Key order and a copy do not change it; any value does."""
+        self.assertEqual(api.chain_signature(WALK), api.chain_signature([{"z": -3, "y": 64, "x": 10, "type": "goto"}]))
+        for changed in (dict(WALK[0], x=11), dict(WALK[0], type="travel"), dict(WALK[0], range=2)):
+            with self.subTest(changed=changed):
+                self.assertNotEqual(api.chain_signature(WALK), api.chain_signature([changed]))
 
 
 if __name__ == "__main__":

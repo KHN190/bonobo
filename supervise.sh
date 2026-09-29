@@ -1,24 +1,22 @@
 #!/bin/bash
-# Starts (or restarts) autoplay detached and watches it. Exits — waking whoever launched it in the background —
-# on: autoplay exit, crash, the same failure twice, agent idle >= 30 s, a task stuck >= STUCK_AFTER s (player-held
-# pauses excluded), or the periodic check-in. Usage: [MIN_VERSION=x.y.z] supervise.sh [hours=10] [checkin_s=600]
+# Starts (or restarts) autoplay detached, shows its concise events live, and exits — waking whoever launched it —
+# on what matters: a death, a task stuck, a slow round, an error or refusal loop, idle, a crash, or the check-in.
+# Tests are the dev loop, not this one. Usage: [MIN_VERSION=x.y.z] [DRY=1] supervise.sh [hours=10] [checkin_s=600]
 cd "$(dirname "$0")" || exit 1
-# Where the mod writes config/agent-bridge.json. Override by exporting MC_INSTANCE before running.
 export MC_INSTANCE="${MC_INSTANCE:-$HOME/Library/Application Support/ModrinthApp/profiles/Fabric API}"
-# The mod's Java package, when checked out. Optional: without it readiness keys on the jar version.
 export MC_MOD_SRC="${MC_MOD_SRC:-$HOME/minecraft-claude-bridge/anaka/src/main/java/dev/anaka}"
 HOURS=${1:-10}
-CHECKIN=${2:-600}   # the 10-minute review (user, 2026-09-16): Claude reads the packet, distils lessons, plans
-# The runtime data directory, same default as bonobo.paths (override with MC_DATA).
+CHECKIN=${2:-600}
+IDLE_S=${IDLE_S:-30}
 DIR="${MC_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/bonobo}"
 LOG="$DIR/autoplay.log"
+EVENTS="$DIR/events.log"
 PIDFILE="$DIR/autoplay.pid"
 WATCHFILE="$DIR/supervise.pid"
+mkdir -p "$DIR" && touch "$LOG" "$EVENTS"
 
-# Only one supervisor at a time: retire the previous one (never ourselves) and WAIT for it to go. Signalling and
-# carrying straight on left two supervisors alive for as long as the old one took to die, both watching the same
-# player and both restarting autoplay — and a pid that has been recycled is not the old supervisor, so the pid is
-# checked against the command as well.
+# one supervisor at a time: retire the previous one and wait for it (a recycled pid is checked against the command,
+# which is matched, never printed)
 OLD=$(cat "$WATCHFILE" 2>/dev/null)
 if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && ps -p "$OLD" -o command= 2>/dev/null | grep -q supervise.sh; then
   kill "$OLD" 2>/dev/null
@@ -30,129 +28,73 @@ if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && ps -p "$OLD" -o command= 2>/dev/null |
 fi
 echo $$ > "$WATCHFILE"
 
-# A restart is a new agent: it starts with the logs and what it has measured (beliefs.jsonl) and nothing else.
-# Sites, directives, wants, routes and the decision tape are about one save, and inheriting them cost a
-# five-hundred-block walk to repair a shelter that belonged to a world that no longer exists.
-python3 - <<'EOF'
-from bonobo import fresh
-world, dropped = fresh.check()
-if dropped:
-    print(f"world {world}: fresh start, dropped {', '.join(dropped)}")
-elif world:
-    print(f"world {world}: fresh start")
-EOF
-
+# can this code run (a second): syntax and import, nothing more
 python3 -m py_compile mc.py bonobo/*.py || { echo "WAKE: syntax error in the brain"; exit 1; }
 python3 -c "import bonobo.brain" || { echo "WAKE: brain fails to import"; exit 1; }
-# The start-up gate answers one question — can this code run — so it runs the tests that are pure functions and
-# structure (about a second). The replay tests (test_acceptance re-decides a recorded round per case, test_offline
-# drives the real planner) answer a different one: is the MODEL still right. Those take a minute, and a minute of
-# not playing, every restart, to re-confirm something that only changes when the model does. They run at the
-# check-in below instead, where there is already a pause.
-# One process per test file, in parallel (runtests.py): the files share nothing but the read-only tape, so the
-# wall clock is the slowest file rather than the sum. `--fast` leaves out the replay-driven ones — they answer "is
-# the model still right", which only changes when the model does, and the check-in below runs everything.
-./runtests.py --fast > /tmp/bonobo-tests.log 2>&1 || { echo "WAKE: offline checks failed"; grep -E "^FAIL" /tmp/bonobo-tests.log; exit 1; }
-# Catch "parameter shadows a module function" bugs across the package.
-python3 - <<'EOF' || { echo "WAKE: name shadowing in the brain"; exit 1; }
-import ast, glob, sys
-bad = []
-for f in glob.glob("bonobo/*.py") + ["mc.py"]:
-    tree = ast.parse(open(f).read())
-    top = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
-    bad += [f"{f}:{n.lineno} '{a.arg}'" for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.Lambda))
-            for a in n.args.args + n.args.kwonlyargs if a.arg in top]
-    # A local variable named like an imported module (`bag = ...` next to `from . import bag`) crashed every round.
-    mods = {a.asname or a.name for n in tree.body if isinstance(n, ast.ImportFrom) and n.module is None
-            for a in n.names}
-    bad += [f"{f}:{x.lineno} local '{x.id}' shadows a module" for fn in ast.walk(tree)
-            if isinstance(fn, ast.FunctionDef) for x in ast.walk(fn)
-            if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store) and x.id in mods]
-print("\n".join(bad))
-sys.exit(1 if bad else 0)
-EOF
 
-# Optional: wait until the game runs at least this mod version (after a rebuild the player must restart).
-if [ -n "$MIN_VERSION" ]; then
-  until python3 -c "
+# a new save starts fresh (fresh.check drops what belongs to another world)
+python3 -c "
+from bonobo import fresh
+world, dropped = fresh.check()
+print(f'world {world}: fresh start' + (f', dropped {\", \".join(dropped)}' if dropped else '')) if world else None
+"
+
+# the game: reachable and in a world, at MIN_VERSION when asked (after a rebuild the player restarts the game)
+WAITED=""
+until WHY=$(python3 -c "
 import sys
 from bonobo import api
-v = api.status()['version'].split('+')[0]
-sys.exit(0 if tuple(map(int, v.split('.'))) >= tuple(map(int, '$MIN_VERSION'.split('.'))) else 1)
-" 2>/dev/null; do sleep 10; done
-fi
+try:
+    api.get('/state')
+    v = api.status()['version'].split('+')[0]
+except api.McError as e:
+    print(e); sys.exit(1)
+want = '$MIN_VERSION'
+ok = not want or tuple(map(int, v.split('.'))) >= tuple(map(int, want.split('.')))
+print('' if ok else f'jar {v} < {want}'); sys.exit(0 if ok else 1)
+" 2>/dev/null); do
+  [ "$WHY" != "$WAITED" ] && { echo "waiting for the game: ${WHY:-unreachable}"; WAITED="$WHY"; }
+  sleep 10
+done
+
+# never begin inside a bench arena: its leftovers killed, the body sent to spawn
+[ -z "$DRY" ] && python3 -m bonobo.tools.leave_bench
 
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
   kill "$(cat "$PIDFILE")"
   sleep 1
 fi
-# Roll the readable log before the run starts, never during one: the watcher below reads it by line offset, and a
-# file that rolls under a running `tail -n +N` reads back as an empty session. 2 MB, one previous log kept.
-python3 -c "import sys; from bonobo import api; api.roll(sys.argv[1], 2 << 20)" "$LOG"
-START=$(( $(wc -l < "$LOG" 2>/dev/null || echo 0) + 1 ))
-nohup python3 mc.py autoplay --hours "$HOURS" >> "$LOG" 2>&1 &
-echo $! > "$PIDFILE"
-disown
+# roll the logs before the run, never during it (the watch reads from an offset)
+python3 -c "import sys; from bonobo import api; [api.roll(p, 2 << 20) for p in sys.argv[1:]]" "$LOG" "$EVENTS"
+START=$(( $(wc -l < "$LOG") + 1 ))
+OFFSET=$(python3 -m bonobo.tools.wake offset)
+if [ -n "$DRY" ]; then
+  echo "dry run: autoplay not started (events from offset $OFFSET)"
+else
+  nohup python3 mc.py autoplay --hours "$HOURS" >> "$LOG" 2>&1 &
+  echo $! > "$PIDFILE"
+  disown
+fi
 
-T0=$(date +%s); IDLE=0; REASON=""
-LAST_SIG=""; SIG_SINCE=$(date +%s)
-# The brain cancels and switches goal itself after 10 s without progress; wake only if that didn't work.
-STUCK_AFTER=${STUCK_AFTER:-25}
+# the concise events, live
+tail -n 0 -F "$EVENTS" 2>/dev/null &
+TAIL=$!
+trap 'kill $TAIL 2>/dev/null' EXIT
+
+T0=$(date +%s); REASON=""
 while :; do
   sleep 2
-  # One state read gives both the stuck signature and the idle flag. "ok" = paused, waiting, or unreachable.
-  READ=$(python3 -c "
-from bonobo import api
-try:
-    s = api.get('/state')
-except Exception:
-    print('ok|busy'); raise SystemExit
-c = s['control']; t = c['task']
-if not c.get('paused') and (s['health'] <= 8 or (s['inWater'] and s['air'] < 100) or s['inLava']):
-    print(f\"DANGER hp={s['health']} air={s['air']} lava={s['inLava']}|danger\")
-elif c.get('paused'):
-    print('ok|paused')
-elif not t:
-    import os, time
-    from bonobo import paths; hb = paths.data('skill-heartbeat')
-    fresh = os.path.exists(hb) and time.time() - os.path.getmtime(hb) < 15
-    print('ok|busy' if fresh else 'ok|idle')
-elif t['type'] == 'wait':
-    print('ok|busy')
-else:
-    print(f\"{t['id']} {t['doing'][:40]} {round(s['x'], 1)} {round(s['y'], 1)} {round(s['z'], 1)} {round(s['yaw'] / 5)} {round(s['pitch'] / 5)}|busy\")
-" 2>/dev/null)
-  SIG=${READ%|*}; S=${READ##*|}
   NOW=$(date +%s)
-  if [ "$S" = "danger" ]; then
-    DANGER=$((${DANGER:-0} + 2))
-    [ "$DANGER" -ge 4 ] && { REASON="player in danger: $SIG"; break; }
-  else
-    DANGER=0
+  if [ -z "$DRY" ]; then
+    kill -0 "$(cat "$PIDFILE")" 2>/dev/null || { REASON="autoplay process exited"; break; }
+    tail -n +"$START" "$LOG" | grep -q "Traceback" && { REASON="crash (Traceback in $LOG)"; break; }
   fi
-  if [ "$SIG" != "$LAST_SIG" ] || [ "$SIG" = "ok" ] || [ -z "$SIG" ]; then
-    LAST_SIG="$SIG"; SIG_SINCE=$NOW
-  elif [ $((NOW - SIG_SINCE)) -ge "$STUCK_AFTER" ]; then
-    REASON="task stuck ${STUCK_AFTER}s: $SIG"; break
-  fi
-  kill -0 "$(cat "$PIDFILE")" 2>/dev/null || { REASON="autoplay process exited"; break; }
-  NEW=$(tail -n +"$START" "$LOG")
-  echo "$NEW" | grep -q "Traceback" && { REASON="crash"; break; }
-  # Single failures are the cerebellum's job (retry.py waits for the state to change). Claude is woken for macro
-  # problems only: "?? " = stalled progress, every rescue exhausted, a directive given up, exposed at night.
-  echo "$NEW" | grep -q "^.\{9\}?? " && { REASON="brain asked for help: $(echo "$NEW" | grep "^.\{9\}?? " | tail -1)"; break; }
-  if [ "$S" = "idle" ]; then IDLE=$((IDLE + 2)); else IDLE=0; fi
-  [ "$IDLE" -ge 15 ] && { REASON="agent idle ${IDLE}s"; break; }
-  # Manual mode (player holds control) turns everything off, reviews included: the clock restarts on hand-back.
-  [ "$S" = "paused" ] && T0=$NOW
-  [ $((NOW - T0)) -ge "$CHECKIN" ] && { REASON="review (every $((CHECKIN / 60)) min)"; break; }
+  WAKE=$(python3 -m bonobo.tools.wake "$OFFSET" "$IDLE_S") && { echo "$WAKE"; exit 0; }
+  # player holds control: no check-in until hand-back
+  python3 -c "from bonobo import api; exit(0 if api.get('/state')['control'].get('paused') else 1)" 2>/dev/null && T0=$NOW
+  [ $((NOW - T0)) -ge "$CHECKIN" ] && { REASON="check-in (every $((CHECKIN / 60)) min)"; break; }
+  [ -n "$DRY" ] && [ $((NOW - T0)) -ge "${DRY_S:-6}" ] && { REASON="dry run over"; break; }
 done
-# The model tests, at the pause rather than at start-up. A failure here is not a reason to stop playing — it says
-# the model drifted from the recorded rounds, which is something to read about, not to crash on.
-echo "WAKE: $REASON (autoplay pid $(cat "$PIDFILE") still running: $(kill -0 "$(cat "$PIDFILE")" 2>/dev/null && echo yes || echo no))"
-# The logs are NOT printed here. This script wakes somebody up; what woke them is one line, and the evidence is on
-# disk where it can be read, searched and re-read. Printing thirty lines of log plus forty of working-out buried
-# the reason under its own explanation, every ten minutes.
-echo "  session from line $START of $LOG (detail: $DIR/detail.log)"
-./runtests.py > /tmp/bonobo-tests-full.log 2>&1 || { echo "model checks failed:"; grep -E "^FAIL" /tmp/bonobo-tests-full.log; }
-python3 mc.py review --minutes 5 2>/dev/null
+echo "WAKE: $REASON"
+python3 -m bonobo.tools.wake tail "$OFFSET"
+echo "  (events: $EVENTS, working-out: $DIR/detail.log)"
