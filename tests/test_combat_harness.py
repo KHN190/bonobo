@@ -279,8 +279,9 @@ class Endermen(unittest.TestCase):
                 self.assertEqual(fight.positions(lines), want)
 
     def test_enderman_walk_has_no_sword(self):
-        from bonobo.bench import bench_bases
-        self.assertNotIn("sword", bench_bases.KIT.get("fight_enderman_1", []))
+        from bonobo.bench import core, table
+        row = next(r for t in table.TIERS for n, r in table.rows(t).items() if n == "fight_enderman_1")
+        self.assertNotIn("sword", core.kit_jobs(row))
 
     def test_covered_in_time(self):
         cells = [(4, 64, 0)]
@@ -342,10 +343,11 @@ class UnarmedCellsGetNoSword(unittest.TestCase):
 
     def test_rows(self):
         import json
-        from bonobo.bench import bench_bases
+        from bonobo.bench import core, table
         with open("tests/fixtures/bench_rows.json") as f:
             setup = json.load(f)["combat__trapped_unarmed"]["setup"]
-        rows = [("not on the kit rule's sword list", "sword" in bench_bases.KIT.get("combat__trapped_unarmed", []), False),
+        row = next(r for t in table.TIERS for n, r in table.rows(t).items() if n == "combat__trapped_unarmed")
+        rows = [("not on the kit rule's sword list", "sword" in core.kit_jobs(row), False),
                 ("must fail: a sword given by the setup", any("sword" in c for c in setup), False)]
         for name, got, want in rows:
             with self.subTest(name):

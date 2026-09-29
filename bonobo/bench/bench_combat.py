@@ -116,7 +116,7 @@ ROWS = [
          check=[('ghast_answered',)], budget=25,
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'netherrack', 169, 169)]),
-    dict(name='fight_zombie_1_full_bag', module='fight_loop',
+    dict(name='fight_zombie_1_full_bag', module='fight_loop', kit=['sword'],
          doc=('Walled platform, iron kit, the bag full of dirt: 1 zombie → killed (credited by the server), health '
               '≥ 12: the drop it cannot pick up changes nothing'),
          scene=[('sheet', '_ARENA'), ('summon', 'zombie', ('@', 4, 0, 0), '{PersistenceRequired:1b}')]
@@ -128,7 +128,7 @@ ROWS = [
          point='B', tier_fixed='exception',
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
          expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
-    dict(name='combat__low_hp_eat', module='fight_loop',
+    dict(name='combat__low_hp_eat', module='fight_loop', kit=['sword'],
          doc=('6 hp, food 6 with no saturation (no natural regen), one zombie 2 blocks off, blocks and cooked beef → '
               'away from it or walled in first, then fed: the beef eaten, the zombie 3 or more off (or walled in), '
               'health above 6'),
@@ -186,14 +186,14 @@ ROWS = [
          expect_entities=[('minecraft:enderman', 1, 1)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)]),
-    dict(name='fight_creeper_sword', module='fight_loop',
+    dict(name='fight_creeper_sword', module='fight_loop', kit=['sword'],
          doc='Iron sword, a creeper 4 blocks off → the creeper gone (dead or blown up in the air), health ≥ 16',
          scene=[('sheet', '_ARENA'), ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
          run=('fight_until', ['minecraft:creeper'], 25), before=[('start', 'fight_creeper_sword'), ('&record_bids',)],
          check=[('gone', ['minecraft:creeper']), ('alive', 16)], budget=25, point='B', combat=True, stochastic=True,
          tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'open'}, expect_entities=[('minecraft:creeper', 1)],
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
-    dict(name='fight_creeper_by_home', module='fight_loop',
+    dict(name='fight_creeper_by_home', module='fight_loop', kit=['sword'],
          doc=('Iron sword, a creeper 4 blocks off, a bed and a furnace of ours within 3 of it → the creeper gone (dead '
               'or blown up in the air), health ≥ 16, the bed and the furnace still standing'),
          scene=[('sheet', '_ARENA'), ('setblock', ('@', 4, 0, 2), 'red_bed[facing=east,part=foot]'),
@@ -228,7 +228,7 @@ def CODE_ROWS():
              check=_all(_gone(["minecraft:zombie"]), _alive(10), arrived(at(0, 0, 0), 9),
                         lambda api, inv: FIRST.get("log") is None),
              budget=limit(), expect=SHEET_EXPECT),
-        dict(name="combat__knocked_off_edge",
+        dict(name="combat__knocked_off_edge", kit=["sword"],
              doc="A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
                  "knocked off, the fall caught: alive, health within 4 of the start, the bucket back in the bag",
              module="fight_loop", point="B", skills=[], combat=True, stochastic=True,

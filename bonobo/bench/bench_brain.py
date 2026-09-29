@@ -173,7 +173,7 @@ CODE_ROWS = [
          doc="a remembered diamond past the hill; 6 blocks in, night falls → sheltered the night's way; day again → "
              "the same diamond, straight (no scan for it)",
          module="brain", point="C", skills=[], tier_fixed="brain", combat=False,
-         tags={"base": "brain", "family": "search_resume"},
+         tags={"base": "brain", "family": "search_resume"}, kit=[],
          setup=SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
          before=_hooks(_start("search_night_resume"), _seen("diamond_ore", SEARCH_ORE), _count_finds,
                        _when(walked_at_least(6), _set_time(13000)),

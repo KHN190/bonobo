@@ -1067,7 +1067,7 @@ def siege_row(name, wave):
                       [("sheet", "_FIGHT_SETUP"), ("cmd", "effect give @p minecraft:instant_health 3 10 true"),
                        ("built", "_siege_kit"), ("built", "_carry") + tuple(left)],
                       [{"wave": wave, "line_up": line_up}], ("&_siege_build",), ("!_siege_record", 24.0),
-                      "bench/siege.jsonl", 0.6, (RULES[0], RULES[3]), detail=("siege_detail", name))
+                      "bench/siege.jsonl", 0.6, (RULES[0], RULES[3]), detail=("siege_detail", name), kit=["sword"])
 
 def escape_row(name, enemy, ground, kit, seed=None):
     """No weapon, no armour, one enemy: away by any answer but swinging; no seed given, one is drawn (as at import)."""
@@ -1100,7 +1100,7 @@ def behaviour_row(name, behaviour):
                      expect=FIGHT_EXPECT, tick_rate=60,
                      **({"expect_entities": [(kind, COUNT[cell["count"]], COUNT[cell["count"]])]} if kind else {}),
                      **({"before": proof["before"]} if "before" in proof else {}))
-    return dict(row, check=[("behaviour", behaviour)])
+    return dict(row, check=[("behaviour", behaviour)], kit=["sword"])
 
 def fight_cell_row(name, mob, n, tier, secs, hp, clear):
     """A walled arena, the iron kit, `n` of one mob: all dead (or kept off, or left alone when neutral)."""
@@ -1127,7 +1127,7 @@ def fight_cell_row(name, mob, n, tier, secs, hp, clear):
                 before=[("&record_bids",)], combat=True, skills=[], tier_fixed=tier,
                 tags={"base": "fight", "enemy": mob, "count": n},
                 # the scene proven before the run: exactly this line-up, the arena standing, the kit in hand
-                expect_entities=[(f"minecraft:{mob}", n, n)], expect=ARENA_EXPECT, expect_gear=ARENA_GEAR)
+                expect_entities=[(f"minecraft:{mob}", n, n)], expect=ARENA_EXPECT, expect_gear=ARENA_GEAR, kit=["sword"])
 
 def siege_detail(name):
     return lambda inv: _siege_detail_of(name)

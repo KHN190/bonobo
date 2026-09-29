@@ -141,7 +141,7 @@ FAMILIES = [
           # the real terrain's own trees within 12 cleared first (a 64-radius spread can land in a wood: found
           # within 8 at setup, 0 s), then the column 16 off: the walk to it is the row's
           [('cmd', 'execute at @p run fill ~-12 ~-4 ~-12 ~12 ~12 ~12 air replace #minecraft:logs'),
-           ('cmd', 'execute at @p run fill ~16 ~ ~ ~16 ~4 ~ oak_log')]),
+           ('cmd', 'execute at @p run fill ~16 ~ ~ ~16 ~4 ~ oak_log')], False, (), ['axe']),
          ('strip_mine_real', ['strip_mine_step'], 'real terrain, a stone pickaxe → a mining tunnel started',
           ('skill', 'strip_mine_step', 2), ('gain', 'minecraft:cobblestone', 2), 25,
           [('cmd', 'execute at @p run fill ~-1 17 ~-1 ~1 19 ~1 air'), ('cmd', 'execute at @p run tp @p ~ 17 ~')])]),
@@ -228,7 +228,7 @@ ROWS = [
          scene=[('floor', 'stone', 8, 4), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'), ('give', 'oak_log', 6)],
          run=('do', 'achieve', ['$ctx', [('tool', 'pickaxe', 1)], ('!now', ('!count', 'minecraft:stone_pickaxe', '>=', 1))], {}),
          check=[('count', 'minecraft:stone_pickaxe', '>=', 1)], budget=25,
-         expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'stone', 289, 289)], skills=['craft', 'mine', 'chop']),
+         expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'stone', 289, 289)], skills=['craft', 'mine', 'chop'], kit=[]),
     dict(name='hunt_food', module='skills', doc='Grass pen with 4 cows, iron sword → 3 raw beef.',
          scene=[('floor', 'grass_block', 8, 2), ('pen', 'cow', 0, 9), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
                 ('give', 'iron_sword'), ('summon', 'cow', ('@', 4, 0, 3)), ('summon', 'cow', ('@', -4, 0, 2)),

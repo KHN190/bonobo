@@ -736,7 +736,7 @@ def dirt_row(name, doc, extra, done, check):
     return _row(name, doc, "brain", [("floor",), ("fill", ("@", 7, -3, -1), ("@", 8, -1, 1), "dirt"),
                                      ("fill", ("@", 7, -4, -1), ("@", 8, -4, 1), "stone")]
                 + list(extra) + [("stand",), ("time", DAY_END)], ("brain_rounds", 25, nest(done)), items(check),
-                point="C", skills=["shelter:dig in"], tier_fixed="brain",
+                point="C", skills=["shelter:dig in"], tier_fixed="brain", kit=[],
                 tags={"base": "brain", "family": "night_dirt"})
 
 def cell_row(name, *key):
@@ -751,7 +751,7 @@ def cell_row(name, *key):
                tier_fixed="brain", combat=False, queue=list(entry["queue"]),
                tags={"base": "brain", "family": "+".join(fams), **{d: cell[d] for d in BRAIN_DIMS}},
                why=[why for _c, why in judged] + ["the slice"])
-    return dict(row, before=[("brain_cell_hooks", name) + key])
+    return dict(row, before=[("brain_cell_hooks", name) + key], **({"kit": []} if cell["tool"] != "fresh" else {}))
 
 def _grid_cell(key):
     return _grid_cells()[tuple(key)]["cell"]
