@@ -23,6 +23,8 @@ WORLD = {
     "door_intact",              # the room's blocks: walls, roof and door standing
     "arrived",                  # the body's /state by the walker's own arrival test (nav.there)
     "door_seen",                # a watcher reading the door's block state through the run
+    "door_shut", "door_open",   # the door cells' block states read at the end
+    "shell_intact",             # the room's walls and roof standing, the door's cells aside
 }
 
 # words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode

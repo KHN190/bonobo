@@ -221,9 +221,9 @@ class CrossingFails(unittest.TestCase):
 class DoorwayIsNotInside(unittest.TestCase):
     def test_the_rows_reach(self):
         # the bench row's target and reach, one test for run, check and travel_to's verify (nav.there)
-        from bonobo.bench import bench_exception as bx
+        from bonobo.bench import bench_common as bc
         from bonobo.bench.vocab import pos
-        room = bx.DOOR_ROOM
+        room = bc.DOOR_ROOM
         inside, reach = pos(room["inside"]), room["reach"]
         door = pos(room["door"][0])
 

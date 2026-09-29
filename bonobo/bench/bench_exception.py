@@ -147,11 +147,6 @@ FAMILIES = [
          ('place_stairs_east', 'minecraft:oak_stairs', 'east', 'east', 'exception'),
          ('place_cobblestone_facing_ignored', 'minecraft:cobblestone', 'north', None, 'exception')]),
 ]
-# the taught-door room, one set of offsets for its scene and its lesson: walls x 4..8, z -3..3, roof y 3
-DOOR_ROOM = {"lo": ('@', 4, 0, -3), "hi": ('@', 8, 3, 3), "in_lo": ('@', 5, 0, -2), "in_hi": ('@', 7, 2, 2),
-             "door": (('@', 4, 0, 0), ('@', 4, 1, 0)), "bulb": ('@', 4, 1, -2), "comparator": ('@', 4, 1, -1),
-             "press_out": ('@', 3, 1, -2), "press_in": ('@', 5, 1, -2), "chest": ('@', 7, 0, 0),
-             "inside": ('@', 6, 0, 0), "reach": 0.5}     # reach + the walker's slack short of the door cell
 ROWS = [
     dict(name='cast_portal', module='building',
          doc=('A 3×3 lava pool beside the body; water bucket, bucket, 16 cobblestone, flint and steel → a portal frame '
@@ -527,29 +522,6 @@ ROWS = [
          before=[('start', 'craft_chain_one_sitting')], check=[('gain', 'minecraft:wooden_pickaxe', 1, 1)], budget=15,
          skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
-    # a taught door: a closed stone room, an iron door in its west wall held by a toggle — a waxed copper bulb in the
-    # wall with a button on each face (outside, inside), read by a comparator beside the door's top half: one press
-    # opens it and it stays open — and a chest within. Every cell below from DOOR_ROOM (scene and lesson alike)
-    *[dict(name=name, module='skills', point='A', skills=skills, stochastic=False,
-           doc=doc,
-           scene=[('floor',), ('fill', R['lo'], R['hi'], 'stone'), ('fill', R['in_lo'], R['in_hi'], 'air'),
-                  ('setblock', R['door'][0], 'iron_door[facing=east,half=lower]'),
-                  ('setblock', R['door'][1], 'iron_door[facing=east,half=upper]'),
-                  ('setblock', R['bulb'], 'waxed_copper_bulb[lit=false,powered=false]'),
-                  ('setblock', R['comparator'], 'comparator[facing=north]'),
-                  ('setblock', R['press_out'], 'oak_button[face=wall,facing=west]'),
-                  ('setblock', R['press_in'], 'oak_button[face=wall,facing=east]'),
-                  ('setblock', R['chest'], 'chest'), ('stand',), ('cmd', 'clear @p')],
-           before=[(hook, R['press_out'], R['press_in'], list(R['door']))],
-           run=('into_room', R['inside'], R['reach']),
-           check=[inside, ('door_intact', R['lo'], R['hi'], list(R['door']))] + seen, budget=25,
-           expect=[(R['door'][0], R['door'][1], 'iron_door', 2, 2)])
-      for R in [DOOR_ROOM]
-      for name, skills, hook, inside, seen, doc in (
-          ('press_door_to_chest', ['press_mechanism'], 'door_taught', ('arrived', R['inside'], R['reach']), [('door_seen',)],
-           'The door taught → pressed open from outside, walked in to the chest; walls and door intact'),
-          ('untaught_door_stays_shut', [], 'door_untaught', ('not', ('!arrived', R['inside'], R['reach'])), [],
-           'Must fail to enter: the same door NOT taught → stays outside, and still digs nothing'))],
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)

@@ -73,7 +73,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 273)          # + fight_enderman_provoked; + the taught door and its untaught twin
+        self.assertEqual(len(rec), 276)          # + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):
@@ -258,7 +258,7 @@ class Api:
 class FakeRegion:
     BLOCKS = {}
 
-    def __init__(self, lo, hi):
+    def __init__(self, lo, hi, props=False):
         self.blocks = {p: n for p, n in self.BLOCKS.items()
                        if all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))}
 
@@ -267,6 +267,9 @@ class FakeRegion:
 
     def solid(self, p):
         return self.name(p) != "air"
+
+    def prop(self, p, key):
+        return None               # no block states recorded: a door cell is shut by being solid
 
 
 A0 = ("@", 0, 0, 0)
@@ -372,6 +375,7 @@ PRED_ROWS = [
 # world readers: the recorded blocks (FakeRegion) and entities
 # a 3×3×3 shell (inner x 1, z 1, y 0..1 open) with a door in its west face: door_intact's scene
 DOOR = [("@", 0, 0, 1), ("@", 0, 1, 1)]
+DOOR_CELLS = [(10000 + x, 200 + y, 10000 + z) for _at, x, y, z in DOOR]     # A0 is (10000, 200, 10000)
 SHELL = {(10000 + x, 200 + y, 10000 + z): ("iron_door" if (x, z) == (0, 1) and y < 2 else "stone")
          for x in range(3) for y in range(3) for z in range(3) if not (x == 1 and z == 1 and y < 2)}
 WORLD_ROWS = [
@@ -404,6 +408,15 @@ WORLD_ROWS = [
      {c: n for c, n in SHELL.items() if c != (10002, 201, 10002)}, [], False),
     ("must fail: door intact no — the door broken", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
      {c: n for c, n in SHELL.items() if c != (10000, 201, 10001)}, [], False),
+    # the door cells' end state and the shell round them (the door's own cells judged by door_shut/door_open)
+    ("door shut yes: both cells solid", ("door_shut", DOOR), {DOOR_CELLS[0]: "stone", DOOR_CELLS[1]: "stone"}, [], True),
+    ("must fail: door shut no — one cell left open", ("door_shut", DOOR), {DOOR_CELLS[0]: "stone"}, [], False),
+    ("door open yes: both cells air", ("door_open", DOOR), {}, [], True),
+    ("must fail: door open no — pressed shut again", ("door_open", DOOR), {DOOR_CELLS[1]: "stone"}, [], False),
+    ("shell intact yes: walls standing, the door cells open", ("shell_intact", A0, ("@", 2, 2, 2), DOOR),
+     {c: n for c, n in SHELL.items() if c not in DOOR_CELLS}, [], True),
+    ("must fail: shell intact no — a wall block dug", ("shell_intact", A0, ("@", 2, 2, 2), DOOR),
+     {c: n for c, n in SHELL.items() if c not in DOOR_CELLS and c != (10002, 201, 10002)}, [], False),
     ("must fail: away or walled no — stood beside it in the open", ("away_or_walled", ["minecraft:zombie"]), {},
      [{"type": "minecraft:zombie", "x": 10001.5, "y": 200.0, "z": 10000.5, "health": 20}], False),
 ]
@@ -475,10 +488,10 @@ class Predicates(unittest.TestCase):
                 self.assertEqual(run_word(word, state, inv, sheet), want)
 
     def test_world_words(self):
-        from bonobo import world
+        from bonobo import mechanisms, world
         for why, word, blocks, ents, want in WORLD_ROWS:
             with self.subTest(why), mock.patch.object(FakeRegion, "BLOCKS", blocks), \
-                    mock.patch.object(world, "Region", FakeRegion), \
+                    mock.patch.object(world, "Region", FakeRegion), mock.patch.object(mechanisms, "Region", FakeRegion), \
                     mock.patch.object(world, "entities", lambda r=0, kinds=None, e=ents: [
                         x for x in e if kinds is None or x["type"] in kinds]):
                 self.assertEqual(run_word(word), want)
