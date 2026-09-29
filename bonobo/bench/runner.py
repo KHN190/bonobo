@@ -672,7 +672,8 @@ def _trace(stop, out):
             s = api.get("/state")
             control = s.get("control") or {}
             out.append({"t": round(time.time(), 1), **{k: s.get(k) for k in
-                        ("x", "y", "z", "health", "food", "dead", "inWater", "inLava", "onGround", "screen")},
+                        ("x", "y", "z", "yaw", "pitch", "health", "food", "dead", "inWater", "inLava", "onGround",
+                            "screen")},
                         "task": control.get("task"),
                         "active": control.get("active"), "paused": control.get("paused")})    # the agent drives?
         except api.McError as e:
