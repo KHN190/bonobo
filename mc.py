@@ -437,7 +437,8 @@ def cmd_mech(a):
     press = tuple(a.press) if a.press else None
     if a.action == "list":
         for m in mech.load():
-            print(f"{m['dimension']} press {tuple(m['press'])} opens {[tuple(c) for c in m['opens']]}")
+            print(f"{m['dimension']} press {tuple(m['press'])} opens {[tuple(c) for c in m['opens']]}"
+                  + (" (closed behind)" if m.get("close") else ""))
         return
     if press is None:
         raise SystemExit("--press X Y Z is required")
@@ -447,7 +448,7 @@ def cmd_mech(a):
     opens = [tuple(a.opens[i:i + 3]) for i in range(0, len(a.opens or ()), 3)]
     if not opens or len(a.opens) % 3:
         raise SystemExit("--opens takes X Y Z triples")
-    print("taught:", mech.add(dim, press, opens))
+    print("taught:", mech.add(dim, press, opens, close=a.close))
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -470,6 +471,7 @@ def main():
     p.add_argument("action", choices=["add", "list", "remove"])
     p.add_argument("--press", type=int, nargs=3)
     p.add_argument("--opens", type=int, nargs="+")
+    p.add_argument("--close", action="store_true", help="shut it behind after crossing (from the far side's press)")
     p.set_defaults(fn=cmd_mech)
     sub.add_parser("skills", help="list skill contracts").set_defaults(fn=cmd_skills)
     p = sub.add_parser("task", help="task queue: add have|craft|milestone|goto|road|build|sleep|skill ... | list | "

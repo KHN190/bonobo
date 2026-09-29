@@ -204,7 +204,7 @@ class CrossingFails(unittest.TestCase):
                     raise mech.api.Unreachable("travel: target unreachable", ())
                 return {"status": "succeeded", "message": "arrived"}
             with mock.patch.object(mech, "FILE", path), \
-                    mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): False for c in cells}), \
+                    mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): True for c in cells}), \
                     mock.patch.object(mech, "press_mechanism", lambda ctx, p, d: posted.append({"type": "use"}) or "open"), \
                     mock.patch.object(nav, "DOORS", mech.doors_on_way), mock.patch.object(nav, "ROAD_MEM", None), \
                     mock.patch.object(nav.api, "run", run), mock.patch.object(mech.api, "run", run), \
@@ -232,6 +232,68 @@ class DoorwayIsNotInside(unittest.TestCase):
         # must fail: standing in the doorway counted arrived (025641: x 4.3, arrived by 1.5 + slack)
         self.assertFalse(nav.there(at(door), inside, reach))
         self.assertTrue(nav.there(at(inside), inside, reach))
+
+
+HATCH_Y = 63                                           # a 2×2 hatch in the ground layer
+HATCH = [(0, HATCH_Y, 0), (1, HATCH_Y, 0), (0, HATCH_Y, 1), (1, HATCH_Y, 1)]
+HATCH_OUT, HATCH_IN = (3, HATCH_Y + 1, 0), (-1, HATCH_Y - 2, 0)     # a floor button above, a wall button below
+
+
+class Hatch(unittest.TestCase):
+    def mechs(self, close=False):
+        return [{"dimension": DIM, "press": list(p), "opens": [list(c) for c in HATCH], "close": close}
+                for p in (HATCH_OUT, HATCH_IN)]
+
+    def test_side_by_the_hatch_axis(self):
+        door = tuple(HATCH)
+        above_west, below_east = (-3, HATCH_Y + 1, 0), (4, HATCH_Y - 2, 0)
+        self.assertEqual(mech.crossing_axis(door, above_west), 1)
+        # must fail: the side picked by x/z — west of the hatch would pick the inner button below
+        self.assertEqual(mech.press_for(self.mechs(), door, above_west), HATCH_OUT)
+        self.assertEqual(mech.press_for(self.mechs(), door, below_east), HATCH_IN)
+
+    def test_through_the_hatch(self):
+        door = tuple(HATCH)
+        down, up = mech.through_cell(door, (0, HATCH_Y - 5, 0)), mech.through_cell(door, (0, HATCH_Y + 5, 0))
+        self.assertEqual(down[1], HATCH_Y - 2)            # head under the hatch layer, clear of it
+        self.assertEqual(up[1], HATCH_Y + 1)              # feet on it
+        self.assertIn((down[0], HATCH_Y, down[2]), HATCH)
+
+
+class OpenAndClose(unittest.TestCase):
+    def run_way(self, shut, close, only=(IN_PRESS,)):
+        posted = []
+        mechs = [{"dimension": DIM, "press": list(p), "opens": [list(c) for c in DOOR], "close": close}
+                 for p in only]
+        state = {"shut": shut}
+
+        def run(task, **k):
+            posted.append(task)
+            if task["type"] == "use":
+                state["shut"] = not state["shut"]
+            return {"status": "succeeded", "message": "ok"}
+        with mock.patch.object(mech, "load", lambda path=None: mechs), \
+                mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): state["shut"] for c in cells}), \
+                mock.patch.object(mech.api, "run", run), mock.patch.object(mech.api, "detail", lambda *a: None):
+            mech.doors_on_way(OUTSIDE, INSIDE, dimension=DIM)
+        return posted, state
+
+    def test_open_with_no_press_on_our_side_is_walked(self):
+        # must fail: reported unreachable (the only press is inside, the door open)
+        posted, _ = self.run_way(shut=False, close=False)
+        self.assertEqual(posted, [])
+
+    def test_close_behind_only_when_taught(self):
+        both = (OUT_PRESS, IN_PRESS)
+        posted, state = self.run_way(shut=True, close=False, only=both)
+        # must fail: close flag false, the door closed behind
+        self.assertEqual([t["type"] for t in posted].count("use"), 1)
+        self.assertFalse(state["shut"])
+        posted, state = self.run_way(shut=True, close=True, only=both)
+        uses = [(t["x"], t["y"], t["z"]) for t in posted if t["type"] == "use"]
+        # must fail: close flag true, the door left open
+        self.assertEqual(uses, [OUT_PRESS, IN_PRESS])
+        self.assertTrue(state["shut"])
 
 
 class Store(unittest.TestCase):
