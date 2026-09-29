@@ -37,6 +37,7 @@ class ApiState(lifecycle.State):
     mode: str = "normal"                 # "survival" while a rescue runs
     soft: bool = False                   # a soft skill runs: perception's request stays for it to read, no cut
     last_segment_s: float = 2.0          # how far ahead a watcher must look: a segment's measured length
+    feet_seen: "tuple[float, float, float] | None" = None     # the body's place in the last /state read
     # the body's clock for the round log (brain._round's gap): when a task's end was first seen, when a task was
     # first posted since the round began (perf_counter seconds; None when not yet)
     clock: dict = field(default_factory=lambda: {"ended": None, "first_post": None, "ended_id": -1})
@@ -378,7 +379,15 @@ def _game_up(timeout=1.0):
         return False
 
 def get(path) -> Any:
-    return api("GET", path)
+    r = api("GET", path)
+    if path.startswith("/state") and isinstance(r, dict) and "x" in r:
+        STATE.feet_seen = (r["x"], r["y"], r["z"])      # read for free where a failure happened
+    return r
+
+
+def feet_seen():
+    """The body's place in the last /state any code read (no read of its own), or None."""
+    return STATE.feet_seen
 
 BODY_PATHS = ("/task", "/stop")
 

@@ -69,8 +69,9 @@ class Retry:
         for key in [k for k in self.entries if k[0] == name]:
             self.entries.pop(key)
 
-    def failed(self, task, cause, message, now, place=None):
-        """Record a failure of `task` for `cause`. Returns a Verdict, or None for what is not a failure."""
+    def failed(self, task, cause, message, now, place=None, also_at=()):
+        """Record a failure of `task` for `cause`, cooled at `place` and at each of `also_at` (where the failure
+        happened, when a long step walked away from where it began). Returns a Verdict, or None for what is not one."""
         if cause == "replan":
             e = self.entries.get((task, "replan"))
             n = e["n"] + 1 if e else 1
@@ -91,6 +92,9 @@ class Retry:
         repeats = c["n"] + 1 if c and c["until"] > now - ceiling else 1
         wait = min(ceiling, BACKSTOP.get(cause, 60) * 2 ** (min(repeats, 6) - 1))
         self.cooling[key] = {"until": now + wait, "n": repeats}
+        for other in also_at:
+            if other != place:
+                self.cooling[cause_key(cause, other)] = {"until": now + wait, "n": repeats}
         return Verdict(n, wait, n >= SOURCES_TRIED, worth_logging)
 
     def causes(self, task):

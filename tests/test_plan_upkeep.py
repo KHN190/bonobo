@@ -1064,6 +1064,25 @@ class HeldPlans(unittest.TestCase):
                 got = q.b.plan_proposals(snapshot(state(), inventory(*items)), None)
                 self.assertEqual([i.kind for i in got], want)
 
+    def test_a_failure_cools_where_it_happened(self):
+        """A step that walked away from where its round began is cooled at both places (the feet at the failure: the
+        last /state read, no read of its own)."""
+        from unittest import mock
+        start, far = (0.0, 64.0, 0.0), (70.0, 64.0, 0.0)
+        # (situation, the feet last read at the failure) → (ready at the start, ready where it failed)
+        rows = [("failed 70 blocks away: cooled at both", far, (False, False)),
+                ("must fail: the failure's place unread: retried where it failed", None, (False, True))]
+        for name, seen, want in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp, Queue_(tmp) as q, \
+                    mock.patch.object(api.STATE, "feet_seen", seen):
+                q.b.place = retry.place_signature(start, False)
+                q.b.failed("seek bed", api.NotAvailable("could not find white_bed"))
+                got = []
+                for at in (start, far):
+                    q.b.place = retry.place_signature(at, False)
+                    got.append(q.b.ready("seek bed"))
+                self.assertEqual(tuple(got), want)
+
     def test_idle_beside_the_queue(self):
         """plan_proposals: stocking only when the queue has nothing that can run now, and never into the queue
         (tool_tier__one_use: a queued sword took over whenever the row's own task cooled)."""

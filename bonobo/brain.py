@@ -183,11 +183,20 @@ class Brain:
         self.mem.record_outcome(name, False)
         cause = retry.cause_of(err)
         self.reflexes.failed(cause, err, self.place)
-        verdict = self.retry.failed(name, cause, str(err), time.time(), self.place)
+        here = self.place_now()
+        verdict = self.retry.failed(name, cause, str(err), time.time(), self.place,
+                                    also_at=(here,) if here is not None else ())
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
                 f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s)")
         return verdict
+
+    def place_now(self):
+        """Where the body stood at the last /state read, as causes are cooled (the round's start place may be 70
+        blocks back); no read of its own — a failure is counted without asking the world."""
+        feet = api.feet_seen()
+        night = self.place[1] if self.place else False
+        return retry.place_signature(feet, night) if feet is not None else None
 
     def ready(self, name, cause=None):
         return self.retry.ready(name, time.time(), self.place, cause)
