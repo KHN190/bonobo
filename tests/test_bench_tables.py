@@ -725,14 +725,22 @@ class DeflectCells(unittest.TestCase):
         eye = wf.deflect_eye()
         ball, m = wf.shot_at()
         back = tuple(-c for c in m)
+
+        def at(k):              # the ball k steps along its shot (toward the eye)
+            return tuple(ball[i] + m[i] * k for i in range(3))
         moved = tuple(eye[i] + (ball[i] - eye[i]) * 2 for i in range(3))     # the body past the ball, down the corridor
-        # (situation, its (pos, velocity, the body's eye then) reads, gone) → (resolved, deflected)
-        rows = [("velocity turned away from the body: deflected", [(ball, m, eye), (ball, back, eye)], False,
+        # (situation, its (pos, velocity field, the body's eye then) reads, gone) → (resolved, deflected)
+        rows = [("came, then moved away: deflected", [(at(0), m, eye), (at(5), m, eye), (at(2), back, eye)], False,
                  (True, True)),
-                ("must fail: exploded without turning", [(ball, m, eye), (ball, m, eye)], True, (True, False)),
-                ("must fail: still coming, not resolved", [(ball, m, eye), (ball, m, eye)], False, (False, None)),
+                ("a copy moving only every few reads, flying away: turned",
+                 [(at(0), m, eye), (at(0), (0, 0, 0), eye), (at(5), (0, 0, 0), eye), (at(5), (0, 0, 0), eye),
+                  (at(1), (0, 0, 0), eye)], False, (True, True)),
+                ("must fail: a zero-velocity field said away, the ball not moving: no turn",
+                 [(at(0), m, eye), (at(5), m, eye), (at(5), back, eye)], False, (False, None)),
+                ("must fail: exploded without turning", [(at(0), m, eye), (at(5), m, eye)], True, (True, False)),
+                ("must fail: still coming, not resolved", [(at(0), m, eye), (at(5), m, eye)], False, (False, None)),
                 ("must fail: flew past a body that moved: judged from where it stands, not a turn",
-                 [(ball, m, moved), (ball, m, moved)], False, (False, None))]
+                 [(at(0), m, moved), (at(5), m, moved)], False, (False, None))]
         for name, reads, gone, want in rows:
             with self.subTest(name):
                 self.assertEqual(wf.fireball_end(reads, gone), want)
