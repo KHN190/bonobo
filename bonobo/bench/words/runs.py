@@ -296,6 +296,39 @@ def _on_progress(name, base, action, times=1):
 INJECTED = "bench: injected interrupt"
 
 
+def task_due(task, fired_ids, caught, fired, times):
+    """Pure: inject now? A jar task running that no injection has hit, the last injection caught (the work resumed),
+    fewer than `times` injected. Injected on the bag's gain it landed after the work's last check (caught 0)."""
+    if fired >= times or caught < fired or not task or task.get("status") != "running":
+        return False
+    return task.get("id") not in fired_ids
+
+
+def _on_task(name, action, times=1):
+    """`before` hook: `action()` while a jar task of the run is running (/state control.task) — its wait sees the
+    interrupt at the task's end; for more than one, each on the next running task after the last was caught."""
+    def hook(ctx):
+        from ... import api
+
+        def watch():
+            t0, fired, fired_ids = time.time(), 0, set()
+            while fired < times and time.time() - t0 < 120 and BASE.get("name") == name:
+                try:
+                    task = (api.get("/state").get("control") or {}).get("task")
+                    if task is not None and task_due(task, fired_ids, INTERRUPTS.get(name, 0), fired, times):
+                        api.detail(f"bench: {name} injects on running task {task.get('id')} {task.get('type')}"
+                                   f" at {time.time() - t0:.1f}s")
+                        action()
+                        fired_ids.add(task.get("id"))
+                        fired += 1
+                        continue
+                except api.McError:
+                    pass
+                time.sleep(0.05)
+        _threading.Thread(target=watch, daemon=True).start()
+    return hook
+
+
 def _inject_interrupt(message=INJECTED):
     """Leave an interrupt for the running work, as perception does (api.request_interrupt)."""
     from ... import api
@@ -502,4 +535,4 @@ def hungry(ctx):
 
 HOOKS = {"hungry": hungry}
 
-__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
+__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']

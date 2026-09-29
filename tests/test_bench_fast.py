@@ -91,6 +91,23 @@ class TheInterruptIsSaid(unittest.TestCase):
                 self.assertIsNone(api.interrupt_pending(), "nothing left for the next row")
 
 
+class AnInjectionLandsWhileATaskRuns(unittest.TestCase):
+    def test_rows(self):
+        from bonobo.bench.words import runs
+        run = {"id": 7, "type": "mine", "status": "running"}
+        # (situation, task, ids hit, caught, fired, times) → inject now
+        rows = [("a task running: inject", run, set(), 0, 0, 1, True),
+                ("must fail: no task running (the work between tasks or done)", None, set(), 0, 0, 1, False),
+                ("must fail: a task that finished", dict(run, status="succeeded"), set(), 0, 0, 1, False),
+                ("must fail: twice, the first not yet caught", dict(run, id=8), {7}, 0, 1, 2, False),
+                ("twice: the next running task after the resume", dict(run, id=8), {7}, 1, 1, 2, True),
+                ("must fail: twice, the same task again", run, {7}, 1, 1, 2, False),
+                ("must fail: all injected", dict(run, id=9), {7, 8}, 2, 2, 2, False)]
+        for name, task, ids, caught, fired, times, want in rows:
+            with self.subTest(name):
+                self.assertEqual(runs.task_due(task, ids, caught, fired, times), want)
+
+
 class AReportKeepsItsTrace(unittest.TestCase):
     """The failed row's report holds copies: the next row clears TRACE_NOW before the report's thread writes."""
 

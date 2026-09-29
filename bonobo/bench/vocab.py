@@ -582,7 +582,10 @@ def base_row(name, base, cond=None, surprise=None):
     if kind:
         act = {"mid": "inject_interrupt", "twice": "inject_interrupt", "contested": "post_foreign_task",
                "player": "take_over"}.get(kind)
-        if act:
+        if act == "inject_interrupt":
+            # while a jar task runs: on the bag's gain it landed after the work's last check
+            hooks.append(("on_task", name, ("&" + act,)) + ((2,) if kind == "twice" else ()))
+        elif act:
             hooks.append(("on_progress", name, _progress(b), ("&" + act,)) + ((2,) if kind == "twice" else ()))
         else:
             hooks.append(("interrupt_when", ("!gained_at_least",) + tuple(b["effect"]), None,
