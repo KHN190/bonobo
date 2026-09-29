@@ -65,18 +65,42 @@ def decision(layer, pick, worth=None, why="", t=None, sink=None):
 
 
 def task(name, outcome, seconds, source=None, t=None, sink=None):
-    """A task's end: outcome and seconds; an interruption names its source."""
+    """A task's end: outcome and seconds; an interruption names its source (and its next start is a resume)."""
     src = f" by {source}" if source else ""
+    if outcome == "interrupted":
+        STATE.setdefault("interrupted", {})[name] = source
     emit("task", f"{name}: {outcome}{src} ({seconds:.1f}s)", t, sink, name=name, outcome=outcome,
          seconds=round(seconds, 1), source=source)
 
 
-def goal(text, t=None, sink=None):
-    """The goal, when it changes."""
+def task_start(name, t=None, sink=None):
+    """A task starting: said only when it resumes one an interruption stopped."""
+    pending = STATE.get("interrupted", {})
+    if name in pending:
+        source = pending.pop(name)
+        emit("resume", f"{name}: resumed after {source or 'an interruption'}", t, sink, name=name, source=source)
+
+
+def goal(text, counts=None, t=None, sink=None):
+    """The goal, when it changes — the goal it replaces closed with what the bag gained under it (`counts`: the bag
+    now, {id: n})."""
     if STATE.get("goal") == text:
         return
-    STATE["goal"] = text
+    t = time.time() if t is None else t
+    was, since, start = STATE.get("goal"), STATE.get("goal_t"), STATE.get("goal_bag")
+    if was is not None and counts is not None and start is not None:
+        gained = gains(start, counts)
+        if gained:
+            took = f" in {t - since:.0f}s" if since is not None else ""
+            emit("progress", f"{was}: " + ", ".join(f"+{n} {k.split(':')[-1]}" for k, n in gained.items()) + took,
+                 t, sink, goal=was, gained=gained)
+    STATE.update(goal=text, goal_t=t, goal_bag=dict(counts) if counts is not None else None)
     emit("goal", f"goal: {text}", t, sink, goal=text)
+
+
+def gains(before, after):
+    """Pure: the items the bag holds more of now ({id: +n})."""
+    return {k: n - before.get(k, 0) for k, n in sorted(after.items()) if n > before.get(k, 0)}
 
 
 def hurt(amount, hp, source=None, t=None, sink=None):

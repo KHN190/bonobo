@@ -196,6 +196,7 @@ class Brain:
         """Run fn under the failure policy; returns "ok", "failed" or "interrupted". Failures also count under `also`."""
         self.last_failure = None
         began = time.time()
+        events.task_start(name, t=began)
         try:
             fn()
             err = None
@@ -277,7 +278,7 @@ class Brain:
         nav.forget_routes()
         snap = Snapshot.from_readings(api.get("/state"), Inventory())
         self._mark("snap")
-        events.milestones({x["id"]: x.get("count", 1) for x in snap.inv.slots})
+        events.milestones(_bag_counts(snap))
         self.mem.clock = snap.state.get("gameTime")      # None on a jar before 0.1.39: notes then never expire
         self.mem.observe_phase(snap.night)
         self.place = retry.place_signature(snap.feet, snap.night)
@@ -300,7 +301,7 @@ class Brain:
             self.idle_since = self.idle_since or time.time()
             self.hold_log("nothing to do; waiting")
             intent.set("goal", "holding: nothing to do")
-            events.goal("holding: nothing to do")
+            events.goal("holding: nothing to do", _bag_counts(snap))
             if not self.planning:
                 return                         # a fight row's round: its caller polls again, no idle wait posted
             jobs = self.mem.jobs(snap.dimension)
@@ -310,7 +311,7 @@ class Brain:
             return
         self.idle_since = None
         intent.set("goal" if act.layer in ("task", "idle") else "safety", repr(act))
-        events.goal(repr(act))
+        events.goal(repr(act), _bag_counts(snap))
         if act.layer == "L0":
             tape.end(self, act, snap)
             act.run()
@@ -634,6 +635,13 @@ def phase_ms(t0, marks, end):
         last = t
     out["act"] = out.get("act", 0.0) + (end - last) * 1000
     out["t"] = (end - t0) * 1000
+    return out
+
+def _bag_counts(snap):
+    """{id: count} of the bag in a snapshot (for the event log's goal progress and milestones)."""
+    out = {}
+    for x in snap.inv.slots:
+        out[x["id"]] = out.get(x["id"], 0) + int(x.get("count", 1))
     return out
 
 def round_line(ms, gap_ms):

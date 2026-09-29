@@ -33,6 +33,24 @@ class Events(unittest.TestCase):
             events.anomaly("slow round", "6.0s", t=1.0, sink=out)
         self.assertEqual([r["count"] for r in out if r["kind"] == "anomaly"], [1, 10, 100])
 
+    def test_resume(self):
+        out = []
+        events.task("mine", "interrupted", 3.0, "layer:tactic", t=1.0, sink=out)
+        events.task_start("mine", t=5.0, sink=out)
+        events.task_start("mine", t=9.0, sink=out)          # must fail: a second start said as a resume
+        events.task_start("chop", t=9.0, sink=out)          # never interrupted: nothing said
+        self.assertEqual([r["kind"] for r in out], ["task", "resume"])
+
+    def test_goal_progress(self):
+        out = []
+        events.goal("gather logs", {"minecraft:oak_log": 1}, t=0.0, sink=out)
+        events.goal("mine iron", {"minecraft:oak_log": 5, "minecraft:dirt": 1}, t=30.0, sink=out)
+        prog = [r for r in out if r["kind"] == "progress"]
+        self.assertEqual(prog[0]["gained"], {"minecraft:dirt": 1, "minecraft:oak_log": 4})
+        # must fail: a goal that gained nothing still says progress
+        events.goal("craft", {"minecraft:oak_log": 5, "minecraft:dirt": 1}, t=40.0, sink=out)
+        self.assertEqual(len([r for r in out if r["kind"] == "progress"]), 1)
+
     def test_rows(self):
         out = []
         rows = [("a slow round is an anomaly", lambda: events.round_time(events.SLOW_ROUND_S + 1, t=1.0, sink=out), 1),
