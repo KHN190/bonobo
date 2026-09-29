@@ -45,6 +45,37 @@ class FromProduction(unittest.TestCase):
         self.assertEqual(unreachable[-1][-1], ORIGIN[0] + gap_x)       # must fail: 10004, not the scene's gap
 
 
+class Floors(unittest.TestCase):
+    def test_hazard_rows_share_one_floor(self):
+        import json
+        from bonobo.bench.core import KEPT_HP
+        from bonobo.data import CRITICAL_HP
+        self.assertEqual(KEPT_HP, CRITICAL_HP + 1)
+        sheet = table.SCENARIOS
+        # must fail: a floor typed per row (16, 14, 10, 8, 18)
+        for name in ("water_clutch", "buried_by_sand", "drowning_in_a_pit", "bed_in_nether", "lava_under_ore",
+                     "falling_gravel"):
+            with self.subTest(name):
+                words = json.dumps(getattr(sheet[name]["check"], "__table__", None) or
+                                   [getattr(p, "__table__", None) for p in getattr(sheet[name]["check"], "parts", ())])
+                self.assertIn(f'"alive", {KEPT_HP}', words.replace("!", ""))
+
+    def test_dig_in_depth(self):
+        # must fail: "one down" (y < 200) judged as a dug-in body
+        from bonobo.bench import bench_brain as bb2, bench_common as bc
+        from bonobo.survive import DIG_IN_DEPTH
+        one = {r[0]: r for fam, params in bc.FAMILIES if fam == "one" for r in params}["dig_in_night"]
+        self.assertIn(("!state", "blockY", "<=", ORIGIN[1] - DIG_IN_DEPTH), one[5])
+        up = {r[0]: r for fam, params in bb2.FAMILIES if fam == "upkeep" for r in params}["shelter_dig_in"]
+        self.assertIn(("!state", "blockY", "<=", ORIGIN[1] - DIG_IN_DEPTH), up[-1])
+
+    def test_slept_through(self):
+        from bonobo.survive import SLEEP_FROM_TICKS
+        self.assertTrue(wb.slept_through(SLEEP_FROM_TICKS, DAY_END - 1))
+        self.assertFalse(wb.slept_through(SLEEP_FROM_TICKS - 1, 0))           # must fail: begun before beds work
+        self.assertFalse(wb.slept_through(SLEEP_FROM_TICKS, DAY_END))         # the night not over
+
+
 class SceneNow(unittest.TestCase):
     def test_sent_as_the_scene_words_build_it(self):
         words = [("fill", ("@", -1, 0, -1), ("@", 1, 1, 1), "stone"), ("stand", 0, 30)]

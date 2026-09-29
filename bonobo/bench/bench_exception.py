@@ -2,6 +2,7 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 from ..explore import SEEK_RANGE, TRAVEL_RANGE
+from .core import ORIGIN
 
 FAMILIES = [
     ('lava_strip', [('cross_lava_3', 3, 22), ('cross_lava_lake', 12, 25)]),
@@ -489,7 +490,7 @@ ROWS = [
                 ('give', 'stone_pickaxe'), ('give', 'cooked_beef', 8), ('give', 'cobblestone', 16), ('time', 13000)],
          run=('brain_rounds', 30, ('!now', ('!count', 'minecraft:raw_iron', '>=', 1))),
          before=[('start', 'night_mines_under_cover')],
-         check=[('count', 'minecraft:raw_iron', '>=', 1), ('state', 'blockY', '<', 198)], budget=25, point='C',
+         check=[('count', 'minecraft:raw_iron', '>=', 1), ('state', 'blockY', '<', ORIGIN[1])], budget=25, point='C',
          skills=['mine'], tier_fixed='exception', tags={'base': 'night'},
          expect=[(('@', 1, -13, 1), ('@', 2, -12, 2), 'iron_ore', 8, 8)]),
     dict(name='craft_chain_one_sitting', module='skills',

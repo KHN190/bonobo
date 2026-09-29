@@ -5,9 +5,9 @@ from ..explore import TRAVEL_RANGE
 from ..reflexes import EAT_BELOW, UNSTUCK_MOVED
 from .words.scene import TREE_HEIGHT
 
-from .core import ORIGIN
+from .core import KEPT_HP, ORIGIN
 from ..reflexes import BAG_FULL
-from ..survive import _pod_cells
+from ..survive import DIG_IN_DEPTH, _pod_cells
 
 GAP_X = 4                  # night_dig_in_dirt_unreachable: the drop between the body and the dirt starts at @+4
 
@@ -35,7 +35,7 @@ FAMILIES = [
                  ('give', 'oak_log', LOGS_CARRIED), ('cmd', 'item replace entity @p armor.chest with iron_chestplate')],
                 [{'goal': 'have', 'args': {'needs': [['log', LOGS_WANTED]]}}], ('now', ('!count', 'log', '>=', LOGS_WANTED)),
                 1, ('all', ('!count', 'log', '>=', LOGS_WANTED), ('!count', 'log', '<=', LOGS_CARRIED + TREE_HEIGHT),
-                    ('!gone', ['minecraft:zombie']), ('!alive', 10)),
+                    ('!gone', ['minecraft:zombie']), ('!alive', KEPT_HP)),
                 [('summon_after', 1.5, 'zombie', ('@', 1, 0, 1))], ['_summon_after'])]),
     ('upkeep', [('eat', 'hungry, bread carried → eaten (the food bar rises)',
                  [('floor',), ('stand',), ('give', 'bread', 4)], [('&hunger_drained',)],
@@ -139,7 +139,7 @@ FAMILIES = [
           ('count', 'minecraft:bread', '==', 4)),
          ('shelter_dig_in', 'night, a pickaxe → dug in: below the floor, enclosed',
           [('sheet', '_NIGHT_FLOOR'), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 8)], [], ('&enclosed',),
-          ('all', ('!call', 'enclosed', []), ('!state', 'y', '<', 199.5))),
+          ('all', ('!call', 'enclosed', []), ('!state', 'blockY', '<=', ORIGIN[1] - DIG_IN_DEPTH))),
          ('shelter_hut',
           "night, no pickaxe, the hut's materials (cobblestone, a door, a torch) → sheltered by the way the night's "
           'pricing chose',

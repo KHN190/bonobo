@@ -1,6 +1,8 @@
 """Bench table, common tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
+from .core import ORIGIN
+from ..survive import DIG_IN_DEPTH
 
 FAMILIES = [
     ('lava_strip', [('cross_lava_8', 8, 25, 'B')]),
@@ -9,7 +11,7 @@ FAMILIES = [
     ('one', [('dig_in_night', ['shelter:dig in'], 'night on stone, a pickaxe → three down, sealed',
           [('floor', 'stone', 8, 4), ('stand',), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 8),
            ('time', 18000)],
-          ('skill', 'dig_in'), ('all', ('!state', 'blockY', '<', 200), ('!call', 'enclosed', [])), 25),
+          ('skill', 'dig_in'), ('all', ('!state', 'blockY', '<=', ORIGIN[1] - DIG_IN_DEPTH), ('!call', 'enclosed', [])), 25),
          ('reach_land_swim', ['reach:land'], 'night, treading water 10 blocks from shore → on dry land',
           [('tank', -8, 9, -8, 8, 1, -1, -4, 'glass', 'east'), ('fill', ('@', 10, -3, -8), ('@', 14, -1, 8), 'stone'),
            ('stand',), ('time', 18000)],

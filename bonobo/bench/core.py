@@ -5,6 +5,7 @@ import os
 import time
 
 from .. import lifecycle, paths
+from ..data import CRITICAL_HP
 
 SCENARIOS = {}
 
@@ -12,7 +13,8 @@ FLAG = paths.data("test-world")
 TABLE = paths.data("readiness.json")
 NOTES = paths.data("test-world-notes.json")
 BENCH = paths.data("bench")
-ORIGIN = (10000, 200, 10000)   # a sky platform: skills search 48 blocks, natural terrain (y ≤ ~120) stays out of it
+ORIGIN = (10000, 200, 10000)
+KEPT_HP = CRITICAL_HP + 1      # a hazard row's floor: above perception's critical health   # a sky platform: skills search 48 blocks, natural terrain (y ≤ ~120) stays out of it
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # everything a scenario touches lies in this box (cleared and force-loaded before each setup)
 BOX = ((-10, -17, -10), (20, 9, 10))   # down to -17: the underground rows (cave_escape, night_mines) are reset too

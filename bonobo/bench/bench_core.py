@@ -1,6 +1,7 @@
 """Bench table, core tier: rows as data in `bench/vocab.py`'s words, built by `bench/table.py`.
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 Built into the one SCENARIOS by table.py."""
+from .core import KEPT_HP
 
 FAMILIES = [
     ('base', [('nav',), ('chop',), ('mine_stone',), ('mine_iron',), ('craft',), ('smelt',), ('hunt',), ('eat',), ('sleep',),
@@ -23,7 +24,7 @@ ROWS = [
               '(health ≥ 16) and scooped back (the bucket full again)'),
          scene=[('sheet', '_FALL_FLOOR'), ('give', 'water_bucket')], run=('&wait_landed',),
          before=[('scene_now', [('stand', 0, 30)])],
-         check=[('state', 'health', '>=', 16), ('not', ('!state', 'dead')),
+         check=[('alive', KEPT_HP),
                 ('count', 'minecraft:water_bucket', '>=', 1)],
          budget=15, stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)],
          mod=['nets', 'use'], point='B'),
@@ -54,7 +55,7 @@ ROWS = [
                  ('scene_now', [('fill', ('@', -1, 0, -1), ('@', 1, 1, 1), 'stone'),
                                 ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'sand')]),
                  ('&buried_first',)],
-         check=[('call', 'head_clear', []), ('alive', 10)], budget=20, point='B', skills=['unbury'],
+         check=[('call', 'head_clear', []), ('alive', KEPT_HP)], budget=20, point='B', skills=['unbury'],
          tags={'base': 'l0', 'hazard': 'suffocating'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
     dict(name='drowning_in_a_pit', module='brain',
@@ -65,6 +66,6 @@ ROWS = [
                 ('fill', ('@', -1, 4, -1), ('@', 1, 4, 1), 'water'), ('fill', ('@', -4, 5, -4), ('@', 4, 7, 4), 'air'),
                 ('stand', 0, -3)],
          run=('brain_rounds', 28, ('!now_api', ('!surfaced', 4, 0))), before=[('start', 'drowning_in_a_pit')],
-         check=[('alive', 8), ('surfaced', 4)], budget=25, point='B', skills=['reach:air'],
+         check=[('alive', KEPT_HP), ('surfaced', 4)], budget=25, point='B', skills=['reach:air'],
          tags={'base': 'l0', 'hazard': 'drowning'}, expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
 ]

@@ -1,5 +1,6 @@
 """The bases, their conditions and surprises: one small job each, changed one way at a time (vocab.base_row
 makes a row of (base, condition | surprise)). Plain data in `vocab`'s words; the tiers' tables name the pairs."""
+from .core import KEPT_HP
 
 BASES = {
     'nav': dict(skills=['goto'], doc='walk 8 blocks east over the arena', point='A',
@@ -152,7 +153,7 @@ SURPRISES = {
                         dimension='minecraft:the_nether', replace_setup=True,
                         scene=[('floor', 'netherrack'), ('stand',), ('give', 'white_bed'), ('time', 18000)],
                         fails='nether|dimension|explod',
-                        check=('all', ('!alive', 18), ('!no_block_suffix', ('@', -4, -1, -4), ('@', 4, 2, 4), '_bed'))),
+                        check=('all', ('!alive', KEPT_HP), ('!no_block_suffix', ('@', -4, -1, -4), ('@', 4, 2, 4), '_bed'))),
     'nav_sealed_in': dict(base='nav', doc='the body sealed in bedrock: no way out, and it says so', replace_setup=True,
                         scene=[('floor',), ('fill', ('@', -1, -1, -1), ('@', 1, 2, 1), 'bedrock'),
                                ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'), ('stand',)],
@@ -170,11 +171,12 @@ SURPRISES = {
                            scene=[('floor',), ('stand',)], fails='nothing edible', check=('same_bag',)),
     'lava_under_ore': dict(base='mine_iron', doc='lava right under the iron ore, blocks carried → sealed, then mined',
                          scene=[('setblock', ('@', 2, -1, 0), 'lava'), ('give', 'cobblestone', 4)],
-                         check=('all', ('!gain', 'minecraft:raw_iron', 1), ('!alive', 14))),
+                         check=('all', ('!gain', 'minecraft:raw_iron', 1), ('!alive', KEPT_HP))),
     'falling_gravel': dict(base='mine_stone', doc='gravel stacked over the stone to be mined',
                          scene=[('fill', ('@', -3, 0, -3), ('@', 3, 3, 3), 'gravel'),
                                 ('fill', ('@', -1, 0, -1), ('@', 1, 3, 1), 'air')],
-                         check=('all', ('!gain', 'minecraft:cobblestone', 6), ('!alive', 14))),
+                         check=('all', ('!gain', 'minecraft:cobblestone', BASES['mine_stone']['needs'][0][1]),
+                                ('!alive', KEPT_HP))),
     'start_cell_on_a_fence': dict(base='nav',
                                 doc=('the walk starts standing on a fence post (the mod judged such a start cell '
                                      "unstandable: '1 positions explored')"),

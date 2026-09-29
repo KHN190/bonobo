@@ -22,6 +22,7 @@ import sys
 import time
 from .. import core, runner
 from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
+from ...survive import DIG_IN_DEPTH, SLEEP_FROM_TICKS
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, _inv_has, at, server_count, set_brain)
@@ -86,7 +87,7 @@ FIRST_WATCH = {"gen": 0}   # the row whose watcher may write FIRST: a new row's 
 
 def slept_through(start_tod, tod):
     """Pure: the row began at night and the day is back — only a sleep turns it (the arena's clock stands still)."""
-    return int(start_tod) % DAY_TICKS >= 12542 and int(tod) % DAY_TICKS < 12000
+    return int(start_tod) % DAY_TICKS >= SLEEP_FROM_TICKS and int(tod) % DAY_TICKS < DAY_END
 
 def first_step(gen, t0, inv, base_count, furnace_beef, now, morning=lambda: False):
     """One look of a row's watcher: stamp each token first above the row's start, on this row's clock. False (and
@@ -396,7 +397,7 @@ def _night_rule(cell):
                 "night on the surface, a bed carried: slept first")
     if cell["dusk"] != "plenty":
         return _before_in_bag("bed", "minecraft:raw_iron", or_never=True), "dusk or night on the surface: a bed first"
-    return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < 13000 and inv.count("bed") == 0,
+    return (lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < SLEEP_FROM_TICKS and inv.count("bed") == 0,
             "daylight: no bed made, no sleep (must not)")
 
 def _bag_rule(cell):
@@ -571,7 +572,7 @@ DIRT_PATCH = (at(7, -3, -1), at(8, -1, 1))
 def _in_the_patch_underground(api, inv):
     s = api.get("/state")
     (x0, _y0, z0), (x1, _y1, z1) = DIRT_PATCH
-    return (x0 <= s["blockX"] <= x1 and z0 <= s["blockZ"] <= z1 and s["blockY"] <= at(0, 0, 0)[1] - 2
+    return (x0 <= s["blockX"] <= x1 and z0 <= s["blockZ"] <= z1 and s["blockY"] <= at(0, 0, 0)[1] - DIG_IN_DEPTH
             and _enclosed())
 
 # eating on the move by the jar's autoeat, still walking while chewing; control: mining is not interrupted to eat
