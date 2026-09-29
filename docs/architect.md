@@ -35,6 +35,16 @@ A lease holder owns the body; others' posts raise `FightHolds` and wait (`skill.
 `decompose.decompose(inv, goal, cost)` → steps. `cost.Cost` prices them (walk + work, ticks).
 `dispatch.execute` runs one step through its skill provider. Crafts in a row share one table sitting.
 
+## Estimates (`estimate.py`)
+
+```
+arrival_s        when it can touch us
+pressure_hp_s    health per second lost while it can act
+act_cost_s       an action's health and time as one number
+state_price_s    what the future costs from a state
+saved_s          price(before) − price(after) − cost: the one decision rule
+```
+
 ## Modules
 
 ```
