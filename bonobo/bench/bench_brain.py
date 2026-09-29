@@ -2,6 +2,12 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
+from .core import ORIGIN
+from ..reflexes import BAG_FULL
+from ..survive import _pod_cells
+
+GAP_X = 4                  # night_dig_in_dirt_unreachable: the drop between the body and the dirt starts at @+4
+
 FAMILIES = [
     ('brain', [('plan_repair_on_event',
           'Planks + cobblestone + a wooden pickaxe carried (upkeep quiet), a stone pickaxe asked; the table the plan '
@@ -72,7 +78,7 @@ FAMILIES = [
           ('gain', 'minecraft:iron_ingot', 3)),
          ('empty_the_bag', 'a full bag (dirt in every slot) → room made',
           [('floor',), ('stand',), ('give', 'dirt', 2304), ('give', 'stone_pickaxe')], [],
-          ('now', ('!bag', 'used_slots', [], '<', 34)), ('bag', 'used_slots', [], '<', 34)),
+          ('now', ('!bag', 'used_slots', [], '<', BAG_FULL)), ('bag', 'used_slots', [], '<', BAG_FULL)),
          ('no_pickaxe', 'no pickaxe, planks + sticks + a table carried → a pickaxe made',
           [('floor',), ('stand',), ('give', 'oak_planks', 6), ('give', 'stick', 4), ('give', 'crafting_table')], [],
           ('now', ('!bag', 'tools', ['pickaxe'])), ('bag', 'tools', ['pickaxe'])),
@@ -108,7 +114,8 @@ FAMILIES = [
           ('&enclosed',), ('call', 'enclosed', [])),
          ('shelter_wall_in', 'night, no pickaxe, cobblestone only → walled in where it stands',
           [('sheet', '_NIGHT_FLOOR'), ('give', 'cobblestone', 16)], [], ('&enclosed',),
-          ('all', ('!call', 'enclosed', []), ('!blocks', ('@', -1, 0, -1), ('@', 1, 2, 1), ('cobblestone',), 9))),
+          ('all', ('!call', 'enclosed', []), ('!blocks', ('@', -1, 0, -1), ('@', 1, 2, 1), ('cobblestone',),
+                                               len(_pod_cells((0, 0, 0)))))),
          ('shelter_not_with_a_bed', 'night, a bed and cobblestone carried → slept, no shelter built (must not)',
           [('sheet', '_NIGHT_FLOOR'), ('give', 'white_bed'), ('give', 'cobblestone', 16)], [], ('&is_day_now',),
           ('all', ('!is_day',), ('!blocks', ('@', -3, 0, -3), ('@', 3, 2, 3), ('cobblestone',), 0, 0)))]),
@@ -119,8 +126,8 @@ FAMILIES = [
          ('night_dig_in_dirt_unreachable',
           "the same dirt across a drop to nothing, a pod's blocks carried → never walked to (must not): walled in on "
           'its own side of the gap',
-          [('fill', ('@', 4, -3, -8), ('@', 5, -1, 8), 'air'), ('give', 'cobblestone', 10)], ('&enclosed',),
-          ('state', 'blockX', '<', 10004))]),
+          [('fill', ('@', GAP_X, -3, -8), ('@', GAP_X + 1, -1, 8), 'air'), ('give', 'cobblestone', 10)], ('&enclosed',),
+          ('state', 'blockX', '<', ORIGIN[0] + GAP_X))]),
 ]
 ROWS = [
 
@@ -128,6 +135,7 @@ ROWS = [
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
 _IRON_TWO = [("floor",), ("setblock", ("@", -4, 0, 0), "iron_ore"), ("setblock", ("@", 4, 0, 0), "iron_ore"), ("stand",)]
+LOGS_WANTED, LOGS_CARRIED = 4, 2          # resume_after_combat
 CODE_ROWS = [
     # the interruption lands by progress (the first ore in the bag: the walk to the second one), not a fight
     brain_row("ban_needs_a_failure",
@@ -144,10 +152,12 @@ CODE_ROWS = [
     brain_row("resume_after_combat",
               "4 logs wanted, 2 carried, the best axe; a zombie summoned beside it mid-way → fight_loop answers it, "
               "then the chopping resumes for what is still missing",
-              [("grove", (3, 0)), ("stand",), ("give", "iron_sword"), ("give", "diamond_axe"), ("give", "oak_log", 2),
-               ("cmd", "item replace entity @p armor.chest with iron_chestplate")],
-              [_have(("log", 4))], lambda: _inv_now().count("log") >= 4, 1,
-              _all(lambda api, inv: 4 <= inv.count("log") <= 7, _gone(["minecraft:zombie"]), _alive(10)),
+              [("grove", (3, 0)), ("stand",), ("give", "iron_sword"), ("give", "diamond_axe"),
+               ("give", "oak_log", LOGS_CARRIED), ("cmd", "item replace entity @p armor.chest with iron_chestplate")],
+              [_have(("log", LOGS_WANTED))], lambda: _inv_now().count("log") >= LOGS_WANTED, 1,
+              # at most what was carried plus the one tree's trunk
+              _all(lambda api, inv: LOGS_WANTED <= inv.count("log") <= LOGS_CARRIED + TREE_HEIGHT,
+                   _gone(["minecraft:zombie"]), _alive(10)),
               [lambda ctx: _threading.Timer(1.5, lambda: _chat(
                   f"summon zombie {_c(at(1, 0, 1))} {{PersistenceRequired:1b}}")).start()], ["<lambda>"]),
     upkeep_row("upkeep__eat", "eat", "hungry, bread carried → eaten (the food bar rises)",
@@ -178,8 +188,7 @@ CODE_ROWS = [
          setup=SEARCH_ARENA + [f"setblock {_c(SEARCH_ORE)} diamond_ore", "give @p diamond_pickaxe", "give @p cobblestone 16"],
          before=_hooks(_start("search_night_resume"), _seen("diamond_ore", SEARCH_ORE), _count_finds,
                        _when(walked_at_least(6), _set_time(13000)),
-                       _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)())),
-                       lambda ctx: SEARCH_FLAGS.clear()),
+                       _when(lambda: _enclosed(), lambda: (SEARCH_FLAGS.update(sheltered=True), _set_time(0)()))),
          queue=[_have(("minecraft:diamond", 1))],
          run=_slice(_inv_has("minecraft:diamond", 1), 0.45, queue=[_have(("minecraft:diamond", 1))]),
          check=_all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False)),

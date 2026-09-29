@@ -22,7 +22,7 @@ ROWS = [
          doc=('Dropped 30 blocks above stone, a water bucket in the main bag (not the hotbar) → water poured in time '
               '(health ≥ 16) and scooped back (the bucket full again)'),
          scene=[('sheet', '_FALL_FLOOR'), ('give', 'water_bucket')], run=('&wait_landed',),
-         before=[('do', 'chat', ['tp @p 10000.5 230 10000.5'], {})],
+         before=[('scene_now', [('stand', 0, 30)])],
          check=[('state', 'health', '>=', 16), ('not', ('!state', 'dead')),
                 ('count', 'minecraft:water_bucket', '>=', 1)],
          budget=15, stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)],
@@ -51,8 +51,8 @@ ROWS = [
          scene=[('floor',), ('stand',), ('give', 'stone_pickaxe')], run=('brain_rounds', 15, ('&head_clear',)),
          before=[('start', 'buried_by_sand'),
                  # a stone ring round feet and head, so the sand cannot push the body out sideways
-                 ('do', 'chat', ['fill 9999 200 9999 10001 201 10001 stone'], {}),
-                 ('do', 'chat', ['fill 10000 200 10000 10000 203 10000 sand'], {}),
+                 ('scene_now', [('fill', ('@', -1, 0, -1), ('@', 1, 1, 1), 'stone'),
+                                ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'sand')]),
                  ('&buried_first',)],
          check=[('call', 'head_clear', []), ('alive', 10)], budget=20, point='B', skills=['unbury'],
          tags={'base': 'l0', 'hazard': 'suffocating'},

@@ -21,7 +21,7 @@ import re
 import sys
 import time
 from .. import core, runner
-from ...data import DAY_TICKS, POD_BLOCKS  # noqa: F401
+from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
@@ -59,13 +59,9 @@ def _base_bag():
     return Inventory(got) if isinstance(got, dict) else got
 
 def _start(name):
-    """`before` hook head: forget the last run's verdicts and remember the bag and body this run starts from."""
+    """`before` hook head: remember the bag and body this run starts from (the last run's records: lifecycle)."""
     def hook(ctx):
         from ... import api
-        FAILED_AS_EXPECTED.pop(name, None)
-        INTERRUPTS[name] = 0
-        RESUMED_LEFT.pop(name, None)
-        BASE.clear()
         BASE.update(name=name, inv=bag_now(), state=api.get("/state"), t=time.time())
     return hook
 
@@ -176,7 +172,7 @@ def _food_up():
     return check
 
 def _is_day():
-    return lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < 12500
+    return lambda api, inv: int(api.get("/state")["timeOfDay"]) % DAY_TICKS < DAY_END
 
 def _free_slots(n):
     return lambda api, inv: inv.free_slots() >= n

@@ -1,0 +1,58 @@
+"""Bench rows start clean and expect what production and the scene say: a row's records reset by the one registry
+(lifecycle), no copied constant, a mid-row scene change built from the scene words."""
+import os
+import sys
+import unittest
+from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from bonobo import lifecycle, reflexes, survive  # noqa: E402
+from bonobo.bench import table  # noqa: E402,F401  (the sheet built: every word module imported)
+from bonobo.bench import bench_brain as bb  # noqa: E402
+from bonobo.bench.core import ORIGIN  # noqa: E402
+from bonobo.bench.words import brain as wb, checks as wc, scene as ws  # noqa: E402
+from bonobo.data import DAY_END  # noqa: E402
+
+
+class RowRecords(unittest.TestCase):
+    def test_reset_by_lifecycle(self):
+        # must fail: a row's records outlive it (SEARCH_FLAGS was cleared only by one row's own hook)
+        for store, key in ((wb.SEARCH_FLAGS, "sheltered"), (wc.BASE, "name"), (wc.INTERRUPTS, "row"),
+                           (wc.RESUMED_LEFT, "row"), (wc.FIRST, "log")):
+            store[key] = 1
+        wb.FINDS["diamond"] = 3
+        lifecycle.reset_all()
+        self.assertEqual((wb.SEARCH_FLAGS, wc.BASE, wc.INTERRUPTS, wc.RESUMED_LEFT, wc.FIRST, wb.FINDS["diamond"]),
+                         ({}, {}, {}, {}, {}, 0))
+
+
+class FromProduction(unittest.TestCase):
+    def test_day(self):
+        # must fail: a copied dusk (12500) that drifts from data.DAY_END
+        day = wc._is_day()
+        self.assertTrue(day(type("A", (), {"get": lambda s, p: {"timeOfDay": DAY_END - 1}})(), None))
+        self.assertFalse(day(type("A", (), {"get": lambda s, p: {"timeOfDay": DAY_END}})(), None))
+
+    def test_row_values(self):
+        rows = {r[0]: r for fam, params in bb.FAMILIES if fam == "upkeep" for r in params}
+        bag = rows["empty_the_bag"][-1]
+        self.assertEqual(bag[-1], reflexes.BAG_FULL)                     # must fail: 34 typed in
+        wall = rows["shelter_wall_in"][-1][2]
+        self.assertEqual(wall[-1], len(survive._pod_cells((0, 0, 0))))   # must fail: 9 typed in
+        dirt = {r[0]: r for fam, params in bb.FAMILIES if fam == "dirt" for r in params}
+        unreachable = dirt["night_dig_in_dirt_unreachable"]
+        gap_x = unreachable[2][0][1][1]
+        self.assertEqual(unreachable[-1][-1], ORIGIN[0] + gap_x)       # must fail: 10004, not the scene's gap
+
+
+class SceneNow(unittest.TestCase):
+    def test_sent_as_the_scene_words_build_it(self):
+        words = [("fill", ("@", -1, 0, -1), ("@", 1, 1, 1), "stone"), ("stand", 0, 30)]
+        sent = []
+        with mock.patch("bonobo.bench.core._chat", sent.append):
+            ws.scene_now(words)(None)
+        self.assertEqual(sent, ws.scene(words))                          # must fail: an absolute copy
+
+
+if __name__ == "__main__":
+    unittest.main()

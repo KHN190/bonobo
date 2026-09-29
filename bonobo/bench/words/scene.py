@@ -37,7 +37,10 @@ def _floor(block="stone", half=8, depth=3):
 def _tp(dx: float = 0, dy: float = 0, dz: float = 0):
     return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
 
-def _tree(x, z, wood="oak", height=5):
+TREE_HEIGHT = 5            # logs in one bench tree (its trunk)
+
+
+def _tree(x, z, wood="oak", height=TREE_HEIGHT):
     """One tree built block by block: the same shape every run (a generated tree's log count decided rows by chance)."""
     return [f"fill {_c(at(x - 2, height - 2, z - 2))} {_c(at(x + 2, height - 1, z + 2))} {wood}_leaves[persistent=true]",
             f"fill {_c(at(x - 1, height, z - 1))} {_c(at(x + 1, height, z + 1))} {wood}_leaves[persistent=true]",
@@ -117,6 +120,15 @@ def scene(items):
     return out
 
 # -- row templates: (template, params) → row data in these words ---------------------------------------------------
+
+def scene_now(items):
+    """A `before` hook or run step: scene words sent now, mid-row (built from the same words as the scene)."""
+    def hook(ctx=None):
+        from ..core import _chat
+        for cmd in scene(items):
+            _chat(cmd)
+    return hook
+
 def limit():
     """The bench's hard limit per row (runner.ROW_LIMIT_S): no template asks for more."""
     from ..runner import ROW_LIMIT_S
@@ -167,4 +179,4 @@ def resolve(name):
         return getattr(importlib.import_module(mod), attr)
     raise KeyError(f"no word {name!r}")
 
-__all__ = ['REGISTRY', 'WORDS', 'resolve', 'BOX_EXPECT', 'CHOP_TREE', 'SCENE', 'SHEET_EXPECT', '_c', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'pos', 'scene', 'top']
+__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'TREE_HEIGHT', 'BOX_EXPECT', 'CHOP_TREE', 'SCENE', 'SHEET_EXPECT', '_c', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'pos', 'scene', 'top']

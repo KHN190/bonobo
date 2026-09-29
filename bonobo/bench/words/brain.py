@@ -21,7 +21,7 @@ import re
 import sys
 import time
 from .. import core, runner
-from ...data import DAY_TICKS, POD_BLOCKS  # noqa: F401
+from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, _inv_has, _near, at, server_count, set_brain)
@@ -107,7 +107,6 @@ def _first_times(ctx):
     """`before` hook: note when each token first rises above the row's start: the brain's decision order, read from the world."""
     FIRST_WATCH["gen"] += 1
     gen = FIRST_WATCH["gen"]
-    FIRST.clear()
     t0 = time.time()
 
     def furnace_beef():
@@ -419,7 +418,6 @@ def is_diamond_scan(path):
 def _count_finds(ctx):
     """`before` hook: count /find scans for diamond ore during the row, at api.get."""
     from ... import api
-    FINDS["diamond"] = 0
     real = FINDS.setdefault("real", api.get)
     def get(path, *a, **k):
         if is_diamond_scan(path):
@@ -698,6 +696,7 @@ def _set_time(t):
     return lambda: _chat(f"time set {t}")
 
 SEARCH_FLAGS = {}
+_lifecycle.in_place(__name__, "SEARCH_FLAGS")
 
 def upkeep_row(name, line, doc, scene, hooks, done, check):
     """One upkeep line through the whole brain, nothing queued: the moment built, the answer in the world."""
@@ -716,7 +715,7 @@ def dirt_row(name, doc, extra, done, check):
     """Dusk on stone, an empty bag, a dirt patch along the platform: dug in there by hand (or never walked to)."""
     return _row(name, doc, "brain", [("floor",), ("fill", ("@", 7, -3, -1), ("@", 8, -1, 1), "dirt"),
                                      ("fill", ("@", 7, -4, -1), ("@", 8, -4, 1), "stone")]
-                + list(extra) + [("stand",), ("time", 12500)], ("brain_rounds", 25, nest(done)), items(check),
+                + list(extra) + [("stand",), ("time", DAY_END)], ("brain_rounds", 25, nest(done)), items(check),
                 point="C", skills=["shelter:dig in"], tier_fixed="brain",
                 tags={"base": "brain", "family": "night_dirt"})
 
