@@ -173,5 +173,13 @@ class TightDusk(unittest.TestCase):
         self.assertFalse(needs.due_now(needs.dusk_s(SimpleNamespace(time=11930)), 3.0, True, False))
         self.assertNotIn("time set 11930", [c for cs in wb.BRAIN_DIMS["dusk"].values() for c in cs])
 
+class FullBagStart(unittest.TestCase):
+    def test_a_full_bag_throws_away_from_the_tree(self):
+        # must fail: valuables_full started by the grove and the chop took the thrown junk back (041819)
+        for bag, fill in wb.BAG_FILL.items():
+            if fill:
+                with self.subTest(bag):
+                    self.assertEqual(wb.BRAIN_DIMS["bag"][bag], [ws._tp(*wb.THROW_START)])
+
 if __name__ == "__main__":
     unittest.main()

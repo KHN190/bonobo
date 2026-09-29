@@ -330,8 +330,9 @@ BRAIN_DIMS = {
              "one_use": ["give @p iron_pickaxe[damage=249]", f"setblock {_c(at(-2, 0, -1))} crafting_table"]},
     "head": {"surface": [_tp()], "underground": [_tp(0.5, -9, 0.5)]},
     "seen": {"none": [], "noted": []},                  # a memory note, set by the `before` hook
-    # filled by the hook; junk_full starts where the only open side is +x over the edge, so junk is thrown away from the tree
-    "bag": {"room": [], "junk_full": [_tp(*THROW_START)], "valuables_full": []},
+    # filled by the hook; a full bag starts where the only open side is +x over the edge, so what is thrown lands
+    # away from the tree (from the start, valuables_full threw toward it and the chop took it back: 041819)
+    "bag": {"room": [], **{b: [_tp(*THROW_START)] for b in ("junk_full", "valuables_full")}},
 }
 
 BRAIN_BASE = {"dusk": "plenty", "food": "full", "tool": "fresh", "head": "surface", "seen": "none", "bag": "room"}
