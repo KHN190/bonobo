@@ -123,7 +123,8 @@ def bait_option(here, hazards, ids, creepers, lit, clear, prot):
     spot = bait_spot(here, h[0], is_lit, clear)
     walk_s = math.dist(here, spot) / float(PLAYER["speed"])
     return Option("bait", spot, bait_blast(BAIT_R, MOBS[h[3]]["attack"], prot), round(walk_s + float(ENGAGE["fuse_s"]), 2),
-                  "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come"))
+                  "bait it: " + ("step out, it blows" if is_lit else "out to 7.5, let it come")
+                  + f" (creeper {ids[first]} at {tuple(round(c, 1) for c in h[0])}, {math.dist(here, h[0]):.1f} off)")
 
 def fuse_lit(e):
     """Pure: this creeper's fuse is lit (perception.read_combat)."""
