@@ -57,6 +57,9 @@ print('' if ok else f'jar {v} < {want}'); sys.exit(0 if ok else 1)
   sleep 10
 done
 
+# never begin inside a bench arena: its leftovers killed, the body sent to spawn
+[ -z "$DRY" ] && python3 -m bonobo.tools.leave_bench
+
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
   kill "$(cat "$PIDFILE")"
   sleep 1
