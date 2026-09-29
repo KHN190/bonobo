@@ -1,78 +1,118 @@
-# Planner Architecture
+# Architecture
 
-## Survival
+## Split
 
-```python
-brain.round()                                    # fixed order; the first layer with something to do takes it
-  1 player holds control      → wait
-  2 L0                        hazard.due(state) → hazard.handle (lava, drowning, buried); a fight lease → yield
-  3 upkeep (one table)        recover · eat · reach land · leave Nether · dig out · sleep · shelter · furnace job
-                              · empty bag · unstuck;  queue at the front: pickaxe, food, bed
-                              food:  food_lasts_s < plan_s(have food) × LEAD      LEAD = 1.5
-                              bed:   dusk_s = (12000 − timeOfDay)/20 < plan_s(have bed) × LEAD
-  4 queue head (tasks.json)   held plan (sequence) → valid(next step)? → run it
-                              event (failed · interrupted · bag changed) → repair → else every solver
-  5 idle                      prepare: pickaxe, sword, food, torches; else wait
+- jar (Anaka mod): per tick. Tasks (walk, mine, place, travel, attack…), the combat reflex (shield, deflect,
+  counter), threat reading (`/entities` tti, impact), safety nets (drown, lava, fall clutch), packets.
+- Python (bonobo): decisions. What to do next, how, when to stop; everything over HTTP (`docs/api.md`).
 
-decompose(inv, goal, cost, solver) -> [Step]     goals: have craft milestone goto road build sleep skill
-  solvers   planner (default) · solve (fallback; actions.table columns)
-  cost      Cost.estimate(step) = walk(distance) + work(measured after 3 samples, else prior)   ticks
-  dispatch  skill.provider(ctx, step): @skill(provides={"kind:token" | "item:token" | "kind": adapter})
+## Layers
 
-outcome   ok | failed(cause) | interrupted          retry: count (task, cause); cool cause@place; 3 → task failed
-skill     needs · run (commands batch or closed loop) · verify via settle(read, ok, timeout, stable_s) · outcome
+One body, one exit (`arbiter.BODY`). Faster layer wins:
+
+```
+REFLEX    jar, every tick           shield / deflect / counter (policy from Python: POST /reflex)
+SAFETY    hazard (L0)               lava, fire, drowning, falling, buried → rescue
+TACTIC    perception → threat,      hostiles: fight, flee, wall in; holds a lease on the body
+          fight_loop
+MAINTAIN  reflexes                  eat, sleep, shelter, recover items, empty bag, unstuck, jobs
+PLAN      needs, tasks, prepare     upkeep needs; the queue (tasks.json) head; idle: PREPARE, then MILESTONES
 ```
 
-## Combat
+Each brain round: every layer proposes (`arbiter.first_live`), `arbiter.arbitrate` picks one.
+A lease holder owns the body; others' posts raise `FightHolds` and wait (`skill.fight_over`).
 
-```python
-estimate.py
-  arrival_s(here, row, ground)                  # inf = outside the account, not "far"
-  pressure_hp_s(here, rows, prot, ground, shape, horizon)      # hp/s; a burst is burst_hp, not a rate
-  act_cost_s(seconds, hp, price)                # time + blood, one number
-  price(dhp)
-  state_price_s(model, state)
-  saved_s(price, before, after, cost_s) = price(before) − price(after) − cost_s     # only scoring rule
-  also  burst_hp · fatal_chance(hp, damage, cap) · time_to_die_s · fight_cost · leaving_hp
-        reaches_share(shape, mob) · damage_over(rate, s) · horizon_s()
-  one account: horizon_s = engage.work_horizon_s; arrival truncates and returns on the same clock
+## Reconcile
 
-kernel.choose(model, state) → Choice
-  score = price(state) − price(action.effect(state)) − action.cost_s      # = estimate.saved_s
-  model   price · actions · admissible · default · fault · assumptions
-  action  name · cost_s · commitment_s(default=cost_s) · effect
-  commitment(action)
+- Goal done = world says so: `goals.remainder(goal, snap, mem)` = desired − world (`{}` met).
+- Skill contract (`skill.skill`): needs, gives, remaining, verify, budget, stall. One runner judges it.
+- Interrupted ≠ failed: never counted, never cooled. What happens next is `arbiter.RESUME_OF[source]`.
+- Resume reads the world again (`skill.RESUME`: base, want, anchors), never a step index.
+- Failure: `retry` counts (task, cause), cools the cause at the place (round start and where it failed).
 
-  # horizon    commitment
-  #
-  # normal  a day      released when assumptions fail
-  #   price = threat.expected_loss (the price of health)
-  #
-  # combat  seconds    the action's atomicity
-  #   price = Fight.objective
+## Plan
 
-threat.py
-  aliases  row · arrival · pressure · burst_damage · time_to_die · fight_cost · leaving_cost · hide_ratio
-  options  ignore(hp=0, leaves=press, blast_after) · fight · evade · eat · shield · reshape · wall_in
-  owed(option, work_s) = leaves × work_s + blast_after        # Option.effect is this
-  saves = estimate.saved_s(...) ; decide = kernel.choose(Field) ; no_go(state) → [(centre, r)]
+`decompose.decompose(inv, goal, cost)` → steps. `cost.Cost` prices them (walk + work, ticks).
+`dispatch.execute` runs one step through its skill provider. Crafts in a row share one table sitting.
 
-fight_plan.Fight
-  price = objective ; benefit = saved_s(objective, …)
-  dps_here = pressure_hp_s(horizon→0) 
-  death_risk/immediate_risk = fatal_chance(spare, damage_over(rate, s), cap)
-  admissible  hp>0 · phase · commitment ≤ remaining(p10) · requires · needs · best_step can retreat
-              · expected damage < hp − floor
+## Modules
 
-hand-off         perception → hazard.py (environment, SAFETY) | fight_loop.offer (hostiles, TACTIC lease)
-                 fight_loop.engage runs the answer; the survival brain yields while the lease stands
-
-arbiter   REFLEX 0.05 · SAFETY 0.2 | TACTIC 1.0 · PLAN 10.0
+```
+api          HTTP client: requests, tasks, interrupts
+arbiter      one body, priority by time scale, leases
+brain        the round: propose, arbitrate, run, count
+perception   5 Hz /state watcher: hurt, threats, interrupts
+threat       who can hurt us, how soon; fight / walk away / wall in
+fight_loop   the running fight (engagement, lease)
+fight_plan   fight planner: what next, by when
+estimate     the five estimated quantities
+field        time-to-reach, what blocks do to it
+kernel       planner kernel
+hazard       L0 environment rescues
+reflexes     maintenance triggers → actions; unstuck
+needs        what must be planned before it is needed
+goals        goals as data; remainder
+tasks        the queue (tasks.json)
+decompose    goal + bag → steps
+planner      requirement resolution
+solve        integer-program solver
+actions      solver columns
+cost         step prices
+dispatch     step → skill
+skill        contracts and the runner
+skillcore    shared skill primitives
+skills       verified routines on mod primitives
+knowledge    recipes, sources, remainders
+data         static game data
+beliefs      play.toml numbers (value, mob)
+combat_model what a combat tape means
+combat_tape  reading the mod's combat tape
+nav          movement through the game's pathfinder
+roads        travelled legs as a graph
+terrain      pure terrain planners
+explore      finding what is out of range
+world        snapshots, inventory, regions, searches
+bag          what to carry, throw, store
+memory       persistent world memory
+jobs         things that run on their own (furnace, crops)
+craft        crafting, smelting, stations
+gather       mining, hunting, taking
+wood         felling trunks
+farming      crops, saplings, breeding
+survive      light, food, water, shelter, sleep
+store        chests, deposits, sites
+building     blueprints placed
+blueprints   machines as data
+fluids       water, portals
+nether       dimensions, fortress, stronghold
+end          end portal, going through
+dragon       dragon-fight contracts (to rewrite)
+combat       bow, shield, blazes
+brewing      potions
+loot         chests we did not place
+ui           screens with buttons
+events       concise event log
+intent       what the agent means (HUD)
+review       review packet for Claude
+tape         round tape, recorded and replayed
+lifecycle    per-life state reset
+retry        failure policy
+fresh        which world; drop the last one's memory
+paths        where files live
+shapes       types
+bench/       scenario bench: tables, vocab, runner
+tools/       operator tools (reports, once, rounds, wake)
 ```
 
-## Cost
+## Data (`MC_DATA`)
 
-Survival: ticks — distance walked plus work, measured per skill key once there are three samples. Combat: seconds
-and blood (`estimate`, `threat.hp_seconds`). No scoring outside the fight.
-
-Assess only the architecture and the code, not the behaviour. Behaviour is an outcome, which should not be predicted.
+```
+events.log / events.jsonl   what changed: tasks, goals, hurts, deaths, milestones, anomalies
+detail.log                  the working: tasks, chains, rounds
+autoplay.log                the run's own log
+tasks.json                  the queue
+world-notes.json            memory (per save)
+milestones.json             milestones said (per save)
+rounds.jsonl, tape-mem      round tape
+bench/<row>/<time>/         failed-row reports (report.json)
+```
