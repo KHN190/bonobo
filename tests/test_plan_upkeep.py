@@ -1112,6 +1112,32 @@ WELL_FED = [("cooked_beef", 8), ("white_bed", 1), ("stone_pickaxe", 1)]      # f
 HERD = {"cow": 12, "sheep": 20, "oak_log": 10, "stone": 2}
 
 
+class UnstuckBySituation(unittest.TestCase):
+    def test_rows(self):
+        from bonobo import reflexes
+        # (situation, enclosed, pit, on a column, under rock) → the first way out
+        rows = [("walled in: dig out sideways", True, False, False, True, "east"),
+                ("in a pit: climb out", False, True, False, False, "up"),
+                ("high on a column: come down", False, False, True, False, "down"),
+                ("under rock: toward the surface", False, False, False, True, "up"),
+                ("must fail: open ground: never up first (it built a pillar)", False, False, False, False, "east")]
+        for name, enclosed, pit, column, rock, first in rows:
+            with self.subTest(name):
+                order = reflexes.unstuck_order(reflexes.stuck_situation(enclosed, pit, column, rock))
+                self.assertEqual(order[0], first)
+                self.assertEqual(sorted(order), sorted(reflexes.UNSTUCK_WAYS), "every way still tried")
+
+    def test_on_column(self):
+        from bonobo import reflexes
+        from tests.world import FakeRegion
+        feet = (0, 65, 0)
+        pillar = FakeRegion((-1, 64, -1), (1, 67, 1), {(0, 64, 0): "minecraft:dirt"})
+        floor = FakeRegion((-1, 64, -1), (1, 67, 1),
+                           {(x, 64, z): "minecraft:dirt" for x in (-1, 0, 1) for z in (-1, 0, 1)})
+        self.assertTrue(reflexes.on_column(pillar, feet))
+        self.assertFalse(reflexes.on_column(floor, feet), "must fail: a floor read as a column")
+
+
 class RecoveryWorth(unittest.TestCase):
     def test_rows(self):
         from bonobo import nav, reflexes

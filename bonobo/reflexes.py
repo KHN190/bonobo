@@ -341,16 +341,26 @@ class Maintain:
         ref = old[-1]
         return all(math.dist(h[1], ref[1]) < 2 and h[2] == ref[2] for h in self.history if h[0] >= ref[0])
 
-    def unstuck(self, snap, ctx):
-        """One way out per call — the nearest site, up, sideways, down — each skipped once it failed here."""
-        b = self.brain
+    def situation(self, snap):
+        """Where we are stuck (stuck_situation), from one small read round the feet; "open" when unread."""
         x, y, z = snap.feet
+        try:
+            region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
+        except McError:
+            return "open"
+        return stuck_situation(survive.is_enclosed(region, snap.feet), nav.in_pit(region, snap.feet),
+                               on_column(region, snap.feet), _k.under_rock(snap.state.get("skyLight", 15)))
+
+    def unstuck(self, snap, ctx):
+        """One way out per call — the nearest site, then the ways in the order the situation asks (unstuck_order) —
+        each skipped once it failed here."""
+        b = self.brain
         site = b.mem.nearest_site(snap.feet, snap.dimension)
         if site and math.dist(site["pos"], snap.feet) < 12:
             site = None
+        order = unstuck_order(self.situation(snap))
         methods = ([("site", tuple(site["pos"]))] if site else []) + [
-            ("up", (x, y + 12, z)), ("east", (x + 16, y, z)), ("west", (x - 16, y, z)),
-            ("south", (x, y, z + 16)), ("north", (x, y, z - 16)), ("down", (x, y - 8, z))]
+            (label, tuple(snap.feet[i] + UNSTUCK_WAYS[label][i] for i in range(3))) for label in order]
         for label, target in methods:
             name = f"unstuck:{label}"
             if not b.ready(name):
@@ -376,6 +386,38 @@ class Maintain:
             return
         self.escalated[kind] = now
         log(f"?? STALL {kind}: {what}")
+
+# each way out: its offset from the feet
+UNSTUCK_WAYS = {"up": (0, 12, 0), "east": (16, 0, 0), "west": (-16, 0, 0), "south": (0, 0, 16), "north": (0, 0, -16),
+                "down": (0, -8, 0)}
+SIDEWAYS = ("east", "west", "south", "north")
+
+
+def stuck_situation(enclosed, pit, column, under_rock):
+    """Pure: where we are stuck — walled in, in a pit, high on a column, under rock, or in the open."""
+    if enclosed:
+        return "enclosed"
+    if pit:
+        return "pit"
+    if column:
+        return "high"
+    return "underground" if under_rock else "open"
+
+
+def unstuck_order(situation):
+    """Pure: the ways out, first first — walled in: dig out sideways; a pit: climb; high: come down; under rock:
+    toward the surface; open: sideways (up first built a pillar on open ground)."""
+    return {"enclosed": SIDEWAYS + ("up", "down"), "pit": ("up",) + SIDEWAYS + ("down",),
+            "high": ("down",) + SIDEWAYS + ("up",), "underground": ("up",) + SIDEWAYS + ("down",)}.get(
+        situation, SIDEWAYS + ("up", "down"))
+
+
+def on_column(region, feet):
+    """Pure: standing on a one-wide column — every cell round the one under the feet is air."""
+    x, y, z = feet
+    ring = [(x + dx, y - 1, z + dz) for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz]
+    return all(region.inside(c) for c in ring) and not any(region.solid(c) for c in ring)
+
 
 def recovery_worth(value_s, dist, since_s, speed, despawn_s):
     """Pure: what walking back to a death's drops is worth, in seconds: their value if reached before they despawn,
