@@ -49,6 +49,7 @@ class PerceptionState(lifecycle.State):
 
 
 STATE = lifecycle.owns(__name__, PerceptionState())
+lifecycle.on_reset(events.forget_goal)      # events' one-life part (it imports no lifecycle: its closure)
 
 
 def pause(on):

@@ -3,6 +3,7 @@ at its 1st, 10th, 100th time."""
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import events  # noqa: E402
@@ -95,6 +96,16 @@ class Events(unittest.TestCase):
                 state = {"health": 19.0, "x": 0, "y": 64, "z": 0, **({"lastDamage": hit} if hit else {})}
                 perception.note_hurt(state, now=1.0)
                 self.assertEqual(hurt.call_args.args[2], want)
+
+    def test_no_goal_spans_a_life(self):
+        # must fail: the row's last goal closed by the next row's first, its bag diff over the boundary (043641)
+        from bonobo import lifecycle, perception  # noqa: F401  (perception registers events' reset)
+        out = []
+        with mock.patch.dict(events.STATE, {}, clear=True):
+            events.goal("upkeep: sleep", {"minecraft:white_bed": 1}, t=1.0, sink=out)
+            lifecycle.reset_all()
+            events.goal("upkeep: empty the bag", {"minecraft:white_bed": 1, "minecraft:diamond": 1536}, t=2.0, sink=out)
+        self.assertEqual([r["kind"] for r in out], ["goal", "goal"])
 
     def test_a_milestone_is_said_once_per_world(self):
         import tempfile

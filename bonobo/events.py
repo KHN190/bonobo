@@ -23,6 +23,15 @@ MILESTONES = ("minecraft:iron_ingot", "minecraft:diamond", "minecraft:obsidian",
 
 _LOCK = threading.Lock()
 STATE: dict = {}                 # last decision, last goal, the pending repeat, anomaly counts, milestones seen
+GOAL_KEYS = ("goal", "goal_t", "goal_bag")     # the open goal and the bag it started from: one life's
+
+
+def forget_goal():
+    """A life's end (lifecycle, registered by perception) leaves no goal open: the next life's first goal said the
+    last one's gains over the boundary (043641: a timed-out row's sleep "gained" the next row's 1536 diamonds)."""
+    with _LOCK:
+        for k in GOAL_KEYS:
+            STATE.pop(k, None)
 
 
 def _write(rec, sink=None):
