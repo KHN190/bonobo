@@ -98,19 +98,27 @@ def craftable_tier(inv, kind):
 
     return Planner.from_inventory(inv, NullCost()).craftable_tier(kind)
 
-def falls(step):
-    """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)?"""
+def falls(step, known_y=None):
+    """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)? The ore's
+    depth is where it is known to lie (`known_y`), its band only when none is known."""
     if (step.kind, None) in FALL_RISK or (step.kind, step.token) in FALL_RISK:
         return True
-    depth = FIND_AT.get(step.token)
+    depth = known_y if known_y is not None else FIND_AT.get(step.token)
     return step.kind == "mine" and depth is not None and depth < DEEP_Y
 
-def needs_water_bucket(snap, plans):
-    """Pure: a held plan has a fall and no water bucket is carried (outside the Nether, where water can't be poured)."""
+def known_ore_y(mem, snap, step):
+    """The y of the nearest remembered cell of a mine step's ore (memory only), or None."""
+    blocks = step.detail.get("blocks") if step.kind == "mine" else None
+    spots = [tuple(r["pos"]) for k in blocks or () for r in mem.seen(k, snap.dimension)] if mem is not None else []
+    return min(spots, key=lambda p: math.dist(p, snap.feet))[1] if spots else None
+
+def needs_water_bucket(snap, plans, known_y=lambda step: None):
+    """Pure given `known_y` (a step → the y of the nearest known cell of its ore, or None): a held plan has a fall
+    and no water bucket is carried (outside the Nether, where water can't be poured)."""
 
     if snap.dimension == "minecraft:the_nether" or snap.inv.count("minecraft:water_bucket"):
         return False
-    return any(falls(s) for steps in plans for s in steps)
+    return any(falls(s, known_y(s)) for steps in plans for s in steps)
 
 def wear(inv):
     """{tool kind: least durability left on a carried one} for TOOL_KINDS. Pure over the bag."""
@@ -167,7 +175,8 @@ class Needs:
         wanted = tool_kinds([st for h in getattr(b, "held", {}).values() for st in h["steps"]])
         for kind in sorted(self.broken & wanted):
             self.need("broken tool", goals.have(("tool", kind, craftable_tier(inv, kind))), f"the {kind} broke")
-        if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()]):
+        if needs_water_bucket(snap, [h["steps"] for h in getattr(b, "held", {}).values()],
+                              lambda st: known_ore_y(b.mem, snap, st)):
             self.need("water bucket", goals.have(("minecraft:water_bucket", 1)),
                       "a plan with a fall in it and no water to land in")
         if blocked is not None and inv.count("building") < BRIDGE_MIN:

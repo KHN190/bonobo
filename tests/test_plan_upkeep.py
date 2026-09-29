@@ -2287,6 +2287,22 @@ class WaterBucketBeforeAFall(unittest.TestCase):
                 snap.state = dict(snap.state, dimension=dim)
                 self.assertEqual(needs.needs_water_bucket(snap, plans), want)
 
+    def test_the_ore_where_it_is_known(self):
+        # search_night_resume 042911: a remembered diamond one block down read as dug to by its band (y −58): a
+        # 309 s bucket plan took the body from the queued task
+        snap = snapshot()
+        plans = [_plan(("mine", "minecraft:diamond"))]
+        self.assertTrue(needs.needs_water_bucket(snap, plans))                           # unknown: its band
+        deep = needs.DEEP_Y - 1
+        self.assertTrue(needs.needs_water_bucket(snap, plans, lambda st: deep))          # known deep
+        # must fail: a diamond known near the surface still needs a water bucket
+        self.assertFalse(needs.needs_water_bucket(snap, plans, lambda st: snap.feet[1] - 1))
+        from bonobo.planner import Step
+        mem = type("M", (), {"seen": lambda s, k, d: [{"pos": [5, snap.feet[1] - 1, 0]}] if k == "diamond_ore" else []})()
+        step = Step("mine", "minecraft:diamond", 1, {"blocks": ["diamond_ore", "deepslate_diamond_ore"]})
+        self.assertEqual(needs.known_ore_y(mem, snap, step), snap.feet[1] - 1)
+        self.assertIsNone(needs.known_ore_y(mem, snap, Step("mine", "minecraft:coal", 1, {"blocks": ["coal_ore"]})))
+
     def test_no_iron_no_bucket_the_plan_goes_through_iron(self):
         """With nothing, the bucket's plan is the iron chain (mine, smelt, craft the bucket, fill it)."""
         snap = snapshot(inv=inventory())
