@@ -16,6 +16,7 @@ GROUP_RECIPES = {
 CHOP_AXE_S = 1.5         # a log: ~3 s by hand, ~1.5 s with a wooden axe
 HUNT_SWORD_S = 3.0       # a kill: a cow takes ten fist hits, four with a wooden sword
 DIG_SHOVEL_S = 0.35      # a block of dirt, sand or gravel: 0.75 s by hand, 0.4 s with a wooden shovel
+DIG_HAND_S = 0.75        # the same block by hand (Minecraft Wiki, Breaking: dirt): what overburden costs a shaft
 # fn(step) → (needs, speed) of what carries out a planned step; wired by skill.py so knowledge stays below the skills
 STEP_CALL = None
 

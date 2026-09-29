@@ -5,9 +5,9 @@ import math
 from .api import McError
 from .beliefs import CONFIG as _PLAY
 from .data import FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .knowledge import PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .knowledge import DIG_HAND_S, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
-from .world import ROUTES, entities, job_ready, nearest
+from .world import ROUTES, entities, job_ready, nearest, sight_y
 from .skill import MIN_SAMPLES
 from .planner import Planner, Unplannable
 
@@ -178,13 +178,22 @@ class Cost:
         if k in self.SOURCED:
             d = self._source(step)
             return (walk_ticks(d) if d is not None else UNKNOWN_WALK_TICKS) \
-                + (self._surface_trip() if k != "mine" else 0)
+                + (self._surface_trip() if k != "mine" else self._overburden_ticks(step))
         if k == "fill":
             d = self._known(["water"])
             return walk_ticks(d) if d is not None else 1200
         if k in ("goto", "withdraw"):
             return walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return 0
+
+    def _overburden_ticks(self, step):
+        """A buried surface kind (no ore band: stone, sand…) is dug to straight down: the blocks over the nearest one
+        in sight, from the feet's floor down, each dug. An ore's depth is its staircase's, priced as work."""
+        if FIND_AT.get(step.token) is not None or self.snap is None:
+            return 0
+        y = sight_y(step.detail.get("blocks", ()))
+        over = 0 if y is None else max(0, int(self.snap.feet[1]) - 1 - int(y))
+        return round(over * DIG_HAND_S * TICKS_PER_S)
 
     def plan_s(self, steps):
         """Seconds a whole plan takes: Σ Step.est."""
