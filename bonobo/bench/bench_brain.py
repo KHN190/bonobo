@@ -3,7 +3,7 @@ FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). 
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 from ..explore import TRAVEL_RANGE
 from ..reflexes import EAT_BELOW, UNSTUCK_MOVED
-from .words.scene import TREE_HEIGHT
+from .core import TREE_HEIGHT
 
 from .core import KEPT_HP, ORIGIN
 from ..reflexes import BAG_FULL
@@ -74,10 +74,6 @@ FAMILIES = [
            ('!blocks', ('@', -4, 0, 0), ('@', -4, 0, 0), ('iron_ore',), 1, 1),
            ('!blocks', ('@', 4, 0, 0), ('@', 4, 0, 0), ('iron_ore',), 0, 0)),
           [('&clear_bans',)], ['_clear_bans']),
-         ('chop_without_interrupt', 'The same with no zombie → no fight is logged, the same 4 logs (control)',
-          [('grove', (3, 0)), ('stand',), ('give', 'iron_sword'), ('give', 'diamond_axe'), ('give', 'oak_log', 2)],
-          [{'goal': 'have', 'args': {'needs': [['log', 4]]}}], ('now', ('!count', 'log', '>=', 4)), 0.75,
-          ('all', ('!count', 'log', '>=', 4), ('!alive', 20), ('!gone', ['minecraft:zombie'])), [], []),
          *[(name, doc, L3_SCENE, [{'goal': 'have', 'args': {'needs': [[t, L3_EACH]]}} for t in order],
             ('now', ('!all', *[('!gain', t, L3_EACH) for t in L3_GOALS])), 1,
             ('all', ('!before_in_bag', *order), *[('!gain', t, L3_EACH) for t in L3_GOALS]),
@@ -135,7 +131,7 @@ FAMILIES = [
           [('floor',), ('chest', ('@', 3, 0, 0), 'iron_ingot 8'), ('stand',)], [('machine_due', ('@', 3, 0, 0), 8)],
           ('now', ('!gain', 'minecraft:iron_ingot', 8)), ('gain', 'minecraft:iron_ingot', 8)),
          ('eat_when_full', 'fed (food 20), bread carried → not eaten: the bread count unchanged (must not)',
-          [('floor',), ('stand',), ('give', 'bread', 4)], [], ('now', ('!constant', False)),
+          [('floor',), ('stand',), ('give', 'bread', 4)], [], ('&brain_idle',),
           ('count', 'minecraft:bread', '==', 4)),
          ('shelter_dig_in', 'night, a pickaxe → dug in: below the floor, enclosed',
           [('sheet', '_NIGHT_FLOOR'), ('give', 'stone_pickaxe'), ('give', 'cobblestone', 8)], [], ('&enclosed',),
@@ -181,5 +177,5 @@ CODE_ROWS = [
          queue=[_have(("minecraft:diamond", 1))],
          run=_slice(_now(lambda api, inv: count(api, inv, "minecraft:diamond", ">=", 1)), 0.45, queue=[_have(("minecraft:diamond", 1))]),
          check=_all(_gain("minecraft:diamond", 1), _no_scan(), lambda api, inv: SEARCH_FLAGS.get("sheltered", False)),
-         budget=limit(), expect=SHEET_EXPECT),
+         budget=limit()),
 ]

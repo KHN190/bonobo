@@ -208,6 +208,8 @@ def build(row, tier):
     for k, v in row.items():
         if k not in out and k not in ("name", "scene", "why", "no_detail", "kit"):
             out[k] = dec(v)
+    if "expect" not in out and not out.get("raw"):
+        out["expect"] = vocab.scene_expect(out["setup"])     # what its own scene built, the one signature
     out.setdefault("skills", [])            # a row that proves no one skill carries an empty list
     out.setdefault("point", "A")
     if tier != "acceptance":

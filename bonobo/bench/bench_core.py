@@ -46,7 +46,7 @@ ROWS = [
                 ('fill', ('@', 0, -1, 1), ('@', 13, -1, 3), 'lava'), ('stand', -1), ('give', 'cobblestone', 32)],
          run=('skill', 'travel_to', ('@', 14, 0, 0), 1.5), before=[('start', 'lava_edge_walk')],
          check=[('arrived', ('@', 14, 0, 0), 1.5), ('alive', 16)], budget=25, point='B', skills=['goto'],
-         tags={'base': 'nav', 'hazard': 'lava'}, expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'nav', 'hazard': 'lava'}),
     dict(name='buried_by_sand', module='brain',
          doc="Sand dropped on the body mid-task → L0 rescues (unbury) through the brain's own round, then alive",
          scene=[('floor',), ('stand',), ('give', 'stone_pickaxe')], run=('brain_rounds', 15, ('&head_clear',)),
@@ -56,8 +56,7 @@ ROWS = [
                                 ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'sand')]),
                  ('&buried_first',)],
          check=[('call', 'head_clear', []), ('alive', KEPT_HP)], budget=20, point='B', skills=['unbury'],
-         tags={'base': 'l0', 'hazard': 'suffocating'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'l0', 'hazard': 'suffocating'}),
     dict(name='drowning_in_a_pit', module='brain',
          doc=('Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else: on the '
               'rim, or breathing with the head out for 2 s'),
@@ -65,7 +64,7 @@ ROWS = [
                 ('fill', ('@', -4, 4, -4), ('@', 4, 4, 4), 'stone'),
                 ('fill', ('@', -1, 4, -1), ('@', 1, 4, 1), 'water'), ('fill', ('@', -4, 5, -4), ('@', 4, 7, 4), 'air'),
                 ('stand', 0, -3)],
-         run=('brain_rounds', 28, ('!now_api', ('!surfaced', 4, 0))), before=[('start', 'drowning_in_a_pit')],
+         run=('brain_rounds', 28, ('!now_api', ('!surfaced', 4, 0))), before=[('start', 'drowning_in_a_pit'), ('&drowning_first',)],
          check=[('alive', KEPT_HP), ('surfaced', 4)], budget=25, point='B', skills=['reach:air'],
-         tags={'base': 'l0', 'hazard': 'drowning'}, expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'l0', 'hazard': 'drowning'}),
 ]

@@ -640,7 +640,6 @@ def base_row(name, base, cond=None, surprise=None):
         row["expect_entities"] = list(b["entities"])
     if b.get("combat"):
         row["combat"] = True
-    row["expect"] = BOX_EXPECT
     return row
 
 def one_row(name, skills, doc, scene, run, check, budget, tick_rate=None):
@@ -664,7 +663,6 @@ def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False, 
         row["stochastic"] = True
     if kit is not None:
         row["kit"] = list(kit)
-    del row["expect"]
     return row
 
 def place_row(name, item, asked, want, tier):

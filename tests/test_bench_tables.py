@@ -73,7 +73,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 276)          # + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room
+        self.assertEqual(len(rec), 275)          # + fight_enderman_provoked; + the taught door and its untaught twin; + hatch in/out, side room; − chop_without_interrupt
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):

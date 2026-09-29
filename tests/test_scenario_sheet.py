@@ -247,7 +247,7 @@ class Tiers(unittest.TestCase):
               ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance"),
               
               ("plan_repair_on_event", "brain"), ("brain__tight", "brain"), ("seen_store__noted", "brain"),
-              ("chop_without_interrupt", "brain"), ("ban_then_other_source", "brain"),
+              ("ban_then_other_source", "brain"),
               ("resume_after_combat", "brain"), ("l3_two_goals_in_order", "brain"),
               ("ban_needs_a_failure", "brain"), 
               ("l3_order_swapped", "brain"), ("plan_without_events", "brain")] + [

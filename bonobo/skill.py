@@ -43,11 +43,15 @@ CALLS = []
 # skill → fn (state, args) → the keys a call fixes at its first start, kept so its resume rebuilds against the same anchor
 ANCHORS = {}
 
+# what the night's way leaves: ashore first (shelters are made from land: survive.reach_land), then covered or day
+NIGHT_WAY_STATES = ("state:ashore", "state:sheltered", "state:day")
+
+
 def _night_way_running():
     """Is the work running now the night's way itself (a shelter, sleep, waiting for day)? Then nightfall's
     boundary request waits — it must never cut the shelter it asks for."""
     return any(c.contract is not None and (c.contract.name == "sleep"
-                                           or {"state:sheltered", "state:day"} & set(c.contract.gives))
+                                           or set(NIGHT_WAY_STATES) & set(c.contract.gives))
                for c in CALLS)
 
 

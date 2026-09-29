@@ -385,8 +385,7 @@ ROWS = [
          check=[('call', 'count_blocks', ['$api', ('@', -8, 0, -8), ('@', 8, 6, 8), 'nether_portal'], '>=', 6),
                 ('blocks', ('@', -8, 0, -8), ('@', 8, 6, 8), ('obsidian',), 10, 10),
                 ('count', 'minecraft:obsidian', '==', 0), ('interrupted',)],
-         budget=25, skills=['build_blueprint'], tags={'base': 'build_blueprint', 'surprise': 'interrupt_mid_chain'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         budget=25, skills=['build_blueprint'], tags={'base': 'build_blueprint', 'surprise': 'interrupt_mid_chain'}),
     dict(name='boat_across_the_lake', module='nav',
          doc="A 6-block lake between two shores, a boat carried → across to the far shore (the jar's BoatDriver)",
          scene=[('fill', ('@', -4, -4, -6), ('@', 12, -4, 6), 'stone'),
@@ -395,8 +394,7 @@ ROWS = [
                 ('fill', ('@', 0, -3, -6), ('@', 5, -1, 6), 'water'), ('stand', -2), ('give', 'oak_boat')],
          run=('skill', 'travel_to', ('@', 7, 0, 0), 2), before=[('start', 'boat_across_the_lake')],
          check=[('arrived', ('@', 7, 0, 0), 2), ('not', ('!state', 'inWater'))], budget=25, skills=['goto'],
-         tier_fixed='exception', tags={'base': 'nav', 'terrain': 'lake'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tier_fixed='exception', tags={'base': 'nav', 'terrain': 'lake'}),
     dict(name='pearls_from_barter', module='decompose',
          doc='In the Nether, 2 gold ingots and a gold helmet, piglins 4 blocks off, no enderman → the plan barters',
          scene=[('floor', 'netherrack', 8, 2), ('at', 'fill {0} {1} glass hollow', ('@', -9, 0, -9), ('@', 9, 4, 9)),
@@ -417,8 +415,7 @@ ROWS = [
          run=('skill', 'plant_farm'), before=[('start', 'farm__plant')],
          check=[('blocks', ('@', -4, -1, -4), ('@', 4, -1, 4), ('farmland',), 1),
                 ('blocks', ('@', -4, 0, -4), ('@', 4, 0, 4), ('wheat',), 1)],
-         budget=25, point='C', skills=['farm'], tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         budget=25, point='C', skills=['farm'], tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'}),
     # the growth is the game's: a ripe field placed by the console, so the row proves the plan's reap and bake, with
     # no wait on random ticks (the whole flow, sown to bread, ran past 25 s)
     dict(name='bread_from_a_farm', module='decompose',
@@ -429,8 +426,7 @@ ROWS = [
          run=('achieve_needs', [('minecraft:bread', 1)], 4), before=[('start', 'bread_from_a_farm')],
          check=[('gain', 'minecraft:bread', 1), ('blocks', ('@', 4, 0, -1), ('@', 6, 0, 1), ('wheat',), 0, 8),
                 ('blocks', ('@', -8, -1, -8), ('@', 3, -1, 8), ('farmland',), 0, 0)],
-         budget=25, point='C', skills=['farm'], tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         budget=25, point='C', skills=['farm'], tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'}),
     dict(name='await_collect_job', module='farming',
          doc='a remembered furnace job, due, its 3 ingots in the output 2 blocks off → awaited and collected',
          scene=[('floor',), ('setblock', ('@', 2, 0, 0), 'furnace'),
@@ -438,16 +434,14 @@ ROWS = [
          run=('skill', 'await_job', 'minecraft:iron_ingot', 3),
          before=[('start', 'await_collect_job'), ('job_ready_at', ('@', 2, 0, 0), 'minecraft:iron_ingot', 3)],
          check=[('gain', 'minecraft:iron_ingot', 3)],
-         budget=25, point='C', skills=['await_job'], tier_fixed='exception', tags={'base': 'sources', 'source': 'job'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         budget=25, point='C', skills=['await_job'], tier_fixed='exception', tags={'base': 'sources', 'source': 'job'}),
     dict(name='bread_from_a_farm_no_soil', module='decompose',
          doc='stone floor, the same kit → no plot can be made: the plan fails naming the soil (must fail, never a hang)',
          scene=[('floor',), ('stand',), ('sheet', 'FARM_KIT')],
          run=('expect_failure', 'bread_from_a_farm_no_soil', ('!achieve_needs', [('minecraft:bread', 1)], 3),
               'soil|no flat|farm'),
          before=[('start', 'bread_from_a_farm_no_soil')], check=[('same_bag',)], budget=25, point='C', skills=['farm'],
-         tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tier_fixed='exception', tags={'base': 'sources', 'source': 'farm'}),
     dict(name='emerald_from_a_villager', module='decompose',
          doc=('a farmer buying 20 wheat for an emerald, 20 wheat carried → the plan sells: an emerald gained, the '
               'wheat gone'),
@@ -456,8 +450,7 @@ ROWS = [
                  '{NoAI:1b,VillagerData:{profession:"minecraft:farmer",level:2,type:"minecraft:plains"},Offers:{Recipes:[{buy:{id:"minecraft:wheat",count:20},sell:{id:"minecraft:emerald",count:1},maxUses:12}]}}')],
          run=('achieve_needs', [('minecraft:emerald', 1)], 3), before=[('start', 'emerald_from_a_villager')],
          check=[('gain', 'minecraft:emerald', 1), ('count', 'minecraft:wheat', '==', 0)], budget=25, point='C',
-         skills=['trade'], tier_fixed='exception', tags={'base': 'sources', 'source': 'trade'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         skills=['trade'], tier_fixed='exception', tags={'base': 'sources', 'source': 'trade'}),
     dict(name='emerald_villager_without_the_trade', module='decompose',
          doc='a villager who only sells bread → no emerald offer: the trade ends naming it (must fail, never a hang)',
          scene=[('floor',), ('stand',), ('give', 'wheat', 20),
@@ -466,21 +459,19 @@ ROWS = [
          run=('expect_failure', 'emerald_villager_without_the_trade', ('!skill', 'trade', 'minecraft:emerald'),
               'no affordable|emerald trade'),
          before=[('start', 'emerald_villager_without_the_trade')], check=[('same_bag',)], budget=25, point='C',
-         skills=['trade'], tier_fixed='exception', tags={'base': 'sources', 'source': 'trade'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         skills=['trade'], tier_fixed='exception', tags={'base': 'sources', 'source': 'trade'}),
     dict(name='emerald_no_villager', module='decompose',
          doc='no villager anywhere, wheat carried → the trade fails naming it (must fail)',
          scene=[('floor',), ('stand',), ('give', 'wheat', 20)],
          run=('expect_failure', 'emerald_no_villager', ('!skill', 'trade', 'minecraft:emerald'), 'no villager'),
          before=[('start', 'emerald_no_villager')], check=[('same_bag',)], budget=25, point='C', skills=['trade'],
-         tier_fixed='exception', tags={'base': 'sources', 'source': 'trade'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tier_fixed='exception', tags={'base': 'sources', 'source': 'trade'}),
     dict(name='water_bucket_from_the_plan', module='decompose',
          doc='An empty bucket, a pond 3 blocks off → the plan fills it (the fill producer): a water bucket held',
          scene=[('floor',), ('fill', ('@', 3, -1, -1), ('@', 4, -1, 1), 'water'), ('stand',), ('give', 'bucket')],
          run=('achieve_needs', [('minecraft:water_bucket', 1)], 3), before=[('start', 'water_bucket_from_the_plan')],
          check=[('gain', 'minecraft:water_bucket', 1)], budget=25, point='C', skills=['fill'], tier_fixed='exception',
-         tags={'base': 'sources', 'source': 'fill'}, expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'sources', 'source': 'fill'}),
     dict(name='night_mines_under_cover', module='brain',
          doc=('Night, sealed in a 1×2 hole 9 below the platform, a stone pickaxe, iron ore 3 below and 2 aside, '
               "nothing queued → the night's work is ore dug down to (brain.night_pick → descend), not waiting for day "
@@ -499,8 +490,7 @@ ROWS = [
          scene=[('floor',), ('stand',), ('cmd', 'clear @p'), ('give', 'oak_log', 3), ('give', 'crafting_table')],
          run=('skill', 'craft_chain', [('planks', 2), ('minecraft:stick', 1), ('minecraft:wooden_pickaxe', 1)]),
          before=[('start', 'craft_chain_one_sitting')], check=[('gain', 'minecraft:wooden_pickaxe', 1, 1)], budget=15,
-         skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'}),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
@@ -600,7 +590,7 @@ CODE_ROWS = [
          run=_resume("fill_bottles_interrupted", lambda ctx: _skill("fill_bottles")(ctx, 3),
                      lambda ctx: _skill("fill_bottles")(
                          ctx, 3 - (_inv_now().count("minecraft:potion") - _base_count("minecraft:potion")))),
-         check=_gain("minecraft:potion", 3, at_most=3), budget=limit(), expect=SHEET_EXPECT),
+         check=_gain("minecraft:potion", 3, at_most=3), budget=limit()),
     dict(name="dead_flicker_on_respawn",
          doc="Killed at the start of the run: /state reads dead for a moment while the respawn loads — the brain must "
              "respawn, not call every skill dead, and still chop its 4 logs",
@@ -609,7 +599,7 @@ CODE_ROWS = [
          before=_hooks(_start("dead_flicker_on_respawn"), lambda ctx: _chat("kill @p")),
          run=lambda ctx: (_brain_rounds(15, lambda: not __import__("bonobo.api", fromlist=["get"]).get("/state")["dead"])(ctx),
                           _skill("chop")(ctx, 4))[1],
-         check=_all(_alive(10), lambda api, inv: inv.count("log") >= 4), budget=limit(), expect=SHEET_EXPECT),
+         check=_all(_alive(10), lambda api, inv: inv.count("log") >= 4), budget=limit()),
     # lava on a 3 s timer, not by progress: moved unchanged (the user's call)
     dict(name="interrupted_rescue_is_not_a_failure",
          doc="Chopping, then lava poured beside the body: the chop is interrupted (not failed), L0 moves away, the "
@@ -620,7 +610,7 @@ CODE_ROWS = [
                        lambda ctx: _threading.Timer(3.0, lambda: _chat(f"setblock {_c(at(0, 0, 1))} lava")).start()),
          run=_resume("interrupted_rescue_is_not_a_failure", lambda ctx: _skill("chop")(ctx, 4),
                      _achieve_needs([("log", 4)])),
-         check=_all(_gain("log", 4), _alive(10)), budget=limit(), expect=SHEET_EXPECT),
+         check=_all(_gain("log", 4), _alive(10)), budget=limit()),
     dict(name="nether_full_bag",
          doc="Nether platform, lava at feet level on the east, the bag full of netherrack and diamonds → tidied: "
              "slots freed, the netherrack thrown where it lands (on the ground, not in the lava), no diamond lost",
@@ -632,7 +622,7 @@ CODE_ROWS = [
          check=_all(_free_slots(3), _gain("minecraft:diamond", 0),
                     lambda api, inv: bool(__import__("bonobo.world", fromlist=["entities"]).entities(
                         10, ["minecraft:item"]))),
-         budget=limit(), expect=SHEET_EXPECT),
+         budget=limit()),
     dict(name="portal_from_cast",
          doc="The queue asks for a portal: no obsidian carried, no diamond pickaxe, buckets, blocks and flint, a frame "
              "standing 8 of 10 (its bottom two missing), a lava pool memory knows 3 blocks off → the plan casts the "
@@ -661,5 +651,5 @@ CODE_ROWS = [
          # filled, and nothing dug down: the feet still on their floor
          check=_all(lambda api, inv: inv.count("minecraft:water_bucket") >= 1,
                     lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]),
-         budget=limit(), expect=SHEET_EXPECT),
+         budget=limit()),
 ]

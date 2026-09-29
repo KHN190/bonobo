@@ -489,6 +489,17 @@ def _buried_first(ctx, polls=5):
         time.sleep(0.2)
     raise SetupInvalid("the sand did not bury the head: head clear before any round, nothing to rescue")
 
+def _brain_idle():
+    """Done: the brain looked and found nothing to do — a must-not row's window judged (nothing it may do fired)."""
+    return core.BRAIN.idle_since is not None
+
+def _drowning_first(ctx):
+    """`before` hook: the head is under water as the row starts — else the pit did not hold the body under and the
+    row proves no surfacing: SetupInvalid."""
+    from ... import skillcore
+    if not skillcore.head_underwater():
+        raise SetupInvalid("the body's head is not under water: nothing to surface from")
+
 def _head_clear():
     from ... import skillcore
     return not skillcore.head_buried()
@@ -536,4 +547,4 @@ def hungry(ctx):
 HOOKS = {"hungry": hungry}
 
 
-__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
+__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_drowning_first', '_brain_idle', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']

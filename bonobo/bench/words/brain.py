@@ -721,7 +721,7 @@ _lifecycle.in_place(__name__, "SEARCH_FLAGS")
 def upkeep_row(name, line, doc, scene, hooks, done, check):
     """One upkeep line through the whole brain, nothing queued: the moment built, the answer in the world."""
     return _row(name, f"upkeep, {doc}", "reflexes", scene,
-                ("brain_rounds", 10 if line == "eat_when_full" else 22, nest(done)), items(check), point="C",
+                ("brain_rounds", 22, nest(done)), items(check), point="C",
                 before=hooks, skills=[], tier_fixed="brain", combat=line == "eat",
                 tags={"base": "upkeep", "line": line})
 

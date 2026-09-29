@@ -94,6 +94,61 @@ class OneWordPerJudgement(unittest.TestCase):
                 self.assertEqual(wc._now(wc._gain("log", n))(), want)
 
 
+class NightUnderCover(unittest.TestCase):
+    def test_the_night_condition_is_covered(self):
+        from bonobo.bench.bench_bases import CONDITIONS
+        from bonobo.bench.core import TREE_HEIGHT
+        from bonobo.bench.words.scene import scene
+        cmds = scene(CONDITIONS["night"]["scene"])
+        roof = [c for c in cmds if " outline" in c]
+        # must fail: night on open sky (nightfall's policy cuts the job: chop__night 034104)
+        self.assertTrue(roof)
+        top_y = int(roof[0].split()[5])
+        self.assertGreater(top_y, ORIGIN[1] + TREE_HEIGHT)
+
+    def test_reaching_land_is_the_nights_way(self):
+        from bonobo import skill
+        call = type("C", (), {"contract": skill.REGISTRY["reach_land"]})()
+        with mock.patch.object(skill, "CALLS", [call]):
+            self.assertTrue(skill._night_way_running())      # must fail: reach_land cut at nightfall
+
+
+class SceneExpect(unittest.TestCase):
+    def test_counts_what_the_scene_left(self):
+        got = ws.scene_expect(["fill 0 0 0 2 0 2 stone", "setblock 1 0 1 chest{Items:[]}",
+                               "fill 0 1 0 2 3 2 glass hollow", "fill 0 0 0 0 0 0 dirt replace stone",
+                               "fill 5 0 0 5 0 0 water"])
+        self.assertEqual(got, [((1, 0, 1), (1, 0, 1), "chest", 1, 1), ((0, 0, 0), (0, 0, 0), "dirt", 1, 1),
+                               ((0, 1, 0), (2, 3, 2), "glass", 26, 26), ((0, 0, 0), (2, 0, 2), "stone", 7, 7)])
+
+    def test_every_built_row_proves_its_scene(self):
+        # must fail: a row whose expect is "one block anywhere in the box"
+        for name, row in table.SCENARIOS.items():
+            if row.get("raw"):
+                continue
+            with self.subTest(name):
+                self.assertTrue(row["expect"])
+                self.assertFalse([e for e in row["expect"] if e[2] == "*" and e[3] >= 1 and e[4] >= 10 ** 6])
+
+
+class Windows(unittest.TestCase):
+    def test_drowning_first(self):
+        from bonobo.bench.core import SetupInvalid
+        from bonobo.bench.words import runs
+        with mock.patch("bonobo.skillcore.head_underwater", lambda s=None: False):
+            with self.assertRaises(SetupInvalid):           # must fail: a dry start judged a surfacing
+                runs._drowning_first(None)
+
+    def test_must_not_row_ends_when_the_brain_is_idle(self):
+        from bonobo.bench import core
+        from bonobo.bench.words import runs
+        brain = type("B", (), {"idle_since": None})()
+        with mock.patch.object(core, "BRAIN", brain):
+            self.assertFalse(runs._brain_idle())
+            brain.idle_since = 1.0
+            self.assertTrue(runs._brain_idle())              # must fail: a constant False (the whole budget)
+
+
 class SceneNow(unittest.TestCase):
     def test_sent_as_the_scene_words_build_it(self):
         words = [("fill", ("@", -1, 0, -1), ("@", 1, 1, 1), "stone"), ("stand", 0, 30)]

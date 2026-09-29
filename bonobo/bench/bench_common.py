@@ -64,8 +64,7 @@ ROWS = [
                 ('give', 'cooked_beef', 4)],
          run=('&walk_once',), before=[('start', 'eat_while_walking'), ('&hunger_drained',)],
          check=[('call', 'walk_ate', [])], budget=25, skills=['goto'],
-         tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tier_fixed='common', combat=False, stochastic=False, tags={'base': 'nav', 'state': 'hungry'}),
     dict(name='mine_while_hungry', module='skills',
          doc=('Hungry, cooked beef carried, 3 cobblestone to mine → mined without a pause to eat: no eat task, every '
               "bite inside the running mine, the bar no lower at the end (worked_fed over the run's trace)"),
@@ -73,8 +72,7 @@ ROWS = [
          run=('&mine_hungry',), before=[('start', 'mine_while_hungry'), ('&hunger_drained',)],
          check=[('gain', 'minecraft:cobblestone', 3), ('call', 'mine_fed', [])], budget=15,
          skills=['mine'], tier_fixed='common', combat=False, stochastic=False,
-         tags={'base': 'mine_stone', 'state': 'hungry'},
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'mine_stone', 'state': 'hungry'}),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
@@ -105,5 +103,5 @@ CODE_ROWS = [
                     # mid-work: the resume found raw iron still to load (an interrupt landing after the last furnace
                     # counted as one, and the row passed in 1.6 s with nothing resumed)
                     lambda api, inv: RESUMED_LEFT.get("smelt_job_interrupted", 0) >= 1),
-         budget=BASES["smelt"]["budget"], expect=SHEET_EXPECT),       # an interrupted run keeps its base's time
+         budget=BASES["smelt"]["budget"]),       # an interrupted run keeps its base's time
 ]

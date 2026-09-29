@@ -14,6 +14,7 @@ TABLE = paths.data("readiness.json")
 NOTES = paths.data("test-world-notes.json")
 BENCH = paths.data("bench")
 ORIGIN = (10000, 200, 10000)
+TREE_HEIGHT = 5                # logs in one bench tree (its trunk)
 KEPT_HP = CRITICAL_HP + 1      # a hazard row's floor: above perception's critical health   # a sky platform: skills search 48 blocks, natural terrain (y ≤ ~120) stays out of it
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # everything a scenario touches lies in this box (cleared and force-loaded before each setup)

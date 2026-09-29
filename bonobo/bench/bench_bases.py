@@ -1,6 +1,7 @@
 """The bases, their conditions and surprises: one small job each, changed one way at a time (vocab.base_row
 makes a row of (base, condition | surprise)). Plain data in `vocab`'s words; the tiers' tables name the pairs."""
 from .core import KEPT_HP
+from .core import TREE_HEIGHT
 
 BASES = {
     'nav': dict(skills=['goto'], doc='walk 8 blocks east over the arena', point='A',
@@ -69,8 +70,10 @@ CONDITIONS = {
                      scene=[('fill', ('@', -8, -3, -8), ('@', -3, -1, 8), 'air'), ('stand', -1)]),
     'nether': dict(axis='terrain', doc='the same job in the Nether', bases=['craft', 'mine_stone', 'nav', 'smelt'],
                  dimension='minecraft:the_nether'),
-    'night': dict(axis='terrain', doc='at night', bases=['chop', 'hunt', 'loot', 'mine_stone', 'nav'],
-                scene=[('time', 18000)]),
+    # the job in the dark: covered (no open sky), so nightfall's policy (brain__night's claim) stays out of it
+    'night': dict(axis='terrain', doc='at night, under cover', bases=['chop', 'hunt', 'loot', 'mine_stone', 'nav'],
+                scene=[('at', 'fill {0} {1} stone outline', ('@', -9, -1, -9), ('@', 15, TREE_HEIGHT + 2, 9)),
+                       ('time', 18000)]),
     'rain': dict(axis='terrain', doc='in the rain', bases=['chop', 'hunt', 'nav', 'sleep'],
                scene=[('cmd', 'weather rain')]),
     'pickup_lag': dict(axis='timing', doc='the server at 8 ticks/s: drops and slots update late',

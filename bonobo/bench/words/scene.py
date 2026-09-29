@@ -20,7 +20,7 @@ import re
 import sys
 import time
 from .. import core, runner
-from ...data import DAY_TICKS, POD_BLOCKS  # noqa: F401
+from ...data import DAY_TICKS, POD_BLOCKS, bare  # noqa: F401
 from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
@@ -36,9 +36,6 @@ def _floor(block="stone", half=8, depth=3):
 
 def _tp(dx: float = 0, dy: float = 0, dz: float = 0):
     return f"tp @p {_c(at(dx + 0.5, dy, dz + 0.5))}"
-
-TREE_HEIGHT = 5            # logs in one bench tree (its trunk)
-
 
 def _tree(x, z, wood="oak", height=TREE_HEIGHT):
     """One tree built block by block: the same shape every run (a generated tree's log count decided rows by chance)."""
@@ -149,16 +146,71 @@ def items(w):
 def _progress(b):
     return {k: b[k] for k in ("progress", "effect", "target") if k in b}
 
-BOX_EXPECT = [(("@", -10, -17, -10), ("@", 20, 9, 10), "*", 1, 10 ** 6)]      # a generated row's box signature
 
-SHEET_EXPECT = [(at(*BOX[0]), at(*BOX[1]), "*", 1, 10 ** 6)]                    # the same, for a one-off row
+# what a scene proves it built: its stable blocks counted where it put them. Fluids flow, sand and gravel fall, crops
+# and farmland change under a body, a lone bed half pops: none of them is a signature.
+UNSTABLE = ("air", "cave_air", "water", "lava", "sand", "gravel", "farmland", "wheat", "fire", "torch")
+UNSTABLE_SUFFIX = ("_bed",)
+
+
+def _placed(cmd):
+    """Pure: (cells, block, mode, filter) of an absolute fill/setblock command, else None."""
+    w = cmd.split(" run ")[-1].split()
+    if not w or w[0] not in ("fill", "setblock") or any(t.startswith(("~", "^", "@")) for t in w[1:7]):
+        return None
+    n = 6 if w[0] == "fill" else 3
+    try:
+        c = [int(v) for v in w[1:1 + n]]
+    except ValueError:
+        return None
+    block = bare(re.split(r"[\[{]", w[1 + n])[0])
+    rest = w[2 + n:]
+    lo, hi = (c[:3], c[3:]) if n == 6 else (c, c)
+    lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
+    cells = [(x, y, z) for x in range(lo[0], hi[0] + 1) for y in range(lo[1], hi[1] + 1) for z in range(lo[2], hi[2] + 1)]
+    mode = rest[0] if rest else "replace"
+    filt = bare(re.split(r"[\[{]", rest[1])[0]) if mode == "replace" and len(rest) > 1 else None
+
+    def shell(p):
+        return any(p[i] in (lo[i], hi[i]) for i in range(3))
+    return cells, block, mode, filt, shell
+
+
+def scene_expect(setup):
+    """Pure: the expect a scene's own commands prove — each stable block's count in the box its cells span, the
+    scene's commands replayed over an empty box. [] when the scene places nothing it can be judged by."""
+    world = {}
+    for cmd in setup:
+        got = _placed(cmd)
+        if got is None:
+            continue
+        cells, block, mode, filt, shell = got
+        for p in cells:
+            if mode == "outline" and not shell(p):
+                continue
+            if mode == "keep" and world.get(p, "air") != "air":
+                continue
+            if mode == "replace" and filt is not None and world.get(p, "air") != filt:
+                continue
+            world[p] = "air" if mode == "hollow" and not shell(p) else block
+    out = []
+    for name in sorted({b for b in world.values()}):
+        if name in UNSTABLE or name.endswith(UNSTABLE_SUFFIX):
+            continue
+        ps = [p for p, b in world.items() if b == name]
+        lo = tuple(min(p[i] for p in ps) for i in range(3))
+        hi = tuple(max(p[i] for p in ps) for i in range(3))
+        n = sum(1 for p, b in world.items() if b == name and all(lo[i] <= p[i] <= hi[i] for i in range(3)))
+        out.append((lo, hi, name, n, n))
+    return out
+
 
 # -- one-skill rows, the start-cell and placing rows, the upkeep lines and the brain's rows --------------------------
 def _row(name, doc, module, scene, run, check, point="A", budget=None, before=(), **more):
     """A row's common frame: started (`_start`), the box signature, the bench's limit unless it asks less."""
     return {"name": name, "doc": doc, "module": module, "point": point, "scene": list(scene),
             "before": [("start", name)] + list(before), "run": run, "check": check,
-            "budget": budget or limit(), "expect": BOX_EXPECT, **more}
+            "budget": budget or limit(), **more}
 
 WORDS = {}          # words made by a function of their arguments (the fight and brain modules add theirs)
 REGISTRY = {}       # every word by name, filled once by vocab from every word module (a name in two is an error)
@@ -179,4 +231,4 @@ def resolve(name):
         return getattr(importlib.import_module(mod), attr)
     raise KeyError(f"no word {name!r}")
 
-__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'TREE_HEIGHT', 'BOX_EXPECT', 'CHOP_TREE', 'SCENE', 'SHEET_EXPECT', '_c', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'pos', 'scene', 'top']
+__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'scene_expect', 'CHOP_TREE', 'SCENE', '_c', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'pos', 'scene', 'top']

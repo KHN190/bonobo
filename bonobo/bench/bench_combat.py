@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from .core import BEST_TOOLS
 
 if TYPE_CHECKING:   # CODE_ROWS pulls vocab's words in at run time; pyright reads them here
-    from .vocab import (BASE, EDGE_Y, FIRST, SHEET_EXPECT, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
+    from .vocab import (BASE, EDGE_Y, FIRST, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
                         _first_times, _gone, _hooks, _hostiles, _record_bids, _start, _tp, arrived, at, limit)
 # -- the dimensions of a fight cell (the combat table's own data; vocab's `_build` turns a cell into commands) -------
 # enemies named by what they do ("pack" is walker × count=three: the same world under another name)
@@ -127,7 +127,7 @@ ROWS = [
          check=[('alive', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], budget=25, combat=True,
          point='B', tier_fixed='exception',
          tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
-         expect_entities=[('minecraft:zombie', 1)], expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         expect_entities=[('minecraft:zombie', 1)]),
     dict(name='combat__low_hp_eat', module='fight_loop', kit=['sword'],
          doc=('6 hp, food 6 with no saturation (no natural regen), one zombie 2 blocks off, blocks and cooked beef → '
               'away from it or walled in first, then fed: the beef eaten, the zombie 3 or more off (or walled in), '
@@ -191,8 +191,7 @@ ROWS = [
          scene=[('sheet', '_ARENA'), ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
          run=('fight_until', ['minecraft:creeper'], 25), before=[('start', 'fight_creeper_sword'), ('&record_bids',)],
          check=[('gone', ['minecraft:creeper']), ('alive', 16)], budget=25, point='B', combat=True, stochastic=True,
-         tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'open'}, expect_entities=[('minecraft:creeper', 1)],
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'open'}, expect_entities=[('minecraft:creeper', 1)]),
     dict(name='fight_creeper_by_home', module='fight_loop', kit=['sword'],
          doc=('Iron sword, a creeper 4 blocks off, a bed and a furnace of ours within 3 of it → the creeper gone (dead '
               'or blown up in the air), health ≥ 16, the bed and the furnace still standing'),
@@ -206,8 +205,7 @@ ROWS = [
                 ('blocks', ('@', 4, 0, 2), ('@', 5, 0, 2), ('red_bed',), 2),
                 ('blocks', ('@', 4, 0, -2), ('@', 4, 0, -2), ('furnace',), 1)],
          budget=25, point='B', combat=True, stochastic=True,
-         tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'home'}, expect_entities=[('minecraft:creeper', 1)],
-         expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
+         tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'home'}, expect_entities=[('minecraft:creeper', 1)]),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 def CODE_ROWS():
@@ -227,7 +225,7 @@ def CODE_ROWS():
              run=_brain_rounds(24, lambda: not _hostiles(24, {"minecraft:zombie"})),
              check=_all(_gone(["minecraft:zombie"]), _alive(10), arrived(at(0, 0, 0), 9),
                         lambda api, inv: FIRST.get("log") is None),
-             budget=limit(), expect=SHEET_EXPECT),
+             budget=limit()),
         dict(name="combat__knocked_off_edge", kit=["sword"],
              doc="A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
                  "knocked off, the fall caught: alive, health within 4 of the start, the bucket back in the bag",
@@ -246,5 +244,5 @@ def CODE_ROWS():
              check=_all(_alive(1), lambda api, inv: api.get("/state")["y"] < at(0, EDGE_Y - 10, 0)[1],
                         lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
                         lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
-             budget=limit(), expect=SHEET_EXPECT),
+             budget=limit()),
     ]
