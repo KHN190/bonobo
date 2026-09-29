@@ -358,6 +358,16 @@ def server_count(lines):
     return 0
 
 
+def fresh_row(brain):
+    """Before every row: each world-scoped store a row can leave behind (fresh.WORLD_SCOPED: taught doors, tasks…)
+    and the bench's notes (home sites) dropped, then a brain on empty notes (031434: a hatch lesson steered the side
+    room's walk)."""
+    from .. import fresh
+    from ..memory import Memory
+    fresh.drop(fresh.WORLD_SCOPED + (os.path.basename(NOTES),))
+    reset_brain(brain, Memory(NOTES))
+
+
 def reset_brain(brain, mem):
     """Every row starts from a brain that knows nothing of earlier rows (upkeep's tool notes outlived `clear @p`)."""
 

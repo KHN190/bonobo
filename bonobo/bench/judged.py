@@ -20,11 +20,10 @@ WORLD = {
     "escaped",                  # an escape cell's outcome: alive, health lost (the body's /state at the window's end)
     "took_cover_alcove",        # the runner's /state trace: where the body stood, its health
     "deflected",                # the server's player Health, each volley fireball's end read off /entities
-    "door_intact",              # the room's blocks: walls, roof and door standing
     "arrived",                  # the body's /state by the walker's own arrival test (nav.there)
     "door_seen",                # a watcher reading the door's block state through the run
-    "door_shut", "door_open",   # the door cells' block states read at the end
-    "shell_intact",             # the room's walls and roof standing, the door's cells aside
+    "door_state",               # the door cells' block states read at the end
+    "unchanged",                # the box's walls and roof standing
 }
 
 # words that hold a state over the window: true at its start, they pass only if still true at its end (idle mode

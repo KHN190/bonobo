@@ -215,9 +215,7 @@ def cmd_scenario(a):
             continue
         # Fresh memory per scenario: the real world's remembered pools/builds must not steer the test, and the
         # test must not write into the real world's notes.
-        if os.path.exists(sheet.NOTES):
-            os.remove(sheet.NOTES)
-        sheet.reset_brain(brain, Memory(sheet.NOTES))
+        sheet.fresh_row(brain)
         def make_ctx():
             snap = Snapshot.from_readings(api.get("/state"), Inventory())
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
@@ -240,13 +238,10 @@ def _idle_ctx(brain):
 def _scenario_idle(sheet, names, brain):
     """Idle mode: each row set up as normal, then a body that does nothing for its budget, then its check — once,
     no retries, no cache. INVALID: an idle body passes it (it tests nothing). Written to runner.IDLE_TABLE only."""
-    import os
     out = {}
     for i, name in enumerate(names):
         sheet.NEXT_ROW[0] = names[i + 1] if i + 1 < len(names) else None
-        if os.path.exists(sheet.NOTES):
-            os.remove(sheet.NOTES)
-        sheet.reset_brain(brain, Memory(sheet.NOTES))
+        sheet.fresh_row(brain)
         verdict, note, _code = sheet.run_idle(name, _idle_ctx(brain))
         out.setdefault(verdict, []).append(name)
         print(f"IDLE {verdict} {name} {note}", flush=True)

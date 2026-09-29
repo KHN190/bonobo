@@ -1,5 +1,5 @@
 """The bench's one vocabulary: the words a table row (bench_<tier>.py) is written in, and every helper they name.
-The words live in `words/` (scene, checks, runs, fight, brain), one home each; this module gathers them, keeps
+The words live in `words/` (scene, checks, runs, fight, brain, door), one home each; this module gathers them, keeps
 the sheet's own helpers and templates, and registers every word once (a name in two modules is an error).
 Scene templates (→ console commands), predicates and checks (→ judged by the world and the bag), the run, hook
 and interrupt words, and the row templates that make a family of rows from its parameters. `table.py` reads the
@@ -42,12 +42,13 @@ from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run, save_table, setup_mismatches, silent_failure, status)
 from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
-from .words import brain, checks, fight, runs, scene as _scene_words
+from .words import brain, checks, door, fight, runs, scene as _scene_words
 from .words.scene import *  # noqa: F401,F403
 from .words.checks import *  # noqa: F401,F403
 from .words.runs import *  # noqa: F401,F403
 from .words.fight import *  # noqa: F401,F403
 from .words.brain import *  # noqa: F401,F403
+from .words.door import *  # noqa: F401,F403
 
 _BEFORE = set(globals())
 # real structures in the test world (seed 1234): no box; /locate gives the truth
@@ -682,8 +683,8 @@ def start_row(name, what, start_scene, stand):
 TEMPLATES = {t: globals()[f"{t}_row"] for t in ("base", "one", "real", "place", "start")}
 NAMES = {"base": lambda base, cond=None, surprise=None: surprise or f"{base}__{cond or 'base'}",
          **{t: (lambda name, *p: name) for t in ("one", "real", "place", "start")}}
-NAMED = {"arena", "fight_cell", "deflect", "one", "real", "place", "start", "brain", "dirt"}  # templates whose first parameter is only the row's name
-WORD_MODULES = (_scene_words, checks, runs, fight, brain)
+NAMED = {"arena", "fight_cell", "deflect", "one", "real", "place", "start", "brain", "dirt", "door"}  # templates whose first parameter is only the row's name
+WORD_MODULES = (_scene_words, checks, runs, fight, brain, door)
 
 
 def merged(tables, what):
@@ -697,20 +698,21 @@ def merged(tables, what):
     return out
 
 
-TEMPLATES = merged([fight.TEMPLATES, brain.TEMPLATES, TEMPLATES], "templates")
-NAMES = merged([fight.NAMES, brain.NAMES, NAMES], "template names")
+TEMPLATES = merged([fight.TEMPLATES, brain.TEMPLATES, door.TEMPLATES, TEMPLATES], "templates")
+NAMES = merged([fight.NAMES, brain.NAMES, door.NAMES, NAMES], "template names")
 _OWN = set(globals()) - _BEFORE - {"TEMPLATES", "NAMES", "NAMED", "WORD_MODULES", "merged", "_BEFORE"}
 merged([dict.fromkeys(m.__all__) for m in WORD_MODULES] + [dict.fromkeys(_OWN)], "words")    # one home each
 # pyright's view of the words: a static __all__ it can follow; at run time every name here is a word (below)
 __all__ = ["BASES", "FLAG", "MAX_RUNS", "NEXT_ROW", "NOTES", "PORTAL_8_OF_10", "ROAD_TIMES", "SCENARIOS", "_achieve", "_c",
            "_chat", "_count_blocks", "_drain", "_inv_has", "_queue", "_road_reuse", "_worn_head", "at", "base_row",
            "cached_timeout", "code_for", "core", "diff_hunks", "failed_last", "jar_matches_source", "load_table",
-           "one_row", "pending", "real_row", "reset_brain", "run", "save_table", "select", "set_brain", "skill_spans",
+           "one_row", "pending", "real_row", "fresh_row", "reset_brain", "run", "save_table", "select", "set_brain", "skill_spans",
            "status", "tier_of", "time", "touched_skills", "verdict"]
 __all__ += _scene_words.__all__
 __all__ += checks.__all__
 __all__ += runs.__all__
 __all__ += fight.__all__
 __all__ += brain.__all__
+__all__ += door.__all__
 globals()["__all__"] = [n for n in dir() if not n.startswith("__")]      # the tables write in every word here
 REGISTRY.update({n: globals()[n] for n in globals()["__all__"]})

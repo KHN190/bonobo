@@ -1126,7 +1126,7 @@ class HungryRowsTarget(unittest.TestCase):
             with self.subTest(name), contextlib.ExitStack() as quiet, mock.patch.object(vocab.time, "sleep"), \
                     mock.patch.object(api, "get", side_effect=lambda path, *a, **k: world[path.split("?")[0]]), \
                     mock.patch.dict(vocab.BASE, clear=True):
-                for m in (vocab,) + vocab.WORD_MODULES:          # every home that sends a command
+                for m in [m for m in (vocab,) + vocab.WORD_MODULES if hasattr(m, "_chat")]:     # every home that sends one
                     quiet.enter_context(mock.patch.object(m, "_chat"))
                 sc.SCENARIOS[row]["before"](None)
                 self.assertIs("target_s" in vocab.BASE, want)

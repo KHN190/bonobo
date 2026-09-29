@@ -373,7 +373,7 @@ PRED_ROWS = [
     ("no scan no", ("no_scan",), None, None, {"FINDS": {"diamond": 2}}, False),
 ]
 # world readers: the recorded blocks (FakeRegion) and entities
-# a 3×3×3 shell (inner x 1, z 1, y 0..1 open) with a door in its west face: door_intact's scene
+# a 3×3×3 shell (inner x 1, z 1, y 0..1 open) with a door in its west face: unchanged's scene
 DOOR = [("@", 0, 0, 1), ("@", 0, 1, 1)]
 DOOR_CELLS = [(10000 + x, 200 + y, 10000 + z) for _at, x, y, z in DOOR]     # A0 is (10000, 200, 10000)
 SHELL = {(10000 + x, 200 + y, 10000 + z): ("iron_door" if (x, z) == (0, 1) and y < 2 else "stone")
@@ -402,21 +402,21 @@ WORLD_ROWS = [
     ("arrived yes: on the target cell", ("arrived", A0, 0.5), {}, [], True),
     ("must fail: arrived no — two short (the doorway before the room's cell)", ("arrived", ("@", 2, 0, 0), 0.5), {},
      [], False),
-    ("door intact yes: shell and door standing", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
-     SHELL, [], True),
-    ("must fail: door intact no — a wall block dug", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
+    ("unchanged yes: shell and door standing", ("unchanged", A0, ("@", 2, 2, 2), []), SHELL, [], True),
+    ("must fail: unchanged no — a wall block dug", ("unchanged", A0, ("@", 2, 2, 2), []),
      {c: n for c, n in SHELL.items() if c != (10002, 201, 10002)}, [], False),
-    ("must fail: door intact no — the door broken", ("door_intact", A0, ("@", 2, 2, 2), DOOR),
-     {c: n for c, n in SHELL.items() if c != (10000, 201, 10001)}, [], False),
-    # the door cells' end state and the shell round them (the door's own cells judged by door_shut/door_open)
-    ("door shut yes: both cells solid", ("door_shut", DOOR), {DOOR_CELLS[0]: "stone", DOOR_CELLS[1]: "stone"}, [], True),
-    ("must fail: door shut no — one cell left open", ("door_shut", DOOR), {DOOR_CELLS[0]: "stone"}, [], False),
-    ("door open yes: both cells air", ("door_open", DOOR), {}, [], True),
-    ("must fail: door open no — pressed shut again", ("door_open", DOOR), {DOOR_CELLS[1]: "stone"}, [], False),
-    ("shell intact yes: walls standing, the door cells open", ("shell_intact", A0, ("@", 2, 2, 2), DOOR),
+    ("must fail: unchanged no — the door broken", ("unchanged", A0, ("@", 2, 2, 2), []),
+     {c: n for c, n in SHELL.items() if c != DOOR_CELLS[1]}, [], False),
+    ("unchanged yes: a piston door's cells open", ("unchanged", A0, ("@", 2, 2, 2), DOOR),
      {c: n for c, n in SHELL.items() if c not in DOOR_CELLS}, [], True),
-    ("must fail: shell intact no — a wall block dug", ("shell_intact", A0, ("@", 2, 2, 2), DOOR),
+    ("must fail: unchanged no — a wall dug beside the open door", ("unchanged", A0, ("@", 2, 2, 2), DOOR),
      {c: n for c, n in SHELL.items() if c not in DOOR_CELLS and c != (10002, 201, 10002)}, [], False),
+    ("door state shut yes: both cells solid", ("door_state", DOOR, "shut"), {c: "stone" for c in DOOR_CELLS}, [], True),
+    ("must fail: door state shut no — one cell left open", ("door_state", DOOR, "shut"), {DOOR_CELLS[0]: "stone"}, [],
+     False),
+    ("door state open yes: both cells air", ("door_state", DOOR, "open"), {}, [], True),
+    ("must fail: door state open no — pressed shut again", ("door_state", DOOR, "open"), {DOOR_CELLS[1]: "stone"}, [],
+     False),
     ("must fail: away or walled no — stood beside it in the open", ("away_or_walled", ["minecraft:zombie"]), {},
      [{"type": "minecraft:zombie", "x": 10001.5, "y": 200.0, "z": 10000.5, "health": 20}], False),
 ]
@@ -574,8 +574,8 @@ if __name__ == "__main__":
     unittest.main()
 
 class WordModules(unittest.TestCase):
-    """vocab gathers the words from words/ (scene → checks → runs → fight → brain): one home each, one direction."""
-    ORDER = ("scene", "checks", "runs", "fight", "brain")
+    """vocab gathers the words from words/ (scene → checks → runs → fight → brain → door): one home each, one direction."""
+    ORDER = ("scene", "checks", "runs", "fight", "brain", "door")
 
     def test_a_word_defined_twice_is_refused(self):
         # must fail: two modules defining one word is an error at import, never a silent pick
@@ -847,4 +847,102 @@ class DeflectCells(unittest.TestCase):
         from bonobo.bench.words import fight as wf
         self.assertEqual(wf.data_health(["knh190 has the following entity data: 17.5f"]), 17.5)
         self.assertIsNone(wf.data_health(["No entity was found"]), "must fail: no entity, no health")
+
+
+class FreshRow(unittest.TestCase):
+    """core.fresh_row: nothing a row leaves in a world-scoped store reaches the next (031434: a hatch lesson walked
+    the side room)."""
+
+    def test_no_store_outlives_its_row(self):
+        import tempfile
+        from bonobo import fresh, mechanisms as mech, paths
+        tmp = tempfile.mkdtemp()
+        notes = os.path.join(tmp, os.path.basename(core.NOTES))
+        with mock.patch.dict(os.environ, {"MC_DATA": tmp}), mock.patch.object(core, "NOTES", notes), \
+                mock.patch.object(core, "reset_brain") as reset:
+            for name in fresh.WORLD_SCOPED:
+                if "." in name:
+                    open(paths.data(name), "w").write("[]")
+                else:
+                    os.makedirs(paths.data(name))
+            lesson = paths.data("mechanisms.json")
+            mech.add("minecraft:overworld", (1, 2, 3), [(4, 5, 6)], path=lesson)
+            with open(notes, "w") as f:
+                json.dump({"sites": [{"name": "home", "kind": "home", "pos": [0, 0, 0],
+                                      "dimension": "minecraft:overworld"}]}, f)
+            self.assertTrue(mech.load(lesson))          # must fail without the drop: the last row's lesson
+            core.fresh_row(object())
+            self.assertEqual(mech.load(lesson), [])
+            self.assertEqual([n for n in fresh.WORLD_SCOPED + (os.path.basename(notes),)
+                              if os.path.exists(paths.data(n))], [])
+            self.assertEqual(reset.call_args[0][1].sites(), [])      # the brain's notes: no home site left
+
+
+def _door_params():
+    from bonobo.bench import bench_common
+    return {p[0]: p for t, ps in bench_common.FAMILIES if t == "door" for p in ps}
+
+
+class DoorFamily(unittest.TestCase):
+    """words.door: every door row built from DOORS — its lesson, walk and checks from the same parts."""
+
+    def rows(self):
+        return {n: r for t in sc.TIERS for n, r in table.rows(t).items() if n in _door_params()}
+
+    def test_every_door_row_is_the_family(self):
+        self.assertEqual(sorted(self.rows()), sorted(_door_params()))
+
+    def test_the_lesson_presses_what_the_scene_built(self):
+        for name, row in self.rows().items():
+            with self.subTest(name):
+                built = {a[0]: a[1] for w, *a in row["scene"] if w == "setblock"}
+                (_t, presses, cells, _close), = [h for h in row["before"] if h[0] == "teach"]
+                self.assertTrue(all("button" in built[p] for p in presses))
+                piston = _door_params()[name][2] == "piston"
+                self.assertEqual([built[c] == "air" for c in cells], [piston] * len(cells))
+                bulb = row["expect"][0][0]
+                # a piston door shuts on power: lit last; an iron door opens on it: never lit
+                self.assertEqual("lit=true" in [b for w, *a in row["scene"] if w == "setblock" and a[0] == bulb
+                                                for b in a[1:]][-1], piston)
+
+    def test_the_checks_follow_the_params(self):
+        for name, (_n, _shape, _kind, presses, close, taught, _start, _goal, back) in _door_params().items():
+            with self.subTest(name):
+                row = self.rows()[name]
+                (_t, taught_presses, _c, _cl), = [h for h in row["before"] if h[0] == "teach"]
+                self.assertEqual(len(taught_presses), presses if taught else 0)
+                state = [c for c in row["check"] if c[0] == "door_state"][0][2]
+                self.assertEqual(state, "shut" if close or not taught else "open")
+                self.assertEqual(row["run"][3] is not None, back)
+
+    def test_the_watch_is_keyed_by_its_row(self):
+        # must fail (the 031434 run's "KeyError: None"): no ('start', name) → every door row watched under None,
+        # and the reset between rows raised in the last row's watcher thread
+        import threading
+        from bonobo import mechanisms as mech
+        from bonobo.bench.words import checks, door as dw
+        for name, row in self.rows().items():
+            with self.subTest(name):
+                self.assertEqual(row["before"][0], ("start", name))
+        raised, gate = [], threading.Event()
+
+        def solid(cells):
+            gate.wait(2)
+            return {tuple(c): True for c in cells}
+        with mock.patch.dict(checks.BASE, {"name": "r"}, clear=True), mock.patch.object(mech, "solid_map", solid), \
+                mock.patch.object(threading, "excepthook", lambda a: raised.append(a.exc_type)):
+            before = set(threading.enumerate())
+            dw.teach([], [(0, 0, 0)], False)(None)
+            watcher, = set(threading.enumerate()) - before
+            dw.DOOR_SEEN.clear()                  # the next row's reset
+            gate.set()
+            watcher.join(2)
+        self.assertFalse(watcher.is_alive())
+        self.assertEqual(raised, [])
+
+    def test_a_press_the_layout_lacks_is_refused(self):
+        # must fail: two buttons asked of the one-button side room — never a row with a press nothing stands at
+        from bonobo.bench.words import door as dw
+        with self.assertRaises(ValueError):
+            dw.door_parts("wall", "piston", 2)
 

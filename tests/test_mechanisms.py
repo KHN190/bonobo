@@ -221,17 +221,18 @@ class CrossingFails(unittest.TestCase):
 class DoorwayIsNotInside(unittest.TestCase):
     def test_the_rows_reach(self):
         # the bench row's target and reach, one test for run, check and travel_to's verify (nav.there)
-        from bonobo.bench import bench_common as bc
         from bonobo.bench.vocab import pos
-        room = bc.DOOR_ROOM
-        inside, reach = pos(room["inside"]), room["reach"]
-        door = pos(room["door"][0])
+        from bonobo.bench.words import door as dw
 
         def at(cell):
             return {"x": cell[0] + 0.5, "y": float(cell[1]), "z": cell[2] + 0.5, "onGround": True}
-        # must fail: standing in the doorway counted arrived (025641: x 4.3, arrived by 1.5 + slack)
-        self.assertFalse(nav.there(at(door), inside, reach))
-        self.assertTrue(nav.there(at(inside), inside, reach))
+        for shape, kind in dw.DOORS:
+            with self.subTest(shape=shape, kind=kind):
+                p = dw.door_parts(shape, kind, 1)
+                inside, door = pos(p["points"]["inside"]), pos(p["cells"][0])
+                # must fail: standing in the doorway counted arrived (025641: x 4.3, arrived by 1.5 + slack)
+                self.assertFalse(nav.there(at(door), inside, dw.REACH))
+                self.assertTrue(nav.there(at(inside), inside, dw.REACH))
 
 
 HATCH_Y = 63                                           # a 2×2 hatch in the ground layer

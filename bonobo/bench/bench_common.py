@@ -25,34 +25,12 @@ FAMILIES = [
            ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'ladder[facing=west]')],
           (0, 2)),
          ('nav_from_water', 'a pool one deep', [('fill', ('@', -1, 0, -1), ('@', 1, 0, 1), 'water')], ())]),
+    ('door', [('press_door_to_chest', 'wall', 'iron', 2, False, True, 'outside', 'inside', False),
+         ('untaught_door_stays_shut', 'wall', 'iron', 2, False, False, 'outside', 'inside', False),
+         ('hatch_in_and_close', 'hatch', 'piston', 2, True, True, 'outside', 'inside', False),
+         ('hatch_out_and_close', 'hatch', 'piston', 2, True, True, 'inside', 'outside', False),
+         ('side_room_single_button', 'wall', 'piston', 1, False, True, 'outside', 'inside', True)]),
 ]
-# the taught-door room, one set of offsets for its scene and its lesson: walls x 4..8, z -3..3, roof y 3
-DOOR_ROOM = {"lo": ('@', 4, 0, -3), "hi": ('@', 8, 3, 3), "in_lo": ('@', 5, 0, -2), "in_hi": ('@', 7, 2, 2),
-             "door": (('@', 4, 0, 0), ('@', 4, 1, 0)), "bulb": ('@', 4, 1, -2), "comparator": ('@', 4, 1, -1),
-             "press_out": ('@', 3, 1, -2), "press_in": ('@', 5, 1, -2), "chest": ('@', 7, 0, 0),
-             "inside": ('@', 6, 0, 0), "reach": 0.5}     # reach + the walker's slack short of the door cell
-# the hatch, one set of offsets for its scene and its lesson: a room below the floor (x 1..3, y -3..-2, z 0..3), the
-# 2×2 hatch in its ceiling, the pistons either side in the floor layer, the powering ring outside the room
-DOOR_HATCH = {"lo_ground": ('@', -4, -5, -3), "hi_ground": ('@', 7, -1, 5),
-              "room_lo": ('@', 1, -3, 0), "room_hi": ('@', 3, -2, 3),
-              "steps": (('@', 2, -3, 1), ('@', 2, -2, 0)),
-              "hatch": (('@', 1, -1, 0), ('@', 2, -1, 0), ('@', 1, -1, 1), ('@', 2, -1, 1)),
-              "pistons_w": (('@', -1, -1, 0), ('@', -1, -1, 1)), "pistons_e": (('@', 4, -1, 0), ('@', 4, -1, 1)),
-              "repeaters_w": (('@', -2, -1, 0), ('@', -2, -1, 1)), "repeaters_e": (('@', 5, -1, 0), ('@', 5, -1, 1)),
-              "wire": tuple([('@', 5, -1, 3), ('@', 6, -1, 3), ('@', 6, -1, 2), ('@', 6, -1, 1), ('@', 6, -1, 0),
-                             ('@', 5, -1, 4)] + [('@', x, -1, 4) for x in range(4, -4, -1)]
-                            + [('@', -3, -1, z) for z in (3, 2, 1, 0)]),
-              "bulb": ('@', 3, -1, 3), "comparator": ('@', 4, -1, 3),
-              "press_out": ('@', 3, 0, 3), "press_in": ('@', 3, -2, 3),
-              "shell_lo": ('@', 0, -4, -1), "shell_hi": ('@', 4, -1, 4),
-              "above": ('@', 2, 0, -2), "below": ('@', 3, -3, 2), "reach": 0.5}
-# the side room: walls x 4..8, y 0..3, z -1..3, a 1×2 door in the west wall at z 1, its pistons in the wall corner
-DOOR_SIDE = {"lo": ('@', 4, 0, -1), "hi": ('@', 8, 3, 3), "in_lo": ('@', 5, 0, 0), "in_hi": ('@', 7, 2, 2),
-             "door": (('@', 4, 0, 1), ('@', 4, 1, 1)), "pistons": (('@', 4, 0, -1), ('@', 4, 1, -1)),
-             "repeater_low": ('@', 4, 0, -2), "support": ('@', 3, 0, -1), "repeater_high": ('@', 3, 1, -1),
-             "wire_block": ('@', 2, 0, -1), "wire": (('@', 4, 0, -3), ('@', 2, 1, -1)),
-             "bulb": ('@', 2, 0, -3), "comparator_low": ('@', 3, 0, -3), "comparator_high": ('@', 2, 0, -2),
-             "press": ('@', 1, 0, -3), "inside": ('@', 6, 0, 1), "outside": ('@', 1, 0, 1), "reach": 0.5}
 ROWS = [
     dict(name='cave_escape', module='nav',
          doc='Sealed in a dark 1×2 pocket 4 blocks under the platform, pickaxe + blocks → back on the surface platform.',
@@ -106,86 +84,6 @@ ROWS = [
          skills=['mine'], tier_fixed='common', combat=False, stochastic=False,
          tags={'base': 'mine_stone', 'state': 'hungry'},
          expect=[(('@', -10, -17, -10), ('@', 20, 9, 10), '*', 1, 1000000)]),
-    # a taught door: a closed stone room, an iron door in its west wall held by a toggle — a waxed copper bulb in the
-    # wall with a button on each face (outside, inside), read by a comparator beside the door's top half: one press
-    # opens it and it stays open — and a chest within. Every cell below from DOOR_ROOM (scene and lesson alike)
-    *[dict(name=name, module='skills', point='A', skills=skills, stochastic=False,
-           doc=doc,
-           scene=[('floor',), ('fill', R['lo'], R['hi'], 'stone'), ('fill', R['in_lo'], R['in_hi'], 'air'),
-                  ('setblock', R['door'][0], 'iron_door[facing=east,half=lower]'),
-                  ('setblock', R['door'][1], 'iron_door[facing=east,half=upper]'),
-                  ('setblock', R['bulb'], 'waxed_copper_bulb[lit=false,powered=false]'),
-                  ('setblock', R['comparator'], 'comparator[facing=north]'),
-                  ('setblock', R['press_out'], 'oak_button[face=wall,facing=west]'),
-                  ('setblock', R['press_in'], 'oak_button[face=wall,facing=east]'),
-                  ('setblock', R['chest'], 'chest'), ('stand',), ('cmd', 'clear @p')],
-           before=[(hook, R['press_out'], R['press_in'], list(R['door']))],
-           run=('into_room', R['inside'], R['reach']),
-           check=[inside, ('door_intact', R['lo'], R['hi'], list(R['door']))] + seen, budget=25, tier_fixed='common',
-           expect=[(R['door'][0], R['door'][1], 'iron_door', 2, 2)])
-      for R in [DOOR_ROOM]
-      for name, skills, hook, inside, seen, doc in (
-          ('press_door_to_chest', ['press_mechanism'], 'door_taught', ('arrived', R['inside'], R['reach']), [('door_seen',)],
-           'The door taught → pressed open from outside, walked in to the chest; walls and door intact'),
-          ('untaught_door_stays_shut', [], 'door_untaught', ('not', ('!arrived', R['inside'], R['reach'])), [],
-           'Must fail to enter: the same door NOT taught → stays outside, and still digs nothing'))],
-    # a hatch: a 2×2 opening in the floor over a room, four sticky pistons in the floor layer pulling its blocks
-    # aside (open) or pushing them in (shut), powered from a waxed copper bulb (a toggle) through a comparator and a
-    # dust ring into repeaters; one button on the bulb's top (the surface), one under it (the room's ceiling). Both
-    # taught with close=True: the door is shut again behind the body. Every cell from DOOR_HATCH.
-    *[dict(name=name, module='skills', point='A', skills=['press_mechanism'], stochastic=False, doc=doc,
-           scene=[('fill', H['lo_ground'], H['hi_ground'], 'stone'), ('fill', H['room_lo'], H['room_hi'], 'air'),
-                  *[('setblock', c, 'stone') for c in H['steps']],
-                  *[('setblock', c, 'air') for c in H['hatch']],
-                  *[('setblock', c, 'sticky_piston[facing=east]') for c in H['pistons_w']],
-                  *[('setblock', c, 'sticky_piston[facing=west]') for c in H['pistons_e']],
-                  *[('setblock', c, 'repeater[facing=west]') for c in H['repeaters_w']],
-                  *[('setblock', c, 'repeater[facing=east]') for c in H['repeaters_e']],
-                  *[('setblock', c, 'redstone_wire') for c in H['wire']],
-                  ('setblock', H['bulb'], 'waxed_copper_bulb[lit=false,powered=false]'),
-                  ('setblock', H['comparator'], 'comparator[facing=west]'),
-                  ('setblock', H['press_out'], 'oak_button[face=floor,facing=north]'),
-                  ('setblock', H['press_in'], 'oak_button[face=ceiling,facing=north]'),
-                  # lit last: the pistons push in, the hatch starts shut
-                  ('setblock', H['bulb'], 'waxed_copper_bulb[lit=true,powered=false]'),
-                  ('stand', start[1], start[2], start[3]), ('cmd', 'clear @p')],
-           before=[('door_taught_as', [H['press_out'], H['press_in']], list(H['hatch']), True)],
-           run=('into_room', goal, H['reach']),
-           check=[('arrived', goal, H['reach']), ('door_shut', list(H['hatch'])),
-                  ('shell_intact', H['shell_lo'], H['shell_hi'], list(H['hatch'])), ('door_seen',)],
-           budget=25, tier_fixed='common', expect=[(H['bulb'], H['bulb'], 'waxed_copper_bulb', 1, 1)])
-      for H in [DOOR_HATCH]
-      for name, start, goal, doc in (
-          ('hatch_in_and_close', H['above'], H['below'],
-           'A shut floor hatch, its buttons taught (close) → pressed open from above, down into the room, shut behind; '
-           'nothing dug'),
-          ('hatch_out_and_close', H['below'], H['above'],
-           'The same hatch from below → pressed open from the room, up to the surface, shut behind; nothing dug'))],
-    # a side room: a 1×2 door in its west wall, two stacked sticky pistons in the wall pulling the door blocks aside,
-    # one button outside on a bulb (a toggle) read by two comparators into repeaters; taught with close=False: left
-    # open. Into the room and back out. Every cell from DOOR_SIDE.
-    *[dict(name='side_room_single_button', module='skills', point='A', skills=['press_mechanism'], stochastic=False,
-           doc='A shut 1×2 piston door, one button outside, taught (stays open) → pressed, into the room and back '
-               'out; the door left open, nothing dug (must fail: pressed shut again)',
-           scene=[('floor',), ('fill', R['lo'], R['hi'], 'stone'), ('fill', R['in_lo'], R['in_hi'], 'air'),
-                  *[('setblock', c, 'air') for c in R['door']],
-                  *[('setblock', c, 'sticky_piston[facing=south]') for c in R['pistons']],
-                  ('setblock', R['repeater_low'], 'repeater[facing=north]'),
-                  ('setblock', R['support'], 'stone'), ('setblock', R['repeater_high'], 'repeater[facing=west]'),
-                  ('setblock', R['wire_block'], 'stone'),
-                  *[('setblock', c, 'redstone_wire') for c in R['wire']],
-                  ('setblock', R['bulb'], 'waxed_copper_bulb[lit=false,powered=false]'),
-                  ('setblock', R['comparator_low'], 'comparator[facing=west]'),
-                  ('setblock', R['comparator_high'], 'comparator[facing=north]'),
-                  ('setblock', R['press'], 'oak_button[face=wall,facing=west]'),
-                  ('setblock', R['bulb'], 'waxed_copper_bulb[lit=true,powered=false]'),     # shut to start
-                  ('stand', R['outside'][1], R['outside'][2], R['outside'][3]), ('cmd', 'clear @p')],
-           before=[('door_taught_as', [R['press']], list(R['door']), False)],
-           run=('through_and_back', R['inside'], R['outside'], R['reach']),
-           check=[('arrived', R['outside'], R['reach']), ('door_open', list(R['door'])),
-                  ('shell_intact', R['lo'], R['hi'], list(R['door'])), ('door_seen',)],
-           budget=25, tier_fixed='common', expect=[(R['bulb'], R['bulb'], 'waxed_copper_bulb', 1, 1)])
-      for R in [DOOR_SIDE]],
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
