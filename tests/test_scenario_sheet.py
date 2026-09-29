@@ -1295,8 +1295,22 @@ class SliceVerdict(unittest.TestCase):
 
 
 class KitRule(unittest.TestCase):
-    """bench.core.kit_sword / bench_bases.KIT: iron for ordinary mobs, diamond for the high tier; the best work
-    tool for every row whose work uses one."""
+    """bench.core.kit_sword / kit_jobs: iron for ordinary mobs, diamond for the high tier; the best work tool for
+    every row whose work uses one — by its skills, its queue's needs, or the kit it states."""
+
+    def test_kit_jobs(self):
+        from bonobo.bench import core
+        have = lambda *needs: {"goal": "have", "args": {"needs": [list(n) for n in needs]}}   # noqa: E731
+        rows = [("a skill's tool", {"skills": ["mine"]}, ("pickaxe",)),
+                ("two skills, one order", {"skills": ["shelter:dig in", "item:log"]}, ("axe", "pickaxe", "shovel")),
+                ("a queue's needs, sorted", {"queue": [have(("minecraft:cobblestone", 2)), have(("log", 2))]},
+                 ("axe", "pickaxe")),
+                ("nothing that uses a tool", {"skills": ["travel_to"]}, ()),
+                ("a fight states its sword", {"kit": ["sword"]}, ("sword",)),
+                ("must fail: the tool under test given anyway", {"skills": ["mine"], "kit": []}, ())]
+        for name, row, want in rows:
+            with self.subTest(name):
+                self.assertEqual(core.kit_jobs(row), want)
 
     def test_kit_sword(self):
         from bonobo.bench import core

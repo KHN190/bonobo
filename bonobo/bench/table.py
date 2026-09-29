@@ -5,7 +5,7 @@ helpers') are reached through here too: `from bonobo.bench import table as sheet
 import importlib
 from typing import Any
 from . import core, vocab
-from .core import bag_now
+from .core import bag_now, kit_jobs
 from .vocab import *  # noqa: F401,F403  (the sheet's names: the runner's, the primitives', the helpers')
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
@@ -202,11 +202,11 @@ def build(row, tier):
         out["queue"] = dec(row["queue"])
     if "detail" in row:
         out["detail"] = make(row["detail"])
-    from .bench_bases import KIT
-    if row["name"] in KIT:                   # the kit rule: the best work tool per job, the sword a fight calls for
-        out["setup"] = out["setup"] + resolve("_kit_gives")(out, tuple(KIT[row["name"]]))
+    jobs = kit_jobs(row)
+    if jobs:                                 # the kit rule: the best work tool per job, the sword a fight calls for
+        out["setup"] = out["setup"] + resolve("_kit_gives")(out, jobs)
     for k, v in row.items():
-        if k not in out and k not in ("name", "scene", "why", "no_detail"):
+        if k not in out and k not in ("name", "scene", "why", "no_detail", "kit"):
             out[k] = dec(v)
     out.setdefault("skills", [])            # a row that proves no one skill carries an empty list
     out.setdefault("point", "A")

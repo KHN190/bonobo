@@ -116,14 +116,14 @@ CONDITIONS = {
                                 'hunt': ('same_bag',),
                                 'loot': ('same_bag',),
                                 'mine_stone': ('same_bag',)}),
-    'tool_one_use': dict(axis='inventory', doc='the pickaxe has one use left', bases=['mine_iron', 'mine_stone'],
+    'tool_one_use': dict(axis='inventory', doc='the pickaxe has one use left', bases=['mine_iron', 'mine_stone'], kit=[],
                        scene=[('cmd', 'clear @p'), ('give', 'wooden_pickaxe[damage=58]'),
                               ('give', 'stone_pickaxe[damage=130]')],
                        fails='pickaxe|tier',
                        # the ore left where the base put it (a box at x 4 held none: failed right, judged wrong)
                        fails_check={'mine_iron': ('blocks', ('@', 2, 0, 0), ('@', 2, 0, 0), ('iron_ore',), 1),
                                     'mine_stone': ('gain', 'minecraft:cobblestone', 0, 2)}),
-    'wrong_tool': dict(axis='inventory', doc='only a wooden pickaxe for iron ore', bases=['mine_iron'],
+    'wrong_tool': dict(axis='inventory', doc='only a wooden pickaxe for iron ore', bases=['mine_iron'], kit=[],
                      scene=[('cmd', 'clear @p'), ('give', 'wooden_pickaxe')], fails='tier-1 pickaxe|tier 1|pickaxe',
                      fails_check={'mine_iron': ('all', ('!same_bag',),
                                                 ('!blocks', ('@', 2, 0, 0), ('@', 2, 0, 0), ('iron_ore',), 1))}),
@@ -188,26 +188,3 @@ SURPRISES = {
 }
 TARGET_S = {'chop': 10.0, 'mine_stone': 8.0, 'craft': 8.0, 'eat': 2.0, 'find_air': 5.0}     # a base's own speed target (s), × TARGET_SLACK
 TARGET_SLACK = 1.5
-# The kit rule (bench.core.BEST_TOOLS / kit_sword): the rows whose work uses a tool, by the tools it uses.
-KIT = {n: list(jobs) for jobs, names in {
-    ('axe',): ['brain__night', 'brain__tight', 'chest_or_tree', 'chop__base', 'chop__lava_edge', 'chop__night',
-         'chop__pickup_lag', 'chop__stack_room', 'chop__valuables_full', 'chop_without_interrupt',
-         'dead_flicker_on_respawn', 'floating_logs', 'gather_logs', 'gather_logs_birch',
-         'interrupted_rescue_is_not_a_failure', 'leaves_block_trunk', 'night_first__low', 'resume_after_combat',
-         'seek_blocks_real', 'tidy_then_task__junk_full', 'tidy_then_task__valuables_full'],
-    ('axe', 'pickaxe'): ['brain__base', 'l3_order_swapped', 'l3_two_goals_in_order'],
-    ('pickaxe',): ['ban_needs_a_failure', 'ban_then_other_source', 'brain__underground', 'bridge_the_gap', 'burrow_hillside',
-         'cast_portal', 'dig_out_morning', 'falling_gravel', 'find_air_capped', 'lava_under_ore', 'mine_iron__base',
-         'mine_iron__pickup_lag', 'mine_stone__base', 'mine_stone__buried_by_sand', 'mine_stone__cave',
-         'mine_stone__full_bag', 'mine_stone__interrupt_mid_work', 'mine_while_hungry', 'night_mines_under_cover',
-         'seen_store__noted', 'strip_mine_real'],
-    ('pickaxe', 'shovel'): ['dig_in_night'],
-    ('shovel',): ['buried_by_sand', 'unbury_sand'],
-    ('sword',): ['combat__block_gap', 'combat__fight_and_block',
-         'combat__fight_without_shield', 'combat__knocked_off_edge', 'combat__low_hp_eat', 'combat__pillar',
-         'combat__shield_arrows', 'combat__surrounded_low', 'combat__wall_in', 'fight_blaze_3', 'fight_creeper_1',
-         'fight_creeper_by_home', 'fight_creeper_sword', 'fight_skeleton_1', 'fight_zombie_1',
-         'fight_zombie_1_full_bag', 'fight_zombie_3', 'hunt__base', 'hunt__lava_edge', 'hunt__one_slot',
-         'hunt__pickup_lag', 'hunt__pillar', 'hunt__valuables_full', 'hunt_food', 'siege__w1', 'siege__w2',
-         'siege__w3', 'siege__w4', 'siege__w5', 'siege__w6', 'siege__w7'],
-}.items() for n in names}

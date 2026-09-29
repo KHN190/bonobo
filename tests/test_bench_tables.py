@@ -175,7 +175,7 @@ class Coverage(unittest.TestCase):
             mod = importlib.import_module(table.TABLES[t])
             with self.subTest(t):
                 self.assertTrue(plain(mod.FAMILIES) and plain(mod.ROWS))
-        for data in (bench_bases.BASES, bench_bases.CONDITIONS, bench_bases.SURPRISES, bench_bases.KIT):
+        for data in (bench_bases.BASES, bench_bases.CONDITIONS, bench_bases.SURPRISES):
             self.assertTrue(plain(data))
         self.assertFalse(plain({"check": [lambda api, inv: True]}))      # must fail: a lambda is code
 

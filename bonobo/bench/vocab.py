@@ -631,6 +631,8 @@ def base_row(name, base, cond=None, surprise=None):
            "tags": {"base": base, **({c["axis"]: cond} if c else {}), **({"surprise": name} if x else {})}}
     if fails:
         row["fails"] = fails
+    if "kit" in c:
+        row["kit"] = list(c["kit"])          # the tool is what the condition tests
     for key in ("tick_rate", "dimension"):
         if c.get(key) or x.get(key) or b.get(key):
             row[key] = x.get(key) or c.get(key) or b.get(key)
@@ -654,12 +656,14 @@ REAL_KIT = [("cmd", "forceload add 14136 14136 14264 14264"), ("cmd", "spreadpla
             ("cmd", "clear @p"), ("give", "stone_pickaxe"),
             ("give", "torch", 8), ("give", "cobblestone", 32), ("give", "cooked_beef", 8)]
 
-def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False, before=()):
+def real_row(name, skills, doc, run, check, budget, extra=(), stochastic=False, before=(), kit=None):
     """On real terrain (raw), a target put in scan range: judged by what was found."""
     row = _row(name, doc, "skills", REAL_KIT + list(extra), run, items(check), budget=budget, raw=True, release=True,
                skills=list(skills), tags={"base": skills[0], "terrain": "real"}, before=before)
     if stochastic:
         row["stochastic"] = True
+    if kit is not None:
+        row["kit"] = list(kit)
     del row["expect"]
     return row
 

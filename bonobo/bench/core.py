@@ -55,6 +55,23 @@ SITE_B = (100, 0, 0)
 
 # the kit rule: a row whose work uses a tool gets the best one, unless the tool is what is tested
 BEST_TOOLS = {"axe": "give @p diamond_axe", "pickaxe": "give @p diamond_pickaxe", "shovel": "give @p diamond_shovel"}
+# the tools a skill's work uses, and a queued need's
+SKILL_JOBS = {"item:log": ("axe",), "chop": ("axe",), "mine": ("pickaxe",), "bridge_toward": ("pickaxe",),
+              "burrow": ("pickaxe",), "cast_portal": ("pickaxe",), "dig_out": ("pickaxe",), "find_air": ("pickaxe",),
+              "strip_mine_step": ("pickaxe",), "unbury": ("shovel",), "shelter:dig in": ("pickaxe", "shovel"),
+              "hunt": ("sword",)}
+NEED_JOBS = {"log": "axe", "minecraft:cobblestone": "pickaxe", "minecraft:raw_iron": "pickaxe",
+             "minecraft:diamond": "pickaxe"}
+
+def kit_jobs(row):
+    """Pure: the jobs a row's kit serves — its own `kit` when it states one (a fight, a tool under test), else its
+    skills' and its queue's needs'."""
+    if "kit" in row:
+        return tuple(row["kit"])
+    jobs = {j for s in row.get("skills") or () for j in SKILL_JOBS.get(s, ())}
+    jobs |= {NEED_JOBS[n[0]] for g in row.get("queue") or () if isinstance(g, dict)
+             for n in g.get("args", {}).get("needs", []) if n[0] in NEED_JOBS}
+    return tuple(sorted(jobs))
 HIGH_TIER_MOBS = ("blaze", "wither_skeleton", "enderman", "ravager", "warden", "ender_dragon", "wither",
                   "elder_guardian", "evoker")
 ORDINARY_WEAPON = "iron_sword"
