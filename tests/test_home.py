@@ -233,6 +233,35 @@ class NoBuildingInsideTheHome(unittest.TestCase):
                 self.assertEqual(bool(got), planned, got)
 
 
+class ARegistrationIsNeverLost(unittest.TestCase):
+    """The homes live in their own file, written only by `mc.py home`: a bot holding memory read before the home was
+    added saves its notes and the home stays (hello2: an old bot's save erased 'bunker')."""
+
+    def test_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = os.path.join(tmp, "notes.json")
+            bot = memory.Memory(notes)                      # the running bot, loaded before the home existed
+            cli = memory.Memory(notes)
+            cli.add_home("bunker", LO, HI, DIM, BLOCKS)     # mc.py home add, another process
+            bot.note_placed((3, 65, 3), DIM)                # the bot saves its notes
+            bot.save()
+            # must fail: the bot's save wrote its home-less notes over the home
+            self.assertEqual([h["name"] for h in memory.Memory(notes).homes(DIM)], ["bunker"])
+            self.assertEqual([h["name"] for h in bot.homes(DIM)], ["bunker"])      # the bot sees it too, unrestarted
+
+    def test_a_home_kept_in_old_notes_moves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = os.path.join(tmp, "notes.json")
+            site = {"name": "old", "kind": "home", "pos": [4, 64, 4], "dimension": DIM,
+                    "snapshot": {"lo": list(LO), "hi": list(HI), "blocks": {}}, "parts": {}}
+            memory.write_notes(notes, {"sites": [site]})
+            mem = memory.Memory(notes)
+            self.assertEqual([h["name"] for h in mem.homes(DIM)], ["old"])
+            mem.save()
+            self.assertEqual(memory.read_notes(notes)["sites"], [])
+            self.assertEqual([h["name"] for h in memory.Memory(notes).homes(DIM)], ["old"])
+
+
 class TheStartSaysIt(unittest.TestCase):
     """brain.autoplay's start reads the registrations (memory's homes, mechanisms' lessons) and says them."""
 
@@ -248,8 +277,8 @@ class TheStartSaysIt(unittest.TestCase):
                     mock.patch.object(mechanisms, "FILE", lessons), \
                     mock.patch.object(events, "emit", lambda kind, line, **k: said.append((kind, line))):
                 brain.say_registrations(mock.Mock(mem=mem))
+            home = mem.homes(DIM)[0]
         (kind, line), = said
-        home = mem.homes(DIM)[0]
         self.assertEqual(kind, "start")
         self.assertIn(f"home home: {len(home['snapshot']['blocks'])} blocks", line)
         self.assertIn(f"{len(home['parts']['beds'])} beds", line)

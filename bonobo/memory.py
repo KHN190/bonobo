@@ -10,6 +10,9 @@ from .data import (GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, home_may_hold, home
                    seen_class)
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
+# the player's homes: their own file beside the notes, written only by `mc.py home` — a bot's save of its notes
+# (loaded before the home was added) never carries them, so it can never lose one
+HOMES_NAME = "homes.json"
 
 def _now():
     return time.strftime("%Y-%m-%d %H:%M")
@@ -207,6 +210,7 @@ class Memory:
 
     def __init__(self, path=NOTES_FILE):
         self.path = path
+        self.homes_path = os.path.join(os.path.dirname(path), HOMES_NAME)
         self.data: dict[str, Any] = read_notes(path)
         d = self.data
         self.clock: int | None = None     # game ticks (/state gameTime), set each round; what every "seen" note is stamped with
@@ -217,9 +221,16 @@ class Memory:
         self._migrate()
 
     def _migrate(self):
-        """Older notes had places.home, shelters[], base_snapshot and flags; fold them into sites."""
+        """Older notes had places.home, shelters[], base_snapshot and flags; fold them into sites. A home kept in the
+        notes moves to its own file."""
         d = self.data
         changed = False
+        kept = [s for s in d["sites"] if s["kind"] == "home" and (s.get("snapshot") or {}).get("lo")]
+        if kept:
+            have = {h["name"] for h in self.home_sites()}
+            self._write_homes(self.home_sites() + [s for s in kept if s["name"] not in have])
+            d["sites"] = [s for s in d["sites"] if s not in kept]
+            changed = True
         home = d.get("places", {}).get("home")
         if home and not any(s["kind"] == "home" for s in d["sites"]):
             site = {"name": "home", "kind": "home", "pos": home["pos"], "dimension": home["dimension"],
@@ -279,11 +290,19 @@ class Memory:
 
     # -- sites
     def sites(self, dimension=None, kinds=None):
-        return [s for s in self.data["sites"]
+        return [s for s in self.data["sites"] + self.home_sites()
                 if (dimension is None or s["dimension"] == dimension) and (kinds is None or s["kind"] in kinds)]
 
     def home(self):
-        return next((s for s in self.data["sites"] if s["kind"] == "home"), None)
+        return next((s for s in self.sites(kinds=["home"])), None)
+
+    def home_sites(self):
+        """The player's homes, read from their own file every ask (another process may have added one)."""
+        got = read_notes(self.homes_path).get("homes", [])
+        return got if isinstance(got, list) else []
+
+    def _write_homes(self, homes):
+        write_notes(self.homes_path, {"homes": homes})
 
     def nearest_site(self, pos, dimension, kinds=None):
         options = self.sites(dimension, kinds)
@@ -325,21 +344,21 @@ class Memory:
         lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
         parts = home_parts(blocks)
         centre = [(lo[i] + hi[i]) // 2 for i in range(3)]
-        site = self.add_site("home", centre, dimension, name=name,
-                             snapshot={"lo": lo, "hi": hi,
-                                       "blocks": {f"{x},{y},{z}": n for (x, y, z), n in blocks.items()
-                                                  if n not in ("air", "cave_air", "void_air")}})
-        self.update_site(name, parts=parts)
+        site = {"name": name, "kind": "home", "pos": centre, "dimension": dimension, "dirty": False, "created": _now(),
+                "snapshot": {"lo": lo, "hi": hi, "blocks": {f"{x},{y},{z}": n for (x, y, z), n in blocks.items()
+                                                            if n not in ("air", "cave_air", "void_air")}},
+                "parts": parts}
+        self._write_homes([h for h in self.home_sites() if h["name"] != name] + [site])
         for block, pos in parts["stations"]:
             self.add_station(f"minecraft:{block}", pos, dimension)
-        return next(s for s in self.data["sites"] if s["name"] == name)
+        return site
 
     def remove_home(self, name):
         """Forget the home `name` (its stations stay: they still stand)."""
-        before = len(self.data["sites"])
-        self.data["sites"] = [s for s in self.data["sites"] if not (s["name"] == name and s["kind"] == "home")]
-        self.save()
-        return len(self.data["sites"]) != before
+        homes = self.home_sites()
+        kept = [h for h in homes if h["name"] != name]
+        self._write_homes(kept)
+        return len(kept) != len(homes)
 
     def home_part(self, kind, dimension, feet, block=None, anywhere=False):
         """The nearest part of `kind` ("beds", "chests", "stations" of `block`) of the home the feet stand in (or of
