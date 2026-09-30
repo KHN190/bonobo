@@ -198,5 +198,40 @@ class Unbury(unittest.TestCase):
                             self.assertIsNotNone(sent[0][1], "the break went out under the allowance")
 
 
+class TheStartSaysIt(unittest.TestCase):
+    """brain.autoplay's start reads the registrations (memory's homes, mechanisms' lessons) and says them."""
+
+    def test_a_registered_home_is_said(self):
+        # must fail: a start that loads nothing, or says nothing of the home and the taught doors
+        from bonobo import brain, events, mechanisms
+        with tempfile.TemporaryDirectory() as tmp:
+            mem = a_home(tmp)
+            lessons = os.path.join(tmp, "mechanisms.json")
+            mechanisms.add(DIM, (1, 65, 0), [(2, 64, 0), (2, 65, 0)], path=lessons)
+            said = []
+            with mock.patch.object(api, "get", return_value={"dimension": DIM}), \
+                    mock.patch.object(mechanisms, "FILE", lessons), \
+                    mock.patch.object(events, "emit", lambda kind, line, **k: said.append((kind, line))):
+                brain.say_registrations(mock.Mock(mem=mem))
+        (kind, line), = said
+        home = mem.homes(DIM)[0]
+        self.assertEqual(kind, "start")
+        self.assertIn(f"home home: {len(home['snapshot']['blocks'])} blocks", line)
+        self.assertIn(f"{len(home['parts']['beds'])} beds", line)
+        self.assertIn("mechanisms: 1", line)
+
+    def test_nothing_registered_is_said_too(self):
+        from bonobo import brain
+        self.assertEqual(brain.registrations([], []), "no home registered; mechanisms: 0")
+
+    def test_autoplay_says_it(self):
+        import ast
+        from bonobo import brain
+        with open(brain.__file__, encoding="utf-8") as f:
+            src = f.read()
+        body = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "autoplay")
+        self.assertIn("say_registrations(brain)", ast.get_source_segment(src, body))
+
+
 if __name__ == "__main__":
     unittest.main()

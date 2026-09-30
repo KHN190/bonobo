@@ -767,6 +767,22 @@ def code_version():
             h.update(f.read())
     return h.hexdigest()[:10]
 
+def registrations(homes, mechs):
+    """Pure: what the start read of the player's registrations — each home's blocks and parts, the taught doors."""
+    said = [f"home {h['name']}: {len(h['snapshot'].get('blocks', {}))} blocks, "
+            + ", ".join(f"{len((h.get('parts') or {}).get(k, []))} {k}" for k in ("beds", "chests", "stations"))
+            for h in homes] or ["no home registered"]
+    return "; ".join(said + [f"mechanisms: {len(mechs)}"])
+
+
+def say_registrations(brain):
+    """The start says what it read (memory's homes, mechanisms' lessons): never a silent start without them."""
+    dim = api.get("/state")["dimension"]
+    line = registrations(brain.mem.homes(dim), mechanisms.in_dimension(dim))
+    log(f"start: {line}")
+    events.emit("start", line)
+
+
 def autoplay(hours):
     import fcntl
     lock_file = paths.data("autoplay.lock")
@@ -785,6 +801,7 @@ def autoplay(hours):
         api.take_control()
     perception.start()  # ~5 Hz
     brain = Brain()
+    say_registrations(brain)
     deadline = time.time() + hours * 3600
     while time.time() < deadline:
         try:
