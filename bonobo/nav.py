@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD, EYE_HEIGHT, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import GROUPS, FOOD, EYE_HEIGHT, crosses_box, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet, to_segment
 from typing import TYPE_CHECKING
 
@@ -605,6 +605,8 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     budget = place_budget(Inventory().count("building"))
     # taught doors (mechanisms): pressed open first when on the way, and never dug; the home's cells too
     doors = DOORS(here, pos, policy) if DOORS is not None else []
+    if DOORS is not None:
+        here = feet()             # a door crossed (a home left or entered): the walk goes on from its far side
     # every other door on the way: a wooden one opened by hand when shut, an iron one a wall — none ever dug
     ways = _doorways_between(here, pos)
     by_hand, locked = door_steps(ways, here, pos)
@@ -615,6 +617,8 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     avoid = avoid_fields(policy.protected | set(doors) | set(ways), here, pos)
     grounded = False
     brk, plc, void = may_alter(purpose, policy)
+    if crosses_box(getattr(policy.protected, "boxes", ()), here, pos):
+        brk = plc = void = False     # a way through a home never digs or builds (09:35: its west wall dug)
     if locked:
         brk = False          # a shut door no hand opens: never dug round either — through another way, or no way
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure

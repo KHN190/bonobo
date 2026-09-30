@@ -101,6 +101,7 @@ class Brain:
         self.mem = Memory()
         skillkit.STATS = self.mem     # skills record measured durations; the cost model reads them back
         nav.DOORS = mechanisms.doors_on_way   # taught doors: pressed on the way, never dug
+        mechanisms.WALK_TO = nav.go_to
         nav.DOOR_ROUTE = costmod.DOOR_ROUTE = mechanisms.route_s     # and priced through, not as rock
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()

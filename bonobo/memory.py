@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 from . import paths, blueprints
-from .data import (GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, home_may_hold, home_part_kind, mid, placed_cell,
+from .data import (GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, home_may_hold, home_part_kind, in_box, mid, placed_cell,
                    seen_class)
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
@@ -106,12 +106,6 @@ def write_notes(path: str, data: "dict[str, Any]") -> None:
 
 
 
-
-
-def in_box(box, p):
-    """Pure: cell `p` inside `box` ((lo, hi), inclusive)."""
-    lo, hi = box
-    return all(min(lo[i], hi[i]) <= p[i] <= max(lo[i], hi[i]) for i in range(3))
 
 
 def home_boxes(homes):

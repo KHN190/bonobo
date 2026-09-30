@@ -272,6 +272,9 @@ class FakeRegion:
     def prop(self, p, key):
         return None               # no block states recorded: a door cell is shut by being solid
 
+    def open_door(self, p):
+        return False
+
 
 A0 = ("@", 0, 0, 0)
 LOG2 = bag(("oak_log", 2))

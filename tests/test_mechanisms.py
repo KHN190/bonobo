@@ -314,5 +314,62 @@ class Store(unittest.TestCase):
             self.assertEqual(mech.load(path), [])
 
 
+class HomeExit(unittest.TestCase):
+    """A walk out of a home goes by its taught door (09:35: coal outside, a digging walk from the hall dug its west
+    wall). The home: a box under the hatch, the hatch its roof; coal far outside."""
+
+    BOX = ((-3, HATCH_Y - 4, -3), (4, HATCH_Y, 4))
+    HALL, COAL = (2, HATCH_Y - 3, 2), (30, HATCH_Y + 1, 0)
+
+    def walk(self, taught):
+        from bonobo import memory
+        posted, state = [], {"shut": True, "feet": self.HALL}
+        mechs = [{"dimension": DIM, "press": list(p), "opens": [list(c) for c in HATCH], "close": True}
+                 for p in (HATCH_OUT, HATCH_IN)] if taught else []
+
+        def run(task, **k):
+            posted.append(task)
+            if task["type"] == "use":
+                state["shut"] = not state["shut"]
+            elif task["type"] == "travel" and task.get("status") is None:
+                state["feet"] = (int(task["x"]), int(task["y"]), int(task["z"]))
+            return {"status": "succeeded", "message": "arrived"}
+        policy = nav.Policy(protected=memory.Protected((), [self.BOX]))
+        here = lambda: {"x": state["feet"][0] + 0.5, "y": float(state["feet"][1]), "z": state["feet"][2] + 0.5,  # noqa: E731
+                        "blockX": state["feet"][0], "blockY": state["feet"][1], "blockZ": state["feet"][2],
+                        "dimension": DIM, "onGround": True}
+        with mock.patch.object(mech, "load", lambda path=None: mechs), \
+                mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): state["shut"] for c in cells}), \
+                mock.patch.object(nav, "DOORS", mech.doors_on_way), mock.patch.object(nav, "ROAD_MEM", None), \
+                mock.patch.object(nav.api, "run", run), mock.patch.object(mech.api, "run", run), \
+                mock.patch.object(mech.api, "detail", lambda *a: None), \
+                mock.patch.object(nav.api, "get", lambda p: here()), \
+                mock.patch.object(nav, "feet", lambda: state["feet"]), \
+                mock.patch.object(nav, "Inventory", lambda: type("I", (), {"count": lambda s, k: 0})()), \
+                mock.patch.object(nav, "_arrived", lambda *a, **k: True), \
+                mock.patch.object(nav, "_doorways_between", lambda a, b: {}):
+            nav._travel(self.COAL, policy, 1.5, 1, None, "work", self.HALL, 0.0)
+        return posted, state
+
+    def test_out_by_the_hatch(self):
+        from bonobo.data import home_box_of
+        posted, state = self.walk(taught=True)
+        legs = [t for t in posted if t["type"] == "travel"]
+        # must fail: a leg that may dig while it starts or ends in the home (the wall dug)
+        inside = [t for t in legs if home_box_of([self.BOX], (t["x"], t["y"], t["z"])) is not None]
+        self.assertTrue(inside)
+        self.assertTrue(all(not t["break"] and not t["place"] for t in inside))
+        uses = [(t["x"], t["y"], t["z"]) for t in posted if t["type"] == "use"]
+        self.assertEqual(uses, [HATCH_IN, HATCH_OUT])          # pressed from the hall, shut behind from above
+        self.assertTrue(state["shut"])
+        self.assertEqual((legs[-1]["x"], legs[-1]["y"], legs[-1]["z"]), self.COAL)
+        self.assertTrue(legs[-1]["break"])                     # the outside leg digs as ever
+
+    def test_no_taught_door_no_way(self):
+        # must fail: no door taught → the walk digs out through the wall
+        with self.assertRaises(nav.api.NavFailed):
+            self.walk(taught=False)
+
+
 if __name__ == "__main__":
     unittest.main()
