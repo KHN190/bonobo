@@ -25,6 +25,25 @@ def to_segment(p, a, b):
     t = 0.0 if n == 0 else max(0.0, min(1.0, sum((p[i] - a[i]) * ab[i] for i in range(3)) / n))
     return math.dist(p, [a[i] + t * ab[i] for i in range(3)])
 
+def line_clear(solid, a, b, step=0.25):
+    """Pure: nothing solid on the straight line a → b (points; the cells at both ends not asked) — a shot's line."""
+    n = max(1, int(math.dist(a, b) / step))
+    ends = {tuple(int(math.floor(c)) for c in a), tuple(int(math.floor(c)) for c in b)}
+    for i in range(1, n):
+        cell = tuple(int(math.floor(a[k] + (b[k] - a[k]) * i / n)) for k in range(3))
+        if cell not in ends and solid(cell):
+            return False
+    return True
+
+def line_of_fire(a, b):
+    """Is there an open line from `a` to `b` (both eye points): one read of the box they span."""
+    lo = tuple(int(math.floor(min(a[i], b[i]))) for i in range(3))
+    hi = tuple(int(math.floor(max(a[i], b[i]))) for i in range(3))
+    try:
+        return line_clear(Region(lo, hi).solid, a, b)
+    except api.McError as e:
+        return api.swallowed("world.line_of_fire", e)      # unread: unknown (None), the mob still counts
+
 def add(p, d) -> Cell:
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 

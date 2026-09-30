@@ -297,6 +297,7 @@ def with_avoid(task, protected):
         return task
     return {**task, **avoid_fields(protected, (task["x"], task["y"], task["z"]))}
 
+ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 
 def there(state, pos, range_):
@@ -467,7 +468,7 @@ def may_alter(purpose, policy):
     brk, plc, void = MOVES[purpose]
     return brk and bool(getattr(policy, "allow_dig", True)), plc and bool(getattr(policy, "allow_build", True)), void
 
-def go_to(pos, policy, range_=1.5, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work"):
+def go_to(pos, policy, range_=ARRIVE_RANGE, attempts=3, min_hp: float | None = MIN_WALK_HP, avoid_hazards=True, purpose="work"):
     """Walk; when the walker can't get there, build/dig a route toward the target."""
 
     pos = tuple(pos)
@@ -658,7 +659,7 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
 
 ARRIVE_CALLS = 8          # go_to calls one `arrive` may chain while each keeps gaining ground
 
-def arrive(pos, policy, range_=1.5, **kw):
+def arrive(pos, policy, range_=ARRIVE_RANGE, **kw):
     """Get there, or raise `api.NavFailed`."""
 
     began = time.time()
@@ -673,7 +674,7 @@ def arrive(pos, policy, range_=1.5, **kw):
     raise api.NavFailed(f"still {math.dist(feet(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks",
                         pos=pos)
 
-def arrived(pos, policy, range_=1.5, **kw):
+def arrived(pos, policy, range_=ARRIVE_RANGE, **kw):
     """`arrive` for a caller that handles failure itself: True or False, never a `Walked`."""
 
     try:
@@ -785,11 +786,11 @@ def climbs_back(start_y, steps, step_up=MOB_STEP_UP):
     ys = [start_y] + [s["y"] for s in steps]
     return all(a - b <= step_up for a, b in zip(ys, ys[1:]))
 
-def walks_to(cell, range_, climber=False, start_y=None):
+def walks_to(cell, range_=None, climber=False, start_y=None):
     """Can a walking mob at `cell` come to the body: the game's walk from our side (nothing dug, nothing built),
     taken back — so no drop on it a walker cannot climb (a climber climbs any). None when it cannot be asked."""
     try:
-        r = _plan_reply(cell, False, False, range_)
+        r = _plan_reply(cell, False, False, ARRIVE_RANGE if range_ is None else range_)
     except tape.ReplayMiss:
         return None
     if r is None or r.get("found") is None:
