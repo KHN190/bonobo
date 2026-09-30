@@ -588,9 +588,28 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
     if r["status"] != "succeeded" and failures and failures[0].get("reason"):
         r["message"] = f"{r['message']}: {failures[0]['reason']}"
     detail(f"  {r['type']:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
+    said = break_line(task, r)
+    if said:
+        detail(said)
     _raise_if_released([r], since=began)
     out_of_reach(r)
     return r
+
+
+def break_line(task, result):
+    """Pure: the detail line of a task that breaks (a mine; a travel allowed to dig): the block, its cell, the
+    seconds, the item it held (the one ARM named: the jar holds exactly that) — None for any other task. A travel's
+    result names no cell it dug: only its seconds and route tool are known."""
+    kind, r = task.get("type"), result or {}
+    held = task.get("item", "(none named)")
+    if kind == "mine":
+        block = (r.get("result") or {}).get("block") or "?"
+        return (f"   break {block} at {(task.get('x'), task.get('y'), task.get('z'))}: {r.get('status')} "
+                f"{r.get('seconds')}s holding {held}")
+    if kind == "travel" and task.get("break"):
+        return (f"   travel may dig: {r.get('status')} {r.get('seconds')}s holding {held} "
+                "(the jar's result names no dug cell)")
+    return None
 
 from .data import UNREACHABLE  # noqa: E402  (the one list of "could not get there" answers)
 
@@ -664,6 +683,10 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
         for t in done:
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
+        for sent, t in zip(part, done):
+            said = break_line(sent, t)
+            if said:
+                detail(said)
         results += done
         STATE.last_segment_s = max(0.2, min(30.0, time.time() - began))
         _raise_if_released(done, since=began)

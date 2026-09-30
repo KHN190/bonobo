@@ -233,6 +233,39 @@ def _plan_made(c):
 
 CLOSE = {"type": "_close"}     # a split point in a chain: the screen is closed between two sends (no close task)
 
+def use_line(pos, block, props, result, feet, look, between, near):
+    """Pure: a station use's detail line — the block and its state, the answer (screen, message), where the body
+    stood and looked, what lay on the line from the eye to the block, what stood by it."""
+    r = result or {}
+    return (f"   use {block}{props or ''} at {tuple(pos)}: {r.get('status')} screen "
+            f"{(r.get('result') or {}).get('screen', '?')} '{r.get('message', '')}'; feet {feet} look {look}; "
+            f"between {between or 'nothing'}; near {near or 'nothing'}")
+
+
+def use_readout(task, result):
+    """After a station's use: use_line from one read each of the block, the body and the entities (never raised)."""
+    from .world import Region, entities, to_segment
+    from .data import EYE_HEIGHT
+    try:
+        pos = (task["x"], task["y"], task["z"])
+        s = api.get("/state")
+        eye = (s["x"], s["y"] + EYE_HEIGHT, s["z"])
+        aim = tuple(v + 0.5 for v in pos)
+        n = max(1, int(math.dist(eye, aim) / 0.25))
+        line = sorted({tuple(math.floor(eye[i] + (aim[i] - eye[i]) * k / n) for i in range(3)) for k in range(n + 1)}
+                      - {tuple(pos), tuple(math.floor(v) for v in eye)})
+        box = Region(tuple(min([pos[i]] + [c[i] for c in line]) for i in range(3)),
+                     tuple(max([pos[i]] + [c[i] for c in line]) for i in range(3)), props=True)
+        between = [f"{box.name(c)}@{c}" for c in line if box.name(c) not in ("air", "cave_air")]
+        near = [f"{e['type'].split(':')[-1]}@{round(e['distance'], 1)}" for e in entities(8)
+                if to_segment((e["x"], e["y"] + 0.9, e["z"]), eye, aim) <= 0.8]
+        api.detail(use_line(pos, box.name(pos), box.props.get(tuple(pos)), result,
+                            (s["blockX"], s["blockY"], s["blockZ"]),
+                            (round(s.get("yaw", 0), 1), round(s.get("pitch", 0), 1)), between, near))
+    except Exception as e:  # noqa: BLE001  (a readout never changes what the craft does)
+        api.detail(f"   use readout at {(task.get('x'), task.get('y'), task.get('z'))}: {type(e).__name__}: {e}")
+
+
 def run_split(tasks, **kw):
     """Run a `*_commands` chain: each stretch between CLOSE markers in one run_chain, the screen closed between them."""
 
@@ -240,7 +273,11 @@ def run_split(tasks, **kw):
     for t in list(tasks) + [None]:
         if t is None or t == CLOSE:
             if part:
-                results += api.run_chain(part, stop_on_failure=True, **kw)
+                got = api.run_chain(part, stop_on_failure=True, **kw)
+                for sent, r in zip(part, got):
+                    if sent.get("type") == "use":
+                        use_readout(sent, r)
+                results += got
                 part = []
             if t is not None and results:
                 api.post("/close")
