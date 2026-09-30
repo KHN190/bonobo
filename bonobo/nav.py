@@ -290,39 +290,41 @@ def with_avoid(task, protected):
         return task
     return {**task, **avoid_fields(protected, (task["x"], task["y"], task["z"]))}
 
+AVOID_CUBE_R = round(AVOID_MAX ** (1 / 3) / 2)     # the cube round a target whose home cells fill AVOID_MAX
+
 def box_cells(boxes, near, most, skip=()):
-    """Pure: the cells of `boxes` (a home's) nearest `near` first, at most `most`, `skip` (ours inside) left out."""
+    """Pure: the cells of `boxes` (a home's) within AVOID_CUBE_R of `near`, nearest first, at most `most`, `skip`
+    (ours inside) left out."""
+    r = AVOID_CUBE_R
     cells = [(x, y, z) for lo, hi in boxes
-             for x in range(min(lo[0], hi[0]), max(lo[0], hi[0]) + 1)
-             for y in range(min(lo[1], hi[1]), max(lo[1], hi[1]) + 1)
-             for z in range(min(lo[2], hi[2]), max(lo[2], hi[2]) + 1) if (x, y, z) not in skip]
+             for x in range(max(min(lo[0], hi[0]), int(near[0]) - r), min(max(lo[0], hi[0]), int(near[0]) + r) + 1)
+             for y in range(max(min(lo[1], hi[1]), int(near[1]) - r), min(max(lo[1], hi[1]), int(near[1]) + r) + 1)
+             for z in range(max(min(lo[2], hi[2]), int(near[2]) - r), min(max(lo[2], hi[2]), int(near[2]) + r) + 1)
+             if (x, y, z) not in skip]
     return sorted(cells, key=lambda c: math.dist(c, near))[:most]
 
-_APPROACH = {}        # this round's approach checks, by target cell: (alters a home, a walk reaches)
+_APPROACH = {}        # this round's approach checks, by target cell: a walk that digs nothing reaches it
 lifecycle.in_place(__name__, "_APPROACH")
 
 def dress(task, policy):
-    """api.DRESS, the door every task passes: an approaching task (APPROACHING) carries its avoid; in a world with a
-    home, its approach route is asked first (the leg's own home check, home_flags) — one that stands, digs or builds
-    in a home box gets the boxes' cells in its avoid (its dig-through goes round, never through), and when no walk
-    reaches the target, the walk leg goes first (go_to: home_flags, the home's door)."""
+    """api.DRESS, the door every task passes: an approaching task (APPROACHING) carries its avoid; a home near its
+    target puts its cells there in the avoid too — the jar's approach (a stand that holds the cell in sight, dug to
+    when no walk finds one) is no /plan route and names no cell (10:40: a coal beside the tunnel, 2 cells sent, 5
+    shell blocks dug); with no walk that digs nothing to the target, the walk leg goes first (home_flags, the door)."""
     task = with_avoid(task, policy.protected)
     boxes = getattr(policy.protected, "boxes", ())
     if task.get("type") not in APPROACHING or "x" not in task or not boxes:
         return task
     cell = (int(task["x"]), int(task["y"]), int(task["z"]))
-    if cell not in _APPROACH:
-        dug = _plan_reply(cell, True, True, WORK_REACH)
-        alters = dug is None or not dug.get("found") or route_in_boxes(dug, boxes)
-        walk = _plan_reply(cell, False, False, WORK_REACH) if alters else None
-        _APPROACH[cell] = (alters, walk is not None and bool(walk.get("found")))
-    alters, walks = _APPROACH[cell]
-    if not alters:
-        return task
-    if not walks:
-        go_to(cell, policy, range_=WORK_REACH)
     home = box_cells(boxes, cell, max(0, AVOID_MAX - len(task.get("avoid", []))),
                      getattr(policy.protected, "mine", ()))
+    if not home:
+        return task
+    if cell not in _APPROACH:
+        walk = _plan_reply(cell, False, False, WORK_REACH)
+        _APPROACH[cell] = walk is None or bool(walk.get("found"))
+    if not _APPROACH[cell]:
+        go_to(cell, policy, range_=WORK_REACH)
     return {**task, "avoid": task.get("avoid", []) + [{"x": c[0], "y": c[1], "z": c[2]} for c in home]}
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means

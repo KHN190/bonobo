@@ -202,33 +202,41 @@ class NoDigThroughTheHome(unittest.TestCase):
 
 
 class AnApproachDigsNoHome(unittest.TestCase):
-    """nav.dress (api.DRESS): a mine/place/use whose approach route digs a home box goes with the box's cells in
-    its avoid; with no walk to it, the walk leg first."""
+    """nav.dress (api.DRESS): a mine/place/use whose target lies near a home carries the home's cells there in its
+    avoid — the jar's own approach names no cell (10:40: coal beside the tunnel, 2 cells sent, 5 shell blocks dug);
+    with no walk that digs nothing to it, the walk leg first."""
 
-    def dress(self, dug, walk, task):
-        boxes = [(LO, HI)]
+    def dress(self, walk, task):
         walked = []
         nav._APPROACH.clear()
-        with mock.patch.object(nav, "_plan_reply", lambda cell, brk, plc, r, *a: dug if brk else walk), \
+        with mock.patch.object(nav, "_plan_reply", lambda cell, brk, plc, r, *a: walk), \
                 mock.patch.object(nav, "go_to", lambda cell, policy, **k: walked.append(cell)):
-            got = nav.dress(task, nav.Policy(protected=memory.Protected((), boxes)))
+            got = nav.dress(task, nav.Policy(protected=memory.Protected((), [(LO, HI)])))
         return {(c["x"], c["y"], c["z"]) for c in got.get("avoid", [])}, walked
 
     def test_rows(self):
-        coal = {"type": "mine", "x": 12, "y": 64, "z": 5}
-        wall = (9, 64, 5)
-        through = {"found": True, "steps": [{"x": 10, "y": 64, "z": 5, "actions": [f"MINE {wall[0]},{wall[1]},{wall[2]}"]}]}
-        outside = {"found": True, "steps": [{"x": 11, "y": 64, "z": 5, "actions": ["MINE 11,64,5"]}]}
+        coal, wall = {"type": "mine", "x": 12, "y": 64, "z": 5}, (9, 64, 5)
         walk = {"found": True, "steps": []}
-        avoid, walked = self.dress(through, walk, coal)
-        # must fail: coal whose approach digs the home wall posted free to dig it
+        avoid, walked = self.dress(walk, coal)
+        # must fail: coal beside the home posted with its approach free to dig the wall
         self.assertIn(wall, avoid)
         self.assertEqual(walked, [])
-        avoid, walked = self.dress(outside, walk, coal)
-        self.assertNotIn(wall, avoid)                     # an approach clear of the home: as it was
-        avoid, walked = self.dress(through, {"found": False}, coal)
+        far = {"type": "mine", "x": HI[0] + nav.AVOID_CUBE_R + 1, "y": 64, "z": 5}
+        self.assertFalse({c for c in self.dress(walk, far)[0] if memory.in_box((LO, HI), c)})   # far off: none
+        avoid, walked = self.dress({"found": False}, coal)
         self.assertEqual((wall in avoid, walked), (True, [(12, 64, 5)]))    # no walk to it: the walk leg first
-        self.assertEqual(self.dress(through, walk, {"type": "travel", "x": 12, "y": 64, "z": 5}), (set(), []))
+        self.assertEqual(self.dress(walk, {"type": "travel", "x": 12, "y": 64, "z": 5}), (set(), []))
+
+    def test_every_breaking_task_is_guarded(self):
+        # a batch (mine_many) is single mine tasks through api.post: one home cell among them refused at the door
+        from bonobo import brain
+        with tempfile.TemporaryDirectory() as tmp:
+            me = mock.Mock(mem=a_home(tmp))
+            batch = nav.mine_batch([(20, 64, 5), (5, 64, 5)], collect=False)
+            with mock.patch.object(api.STATE, "dim_seen", DIM), mock.patch.object(api, "GUARD",
+                                                                                   lambda t: brain.Brain.home_guard(me, t)):
+                with self.assertRaises(api.NotAvailable):
+                    api.post("/task?wait=0", {"tasks": batch})
 
 
 class Unbury(unittest.TestCase):
