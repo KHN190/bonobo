@@ -80,3 +80,32 @@ class ClimbsBack(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LineOfFire(unittest.TestCase):
+    def test_rows(self):
+        from bonobo import world
+        from tests.world import FakeRegion
+        body = (42.5, 43.0, -108.5)
+        skel = (43.5, 31.0, -96.7)                      # 12 below (hello2 09:30, skeleton 19543)
+        rock = {(x, y, z): "stone" for x in range(40, 46) for y in range(30, 46) for z in range(-110, -95)
+                if not (y >= 43 and z <= -107) and not (y <= 32 and z >= -98)}
+        # (situation, blocks) → a threat row for the skeleton
+        rows = [("must fail: 12 below behind rock", rock, 0), ("in the open 12 off", {}, 1)]
+        for name, blocks, n in rows:
+            with self.subTest(name):
+                perception.STATE.reach.clear()
+                with mock.patch.object(world, "Region", lambda lo, hi: FakeRegion(lo, hi, blocks)):
+                    e = {"id": 19543, "type": "minecraft:skeleton", "x": skel[0], "y": skel[1], "z": skel[2],
+                         "health": 20.0}
+                    got = threat.hostile_rows(perception.read_combat([e]), {}, 1.0, here=body,
+                                              reaches=perception.reaches_us(body, 1.0))
+                self.assertEqual(len(got), n)
+
+    def test_a_walk_is_asked_at_its_own_margin(self):
+        from bonobo import nav
+        asked = []
+        with mock.patch.object(nav, "_plan_reply", lambda cell, d, b, r, *a: asked.append(r) or {"found": False}):
+            nav.walks_to((43, 31, -97), None, False, 43)
+        # must fail: asked within the mob's attack reach (a skeleton's 15: "arrived" before walking)
+        self.assertEqual(asked, [nav.ARRIVE_RANGE])

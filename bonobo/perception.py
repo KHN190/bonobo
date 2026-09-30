@@ -8,7 +8,7 @@ from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
-from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, critical_hp
+from .data import EYE_HEIGHT, memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, critical_hp
 from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
@@ -130,16 +130,21 @@ REACH_KEPT = 64          # (body, mob) answers kept at most
 
 
 def reaches_us(here, now):
-    """(pos, reach) → can a mob there walk to us (nav.walks_to, read from our side), kept GRID_TTL_S per pair of
-    cells: this runs at 5 Hz."""
+    """(pos, reach, kind) → can a mob there get at us: a ranged one by an open line of fire (world.line_of_fire,
+    eye to eye), any other by a walk that comes to us (nav.walks_to at the walk's own arrive margin — its attack
+    reach is no walk: within it, the walk "arrives" before it starts). Kept GRID_TTL_S per pair: this runs at 5 Hz."""
     body = tuple(int(math.floor(c)) for c in here)
+    eye = (here[0], here[1] + EYE_HEIGHT, here[2])
 
     def ask(pos, reach, kind=None):
         cell = tuple(int(math.floor(c)) for c in pos)
         if len(STATE.reach) > REACH_KEPT:
             STATE.reach.clear()          # the mobs round us change: old pairs are no answer to keep
+        if threat.MOBS.get(kind, {}).get("ranged"):
+            return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S,
+                            lambda: world.line_of_fire((pos[0], pos[1] + EYE_HEIGHT, pos[2]), eye), now)
         climber = kind in threat.CLIMBERS
-        return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S, lambda: nav.walks_to(cell, reach, climber, body[1]), now)
+        return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S, lambda: nav.walks_to(cell, None, climber, body[1]), now)
     return ask
 
 
