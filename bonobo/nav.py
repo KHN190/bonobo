@@ -290,6 +290,41 @@ def with_avoid(task, protected):
         return task
     return {**task, **avoid_fields(protected, (task["x"], task["y"], task["z"]))}
 
+def box_cells(boxes, near, most, skip=()):
+    """Pure: the cells of `boxes` (a home's) nearest `near` first, at most `most`, `skip` (ours inside) left out."""
+    cells = [(x, y, z) for lo, hi in boxes
+             for x in range(min(lo[0], hi[0]), max(lo[0], hi[0]) + 1)
+             for y in range(min(lo[1], hi[1]), max(lo[1], hi[1]) + 1)
+             for z in range(min(lo[2], hi[2]), max(lo[2], hi[2]) + 1) if (x, y, z) not in skip]
+    return sorted(cells, key=lambda c: math.dist(c, near))[:most]
+
+_APPROACH = {}        # this round's approach checks, by target cell: (alters a home, a walk reaches)
+lifecycle.in_place(__name__, "_APPROACH")
+
+def dress(task, policy):
+    """api.DRESS, the door every task passes: an approaching task (APPROACHING) carries its avoid; in a world with a
+    home, its approach route is asked first (the leg's own home check, home_flags) — one that stands, digs or builds
+    in a home box gets the boxes' cells in its avoid (its dig-through goes round, never through), and when no walk
+    reaches the target, the walk leg goes first (go_to: home_flags, the home's door)."""
+    task = with_avoid(task, policy.protected)
+    boxes = getattr(policy.protected, "boxes", ())
+    if task.get("type") not in APPROACHING or "x" not in task or not boxes:
+        return task
+    cell = (int(task["x"]), int(task["y"]), int(task["z"]))
+    if cell not in _APPROACH:
+        dug = _plan_reply(cell, True, True, WORK_REACH)
+        alters = dug is None or not dug.get("found") or route_in_boxes(dug, boxes)
+        walk = _plan_reply(cell, False, False, WORK_REACH) if alters else None
+        _APPROACH[cell] = (alters, walk is not None and bool(walk.get("found")))
+    alters, walks = _APPROACH[cell]
+    if not alters:
+        return task
+    if not walks:
+        go_to(cell, policy, range_=WORK_REACH)
+    home = box_cells(boxes, cell, max(0, AVOID_MAX - len(task.get("avoid", []))),
+                     getattr(policy.protected, "mine", ()))
+    return {**task, "avoid": task.get("avoid", []) + [{"x": c[0], "y": c[1], "z": c[2]} for c in home]}
+
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
 ARRIVE_SLACK = 0.5       # the walker's own margin past `range` (the mod counts arrived within range + 0.5)
 
@@ -832,6 +867,7 @@ def walks_to(cell, range_=None, climber=False, start_y=None):
 
 def forget_routes():
     """New round, new body position: the routes priced from the old one say nothing about this one."""
+    _APPROACH.clear()
     _ROUTES.clear()
     _ROUTE_BUDGET[0] = 0
 

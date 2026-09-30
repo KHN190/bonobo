@@ -198,6 +198,36 @@ class NoDigThroughTheHome(unittest.TestCase):
                           "must fail: pressing a button in the home refused as a break")
 
 
+class AnApproachDigsNoHome(unittest.TestCase):
+    """nav.dress (api.DRESS): a mine/place/use whose approach route digs a home box goes with the box's cells in
+    its avoid; with no walk to it, the walk leg first."""
+
+    def dress(self, dug, walk, task):
+        boxes = [(LO, HI)]
+        walked = []
+        nav._APPROACH.clear()
+        with mock.patch.object(nav, "_plan_reply", lambda cell, brk, plc, r, *a: dug if brk else walk), \
+                mock.patch.object(nav, "go_to", lambda cell, policy, **k: walked.append(cell)):
+            got = nav.dress(task, nav.Policy(protected=memory.Protected((), boxes)))
+        return {(c["x"], c["y"], c["z"]) for c in got.get("avoid", [])}, walked
+
+    def test_rows(self):
+        coal = {"type": "mine", "x": 12, "y": 64, "z": 5}
+        wall = (9, 64, 5)
+        through = {"found": True, "steps": [{"x": 10, "y": 64, "z": 5, "actions": [f"MINE {wall[0]},{wall[1]},{wall[2]}"]}]}
+        outside = {"found": True, "steps": [{"x": 11, "y": 64, "z": 5, "actions": ["MINE 11,64,5"]}]}
+        walk = {"found": True, "steps": []}
+        avoid, walked = self.dress(through, walk, coal)
+        # must fail: coal whose approach digs the home wall posted free to dig it
+        self.assertIn(wall, avoid)
+        self.assertEqual(walked, [])
+        avoid, walked = self.dress(outside, walk, coal)
+        self.assertNotIn(wall, avoid)                     # an approach clear of the home: as it was
+        avoid, walked = self.dress(through, {"found": False}, coal)
+        self.assertEqual((wall in avoid, walked), (True, [(12, 64, 5)]))    # no walk to it: the walk leg first
+        self.assertEqual(self.dress(through, walk, {"type": "travel", "x": 12, "y": 64, "z": 5}), (set(), []))
+
+
 class Unbury(unittest.TestCase):
     def test_step_out(self):
         from bonobo import survive
