@@ -242,6 +242,10 @@ def from_sources(inv, needs, cost, solver=None, pending=None):
             extra[gives] = extra.get(gives, 0) + short
     return steps, extra
 
+def portal_known(mem, dimension):
+    """Pure over memory: a portal remembered in `dimension` (a built one or a site) — what a portal step is priced by."""
+    return bool(mem.machines(dimension, "portal") or mem.sites(dimension, kinds=["portal"]))
+
 def where_it_lives(steps, cost):
     """Put the way to where a thing lives before the step that gets it (blaze rods: portal, fortress, then collect)."""
 
@@ -251,6 +255,9 @@ def where_it_lives(steps, cost):
         for kind, token, detail in LIVES_IN.get((step.kind, step.token), ()):
             if kind == "portal" and snap is not None and getattr(snap, "dimension", None) == token:
                 continue
+            if kind == "portal" and mem is not None and snap is not None and not portal_known(mem, snap.dimension) \
+                    and not any((s.kind, s.token) == ("cast", "nether_portal") for s in out):
+                out.append(_action("cast", "nether_portal", cost))     # no portal known here: cast one first
             if kind == "seek" and mem is not None and mem.sites(None, kinds=[token]):
                 continue
             if any((s.kind, s.token) == (kind, token) for s in out):

@@ -59,14 +59,21 @@ def act_on_surface(act):
     step = getattr(act, "step", None)
     return step is not None and arbiter.on_surface(step.kind)
 
-def craft_run(steps, first):
-    """Pure: `first` and the crafts straight after it: one table sitting, not one per round."""
+def craft_run(steps, first, inv=None):
+    """Pure: `first` and the crafts straight after it: one table sitting, not one per round — up to the first craft
+    whose inputs the bag (`inv`) and the crafts before it do not hold (its coal still to be mined)."""
     if first.kind != "craft" or first not in steps:
         return [first]
-    run = []
+    run, made = [], {}
     for st in steps[steps.index(first):]:
         if st.kind != "craft":
             break
+        if inv is not None and run and any(inv.count(t) + made.get(t, 0) < n
+                                           for t, n in st.detail.get("inputs", {}).items()):
+            break
+        for t, n in st.detail.get("inputs", {}).items():
+            made[t] = made.get(t, 0) - n
+        made[st.token] = made.get(st.token, 0) + st.count
         run.append(st)
     return run
 
@@ -76,10 +83,10 @@ def keeps_table(steps, run):
         return False
     return any(st.kind == "craft" and craft.recipe_needs_table(st.token) for st in steps[steps.index(run[-1]) + 1:])
 
-def craft_act(layer, name, ctx, steps, step, night, task=None):
+def craft_act(layer, name, ctx, steps, step, night, task=None, inv=None):
     """The act for `step`: a craft runs on through the crafts after it at one sitting (craft_run), the table left
     standing when the plan crafts at one again (keeps_table); anything else as it is."""
-    run = craft_run(steps, step)
+    run = craft_run(steps, step, inv)
     keep = step.kind == "craft" and keeps_table(steps, run)
     if len(run) > 1 or keep:
         recipes = [(s.token, s.detail.get("times", s.count)) for s in run]
@@ -251,7 +258,8 @@ class Brain:
                                     also_at=(here,) if here is not None else ())
         if verdict is not None and verdict.worth_logging and not quiet:
             log(f"{'~~' if isinstance(err, NotAvailable) else '!!'} {name}: {err} "
-                f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s)")
+                f"({cause}, ×{verdict.n}; {cause} cools here for {verdict.wait}s; at {api.feet_seen()}, "
+                f"cooled at {self.place} and {here})")
         return verdict
 
     def place_now(self):
@@ -522,7 +530,7 @@ class Brain:
                     None)
         if step is None:
             return None
-        return craft_act("upkeep", name, ctx, steps, step, snap.night)
+        return craft_act("upkeep", name, ctx, steps, step, snap.night, inv=snap.inv)
 
     # -- the queue: hold a plan, check it cheaply, repair it on events
     def task_act(self, task, snap, ctx, cost):
@@ -581,7 +589,8 @@ class Brain:
         # never consume our own work: what held plans pass through is kept from tidying and storing
         bag.RESERVED = set().union(*(bag.reserved_ids(h["steps"]) for h in self.held.values())) \
             | bag.reserved_ids([], goals.needs(goal, snap.inv))
-        return craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task)
+        return craft_act("task", f"task {task['id']}", ctx, held["steps"], step, snap.night, task=task,
+                         inv=snap.inv)
 
     def valid(self, step, snap, ctx=None):
         """The cheap per-round check: inputs held, and the skill's own preconditions pass."""

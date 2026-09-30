@@ -11,7 +11,7 @@ from .knowledge import FIND_AT
 SEEK_KINDS = ("mine", "gather", "hunt")      # steps whose "nothing in range" is answered by looking elsewhere
 
 def execute(ctx, step, night):
-    log(f"   → {step}")
+    log(f"   → {step} at {api.feet_seen()}")          # where the pick was made: the cooling place, proven
     key = f"{step.kind}:{step.token}"
     try:
         out = run_step(ctx, step, night)

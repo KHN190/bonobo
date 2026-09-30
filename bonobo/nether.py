@@ -32,19 +32,31 @@ def triangulate(p1, d1, p2, d2):
         return None
     return round(x1 + a1 * t), round(z1 + b1 * t)
 
-@skill(gives=["state:crossed"], remaining=_k.in_dimension(lambda c: c.args[1]), needs={}, speed={}, done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90,
+def portal_cells(ctx, dimension):
+    """The portals known here: real portal blocks in sight first (an arrival site is where we stood, not the
+    portal), else the ones memory holds."""
+    cells = [(h["x"], h["y"], h["z"]) for h in find(["nether_portal"], radius=48, limit=8)]
+    if not cells:
+        cells = [portal_cell(tuple(m["origin"]), m["turns"]) for m in ctx.mem.machines(dimension, "portal")]
+        cells += [tuple(p["pos"]) for p in ctx.mem.sites(dimension, kinds=["portal"])]
+    return cells
+
+
+def _portal_known(c):
+    """`pre` of use_portal: a portal to walk into is known here — else it is never offered (cast one first)."""
+    dim = api.get("/state")["dimension"]
+    if not portal_cells(c.args[0], dim):
+        raise NotAvailable(f"no known portal in {dim}")
+
+
+@skill(gives=["state:crossed"], remaining=_k.in_dimension(lambda c: c.args[1]), needs={}, speed={}, pre=[_portal_known], done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90,
        provides={"portal": lambda ctx, s: (s.token,)})
 def use_portal(ctx, to_dimension):
     """Walk into the nearest known lit portal and stand in it until the dimension changes."""
 
     s = api.get("/state")
     here = (s["blockX"], s["blockY"], s["blockZ"])
-    # real portal blocks first: an arrival site is where we stood, not the portal
-    cells = [(h["x"], h["y"], h["z"]) for h in find(["nether_portal"], radius=48, limit=8)]
-    if not cells:
-        for m in ctx.mem.machines(s["dimension"], "portal"):
-            cells.append(portal_cell(tuple(m["origin"]), m["turns"]))
-        cells += [tuple(p["pos"]) for p in ctx.mem.sites(s["dimension"], kinds=["portal"])]
+    cells = portal_cells(ctx, s["dimension"])
     if not cells:
         raise NotAvailable(f"no known portal in {s['dimension']}")
     cell = min(cells, key=lambda c: (math.dist(c, here), c[1]))
@@ -83,7 +95,7 @@ def use_portal(ctx, to_dimension):
             return arrived
     raise McError("stood in the portal but the dimension didn't change")
 
-@skill(gives=["state:fortress_found"], remaining=_k.blocks_there("nether_bricks"), needs={}, speed={}, verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180,
+@skill(gives=["state:fortress_found"], remaining=_k.blocks_there("nether_bricks"), needs={}, speed={}, pre=[skillcore.in_dimension(NETHER)], verify=lambda c: bool(find(["nether_bricks"], radius=48, limit=1)), budget=900, stall=180,
        provides={"seek:fortress": lambda ctx, s: ()})
 def find_fortress(ctx, legs=8, leg=48):
     """Nether: look for nether bricks, exploring outward along straight legs (travel avoids lava)."""
@@ -165,7 +177,7 @@ def _not_gold():
     """Everything carried except the gold being traded away: what a barter brings back raises this."""
     return sum(int(s.get("count", 1)) for s in Inventory().slots if s["id"] != "minecraft:gold_ingot")
 
-@skill(gives=["state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1}, speed={}, start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180,
+@skill(gives=["state:bartered"], remaining=_k.bartered, needs={"minecraft:gold_ingot": 1}, speed={}, pre=[skillcore.in_dimension(NETHER)], start=lambda c: _not_gold(), verify=lambda c: _not_gold() > c.base, budget=600, stall=180,
        provides={"barter": lambda ctx, s: (int(s.detail.get("ingots", 8)),)})
 def barter_piglin(ctx, ingots=8):
     """Nether: toss gold ingots next to a (non-zombified) piglin, wait for it to inspect and toss its trade, collect."""

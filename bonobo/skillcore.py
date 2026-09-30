@@ -13,6 +13,14 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from .shapes import BodyState
 
+
+def in_dimension(dimension):
+    """A skill's `pre`: the body is in `dimension` — a skill that only works there is never offered elsewhere."""
+    def check(c):
+        if api.get("/state").get("dimension") != dimension:
+            raise NotAvailable(f"not in {bare(dimension)}")
+    return check
+
 def game_time():
     """The game's tick now (/state gameTime): what a look made outside a brain round is stamped with (brain wires
     it into memory.TICK_READER — memory stays below the skills)."""

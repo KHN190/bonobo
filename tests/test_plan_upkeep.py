@@ -353,17 +353,18 @@ NETHER_T = "minecraft:the_nether"
 ROD = planner.Step("hunt", "minecraft:blaze_rod", 7, {"types": ["minecraft:blaze"], "kills": 14})
 LOG_STEP = planner.Step("gather", "log", 4)
 # (situation, dimension we are in, fortress remembered?, the steps planned) → the steps with the way there put first
+CAST = ("cast", "nether_portal")      # no portal known in the Overworld: one is cast before the portal step
 LIVES = [
-    ("rods from the Overworld, no fortress known: portal, find it, collect", OVER, False, [ROD],
-     [("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
+    ("rods from the Overworld, no fortress known: cast, portal, find it, collect", OVER, False, [ROD],
+     [CAST, ("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
     ("rods in the Nether, no fortress known: find it, collect", NETHER_T, False, [ROD],
      [("seek", "fortress"), ("hunt", "minecraft:blaze_rod")]),
     ("rods in the Nether, a fortress remembered: collect", NETHER_T, True, [ROD], [("hunt", "minecraft:blaze_rod")]),
-    ("rods from the Overworld, a fortress remembered: portal, collect", OVER, True, [ROD],
-     [("portal", NETHER_T), ("hunt", "minecraft:blaze_rod")]),
+    ("rods from the Overworld, a fortress remembered: cast, portal, collect", OVER, True, [ROD],
+     [CAST, ("portal", NETHER_T), ("hunt", "minecraft:blaze_rod")]),
     ("must fail: logs live anywhere: nothing put first", OVER, False, [LOG_STEP], [("gather", "log")]),
     ("two rod steps: the way there once", OVER, False, [ROD, ROD],
-     [("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod"), ("hunt", "minecraft:blaze_rod")]),
+     [CAST, ("portal", NETHER_T), ("seek", "fortress"), ("hunt", "minecraft:blaze_rod"), ("hunt", "minecraft:blaze_rod")]),
 ]
 
 
@@ -2659,6 +2660,19 @@ class CraftInOneSitting(unittest.TestCase):
         for name, steps, first, want in rows:
             with self.subTest(name):
                 self.assertEqual(brainmod.craft_run(steps, first), want)
+
+    def test_a_craft_waiting_on_a_later_step_stays_out(self):
+        # hello2 10:34:41: "craft 4× planks" batched a torch whose coal a later mine step brings — "missing 6× coal"
+        S = planner.Step
+        planks = S("craft", "planks", 4, {"times": 1, "inputs": {"log": 1}})
+        sticks = S("craft", "minecraft:stick", 4, {"times": 1, "inputs": {"planks": 2}})
+        torch = S("craft", "minecraft:torch", 24, {"times": 6, "inputs": {"minecraft:coal": 6, "minecraft:stick": 6}})
+        mine = S("mine", "minecraft:coal", 6, {"tier": 0})
+        held = bag(inventory(("oak_log", 1), ("stick", 2)))
+        # must fail: the torch joins the planks' sitting before its coal is mined
+        self.assertEqual(brainmod.craft_run([planks, sticks, torch, mine], planks, held), [planks, sticks])
+        coal = bag(inventory(("oak_log", 1), ("stick", 2), ("coal", 6)))
+        self.assertEqual(brainmod.craft_run([planks, sticks, torch, mine], planks, coal), [planks, sticks, torch])
 
     def test_the_table_stays_for_a_later_table_craft(self):
         S = planner.Step
