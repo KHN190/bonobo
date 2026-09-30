@@ -8,7 +8,7 @@ from bonobo import api, skillcore, skills
 from bonobo.api import McError, log
 from bonobo.brain import Brain, autoplay
 from bonobo.data import bare
-from bonobo.memory import Memory
+from bonobo.memory import Memory, boxes_of
 from bonobo.planner import Unplannable
 from bonobo.world import Inventory, Region, Snapshot, find
 
@@ -56,25 +56,27 @@ def cmd_autoplay(a):
 
 
 def cmd_home(a):
-    """The player's home: add NAME X1 Y1 Z1 X2 Y2 Z2 (the box read, every block protected, its beds, chests and
-    stations found) | list | remove NAME."""
+    """The player's home: add NAME --box X1 Y1 Z1 X2 Y2 Z2 [--box …] (each box read, every block in them protected,
+    their beds, chests and stations found) | list | remove NAME."""
     mem = Memory()
     if a.action == "list":
         for h in mem.sites(kinds=["home"]):
             snap, parts = h.get("snapshot") or {}, h.get("parts") or {}
-            print(f"{h['name']:<12} {h['dimension']} {snap.get('lo')}..{snap.get('hi')} "
+            print(f"{h['name']:<12} {h['dimension']} boxes {boxes_of(h)} "
                   f"{len(snap.get('blocks', {}))} blocks, beds {len(parts.get('beds', []))}, "
                   f"chests {len(parts.get('chests', []))}, stations {[b for b, _p in parts.get('stations', [])]}")
         return
     if a.action == "remove":
         print("removed" if mem.remove_home(a.name) else f"no home named {a.name}")
         return
-    if a.name is None or a.box is None or len(a.box) != 6:
-        raise McError("home add NAME X1 Y1 Z1 X2 Y2 Z2")
-    lo, hi = a.box[:3], a.box[3:]
+    if a.name is None or not a.box:
+        raise McError("home add NAME --box X1 Y1 Z1 X2 Y2 Z2 [--box …]")
+    boxes = [(b[:3], b[3:]) for b in a.box]
     dim = a.dim or api.get("/state")["dimension"]
-    region = Region([min(x, y) for x, y in zip(lo, hi)], [max(x, y) for x, y in zip(lo, hi)])
-    site = mem.add_home(a.name, lo, hi, dim, region.blocks)
+    blocks = {}
+    for lo, hi in boxes:
+        blocks.update(Region([min(x, y) for x, y in zip(lo, hi)], [max(x, y) for x, y in zip(lo, hi)]).blocks)
+    site = mem.add_home(a.name, boxes, dim, blocks)
     parts = site["parts"]
     log(f"home {a.name}: {len(site['snapshot']['blocks'])} blocks protected, beds {len(parts['beds'])}, "
         f"chests {len(parts['chests'])}, stations {[b for b, _p in parts['stations']]}")
@@ -456,10 +458,10 @@ def main():
     p = sub.add_parser("autoplay")
     p.add_argument("--hours", type=float, default=10)
     p.set_defaults(fn=cmd_autoplay)
-    p = sub.add_parser("home", help="the player's home: add NAME X1 Y1 Z1 X2 Y2 Z2 | list | remove NAME")
+    p = sub.add_parser("home", help="the player's home: add NAME --box X1 Y1 Z1 X2 Y2 Z2 [--box …] | list | remove NAME")
     p.add_argument("action", choices=["add", "list", "remove"])
     p.add_argument("name", nargs="?")
-    p.add_argument("box", type=int, nargs="*")
+    p.add_argument("--box", type=int, nargs=6, action="append")
     p.add_argument("--dim", help="dimension (default: where the body is)")
     p.set_defaults(fn=cmd_home)
     sub.add_parser("notes").set_defaults(fn=cmd_notes)

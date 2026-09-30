@@ -338,8 +338,17 @@ class HomeExit(unittest.TestCase):
         here = lambda: {"x": state["feet"][0] + 0.5, "y": float(state["feet"][1]), "z": state["feet"][2] + 0.5,  # noqa: E731
                         "blockX": state["feet"][0], "blockY": state["feet"][1], "blockZ": state["feet"][2],
                         "dimension": DIM, "onGround": True}
+        from bonobo.data import home_box_of
+
+        def plan(cell, brk, plc, r, *a):        # the game's route: from the hall it digs the wall; a walk has none
+            if home_box_of([self.BOX], state["feet"]) is None:
+                return {"found": True, "steps": [{"x": 20, "y": HATCH_Y + 1, "z": 0, "actions": ["MINE 20,64,0"]}]}
+            return ({"found": True, "steps": [{"x": 4, "y": HATCH_Y - 3, "z": 2, "actions": ["MINE 4,60,2"]}]}
+                    if brk else {"found": False})
         with mock.patch.object(mech, "load", lambda path=None: mechs), \
                 mock.patch.object(mech, "solid_map", lambda cells: {tuple(c): state["shut"] for c in cells}), \
+                mock.patch.object(nav, "_plan_reply", plan), mock.patch.object(nav, "HOME_DOOR", mech.home_exit), \
+                mock.patch.object(mech.api, "get", lambda p: here()), \
                 mock.patch.object(nav, "DOORS", mech.doors_on_way), mock.patch.object(nav, "ROAD_MEM", None), \
                 mock.patch.object(nav.api, "run", run), mock.patch.object(mech.api, "run", run), \
                 mock.patch.object(mech.api, "detail", lambda *a: None), \

@@ -285,22 +285,26 @@ def home_leg(mechs, box, here, there, policy):
                                                               else f"pressed from {press}, not through"))
 
 
+def home_exit(here, there, policy):
+    """nav's wire (HOME_DOOR): no walk out of (into) the home that digs nothing: by the taught door of the home box
+    an end lies in (home_leg)."""
+    boxes = getattr(getattr(policy, "protected", None), "boxes", ())
+    box = home_box_of(boxes, here) or home_box_of(boxes, there)
+    if box is None:
+        raise api.NavFailed(f"no way to {tuple(there)} that digs no home")
+    home_leg([m for m in load() if m["dimension"] == api.get("/state")["dimension"]], box, here, there, policy)
+
+
 def doors_on_way(here, there, policy=None, dimension=None):
     """nav's wire: a taught door on the way here → there. Open (read off the world) → walked through, nothing
     pressed. Shut → crossed in legs from our side's press (cross), shut behind when taught `close`; no press on our
-    side leaves it to the walk. Out of a home or into one: by its taught door (home_leg). Returns every taught opens
-    cell, which the rest of the walk may cross, never dig."""
+    side leaves it to the walk. Returns every taught opens cell, which the rest of the walk may cross, never dig."""
     mechs = load()
-    boxes = getattr(getattr(policy, "protected", None), "boxes", ())
-    box = next((b for b in boxes if (home_box_of([b], here) is None) != (home_box_of([b], there) is None)), None)
-    if not mechs and box is None:
-        return []              # nothing taught, no home crossed: no read at all
+    if not mechs:
+        return []              # nothing taught: no read at all
     dimension = dimension or api.get("/state")["dimension"]
     mechs = [m for m in mechs if m["dimension"] == dimension]
     cells = [tuple(c) for m in mechs for c in m["opens"]]
-    if box is not None:
-        home_leg(mechs, box, here, there, policy)       # its door, never a dug wall
-        return cells
     doors = on_the_way(mechs, here, there)
     if not doors:
         return cells

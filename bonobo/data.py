@@ -299,11 +299,6 @@ def home_box_of(boxes, p):
     return next((b for b in boxes if in_box(b, cell)), None)
 
 
-def crosses_box(boxes, a, b, step=0.5):
-    """Pure: does the straight way a → b pass through any of `boxes`?"""
-    n = max(1, int(math.dist(a, b) / step))
-    return any(home_box_of(boxes, [a[i] + (b[i] - a[i]) * k / n for i in range(3)]) is not None for k in range(n + 1))
-
 
 def placed_cell(task, feet):
     """Pure: the cell a place task fills — its own, or the feet's for a pillar; None when unknown."""

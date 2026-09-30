@@ -19,7 +19,7 @@ BLOCKS = {(1, 64, 1): "minecraft:red_bed", (2, 64, 1): "minecraft:red_bed", (5, 
 
 def a_home(tmp):
     mem = memory.Memory(os.path.join(tmp, "notes.json"))
-    mem.add_home("home", LO, HI, DIM, BLOCKS)
+    mem.add_home("home", [(LO, HI)], DIM, BLOCKS)
     return mem
 
 
@@ -151,22 +151,50 @@ class TheGuard(unittest.TestCase):
 
 
 class NoDigThroughTheHome(unittest.TestCase):
-    def test_avoid_carries_the_home(self):
-        p = memory.Protected((), [(LO, HI)])
-        got = nav.with_avoid({"type": "mine", "x": 5, "y": 64, "z": 12}, p)
-        cells = {(c["x"], c["y"], c["z"]) for c in got["avoid"]}
-        self.assertIn((5, 64, 9), cells, "must fail: an approach digging the home wall")
-        self.assertTrue(all(memory.in_box((LO, HI), c) for c in cells))
+    """nav.home_flags: before a leg that may dig, the game's route is asked; one that stands, digs or builds in a
+    home box goes with both off (09:35: the hall's west wall dug by a walk to coal)."""
+    SECOND = ((12, 64, 0), (15, 70, 9))            # a home of two boxes, natural rock between them (x 10..11)
+
+    def flags(self, dug, walk, here=(20, 64, 5), pos=(30, 64, 5)):
+        boxes = [(LO, HI), self.SECOND]
+        answers = {True: dug, False: walk}
+        with mock.patch.object(nav, "_plan_reply", lambda cell, brk, plc, r, *a: answers[brk]), \
+                mock.patch.object(nav, "HOME_DOOR", lambda *a: None):
+            return nav.home_flags(pos, True, True, 1.5, boxes, here)
+
+    @staticmethod
+    def route(*steps):
+        return {"found": True, "steps": [{"x": x, "y": y, "z": z, "actions": acts} for (x, y, z), acts in steps]}
+
+    def test_rows(self):
+        walk = self.route(((20, 64, 5), []))
+        rows = [("must fail: a route digging a home cell posted with break on",
+                 self.route(((10, 64, 5), ["MINE 9,64,5"])), walk, (False, False, False)),
+                ("near, not through: it digs outside the home", self.route(((10, 64, 5), ["MINE 10,64,5"])), walk,
+                 (True, True, False)),
+                ("two boxes: the rock between them is mined", self.route(((11, 64, 5), ["MINE 11,65,5"])), walk,
+                 (True, True, False)),
+                ("a route standing in the home: both off (a re-path digs nothing)",
+                 self.route(((5, 64, 5), [])), walk, (False, False, False)),
+                ("a pillar in the home: both off", self.route(((20, 64, 5), ["PILLAR 13,65,5"])), walk,
+                 (False, False, False))]
+        for name, dug, w, want in rows:
+            with self.subTest(name):
+                self.assertEqual(self.flags(dug, w), want)
+        # no walk that digs nothing and the body in the home: by its door
+        self.assertEqual(self.flags(self.route(((8, 64, 5), ["MINE 9,64,5"])), {"found": False}, here=(5, 64, 5)),
+                         (False, False, True))
+        between = memory.Protected((), [(LO, HI), self.SECOND])
+        self.assertNotIn((11, 65, 5), between)          # rock between the boxes: not the home's
 
     def test_doors_and_home_both(self):
-        """A walk's avoid: a taught door's cells (mechanisms, pressed not dug) and the home's cells, together."""
+        """A walk's avoid: a taught door's cells (mechanisms, pressed not dug); a press in the home is no break."""
         door = (5, 64, 10)
         got = nav.avoid_fields(memory.Protected((), [(LO, HI)]) | {door}, (5, 64, 12))
         cells = {(c["x"], c["y"], c["z"]) for c in got["avoid"]}
         self.assertIn(door, cells, "must fail: the door dug")
-        self.assertIn((5, 64, 9), cells, "must fail: the home wall dug")
         press = {"type": "use", "x": 5, "y": 65, "z": 9}
-        self.assertIsNone(memory.home_refusal(press, [{"snapshot": {"lo": list(LO), "hi": list(HI)}}], set()),
+        self.assertIsNone(memory.home_refusal(press, [{"boxes": [[list(LO), list(HI)]]}], set()),
                           "must fail: pressing a button in the home refused as a break")
 
 
@@ -242,7 +270,7 @@ class ARegistrationIsNeverLost(unittest.TestCase):
             notes = os.path.join(tmp, "notes.json")
             bot = memory.Memory(notes)                      # the running bot, loaded before the home existed
             cli = memory.Memory(notes)
-            cli.add_home("bunker", LO, HI, DIM, BLOCKS)     # mc.py home add, another process
+            cli.add_home("bunker", [(LO, HI)], DIM, BLOCKS)     # mc.py home add, another process
             bot.note_placed((3, 65, 3), DIM)                # the bot saves its notes
             bot.save()
             # must fail: the bot's save wrote its home-less notes over the home

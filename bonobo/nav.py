@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD, EYE_HEIGHT, crosses_box, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import GROUPS, FOOD, EYE_HEIGHT, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet, to_segment
 from typing import TYPE_CHECKING
 
@@ -278,17 +278,10 @@ def avoid_cells(protected, *near):
     return [{"x": c[0], "y": c[1], "z": c[2]} for c in sorted(protected)
             if any(math.dist(c, n) <= AVOID_RADIUS for n in near)][:AVOID_MAX]
 
-HOME_AVOID_R = 8       # home cells this near a walk's ends go in its "avoid" (a cube: 17³ at most per end)
-
 def avoid_fields(protected, *near):
-    """Pure: a digging walk's "avoid": the protected cells near its ends (avoid_cells) and, for a home's box, its
-    cells nearest them (Protected.near_cells), within AVOID_MAX."""
-    cells = avoid_cells(protected, *near)
-    boxed = getattr(protected, "near_cells", None)
-    if boxed is not None:
-        cells = cells + [{"x": c[0], "y": c[1], "z": c[2]}
-                         for c in boxed(near, HOME_AVOID_R, max(0, AVOID_MAX - len(cells)))]
-    return {"avoid": cells}
+    """Pure: a digging walk's "avoid": the protected cells near its ends (avoid_cells). A home's boxes are kept by
+    the walk's route check (home_flags), not listed."""
+    return {"avoid": avoid_cells(protected, *near)}
 
 def with_avoid(task, protected):
     """Pure: `task` with its "avoid" when its type approaches by digging (APPROACHING) and it names none; else the task as it was."""
@@ -583,6 +576,36 @@ def _doorways_between(here, there):
         return api.swallowed("nav.doorways", e) or {}
 
 
+HOME_DOOR = None      # mechanisms.home_exit, wired by the brain: (here, there, policy) → through a home's door
+ROUTE_ALTERS = ("MINE", "FLOOR", "PILLAR")      # /plan's actions that change the world
+
+
+def route_in_boxes(reply, boxes):
+    """Pure: does a /plan route (steps with their actions, "MINE x,y,z") stand in, dig or build in any of `boxes`?"""
+    for st in reply.get("steps") or []:
+        cells = [(st["x"], st["y"], st["z"])] + [tuple(int(v) for v in a.split(" ", 1)[1].split(","))
+                                                for a in st.get("actions") or [] if a.split(" ", 1)[0] in ROUTE_ALTERS]
+        if any(home_box_of(boxes, c) is not None for c in cells):
+            return True
+    return False
+
+
+def home_flags(pos, brk, plc, range_, boxes, here):
+    """(break, place, by the door) for the next leg: the game's route asked first when the leg may dig or build and a
+    home stands in this world — a route through a home goes with both off (a re-path mid-walk digs nothing either);
+    none that way and an end inside a home: by its taught door. No home, or nothing to alter: as asked."""
+    if not boxes or not (brk or plc):
+        return brk, plc, False
+    dug = _plan_reply(pos, brk, plc, range_)
+    if dug is not None and dug.get("found") and not route_in_boxes(dug, boxes):
+        return brk, plc, False
+    walk = _plan_reply(pos, False, False, range_)
+    if walk is not None and walk.get("found") is not False or HOME_DOOR is None:
+        return False, False, False
+    inside = home_box_of(boxes, here) is not None or home_box_of(boxes, pos) is not None
+    return False, False, inside
+
+
 def _leg(task, awaits):
     """One travel leg: its answer, a refusal ("target unreachable") read as a leg that got no further — the walk
     judges it (no nearer → not there), never raised past the caller's own no-way handling."""
@@ -605,8 +628,6 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     budget = place_budget(Inventory().count("building"))
     # taught doors (mechanisms): pressed open first when on the way, and never dug; the home's cells too
     doors = DOORS(here, pos, policy) if DOORS is not None else []
-    if DOORS is not None:
-        here = feet()             # a door crossed (a home left or entered): the walk goes on from its far side
     # every other door on the way: a wooden one opened by hand when shut, an iron one a wall — none ever dug
     ways = _doorways_between(here, pos)
     by_hand, locked = door_steps(ways, here, pos)
@@ -617,17 +638,20 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
     avoid = avoid_fields(policy.protected | set(doors) | set(ways), here, pos)
     grounded = False
     brk, plc, void = may_alter(purpose, policy)
-    if crosses_box(getattr(policy.protected, "boxes", ()), here, pos):
-        brk = plc = void = False     # a way through a home never digs or builds (09:35: its west wall dug)
+    boxes = getattr(policy.protected, "boxes", ())
     if locked:
         brk = False          # a shut door no hand opens: never dug round either — through another way, or no way
     # keep walking while each leg brings us nearer; "target unreachable" at the leg's end is not failure
     for _ in range(max(attempts, LEGS)):
         api.at_boundary()                # nightfall between legs: never inside a walk
         was = feet()
+        b, p, by_door = home_flags(pos, brk, plc, range_, boxes, was)
+        if by_door and HOME_DOOR is not None:
+            HOME_DOOR(was, pos, policy)      # neither dug nor walked out: the home's taught door (NavFailed: none)
+            continue
         try:
             r = _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-                      "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+                      "break": b, "place": p, "voidBridge": void and b, "placeBudget": budget,
                       **avoid}, "where the leg left the body decides the next leg (walked_closer, the retry on the ground)")
         except api.TaskStuck as e:
             # stuck: decide again from where we stand (the target may sit by a hazard that moved), never stand still
@@ -652,8 +676,9 @@ def _travel(pos, policy, range_, attempts, min_hp, purpose, _from, _began):
             continue
         log(f"   travel target {pos} had no route; retrying on the ground at y {fy}")
         pos = (pos[0], fy, pos[2])
+        b, p, _door = home_flags(pos, brk, plc, range_, boxes, here)
         _leg({"type": "travel", "x": pos[0], "y": pos[1], "z": pos[2], "range": range_,
-              "break": brk, "place": plc, "voidBridge": void, "placeBudget": budget,
+              "break": b, "place": p, "voidBridge": void and b, "placeBudget": budget,
               **avoid}, "the retry's arrival is read before anything else is asked")
         if there(api.get("/state"), pos, range_):
             return _arrived(_from, pos, _began, True)

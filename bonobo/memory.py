@@ -108,8 +108,14 @@ def write_notes(path: str, data: "dict[str, Any]") -> None:
 
 
 
+def boxes_of(home):
+    """Pure: a home's boxes [(lo, hi)] — its own list, or an older record's one snapshot box."""
+    got = home.get("boxes") or [[(home.get("snapshot") or {}).get("lo"), (home.get("snapshot") or {}).get("hi")]]
+    return [(tuple(lo), tuple(hi)) for lo, hi in got if lo is not None and hi is not None]
+
+
 def home_boxes(homes):
-    return [(tuple(h["snapshot"]["lo"]), tuple(h["snapshot"]["hi"])) for h in homes]
+    return [b for h in homes for b in boxes_of(h)]
 
 
 class Protected(set):
@@ -131,18 +137,6 @@ class Protected(set):
 
     def copy(self):
         return Protected(self, self.boxes, self.mine)
-
-    def near_cells(self, points, radius, most):
-        """Box cells within `radius` (a cube) of any of `points`, nearest first, at most `most` — what a digging walk
-        carries as "avoid" (the jar asks cells)."""
-        out = set()
-        for lo, hi in self.boxes:
-            a = [min(lo[i], hi[i]) for i in range(3)]
-            b = [max(lo[i], hi[i]) for i in range(3)]
-            for p in points:
-                r = [range(max(a[i], int(p[i]) - radius), min(b[i], int(p[i]) + radius) + 1) for i in range(3)]
-                out.update(c for c in ((x, y, z) for x in r[0] for y in r[1] for z in r[2]) if c not in self.mine)
-        return sorted(out, key=lambda c: min(sum((c[i] - p[i]) ** 2 for i in range(3)) for p in points))[:most]
 
 
 def home_parts(blocks):
@@ -219,7 +213,7 @@ class Memory:
         notes moves to its own file."""
         d = self.data
         changed = False
-        kept = [s for s in d["sites"] if s["kind"] == "home" and (s.get("snapshot") or {}).get("lo")]
+        kept = [s for s in d["sites"] if s["kind"] == "home" and boxes_of(s)]
         if kept:
             have = {h["name"] for h in self.home_sites()}
             self._write_homes(self.home_sites() + [s for s in kept if s["name"] not in have])
@@ -330,17 +324,20 @@ class Memory:
     # -- the home: a player-declared site with a box (its snapshot's lo..hi) and its parts
     def homes(self, dimension):
         """Home sites of this dimension that carry a box (a snapshot's lo/hi)."""
-        return [s for s in self.sites(dimension, kinds=["home"]) if (s.get("snapshot") or {}).get("lo")]
+        return [s for s in self.sites(dimension, kinds=["home"]) if boxes_of(s)]
 
-    def add_home(self, name, lo, hi, dimension, blocks):
-        """Record a home: every solid block of the box (`blocks`: {cell: name}) as its snapshot, its parts (beds,
-        chests, stations — the stations also as memory stations)."""
-        lo, hi = [min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]
-        parts = home_parts(blocks)
-        centre = [(lo[i] + hi[i]) // 2 for i in range(3)]
-        site = {"name": name, "kind": "home", "pos": centre, "dimension": dimension, "dirty": False, "created": _now(),
-                "snapshot": {"lo": lo, "hi": hi, "blocks": {f"{x},{y},{z}": n for (x, y, z), n in blocks.items()
-                                                            if n not in ("air", "cave_air", "void_air")}},
+    def add_home(self, name, boxes, dimension, blocks):
+        """Record a home: its boxes [(lo, hi)], every solid block in them (`blocks`: {cell: name}) as its snapshot,
+        its parts (beds, chests, stations — the stations also as memory stations)."""
+        boxes = [([min(a, b) for a, b in zip(lo, hi)], [max(a, b) for a, b in zip(lo, hi)]) for lo, hi in boxes]
+        inside = {c: n for c, n in blocks.items() if any(in_box(bx, c) for bx in boxes)
+                  and n not in ("air", "cave_air", "void_air")}
+        parts = home_parts(inside)
+        lo = [min(bx[0][i] for bx in boxes) for i in range(3)]
+        hi = [max(bx[1][i] for bx in boxes) for i in range(3)]
+        site = {"name": name, "kind": "home", "pos": [(lo[i] + hi[i]) // 2 for i in range(3)], "dimension": dimension,
+                "dirty": False, "created": _now(), "boxes": [[list(l), list(h)] for l, h in boxes],
+                "snapshot": {"lo": lo, "hi": hi, "blocks": {f"{x},{y},{z}": n for (x, y, z), n in inside.items()}},
                 "parts": parts}
         self._write_homes([h for h in self.home_sites() if h["name"] != name] + [site])
         for block, pos in parts["stations"]:
@@ -359,8 +356,7 @@ class Memory:
         any home here, `anywhere`), or None."""
         best = None
         for h in self.homes(dimension):
-            box = (h["snapshot"]["lo"], h["snapshot"]["hi"])
-            if not anywhere and not in_box(box, [int(v) for v in feet]):
+            if not anywhere and not any(in_box(b, [int(v) for v in feet]) for b in boxes_of(h)):
                 continue
             parts = (h.get("parts") or {}).get(kind, [])
             cells = [tuple(p[1]) for p in parts if bare(p[0]) == bare(block)] if kind == "stations" else \
