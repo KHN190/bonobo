@@ -300,6 +300,19 @@ class OpenAndClose(unittest.TestCase):
         self.assertTrue(state["shut"])
 
 
+class ColumnDoor(unittest.TestCase):
+    def test_axis_from_its_walls(self):
+        # hello2 10:40/10:44: the side room's 1×2 door (48,53-54,-73) in a wall running along x
+        door = ((48, 53, -73), (48, 54, -73))
+        walls = {(47, 53, -73), (49, 53, -73)}
+        solid = lambda c: tuple(c) in walls                 # noqa: E731
+        here, there = (55, 53, -72), (48, 53, -90)          # far along x on one side, far along z on the other
+        stand, past = mech.through_cell(door, here, solid), mech.through_cell(door, there, solid)
+        # must fail: the ends on different axes — the stand in the wall (49,53,-73), a ping-pong crossing
+        self.assertEqual((stand, past), ((48, 53, -72), (48, 53, -74)))
+        self.assertNotIn(stand, walls)
+
+
 class Store(unittest.TestCase):
     def test_per_save_and_round_trip(self):
         self.assertIn(os.path.basename(mech.FILE), fresh.WORLD_SCOPED)

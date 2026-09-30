@@ -86,9 +86,10 @@ def on_the_way(mechs, here, there, near=DOOR_NEAR):
     return sorted(hit, key=lambda d: math.dist(centre(d), here))
 
 
-def crossing_axis(door, toward):
-    """Pure: the axis a body crosses `door` along — a flat layer (a hatch) by y; a wall's door by the horizontal
-    axis its cells do not run along; a single column by where `toward` lies from it."""
+def crossing_axis(door, toward, solid=None):
+    """Pure given `solid`: the axis a body crosses `door` along — a flat layer (a hatch) by y; a wall's door by the
+    horizontal axis its cells do not run along; a single column by its walls: the horizontal axis open on both
+    sides of its foot (`solid`: the world's reading), where `toward` lies only when the walls do not say."""
     ys, xs, zs = ({c[i] for c in door} for i in (1, 0, 2))
     if len(door) > 1 and len(ys) == 1:
         return 1
@@ -96,8 +97,23 @@ def crossing_axis(door, toward):
         return 2
     if len(zs) > 1:
         return 0
+    if solid is not None:
+        foot = min(door, key=lambda c: c[1])
+        open_ = [a for a in (0, 2) if not any(solid(tuple(foot[i] + (s if i == a else 0) for i in range(3)))
+                                              for s in (1, -1))]
+        if len(open_) == 1:
+            return open_[0]
     c = centre(door)
     return max((0, 2) if len(ys) > 1 else (0, 1, 2), key=lambda i: abs(toward[i] - c[i]))
+
+
+def door_sides(door):
+    """The world's reading of the cells either side of a door's foot (one read): what a column door's axis is
+    decided by (crossing_axis)."""
+    foot = min(door, key=lambda c: c[1])
+    cells = [tuple(foot[i] + (s if i == a else 0) for i in range(3)) for a in (0, 2) for s in (1, -1)]
+    got = solid_map(cells)
+    return lambda c: got.get(tuple(c), False)
 
 
 def side(door, p, axis):
@@ -106,9 +122,9 @@ def side(door, p, axis):
     return (d > 0) - (d < 0)
 
 
-def press_for(mechs, door, here):
+def press_for(mechs, door, here, solid=None):
     """Pure: the press of `door` on our side (along the door's crossing axis), nearest; None when none is."""
-    axis = crossing_axis(door, here)
+    axis = crossing_axis(door, here, solid)
     ours = [tuple(m["press"]) for m in mechs if tuple(map(tuple, m["opens"])) == door
             and side(door, m["press"], axis) == side(door, here, axis) != 0]
     return min(ours, key=lambda p: math.dist(p, here), default=None)
@@ -184,10 +200,10 @@ def press_mechanism(ctx, press, opens):
     return "pressed"
 
 
-def through_cell(door, there):
+def through_cell(door, there, solid=None):
     """Pure: where a body stands clear of the door on `there`'s side — along its crossing axis: a wall's door one
     step past its foot cell; a hatch, feet on it (above) or head under it (below), at its cell nearest `there`."""
-    axis = crossing_axis(door, there)
+    axis = crossing_axis(door, there, solid)
     step = side(door, there, axis) or 1
     if axis == 1:
         cell = min(door, key=lambda c: math.dist((c[0], c[2]), (there[0], there[2])))
@@ -218,7 +234,7 @@ def _press(press, why):
 def close_behind(mechs, door, here):
     """After a crossing, a door taught `close` is shut from this side: its press here used, then read shut.
     No press on this side → left open, said. Returns True shut, False left open or still open."""
-    press = press_for(mechs, tuple(map(tuple, door)), here)
+    press = press_for(mechs, tuple(map(tuple, door)), here, door_sides(door))
     if press is None:
         api.detail(f"   door {tuple(map(tuple, door))} left open: no press on this side")
         return False
@@ -278,7 +294,8 @@ def home_leg(mechs, home, here, there, policy):
     door = home_door(mechs, home)
     if door is None:
         _no_way(f"no taught door in the home's boxes {home}: never dug through")
-    stand, past = through_cell(door, here), through_cell(door, there)
+    walls = door_sides(door)
+    stand, past = through_cell(door, here, walls), through_cell(door, there, walls)
     api.detail(f"   home: by the door {door[0]}: stand {stand}, through to {past}")
     if home_box_of(home, here) is None and WALK_TO is not None:
         WALK_TO(stand, policy, range_=CROSS_RANGE)
@@ -287,7 +304,7 @@ def home_leg(mechs, home, here, there, policy):
         if not (_walk(stand, CROSS_RANGE, "before the open door") and _walk(past, CROSS_RANGE, "through it")):
             _no_way(f"through the home's open door {door[0]}: not through")
         return
-    press = press_for(mechs, door, stand)
+    press = press_for(mechs, door, stand, walls)
     api.detail(f"   home: door {door[0]} shut, press on our side {press}")
     if press is None or not cross(press, [list(c) for c in door], stand, past, closes(mechs, door), mechs):
         _no_way(f"the home's door {door[0]}: " + ("no press on this side" if press is None
@@ -322,9 +339,10 @@ def doors_on_way(here, there, policy=None, dimension=None):
     got = solid_map(door)
     if is_open(door, lambda p: got[tuple(p)]):
         return cells           # open: walk through, press nothing (a press would shut it)
-    press = press_for(mechs, door, here)
-    if press is not None and not cross(press, [list(c) for c in door], through_cell(door, here),
-                                       through_cell(door, there), closes(mechs, door), mechs):
+    walls = door_sides(door)
+    press = press_for(mechs, door, here, walls)
+    if press is not None and not cross(press, [list(c) for c in door], through_cell(door, here, walls),
+                                       through_cell(door, there, walls), closes(mechs, door), mechs):
         # never an ordinary walk round a taught door: it would dig beside it (024258: the wall and comparator dug)
         raise api.NavFailed(f"door crossing failed at {door[0]}: pressed from {press}, not through")
     return cells
