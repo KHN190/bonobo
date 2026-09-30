@@ -275,10 +275,27 @@ def cross(press, door, stand, past, close=False, mechs=()):
 WALK_TO = None            # nav.go_to, wired by the brain: the walk outside a home to its door
 
 
-def home_door(mechs, home):
-    """Pure: the taught door of a home (its boxes): one whose opens cells all lie in its boxes, or None."""
-    doors = sorted({tuple(map(tuple, m["opens"])) for m in mechs})
-    return next((d for d in doors if all(home_box_of(home, c) is not None for c in d)), None)
+def door_ends(door, solid=None):
+    """Pure given `solid`: the cells a body stands in either side of `door` along its crossing axis (through_cell)."""
+    axis = crossing_axis(door, centre(door), solid)
+    c = centre(door)
+    return tuple(through_cell(door, tuple(c[i] + (s * 8 if i == axis else 0) for i in range(3)), solid)
+                 for s in (1, -1))
+
+
+def home_exit_door(mechs, home, sides=None):
+    """(door, its end inside the home, its end outside) of the home's exit: a taught door in its boxes with one side
+    outside every box (the hatch); a door with both sides inside is the home's own, never a way out (11:01: the
+    side room's door taken to leave, stand and through one cell). None when there is none. `sides(door)`: the
+    world's reading round a column door (door_sides)."""
+    for door in sorted({tuple(map(tuple, m["opens"])) for m in mechs}):
+        if any(home_box_of(home, c) is None for c in door):
+            continue
+        a, b = door_ends(door, (sides or door_sides)(door))
+        ins = [e for e in (a, b) if home_box_of(home, e) is not None]
+        if len(ins) == 1:
+            return door, ins[0], b if ins[0] == a else a
+    return None
 
 
 def _no_way(why) -> NoReturn:
@@ -291,13 +308,17 @@ def home_leg(mechs, home, here, there, policy):
     a walk that digs nothing (across the home's boxes), pressed from our side (a shut door), through, shut behind
     when taught; entering, the outside leg first (the walker's own, digging allowed round the home). No taught door
     → no way (never dug)."""
-    door = home_door(mechs, home)
-    if door is None:
-        _no_way(f"no taught door in the home's boxes {home}: never dug through")
+    found = home_exit_door(mechs, home)
+    if found is None:
+        _no_way(f"no taught door out of the home {home} (one side outside it): never dug through")
+    door, inside, outside = found
     walls = door_sides(door)
-    stand, past = through_cell(door, here, walls), through_cell(door, there, walls)
+    leaving = home_box_of(home, here) is not None
+    stand, past = (inside, outside) if leaving else (outside, inside)
+    if stand == past:
+        _no_way(f"the home's door {door[0]}: stand and through one cell {stand}")
     api.detail(f"   home: by the door {door[0]}: stand {stand}, through to {past}")
-    if home_box_of(home, here) is None and WALK_TO is not None:
+    if not leaving and WALK_TO is not None:
         WALK_TO(stand, policy, range_=CROSS_RANGE)
     got = solid_map(door)
     if is_open(door, lambda p: got[tuple(p)]):

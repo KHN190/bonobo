@@ -396,6 +396,18 @@ class HomeExit(unittest.TestCase):
         self.assertEqual([(t["x"], t["y"], t["z"]) for t in posted if t["type"] == "use"], [HATCH_IN, HATCH_OUT])
         self.assertTrue(all(not t["break"] for t in posted if t["type"] == "travel" and t["y"] < HATCH_Y))
 
+    def test_the_exit_is_the_door_with_a_side_outside(self):
+        # must fail: the side room's door (both sides in the home) taken as the way out (11:01: stand == through, stuck)
+        side_door = [(-10, 64, 0), (-10, 65, 0)]
+        home = [((-13, 60, -3), (-7, 66, 3)), ((-3, HATCH_Y - 4, -3), (4, HATCH_Y, 4))]
+        mechs = [{"dimension": DIM, "press": [-11, 65, 1], "opens": [list(c) for c in side_door]},
+                 {"dimension": DIM, "press": list(HATCH_IN), "opens": [list(c) for c in HATCH]}]
+        walls = lambda door: (lambda c: c[2] != door[0][2])      # noqa: E731  (walls either side along z)
+        door, inside, outside = mech.home_exit_door(mechs, home, walls)
+        self.assertEqual(door, tuple(HATCH))
+        self.assertNotEqual(inside, outside)
+        self.assertIsNone(mech.home_exit_door(mechs[:1], home, walls))     # an interior door alone: no way out
+
     def test_no_taught_door_no_way(self):
         # must fail: no door taught → the walk digs out through the wall
         with self.assertRaises(nav.api.NavFailed):
