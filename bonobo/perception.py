@@ -134,12 +134,26 @@ def reaches_us(here, now):
     cells: this runs at 5 Hz."""
     body = tuple(int(math.floor(c)) for c in here)
 
-    def ask(pos, reach):
+    def ask(pos, reach, kind=None):
         cell = tuple(int(math.floor(c)) for c in pos)
         if len(STATE.reach) > REACH_KEPT:
             STATE.reach.clear()          # the mobs round us change: old pairs are no answer to keep
-        return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S, lambda: nav.walks_to(cell, reach), now)
+        climber = kind in threat.CLIMBERS
+        return memo_ttl(STATE.reach, (body, cell), GRID_TTL_S, lambda: nav.walks_to(cell, reach, climber, body[1]), now)
     return ask
+
+
+def threat_readout(state):
+    """What the rows answered were: each row's id, kind, distance, and its walk answer (STATE.reach) — the evidence
+    a threat line carries."""
+    here = (state.get("x", 0), state.get("y", 0), state.get("z", 0))
+    body = tuple(int(math.floor(c)) for c in here)
+    out = []
+    for i, r in zip(threat.THREAT_IDS, threat.THREAT_ROWS):
+        cell = tuple(int(math.floor(c)) for c in r[0])
+        walk = STATE.reach.get((body, cell), (None, "unasked"))[1]
+        out.append(f"{r[3].split(':')[-1]} {i} {math.dist(here, r[0]):.1f} off walk={walk}")
+    return "; ".join(out) or "no rows"
 
 
 def note_threats(near, now=None, here=None, context=None):
@@ -329,7 +343,7 @@ class Watcher(threading.Thread):
         observe(now, "answered" if taken else "refused", kind=option.kind, worth_s=round(worth, 1),
                 rows=len(rows), seen_at=seen_at(), taken=bool(taken), refused=refused, look=detail, **failure)
         if taken:
-            api.detail(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s")
+            api.detail(f"!! threat: {option.kind} ({option.why}) worth {worth:.0f}s — {threat_readout(state)}")
             events.decision("fight", option.kind, worth, option.why)       # said once per change, not per bid
         elif refused:
             events.anomaly("answer refused", f"{option.kind}: {refused}")

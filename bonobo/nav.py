@@ -763,22 +763,41 @@ def route_s(cell, policy, range_=1.5, nodes=NAV_NODES):
 
 def _plan(cell, dig, build, range_, nodes=NAV_NODES):
     """The game's /plan to `cell`: (found, seconds), (None, None) when it cannot be asked."""
-    try:
-        r = api.get(f"/plan?to={cell[0]},{cell[1]},{cell[2]}&range={range_}"
-                    f"&break={'true' if dig else 'false'}&place={'true' if build else 'false'}&nodes={nodes}")
-    except McError as err:
-        api.swallowed("nav.plan", err)
+    r = _plan_reply(cell, dig, build, range_, nodes)
+    if r is None:
         return (None, None)
     found = r.get("found")
     return (None if found is None else bool(found)), r.get("seconds")
 
-def walks_to(cell, range_):
-    """Is there a walk (nothing dug, nothing built) between the body and `cell` — the game's pathfinder; None when
-    it cannot be asked. What a walking mob there needs to reach us, read from our side."""
+def _plan_reply(cell, dig, build, range_, nodes=NAV_NODES):
     try:
-        return _plan(cell, False, False, range_)[0]
+        return api.get(f"/plan?to={cell[0]},{cell[1]},{cell[2]}&range={range_}"
+                       f"&break={'true' if dig else 'false'}&place={'true' if build else 'false'}&nodes={nodes}")
+    except McError as err:
+        api.swallowed("nav.plan", err)
+        return None
+
+MOB_STEP_UP = 1          # blocks a walking mob climbs in one step: a drop deeper than this is one way down
+
+def climbs_back(start_y, steps, step_up=MOB_STEP_UP):
+    """Pure: can a walker come back along this path (steps: [{x, y, z}] from `start_y`) — no drop in it deeper than
+    `step_up`. Our pathfinder drops up to 3; a zombie climbs none of those."""
+    ys = [start_y] + [s["y"] for s in steps]
+    return all(a - b <= step_up for a, b in zip(ys, ys[1:]))
+
+def walks_to(cell, range_, climber=False, start_y=None):
+    """Can a walking mob at `cell` come to the body: the game's walk from our side (nothing dug, nothing built),
+    taken back — so no drop on it a walker cannot climb (a climber climbs any). None when it cannot be asked."""
+    try:
+        r = _plan_reply(cell, False, False, range_)
     except tape.ReplayMiss:
         return None
+    if r is None or r.get("found") is None:
+        return None
+    if not r["found"]:
+        return False
+    start_y = start_y if start_y is not None else int(math.floor(api.get("/state")["y"]))
+    return climber or climbs_back(start_y, r.get("steps") or [])
 
 def forget_routes():
     """New round, new body position: the routes priced from the old one say nothing about this one."""

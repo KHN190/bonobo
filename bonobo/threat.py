@@ -89,12 +89,15 @@ def rows(near, memory, now, kinds, here=None, context=None, reaches=None):
         seen = awareness(e, here, context)
         if seen <= 0.0:
             continue
-        if reaches is not None and not at_us(e) and reaches(pos, kinds[kind]) is False:
+        if reaches is not None and not at_us(e) and reaches(pos, kinds[kind], kind) is False:
             continue
         out.append(row(pos, kinds[kind], vel, kind, aware=seen, dps=e.get("dps")))
     for key in [k for k, (_, t) in memory.items() if now - t > 10.0]:
         del memory[key]          # or the table grows for the length of the session
     return out
+
+CLIMBERS = ("minecraft:spider", "minecraft:cave_spider")      # up any wall: a drop is no barrier to them
+
 
 def at_us(e):
     """Pure: the mob is at us already (perception.read_combat's fields): in reach, shooting or charging, provoked."""
