@@ -14,7 +14,7 @@ import os
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .data import EYE_HEIGHT, OPEN_PROP
+from .data import EYE_HEIGHT
 from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")
@@ -143,9 +143,9 @@ def route_s(here, there, walk_s, dimension=None):
 # -- the world
 
 
-def passable_now(solid, prop):
-    """Pure: a cell passes when not solid, or when it stands `open` (a door keeps its name open or shut)."""
-    return lambda c: solid(c) and prop(c, OPEN_PROP) != "true"
+def passable_now(solid, open_door):
+    """Pure: a cell passes when not solid, or when a door there stands open (it keeps its name open or shut)."""
+    return lambda c: solid(c) and not open_door(c)
 
 
 def solid_map(cells):
@@ -154,7 +154,7 @@ def solid_map(cells):
     lo = tuple(min(c[i] for c in cells) for i in range(3))
     hi = tuple(max(c[i] for c in cells) for i in range(3))
     r = Region(lo, hi, props=True)
-    shut = passable_now(r.solid, r.prop)
+    shut = passable_now(r.solid, r.open_door)
     return {c: shut(c) for c in cells}
 
 
@@ -163,7 +163,7 @@ def opens_left(st, c):
     region, opens = st.get("region"), c.args[2]
     if region is None:
         return {"unread:mechanism": 1}
-    shut = passable_now(region.solid, getattr(region, "prop", lambda c, k: None))
+    shut = passable_now(region.solid, getattr(region, "open_door", lambda c: False))
     return left(is_open(opens, shut), "state:opened")
 
 

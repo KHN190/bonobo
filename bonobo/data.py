@@ -198,7 +198,13 @@ RECIPES = recipes()
 PASSABLE_SUFFIX = ("_sapling", "torch", "_carpet", "_button", "_pressure_plate", "_sign", "_tulip", "_orchid")
 # solid, yet a head inside does not suffocate: not a full cube
 PARTIAL_SUFFIX = ("_slab", "_stairs", "snow")
-OPEN_PROP = "open"         # the block state a door, trapdoor or gate stands open by: a block with it is no full cube
+OPEN_PROP = "open"         # the block state a door, trapdoor or gate stands open by (a barrel has one too)
+DOOR_SUFFIX = ("_door", "_trapdoor", "_fence_gate")     # what opens to let a body through: no full cube, never a wall
+
+
+def is_door(name):
+    """Pure: a door, trapdoor or fence gate (bare or namespaced name) — not every block with an `open` state."""
+    return str(name).endswith(DOOR_SUFFIX)
 PASSABLE = {"nether_portal", "end_portal", "end_gateway",   # standing in one isn't being buried
             "short_grass", "tall_grass", "fern", "large_fern", "dandelion", "poppy", "wildflowers", "snow", "vine",
             "glow_lichen", "leaf_litter", "bush", "firefly_bush", "short_dry_grass", "tall_dry_grass", "dead_bush",

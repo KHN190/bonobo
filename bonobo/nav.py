@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import GROUPS, FOOD, EYE_HEIGHT, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import GROUPS, FOOD, EYE_HEIGHT, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, feet, to_segment
 from typing import TYPE_CHECKING
 
@@ -559,9 +559,10 @@ DOOR_PAD = 2             # the bounded read round the way: its box, this much wi
 
 
 def doorways(region):
-    """Pure: {cell: (by hand, open)} of every block in `region` (read with states) that opens and shuts."""
+    """Pure: {cell: (by hand, open)} of every door, trapdoor and gate in `region` (read with states) — a barrel's
+    `open` is no door (09:35: 'door on the way opened by hand' was the barrel just used)."""
     return {c: (region.name(c) not in LOCKED, st.get("open") == "true")
-            for c, st in getattr(region, "props", {}).items() if "open" in st}
+            for c, st in getattr(region, "props", {}).items() if "open" in st and is_door(region.name(c))}
 
 
 def door_steps(ways, here, there, near=DOOR_NEAR):

@@ -37,6 +37,8 @@ class Steps(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(nav.door_steps(nav.doorways(Read(block, opened)), HERE, THERE),
                                  (want_hand, want_locked))
+        # must fail: a barrel's `open` read as a door (09:35: the barrel just used "opened by hand" on the way)
+        self.assertEqual(nav.door_steps(nav.doorways(Read("barrel", False)), HERE, THERE), ([], []))
         far = {(5, 64, 9): (True, False)}          # beside, not on the way
         self.assertEqual(nav.door_steps(far, HERE, THERE), ([], []))
 

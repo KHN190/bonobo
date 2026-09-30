@@ -119,13 +119,16 @@ class Press(unittest.TestCase):
 class OpenState(unittest.TestCase):
     def test_rows(self):
         # (solid by name, its open state) → shut
-        rows = [("a wall", True, None, True), ("air", False, None, False),
-                ("a door standing open: passable though still there", True, "true", False),
-                ("must fail: a shut door read as open", True, "false", True)]
-        for name, solid, opened, want in rows:
+        from bonobo.world import Region
+        rows = [("a wall", "stone", None, True), ("air", "air", None, False),
+                ("a door standing open: passable though still there", "oak_door", "true", False),
+                ("must fail: a shut door read as open", "oak_door", "false", True),
+                ("must fail: an open barrel read as a door", "barrel", "true", True)]
+        for name, block, opened, want in rows:
             with self.subTest(name):
-                shut = mech.passable_now(lambda c: solid, lambda c, k: opened if k == mech.OPEN_PROP else None)
-                self.assertEqual(shut((0, 0, 0)), want)
+                r = Region.__new__(Region)
+                r.blocks, r.props = {(0, 0, 0): block}, {(0, 0, 0): {"open": opened}} if opened else {}
+                self.assertEqual(mech.passable_now(r.solid, r.open_door)((0, 0, 0)), want)
 
 
 class Walk(unittest.TestCase):
