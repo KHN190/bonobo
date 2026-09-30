@@ -64,12 +64,21 @@ class TheHome(unittest.TestCase):
                 ("an armor stand outside is none of the home's", {"type": "attack", "entity": 3}, False, False),
                 ("must fail: water poured inside", {"type": "place", "item": "minecraft:water_bucket",
                                                     "x": 3, "y": 65, "z": 3}, False, True),
-                ("a block placed inside: allowed", {"type": "place", "item": "minecraft:cobblestone",
-                                                    "x": 3, "y": 65, "z": 3}, False, False),
+                ("must fail: dirt placed inside (a wall-in, a reshape in the hall)",
+                 {"type": "place", "item": "minecraft:dirt", "x": 3, "y": 65, "z": 3}, False, True),
+                ("must fail: a pillar inside (its cell the feet's)", {"type": "pillar", "item": "minecraft:cobblestone"},
+                 False, True),
+                ("a crafting table placed inside: allowed", {"type": "place", "item": "minecraft:crafting_table",
+                                                             "x": 3, "y": 65, "z": 3}, False, False),
+                ("a torch inside: allowed", {"type": "place", "item": "minecraft:torch", "x": 3, "y": 65, "z": 3},
+                 False, False),
+                ("dirt outside the home: none of the home's", {"type": "place", "item": "minecraft:dirt",
+                                                               "x": 30, "y": 65, "z": 3}, False, False),
                 ("opening a chest inside: allowed", {"type": "use", "x": 5, "y": 64, "z": 5}, False, False)]
         for name, task, allow, refused in rows:
             with self.subTest(name):
-                why = memory.home_refusal(task, homes, ours, lambda eid: at.get(eid), allow_break=allow)
+                why = memory.home_refusal(task, homes, ours, lambda eid: at.get(eid), allow_break=allow,
+                                          feet=(3, 65, 3))
                 self.assertEqual(why is not None, refused, why)
 
     def test_the_door_refuses(self):
@@ -128,7 +137,8 @@ class TheGuard(unittest.TestCase):
             said = []
             with mock.patch.object(api.STATE, "dim_seen", DIM), \
                     mock.patch.object(events, "emit", lambda kind, line, *a, **k: said.append(kind)):
-                brain.Brain.home_guard(me, {"type": "place", "item": "minecraft:dirt", "x": 3, "y": 65, "z": 3})
+                brain.Brain.home_guard(me, {"type": "place", "item": "minecraft:crafting_table", "x": 3, "y": 65,
+                                            "z": 3})
                 self.assertIn((3, 65, 3), mem.placed_in_home(DIM), "our block inside, noted")
                 brain.Brain.home_guard(me, {"type": "mine", "x": 3, "y": 65, "z": 3})
                 self.assertNotIn((3, 65, 3), mem.placed_in_home(DIM), "taken back: no longer ours to note")
@@ -196,6 +206,31 @@ class Unbury(unittest.TestCase):
                             next(gen)
                             self.assertEqual(sent[0][0]["type"], "mine")
                             self.assertIsNotNone(sent[0][1], "the break went out under the allowance")
+
+
+class NoBuildingInsideTheHome(unittest.TestCase):
+    """fight_loop.batch: an answer that places a block the home may not hold inside it is no answer there (hello2
+    08:52:51: 'fight wall_in: posts place(granite), place(dirt)×5' in the bunker's hall)."""
+
+    def test_rows(self):
+        from bonobo import brain, fight_loop, threat  # noqa: F401  (brain lends wall_in)
+        from tests.world import bag, inventory
+        home = memory.Protected((), [(LO, HI)])
+        inside, outside = (3, 65, 3), (30, 65, 3)
+        rows = [("must fail: a wall-in inside the home", "wall_in", None, inside, False),
+                ("must fail: a roof reshape inside", "reshape", ("roof", 1), inside, False),
+                ("must fail: a pillar inside", "reshape", ("under", 2), inside, False),
+                ("a wall-in outside it: planned", "wall_in", None, outside, True)]
+        for name, kind, target, feet, planned in rows:
+            with self.subTest(name):
+                region = FakeRegion(tuple(v - 3 for v in feet), tuple(v + 3 for v in feet),
+                                    {(feet[0] + dx, feet[1] - 1, feet[2] + dz): "stone"
+                                     for dx in range(-3, 4) for dz in range(-3, 4)})
+                state = {"feet": feet, "region": region, "inv": bag(inventory(("dirt", 16))), "protected": home,
+                         "state": {"x": feet[0] + 0.5, "y": feet[1], "z": feet[2] + 0.5}}
+                option = threat.Option(kind, target, 1.0, 2.0, "test")
+                got = fight_loop.batch(option, state)
+                self.assertEqual(bool(got), planned, got)
 
 
 class TheStartSaysIt(unittest.TestCase):

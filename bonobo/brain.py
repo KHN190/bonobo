@@ -137,7 +137,8 @@ class Brain:
         def entity_at(eid):
             e = next((e for e in world.entities(24) if e.get("id") == eid), None)
             return (e["type"], (e["x"], e["y"], e["z"])) if e else None
-        why = _memory.home_refusal(task, homes, mine, entity_at, allow_break=api.STATE.home_break is not None)
+        why = _memory.home_refusal(task, homes, mine, entity_at, allow_break=api.STATE.home_break is not None,
+                                   feet=api.feet_seen())
         if why:
             raise NotAvailable(why)
         if "x" not in task or task.get("type") not in ("mine", "place"):

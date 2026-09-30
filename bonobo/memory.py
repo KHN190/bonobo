@@ -6,7 +6,8 @@ import os
 import time
 from typing import Any
 from . import paths, blueprints
-from .data import GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, mid, seen_class
+from .data import (GROUPS, ITEM_DESPAWN_S, VOLATILITY, bare, home_may_hold, home_part_kind, mid, placed_cell,
+                   seen_class)
 
 NOTES_FILE = paths.data("world-notes.json", env="MC_NOTES")
 
@@ -147,24 +148,14 @@ class Protected(set):
         return sorted(out, key=lambda c: min(sum((c[i] - p[i]) ** 2 for i in range(3)) for p in points))[:most]
 
 
-# a home's parts, found by the scan: block-name suffixes (a bed is two cells, a chest one or two)
-HOME_BEDS = ("_bed",)
-HOME_CHESTS = ("chest", "barrel")
-HOME_STATIONS = ("crafting_table", "furnace", "blast_furnace", "smoker", "anvil", "chipped_anvil", "damaged_anvil",
-                 "smithing_table", "stonecutter", "grindstone", "enchanting_table")
-
-
 def home_parts(blocks):
     """Pure: {beds: [cells], chests: [cells], stations: [(block, cell)]} of a home's blocks ({cell: name})."""
     out = {"beds": [], "chests": [], "stations": []}
     for c, n in sorted(blocks.items()):
         name = str(n).split(":")[-1]
-        if name.endswith(HOME_BEDS):
-            out["beds"].append(list(c))
-        elif name.endswith(HOME_CHESTS) and "ender" not in name:
-            out["chests"].append(list(c))
-        elif name in HOME_STATIONS:
-            out["stations"].append((name, list(c)))
+        kind = home_part_kind(name)
+        if kind is not None:
+            out[kind].append((name, list(c)) if kind == "stations" else list(c))
     return out
 
 
@@ -175,10 +166,11 @@ HOME_ENTITIES = ("minecraft:armor_stand", "minecraft:item_frame", "minecraft:glo
 HOME_NO_POUR = ("minecraft:water_bucket", "minecraft:lava_bucket", "minecraft:flint_and_steel", "minecraft:fire_charge")
 
 
-def home_refusal(task, homes, mine, entity_at=None, allow_break=False):
+def home_refusal(task, homes, mine, entity_at=None, allow_break=False, feet=None):
     """Pure: why `task` must not go out at a home, or None — a break of a home block (not ours), a strike on what a
-    home keeps, water, lava or fire placed inside. `entity_at(id)` → (type, pos) or None; `allow_break`: the
-    rescue's critical-hp allowance (a break then goes out, said as an event by the caller)."""
+    home keeps, water, lava or fire placed inside, any block placed inside but a station, container, bed or light
+    (a pillar's cell is `feet`). `entity_at(id)` → (type, pos) or None; `allow_break`: the rescue's critical-hp
+    allowance (a break then goes out, said as an event by the caller)."""
     boxes = home_boxes(homes)
     kind = task.get("type")
     if kind == "mine" and "x" in task:
@@ -193,7 +185,12 @@ def home_refusal(task, homes, mine, entity_at=None, allow_break=False):
         cell = (int(task["x"]), int(task["y"]), int(task["z"]))
         if any(in_box(b, cell) for b in boxes):
             return f"no {task['item'].split(':')[-1]} inside the home"
+    elif kind in ("place", "pillar") and not home_may_hold(task.get("item", "")):
+        cell = placed_cell(task, feet)
+        if cell is not None and any(in_box(b, cell) for b in boxes):
+            return f"no {str(task.get('item', '')).split(':')[-1]} placed inside the home (stations, containers, beds, light)"
     return None
+
 
 class Memory:
     def tick(self):

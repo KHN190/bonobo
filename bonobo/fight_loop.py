@@ -14,7 +14,7 @@ from .world import Inventory, Snapshot
 from .estimate import follows_to
 from .beliefs import MOBS
 from .knowledge import ALL_FOOD, RAW_MEAT
-from .data import GROUPS
+from .data import GROUPS, home_may_hold, placed_cell
 
 ANSWER = None          # (option) -> None | {"id": task}: carries out one answer with the agent's memory and policy
 POLL_S = 0.5           # how often a running engagement looks at what perception now wants
@@ -443,7 +443,12 @@ def batch(option, state):
     """Pure: the batch that carries out one answer from a body state; [] when it cannot be carried out from here."""
 
     make = BATCH.get(option.kind)
-    return list(make(option, state)) if make else []
+    out = list(make(option, state)) if make else []
+    protected = state.get("protected")
+    if protected is not None and any(t.get("type") in ("place", "pillar") and not home_may_hold(t.get("item", ""))
+                                     and placed_cell(t, state.get("feet")) in protected for t in out):
+        return []           # a block the home may not hold (a wall-in, a reshape in its hall): no such answer here
+    return out
 
 # between swings (jar ≥ 0.1.51): melee back out of reach, ranged strafe off the line, a creeper keepoff past its blast
 FOOTWORK = {"melee": "back", "ranged": "strafe", "burst": "keepoff"}

@@ -264,6 +264,34 @@ BASE_MARKERS = {
 }
 MARKER_WEIGHT = {"bed": 10, "chest": 5, "furnace": 5, "crafting_table": 4, "door": 3, "light": 1}
 
+# a home's parts, found by the scan: block-name suffixes (a bed is two cells, a chest one or two)
+HOME_BEDS = ("_bed",)
+HOME_CHESTS = ("chest", "barrel")
+HOME_STATIONS = ("crafting_table", "furnace", "blast_furnace", "smoker", "anvil", "chipped_anvil", "damaged_anvil",
+                 "smithing_table", "stonecutter", "grindstone", "enchanting_table")
+
+
+def home_part_kind(name):
+    """Pure: "beds", "chests" or "stations" for a block (bare name) a home keeps as a part, else None."""
+    if name.endswith(HOME_BEDS):
+        return "beds"
+    if name.endswith(HOME_CHESTS) and "ender" not in name:
+        return "chests"
+    return "stations" if name in HOME_STATIONS else None
+
+
+def placed_cell(task, feet):
+    """Pure: the cell a place task fills — its own, or the feet's for a pillar; None when unknown."""
+    if "x" in task:
+        return (int(task["x"]), int(task["y"]), int(task["z"]))
+    return tuple(int(v) for v in feet) if feet is not None else None
+
+
+def home_may_hold(item):
+    """Pure: may `item` be placed inside a home — a part it keeps (station, container, bed) or a light."""
+    name = bare(item) if item else ""
+    return home_part_kind(name) is not None or name in BASE_MARKERS["light"]
+
 DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
 REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
