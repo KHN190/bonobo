@@ -43,14 +43,25 @@ class Cost:
         self._ripe = ripe            # offline: {token: ripe cells} standing in for memory and the world
 
     # -- where things are
-    def _nearest(self, kinds):
-        """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None."""
+    def protected(self):
+        """The cells never broken (memory.protected_cells: sites, a home's box): never a source to gather from; None
+        with no memory to ask."""
+        if "protected" not in self.cache:
+            self.cache["protected"] = (self.mem.protected_cells(self.snap.dimension)
+                                       if self.mem is not None and self.snap is not None else None)
+        return self.cache["protected"]
+
+    def _nearest(self, kinds, sources=False):
+        """(position, distance) of the nearest remembered one of these (memory.seen, "tree" for any log), or None;
+        `sources`: a protected cell is not there."""
 
         if self.mem is None or self.snap is None:
             return None
         kinds = list(kinds) + (["tree"] if any(bare(k).endswith("log") for k in kinds) else [])
         here, dim = self.snap.feet, self.snap.dimension
-        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not banned(self.blacklist, r["pos"])]
+        skip = self.protected() if sources else None
+        spots = [tuple(r["pos"]) for k in kinds for r in self.mem.seen(k, dim) if not banned(self.blacklist, r["pos"])
+                 and not (skip is not None and tuple(r["pos"]) in skip)]
         best = min(spots, key=lambda p: math.dist(p, here), default=None)
         return (best, math.dist(best, here)) if best is not None else None
 
@@ -71,30 +82,32 @@ class Cost:
             self.cache[key] = n
         return self.cache[key]
 
-    def _known(self, kinds):
+    def _known(self, kinds, sources=False):
         """Distance to the nearest remembered one of these, or None."""
         if self._known_fn is not None:
             return self._known_fn(list(kinds))
-        hit = self._nearest(kinds)
+        hit = self._nearest(kinds, sources)
         return hit[1] if hit else None
 
-    def distance(self, blocks, radius=48):
-        """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find), else None."""
+    def distance(self, blocks, radius=48, sources=False):
+        """Blocks to the nearest one of these: remembered (no world read), else in sight now (one cached /find), else
+        None. `sources`: what a gather or a mine takes from — a protected cell (a home block) is not there."""
 
-        key = ("find", tuple(blocks), radius)
+        key = ("find", tuple(blocks), radius, sources)
         if key not in self.cache and self._finds is not None:
             got = [self._finds[b] for b in blocks if b in self._finds and self._finds[b] <= radius]
-            self.cache[key] = min(got) if got else self._known(blocks)
+            self.cache[key] = min(got) if got else self._known(blocks, sources)
         if key not in self.cache:
-            known = self._known(blocks)
+            known = self._known(blocks, sources)
             if known is not None and known <= radius:
                 self.cache[key] = known
         if key not in self.cache:
             # in sight: the round's one look (world.nearest), never a search of its own
             seen = None
             if self.snap is not None:
-                seen = nearest(list(blocks), self.snap.feet, self.snap.dimension, radius, union=SOURCE_BLOCKS)
-            self.cache[key] = seen if seen is not None else self._known(blocks)
+                seen = nearest(list(blocks), self.snap.feet, self.snap.dimension, radius, union=SOURCE_BLOCKS,
+                               skip=self.protected() if sources else None)
+            self.cache[key] = seen if seen is not None else self._known(blocks, sources)
         return self.cache[key]
 
     def _entity(self, types):
@@ -164,9 +177,9 @@ class Cost:
         """Blocks to where this step's thing is (in sight or remembered), None when nowhere known."""
         k = step.kind
         if k == "gather":
-            return self.distance(GROUPS["log"])
+            return self.distance(GROUPS["log"], sources=True)
         if k == "mine":
-            return self.distance(step.detail.get("blocks", ()), 32)
+            return self.distance(step.detail.get("blocks", ()), 32, sources=True)
         return self._entity(step.detail.get("types", ()))
 
     def known_source(self, step):
@@ -196,7 +209,7 @@ class Cost:
         in sight, from the feet's floor down, each dug. An ore's depth is its staircase's, priced as work."""
         if FIND_AT.get(step.token) is not None or self.snap is None:
             return 0
-        y = sight_y(step.detail.get("blocks", ()))
+        y = sight_y(step.detail.get("blocks", ()), self.protected())
         over = 0 if y is None else max(0, int(self.snap.feet[1]) - 1 - int(y))
         return round(over * DIG_HAND_S * TICKS_PER_S)
 
