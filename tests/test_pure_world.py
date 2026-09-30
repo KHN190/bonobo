@@ -467,7 +467,30 @@ class Nav(unittest.TestCase):
                                                  union=["iron_ore", "oak_log", "stone"]))
                 self.assertEqual((got, len(calls)), (want, requests))
                 if new:
-                    self.assertIn("perBlock=1", calls[0])
+                    self.assertIn(f"perBlock={world.SIGHT_PER_BLOCK}", calls[0])
+        world._PER_BLOCK[:] = []
+
+    def test_a_home_block_is_no_source(self):
+        # hello2 08:51: "have sword tier 1 → mine 1× stone" priced off the bunker's own walls, then failed (nav)
+        from bonobo import api, memory, world
+        from bonobo.cost import Cost
+        from bonobo.planner import Step
+        home = memory.Protected(boxes=[((0, 63, 0), (4, 67, 4))])
+        answer = {"blocks": [{"block": "minecraft:stone", "distance": 2.0, "x": 2, "y": 64, "z": 2},
+                             {"block": "minecraft:stone", "distance": 10.0, "x": 12, "y": 64, "z": 0}]}
+        noted = [{"pos": [3, 64, 3]}]
+        mem = mock.Mock(protected_cells=lambda dim: home, seen=lambda kind, dim: noted if kind == "stone" else [])
+        snap = mock.Mock(feet=(2, 64, 2), dimension="minecraft:overworld")
+        step = Step("mine", "minecraft:cobblestone", 1, {"blocks": ["stone"]})
+        rows = [("must fail: the home's stone as the source: 10 off, not the wall 2 off nor the noted one", True, 10.0),
+                ("the same look for a station: the home's counts (the noted one, 1.4 off)", False, 1.4)]
+        for name, sources, want in rows:
+            with self.subTest(name), mock.patch.object(api, "get", return_value=answer), \
+                    mock.patch.dict(world._SIGHT, {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}):
+                world._PER_BLOCK[:] = [True]
+                c = Cost(snap, mem)
+                got = c._source(step) if sources else c.distance(["stone"], 32)
+                self.assertAlmostEqual(got, want, places=1)
         world._PER_BLOCK[:] = []
 
     def test_at_rest(self):

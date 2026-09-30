@@ -165,7 +165,8 @@ class Snapshot:
         return self.state.get(key, default)
 
 SIGHT_TTL_S = 3.0          # a round's look at "how far is the nearest of each": kept while the feet stay put
-_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}}
+_SIGHT = {"key": None, "t": 0.0, "near": {}, "y": {}, "hits": {}}
+SIGHT_PER_BLOCK = 4        # hits kept per block: a source is the nearest of them outside the protected cells
 # the round's route answers and the last look are about the world we stood in (a new row may stand at the same feet)
 lifecycle.in_place(__name__, "ROUTES", "_SIGHT")
 _PER_BLOCK = []            # [bool] once known: the running jar answers /find?perBlock (≥ 0.1.55)
@@ -180,38 +181,50 @@ def _per_block_ok():
         _PER_BLOCK.append(v >= (0, 1, 55))
     return _PER_BLOCK[0]
 
-def nearest(kinds, feet, dimension, radius=48, union=()):
-    """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves."""
+def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
+    """Blocks to the nearest of `kinds` in sight, or None — estimates never search the world themselves. `skip`:
+    cells that are not there for this ask (a gather source is never a home block)."""
 
     names = [bare(k) for k in kinds]
     key = (tuple(feet), dimension)
     fresh = _SIGHT["key"] == key and time.time() - _SIGHT["t"] < SIGHT_TTL_S
     if not fresh:
-        _SIGHT.update(key=key, t=time.time(), near={}, y={})
-    near = _SIGHT["near"]
+        _SIGHT.update(key=key, t=time.time(), near={}, y={}, hits={})
+    near, hits_of = _SIGHT["near"], _SIGHT.setdefault("hits", {})
     missing = [n for n in names if n not in near]
     if missing:
         ask = sorted({bare(u) for u in union} | set(missing)) if _per_block_ok() else missing
         ids = ",".join(mid(b) for b in ask)
-        path = (f"/find?blocks={ids}&radius=48&limit={len(ask) * 2 + 8}&perBlock=1" if _per_block_ok()
-                else f"/find?blocks={ids}&radius=48&limit=20")
+        path = (f"/find?blocks={ids}&radius=48&limit={len(ask) * (SIGHT_PER_BLOCK + 1) + 8}"
+                f"&perBlock={SIGHT_PER_BLOCK}" if _per_block_ok() else f"/find?blocks={ids}&radius=48&limit=20")
         try:
             hits = api.get(path)["blocks"]
         except api.McError:
             hits = []
         for b in ask:
             near.setdefault(b, None)
+            hits_of.setdefault(b, [])
         for h in hits:
             b = bare(h["block"])
+            hits_of.setdefault(b, []).append(h)
             if near.get(b) is None or h["distance"] < near[b]:
                 near[b] = h["distance"]
                 if "y" in h:
                     _SIGHT["y"][b] = h["y"]
-    got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
+    if skip is not None:          # a Protected of boxes alone is an empty set: asked, never truth-tested
+        got = [h["distance"] for n in names for h in hits_of.get(n, ())
+               if h["distance"] <= radius and (h["x"], h["y"], h["z"]) not in skip]
+    else:
+        got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
-def sight_y(kinds):
-    """The y of the nearest of `kinds` the last look saw (`nearest`), or None: no read of its own."""
+def sight_y(kinds, skip=None):
+    """The y of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of its
+    own."""
+    if skip is not None:
+        got = [(h["distance"], h["y"]) for k in kinds for h in _SIGHT.get("hits", {}).get(bare(k), ())
+               if (h["x"], h["y"], h["z"]) not in skip]
+        return min(got)[1] if got else None
     near, ys = _SIGHT["near"], _SIGHT["y"]
     got = [(near[n], ys[n]) for n in (bare(k) for k in kinds) if near.get(n) is not None and n in ys]
     return min(got)[1] if got else None
