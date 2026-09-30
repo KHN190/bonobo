@@ -181,9 +181,12 @@ class NoDigThroughTheHome(unittest.TestCase):
         for name, dug, w, want in rows:
             with self.subTest(name):
                 self.assertEqual(self.flags(dug, w), want)
-        # no walk that digs nothing and the body in the home: by its door
-        self.assertEqual(self.flags(self.route(((8, 64, 5), ["MINE 9,64,5"])), {"found": False}, here=(5, 64, 5)),
-                         (False, False, True))
+        # no walk that digs nothing and the body in the home: by its door — and said (live: 'nav' with no reason)
+        said = []
+        with mock.patch.object(api, "detail", lambda *p: said.append(" ".join(map(str, p)))):
+            self.assertEqual(self.flags(self.route(((8, 64, 5), ["MINE 9,64,5"])), {"found": False}, here=(5, 64, 5)),
+                             (False, False, True))
+        self.assertTrue(any("through the home" in l and "by the home's door" in l for l in said), said)
         between = memory.Protected((), [(LO, HI), self.SECOND])
         self.assertNotIn((11, 65, 5), between)          # rock between the boxes: not the home's
 

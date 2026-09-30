@@ -635,9 +635,13 @@ def home_flags(pos, brk, plc, range_, boxes, here):
     if dug is not None and dug.get("found") and not route_in_boxes(dug, boxes):
         return brk, plc, False
     walk = _plan_reply(pos, False, False, range_)
+    said = "unasked" if dug is None else "no route" if not dug.get("found") else "through the home"
     if walk is not None and walk.get("found") is not False or HOME_DOOR is None:
+        api.detail(f"   home: route to {tuple(pos)} {said}: a walk that digs nothing")
         return False, False, False
     inside = home_box_of(boxes, here) is not None or home_box_of(boxes, pos) is not None
+    api.detail(f"   home: route to {tuple(pos)} {said}, no walk that digs nothing: "
+               + ("by the home's door" if inside else "both ends outside, the leg digs nothing"))
     return False, False, inside
 
 

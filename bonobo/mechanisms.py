@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import math
 import os
+from typing import NoReturn
 
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .data import EYE_HEIGHT, home_box_of, in_box
+from .data import EYE_HEIGHT, home_box_of
 from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")
@@ -258,41 +259,50 @@ def cross(press, door, stand, past, close=False, mechs=()):
 WALK_TO = None            # nav.go_to, wired by the brain: the walk outside a home to its door
 
 
-def home_door(mechs, box):
-    """Pure: the taught door of a home: one whose opens cells all lie in its box (its wall, floor or roof), or None."""
+def home_door(mechs, home):
+    """Pure: the taught door of a home (its boxes): one whose opens cells all lie in its boxes, or None."""
     doors = sorted({tuple(map(tuple, m["opens"])) for m in mechs})
-    return next((d for d in doors if all(in_box(box, c) for c in d)), None)
+    return next((d for d in doors if all(home_box_of(home, c) is not None for c in d)), None)
 
 
-def home_leg(mechs, box, here, there, policy):
-    """A walk out of a home or into one goes by its taught door: into (out of) the box by a walk that digs nothing,
-    pressed from our side (a shut door), through, shut behind when taught; entering, the outside leg first (the
-    walker's own, digging allowed round the home). No taught door → no way (never dug)."""
-    door = home_door(mechs, box)
+def _no_way(why) -> NoReturn:
+    api.detail(f"   home: {why}")
+    raise api.NavFailed(why)
+
+
+def home_leg(mechs, home, here, there, policy):
+    """A walk out of a home or into one goes by its taught door (in any of its boxes): to the door's side inside by
+    a walk that digs nothing (across the home's boxes), pressed from our side (a shut door), through, shut behind
+    when taught; entering, the outside leg first (the walker's own, digging allowed round the home). No taught door
+    → no way (never dug)."""
+    door = home_door(mechs, home)
     if door is None:
-        raise api.NavFailed(f"no taught door out of the home at {tuple(box[0])}..{tuple(box[1])}: never dug through")
+        _no_way(f"no taught door in the home's boxes {home}: never dug through")
     stand, past = through_cell(door, here), through_cell(door, there)
-    if home_box_of([box], here) is None and WALK_TO is not None:
+    api.detail(f"   home: by the door {door[0]}: stand {stand}, through to {past}")
+    if home_box_of(home, here) is None and WALK_TO is not None:
         WALK_TO(stand, policy, range_=CROSS_RANGE)
     got = solid_map(door)
     if is_open(door, lambda p: got[tuple(p)]):
         if not (_walk(stand, CROSS_RANGE, "before the open door") and _walk(past, CROSS_RANGE, "through it")):
-            raise api.NavFailed(f"through the home's open door {door[0]}: not through")
+            _no_way(f"through the home's open door {door[0]}: not through")
         return
     press = press_for(mechs, door, stand)
+    api.detail(f"   home: door {door[0]} shut, press on our side {press}")
     if press is None or not cross(press, [list(c) for c in door], stand, past, closes(mechs, door), mechs):
-        raise api.NavFailed(f"the home's door {door[0]}: " + ("no press on this side" if press is None
-                                                              else f"pressed from {press}, not through"))
+        _no_way(f"the home's door {door[0]}: " + ("no press on this side" if press is None
+                                                  else f"pressed from {press}, not through"))
 
 
 def home_exit(here, there, policy):
-    """nav's wire (HOME_DOOR): no walk out of (into) the home that digs nothing: by the taught door of the home box
-    an end lies in (home_leg)."""
-    boxes = getattr(getattr(policy, "protected", None), "boxes", ())
-    box = home_box_of(boxes, here) or home_box_of(boxes, there)
-    if box is None:
-        raise api.NavFailed(f"no way to {tuple(there)} that digs no home")
-    home_leg([m for m in load() if m["dimension"] == api.get("/state")["dimension"]], box, here, there, policy)
+    """nav's wire (HOME_DOOR): no walk out of (into) the home that digs nothing: by the taught door of the home (any
+    of its boxes) an end lies in (home_leg)."""
+    homes = getattr(getattr(policy, "protected", None), "homes", ())
+    home = next((h for h in homes if home_box_of(h, here) is not None), None) or \
+        next((h for h in homes if home_box_of(h, there) is not None), None)
+    if home is None:
+        _no_way(f"no way to {tuple(there)} that digs no home")
+    home_leg([m for m in load() if m["dimension"] == api.get("/state")["dimension"]], home, here, there, policy)
 
 
 def doors_on_way(here, there, policy=None, dimension=None):

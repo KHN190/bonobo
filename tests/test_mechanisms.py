@@ -321,7 +321,7 @@ class HomeExit(unittest.TestCase):
     BOX = ((-3, HATCH_Y - 4, -3), (4, HATCH_Y, 4))
     HALL, COAL = (2, HATCH_Y - 3, 2), (30, HATCH_Y + 1, 0)
 
-    def walk(self, taught):
+    def walk(self, taught, boxes=None):
         from bonobo import memory
         posted, state = [], {"shut": True, "feet": self.HALL}
         mechs = [{"dimension": DIM, "press": list(p), "opens": [list(c) for c in HATCH], "close": True}
@@ -334,14 +334,15 @@ class HomeExit(unittest.TestCase):
             elif task["type"] == "travel" and task.get("status") is None:
                 state["feet"] = (int(task["x"]), int(task["y"]), int(task["z"]))
             return {"status": "succeeded", "message": "arrived"}
-        policy = nav.Policy(protected=memory.Protected((), [self.BOX]))
+        boxes = boxes or [self.BOX]
+        policy = nav.Policy(protected=memory.Protected((), boxes, homes=[boxes]))
         here = lambda: {"x": state["feet"][0] + 0.5, "y": float(state["feet"][1]), "z": state["feet"][2] + 0.5,  # noqa: E731
                         "blockX": state["feet"][0], "blockY": state["feet"][1], "blockZ": state["feet"][2],
                         "dimension": DIM, "onGround": True}
         from bonobo.data import home_box_of
 
         def plan(cell, brk, plc, r, *a):        # the game's route: from the hall it digs the wall; a walk has none
-            if home_box_of([self.BOX], state["feet"]) is None:
+            if home_box_of(boxes, state["feet"]) is None:
                 return {"found": True, "steps": [{"x": 20, "y": HATCH_Y + 1, "z": 0, "actions": ["MINE 20,64,0"]}]}
             return ({"found": True, "steps": [{"x": 4, "y": HATCH_Y - 3, "z": 2, "actions": ["MINE 4,60,2"]}]}
                     if brk else {"found": False})
@@ -373,6 +374,14 @@ class HomeExit(unittest.TestCase):
         self.assertTrue(state["shut"])
         self.assertEqual((legs[-1]["x"], legs[-1]["y"], legs[-1]["z"]), self.COAL)
         self.assertTrue(legs[-1]["break"])                     # the outside leg digs as ever
+
+    def test_the_door_in_another_box_of_the_home(self):
+        # must fail: the body in the hall box, the hatch in the entrance box of the same home → NavFailed (live 3 boxes)
+        hall = ((-3, HATCH_Y - 8, -3), (4, HATCH_Y - 3, 4))
+        entrance = ((-3, HATCH_Y - 2, -3), (4, HATCH_Y, 4))
+        posted, state = self.walk(taught=True, boxes=[hall, entrance])
+        self.assertEqual([(t["x"], t["y"], t["z"]) for t in posted if t["type"] == "use"], [HATCH_IN, HATCH_OUT])
+        self.assertTrue(all(not t["break"] for t in posted if t["type"] == "travel" and t["y"] < HATCH_Y))
 
     def test_no_taught_door_no_way(self):
         # must fail: no door taught → the walk digs out through the wall

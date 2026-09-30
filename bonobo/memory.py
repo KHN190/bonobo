@@ -122,10 +122,13 @@ class Protected(set):
     """Cells never broken, plus whole boxes (a home) less the cells we placed there: `p in it` asks both; iterating
     gives the cells only (a box is asked, never listed)."""
 
-    def __init__(self, cells=(), boxes=(), mine=()):
+    def __init__(self, cells=(), boxes=(), mine=(), homes=None):
         super().__init__(cells)
         self.boxes = [(tuple(lo), tuple(hi)) for lo, hi in boxes]
         self.mine = set(mine)           # ours inside a box: may be taken back
+        # the boxes by home: a home's door is any of its boxes', its legs cross between them
+        self.homes = [[(tuple(lo), tuple(hi)) for lo, hi in g] for g in homes] if homes is not None \
+            else [[b] for b in self.boxes]
 
     def __contains__(self, p):
         p = tuple(p)
@@ -133,10 +136,10 @@ class Protected(set):
 
     def __or__(self, other):
         return Protected(set.__or__(self, other), self.boxes + list(getattr(other, "boxes", ())),
-                         self.mine | set(getattr(other, "mine", ())))
+                         self.mine | set(getattr(other, "mine", ())), self.homes + list(getattr(other, "homes", ())))
 
     def copy(self):
-        return Protected(self, self.boxes, self.mine)
+        return Protected(self, self.boxes, self.mine, self.homes)
 
 
 def home_parts(blocks):
@@ -318,8 +321,9 @@ class Memory:
             snap = s.get("snapshot")
             if snap:
                 cells.update(tuple(int(v) for v in key.split(",")) for key in snap["blocks"])
+        homes = self.homes(dimension)
         return Protected(cells | self.machine_cells(dimension) | self.build_cells(dimension),
-                         home_boxes(self.homes(dimension)), self.placed_in_home(dimension))
+                         home_boxes(homes), self.placed_in_home(dimension), [boxes_of(h) for h in homes])
 
     # -- the home: a player-declared site with a box (its snapshot's lo..hi) and its parts
     def homes(self, dimension):
