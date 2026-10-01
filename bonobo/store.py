@@ -10,7 +10,7 @@ from .data import BASE_MARKERS, GROUPS, MARKER_WEIGHT, PLACEABLE_AS, bare, mid
 from .world import BAG_SLOTS, Inventory, Region, add, find
 from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
-from .skillcore import feet, close_screen, free_spots_here, place, lost
+from .skillcore import feet, close_screen, free_spots_here, opened, place, lost
 from .craft import craft, make_bag_room, make_room
 
 def openable_container(pos):
@@ -143,7 +143,7 @@ def deposit(ctx, local_only=False):
         c = _place_cache_chest(ctx)
         moving = store_plan(Inventory().slots)
     r = api.run({"type": "use", "x": c[0], "y": c[1], "z": c[2]}, wait=60, awaits="the chest's slots read on its screen")
-    if r["result"].get("screen") in (None, "none"):
+    if not opened(r):
         raise McError("could not open the home chest")
     try:
         # container view slot numbers differ from inventory indices: match by owner and index
@@ -168,7 +168,7 @@ def withdraw(ctx, item, count, pos):
 
     nav.arrive(pos, ctx.policy, range_=3)
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots read on its screen")
-    if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
+    if not opened(r):
         ctx.mem.forget_container(pos)
         raise NotAvailable(f"the container at {pos} did not open")
     left = int(count)

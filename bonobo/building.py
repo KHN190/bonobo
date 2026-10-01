@@ -11,7 +11,7 @@ from .api import McError, NotAvailable, log
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import ANCHORS, skill
-from .skillcore import body_state, feet, snapshot, mine_cell, place
+from .skillcore import body_state, feet, snapshot, mine_cell, opened, place
 from .world import Inventory, Region, add
 from typing import TYPE_CHECKING
 
@@ -27,7 +27,7 @@ def _mod_at_least(version):
 
 def _open_container(pos):
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=60, awaits="the caller reads the opened container's slots next")
-    if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
+    if not opened(r):
         raise McError(f"could not open the container at {pos}: {r['message']}")
 
 def _empty_container_slot():

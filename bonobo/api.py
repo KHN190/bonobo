@@ -508,6 +508,10 @@ def returns(seen):
         earlier.add(sig)
     return back
 
+HELD_SEEN: dict = {}      # task id → what the hand held at the polls while it was mining (said once, held_seen)
+lifecycle.in_place(__name__, "HELD_SEEN")
+
+
 def await_task(task_id, wait, exempt=("wait",)):
     """Wait for a task, cancelling it on no visible progress or past `wait` seconds."""
     began = time.time()
@@ -523,6 +527,10 @@ def await_task(task_id, wait, exempt=("wait",)):
             raise TaskStuck(f"{r['type']} exceeded its {wait}s budget: {r['doing']}")
         st = get("/state")
         cur = st["control"]["task"]
+        if cur is not None and "mining" in (cur.get("doing") or ""):
+            hand = f"{(st.get('mainHand') or {}).get('id', 'minecraft:air')} (slot {st.get('selectedSlot')})"
+            if hand not in HELD_SEEN.setdefault(cur["id"], []):
+                HELD_SEEN[cur["id"]].append(hand)
         if cur is None or cur["type"] in exempt or st["control"].get("paused"):
             last, since = None, time.time()
             continue
@@ -588,7 +596,7 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
     if r["status"] != "succeeded" and failures and failures[0].get("reason"):
         r["message"] = f"{r['message']}: {failures[0]['reason']}"
     detail(f"  {r['type']:<9} {r['status']:<9} {r['message']} ({r['seconds']}s)")
-    said = break_line(task, r)
+    said = break_line(task, r, held_seen(r.get("id")))
     if said:
         detail(said)
     _raise_if_released([r], since=began)
@@ -596,20 +604,27 @@ def run(task, *, awaits, wait=TASK_WAIT_S):
     return r
 
 
-def break_line(task, result):
+def break_line(task, result, held=None):
     """Pure: the detail line of a task that breaks (a mine; a travel allowed to dig): the block, its cell, the
-    seconds, the item it held (the one ARM named: the jar holds exactly that) — None for any other task. A travel's
-    result names no cell it dug: only its seconds and route tool are known."""
+    seconds (the whole task: its approach too), the item asked (ARM's) and what the hand held while it mined (`held`:
+    /state's mainHand and selectedSlot at the polls, held_seen) — None for any other task. A travel's result names no
+    cell it dug."""
     kind, r = task.get("type"), result or {}
-    held = task.get("item", "(none named)")
+    hand = f", held during {held}" if held is not None else ", held during: not seen (no poll while it mined)"
+    asked = f"asked {task.get('item', '(none named)')}{hand}"
     if kind == "mine":
         block = (r.get("result") or {}).get("block") or "?"
         return (f"   break {block} at {(task.get('x'), task.get('y'), task.get('z'))}: {r.get('status')} "
-                f"{r.get('seconds')}s holding {held}")
+                f"{r.get('seconds')}s {asked}")
     if kind == "travel" and task.get("break"):
-        return (f"   travel may dig: {r.get('status')} {r.get('seconds')}s holding {held} "
-                "(the jar's result names no dug cell)")
+        return f"   travel may dig: {r.get('status')} {r.get('seconds')}s {asked} (the jar's result names no dug cell)"
     return None
+
+
+def held_seen(task_id):
+    """What the hand was seen holding while task `task_id` was mining (await_task's polls), said once; None unseen."""
+    got = HELD_SEEN.pop(task_id, None)
+    return ", ".join(got) if got else None
 
 from .data import UNREACHABLE  # noqa: E402  (the one list of "could not get there" answers)
 
@@ -684,7 +699,7 @@ def run_chain(tasks: "Sequence[Task | Mapping[str, Any]]", *, stop_on_failure=Fa
             if t["status"] != "succeeded":
                 detail(f"  {t['type']:<9} {t['status']:<9} {t['message']}")
         for sent, t in zip(part, done):
-            said = break_line(sent, t)
+            said = break_line(sent, t, held_seen(t.get("id")))
             if said:
                 detail(said)
         results += done

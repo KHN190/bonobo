@@ -8,7 +8,7 @@ from . import api, nav, skillcore
 from .api import McError, NotAvailable, log
 from .beliefs import slot_cost_s
 from .skill import skill
-from .skillcore import carried_total
+from .skillcore import carried_total, opened
 from .world import Inventory, find
 
 def loot_plan(slots, prices, bag_free, stack=64):
@@ -52,7 +52,7 @@ def loot_chest(ctx):
         ctx.ban(pos, 1800)
         raise api.NavFailed(f"chest at {pos} not reachable")
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots (loot_plan) are only readable once its screen is open")
-    if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
+    if not opened(r):
         ctx.ban(pos, 1800)
         raise McError(f"could not open the chest at {pos}")
     prices = ctx.prices()

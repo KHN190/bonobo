@@ -86,6 +86,34 @@ LOG_TO_PLANKS.update({"minecraft:crimson_stem": "minecraft:crimson_planks",
 TIER_OF_MATERIAL = {"wooden": 0, "golden": 0, "stone": 1, "iron": 2, "diamond": 3, "netherite": 4}
 MATERIAL_TOKEN = {"wooden": "planks", "stone": "stone", "iron": "minecraft:iron_ingot", "diamond": "minecraft:diamond"}
 TOOL_KINDS = ("pickaxe", "axe", "shovel", "sword", "hoe")     # every kind of tool, in one place
+# breaking (Minecraft Wiki, Breaking): a block's hardness; a tool's speed on the blocks its kind is for; a hand is 1
+HARDNESS = {"stone": 1.5, "cobblestone": 2.0, "mossy_cobblestone": 2.0, "granite": 1.5, "diorite": 1.5, "andesite": 1.5,
+            "tuff": 1.5, "calcite": 0.75, "deepslate": 3.0, "cobbled_deepslate": 3.5, "dirt": 0.5, "coarse_dirt": 0.5,
+            "rooted_dirt": 0.5, "grass_block": 0.6, "podzol": 0.5, "mycelium": 0.6, "mud": 0.5, "farmland": 0.6,
+            "dirt_path": 0.65, "sand": 0.5, "red_sand": 0.5, "gravel": 0.6, "clay": 0.6, "soul_sand": 0.5,
+            "soul_soil": 0.5, "snow": 0.1, "snow_block": 0.2, "sandstone": 0.8, "red_sandstone": 0.8,
+            "smooth_sandstone": 2.0, "netherrack": 0.4, "basalt": 1.25, "blackstone": 1.5, "end_stone": 3.0,
+            "obsidian": 50.0, "crying_obsidian": 50.0, "ancient_debris": 30.0, "ice": 0.5, "packed_ice": 0.5,
+            "glass": 0.3, "crafting_table": 2.5, "chest": 2.5, "barrel": 2.5, "furnace": 3.5, "bookshelf": 1.5,
+            "cobweb": 4.0, "terracotta": 1.25, "bricks": 2.0, "stone_bricks": 1.5, "melon": 1.0, "pumpkin": 1.0,
+            "hay_block": 0.5}
+HARDNESS_SUFFIX = (("_log", 2.0), ("_wood", 2.0), ("_planks", 2.0), ("_leaves", 0.2), ("_wool", 0.8),
+                   ("_terracotta", 1.25), ("_concrete", 1.8), ("_glass", 0.3), ("_ore", 3.0))
+DEEPSLATE_ORE_HARDNESS = 4.5
+UNLISTED_HARDNESS = 1.5        # a block not listed is priced as stone
+TOOL_SPEED = {"wooden": 2.0, "stone": 4.0, "iron": 6.0, "diamond": 8.0, "netherite": 9.0, "golden": 12.0}
+# (item kind, block suffix) → speed where no tool kind is the block's (shears on leaves, a sword on a cobweb)
+SPECIAL_SPEED = {("shears", "cobweb"): 15.0, ("shears", "leaves"): 15.0, ("shears", "wool"): 5.0,
+                 ("sword", "cobweb"): 15.0, ("sword", "leaves"): 1.5}
+DROP_KINDS = {"cobweb": ("shears", "sword")}     # blocks that drop only to these item kinds (no pickaxe block)
+HOE_BLOCKS = ("leaves", "hay_block", "moss_block", "sponge", "target", "sculk")
+BREAK_DIVISOR = {True: 30, False: 100}     # per tick: speed / hardness / this (the tool is right for the drop, or not)
+# attacking (Minecraft Wiki, Damage): a weapon's damage and attacks per second; the hand 1 and 4
+WEAPON_DAMAGE = {"sword": {"wooden": 4, "golden": 4, "stone": 5, "iron": 6, "diamond": 7, "netherite": 8},
+                 "axe": {"wooden": 7, "golden": 7, "stone": 9, "iron": 9, "diamond": 9, "netherite": 10}}
+ATTACKS_PER_S = {"sword": {m: 1.6 for m in TOOL_SPEED},
+                 "axe": {"wooden": 0.8, "golden": 1.0, "stone": 0.8, "iron": 0.9, "diamond": 1.0, "netherite": 1.0}}
+HAND_DAMAGE, HAND_ATTACKS_PER_S = 1, 4.0
 # The tiers a tool is crafted at, and its material: the inverse of TIER_OF_MATERIAL over the craftable materials.
 TOOL_MATERIAL_FOR_TIER = {TIER_OF_MATERIAL[m]: m for m in MATERIAL_TOKEN}
 ANIMALS = {"minecraft:cow": "beef", "minecraft:pig": "porkchop", "minecraft:sheep": "mutton",

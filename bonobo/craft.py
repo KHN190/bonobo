@@ -12,7 +12,7 @@ from .data import HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, GROUPS, LOG_TO_
 from .knowledge import GROUP_RECIPES, members
 from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, find
 from .bag import free_slots_plan
-from .skillcore import StationMissing, feet, close_screen, free_spots_here, place, mine_cell, gained
+from .skillcore import StationMissing, feet, close_screen, free_spots_here, place, mine_cell, gained, opened
 from .building import _open_container, _empty_container_slot, _machine_roles, _go_to_machine
 
 # -- placing things near us
@@ -112,7 +112,7 @@ class Station:
                 r = api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60, awaits="the station's screen open")
             except api.Unreachable:
                 break                      # behind a wall or a fence: the station is not usable from here
-            if r["status"] == "succeeded" and r["result"].get("screen") not in (None, "none"):
+            if opened(r):
                 return self
         self.__exit__(None, None, None)
         raise McError(f"could not open {bare(self.block)}")
@@ -262,7 +262,7 @@ def use_readout(task, result):
         api.detail(use_line(pos, box.name(pos), box.props.get(tuple(pos)), result,
                             (s["blockX"], s["blockY"], s["blockZ"]),
                             (round(s.get("yaw", 0), 1), round(s.get("pitch", 0), 1)), between, near))
-    except Exception as e:  # noqa: BLE001  (a readout never changes what the craft does)
+    except (McError, KeyError) as e:      # no world to read, a /state without a field: said, never raised
         api.detail(f"   use readout at {(task.get('x'), task.get('y'), task.get('z'))}: {type(e).__name__}: {e}")
 
 
@@ -271,14 +271,19 @@ def run_split(tasks, **kw):
 
     results, part = [], []
     for t in list(tasks) + [None]:
-        if t is None or t == CLOSE:
+        if t is None or t == CLOSE or t.get("type") == "use":
             if part:
-                got = api.run_chain(part, stop_on_failure=True, **kw)
-                for sent, r in zip(part, got):
-                    if sent.get("type") == "use":
-                        use_readout(sent, r)
-                results += got
+                results += api.run_chain(part, stop_on_failure=True, **kw)
                 part = []
+            if t is not None and t != CLOSE:
+                # a station's use goes alone: its screen read before any craft is sent to it
+                (r,) = api.run_chain([t], stop_on_failure=True, **kw) or [{}]
+                use_readout(t, r)
+                results.append(r)
+                if not opened(r):
+                    pos = (t["x"], t["y"], t["z"])
+                    raise McError(f"could not open the {Region(pos, pos).name(pos)} at {pos}: no screen")
+                continue
             if t is not None and results:
                 api.post("/close")
             continue
@@ -555,7 +560,7 @@ def collect_job(ctx, job):
         raise api.NavFailed(f"furnace job at {pos} not reachable")
     before = Inventory().count(job["item"])
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40, awaits="the furnace's slots read on its screen")
-    if r["status"] != "succeeded" or r["result"].get("screen") in (None, "none"):
+    if not opened(r):
         if not find(["furnace"], radius=4, limit=1):
             ctx.mem.finish_job(job["id"])      # furnace is gone (broken, burnt down area): forget the job
             raise NotAvailable(f"furnace at {pos} is gone")

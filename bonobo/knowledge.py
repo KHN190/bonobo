@@ -2,7 +2,9 @@
 import math
 
 from .data import (BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
-                   HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid)
+                   HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
+                   DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
+                   SPECIAL_SPEED, TOOL_KINDS, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS)
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -276,13 +278,11 @@ SHOVEL_BLOCKS = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_
                  "mycelium", "podzol", "soul_sand", "soul_soil", "concrete_powder")
 HAND_BLOCKS = ("leaves", "wool", "torch", "_bed", "air", "water", "lava", "short_grass", "tall_grass", "fern", "wheat",
                "carpet", "flower", "sapling", "vine")
-WEAPON_RANK = ("netherite_sword", "diamond_sword", "iron_sword", "stone_sword", "netherite_axe", "diamond_axe",
-               "iron_axe", "golden_sword", "wooden_sword", "stone_axe")
 
 def tool_kind(block):
     """Pure: the tool kind that breaks `block` fastest — "axe", "shovel", "pickaxe", or None (the hand does)."""
     name = bare(block or "")
-    if not name or any(name.endswith(h) or name == h.strip("_") for h in HAND_BLOCKS):
+    if not name or name in DROP_KINDS or any(name.endswith(h) or name == h.strip("_") for h in HAND_BLOCKS):
         return None
     if any(name.endswith(a) for a in AXE_BLOCKS):
         return "axe"
@@ -307,33 +307,90 @@ def diggable(block, pick_tier=None):
     return pick_tier >= TIER_OF_MATERIAL["diamond"] if name in NEEDS_DIAMOND else True
 
 
-def tool_for(inv, block, tier=None, min_left=2):
-    """Pure: the item a task that breaks `block` holds — the best tier of its tool kind carried with wear left (a
-    `tier` asked: at least that), else "hand" (named, never a guess: a block that needs a tool then fails the drop)."""
-    kind = tool_kind(block)
-    if kind is None or not hasattr(inv, "tools"):
-        return "hand"
-    for t, left, item in inv.tools(kind):          # best tier first
-        if left >= min_left and (tier is None or t >= tier):
-            return item
-    return "hand"
+def cheapest_equal(candidates, time_of, tier_of):
+    """Pure: of `candidates`, the lowest tier whose time equals the best (a tie goes to the cheaper one; the hand is
+    the lowest of all). None when there are none."""
+    timed = [(time_of(c), tier_of(c), i, c) for i, c in enumerate(candidates)]
+    if not timed:
+        return None
+    best = min(t for t, _tier, _i, _c in timed)
+    return min((x for x in timed if x[0] == best), key=lambda x: (x[1], x[2]))[3]
+
+def item_tier(item):
+    """Pure: an item's tier for the choice (its material's; shears iron's); the hand below every tool."""
+    if item == "hand":
+        return -1
+    name = bare(item)
+    if name == "shears":
+        return TIER_OF_MATERIAL["iron"]
+    return TIER_OF_MATERIAL.get(name.rpartition("_")[0], 0)
+
+def hardness(block):
+    """Pure: a block's hardness (data.HARDNESS, its suffixes; an unlisted one priced as stone)."""
+    name = bare(block or "")
+    if name in HARDNESS:
+        return HARDNESS[name]
+    if name.startswith("deepslate_") and name.endswith("_ore"):
+        return DEEPSLATE_ORE_HARDNESS
+    return next((h for suffix, h in HARDNESS_SUFFIX if name.endswith(suffix)), UNLISTED_HARDNESS)
+
+def drop_need(block):
+    """Pure: (the item kinds, the least tier) that make `block` drop — a pickaxe block needs its MINE tier (else the
+    wooden one's), a cobweb shears or a sword; None when the hand drops it."""
+    name = bare(block or "")
+    if name in DROP_KINDS:
+        return DROP_KINDS[name], None
+    if tool_kind(name) != "pickaxe":
+        return None
+    return ("pickaxe",), next((tier for blocks, tier in MINE.values() if name in blocks), 0)
+
+def break_ticks(block, item):
+    """Pure: whole ticks `item` (or "hand") takes to break `block` (Minecraft Wiki, Breaking: speed / hardness /
+    30 when right for the drop, else 100, per tick; 0 when that reaches a whole block in one)."""
+    name, h = bare(block or ""), hardness(block)
+    base = "hand" if item == "hand" else bare(item)
+    kind, material = ("shears", "") if base == "shears" else (base.rpartition("_")[2], base.rpartition("_")[0])
+    if kind in ("pickaxe", "axe", "shovel") and kind == tool_kind(name) or kind == "hoe" and name.endswith(HOE_BLOCKS):
+        speed = TOOL_SPEED.get(material, 1.0)
+    else:
+        speed = next((v for (k, suffix), v in SPECIAL_SPEED.items() if k == kind and name.endswith(suffix)), 1.0)
+    need = drop_need(name)
+    right = need is None or kind in need[0] and (need[1] is None or TIER_OF_MATERIAL.get(material, -1) >= need[1])
+    per_tick = speed / h / BREAK_DIVISOR[right] if h > 0 else 1.0
+    return 0 if per_tick >= 1 else math.ceil(1 / per_tick)
+
+def _carried_tools(inv, min_left):
+    """The tool items the bag holds with wear left (every kind, shears too)."""
+    return [s["id"] for s in getattr(inv, "slots", ())
+            if (bare(s["id"]).rpartition("_")[2] in TOOL_KINDS or bare(s["id"]) == "shears")
+            and s.get("maxDamage", 0) - s.get("damage", 0) >= min_left]
+
+def tool_for(inv, block, min_left=2):
+    """Pure: the item a task that breaks `block` holds — of the hand and every tool carried, the lowest tier that
+    breaks it in the fewest ticks (cheapest_equal over break_ticks)."""
+    return cheapest_equal(["hand"] + _carried_tools(inv, min_left), lambda i: break_ticks(block, i), item_tier)
+
+ROUTE_BLOCK = "stone"      # what a dug way is mostly cut through: the one item a walk that may dig holds is chosen by it
 
 def route_tool(inv):
-    """Pure: what a walk that may dig holds — a pickaxe (stone and ore on the way), else a shovel, else the hand."""
-    for kind in ("pickaxe", "shovel"):
-        tools = [item for _t, left, item in inv.tools(kind) if left >= 2] if hasattr(inv, "tools") else []
-        if tools:
-            return tools[0]
-    return "hand"
+    """Pure: what a walk that may dig holds — the jar digs its whole route with one item: tool_for its ROUTE_BLOCK."""
+    return tool_for(inv, ROUTE_BLOCK)
 
-def weapon_for(inv, mob=None):
-    """Pure: the weapon an attack holds — the strongest carried with wear left (swords, then axes), else "hand"."""
-    have = {}
-    for s in getattr(inv, "slots", ()):
-        if s.get("maxDamage") and s["maxDamage"] - s.get("damage", 0) <= 1:
-            continue
-        have.setdefault(bare(s["id"]), s["id"])
-    return next((have[w] for w in WEAPON_RANK if w in have), "hand")
+def kill_s(item, hp):
+    """Pure: seconds `item` (or "hand") takes to deal `hp` (whole hits × one attack's cooldown, no crits)."""
+    name = "hand" if item == "hand" else bare(item)
+    kind, material = name.rpartition("_")[2], name.rpartition("_")[0]
+    if kind not in WEAPON_DAMAGE or material not in WEAPON_DAMAGE[kind]:
+        damage, rate = HAND_DAMAGE, HAND_ATTACKS_PER_S
+    else:
+        damage, rate = WEAPON_DAMAGE[kind][material], ATTACKS_PER_S[kind][material]
+    return math.ceil(hp / damage) / rate
+
+def weapon_for(inv, hp):
+    """Pure: the weapon an attack holds — of the hand and every sword and axe carried with wear left, the lowest tier
+    that deals `hp` (the mob's health) soonest (cheapest_equal over kill_s)."""
+    weapons = [i for i in _carried_tools(inv, 2) if bare(i).rpartition("_")[2] in WEAPON_DAMAGE]
+    return cheapest_equal(["hand"] + weapons, lambda i: kill_s(i, hp), item_tier)
 
 def held(inv, token):
     """How many of `token` the bag holds, groups and "food" (cooked meals) included."""

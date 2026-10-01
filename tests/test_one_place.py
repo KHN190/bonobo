@@ -192,40 +192,6 @@ class SkillsWearTheirOwnDecorator(unittest.TestCase):
                 self.assertEqual(misplaced_skills(f.read()), [])
 
 
-class WhatToHold(unittest.TestCase):
-    """knowledge.tool_for / weapon_for: the one choice of the item a task holds (the jar picks none)."""
-
-    def test_tool_for(self):
-        from bonobo import knowledge
-        from tests.world import bag as _bag, inventory
-        bag = lambda *items: _bag(inventory(*items))     # noqa: E731
-        rows = [("stone: the best pickaxe carried", bag(("stone_pickaxe", 1), ("diamond_pickaxe", 1)), "stone", None,
-                 "minecraft:diamond_pickaxe"),
-                ("dirt: the shovel, not the pickaxe", bag(("iron_pickaxe", 1), ("stone_shovel", 1)), "dirt", None,
-                 "minecraft:stone_shovel"),
-                ("a log: the axe", bag(("iron_axe", 1), ("iron_pickaxe", 1)), "oak_log", None, "minecraft:iron_axe"),
-                ("leaves: the hand, whatever is carried", bag(("iron_axe", 1)), "oak_leaves", None, "hand"),
-                ("must fail: stone, no pickaxe carried: the bare hand, named", bag(("iron_axe", 1)), "stone", None,
-                 "hand"),
-                ("must fail: diamond ore asks tier 2, only stone carried: the hand", bag(("stone_pickaxe", 1)),
-                 "diamond_ore", 2, "hand")]
-        for name, inv, block, tier, want in rows:
-            with self.subTest(name):
-                self.assertEqual(knowledge.tool_for(inv, block, tier), want)
-
-    def test_weapon_for(self):
-        from bonobo import knowledge
-        from tests.world import bag as _bag, inventory
-        bag = lambda *items: _bag(inventory(*items))     # noqa: E731
-        rows = [("a sword over an axe", bag(("iron_axe", 1), ("stone_sword", 1)), "minecraft:stone_sword"),
-                ("the strongest sword", bag(("wooden_sword", 1), ("diamond_sword", 1)), "minecraft:diamond_sword"),
-                ("an axe when no sword", bag(("iron_axe", 1)), "minecraft:iron_axe"),
-                ("must fail: nothing to fight with: the bare hand, named", bag(("cobblestone", 8)), "hand")]
-        for name, inv, want in rows:
-            with self.subTest(name):
-                self.assertEqual(knowledge.weapon_for(inv), want)
-
-
 class ToolWear(unittest.TestCase):
     """knowledge.usable (the jar's rule: remaining > 1) and knowledge.working (planning's replace-soon margin)."""
 

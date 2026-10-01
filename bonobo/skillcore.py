@@ -3,7 +3,7 @@ free of skill logic so a skill module's readiness hash doesn't change with unrel
 import math
 import time
 
-from . import api, knowledge as _know, lifecycle, tape
+from . import api, beliefs, knowledge as _know, lifecycle, tape
 from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, EYE_HEIGHT, bare
@@ -187,6 +187,11 @@ def head_buried(s=None):
     eye = (s["blockX"], math.floor(s["y"] + EYE_HEIGHT), s["blockZ"])
     return Region(eye, eye, props=True).buries(eye)
 
+def opened(result):
+    """Pure: did a use open the block's screen (the jar answers succeeded with screen "none" when it did not)."""
+    return (result or {}).get("status") == "succeeded" and ((result or {}).get("result") or {}).get("screen") not in (
+        None, "none")
+
 def close_screen():
     s = api.get("/state")
     if s["screen"] not in ("none", "class_433"):
@@ -241,6 +246,7 @@ def snapshot(center, half=2, down=1, up=2):
             "blocks": {f"{x},{y},{z}": n for (x, y, z), n in region.blocks.items() if region.solid((x, y, z))}}
 
 
+COMMON_FOE = "minecraft:zombie"     # an attack names its mob by id only: the weapon is chosen by this one's health
 ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mines break; larger: a read per cell
 
 def arm(tasks, inv=None, read_blocks=True):
@@ -278,6 +284,6 @@ def arm(tasks, inv=None, read_blocks=True):
         elif kind == "travel":
             out.append({**t, "item": _know.route_tool(inv)})
         else:
-            out.append({**t, "item": _know.weapon_for(inv)})
+            out.append({**t, "item": _know.weapon_for(inv, beliefs.mob(COMMON_FOE)["hp"])})
     return out
 

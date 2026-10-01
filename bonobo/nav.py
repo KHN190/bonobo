@@ -307,24 +307,25 @@ _APPROACH = {}        # this round's approach checks, by target cell: a walk tha
 lifecycle.in_place(__name__, "_APPROACH")
 
 def dress(task, policy):
-    """api.DRESS, the door every task passes: an approaching task (APPROACHING) carries its avoid; a home near its
-    target puts its cells there in the avoid too — the jar's approach (a stand that holds the cell in sight, dug to
-    when no walk finds one) is no /plan route and names no cell (10:40: a coal beside the tunnel, 2 cells sent, 5
-    shell blocks dug); with no walk that digs nothing to the target, the walk leg goes first (home_flags, the door)."""
+    """api.DRESS, the door every task passes: an approaching task (APPROACHING) carries its avoid. With no walk that
+    digs nothing to its target, the walk leg goes first (go_to: Python's legs, their tools named by ARM) — the jar's
+    own approach digs holding whatever is in hand (ApproachTask names no tool), so it only walks. A home near the
+    target puts its cells there in the avoid too — that approach is no /plan route and names no cell (10:40: a coal
+    beside the tunnel, 2 cells sent, 5 shell blocks dug)."""
     task = with_avoid(task, policy.protected)
-    boxes = getattr(policy.protected, "boxes", ())
-    if task.get("type") not in APPROACHING or "x" not in task or not boxes:
+    if task.get("type") not in APPROACHING or "x" not in task:
         return task
     cell = (int(task["x"]), int(task["y"]), int(task["z"]))
-    home = box_cells(boxes, cell, max(0, AVOID_MAX - len(task.get("avoid", []))),
-                     getattr(policy.protected, "mine", ()))
-    if not home:
-        return task
     if cell not in _APPROACH:
         walk = _plan_reply(cell, False, False, WORK_REACH)
         _APPROACH[cell] = walk is None or bool(walk.get("found"))
     if not _APPROACH[cell]:
         go_to(cell, policy, range_=WORK_REACH)
+    boxes = getattr(policy.protected, "boxes", ())
+    home = box_cells(boxes, cell, max(0, AVOID_MAX - len(task.get("avoid", []))),
+                     getattr(policy.protected, "mine", ())) if boxes else []
+    if not home:
+        return task
     return {**task, "avoid": task.get("avoid", []) + [{"x": c[0], "y": c[1], "z": c[2]} for c in home]}
 
 ARRIVE_RANGE = 1.5       # a walk arrives this near its target (go_to's own margin): what "came to us" means
