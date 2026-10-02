@@ -8,3 +8,5 @@ OPEN_SKY = 14                    # sky light at least this: open to the sky over
 # a projectile's radius (blocks): what a shot in flight keeps us out of
 ARROWS = {"minecraft:arrow": 1.0, "minecraft:spectral_arrow": 1.0, "minecraft:trident": 1.0}
 EYE_HEIGHT = 1.62                # the jar's WorldUtil.EYE_HEIGHT: eyes above the feet
+# zombie, husk, zombie villager, drowned: one melee hit per 20 ticks (user decision, MeleeAttackGoal)
+ZOMBIE_ATTACK_TICKS = 20

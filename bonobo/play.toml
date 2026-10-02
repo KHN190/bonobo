@@ -40,12 +40,11 @@ use_order = [["pickaxe"], ["axe", "sword"], ["shovel", "hoe"]]  # most used firs
 # `speed` here is how fast one CLOSES on us, not its walking speed in the wiki: a mob that pursues is faster than
 # a mob that wanders, and `arrival_s` is about pursuit. Measured by the arena (`bench/combat.jsonl`) for the two
 # families it has fought so far — walkers and archers — and still a declared guess for the rest.
-# attack_s and speed are BEHAVIOUR, not published constants: they are what the mob does here, at this tick rate,
-# against this body.
-"minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
-"minecraft:husk" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
-"minecraft:zombie_villager" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
-"minecraft:drowned" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_s = 0.48, reach = 3.0, keep_out = 3.0, speed = 4 }
+# speed is behaviour (what the mob does here); a cadence the game fixes is named by attack_ticks (game.py).
+"minecraft:zombie" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_ticks = "ZOMBIE_ATTACK_TICKS", reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:husk" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_ticks = "ZOMBIE_ATTACK_TICKS", reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:zombie_villager" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_ticks = "ZOMBIE_ATTACK_TICKS", reach = 3.0, keep_out = 3.0, speed = 4 }
+"minecraft:drowned" = { hp = 20, attack = 3.0, notice_r = 35.0, attack_ticks = "ZOMBIE_ATTACK_TICKS", reach = 3.0, keep_out = 3.0, speed = 4 }
 "minecraft:skeleton" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 3.5, ranged = true }
 "minecraft:stray" = { hp = 20, attack = 4.0, notice_r = 16.0, attack_s = 2.0, reach = 15.0, keep_out = 3.0, speed = 3.5, ranged = true }
 "minecraft:pillager" = { hp = 24, attack = 4.0, notice_r = 16.0, attack_s = 1.6, reach = 8.0, keep_out = 3.0, speed = 2.5, ranged = true }

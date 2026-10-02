@@ -3,16 +3,22 @@
 import os
 import tomllib
 
+from . import game
+
+TICKS_PER_S = 20.0      # the game's clock, in one place
+
 CONFIG_PATH = os.environ.get("MC_PLAY_CONFIG", os.path.join(os.path.dirname(__file__), "play.toml"))
 
 with open(CONFIG_PATH, "rb") as _f:
     CONFIG = tomllib.load(_f)
 
 def _with_dps(row):
-    """`dps` is derived, never stored: a published hit divided by how often it lands."""
+    """`dps` is derived: hit / cadence; `attack_ticks` names a game.py constant in ticks."""
 
     out = dict(row)
-    out["dps"] = row["attack"] / row["attack_s"]
+    if "attack_ticks" in out:
+        out["attack_s"] = getattr(game, out.pop("attack_ticks")) / TICKS_PER_S
+    out["dps"] = out["attack"] / out["attack_s"]
     return out
 
 MOBS = {kind: _with_dps(row) for kind, row in CONFIG["mobs"].items()}
@@ -53,4 +59,3 @@ def slot_cost_s(bag_free):
     free = max(1.0, float(bag_free))
     return float(CONFIG["plan"]["slot_fill_s"]) / (free * free)
 
-TICKS_PER_S = 20.0      # the game's clock, in one place
