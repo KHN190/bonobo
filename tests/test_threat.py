@@ -904,9 +904,6 @@ class APillarUnderHits(unittest.TestCase):
                     self.assertAlmostEqual(s, n * block, places=2)
                 else:
                     self.assertGreater(s, n * block)
-        with self.subTest("must fail: under a zombie's hits a block is not the 0.6 s of a quiet one"):
-            self.assertGreater(threat.block_under_hits_s(0.6, threat.knockback_rate(
-                HERE, [row("minecraft:zombie", 1.5, 0)], 0.6)), 0.6 * 3)
 
     def test_every_shape_under_hits(self):
         """A hole or a wall built under a walker's hits is knocked back like a pillar (combat__dig_in: 2.7 s of

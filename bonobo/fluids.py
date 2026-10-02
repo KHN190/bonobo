@@ -93,10 +93,6 @@ def portal_light_cell(origin, turns, attempt=0):
     d = blueprints.rotate_offset((2 if attempt else 1, 0, 0), turns)
     return origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]
 
-def portal_light_aim(origin, turns):
-    """Pure: the point to click with flint and steel — the top face of the frame's inner bottom obsidian."""
-    t = nav.use_on_top("minecraft:flint_and_steel", portal_light_cell(origin, turns))
-    return t["x"], t["y"], t["z"]
 
 def use_task(item, aim, on_block):
     return {"type": "use_item", "item": item, "x": aim[0], "y": aim[1], "z": aim[2], "onBlock": on_block}

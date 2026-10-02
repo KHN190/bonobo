@@ -46,22 +46,6 @@ def restore_commands():
     return [f"{k} {v}" for k, v in WORLD_NORMAL.items()] + list(RESTORE_ALSO)
 
 
-def settings_in(text):
-    """Pure: the world settings a stretch of bench source changes — "gamerule <rule>", "tick rate", "difficulty" —
-    with a {NAME} rule resolved over this package's constants (REGEN_RULE)."""
-    import re
-    out = set()
-    for m in re.finditer(r"gamerule \{?([A-Za-z_]+)\}? ", text):
-        out.add("gamerule " + _rule_constants().get(m.group(1), m.group(1)))
-    out |= {k for k in ("tick rate", "difficulty") if re.search(rf"[\"'(]{k} \S", text)}
-    return out
-
-
-def _rule_constants():
-    from .words.brain import REGEN_RULE
-    return {"REGEN_RULE": REGEN_RULE}
-
-
 SITE_B = (100, 0, 0)
 
 # the kit rule: a row whose work uses a tool gets the best one, unless the tool is what is tested

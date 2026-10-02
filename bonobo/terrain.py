@@ -47,69 +47,7 @@ def chest_spot_ok(region, spot):
 LAND = ["grass_block", "dirt", "stone", "sand", "gravel", "deepslate", "andesite", "diorite", "granite", "tuff",
         "podzol", "coarse_dirt", "snow_block", "cobblestone", "moss_block", "clay"]
 
-def underground_target(region, here, depth=(3, 6), radius=3):
-    """Pure: a cell to tunnel to for the night with 2+ solid non-hazard blocks overhead: arriving means no sky."""
 
-    x, y, z = here
-    best = None
-    for dy in range(depth[0], depth[1] + 1):
-        for dx in range(-radius, radius + 1):
-            for dz in range(-radius, radius + 1):
-                c = (x + dx, y - dy, z + dz)
-                roof = [(c[0], c[1] + k, c[2]) for k in (2, 3)]
-                cells = [c, (c[0], c[1] + 1, c[2])] + roof + [(c[0], c[1] - 1, c[2])]
-                if not all(region.inside(p) for p in cells):
-                    continue
-                if not all(region.solid(p) for p in roof) or not region.solid((c[0], c[1] - 1, c[2])):
-                    continue
-                # inside rock, not on a ledge: the head cell walled on 3+ sides
-                head = (c[0], c[1] + 1, c[2])
-                sides = [(head[0] + ddx, head[1], head[2] + ddz) for ddx, ddz in ((1, 0), (-1, 0), (0, 1), (0, -1))]
-                if not all(region.inside(p) for p in sides) or sum(region.solid(p) for p in sides) < 3:
-                    continue
-                if any(region.hazard(add(p, d)) for p in (c, (c[0], c[1] + 1, c[2])) for d in NEIGHBOURS6_LOCAL):
-                    continue
-                d = abs(dx) + abs(dz) + dy
-                if best is None or d < best[0]:
-                    best = (d, c)
-    return None if best is None else best[1]
-
-def shelter_method_at(region, cell, protected=()):
-    """Pure: which night shelter works with the body standing at `cell`, or None."""
-
-    x, y, z = cell
-    if choose_burrow(region, cell, protected):
-        return "burrow"
-    below = [(x, y - k, z) for k in (1, 2, 3)]
-    # after digging 3 down the body stands in the two lowest cells: they need solid sides too
-    body_sides = [(x + dx, y - k, z + dz) for k in (2, 3) for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
-    if all(region.solid(c) and not region.unbreakable(c) and c not in protected for c in below) \
-            and region.solid((x, y - 4, z)) and all(region.solid(c) for c in body_sides) \
-            and not any(region.hazard(add(c, d)) for c in below for d in NEIGHBOURS6_LOCAL):
-        return "dig"
-    walls = [(x + dx, y + dy, z + dz) for dy in (0, 1) for dx, dz in [(1, 0), (-1, 0), (0, 1), (0, -1)]]
-    walls.append((x, y + 2, z))
-    for c in walls:
-        if region.solid(c):
-            continue
-        if region.hazard(c):
-            return None
-        if not any(region.solid(add(c, d)) for d in NEIGHBOURS6_LOCAL if add(c, d) not in (cell, (x, y + 1, z))):
-            return None
-    return "pod"
-
-def find_shelter_spot(region, here, radius=10, protected=()):
-    """Pure: the nearest standable dry cell where some shelter method works, as (cell, method)."""
-
-    best = None
-    for cell in standing_cells(region, here, radius):
-        method = shelter_method_at(region, cell, protected)
-        if method is None:
-            continue
-        rank = (math.dist(cell, here), {"burrow": 0, "dig": 1, "pod": 2}[method])
-        if best is None or rank < best[0]:
-            best = (rank, cell, method)
-    return None if best is None else (best[1], best[2])
 
 def choose_burrow(region, inside, protected=()):
     """Pure: a direction to tunnel 2 into solid ground — feet and head solid, floored, roofed, nothing hazardous or protected."""

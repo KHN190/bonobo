@@ -304,20 +304,6 @@ class Rotate(unittest.TestCase):
             blueprints.rotate_dir("sideways", 1)
 
 
-class Footprint(unittest.TestCase):
-    def test_table(self):
-        rows = [
-            # parts                                                                 expected                    why
-            ((),                                                                     [],                         "boundary: nothing"),
-            ((Part((0, 0, 0), "minecraft:chest"),),                                  [(0, 0, 0)],                "one part"),
-            ((Part((0, 1, 0), "a"), Part((0, 0, 0), "b")),                           [(0, 1, 0), (0, 0, 0)],     "part order kept"),
-            ((Part((1, 0, 0), "a"), Part((1, 0, 0), "b")),                           [(1, 0, 0), (1, 0, 0)],     "negative: not deduplicated"),
-        ]
-        for parts, want, why in rows:
-            with self.subTest(why=why):
-                self.assertEqual(blueprints.footprint(Blueprint("t", "", parts)), want)
-
-
 # ----------------------------------------------------------------------------------------------------- building
 
 class BlockMatches(unittest.TestCase):

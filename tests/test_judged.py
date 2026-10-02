@@ -7,6 +7,41 @@ from bonobo.bench import judged, runner, table
 from bonobo.bench.core import TABLE
 from bonobo.bench.words import fight
 
+_EXPECTED = "an expect_failure row: the expected failure IS the outcome under test; the world parts (alive, the bag " \
+            "unchanged) ride beside it"
+_DECISION = "a decision-table row: its claim is which answer the bot chose; the recorded outcome (hp, gap, bag) " \
+            "rides beside it"
+_NOTE = "a find/scout skill: its product is the note it leaves (the site), there is no other world trace of 'found'"
+_SPEED = "a speed row: its claim is the time; the world effect is judged beside it"
+
+# proxies a pass condition may still read, each with why — keep it short: every entry is a row that trusts the bot
+PASS_ALLOW = {
+    "failed_as_expected": _EXPECTED,
+    "interrupted": "proves the bench's own injected interrupt landed (the scene), never the success",
+    "slice_check": "loops and idle time have no world reading; the slice's done() is judged by the bag",
+    "replans_at_most": _DECISION, "brain_rule": _DECISION, "not_banned": _DECISION, "behaviour": _DECISION,
+    "no_scan": _DECISION,
+    "answers_are_closed": _DECISION, "shapes_fit_the_enemy": _DECISION, "more_of_them_costs_more": _DECISION,
+    "remembered_any": _NOTE, "memory": _NOTE, "stronghold_error": _NOTE,
+    "found_fortress_now": _NOTE, "portal_room_found": _NOTE,
+    "skill_within": _SPEED, "road_times": _SPEED,
+}
+
+
+def row_pass_words(row):
+    """The words a table row's pass condition (its `check`) reads."""
+    check = row["check"]
+    if callable(check):
+        return judged.callable_words(check)
+    return set().union(*(judged.data_words(i) for i in check)) if check else set()
+
+
+def verdict_of_words(words, allow=None):
+    """Pure: (proxies the pass reads that are not allowed, words in neither class)."""
+    allow = PASS_ALLOW if allow is None else allow
+    known = judged.WORLD | set(judged.PROXY) | {"lambda:world"}
+    return sorted(w for w in words if w in judged.PROXY and w not in allow), sorted(w for w in words if w not in known)
+
 
 def all_rows():
     return {n: r for t in table.TIERS for n, r in table.rows(t).items()}
@@ -17,16 +52,16 @@ class PassReadsTheWorld(unittest.TestCase):
         self.assertEqual(sorted(judged.WORLD & set(judged.PROXY)), [])
 
     def test_every_pass_word_is_classed(self):
-        bad = {n: u for n, r in all_rows().items() for u in [judged.verdict_of_words(judged.row_pass_words(r))[1]] if u}
+        bad = {n: u for n, r in all_rows().items() for u in [verdict_of_words(row_pass_words(r))[1]] if u}
         self.assertEqual(bad, {})
 
     def test_no_pass_reads_a_proxy(self):
-        bad = {n: p for n, r in all_rows().items() for p in [judged.verdict_of_words(judged.row_pass_words(r))[0]] if p}
+        bad = {n: p for n, r in all_rows().items() for p in [verdict_of_words(row_pass_words(r))[0]] if p}
         self.assertEqual(bad, {})
 
     def test_the_allowlist_is_proxies_with_reasons_all_in_use(self):
-        used = set().union(*(judged.row_pass_words(r) for r in all_rows().values()))
-        for word, why in judged.PASS_ALLOW.items():
+        used = set().union(*(row_pass_words(r) for r in all_rows().values()))
+        for word, why in PASS_ALLOW.items():
             with self.subTest(word):
                 self.assertIn(word, judged.PROXY)
                 self.assertTrue(why.strip())
@@ -49,14 +84,14 @@ class PassReadsTheWorld(unittest.TestCase):
         ]
         for why, check, proxy, unknown in rows:
             with self.subTest(why):
-                got = judged.verdict_of_words(judged.row_pass_words({"check": check}))
+                got = verdict_of_words(row_pass_words({"check": check}))
                 self.assertEqual(got, (proxy, unknown))
 
     def test_a_row_passing_on_a_proxy_is_caught(self):
         # must fail: fight_zombie_1 as it was — kills and stalls from the fight's own log in the pass
         row = dict(all_rows()["fight_zombie_1"], check=[("alive", 12), ("gone", ["minecraft:zombie"]),
                                                        ("kills_by_the_fight", 1), ("no_stall",)])
-        self.assertEqual(judged.verdict_of_words(judged.row_pass_words(row))[0], ["kills_by_the_fight", "no_stall"])
+        self.assertEqual(verdict_of_words(row_pass_words(row))[0], ["kills_by_the_fight", "no_stall"])
 
 
 class KillStat(unittest.TestCase):

@@ -443,13 +443,6 @@ def bed_room_tasks(region, feet, protected, places, inv):
                     best = (tasks, (foot, head), seconds)
     return (best + (None,)) if best is not None else (None, None, None, why)
 
-def bed_spot():
-    """The foot cell of a bed room within reach as it stands (nothing dug), or None."""
-    s = api.get("/state")
-    fx, fy, fz = s["blockX"], s["blockY"], s["blockZ"]
-    region = Region((fx - 4, fy - 2, fz - 4), (fx + 4, fy + 3, fz + 4))
-    tasks, cells, _s, _why = bed_room_tasks(region, (fx, fy, fz), (), (), None)
-    return cells[0] if tasks == [] and cells is not None else None
 
 def sleep_gate(state, foot, head, region, hostiles):
     """Pure: why vanilla refuses this bed now (1.21.11 ServerPlayerEntity.trySleep, in its order), None when it
@@ -685,10 +678,6 @@ def soft_spot():
     region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
     return nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
 
-def soft_ground_here():
-    """Seconds' walk to hand-diggable ground (0: underfoot), or None when none near."""
-
-    return night_ground()[0]
 
 def dig_in_site(region, feet_at, protected=()):
     """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.dig_down_tasks, from

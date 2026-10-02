@@ -88,9 +88,6 @@ def materials(bp):
         out[part.item] = out.get(part.item, 0) + 1
     return out
 
-def footprint(bp):
-    """All cells the machine occupies, relative."""
-    return [p.offset for p in bp.parts]
 
 def rotate_offset(offset, turns):
     x, y, z = offset

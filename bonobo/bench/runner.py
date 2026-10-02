@@ -241,19 +241,6 @@ def _code_for(name):
 from .rowkey import (COMMON, NOT_PRODUCTION, _callable_sources, _names_in, _strings_in, code_index,  # noqa: F401,E402
                      reach_hash, reached, row_hash)
 
-# only fights change run to run; everything else is settled once it passes
-FIGHTS = {"collect_blaze_rods", "fight_zombie_1", "fight_zombie_3", "fight_skeleton_1", "fight_creeper_1", "fight_blaze_3", "fight_enderman_1", "ghast_fireball", "siege", "combat_arena",
-          "escape"}
-
-def settled(table, name):
-    """Pure: a non-fight scenario whose latest counted run (under any code) passed."""
-
-    if name in FIGHTS or name.split("__")[0] in FIGHTS:     # siege__w1, combat_arena__3, escape__…: shards
-        return False
-    runs = sorted((r for c in table.get(name, {}).values() for r in c if r.get("cls", "skill") not in UNCOUNTED),
-                  key=lambda r: r.get("t", 0))
-    return bool(runs) and runs[-1]["ok"]
-
 MAX_RUNS = 3      # a chance row runs until decided, three runs at most: passes on ≥ 2 of 3 (one pass alone is none)
 
 # rows the world decides by chance; everything else is decided by one run

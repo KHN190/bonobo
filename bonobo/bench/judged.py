@@ -3,7 +3,7 @@ entities, the bag, the body's /state (health, dead, place, air), a command's rep
 over the run; PROXY when it reads the bot's own state — the fight loop's record, the brain, memory, the api calls it
 made, its log, its timings. A proxy may be a readout (a failed row's report), never a pass condition: a row passes on
 what the world shows (a mob gone is no kill, hp read after a respawn is no hp kept, a decision rhythm is no fight).
-PASS_ALLOW names the few proxies a pass still reads, each with why; tests/test_judged.py holds every row to this."""
+tests/test_judged.py holds every row to this (its PASS_ALLOW: the few proxies a pass still reads, each with why)."""
 # words that read the server (commands, /state, /inventory, /entities, regions) or a harness watcher over those
 WORLD = {
     "gain", "count", "state", "bag", "alive", "blocks", "same_bag", "same_bag_and_place", "placed_facing",
@@ -67,26 +67,6 @@ PROXY = {
 # composition and containers: not words, their arguments are
 STRUCTURE = {"all", "any", "not", "now", "now_api", "api_only", "thunk", "call", "named_all", "sweep_check"}
 
-_EXPECTED = "an expect_failure row: the expected failure IS the outcome under test; the world parts (alive, the bag " \
-            "unchanged) ride beside it"
-_DECISION = "a decision-table row: its claim is which answer the bot chose; the recorded outcome (hp, gap, bag) " \
-            "rides beside it"
-_NOTE = "a find/scout skill: its product is the note it leaves (the site), there is no other world trace of 'found'"
-_SPEED = "a speed row: its claim is the time; the world effect is judged beside it"
-
-# proxies a pass condition may still read, each with why — keep it short: every entry is a row that trusts the bot
-PASS_ALLOW = {
-    "failed_as_expected": _EXPECTED,
-    "interrupted": "proves the bench's own injected interrupt landed (the scene), never the success",
-    "slice_check": "loops and idle time have no world reading; the slice's done() is judged by the bag",
-    "replans_at_most": _DECISION, "brain_rule": _DECISION, "not_banned": _DECISION, "behaviour": _DECISION,
-    "no_scan": _DECISION,
-    "answers_are_closed": _DECISION, "shapes_fit_the_enemy": _DECISION, "more_of_them_costs_more": _DECISION,
-    "remembered_any": _NOTE, "memory": _NOTE, "stronghold_error": _NOTE,
-    "found_fortress_now": _NOTE, "portal_room_found": _NOTE,
-    "skill_within": _SPEED, "road_times": _SPEED,
-}
-
 # a hand-written check (a lambda in a code row) is read by the names its code uses: these mean it reads the bot
 MARKS = {"FIGHT_LOG": "kills_by_the_fight", "fight_loop": "no_stall", "INTERRUPTS": "interrupted",
          "RESUMED_LEFT": "interrupted", "FAILED_AS_EXPECTED": "failed_as_expected", "BRAIN_LOG": "replans_at_most",
@@ -148,17 +128,3 @@ def callable_words(fn):
     names = code_names(code)
     return {w for m, w in MARKS.items() if m in names} or {"lambda:world"}
 
-
-def row_pass_words(row):
-    """The words a table row's pass condition (its `check`) reads."""
-    check = row["check"]
-    if callable(check):
-        return callable_words(check)
-    return set().union(*(data_words(i) for i in check)) if check else set()
-
-
-def verdict_of_words(words, allow=None):
-    """Pure: (proxies the pass reads that are not allowed, words in neither class)."""
-    allow = PASS_ALLOW if allow is None else allow
-    known = WORLD | set(PROXY) | {"lambda:world"}
-    return sorted(w for w in words if w in PROXY and w not in allow), sorted(w for w in words if w not in known)

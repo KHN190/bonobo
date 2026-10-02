@@ -23,24 +23,6 @@ def bow_aim(eye, target, height=1.0):
     drop = 0.5 * GRAVITY * ticks * ticks
     return tx, ty + drop, tz
 
-def blaze_cover(region, here, blaze, radius=4):
-    """Pure: a standable cell with a block between it and the blaze at head height, yet within 5 blocks to hit it."""
-
-    best = None
-    bx, by, bz = blaze
-    for dx in range(-radius, radius + 1):
-        for dz in range(-radius, radius + 1):
-            c = (here[0] + dx, here[1], here[2] + dz)
-            below, head = add(c, (0, -1, 0)), add(c, (0, 1, 0))
-            if not (region.solid(below) and not region.solid(c) and not region.solid(head)):
-                continue
-            mid = (round((c[0] + bx) / 2), c[1] + 1, round((c[2] + bz) / 2))
-            if not region.solid(mid) or math.dist(c, blaze) > 7:
-                continue
-            d = math.dist(c, here)
-            if best is None or d < best[0]:
-                best = (d, c)
-    return None if best is None else best[1]
 
 # how far each danger reaches: one flat distance mistook the head sweep and take-off knockback
 

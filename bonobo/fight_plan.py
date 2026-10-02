@@ -36,16 +36,6 @@ UNMEASURED = list(CONFIG["combat"].get("unmeasured", []))
 REQUIRED = {"self": ("pos", "hp"), "boss": ("phase", "phase_elapsed_s", "hp")}
 LIMITS = {("self", "hp"): (0.0, 20.0), ("boss", "phase_elapsed_s"): (0.0, 300.0), ("boss", "hp"): (0.0, None)}
 
-def fight_state(self_, boss, threats=(), resources=None, terrain=None):
-    """Assemble a fight state."""
-
-    s = dict(self_)
-    s.setdefault("hp_floor", CONFIG["combat"]["hp_floor"])
-    s.setdefault("speed", CONFIG["combat"]["sprint_speed"])
-    s.setdefault("in_cover", False)
-    return {"self": s, "boss": dict(boss), "threats": [tuple(t) for t in threats],
-            "resources": dict(resources or {}), "terrain": dict(terrain or {})}
-
 def validate_state(state):
     """Pure: [(where, problem)]."""
 

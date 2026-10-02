@@ -132,8 +132,6 @@ class Blueprints(unittest.TestCase):
              {"minecraft:obsidian": 6, "stone": 2}),
             ("the portal's walk-in cell is inside the frame", lambda: NT.portal_cell((0, 64, 0), 0),
              lambda c: c in B.clear_cells(B.NETHER_PORTAL, (0, 64, 0), 0)),
-            ("the light aim: an inner bottom obsidian's top face, rotated", lambda: FL.portal_light_aim((0, 64, 0), 1),
-             lambda a: cells.get((int(a[0] // 1), 64, int(a[2] // 1))) == "minecraft:obsidian" and a[1] == 65.0),
         ])
 
 
@@ -318,23 +316,9 @@ class Terrain(unittest.TestCase):
             ("must fail: never burrow next to water", lambda: TN.choose_burrow(
                 region(HILL, *HILL_BOX, {(3, 0, 1): "water", (1, 1, -1): "water"}), (0, 0, 0)), None),
             ("burrow: flat open ground, none", lambda: TN.choose_burrow(flat, (0, 0, 0)), None),
-            ("shelter: nothing on top of a thin pillar", lambda: TN.shelter_method_at(peak, (0, 6, 0)), None),
-            ("shelter: a spot on the ground nearby instead", lambda: TN.find_shelter_spot(peak, (0, 6, 0)),
-             lambda f: f is not None and f[0][1] == 0 and f[1] in ("dig", "pod", "burrow")),
-            ("shelter: flat solid ground digs in", lambda: TN.shelter_method_at(peak, (3, 0, 3)), "dig"),
-            ("must fail: open water, no spot", lambda: TN.find_shelter_spot(water, (0, 1, 0), radius=5), None),
             ("chest: air above opens", lambda: TN.chest_spot_ok(chest_room, (1, 0, 0)), True),
             ("must fail: a solid block above, it can't open", lambda: TN.chest_spot_ok(chest_room, (0, 0, 0)),
              False),
-            ("underground: a solid roof and floor", lambda: TN.underground_target(solid, (0, 65, 0)),
-             lambda t: t is not None and all(solid.solid((t[0], t[1] + dy, t[2])) for dy in (2, 3, -1))),
-            ("must fail: a one-block crust, none", lambda: TN.underground_target(FakeRegion(
-                {(x, 64, z): "stone" for x in range(-6, 7) for z in range(-6, 7)}, *DEEP_BOX), (0, 65, 0)), None),
-            ("not on a ravine ledge: the head walled on 3+ sides",
-             lambda: TN.underground_target(ravine, (0, 65, 0)),
-             lambda t: t is not None and sum(ravine.solid((t[0] + a, t[1] + 1, t[2] + b))
-                                             for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))) >= 3),
-            ("must fail: never tunnel next to water", lambda: TN.underground_target(wet, (0, 65, 0)), None),
         ])
 
     def test_water(self):
@@ -521,10 +505,6 @@ class WikiSkills(unittest.TestCase):
             ("loot: worth a slot, dearest first, never the player's own", lambda: LT.loot_plan(
                 chest, {"minecraft:obsidian": 300.0, "minecraft:gold_ingot": 500.0, "minecraft:rotten_flesh": 0.0}, 30),
              [2, 1]),
-            ("brewing: the full chain when inputs are there", lambda: BW.brew_steps(brew),
-             ["minecraft:nether_wart", "minecraft:magma_cream"]),
-            ("must fail: no magma cream, can't brew",
-             lambda: BW.brew_steps({"minecraft:potion:water": 3, "minecraft:nether_wart": 1}), None),
             ("repair: two worn stone pickaxes combine", lambda: UK.repair_pair(tools, "pickaxe"),
              ("minecraft:stone_pickaxe", 3, 4)),
             ("must fail: a single tool can't", lambda: UK.repair_pair(tools[2:], "pickaxe"), None),
@@ -605,9 +585,6 @@ class Combat(unittest.TestCase):
             ("bow: farther targets need more lift", lambda: (CB.bow_aim((0, 65.6, 0), (60, 64, 0))[1],
                                                              CB.bow_aim((0, 65.6, 0), (30, 64, 0), height=1.0)[1]),
              lambda ys: ys[0] > ys[1]),
-            ("blaze: cover puts a solid block between us and the blaze",
-             lambda: CB.blaze_cover(FakeRegion(fort, (-5, 60, -5), (5, 70, 5)), (0, 65, 0), (5, 66, 0)),
-             lambda c: c is not None and c[0] < 2),
             ("hazards carry their own reach — head 8, breath 6 — items are none", lambda: hz,
              [((0, 64, 0), 8.0), ((5, 66, 0), 8.0), ((7, 64, 0), 6.0)]),
             ("an aim through an enderman's head provokes it",
@@ -731,15 +708,6 @@ class Bench(unittest.TestCase):
             ("one failure is no verdict yet", lambda: runner.verdict(_record((False, 1)), "s", "c"), None),
             ("must fail: two counted fails, setup ignored",
              lambda: runner.verdict(_record((False, 1, "setup"), (False, 1), (False, 1)), "s", "c"), "fail"),
-            ("a stable pass stays settled across code/jar changes",
-             lambda: (runner.settled(stable, "activate_end_portal"), runner.verdict(stable, "activate_end_portal", "new-jar")),
-             (True, None)),
-            ("must fail: a failure un-settles it", lambda: runner.settled(unsettled, "activate_end_portal"), False),
-            ("one pass settles a non-fight row",
-             lambda: runner.settled(_record((True, 22), name="cave_escape"), "cave_escape"), True),
-            ("must fail: fights never settle",
-             lambda: runner.settled(_record((True, 10), (True, 11), name="collect_blaze_rods"), "collect_blaze_rods"),
-             False),
             ("a crafting-only row's key ignores pathfinder sources, and is stable",
              _mod_hashes, lambda h: h[0] == h[1] != h[2]),
             ("with no mod sources the key is the jar version, never a constant",

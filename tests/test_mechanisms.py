@@ -320,10 +320,6 @@ class Store(unittest.TestCase):
             self.assertEqual(len(mech.in_dimension(DIM, path)), 2)
             self.assertEqual(mech.remove(DIM, OUT_PRESS, path), 1)
             self.assertEqual([tuple(m["press"]) for m in mech.load(path)], [IN_PRESS])
-            # a door re-taught: every old press of it goes (must fail: a stale press kept, 20260930-024050)
-            mech.add(DIM, (0, 0, 0), DOOR, path=path)
-            self.assertEqual(mech.forget_door(DIM, DOOR, path), 2)
-            self.assertEqual(mech.load(path), [])
 
 
 class HomeExit(unittest.TestCase):

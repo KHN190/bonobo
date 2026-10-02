@@ -166,11 +166,6 @@ def _prepare_for(bp, origin, turns, clearable, standable):
             ordered.append(item)
     return ordered
 
-def find_machine_spot(bp, near, policy, radius=8, body=None):
-    """Nearest origin + rotation around `near` that can be built on, with what must be done to the ground first."""
-
-    origin, turns, _prepare = plan_machine_spot(bp, near, policy, radius=radius, body=body)
-    return origin, turns
 
 def plan_machine_spot(bp, near, policy, radius=8, body=None):
     """(origin, turns, prepare) for the cheapest spot: what to build on and what to do to the ground first."""

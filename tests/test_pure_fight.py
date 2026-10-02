@@ -237,32 +237,6 @@ class Available(unittest.TestCase):
                 self.assertEqual(combat_tape.available(), want)
 
 
-class EventStreamPoll(unittest.TestCase):
-    def test_table(self):
-        # (start seq, start missed, reply or exception, events out, seq after, missed after)
-        rows = [
-            ("first read takes max seq", 0, 0, {"events": [{"seq": 3}, {"seq": 5}], "oldest": 1},
-             [{"seq": 3}, {"seq": 5}], 5, 0),
-            ("gap counted", 5, 0, {"events": [{"seq": 9}], "oldest": 8}, [{"seq": 9}], 9, 2),
-            ("oldest right after seq: no gap", 5, 1, {"events": [{"seq": 6}], "oldest": 6}, [{"seq": 6}], 6, 1),
-            ("timeout advances to latest", 5, 0, {"events": [], "latest": 7}, [], 7, 0),
-            ("latest behind never rewinds", 5, 0, {"latest": 2}, [], 5, 0),
-            # must-fail: a failed read is a keep-alive, not a reset
-            ("transport error", 5, 3, OSError("down"), [], 5, 3),
-        ]
-        for name, seq, missed, reply, want, seq_after, missed_after in rows:
-            with self.subTest(name):
-                def fake(since=0, timeout_ms=1000, reply=reply):
-                    if isinstance(reply, Exception):
-                        raise reply
-                    return reply
-                s = combat_tape.EventStream()
-                s.seq, s.missed = seq, missed
-                with mock.patch.object(combat_tape, "events", fake):
-                    got = s.poll()
-                self.assertEqual((got, s.seq, s.missed), (want, seq_after, missed_after))
-
-
 # ------------------------------------------------------------------------------------------------ decompose
 
 

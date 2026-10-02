@@ -314,10 +314,6 @@ def shaping_s(where, each_s, n, here, hazards, ground=None):
     return round(t_free + (quiet - t_free) * math.exp(each_s * rate), 2)
 
 
-def block_under_hits_s(each_s, rate):
-    """Pure: expected seconds to stand one block up while hit `rate` times a second: a hit knocks us off the cell and
-    the jump starts again, so a block needs a hit-free `each_s` — exp(each_s × rate) tries of it on average."""
-    return each_s * math.exp(each_s * rate)
 
 def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s):
     """Blocking, standing on a block and digging down are one column: seconds (and blood while exposed) buying delay or no sight."""

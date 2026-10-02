@@ -85,27 +85,3 @@ def events(since=0, timeout_ms=1000):
 
     return api.get(f"/events?since={since}&timeout={int(timeout_ms)}")
 
-class EventStream:
-    """Sequential reader over the pushed events, keeping its own place."""
-
-    def __init__(self):
-        self.seq = 0
-        self.missed = 0
-
-    def poll(self, timeout_ms=1000):
-        """The events since the last call, oldest first. Empty on a timeout — that is a keep-alive, not an error."""
-        try:
-            data = events(self.seq, timeout_ms)
-        except (api.McError, OSError) as e:
-            api.swallowed("combat_tape.poll", e)
-            return []
-        oldest = data.get("oldest", 0)
-        if self.seq and oldest > self.seq + 1:
-            self.missed += oldest - self.seq - 1
-        got = data.get("events") or []
-        if got:
-            self.seq = max(e["seq"] for e in got)
-        else:
-            self.seq = max(self.seq, data.get("latest", self.seq))
-        return got
-

@@ -12,17 +12,6 @@ DIR = paths.data("incidents")
 LIBRARY = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                        "tests", "incidents")
 
-def capture(scenario, note, state, intent):
-    """Called by the bench on a combat failure. Returns the path, or None when there was no planning round."""
-    if not state:
-        return None
-    os.makedirs(DIR, exist_ok=True)
-    import time
-    name = f"{time.strftime('%Y-%m-%d-%H%M%S')}-{scenario}.json"
-    path = os.path.join(DIR, name)
-    with open(path, "w") as f:
-        json.dump({"scenario": scenario, "note": note, "intent": intent, "state": state}, f, indent=1, default=list)
-    return path
 
 def replay(path):
     from tests.test_incidents import thaw

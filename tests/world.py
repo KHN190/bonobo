@@ -6,9 +6,20 @@ names (`FakeRegion`, the interface `world.Region` offers with nothing behind it)
 `fights`) are cross-products of such readings, so one relation is claimed over hundreds of situations.
 """
 from bonobo.data import FALLING, HAZARD, PASSABLE, PASSABLE_SUFFIX, PLAYER_MADE_SUFFIX, UNBREAKABLE  # noqa: F401
-from bonobo import beliefs
+from bonobo import beliefs, fight_plan
 from bonobo.world import Region
 
+
+
+def assemble_fight_state(self_, boss, threats=(), resources=None, terrain=None):
+    """Assemble a fight state."""
+
+    s = dict(self_)
+    s.setdefault("hp_floor", fight_plan.CONFIG["combat"]["hp_floor"])
+    s.setdefault("speed", fight_plan.CONFIG["combat"]["sprint_speed"])
+    s.setdefault("in_cover", False)
+    return {"self": s, "boss": dict(boss), "threats": [tuple(t) for t in threats],
+            "resources": dict(resources or {}), "terrain": dict(terrain or {})}
 
 class FakeRegion:
     """A box of named blocks, the interface `Region` offers and nothing else behind it."""
@@ -304,7 +315,7 @@ class World:
         from bonobo import fight_plan
         tunnel, bed = BUILT[self.dims["built"]]
         hp, in_cover = FIGHT_BODY[self.dims["fight_body"]]
-        return fight_plan.fight_state(
+        return assemble_fight_state(
             self_={"pos": (8.0, 65.0, 0.0), "hp": hp, "in_cover": in_cover,
                    "cover": (8, 65, 0) if in_cover else None},
             boss={"phase": PHASES[self.dims["phase"]], "phase_elapsed_s": self.elapsed,

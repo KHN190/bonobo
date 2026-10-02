@@ -18,23 +18,6 @@ if TYPE_CHECKING:
 
 FIRE_RES_CHAIN = [("minecraft:nether_wart", "awkward"), ("minecraft:magma_cream", "fire_resistance")]
 
-def brew_steps(have):
-    """Pure: which ingredients still need brewing, given item counts `have`."""
-
-    if have.get("minecraft:potion:fire_resistance", 0) >= 3:
-        return []
-    bottles = have.get("minecraft:potion:water", 0) + have.get("minecraft:potion:awkward", 0)
-    if bottles < 3:
-        return None
-    steps = []
-    if have.get("minecraft:potion:awkward", 0) < 3:
-        if have.get("minecraft:nether_wart", 0) < 1:
-            return None
-        steps.append("minecraft:nether_wart")
-    if have.get("minecraft:magma_cream", 0) < 1 or have.get("minecraft:blaze_powder", 0) < 1:
-        return None
-    steps.append("minecraft:magma_cream")
-    return steps
 
 def bottle_commands(state, args) -> "list[Task]":
     """`commands` for fill_bottles: one fill per bottle wanted and carried, aimed at `state["source"]`, back to back."""

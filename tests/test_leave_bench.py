@@ -11,6 +11,23 @@ from bonobo.tools import leave_bench as lb  # noqa: E402
 B = tuple(o + d for o, d in zip(ORIGIN, SITE_B))
 
 
+
+def settings_in(text):
+    """Pure: the world settings a stretch of bench source changes — "gamerule <rule>", "tick rate", "difficulty" —
+    with a {NAME} rule resolved over this package's constants (REGEN_RULE)."""
+    import re
+    out = set()
+    for m in re.finditer(r"gamerule \{?([A-Za-z_]+)\}? ", text):
+        out.add("gamerule " + _rule_constants().get(m.group(1), m.group(1)))
+    out |= {k for k in ("tick rate", "difficulty") if re.search(rf"[\"'(]{k} \S", text)}
+    return out
+
+
+def _rule_constants():
+    from bonobo.bench.words.brain import REGEN_RULE
+    return {"REGEN_RULE": REGEN_RULE}
+
+
 class BenchSite(unittest.TestCase):
     def test_rows(self):
         ow = lb.DIMENSION
@@ -42,7 +59,7 @@ class BenchRestores(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         files = [f for f in glob.glob(os.path.join(root, "bonobo/bench/**/*.py"), recursive=True)
                  if not f.endswith("core.py")]
-        changed = set(core.BENCH_WORLD).union(*(core.settings_in(open(f).read()) for f in files))
+        changed = set(core.BENCH_WORLD).union(*(settings_in(open(f).read()) for f in files))
         self.assertIn("gamerule advance_time", changed)           # the reader sees the frozen clock
         self.assertEqual(changed - set(core.WORLD_NORMAL), set())
         restore = core.restore_commands()
@@ -59,7 +76,7 @@ class BenchRestores(unittest.TestCase):
                  False)]
         for name, line, ok in rows:
             with self.subTest(name):
-                got = core.settings_in(line)
+                got = settings_in(line)
                 self.assertTrue(got)
                 self.assertEqual(got <= set(core.WORLD_NORMAL), ok)
 

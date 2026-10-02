@@ -49,14 +49,6 @@ def remove(dimension, press, path=None):
     return len(mechs) - len(kept)
 
 
-def forget_door(dimension, opens, path=None):
-    """Every lesson whose opens cells are `opens` removed (whatever its press): a door re-taught from scratch."""
-    want = sorted(tuple(c) for c in opens)
-    mechs = load(path)
-    kept = [m for m in mechs if not (m["dimension"] == dimension and sorted(map(tuple, m["opens"])) == want)]
-    save(kept, path)
-    return len(mechs) - len(kept)
-
 
 def in_dimension(dimension, path=None):
     return [m for m in load(path) if m["dimension"] == dimension]

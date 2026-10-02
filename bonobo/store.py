@@ -264,12 +264,3 @@ def repair_site(ctx, site):
     if remaining:
         raise McError(f"{site['name']} still missing {remaining} blocks")
 
-def find_base(radius=48):
-    hits = []
-    for kind, names in BASE_MARKERS.items():
-        for b in find(names, radius=radius, limit=40):
-            hits.append((kind, (b["x"], b["y"], b["z"])))
-    if not hits:
-        return None
-    best = max(hits, key=lambda h: sum(MARKER_WEIGHT[k] for k, p in hits if math.dist(p, h[1]) <= 12))
-    return best[1]
