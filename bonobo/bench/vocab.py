@@ -50,6 +50,17 @@ _BEFORE = set(globals())
 
 
 
+def _load_area(x0, z0, x1, z1):
+    """Force-load a footprint and wait until its corners answer ("That position is not loaded" otherwise)."""
+    _command(f"execute in minecraft:overworld run forceload add {x0} {z0} {x1} {z1}", [])
+    probes = [(px, pz) for px in (x0, x1) for pz in (z0, z1)]
+    for _ in range(60):
+        if not any("not loaded" in l for px, pz in probes for l in
+                   _command(f"execute in minecraft:overworld run fill {px} 300 {pz} {px} 300 {pz} air", [])):
+            return
+        time.sleep(0.5)
+    raise SetupInvalid(f"area {x0},{z0}..{x1},{z1} never loaded")
+
 def _overworld(cmds):
     """Commands run in the Overworld from a hook; a refused one is a setup that did not happen."""
     for cmd in cmds:
@@ -64,8 +75,42 @@ def _flat(x0, z0, x1, z1, y, block):
 
 
 
+STRONGHOLD_AT = (20000, 150, 20000)     # a built stronghold piece, in a sealed stone block in the sky
+ROOM_OFF = 64          # the ring's centre along +x: past the skill's 48-block scan, so the bricks are followed first
+def _stronghold_piece(x, y, z):
+    """Commands for a sealed stone-brick corridor ending in a portal room with 12 empty frames, without a /place structure."""
+    f = lambda a, b, block: f"fill {a[0]} {a[1]} {a[2]} {b[0]} {b[1]} {b[2]} {block}"   # noqa: E731
+    cx = x + ROOM_OFF
+    return [f((x - 3, y - 2, z - 6), (cx + 6, y + 5, z + 6), "stone"),
+            f((x - 1, y - 1, z - 2), (x + 58, y + 3, z + 2), "stone_bricks"),
+            f((x, y, z - 1), (x + 58, y + 2, z + 1), "air"),
+            f((cx - 5, y - 1, z - 5), (cx + 5, y + 4, z + 5), "stone_bricks"),
+            f((cx - 4, y, z - 4), (cx + 4, y + 3, z + 4), "air"),
+            f((x + 58, y, z - 1), (cx - 4, y + 2, z + 1), "air"),
+            f((cx - 1, y, z - 2), (cx + 1, y, z - 2), "end_portal_frame[facing=south]"),
+            f((cx - 1, y, z + 2), (cx + 1, y, z + 2), "end_portal_frame[facing=north]"),
+            f((cx - 2, y, z - 1), (cx - 2, y, z + 1), "end_portal_frame[facing=east]"),
+            f((cx + 2, y, z - 1), (cx + 2, y, z + 1), "end_portal_frame[facing=west]"),
+            f"tp @p {x + 1} {y} {z}"]
+
+def _built_stronghold(ctx):
+    """The piece built fresh every run (a run digs it up), the estimate at the corridor's start where we stand."""
+    x, y, z = STRONGHOLD_AT
+    _load_area(x - 8, z - 8, x + ROOM_OFF + 8, z + 8)
+    _overworld(_stronghold_piece(x, y, z))
+    ctx.mem.add_site("stronghold", (x + 1, y, z), "minecraft:overworld", name="stronghold")
+    time.sleep(1)
+
 PORTAL_ROOM_OK = []
 
+
+def _portal_room_run(ctx):
+    """Run the search and note whether the skill itself succeeded (a frame in range is not success)."""
+    from ..end import find_portal_room
+    PORTAL_ROOM_OK.clear()
+    find_portal_room(ctx)
+    PORTAL_ROOM_OK.append(True)
+    return True
 
 def _portal_room_found():
     from ..end import ROOM_REACH
