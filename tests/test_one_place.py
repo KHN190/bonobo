@@ -218,6 +218,18 @@ class ToolWear(unittest.TestCase):
                 planned = Planner({}, [("pickaxe", 2, left)], NullCost()).plan([("tool", "pickaxe", 2)])
                 self.assertEqual((planned == [], knowledge.working(left)), (want, want))
 
+    def test_enough_for_the_work_is_one_rule(self):
+        from bonobo import knowledge
+        from bonobo.planner import NullCost, Planner
+        # (situation, uses left on a wooden pickaxe, blocks to mine) → the carried one does it, for planner and solver
+        rows = [("40 left, 30 to mine: enough", 40, 30, True),
+                ("must fail: 20 left, 30 to mine: the planner kept it (it read the margin only)", 20, 30, False)]
+        for name, left, n, want in rows:
+            with self.subTest(name):
+                steps = Planner({}, [("pickaxe", 0, left)], NullCost()).plan([("minecraft:cobblestone", n)])
+                kept = not any(s.kind == "craft" and s.token.endswith("_pickaxe") for s in steps)
+                self.assertEqual((kept, knowledge.working(left, n), knowledge.spare_uses(left) >= n), (want,) * 3)
+
 
 class Daytime(unittest.TestCase):
     """knowledge.daytime: the one "is it day" over the absolute clock (sleep's verify reads it)."""

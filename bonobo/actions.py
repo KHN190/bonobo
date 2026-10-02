@@ -3,7 +3,7 @@
 import math
 
 from .data import STATION_R, GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare, mid, seen_class
-from .knowledge import working, BREED_FOOD, HUNT, MINE, PLOT_CELLS, RECIPES, STATIONS, produced, under_rock, dawn_s
+from .knowledge import spare_uses, working, BREED_FOOD, HUNT, MINE, PLOT_CELLS, RECIPES, STATIONS, produced, under_rock, dawn_s
 from . import estimate, lifecycle, threat
 from .beliefs import MOBS
 from .solve import Action
@@ -110,7 +110,7 @@ def state_of(snap, mem, reachable=None):
             for tier in range(0, best + 1):
                 x[tool_dim(kind, tier)] = 1
         # two half-worn pickaxes dig as far as one whole one
-        x[uses_dim(kind)] = sum(d for _t, d in usable)
+        x[uses_dim(kind)] = sum(spare_uses(d) for _t, d in usable)
     for station in STATIONS:
         if inv.count(station):
             x[station] = x.get(station, 0)
@@ -345,7 +345,7 @@ def _craft_specs():
             continue
         for t in range(0, tier + 1):
             spec[2][tool_dim(kind, t)] = 1
-        spec[2][uses_dim(kind)] = spec[2].get(uses_dim(kind), 0) + TOOL_USES.get(material, 100)
+        spec[2][uses_dim(kind)] = spec[2].get(uses_dim(kind), 0) + spare_uses(TOOL_USES.get(material, 100))
     _CRAFT_SPEC = specs
     return specs
 

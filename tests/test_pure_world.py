@@ -706,17 +706,19 @@ class Planner(unittest.TestCase):
 
     def test_virtual_inventory_has_tool(self):
         tools = [("pickaxe", 2, 50), ("sword", 1, 3)]
-        rows = [  # (why, kind, tier, min_left, expected)
+        w = knowledge.TOOL_WORKING
+        rows = [  # (why, kind, tier, uses the work spends, expected): left ≥ uses + TOOL_WORKING (knowledge.working)
             ("iron pickaxe for stone", "pickaxe", 1, 10, True),
-            ("exact tier and durability (boundary)", "pickaxe", 2, 50, True),
+            ("exact tier, the uses leave it working (boundary)", "pickaxe", 2, 50 - w, True),
+            ("must fail: one use more and it stops working", "pickaxe", 2, 50 - w + 1, False),
             ("must fail: tier too high", "pickaxe", 3, 10, False),
-            ("worn sword under min_left", "sword", 1, 10, False),
-            ("no axe", "axe", 0, 1, False),
+            ("worn sword: no use to spare", "sword", 1, 1, False),
+            ("no axe", "axe", 0, 0, False),
         ]
         inv = planner.VirtualInventory({}, tools)
-        for why, kind, tier, min_left, want in rows:
+        for why, kind, tier, uses, want in rows:
             with self.subTest(why):
-                self.assertEqual(inv.has_tool(kind, tier, min_left), want)
+                self.assertEqual(inv.has_tool(kind, tier, uses), want)
 
 
 # ---------------------------------------------------------------- retry / skill

@@ -210,9 +210,14 @@ def usable(left):
     return left >= TOOL_USABLE
 
 
-def working(left):
-    """Pure: does a tool with `left` uses still count as working for planning (TOOL_WORKING, a margin above usable)?"""
-    return left >= TOOL_WORKING
+def working(left, uses=0):
+    """Pure: the one "is the tool enough" rule (planner and solver): `left` uses do `uses` more and still work."""
+    return left >= uses + TOOL_WORKING
+
+
+def spare_uses(left):
+    """Pure: the uses a tool spends before it stops working — the solver's uses row (working(left, n) ⇔ n ≤ this)."""
+    return max(0, left - TOOL_WORKING)
 
 
 # -- the remainder math goals and skills' `remaining` share ({} when met), here so skills need no planner

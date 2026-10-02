@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .api import McError
-from .data import GROUPS, MATERIAL_TOKEN, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
+from .data import GROUPS, MATERIAL_TOKEN, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_USES, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (prior_ticks, COOKABLE_FOOD, TOOL_WORKING, have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
+from .knowledge import (prior_ticks, COOKABLE_FOOD, working, have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
@@ -69,8 +69,16 @@ class VirtualInventory:
         else:
             self.counts[mid(token)] += n
 
-    def has_tool(self, kind, tier, min_left):
-        return any(k == kind and t >= tier and d >= min_left for k, t, d in self.tools)
+    def has_tool(self, kind, tier, uses=0):
+        return any(k == kind and t >= tier and working(d, uses) for k, t, d in self.tools)
+
+    def wear(self, kind, tier, uses):
+        """The planned work spends `uses` of the least tool of `kind` at `tier` or better that does it."""
+        fit = [i for i, (k, t, d) in enumerate(self.tools) if k == kind and t >= tier and working(d, uses)]
+        if fit and uses:
+            i = min(fit, key=lambda j: self.tools[j][1])
+            k, t, d = self.tools[i]
+            self.tools[i] = (k, t, d - uses)
 
 def cooked_from_carried(options, available, n):
     """Pure: [(cooked item, how many)] made from raw meat already carried, most carried first, up to `n` in all."""
@@ -150,15 +158,15 @@ class Planner:
         self.inv.awaited.clear()
 
     # -- resolution
-    def need_tool(self, kind, tier, depth=0):
-        if self.inv.has_tool(kind, tier, TOOL_WORKING):
+    def need_tool(self, kind, tier, depth=0, uses=0):
+        if self.inv.has_tool(kind, tier, uses):
             return
         # the best tier the bag makes outright, never below the need (a worn iron pickaxe was replaced with a wooden one)
         if not self.probing:
             tier = max(tier, self.craftable_tier(kind))
         material = TOOL_MATERIAL_FOR_TIER[tier]
         self.need(f"minecraft:{material}_{kind}", 1, depth + 1, fresh=True)
-        self.inv.tools.append((kind, tier, 999))
+        self.inv.tools.append((kind, tier, TOOL_USES.get(material, 999)))
 
     def craftable_tier(self, kind):
         """The best tier of `kind` this planned bag crafts with crafting steps only, or 0 — from what is left of the
@@ -173,7 +181,7 @@ class Planner:
             held = probe.inv.available(token)
             taken = held if set(members(token)) & self.reserved else sum(
                 material_per_tool(k, tier) for k in used_before(kind)
-                if not self.inv.has_tool(k, tier, TOOL_WORKING))
+                if not self.inv.has_tool(k, tier))
             probe.inv.consume(token, min(held, taken), awaits=False)
             steps, _why = probe.attempt([("tool", kind, tier)])
             if steps is not None and all(s.kind == "craft" for s in steps):
@@ -188,7 +196,9 @@ class Planner:
         for dim, n in sorted(needs.items(), key=lambda kv: not kv[0].startswith("tool:")):
             if dim.startswith("tool:"):
                 _, kind, tier = dim.split(":")
-                self.need_tool(kind, int(tier), depth)
+                uses = int(step.detail.get("breaks", step.count)) if step.kind == "mine" else 0
+                self.need_tool(kind, int(tier), depth, uses)
+                self.inv.wear(kind, int(tier), uses)
             elif self.inv.available(dim) < n:
                 short = n - self.inv.available(dim)
                 self.need(dim, short, depth + 1)
@@ -199,7 +209,7 @@ class Planner:
         """{tool kind: the best tier planned or held, with wear left}."""
         out = {}
         for k, t, d in self.inv.tools:
-            if d >= TOOL_WORKING and t in TOOL_MATERIAL_FOR_TIER:
+            if working(d) and t in TOOL_MATERIAL_FOR_TIER:
                 out[k] = max(out.get(k, t), t)
         return out
 
