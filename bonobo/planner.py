@@ -274,7 +274,28 @@ class Planner:
             missing -= k
         if missing <= 0:
             return missing, "food"
-        return missing, self.cost.cheapest_food(COOKABLE_FOOD)
+        return missing, self.cheapest_food(missing, depth)
+
+    FOODS = tuple(COOKABLE_FOOD) + ("minecraft:bread",)     # what a food need is made as: meat cooked, or bread
+
+    def cheapest_food(self, missing, depth):
+        """The food `missing` is made as, by price (M3/B2): each of FOODS planned from here on a probe of this plan,
+        the one whose steps cost least (Σ est by the cost model); Unplannable, with each food's reason, when none can
+        be planned."""
+        import copy
+        priced, why = [], []
+        for food in self.FOODS:
+            probe = copy.copy(self)
+            probe.inv, probe.steps = copy.deepcopy(self.inv), []
+            try:
+                probe.need(food, missing, depth + 1)
+            except Unplannable as e:
+                why.append(f"{bare(food)}: {e}")
+            else:
+                priced.append((sum(st.est for st in probe.steps), food))
+        if not priced:
+            raise Unplannable("no food can be planned (" + "; ".join(why) + ")")
+        return min(priced)[1]
 
     def _craft(self, src, token, missing, depth):
         _, pattern, out = src
@@ -399,9 +420,6 @@ class NullCost:
 
     def station_near(self, block):
         return False
-
-    def cheapest_food(self, options):
-        return options[0]
 
     def estimate(self, step):
         """The same prior the real cost model starts from (knowledge.prior_ticks): one table, not a second guess."""

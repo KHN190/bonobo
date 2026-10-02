@@ -216,6 +216,9 @@ def plan_ctx(b, act, snap, mem, world):
     task = getattr(act, "task", None)
     held = b.held.get(task["id"]) if task is not None else None
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache)
+    for st in held["steps"] if held is not None else ():
+        cost.estimate(st)          # read now, while the stub is the transport: the oracle prices after the round
+        #                            ends, when a world read (/entities, /find) would reach no world (C13)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,

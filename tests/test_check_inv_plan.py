@@ -99,5 +99,24 @@ class Plan(unittest.TestCase):
                 self.assertIsInstance(plan.CHECKS[inv](F, D, F, {}), oracle.Unchecked)
 
 
+class RoundPrices(unittest.TestCase):
+    """The round's price of a held step (ctx["price"]) is asked after the round, when the stub no longer answers world
+    reads: it must still be the price the plan was made at (C13: a hunt priced after the round lost the mob's
+    distance and read the unknown walk)."""
+
+    def test_a_hunt_priced_after_the_round(self):
+        import contextlib
+        import io
+        from check import round as rnd
+        f = of(quarry="spider", kit="sword")          # a spider in sight, string queued: hunt it
+        with contextlib.redirect_stdout(io.StringIO()):
+            _d, _got, ctx = rnd.decide(f, fail_then_again=False)
+        steps = ctx.get("plan") or []
+        self.assertTrue(any(st.kind == "hunt" for st in steps), [str(st) for st in steps])
+        for st in steps:
+            with self.subTest(step=str(st)):
+                self.assertLessEqual(abs(int(ctx["price"](st)) - int(st.est)), plan.TOL_TICKS)   # must fail before C13
+
+
 if __name__ == "__main__":
     unittest.main()
