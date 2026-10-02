@@ -34,7 +34,7 @@
      10000.82788411938
     ],
     "hp": 20.0,
-    "sword": 2,
+    "sword": "minecraft:iron_sword",
     "protection": 0.32,
     "night": false,
     "blocks": 0,
@@ -86,7 +86,7 @@
      10000.623980602903
     ],
     "hp": 18.96,
-    "sword": 2,
+    "sword": "minecraft:iron_sword",
     "protection": 0.32,
     "night": false,
     "blocks": 0,
@@ -138,7 +138,7 @@
      10000.524461297011
     ],
     "hp": 20.0,
-    "sword": 2,
+    "sword": "minecraft:iron_sword",
     "protection": 0.32,
     "night": false,
     "blocks": 0,
@@ -190,7 +190,7 @@
      9999.030678505918
     ],
     "hp": 20.0,
-    "sword": 2,
+    "sword": "minecraft:iron_sword",
     "protection": 0.32,
     "night": false,
     "blocks": 0,
@@ -242,7 +242,7 @@
      10001.726214006238
     ],
     "hp": 17.78,
-    "sword": 2,
+    "sword": "minecraft:iron_sword",
     "protection": 0.32,
     "night": false,
     "blocks": 0,
