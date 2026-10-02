@@ -1,0 +1,22 @@
+{
+ "bed": "none",
+ "building": true,
+ "cooled": false,
+ "dimension": "minecraft:overworld",
+ "fluid": "none",
+ "food": false,
+ "food_source": "animals",
+ "hp": "ok",
+ "hunger": "full",
+ "mob": "zombie",
+ "night": false,
+ "noted": "tree",
+ "ore": "exposed",
+ "pickaxe": 0,
+ "place": "open",
+ "queued": "stick",
+ "station": "none",
+ "takeover": true,
+ "threat": false,
+ "tree": true
+}

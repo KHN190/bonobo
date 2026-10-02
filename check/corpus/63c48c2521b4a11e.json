@@ -1,0 +1,22 @@
+{
+ "bed": "none",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:overworld",
+ "fluid": "lava",
+ "food": false,
+ "food_source": "crops",
+ "hp": "ok",
+ "hunger": "full",
+ "mob": "creeper",
+ "night": false,
+ "noted": "tree",
+ "ore": "none",
+ "pickaxe": -1,
+ "place": "home",
+ "queued": "stick",
+ "station": "furnace",
+ "takeover": true,
+ "threat": true,
+ "tree": false
+}

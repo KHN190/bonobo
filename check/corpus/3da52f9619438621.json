@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": false,
+ "cooled": true,
+ "dimension": "minecraft:overworld",
+ "fluid": "lava",
+ "food": true,
+ "food_source": "crops",
+ "hp": "ok",
+ "hunger": "starve",
+ "mob": "zombie",
+ "night": false,
+ "noted": "tree",
+ "ore": "exposed",
+ "pickaxe": -1,
+ "place": "open",
+ "queued": "cobblestone",
+ "station": "furnace",
+ "takeover": false,
+ "threat": true,
+ "tree": true
+}

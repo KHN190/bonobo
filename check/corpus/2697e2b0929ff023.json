@@ -1,0 +1,22 @@
+{
+ "bed": "home",
+ "building": false,
+ "cooled": false,
+ "dimension": "minecraft:overworld",
+ "fluid": "none",
+ "food": false,
+ "food_source": "animals",
+ "hp": "ok",
+ "hunger": "full",
+ "mob": "zombie",
+ "night": true,
+ "noted": "iron_ore",
+ "ore": "deep",
+ "pickaxe": 2,
+ "place": "open",
+ "queued": "stick",
+ "station": "furnace",
+ "takeover": true,
+ "threat": false,
+ "tree": false
+}

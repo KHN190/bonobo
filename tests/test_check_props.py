@@ -42,12 +42,12 @@ class Fuzz(unittest.TestCase):
     def test_a_short_search(self):
         from unittest import mock
         from check import fuzz
-        got = fuzz.run(3)
+        got = fuzz.run(3, stall=1, log=lambda line: None)
         self.assertGreater(got["examples"], 0)
         self.assertEqual(set(got["found"]) - fuzz.known(), set())
         for inv, f in got["found"].items():                       # each shrunk state still violates its invariant
             self.assertIn(inv, fuzz.judged(f)[1])
-        with mock.patch.object(fuzz, "known", lambda: set()), mock.patch.object(fuzz, "run", lambda s, save: got):
+        with mock.patch.object(fuzz, "known", lambda: set()), mock.patch.object(fuzz, "run", lambda s, **kw: got):
             self.assertEqual(fuzz.main(["1"]), 1 if got["found"] else 0)   # must fail: a violation not known
 
     def test_corpus_round_trip(self):

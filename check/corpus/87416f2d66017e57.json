@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": true,
+ "cooled": false,
+ "dimension": "minecraft:overworld",
+ "fluid": "swimming",
+ "food": false,
+ "food_source": "crops",
+ "hp": "crit",
+ "hunger": "low",
+ "mob": "zombie",
+ "night": true,
+ "noted": "iron_ore",
+ "ore": "deep",
+ "pickaxe": -1,
+ "place": "enclosed",
+ "queued": "none",
+ "station": "none",
+ "takeover": false,
+ "threat": false,
+ "tree": true
+}

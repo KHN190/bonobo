@@ -1,11 +1,12 @@
-"""python3 -m check.fuzz SECONDS [report.md] [--save]: coverage-guided search over the α facts (Hypothesis).
+"""python3 -m check.fuzz SECONDS [report.md] [--save] [--stall=S]: coverage-guided search over the α facts (Hypothesis).
 
 Each example is a state drawn from the facts' domains (check/facts.DOMAINS: the base facts and check/dims' domain()),
 run through the production round (round.decide) under the coverage gate (sys.monitoring); hypothesis.target steers
 toward states that hit branch arms no earlier example hit. With --save, such a state is kept in check/corpus (one
 JSON file each): check.run judges the corpus beside its own states, every run. A violation the oracle reports is
 shrunk by Hypothesis to its smallest state (the fewest facts off their first value) and written to the report.
-Exit 1 when an invariant outside check/known.txt is violated. SECONDS bounds the whole run (the gate gives 60)."""
+Exit 1 when an invariant outside check/known.txt is violated. SECONDS bounds the whole run (the gate gives 60);
+--stall=S ends the search once S seconds pass without a new branch arm. Progress is logged per chunk as it runs."""
 import contextlib
 import hashlib
 import io
@@ -22,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CORPUS = os.path.join(HERE, "corpus")
 KNOWN = os.path.join(HERE, "known.txt")
 SEARCH_SHARE = 0.7              # of the budget: the search; the rest shrinks what it found
-CALIBRATE = 3                   # rounds timed to size the search to the budget
+CHUNK = 50                      # examples per Hypothesis run between the budget's and the stall's checks
 SHRINK_EXAMPLES = 200           # tries Hypothesis may spend shrinking one invariant's state
 
 
@@ -66,19 +67,15 @@ def off_default(f):
     return {k: v for k, v in f.items() if v != DOMAINS[k][0]}
 
 
-def run(seconds, save=False):
-    """{"examples", "kept", "new_arms", "found": {inv: smallest state}, "hit", "total"} of one bounded search."""
+def run(seconds, save=False, stall=None, log=print):
+    """{"examples", "kept", "new_arms", "found": {inv: smallest state}, "hit", "total"} of one bounded search: chunks
+    of CHUNK examples until SECONDS × SEARCH_SHARE is spent or `stall` seconds pass with no new branch arm; each
+    chunk logged as it ends (a long run is watched, not waited on)."""
     from hypothesis import HealthCheck, Phase, find, given, settings, target
     t0, gate = time.time(), Gate()
     kept, found, examples = [], {}, [0]
     with gate:
-        lap = time.time()
-        for f in corpus()[:CALIBRATE] or [of()]:
-            judged(f)
-        per = max(1e-3, (time.time() - lap) / max(1, min(CALIBRATE, len(corpus()) or 1)))
-        budget = max(0.0, seconds * SEARCH_SHARE - (time.time() - t0))
-
-        @settings(max_examples=max(1, int(budget / per)), deadline=None, database=None,
+        @settings(max_examples=CHUNK, deadline=None, database=None,
                   phases=[Phase.generate, Phase.target], suppress_health_check=[HealthCheck.too_slow])
         @given(states())
         def search(f):
@@ -93,15 +90,27 @@ def run(seconds, save=False):
                     keep(f)
             for inv in invs:
                 found.setdefault(inv, f)
-        search()  # pyright: ignore[reportCallIssue]  (@given supplies f)
+
+        last_new = time.time()
+        while time.time() - t0 < seconds * SEARCH_SHARE:
+            arms = sum(gate.arms.values())
+            search()  # pyright: ignore[reportCallIssue]  (@given supplies f)
+            now = time.time()
+            if sum(gate.arms.values()) > arms:
+                last_new = now
+            log(f"fuzz {now - t0:.0f}s: {examples[0]} states, {sum(gate.arms.values())} arms, {len(kept)} kept, "
+                f"violated {sorted(found)}")
+            if stall is not None and now - last_new >= stall:
+                log(f"fuzz: no new arm for {stall:.0f}s, stopped")
+                break
         new_arms = sum(gate.arms.values())
         for inv in sorted(found):
-            left = seconds - (time.time() - t0)
-            if left <= 0:
+            if seconds - (time.time() - t0) <= 0:
                 break
             found[inv] = find(states(), lambda f, inv=inv: inv in judged(f)[1],
                               settings=settings(max_examples=SHRINK_EXAMPLES, deadline=None, database=None,
                                                 suppress_health_check=[HealthCheck.too_slow]))
+            log(f"fuzz: {inv} shrunk to {off_default(found[inv])}")
     hit, total, _unhit = gate.report()
     return {"examples": examples[0], "kept": len(kept), "new_arms": new_arms, "found": found, "hit": hit,
             "total": total, "seconds": time.time() - t0}
@@ -118,7 +127,8 @@ def report(got, unknown):
 def main(argv):
     seconds = float(argv[0]) if argv else 60.0
     out = next((a for a in argv[1:] if not a.startswith("--")), None)
-    got = run(seconds, save="--save" in argv)
+    stall = next((float(a.split("=", 1)[1]) for a in argv if a.startswith("--stall=")), None)
+    got = run(seconds, save="--save" in argv, stall=stall, log=lambda line: print(line, flush=True))
     unknown = set(got["found"]) - known()
     text = report(got, unknown)
     if out:

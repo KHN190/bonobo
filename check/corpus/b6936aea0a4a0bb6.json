@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "lava",
+ "food": false,
+ "food_source": "none",
+ "hp": "crit",
+ "hunger": "starve",
+ "mob": "skeleton",
+ "night": true,
+ "noted": "tree",
+ "ore": "none",
+ "pickaxe": 2,
+ "place": "home",
+ "queued": "cobblestone",
+ "station": "crafting_table",
+ "takeover": true,
+ "threat": true,
+ "tree": true
+}

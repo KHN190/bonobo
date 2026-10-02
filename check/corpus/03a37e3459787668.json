@@ -1,0 +1,22 @@
+{
+ "bed": "none",
+ "building": false,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "lava",
+ "food": true,
+ "food_source": "none",
+ "hp": "ok",
+ "hunger": "full",
+ "mob": "zombie",
+ "night": true,
+ "noted": "iron_ore",
+ "ore": "deep",
+ "pickaxe": -1,
+ "place": "enclosed",
+ "queued": "stick",
+ "station": "none",
+ "takeover": false,
+ "threat": false,
+ "tree": false
+}

@@ -1,0 +1,22 @@
+{
+ "bed": "home",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "lava",
+ "food": true,
+ "food_source": "crops",
+ "hp": "ok",
+ "hunger": "full",
+ "mob": "zombie",
+ "night": true,
+ "noted": "none",
+ "ore": "buried",
+ "pickaxe": 0,
+ "place": "home",
+ "queued": "stick",
+ "station": "crafting_table",
+ "takeover": false,
+ "threat": false,
+ "tree": true
+}

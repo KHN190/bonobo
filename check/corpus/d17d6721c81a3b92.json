@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "lava",
+ "food": false,
+ "food_source": "animals",
+ "hp": "ok",
+ "hunger": "low",
+ "mob": "zombie",
+ "night": false,
+ "noted": "none",
+ "ore": "deep",
+ "pickaxe": 2,
+ "place": "enclosed",
+ "queued": "stick",
+ "station": "furnace",
+ "takeover": false,
+ "threat": false,
+ "tree": true
+}

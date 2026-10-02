@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": false,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "none",
+ "food": true,
+ "food_source": "none",
+ "hp": "crit",
+ "hunger": "full",
+ "mob": "creeper",
+ "night": true,
+ "noted": "iron_ore",
+ "ore": "buried",
+ "pickaxe": 0,
+ "place": "home",
+ "queued": "none",
+ "station": "none",
+ "takeover": true,
+ "threat": true,
+ "tree": false
+}

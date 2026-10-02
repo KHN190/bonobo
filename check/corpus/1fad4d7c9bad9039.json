@@ -1,0 +1,22 @@
+{
+ "bed": "home",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "swimming",
+ "food": true,
+ "food_source": "crops",
+ "hp": "crit",
+ "hunger": "starve",
+ "mob": "skeleton",
+ "night": false,
+ "noted": "tree",
+ "ore": "exposed",
+ "pickaxe": 1,
+ "place": "enclosed",
+ "queued": "stick",
+ "station": "crafting_table",
+ "takeover": false,
+ "threat": true,
+ "tree": false
+}

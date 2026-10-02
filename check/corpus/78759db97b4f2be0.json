@@ -1,0 +1,22 @@
+{
+ "bed": "none",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:overworld",
+ "fluid": "none",
+ "food": true,
+ "food_source": "none",
+ "hp": "crit",
+ "hunger": "full",
+ "mob": "creeper",
+ "night": false,
+ "noted": "iron_ore",
+ "ore": "exposed",
+ "pickaxe": 1,
+ "place": "enclosed",
+ "queued": "cobblestone",
+ "station": "furnace",
+ "takeover": true,
+ "threat": true,
+ "tree": true
+}

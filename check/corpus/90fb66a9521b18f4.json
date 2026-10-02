@@ -1,0 +1,22 @@
+{
+ "bed": "none",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:overworld",
+ "fluid": "none",
+ "food": false,
+ "food_source": "crops",
+ "hp": "ok",
+ "hunger": "low",
+ "mob": "skeleton",
+ "night": true,
+ "noted": "none",
+ "ore": "exposed",
+ "pickaxe": 2,
+ "place": "open",
+ "queued": "stick",
+ "station": "crafting_table",
+ "takeover": true,
+ "threat": true,
+ "tree": true
+}

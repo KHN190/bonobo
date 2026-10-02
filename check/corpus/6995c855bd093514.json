@@ -1,0 +1,22 @@
+{
+ "bed": "none",
+ "building": false,
+ "cooled": false,
+ "dimension": "minecraft:overworld",
+ "fluid": "none",
+ "food": false,
+ "food_source": "none",
+ "hp": "ok",
+ "hunger": "low",
+ "mob": "skeleton",
+ "night": false,
+ "noted": "iron_ore",
+ "ore": "none",
+ "pickaxe": 0,
+ "place": "home",
+ "queued": "cobblestone",
+ "station": "crafting_table",
+ "takeover": true,
+ "threat": true,
+ "tree": false
+}
