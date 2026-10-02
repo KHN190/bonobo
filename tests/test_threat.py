@@ -923,30 +923,16 @@ class APillarUnderHits(unittest.TestCase):
                 else:
                     self.assertGreater(s, n * block)
 
-    def test_every_shape_under_hits(self):
-        """A hole or a wall built under a walker's hits is knocked back like a pillar (combat__dig_in: 2.7 s of
-        digging went nowhere). Read before the survivability veto: the price itself."""
+    def test_only_what_is_done_before_they_arrive(self):
         from bonobo import field
-        ground, hazards = field.Field(bucket="underground"), [row("minecraft:zombie", 2.5, 0)]
-        press = threat.pressure(HERE, hazards, 0.0, ground=ground)
-        opts = threat.reshape_options({"blocks": 5, "dig_ok": True}, ground, hazards, HERE, press, 0.0, 0.0, 20.0)
-        got = {o.target[0]: o.seconds / o.target[1] for o in opts}
-        quiet = {"down": float(threat.ENGAGE["dig_s"]), "under": float(threat.ENGAGE["block_s"]),
-                 "between": float(threat.ENGAGE["block_s"])}
-        self.assertEqual(set(got), set(quiet))
-        for where in quiet:
-            with self.subTest(where):
-                # must fail: priced as a quiet block under a zombie's hits
-                self.assertGreater(got[where], quiet[where])
-
-    def test_knockback_rate(self):
-        rows = [("a zombie in reach: one hit per attack_s", [row("minecraft:zombie", 1.5, 0)], 1 / threat.MOBS["minecraft:zombie"]["attack_s"]),
-                ("a zombie 10 off: none yet", [row("minecraft:zombie", 10, 0)], 0.0),
-                ("a skeleton in reach: arrows do not knock a pillar down here", [row("minecraft:skeleton", 2, 0)], 0.0),
-                ("two zombies in reach", [row("minecraft:zombie", 1.5, 0), row("minecraft:zombie", 0, 1.5)], 2 / threat.MOBS["minecraft:zombie"]["attack_s"])]
-        for name, hazards, want in rows:
+        ground = field.Field(bucket="underground")
+        for name, x, offered in [("must fail: a zombie 3 off, a dirt floor by hand: no dig in", 3, set()),
+                                 ("a zombie 2.5 off: no shape at all", 2.5, set())]:
             with self.subTest(name):
-                self.assertAlmostEqual(threat.knockback_rate(HERE, hazards, 0.6), want, places=3)
+                hazards = [row("minecraft:zombie", x, 0)]
+                press = threat.pressure(HERE, hazards, 0.0, ground=ground)
+                opts = threat.reshape_options({"blocks": 5, "dig_ok": True}, ground, hazards, HERE, press, 0.0, 0.0, 20.0)
+                self.assertEqual({o.target[0] for o in opts} - {"roof"}, offered)
 
 
 class AHoleDeepEnoughToStopThem(unittest.TestCase):
@@ -1404,7 +1390,7 @@ class AFloorThatDigs(unittest.TestCase):
         """must fail: a dirt floor and no pickaxe gave no 'down' (dig_ok was 'a pickaxe carried')."""
         from bonobo import field, perception
         ground = field.Field(bucket="underground", floor=("minecraft:dirt",) * 4)
-        hazards = [row("minecraft:zombie", 5, 0, vel=(-4.0, 0.0, 0.0))]
+        hazards = [row("minecraft:zombie", dig_fits_at(), 0)]
         press = threat.pressure(HERE, hazards, 0.0, ground=ground)
         offered = threat.reshape_options({"blocks": 0, "dig_ok": perception.dig_ok(ground, None)}, ground, hazards,
                                          HERE, press, 0.0, 0.0, 20.0)

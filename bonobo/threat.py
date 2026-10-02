@@ -289,25 +289,14 @@ def delayed_pressure(here, hazards, prot, before, after, work_s):
         total += rate * max(0.0, work_s - t) / work_s
     return total
 
-def knockback_rate(here, hazards, within_s, ground=None):
-    """Pure: hits per second landing on us while we shape — each melee mob that reaches us within `within_s`."""
-    return sum(1.0 / float(MOBS[h[3]]["attack_s"]) for h in hazards
-               if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst") and arrival(here, h, ground=ground) <= within_s)
-
 def shaping_s(where, each_s, n, here, hazards, ground=None):
-    """Pure: seconds to build `n` of a shape — quiet until the first walker reaches us, then each block knocked back
-    by its hits (block_under_hits_s): a pillar rose nothing in 4 s and a dig never went down in 2.7 s under hits, but
-    blocks set before it arrives cost only their time. A roof is a lid over the head: priced quiet."""
+    """Pure: seconds to build `n` of a shape, or inf when the first walker arrives before it is done (not started)."""
     quiet = each_s * n
     if where == "roof":
         return quiet
     melee = [h for h in hazards if not MOBS[h[3]].get("ranged") and not MOBS[h[3]].get("burst")]
     t_free = min((arrival(here, h, ground=ground) for h in melee), default=float("inf"))
-    if quiet <= t_free:
-        return round(quiet, 2)
-    rate = knockback_rate(here, melee, quiet, ground=ground)
-    # the rest, block by block, each a hit-free each_s: exp(each_s × rate) tries (block_under_hits_s per block)
-    return round(t_free + (quiet - t_free) * math.exp(each_s * rate), 2)
+    return round(quiet, 2) if quiet <= t_free else float("inf")
 
 
 
@@ -337,6 +326,8 @@ def reshape_options(state, grid, hazards, here, press, prot, blast_here, work_s)
             if where == "between":
                 after = after.with_block()
             seconds = shaping_s(where, each_s, n, here, hazards, grid)
+            if seconds == float("inf"):
+                continue
             # shaping kills nothing: what can still come at us afterwards follows as walking away's does (else a pillar
             # outbid killing a zombie) — but what the shape shuts out for good (a sealed passage: arrival inf over the
             # ground after) follows no one, and leaves nothing
