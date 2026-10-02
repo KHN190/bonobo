@@ -178,6 +178,12 @@ SURPRISES = {
                             scene=[('fill', ('@', -4, -1, -4), ('@', 4, -1, 4), 'smooth_stone_slab[type=bottom]'),
                                    ('stand',)],
                             check=('all', ('!gain', 'minecraft:iron_ingot', 1, 1), ('!gain', 'minecraft:furnace', 0, 0))),
+    'eat_with_nothing': dict(base='eat', doc='hungry, nothing edible carried: nothing to eat, named', replace_setup=True,
+                           scene=[('floor',), ('stand',)], fails='nothing edible', check=('same_bag',)),
+    'empty_chest': dict(base='loot', doc='the only chest is empty', replace_setup=True,
+                      scene=[('floor',), ('chest', ('@', 5, 0, 1)), ('stand', -1)],
+                      fails='empty|nothing|worth|no unlooted',
+                      check=('all', ('!same_bag',), ('!blocks', ('@', 5, 0, 1), ('@', 5, 0, 1), ('chest',), 1, 1))),
 }
 TARGET_S = {'chop': 10.0, 'mine_stone': 8.0, 'craft': 8.0, 'eat': 2.0, 'find_air': 5.0}     # a base's own speed target (s), × TARGET_SLACK
 TARGET_SLACK = 1.5

@@ -19,7 +19,8 @@ FAMILIES = [
          
          
          
-         ('nav', None, 'start_cell_on_a_fence'), ]),
+         ('nav', None, 'start_cell_on_a_fence'),
+         ('hunt', 'valuables_full'), ('loot', None, 'empty_chest'), ('eat', None, 'eat_with_nothing'), ]),
     ('one', [
          ('tidy_full_bag', ['room:tidy'], 'a full bag of junk → slots free',
           [('floor',), ('stand',), ('give', 'dirt', 2304)], ('skill', 'tidy_inventory'), ('free_slots', 2), 25),
