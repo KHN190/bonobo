@@ -37,7 +37,7 @@ def fight_line_hp(mob, sword, armor=0, shield=False):
     with this sword (item id, None = the hand) and armour: the production line (estimate.fight_line_ok), never a typed hp."""
     from .. import beliefs, estimate
     from ..data import critical_hp
-    mean, hit = estimate.melee_loss([mob], sword, beliefs.protection(armor, shield))
+    mean, hit = estimate.melee_loss([mob], sword, beliefs.protection(armor, shield, hit=beliefs.MOBS[mob]["attack"]))
     return critical_hp({}) + estimate.loss_q(mean, hit)
 
 

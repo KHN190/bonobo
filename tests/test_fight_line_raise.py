@@ -22,15 +22,15 @@ def inside(kinds, snap, rows):
         brain._k.attack_weapon(snap.inv, beliefs.COMMON_FOE_HP)
     points = float(snap.state.get("armor", 0)) + sum(
         ARMOR_POINTS[r[0].removeprefix("minecraft:").split("_")[0]][r[0].rsplit("_", 1)[1]] for r in rows if r[0] != "tool")
-    mean, hit = estimate.melee_loss(kinds, sword, beliefs.protection(points))
+    mean, hit = estimate.melee_loss(kinds, sword, beliefs.protection(points, hit=beliefs.hardest_hit(kinds)))
     return estimate.fight_line_ok(float(snap.state["health"]), critical_hp(snap.state), mean, hit)
 
 
 class Raisers(unittest.TestCase):
     # (situation, kinds, body, some raiser expected?)
     ROWS = [
-        ("a piglin, full health, an iron sword, no armour: armour raises the line", ["minecraft:piglin"],
-         body(items=[("iron_sword", 1)]), True),
+        ("a witch, full health, a stone sword, no armour: armour raises the line", ["minecraft:witch"],
+         body(items=[("stone_sword", 1)]), True),
         ("a zombie, bare hands: a sword or armour", Z, body(), True),
         ("must fail: a spider already inside the line needs nothing raised", S, body(items=[("iron_sword", 1)]), None),
         ("must fail: no kit when health itself is the wall (2 hp)", ["minecraft:piglin"], body(health=2.0), False),

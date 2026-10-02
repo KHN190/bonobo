@@ -12,6 +12,8 @@ EYE_HEIGHT = 1.62                # the jar's WorldUtil.EYE_HEIGHT: eyes above th
 MELEE_TICKS = 20                 # MeleeAttackGoal's interval between hits
 CREEPER_FUSE_TICKS = 30          # lit at 3 blocks, defused past 7
 CREEPER_STOP_BLOCKS = 7.0
+EXPLOSION_POWER = {"minecraft:creeper": 3.0, "minecraft:fireball": 1.0}
+DETONATES_WITHIN = {"minecraft:creeper": 3.0, "minecraft:fireball": 0.0}    # lit at 3 blocks; a fireball on contact
 MOB_HP = {"minecraft:zombie": 20, "minecraft:husk": 20, "minecraft:zombie_villager": 20, "minecraft:drowned": 20,
           "minecraft:skeleton": 20, "minecraft:stray": 20, "minecraft:pillager": 24, "minecraft:witch": 26,
           "minecraft:creeper": 20, "minecraft:spider": 16, "minecraft:cave_spider": 12, "minecraft:phantom": 20,
@@ -30,7 +32,8 @@ MOB_HIT = {"minecraft:zombie": 3.0, "minecraft:husk": 3.0, "minecraft:zombie_vil
 MOB_CADENCE_TICKS = {"minecraft:zombie": MELEE_TICKS, "minecraft:husk": MELEE_TICKS,
                      "minecraft:zombie_villager": MELEE_TICKS, "minecraft:drowned": MELEE_TICKS,
                      "minecraft:skeleton": 60, "minecraft:stray": 60, "minecraft:pillager": 60, "minecraft:witch": 60,
-                     "minecraft:creeper": CREEPER_FUSE_TICKS, "minecraft:spider": MELEE_TICKS, "minecraft:cave_spider": MELEE_TICKS, "minecraft:phantom": 200,
+                     "minecraft:creeper": CREEPER_FUSE_TICKS, "minecraft:spider": MELEE_TICKS,
+                     "minecraft:cave_spider": MELEE_TICKS, "minecraft:phantom": 200,
                      "minecraft:vindicator": MELEE_TICKS, "minecraft:wither_skeleton": MELEE_TICKS,
                      "minecraft:ghast": 60, "minecraft:piglin": MELEE_TICKS, "minecraft:zombified_piglin": MELEE_TICKS,
                      "minecraft:blaze": 178 / 3, "minecraft:enderman": MELEE_TICKS,

@@ -29,70 +29,71 @@ MAY_IMPORT_TOP = {"brain", "review"}
 # table was introduced: one leaf module that genuinely belongs in every closure raises them all by one.
 # 重构后基线（refactor 1–5 之后的当前值），只降不升。
 CLOSURE = {
-    "actions": 15,
-    "api": 8,
+    "actions": 16,
+    "api": 9,
     "arbiter": 2,            # arbiter no longer imports api: api wires its message and /stop in (arbiter.WIRE)
-    "bag": 11,
-    "beliefs": 1,
+    "bag": 12,
+    "beliefs": 2,
     "blueprints": 1,
-    "brain": 57,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors)
-    "brewing": 21,
-    "building": 19,
-    "combat": 17,
-    "combat_model": 3,
-    "combat_tape": 9,
-    "cost": 15,
-    "craft": 20,
+    "brain": 58,            # + reflexes (the maintenance table split off needs); + mechanisms (taught doors)
+    "brewing": 22,
+    "building": 20,
+    "combat": 18,
+    "combat_model": 4,
+    "combat_tape": 10,
+    "cost": 16,
+    "craft": 21,
     "data": 1,
-    "decompose": 23,
-    "dragon": 14,
-    "dispatch": 22,
-    "end": 17,
-    "estimate": 5,           # + data (READ_EVERY_S: fight_cost charges the loop's poll per target)
+    "decompose": 24,
+    "dragon": 15,
+    "dispatch": 23,
+    "end": 18,
+    "estimate": 6,           # + data (READ_EVERY_S: fight_cost charges the loop's poll per target)
     "events": 2,             # the concise event log: paths only
-    "explore": 17,
-    "farming": 22,
+    "explore": 18,
+    "farming": 23,
     "field": 1,
-    "fight_loop": 19,
-    "fight_plan": 7,         # + data via estimate (READ_EVERY_S)
-    "fluids": 18,
+    "fight_loop": 20,
+    "fight_plan": 8,         # + data via estimate (READ_EVERY_S)
+    "fluids": 19,
     "fresh": 2,
+    "formulas": 1,           # the game's formulas (armour, explosion): +1 in every closure reading beliefs or estimate
     "game": 0,               # a constant leaf (constant_leaf): counted by no closure, its own included
-    "gather": 20,
+    "gather": 21,
     "goals": 3,
-    "hazard": 13,
-    "intent": 9,
-    "jobs": 21,
+    "hazard": 14,
+    "intent": 10,
+    "jobs": 22,
     "lifecycle": 1,
-    "kernel": 6,             # + data via estimate (READ_EVERY_S)
+    "kernel": 7,             # + data via estimate (READ_EVERY_S)
     "knowledge": 2,
-    "loot": 17,
-    "mechanisms": 14,        # taught doors: the store, the press skill
+    "loot": 18,
+    "mechanisms": 15,        # taught doors: the store, the press skill
     "memory": 4,
-    "nav": 13,               # + knowledge (data-only facts): plan_way prices its breaks (break_ticks, tool_for)
-    "nether": 18,
+    "nav": 14,               # + knowledge (data-only facts): plan_way prices its breaks (break_ticks, tool_for)
+    "nether": 19,
     "paths": 1,
-    "perception": 23,
-    "planner": 10,
+    "perception": 24,
+    "planner": 11,
     "retry": 2,                     # → data.UNREACHABLE (03cfe4f): one fact edge, the one list api shares
     "review": 7,
     "roads": 1,
     "shapes": 1,                    # types only (TypedDicts, Literals): imported under TYPE_CHECKING
-    "skill": 13,
-    "skillcore": 12,
-    "skills": 27,
+    "skill": 14,
+    "skillcore": 13,
+    "skills": 28,
     "solve": 1,
-    "store": 22,
-    "survive": 23,
+    "store": 23,
+    "survive": 24,
     "tape": 2,
     "tasks": 5,
-    "terrain": 15,
-    "threat": 7,             # + data via estimate (READ_EVERY_S)
-    "ui": 21,
-    "needs": 37,
-    "reflexes": 36,
-    "wood": 24,
-    "world": 9,
+    "terrain": 16,
+    "threat": 8,             # + data via estimate (READ_EVERY_S)
+    "ui": 22,
+    "needs": 38,
+    "reflexes": 37,
+    "wood": 25,
+    "world": 10,
 }
 
 # And by one again for `lifecycle`: a leaf with no imports where per-life state registers its reset beside itself,
@@ -108,7 +109,7 @@ CLOSURE = {
 
 # The bottom: pure facts and pure functions over them. Anything here that grows an import has stopped being a fact.
 FACTS = {"data", "shapes", "kernel", "solve", "combat_model", "retry", "roads", "blueprints",
-         "paths", "beliefs", "field", "estimate", "lifecycle"}
+         "paths", "beliefs", "field", "estimate", "lifecycle", "formulas"}
 
 
 def modules():

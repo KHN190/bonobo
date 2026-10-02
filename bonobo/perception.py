@@ -10,7 +10,7 @@ from typing import Any
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
 from .data import memo_ttl, is_night
 from .game import EYE_HEIGHT
-from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG
+from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG, hardest_hit
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
@@ -318,7 +318,7 @@ class Watcher(threading.Thread):
                 self._ttd = None
             else:
                 from . import estimate
-                prot = threat.protection(s.get("armor", 0), False)
+                prot = threat.protection(s.get("armor", 0), False, hit=hardest_hit(r[3] for r in rows))
                 self._ttd = estimate.time_to_die_s(
                     s.get("health", 20), pressure_now(here, rows, prot, horizon=interrupt_within_s()))
         except (api.McError, KeyError):

@@ -64,7 +64,7 @@ def fight_line_holds(contract, args, state, inv):
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
     mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),
-                                    beliefs.protection(state.get("armor", 0), shield))
+                                    beliefs.protection(state.get("armor", 0), shield, hit=beliefs.hardest_hit(kinds)))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
         return True, None
@@ -81,7 +81,7 @@ def line_raisers(kinds, state, inv, material=LINE_ARMOR):
     sword, armor = _k.attack_weapon(inv, beliefs.COMMON_FOE_HP), float(state.get("armor", 0))
 
     def inside(item, points):
-        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield))
+        mean, hit = estimate.melee_loss(kinds, item, beliefs.protection(points, shield, hit=beliefs.hardest_hit(kinds)))
         return estimate.fight_line_ok(hp, floor, mean, hit)
 
     sets, rows, points = [], [], armor

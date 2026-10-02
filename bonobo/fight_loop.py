@@ -12,7 +12,7 @@ from .api import NotAvailable
 from .skillcore import Context
 from .world import Inventory, Snapshot
 from .estimate import follows_to
-from .beliefs import MOBS
+from .beliefs import MOBS, hardest_hit
 from .knowledge import ALL_FOOD, RAW_MEAT
 from .data import GROUPS, home_may_hold, placed_cell
 
@@ -307,7 +307,8 @@ def threat_state(state, rows, work_s=None, ids=()):
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
           "sword": state.get("sword"),        # the sword item carried (perception.kit), None: the hand
           # a shield in the offhand is protection: the jar's reflex raises it for every predicted hit (`reflex`)
-          "protection": threat.protection(state.get("armor", 0), bool(state.get("shield"))),
+          "protection": threat.protection(state.get("armor", 0), bool(state.get("shield")),
+                                          hit=hardest_hit(r[3] for r in rows)),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,
           "food_items": int(state.get("food_items", 0)), "shield": bool(state.get("shield")), "bow": bool(state.get("bow")),
           "golden_apples": int(state.get("golden_apples", 0)), "hunger": float(state.get("food", 20)),
