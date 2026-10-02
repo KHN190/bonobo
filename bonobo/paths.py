@@ -102,14 +102,22 @@ def read_jsonl(path, tail=None, offset=None):
     return [json.loads(ln) for ln in lines if ln], start + done
 
 
-# -- session state: what outlives a life (events' bookkeeping, the tape's buffers), created here only. A module's
-# state made any other way is the static check's R8 finding.
-_SESSION = {}           # name → the object handed out
+# -- session state: what outlives a life (events' bookkeeping, the tape's buffers), created here only, renewed in one
+# call (tests' setUp: renew_session). A module's state made any other way is the static check's R8 finding.
+_SESSION = {}           # name → (the object handed out, the factory that renews it)
 
 
 def session(name, factory):
-    """A session's container, made by `factory()` (dict, list, set or a dict literal's maker) and registered by name;
-    no life's reset touches it (lifecycle.reset_all is per life)."""
+    """A session's container, made by `factory()` (dict, list, set or a dict literal's maker); reset_all renews it in
+    place, so every holder keeps seeing the same object."""
     obj = factory()
-    _SESSION[name] = obj
+    _SESSION[name] = (obj, factory)
     return obj
+
+
+def renew_session():
+    """Every registered session state back to its factory's contents (in place)."""
+    for obj, factory in _SESSION.values():
+        fresh = factory()
+        obj.clear()
+        (obj.update if isinstance(obj, (dict, set)) else obj.extend)(fresh)
