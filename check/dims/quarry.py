@@ -7,7 +7,7 @@ NAME = "quarry"
 VALUES = ("none", "spider", "enderman")
 DROP = {"spider": "minecraft:string", "enderman": "minecraft:ender_pearl"}
 AT = (20.5, 64.0, 0.5)              # in sight (/entities 48), beyond a spider's notice (16): no threat even by night
-DEPENDS = (lambda f: f["kit"] == "sword", {"kit": "sword"})
+DEPENDS = (lambda f: f["kit"] in ("sword", "sword_shield"), {"kit": "sword"})
 
 
 def domain():

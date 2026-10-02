@@ -18,7 +18,7 @@ def domain():
 
 
 def valid(value, facts):
-    return value != "stocked" or (not facts["threat"] and facts["kit"] == "sword")
+    return value != "stocked" or (not facts["threat"] and facts["kit"] in ("sword", "sword_shield"))
 
 
 def alpha(a):
