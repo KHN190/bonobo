@@ -1,13 +1,14 @@
 """The threat layer's answer held from an earlier round (kernel.Held, fight_loop.STATE.held: D4 across rounds): none
-held; held and still the fresh choice; held, another answer — one still worth its keep where this reading has one (the
-switch must pay, kernel.switches), else one whose assumption broke (fight_loop.still_worth: a target no reading
-lists)."""
+held; held and still the fresh choice; held, another answer whose assumption broke (fight_loop.still_worth: an answer
+no reading offers). The switch path (a held answer still worth its keep, kernel.switches) needs the reading to move
+between two rounds: live."""
 import time
 
 NAME = "held"
 VALUES = ("none", "same", "other")
 DEPENDS = (lambda f: f["threat"], {"threat": True})
 GONE = -1          # an entity id no reading lists
+OTHER = "check_held"   # an answer kind threat.options never makes
 
 
 def domain():
@@ -40,17 +41,16 @@ def prepare(brain, f):
     from bonobo.kernel import Choice
     state = api.get("/state")
     perception.Watcher()._look(state)
-    model, price, horizon, st = _reading(state)
+    _model, price, _horizon, st = _reading(state)
     fight_loop.bid(st, threat.THREAT_ROWS, price, ids=threat.THREAT_IDS)     # the layer holds its fresh choice
     keeper = fight_loop.held()
     if f[NAME] == "same" or keeper is None or keeper.choice is None or keeper.choice.action is None:
         return
-    name = keeper.choice.name
-    alt = next((a for _s, a in keeper.choice.considered
-                if a.name != name and fight_loop.still_worth(Choice(a), model, price, horizon)), None)
-    if alt is None:
-        kind = "shoot" if name == "fight" else "fight"
-        alt = threat.Answer(threat.Option(kind, GONE, 0.0, 1.0, "check: held on a target no reading lists"), price)
+    # "other": an answer no reading offers (OTHER), so it differs from whatever the round's fresh choice is — the reading
+    # the round makes need not be the one this bid saw (a fresh choice compared here came out equal there: 050d99e's
+    # round-trip mismatch); its assumption fails (fight_loop.still_worth: not among the options) and the layer decides
+    # again (kernel.Held.decide: "assumption")
+    alt = threat.Answer(threat.Option(OTHER, GONE, 0.0, 1.0, "check: held, no reading offers it"), price)
     keeper._take(Choice(alt, cost_s=alt.cost_s), time.time())
 
 
