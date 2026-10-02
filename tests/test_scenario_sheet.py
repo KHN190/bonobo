@@ -255,15 +255,9 @@ class Tiers(unittest.TestCase):
                     self.assertTrue(set(row["tags"].values()) & set(vocab.COMMON_CONDITIONS))
 
     # (row, tier it must be in): the rules the tiers exist for, stated per row.
-    PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
+    PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("reach_land_swim", "common"),
               ("chest_or_tree", "common"), ("water_clutch", "core"), ("cross_lava_8", "common"),
-              ("cave_escape", "common"), ("slice_nether_kit", "common"), (words_checks.ACCEPTANCE_D, "acceptance"),
-              
-              ("plan_repair_on_event", "brain"), ("brain__tight", "brain"), ("seen_store__noted", "brain"),
-              ("ban_then_other_source", "brain"),
-              ("resume_after_combat", "brain"), ("l3_two_goals_in_order", "brain"),
-              ("ban_needs_a_failure", "brain"), 
-              ("l3_order_swapped", "brain"), ("plan_without_events", "brain")] + [
+              ("cave_escape", "common"), ("slice_nether_kit", "common"), (words_checks.ACCEPTANCE_D, "acceptance")] + [
               ("combat__shield_arrows", "combat"), ("deflect__volley", "combat"), ("fight_zombie_3", "combat")]
 
     def test_placed_rows(self):

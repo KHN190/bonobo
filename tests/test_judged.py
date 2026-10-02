@@ -20,7 +20,7 @@ PASS_ALLOW = {
     "interrupted": "proves the bench's own injected interrupt landed (the scene), never the success",
     "slice_check": "loops and idle time have no world reading; the slice's done() is judged by the bag",
     "brain_rule": _DECISION, "behaviour": _DECISION,
-    "answers_are_closed": _DECISION, "shapes_fit_the_enemy": _DECISION, "more_of_them_costs_more": _DECISION,
+    "answers_are_closed": _DECISION, "shapes_fit_the_enemy": _DECISION,
     "remembered_any": _NOTE, "memory": _NOTE, "stronghold_error": _NOTE,
     "found_fortress_now": _NOTE, "portal_room_found": _NOTE,
     "skill_within": _SPEED, "road_times": _SPEED,
