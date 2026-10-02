@@ -6,7 +6,6 @@ it is made for."""
 NAME = "plan_held"
 VALUES = ("none", "event", "emptied", "stuck", "ran", "walking")
 FOR = {"event": "tool", "emptied": "tool", "stuck": "tool", "ran": "skill", "walking": "road"}
-TASK = "t1"          # the first task's id (tasks.add numbers from 1): the task dimension's only task here
 DEPENDS = (lambda f: f["task"] in set(FOR.values()), {"task": "tool"})
 
 
@@ -21,6 +20,14 @@ def valid(value, facts):
 def _iron_pickaxe(inputs=None):
     from bonobo.decompose import Step
     return Step("craft", "minecraft:iron_pickaxe", 1, {"inputs": dict(inputs or {})})
+
+
+def task_id():
+    """The id of the task the `task` dimension reads (check/dims/task._of): another dimension's task (a quarry's hunt)
+    may stand before it in the queue, so it is never assumed to be t1."""
+    from bonobo import tasks
+    from . import task as task_dim
+    return next((t["id"] for t in tasks.load() if t["state"] in tasks.LIVE and task_dim._of(t) is not None), None)
 
 
 def held_for(value, goal, snap, mem):
@@ -46,13 +53,14 @@ def prepare(brain, facts):
         return
     from bonobo import api, tasks
     from bonobo.world import Inventory, Snapshot
-    task = next(t for t in tasks.load() if t["id"] == TASK)
+    tid = task_id()
+    task = next(t for t in tasks.load() if t["id"] == tid)
     snap = Snapshot.from_readings(api.get("/state"), Inventory())
-    brain.held[TASK] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem)
+    brain.held[tid] = held_for(facts["plan_held"], tasks.goal_of(task), snap, brain.mem)
 
 
 def alpha(a):
-    h = getattr(a.brain, "held", {}).get(TASK) if a.brain is not None else None
+    h = getattr(a.brain, "held", {}).get(task_id()) if a.brain is not None else None
     if h is None:
         return "none"
     if h["event"]:
