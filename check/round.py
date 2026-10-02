@@ -27,6 +27,20 @@ def _decision(act, chosen, intents, world):
                     name=getattr(act, "name", None), alternatives=tuple(alts))
 
 
+TARGET = (12, 64, 12)       # a failure about a target (a vein, a station): its `pos`
+
+
+def step_failures(first):
+    """The failures D5 tries in turn: `first` (this state's), each other cause that cools (check/dims/failure), one
+    about a target (`pos`: cooled at the target, banned there), an interruption (resumed, never counted)."""
+    from bonobo.api import Interrupted, NotAvailable
+    from .dims.failure import FAILING
+    out = [first] + [cls("check: the step failed here") for cls in FAILING.values() if type(first) is not cls]
+    at = NotAvailable("check: the target was not there")
+    at.pos = TARGET
+    return out + [at, Interrupted("check: interrupted")]
+
+
 def decide(facts, fail_then_again=True):
     """(Decision, alpha of the γ world, ctx): the production round's choice on the concrete world of `facts`. ctx:
     the step's kind, whether its target lies in the home, the night's cheapest way (needs.overnight), and the
@@ -107,6 +121,11 @@ def decide(facts, fail_then_again=True):
         if fail_then_again and act is not None and chosen is not None:
             # D5: the step fails here; the arbiter's gate drops an intent whose key is cooling (arbiter.viable) —
             # an intent with no key, or one the failure does not cool, is offered again in this same state
-            b.failed(act.name, failure)
-            ctx["reselected"] = chosen.key is None or b.ready(chosen.key)
+            # every way the step can fail here: this state's failure, each other cooling cause (check/dims/failure),
+            # the same at a target (brain.failed cools there), an interruption (no failure: the step resumes)
+            reselected = chosen.key is None
+            for err in step_failures(failure):
+                b.failed(act.name, err)
+                reselected = reselected or (not isinstance(err, api.Interrupted) and b.ready(chosen.key))
+            ctx["reselected"] = reselected
     return d, got, ctx
