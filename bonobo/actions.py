@@ -2,7 +2,7 @@
 
 import math
 
-from .data import (DAY_TICKS, GROUPS, NIGHT_END, is_night, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
+from .data import (GROUPS, NIGHT_END, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
 from .knowledge import (working, BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
                         under_rock, dawn_s, NIGHT_S, MIN_FIND_P)  # noqa: F401
@@ -82,7 +82,6 @@ DROWNING_TICKS = 100  # ~5 s of air: below this a breath comes first
 
 def body_dims(state):
     """{dimension: 1} for what the body can do where it is (the snapshot only)."""
-    state = state or {}
     swimming = bool(state.get("inWater")) and not state.get("onGround", False)
     falling = float(state.get("fallDistance", 0) or 0) > 2.0
     held = bool((state.get("control") or {}).get("paused"))
@@ -94,7 +93,7 @@ def body_dims(state):
         out["hands_free"] = 1
     return out
 
-def state_of(snap, mem, extra=None, reachable=None):
+def state_of(snap, mem, reachable=None):
     """The world as a vector from snapshot and memory only, so recorded rounds replay."""
 
     inv = snap.inv
@@ -128,24 +127,12 @@ def state_of(snap, mem, extra=None, reachable=None):
     x["bag_free"] = inv.free_slots()
     x["bed"] = x.get("bed", 0)
     # the body's abilities as dimensions: a column needing footing is dropped when there is none, instead of every goal failing on it
-    x.update(body_dims(getattr(snap, "state", None)))
-    night = _is_night(snap)
-    if not night:
+    x.update(body_dims(snap.state))
+    if not snap.night:
         x[DAY_DIM] = 1
     else:
-        x["clock:dawn_s"] = _dawn_s(snap)
-    x.update(extra or {})
+        x["clock:dawn_s"] = dawn_s(snap.state)
     return {d: v for d, v in x.items() if v}
-
-def _is_night(snap):
-    night = getattr(snap, "night", None)
-    if night is not None:
-        return bool(night)
-    state = getattr(snap, "state", None) or {}
-    return is_night(int(state.get("timeOfDay", 0)), state.get("dimension", "minecraft:overworld"))
-
-def _dawn_s(snap):
-    return dawn_s(getattr(snap, "state", None) or {})
 
 # Close enough to work on it without walking: the skills' own reach.
 ARRIVED_R = 5.0
@@ -210,10 +197,7 @@ def base_table(cost):
         out = (_seek(cost) + _gather(cost) + _mine(cost) + _take(cost) + _hunt(cost) + _farm(cost) + _craft(cost)
                + _smelt(cost) + _fill(cost) + _trade(cost))
         hit = [with_exposure(a) for a in out]
-        try:
-            cost._base_columns = hit
-        except AttributeError:
-            pass  # a cost model that will not hold it simply rebuilds
+        cost._base_columns = hit
     return hit
 
 def _seek(cost):
@@ -463,8 +447,8 @@ def to_step(action, times, cost=None):
     return step
 
 def _shape(action, times):
-    tag: tuple = action.tag or ()     # (kind, token, ...) by kind
-    kind = tag[0] if tag else "craft"
+    tag: tuple = action.tag     # (kind, token, ...) by kind
+    kind = tag[0]
     if kind == "seek":
         # The position, when one is known: the seek skill walks there (explore.seek).
         return Step("seek", tag[1], 1, {"kinds": list(tag[2]),

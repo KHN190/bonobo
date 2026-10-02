@@ -778,7 +778,7 @@ class HostileRows(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, threat.hostile_rows, self.TABLE)
+        run_table(self, lambda near, memory, now: threat.hostile_rows(near, memory, now, HERE), self.TABLE)
 
     MEMORY = [
         ("seen: remembered at now", {}, [{"type": Z, "id": 7, "x": 2, "y": 64, "z": 0}], 10.0, {7: ((2, 64, 0), 10.0)}),
@@ -791,7 +791,7 @@ class HostileRows(unittest.TestCase):
         for why, memory, near, now, after in self.MEMORY:
             with self.subTest(why):
                 memory = dict(memory)
-                threat.hostile_rows(near, memory, now)
+                threat.hostile_rows(near, memory, now, HERE)
                 self.assertEqual(memory, after)
 
 

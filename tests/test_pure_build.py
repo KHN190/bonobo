@@ -88,7 +88,6 @@ class BodyDims(unittest.TestCase):
     BOTH = {"footing": 1, "hands_free": 1}
     TABLE = [
         # state                                          expected                 why
-        (None,                                            BOTH,                    "no snapshot: defaults are a standing body"),
         ({"inWater": True, "onGround": False},            {"hands_free": 1},       "swimming: no footing, hands still ours"),
         ({"inWater": True, "onGround": True},             BOTH,                    "wading on the bottom is footing"),
         ({"onGround": False},                             {"hands_free": 1},       "in the air: no footing"),

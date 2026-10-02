@@ -120,7 +120,7 @@ class Planner:
             s = inv.equipment.get(slot) or {}
             if s.get("count"):
                 counts[s["id"]] += 1
-        tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)] if hasattr(inv, "tools") else []
+        tools = [(kind, t, d) for kind in TOOL_KINDS for t, d, _ in inv.tools(kind)]
         return cls(counts, tools, cost, {mid(k): v for k, v in (pending or {}).items()}, reserved)
 
     # -- public

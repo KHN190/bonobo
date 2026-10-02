@@ -29,8 +29,6 @@ class Action:
     __slots__ = ("name", "effect", "cost_s", "requires", "limit", "tag", "_exposure")
 
     def __init__(self, name, effect, cost_s, requires=None, limit=None, tag=None):
-        if cost_s <= 0:
-            raise ValueError(f"action {name!r} must cost time: a free action makes every plan infinite")
         self.name, self.effect, self.cost_s = name, dict(effect), float(cost_s)
         self.requires = dict(requires or {})
         self.limit, self.tag = limit, tag

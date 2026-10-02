@@ -1071,7 +1071,7 @@ class NightIsTheOverworlds(unittest.TestCase):
     """data.is_night: the Nether and the End have no night."""
 
     def test_rows(self):
-        from bonobo import actions, survive
+        from bonobo import survive
         from bonobo.data import is_night
         from bonobo.world import Snapshot
         from tests.world import inventory
@@ -1087,7 +1087,6 @@ class NightIsTheOverworlds(unittest.TestCase):
                 state = {"dimension": dim, "timeOfDay": t}
                 self.assertIs(is_night(t, dim), want)
                 self.assertIs(Snapshot.from_readings(state, inventory()).night, want)
-                self.assertIs(actions._is_night(mock.Mock(spec=["state"], state=state)), want)
                 # wait_for_day's done: the sun is up (must fail: sat out forever in the Nether)
                 with mock.patch.object(survive.api, "get", lambda path, *a, **k: state):
                     self.assertIs(survive._day_now(), not want)

@@ -126,7 +126,7 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
     if mem is None or snap is None or not hasattr(mem, "stored"):
         return [], extra
     steps = []
-    rate = mem.container_change_rate() if hasattr(mem, "container_change_rate") else 0.0
+    rate = mem.container_change_rate()
     now = time.time()
     for need in needs:
         if need[0] == "tool":
@@ -148,13 +148,13 @@ def from_containers(inv, needs, cost, solver=None, pending=None):
             take = min(short, have)
             step = _action("withdraw", item, cost, pos=list(pos))
             step.count = take
-            rec = mem.container_record(pos) if hasattr(mem, "container_record") else None
+            rec = mem.container_record(pos)
             p = container_p(rec, ids, now - rec.get("at", now), rate) if rec else 1.0
             if p > 0 and step.est / p < make_s(take):
                 steps.append(step)
                 extra[item] = extra.get(item, 0) + take
                 short -= take
-        if short > 0 and hasattr(mem, "home_containers"):
+        if short > 0:
             look = _best_look(mem, ids, snap, cost, make_s(short))
             if look is not None:
                 steps.append(look)
