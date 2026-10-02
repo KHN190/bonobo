@@ -144,6 +144,23 @@ class Dimensions(unittest.TestCase):
                     self.assertEqual(facts.of(threat=False)[dim.NAME], 0)   # its condition off: its first value
 
 
+class Queued(unittest.TestCase):
+    def test_rows(self):
+        from check.facts import _queued
+
+        def task(item, state="pending"):
+            return {"state": state, "args": {"needs": [[f"minecraft:{item}", 1]]}}
+        # (situation, the queue) → the queued fact
+        rows = [("nothing queued", [], "none"),
+                ("a craft queued", [task("stick")], "stick"),
+                ("must fail: a hunt (another dimension's task) read as queued", [task("beef")], "none"),
+                ("the hunt first, then a craft: the craft", [task("beef"), task("stick")], "stick"),
+                ("a done craft is not live", [task("stick", "done")], "none")]
+        for name, items, want in rows:
+            with self.subTest(name):
+                self.assertEqual(_queued(items), want)
+
+
 class Denominator(unittest.TestCase):
     """check/coverage.decision_code: the brain's decision code by structure — reached from the round's entry points,
     execution excluded with its reason."""

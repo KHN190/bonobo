@@ -72,9 +72,16 @@ def hunger_of(food):
 
 
 def _queued(items):
+    """The first live task whose first item is a `queued` value (tasks.LIVE), else "none": a task another dimension
+    queues (a hunt) is that dimension's fact, not this one's."""
     from bonobo import tasks
-    head = tasks.head(items)
-    return "none" if head is None else head["args"]["needs"][0][0].removeprefix("minecraft:")
+    for t in items:
+        if t["state"] in tasks.LIVE:
+            needs = t.get("args", {}).get("needs") or [[""]]
+            item = str(needs[0][0]).removeprefix("minecraft:")
+            if item in DOMAINS["queued"]:
+                return item
+    return "none"
 
 
 def alpha(snap, mem, world, brain):
