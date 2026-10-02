@@ -1551,3 +1551,23 @@ class FallbackTableSpent(unittest.TestCase):
                 state = {"here": HERE, "protection": 0.0, "hazards": [row(kind, 2, 0)]}
                 got = threat.fallback([opt(k) for k in kinds], state)
                 self.assertEqual(got.kind if got else None, want)
+
+
+class HideFromArchers(unittest.TestCase):
+    """threat.options' hide: a cell out of every archer's line of fire (perception.hide_near), priced as the pressure
+    until there; chosen over a fight in the open and a walk out of reach."""
+
+    def test_rows(self):
+        from bonobo import fight_loop
+        state = {"x": HERE[0], "y": HERE[1], "z": HERE[2], "health": 20, "armor": 7,
+                 "sword": "minecraft:iron_sword", "shield": True, "blocks": 0}
+        archer = [row("minecraft:skeleton", 7, -11)]
+        # (situation, the hide cell perception read) → the answer chosen
+        rows = [("must fail: a wall 2 cells off between us and the archer: behind it", (-3, 64, 0), "hide"),
+                ("nothing to hide behind: not hide", None, None)]
+        for name, hide, want in rows:
+            with self.subTest(name):
+                st = fight_loop.threat_state(dict(state, hide=hide), archer, ids=[1])
+                got = threat.decide(st).kind
+                self.assertEqual(got == "hide", want == "hide", got)
+

@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from . import api, lifecycle
+from .game import EYE_HEIGHT
 from .data import (DAY_END, DAY_TICKS, is_night, DOOR_SUFFIX, GROUPS, HAZARD, NIGHT_END, OPEN_PROP, PARTIAL_SUFFIX, PASSABLE,
                    PASSABLE_SUFFIX, is_door,
                    PLAYER_MADE_SUFFIX, TIER_OF_MATERIAL, UNBREAKABLE, bare, living, mid)
@@ -41,6 +42,20 @@ def line_clear(solid, a, b, step=0.25):
         if cell not in ends and solid(cell):
             return False
     return True
+
+def hidden_cell(solid, here, eyes, radius):
+    """Pure: the nearest cell within `radius` a body stands in (floor solid, feet and head clear) that no eye in
+    `eyes` has a clear line to (line_clear to its eye), or None."""
+    x, y, z = (int(math.floor(v)) for v in here)
+    cells = sorted(((x + dx, y + dy, z + dz) for dx in range(-radius, radius + 1) for dz in range(-radius, radius + 1)
+                    for dy in (0, -1, 1)), key=lambda c: math.dist(here, (c[0] + 0.5, c[1], c[2] + 0.5)))
+    for c in cells:
+        if not solid((c[0], c[1] - 1, c[2])) or solid(c) or solid((c[0], c[1] + 1, c[2])):
+            continue
+        eye = (c[0] + 0.5, c[1] + EYE_HEIGHT, c[2] + 0.5)
+        if not any(line_clear(solid, e, eye) for e in eyes):
+            return c
+    return None
 
 def line_of_fire(a, b):
     """Is there an open line from `a` to `b` (both eye points): one read of the box they span."""
