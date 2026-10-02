@@ -10,6 +10,12 @@ AGO_S = 1.0                         # inside rows' (0.01, 2.0) s window
 FARTHER = 1.0                       # a block farther along x than now
 
 
+def valid(value, f):
+    """A velocity is read off the layer's rows: none when walls hide a ranged mob from it (held.valid: one rule)."""
+    from .held import valid as seen
+    return value != "moving" or seen("same", f)
+
+
 def domain():
     return VALUES
 
