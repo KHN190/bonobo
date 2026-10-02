@@ -77,7 +77,7 @@ STATE = {"x": 0.5, "y": 64.0, "z": 0.5, "blockX": 0, "blockY": 64, "blockZ": 0, 
          "mainHand": {"id": "minecraft:air", "count": 0}, "screen": "none", "lookingAt": {"kind": "none"},
          "control": {"active": False, "paused": False, "allowed": True, "task": None, "queued": 0}}
 AIR = {"id": "minecraft:air", "count": 0}
-TOOL_MAX = {"wooden": 59, "stone": 131, "iron": 250, "golden": 32, "diamond": 1561, "netherite": 2031}
+from bonobo.data import TOOL_USES as TOOL_MAX  # noqa: E402  (the game's durabilities: one table)
 
 
 def state(**changes):

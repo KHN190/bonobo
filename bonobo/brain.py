@@ -74,6 +74,9 @@ def fight_line_holds(contract, args, state, inv):
         return True, None
     return False, f"health {hp:.0f} under the fight line for {kinds} ({floor:.0f} + {estimate.loss_q(mean, hit):.0f})"
 
+_k.FIGHT_LINE = fight_line_holds      # the planner's cost model asks the same judge (cost.fight_line)
+
+
 LINE_ARMOR = "iron"
 
 
@@ -884,15 +887,11 @@ def outcome_of(err) -> "tuple[Outcome, Source | None]":
     return ("interrupted" if arbiter.resume_of(source)[0] else "failed"), source
 
 def replan(task, goal, snap, cost, pending=None):
-    """Pure given the cost: (held, None), or (None, why) when no solver can plan `goal`."""
+    """Pure given the cost: (held, None), or (None, why) when `goal` cannot be planned."""
     try:
-        solver = task.get("solver") or goals.SOLVER_FOR.get(goal["goal"]) or decompose.ORDER[0]
-        steps = decompose.decompose(snap.inv, goal, cost, solver=solver, pending=pending)
-    except Unplannable:
-        try:
-            steps = decompose.decompose(snap.inv, goal, cost, solver=None, pending=pending)
-        except Unplannable as e:
-            return None, f"unplannable: {e}"
+        steps = decompose.decompose(snap.inv, goal, cost, pending=pending)
+    except Unplannable as e:
+        return None, f"unplannable: {e}"
     return {"steps": steps, "sig": bag_signature(snap.inv), "event": False, "dim": snap.dimension}, None
 
 def code_version():

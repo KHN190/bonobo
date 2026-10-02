@@ -1,4 +1,4 @@
-"""Pure-function tables for skills / solve / tape / threat / world: one table per function, every row a subTest.
+"""Pure-function tables for skills / tape / threat / world: one table per function, every row a subTest.
 
 Each table holds a normal row, a boundary row and a must-fail row (its reason in the row's name). Inputs are readings
 (tests/world.py) or hand-built rows through the modules' own constructors; nothing here talks to the game.
@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, solve, survive, tape, threat  # noqa: E402
+from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, survive, tape, threat  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
 from bonobo.world import connected  # noqa: E402
@@ -691,40 +691,6 @@ class PendingReady(unittest.TestCase):
 
     def test_table(self):
         run_table(self, craft.pending_ready, self.TABLE)
-
-
-# ---------------------------------------------------------------- solve
-
-def names(via):
-    return {d: a.name for d, a in via.items()}
-
-
-CHOP = solve.Action("pt_chop", {"log": 1}, 5)
-CRAFT = solve.Action("pt_craft", {"log": -1, "planks": 4}, 2)
-BUY = solve.Action("pt_buy", {"log": 2}, 4)
-MINE = solve.Action("pt_mine", {"iron": 1}, 10, requires={"pickaxe": 1})
-
-
-class ReachTree(unittest.TestCase):
-    TABLE = [
-        ("one column", ([CHOP], {}), ({"log": 5.0}, {"log": "pt_chop"})),
-        ("a chain: planks priced through logs", ([CHOP, CRAFT], {}),
-         ({"log": 5.0, "planks": 1.75}, {"log": "pt_chop", "planks": "pt_craft"})),
-        ("held logs cost nothing", ([CHOP, CRAFT], {"log": 3}), ({"log": 0.0, "planks": 0.5}, {"planks": "pt_craft"})),
-        ("the cheaper per unit wins", ([CHOP, BUY], {}), ({"log": 2.0}, {"log": "pt_buy"})),
-        ("boundary: a held zero is not held", ([CHOP], {"log": 0}), ({"log": 5.0}, {"log": "pt_chop"})),
-        ("boundary: unpriced dimensions are dropped", ([CHOP], {"food": 5}), ({"log": 5.0}, {"log": "pt_chop"})),
-        ("requirement held: reachable", ([MINE], {"pickaxe": 1}),
-         ({"pickaxe": 0.0, "iron": 10.0}, {"iron": "pt_mine"})),
-        ("must fail: requirement missing, nothing priced", ([MINE], {}), ({}, {})),
-    ]
-
-    def test_table(self):
-        for why, (cols, st), (cost, via) in self.TABLE:
-            with self.subTest(why), mock.patch.dict(solve._PRICES, clear=True):
-                got_cost, got_via = solve.reach_tree(cols, st)
-                self.assertEqual(got_cost, cost)
-                self.assertEqual(names(got_via), via)
 
 
 # ---------------------------------------------------------------- tape

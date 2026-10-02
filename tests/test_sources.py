@@ -1,6 +1,6 @@
-"""Where a thing comes from: the solver's own way, or another source (decompose.SOURCES), priced — and the way to
-where a thing lives put first (decompose.where_it_lives). One table: the bag, the world memory knows, the goal →
-which source the plan takes, and which place-steps it carries."""
+"""Where a thing comes from, every way a contract gives it, priced by the one planner — and the facts a way needs
+first (its contract's `when`: the Nether, a portal, a fortress found) put before it by the steps that set them. One
+table: the bag, the world memory knows, the goal → which way the plan takes, and which place-steps it carries."""
 import os
 import sys
 import tempfile
@@ -21,7 +21,7 @@ OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 def world(dim=OVER, items=(), seen=(), sites=(), finds=None):
     """(bag, cost model) for a bag of `items`, memory that has `seen` [(kind, pos)] and `sites` [(kind, pos, dim)]."""
     inv = inventory(*items)
-    snap = Snapshot.from_readings({"dimension": dim, "blockX": 0, "blockY": 64, "blockZ": 0, "skyLight": 15,
+    snap = Snapshot.from_readings({"dimension": dim, "blockX": 0, "blockY": 64, "blockZ": 0, "skyLight": 15, "health": 20.0,
                                    "timeOfDay": 2000}, inv)
     m = Memory(os.path.join(tempfile.mkdtemp(), "notes.json"))
     for kind, pos in seen:
@@ -35,7 +35,14 @@ def kinds(steps):
     return [(s.kind, s.token) for s in steps]
 
 
-GOLD = [("gold_ingot", 8), ("golden_helmet", 1)]
+def barter_ingots(pearls):
+    """The gold a barter for `pearls` takes (the loot table's expected yield, knowledge.barter_yield)."""
+    import math
+    from bonobo.knowledge import barter_yield
+    return math.ceil(pearls / barter_yield("minecraft:ender_pearl"))
+
+
+GOLD = [("gold_ingot", barter_ingots(1)), ("golden_helmet", 1)]
 CAST_KIT = [("water_bucket", 1), ("bucket", 1), ("flint_and_steel", 1), ("cobblestone", 16)]
 
 # (situation, world, goal) → (steps that must be in the plan, steps that must not)
@@ -49,9 +56,12 @@ ROWS = [
     ("must fail: casting what is already carried — a portal, 10 obsidian and flint carried: built from what is carried",
      dict(items=[("obsidian", 10), ("flint_and_steel", 1), ("cobblestone", 16)], seen=[("lava", (6, 60, 0))]),
      goals.make("build", bp="nether_portal"), [("build", "nether_portal")], [("cast", "nether_portal")]),
-    ("pearls, gold carried, no enderman anywhere: bartered, the portal first",
-     dict(items=GOLD), goals.have(("minecraft:ender_pearl", 1)),
+    ("pearls, gold carried, no enderman anywhere, a portal known: bartered, the portal first",
+     dict(items=GOLD, sites=[("portal", (5, 64, 0), OVER)]), goals.have(("minecraft:ender_pearl", 1)),
      [("portal", NETHER), ("barter", "piglin")], [("hunt", "minecraft:ender_pearl")]),
+    ("must fail: pearls, gold carried, no portal and no way to cast one: the search for an enderman is cheaper",
+     dict(items=GOLD), goals.have(("minecraft:ender_pearl", 1)),
+     [("hunt", "minecraft:ender_pearl")], [("barter", "piglin"), ("portal", NETHER)]),
     ("pearls in the Nether with gold: bartered, no portal step",
      dict(dim=NETHER, items=GOLD), goals.have(("minecraft:ender_pearl", 1)),
      [("barter", "piglin")], [("portal", NETHER)]),
@@ -85,27 +95,26 @@ class Sources(unittest.TestCase):
                 if len(has) > 1:
                     self.assertEqual([s for s in got if s in has], has, "in this order")
 
-    # (situation, world) → the reasons a portal cannot be had, when carrying obsidian is not plannable either
-    # a reason the plan names, or None: the cast is the way when lava is known and the kit carried
-    NO_WAY = [("must fail: no lava seen and no lava bucket", dict(items=CAST_KIT), "cast: no lava known and no lava bucket"),
-              ("must fail: in the Nether, water cannot be poured",
-               dict(dim=NETHER, items=CAST_KIT, seen=[("lava", (6, 60, 0))]), "cast: water cannot be poured in the Nether"),
-              ("must fail: an empty bag, no lava known", dict(items=[]), "cast: no lava known and no lava bucket"),
-              ("lava seen, the kit carried: cast", dict(items=CAST_KIT, seen=[("lava", (6, 60, 0))]), None)]
+    # (situation, facts) → why casting a frame in place cannot run from there (building.cast_portal's `when`)
+    CAST_WHEN = [("must fail: no lava seen and no lava bucket", {"dimension": OVER, "lava": False},
+                  "no lava known and no lava bucket"),
+                 ("must fail: in the Nether, water cannot be poured", {"dimension": NETHER, "lava": True},
+                  "water cannot be poured in the Nether"),
+                 ("lava known in the Overworld: nothing missing", {"dimension": OVER, "lava": True}, [])]
 
-    def test_no_way_says_every_reason(self):
-        def nothing():
-            raise Unplannable("no obsidian to be had here")
-        for name, w, reason in self.NO_WAY:
+    def test_cast_asks_of_where_it_is(self):
+        from bonobo import knowledge
+        from bonobo.planner import Step
+        for name, facts, want in self.CAST_WHEN:
             with self.subTest(name):
-                inv, cost = world(**w)
-                if reason is None:
-                    self.assertEqual(decompose.cheapest("build:nether_portal", 1, nothing, inv, cost)[1], "cast")
-                    continue
-                with self.assertRaises(Unplannable) as caught:
-                    decompose.cheapest("build:nether_portal", 1, nothing, inv, cost)
-                self.assertIn("default: no obsidian to be had here", str(caught.exception))
-                self.assertIn(reason, str(caught.exception))
+                self.assertEqual(knowledge.step_when(Step("cast", "nether_portal", 1, {}), facts), want)
+
+    def test_a_cast_that_cannot_run_is_not_planned(self):
+        """No lava known: the portal is built (obsidian), never cast."""
+        inv, cost = world(items=CAST_KIT)
+        got = kinds(decompose.decompose(inv, goals.make("build", bp="nether_portal"), cost))
+        self.assertIn(("build", "nether_portal"), got)
+        self.assertNotIn(("cast", "nether_portal"), got)
 
     # (goal, bag) → done? — None: done when its plan has run (RUN_AFTER), never read off the bag
     DONE = [("end portal with 12 eyes: its plan decides", goals.make("milestone", name="end portal"),
@@ -124,12 +133,12 @@ class Sources(unittest.TestCase):
 
 
 class BuildingBlocks(unittest.TestCase):
-    """Blocks to build with: dug by hand where dirt is in sight (SOURCES["building"]) or mined as stone, by price."""
+    """Blocks to build with: any member of the group, each by its own way, by price (dirt by hand, stone mined)."""
 
     # (situation, bag, what is in sight) → the steps (kind, token, count) planned for 9 building blocks
     ROWS = [("an empty bag, dirt 4 away: dug by hand", [], {"dirt": 4}, [("mine", "minecraft:dirt", 9)]),
             ("a pickaxe, stone 2 away, dirt 40 away: the stone", [("stone_pickaxe", 1)], {"stone": 2, "dirt": 40},
-             [("mine", "building", 9)]),
+             [("mine", "minecraft:cobblestone", 9)]),
             ("must fail: 16 cobblestone carried, nothing to do", [("cobblestone", 16)], {"dirt": 4}, []),
             ("boundary: exactly the 9 carried, nothing to do", [("cobblestone", 9)], {"dirt": 4}, [])]
 
@@ -141,17 +150,14 @@ class BuildingBlocks(unittest.TestCase):
                 steps = decompose.decompose(snap.inv, goals.have(("building", 9)), cost(snap, **seen))
                 self.assertEqual([(st.kind, st.token, st.count) for st in steps], want)
 
-    def test_no_dirt_says_why(self):
-        """No dirt in sight and no other way: unplannable, and the reason names the missing dirt."""
+    def test_nothing_in_sight_prices_the_search(self):
+        """No dirt or stone in sight: the dig is still planned, its walk priced as a search (cost.UNKNOWN_WALK_TICKS)."""
+        from bonobo.cost import UNKNOWN_WALK_TICKS
         from tests.world import cost, snapshot, state
         snap = snapshot(state(), inventory())
-
-        def no_way():
-            raise Unplannable("no pickaxe to mine stone with")
-        with self.assertRaises(Unplannable) as got:
-            decompose.cheapest("building", 9, no_way, snap.inv, cost(snap))
-        self.assertEqual(str(got.exception), "no way to building: default: no pickaxe to mine stone with; "
-                                             "dig by hand: no dirt or grass in sight")
+        steps = decompose.decompose(snap.inv, goals.have(("building", 9)), cost(snap))
+        self.assertEqual([(st.kind, st.token) for st in steps], [("mine", "minecraft:dirt")])
+        self.assertGreaterEqual(steps[0].est, UNKNOWN_WALK_TICKS)
 
 if __name__ == "__main__":
     unittest.main()

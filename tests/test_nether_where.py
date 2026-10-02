@@ -7,7 +7,6 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import api, brain, decompose, skill as skillkit  # noqa: E402,F401
-from bonobo.planner import Step  # noqa: E402
 
 OVER, NETHER = "minecraft:overworld", "minecraft:the_nether"
 
@@ -39,14 +38,20 @@ class NetherOnly(unittest.TestCase):
                 self.assertEqual(ok or ("not in" not in str(why) and "portal" not in str(why)), want, why)
 
     def test_cast_before_a_portal_none_known(self):
-        rods = Step("hunt", "minecraft:blaze_rod", 6, {})
-        for name, portals, first in [("no portal known: cast one first", [], ("cast", "nether_portal")),
-                                     ("a portal known: walk to it", [(0, 64, 0)], ("portal", NETHER))]:
+        """The portal a Nether hunt needs first (the hunt contract's `when`): walked to when one is known, else cast
+        (lava seen, the kit carried) before it."""
+        from bonobo import goals
+        from tests.test_sources import CAST_KIT, kinds, world
+        kit = CAST_KIT + [("iron_sword", 1)]
+        for name, w, first in [("no portal known: cast one first", dict(items=kit, seen=[("lava", (6, 60, 0))]),
+                                ("cast", "nether_portal")),
+                               ("a portal known: walk to it", dict(items=kit, sites=[("portal", (0, 64, 0), OVER)]),
+                                ("portal", NETHER))]:
             with self.subTest(name):
-                cost = type("Cost", (), {"snap": type("S", (), {"dimension": OVER})(), "mem": Mem(portals)})()
-                with mock.patch.object(decompose, "_action", lambda kind, token, c, **d: Step(kind, token, 1, d)):
-                    steps = decompose.where_it_lives([rods], cost)
-                self.assertEqual((steps[0].kind, steps[0].token), first)
+                inv, cost = world(**w)
+                got = kinds(decompose.decompose(inv, goals.have(("minecraft:blaze_rod", 6)), cost))
+                places = [k for k in got if k[0] in ("cast", "build", "portal", "seek")]
+                self.assertEqual(places[0], first)
 
 
 if __name__ == "__main__":

@@ -38,7 +38,8 @@ def outside_spot(frame, centre):
     return frame[0], frame[1], frame[2] + (1 if dz > 0 else -1)
 
 @skill(gives=["state:end_portal_open"], remaining=_k.blocks_there("end_portal"), needs={"minecraft:ender_eye": 1}, done=lambda c: not frames_missing_eye(_frame_region()) if find(["end_portal_frame"], 32, 1) else False,
-       budget=600, stall=180, provides={"activate:end_portal": lambda ctx, s: ()})
+       budget=600, stall=180, provides={"activate:end_portal": lambda ctx, s: ()},
+       when=lambda s, f: [("state:portal_room_found", True)])
 def activate_end_portal(ctx):
     """Fill every missing eye from a block over the middle's lava, in one chain; the portal opens under the feet."""
     from .skillcore import place
@@ -101,7 +102,7 @@ def next_brick(bricks, visited, radius=12):
 ROOM_REACH = 12   # one number for "we are at the portal room": the contract, the walk and the bench check share it
 
 @skill(gives=["state:portal_room_found"], remaining=_k.blocks_there("end_portal_frame"), needs={"tool:pickaxe:0": 1}, done=lambda c: bool(find(["end_portal_frame"], ROOM_REACH, 1)), budget=900, stall=240,
-       provides={"seek:portal_room": lambda ctx, s: ()})
+       provides={"seek:portal_room": lambda ctx, s: ()}, when=lambda s, f: [("state:stronghold_known", True)])
 def find_portal_room(ctx):
     """Dig to stronghold depth near the estimate, follow bricks, else search rings, until an end portal frame is within 32 blocks."""
     sites = ctx.mem.sites("minecraft:overworld", kinds=["stronghold"])

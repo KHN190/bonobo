@@ -8,7 +8,7 @@ from . import knowledge as K
 from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
-from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
+from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, WORK_REACH, cannot_reach, bare, mid
 from .knowledge import FIND_AT, members
 from .data import MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
@@ -152,30 +152,32 @@ def partial_refusal(message):
 
 
 def pick_seed(priced):
-    """Pure: the candidate whose way is cheapest — [(cell, seconds | None, distance)]: priced ways first by
-    seconds, then the unpriced by distance; None when there are none."""
-    best = min(priced, key=lambda c: (c[1] is None, c[1] if c[1] is not None else c[2]), default=None)
+    """Pure: the candidate whose way is cheapest — [(cell, seconds | None, the least its way can take)]: an unpriced
+    one by that least (a straight walk), never ranked after the priced; None when there are none."""
+    best = min(priced, key=lambda c: (c[1] if c[1] is not None else c[2], c[1] is None), default=None)
     return best[0] if best else None
 
 def _cheapest_seed(ctx, hits, start, open_set):
-    """The vein to go for: of the WALK_FACES nearest, the one plan_way prices cheapest (walked to when its cell is
-    open, else dug) — not merely the nearest (a buried vein near beat an exposed one a little farther)."""
-    cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=lambda c: math.dist(c, start))[:WALK_FACES]
+    """The vein to go for: every candidate, by the way plan_way prices for it (walked to when its cell is open, else
+    dug) — asked in the order of the least each could take, none asked once that least cannot beat the best
+    priced (a buried vein near beat an exposed one a little farther)."""
+    cells = sorted(((h["x"], h["y"], h["z"]) for h in hits), key=lambda c: nav.least_way_s(c, start))
     inv, priced = Inventory(), []
     for c in cells:
+        lb = nav.least_way_s(c, start)
+        if any(p[1] is not None and p[1] <= lb for p in priced):
+            break                      # no farther one can be cheaper than one already priced
         region = region_around([start, c], pad=nav.SAFE_DROP + 2)
         seconds = None
         if region is not None:
-            walks = nav.plan_walks([c] if c in open_set else [], nav.WORK_REACH)
+            walks = nav.plan_walks([c] if c in open_set else [], WORK_REACH)
             seconds = nav.plan_way(region, start, c, "mine", inv, ctx.policy.protected, walks)[2]
-        priced.append((c, seconds, math.dist(c, start)))
+        priced.append((c, seconds, lb))
     return pick_seed(priced) or cells[0]
-
-WALK_FACES = 3           # a vein's open faces asked for a walk before its way is dug
 
 def _go_way(ctx, region, start, target, faces, drop):
     """Walk to an open face or dig the planned way toward `target` (nav.plan_way, said); False when there is none."""
-    walks = nav.plan_walks(faces, nav.WORK_REACH)
+    walks = nav.plan_walks(faces, WORK_REACH)
     steps, why, seconds = nav.plan_way(region, start, target, "mine", Inventory(), ctx.policy.protected, walks)
     if steps is None:
         api.detail(f"  mine {bare(drop)}: no way to {target}: {why}")
@@ -189,7 +191,7 @@ def _go_way(ctx, region, start, target, faces, drop):
     return True
 
 @skill(gives=K.GIVES_MINE, needs=lambda a: {} if a[4] is None else {f"tool:pickaxe:{a[4]}": 1}, start=lambda c: Inventory().count(c.args[1]),
-       done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90,
+       done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2], budget=900, stall=90, when=K.body_when(),
        units=lambda c: c.args[2], key=lambda c: f"mine:{c.args[1]}",
        provides={"mine": lambda ctx, s: (s.token, s.count, s.detail["blocks"], s.detail["tier"],
                                           s.detail.get("breaks"))}, fills_bag=lambda c: members(c.args[1]))
@@ -223,10 +225,10 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         notes = [n for b in blocks for n in ctx.mem.seen(b, ctx.dimension)] if ctx.mem is not None else []
         noted = [h for h in noted_hits(notes, blocks, ctx.blocked, ctx.policy.protected)
                  if (h["x"], h["y"], h["z"]) not in no_cell]
-        # an open face first: a buried one is dug to (surface kinds: a shaft, priced with its overburden)
-        # remembered cells are not searched again: the look only when memory holds none
-        exposed_hits = [] if noted else find(blocks, radius=radius, limit=60, exposed=True)
-        raw = noted or exposed_hits or find(blocks, radius=radius, limit=60)
+        # every candidate, open or buried, remembered or seen: the way each takes is priced (_cheapest_seed)
+        exposed_hits = find(blocks, radius=radius, limit=60, exposed=True)
+        raw = list({(h["x"], h["y"], h["z"]): h for h in noted + exposed_hits
+                    + find(blocks, radius=radius, limit=60)}.values())
         open_set = {(h["x"], h["y"], h["z"]) for h in exposed_hits}
         fresh = [h for h in raw if (h["x"], h["y"], h["z"]) not in no_cell]
         if raw and not fresh:
@@ -292,7 +294,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             continue
         if deep_below(near, start) and ctx.policy.allow_dig:
             # far below: an open face walked to, else a staircase the body can walk back up (nav.plan_way)
-            faces = sorted((p for p in vein if p in open_set), key=lambda p: math.dist(p, start))[:WALK_FACES]
+            faces = sorted((p for p in vein if p in open_set), key=lambda p: nav.least_way_s(p, start))
             if _go_way(ctx, region, start, near, faces, drop):
                 continue
             for p in whole:
@@ -526,6 +528,7 @@ def _hunt_progress(token, types):
 
 @skill(gives=K.GIVES_HUNT, needs=lambda a: {"tool:sword:1": 1} if beliefs.fights_back(a[3]) else {},
        fights=lambda c: c.args[3] if beliefs.fights_back(c.args[3]) else (),
+       when=lambda s, f: K.body_when(footing=False)(s, f) + K.lives_in(s.detail.get("types") or ()),
        start=lambda c: Inventory().count(c.args[1]), done=lambda c: Inventory().count(c.args[1]) >= c.base + c.args[2],
        budget=480, stall=60, units=lambda c: c.args[2], key=lambda c: f"hunt:{c.args[1]}",
        provides={"hunt": lambda ctx, s: (s.token, s.count, s.detail["types"], getattr(ctx, "night", False))},
@@ -626,7 +629,7 @@ def _take_needs(token):
     return {} if tool is None else {f"tool:{tool[0]}:{tool[1]}": 1}
 
 @skill(gives=K.GIVES_TAKE, needs=lambda a: _take_needs(a[1]), start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
-       budget=180, stall=45, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])},
+       budget=180, stall=45, provides={"take": lambda ctx, s: (s.token, s.count, s.detail["blocks"])}, when=K.body_when(),
        fills_bag=lambda c: members(c.args[1]))
 def take(ctx, token, count, blocks):
     """Break blocks that ARE the thing and pick them up: a village's bed, furnace, table, hay, crops."""

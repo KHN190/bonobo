@@ -376,7 +376,7 @@ def _sitting(ctx, recipes, keep_table=False):
     return [(t, times) for t, times in recipes]
 
 @skill(gives=[K.GIVES_CRAFT_GROUP, K.GIVES_CRAFT], needs={}, start=lambda c: _plan_start([(c.args[1], c.args[2])]), verify=_plan_made, budget=90, stall=60,
-       key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])},
+       key=lambda c: "craft", provides={"craft": lambda ctx, s: (s.token, s.detail["times"])}, when=K.body_when(),
        commands=lambda state, args: craft_commands(state, ([(args[0], args[1])],)))
 def craft(ctx, token, times):
     """Craft `times` batches of a recipe (2×2 in the inventory, 3×3 at a found or carried crafting table)."""
@@ -412,7 +412,7 @@ def _furnace_slots():
 
 @skill(gives=K.GIVES_SMELT, needs={}, start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
        budget=900, stall=30, units=lambda c: min(64, c.args[3]), key=lambda c: "smelt",
-       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1)
+       provides={"smelt": lambda ctx, s: _smelt_args(s)}, prefer=-1, when=K.body_when())
 def smelt(ctx, output, input_token, count, fuel):
     """One furnace session: load input + fuel, watch the output slot fill (10 s/item), take everything out."""
     count = min(64, count)

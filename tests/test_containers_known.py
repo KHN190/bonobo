@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 
-from bonobo import decompose, goals
+from bonobo import cost as cost_mod, decompose, goals
 from bonobo.memory import Memory, merge_double
 from tests.world import cost, inventory, snapshot, state
 
@@ -24,7 +24,7 @@ class Chance(unittest.TestCase):
                  1 - math.exp(-1))]
         for name, record, age, rate, want in rows:
             with self.subTest(name):
-                self.assertAlmostEqual(decompose.container_p(record, {IRON}, age, rate), want)
+                self.assertAlmostEqual(cost_mod.container_p(record, {IRON}, age, rate), want)
 
     def test_unknown(self):
         # (opened k holding / n opened) → P (the rule of succession)

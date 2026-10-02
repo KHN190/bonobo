@@ -1,166 +1,49 @@
-"""L2: a goal and a bag in, an ordered list of steps out. The brain calls only this. decompose(inv, goal, cost, solver=None, pending=None) -> [Step] Item goals (have, craft, milestone) go to a SOLVER; the rest become action steps, after whatever materials they need (build). Solvers are registered by name: `planner` (planner.py, recursive descent over the requirement graph) is the default; `solve` (solve.py over the action columns) is tried when it cannot plan, or chosen by name per task. Every solver gets the same cost model (cost.Cost), so their steps are priced in the same ticks. Pure apart from what the cost model reads (one cached /find per kind)."""
+"""L2: a goal and a bag in, an ordered list of steps out. The brain calls only this. decompose(inv, goal, cost, pending=None) -> [Step]. Item goals (have, craft, milestone) go to the one planner (planner.plan_needs); the rest become action steps, after whatever materials they need (build). Pure apart from what the cost model reads (one cached /find per kind)."""
 
 import math
 import time
 
-from . import beliefs, blueprints, goals, knowledge, actions as act, skill
+from . import beliefs, blueprints, goals, knowledge, skill
 from .api import McError
 from .cost import TICKS_PER_S
 from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
-from .planner import Planner, Step, Unplannable
-from .solve import Unsolvable, solve
+from .planner import Step, Unplannable, plan_needs
 from .knowledge import members
-from .data import TAKEABLE
 
-SOLVERS = {}          # name -> fn(inv, needs, cost, pending) -> [Step]
-ORDER = []            # fallback order when no solver is named
-
-def register(name, fn):
-    """Add a solver. The first registered is the default."""
-    SOLVERS[name] = fn
-    if name not in ORDER:
-        ORDER.append(name)
-
-def _planner(inv, needs, cost, pending=None, jobs=None):
-    return Planner.from_inventory(inv, cost, pending, jobs).plan(needs)
-
-register("planner", _planner)
-
-def _solve(inv, needs, cost, pending=None, jobs=None):
-    """The column solver: slower, sees further — where to go, what to take ready-made, which half-done work to finish."""
-
-    target = act.target_of(needs)
-    if not target:
-        return []
-    if getattr(cost, "snap", None) is None or getattr(cost, "mem", None) is None:
-        raise Unplannable("the column solver needs a snapshot and a memory")
-    vector = act.state_of(cost.snap, cost.mem, reachable=cost.reachable)
-    try:
-        found = solve(act.table(cost, vector), vector, target)
-    except Unsolvable as e:
-        raise Unplannable(str(e))
-    return [act.to_step(a, n, cost) for a, n in found.steps()]
-
-register("solve", _solve)
-
-def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None, taken=()):
-    """Steps that make `needs` held. The named solver, else each registered one in turn until one plans. `pending`:
-    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used);
-    `taken`: withdraws already planned."""
-    if not needs:
-        return []
-    names = [solver] if solver else list(ORDER)
-    last = None
-    for name in names:
-        fn = SOLVERS.get(name)
-        if fn is None:
-            last = Unplannable(f"no solver named {name!r}")
-            continue
-        try:
-            return take_stored(fn(inv, needs, cost, pending, **({"jobs": jobs} if jobs else {})), cost, taken)
-        except Unplannable as e:
-            last = e
-    raise last or Unplannable("no solver could plan this")
-
-def container_p(record, ids, age_s, rate):
-    """Pure: the chance a container holds one of `ids`, from its record: held then, discounted by the change rate
-    over the record's age; not held then, the chance it changed since (an unopened one: p_unknown)."""
-    held = any(record["items"].get(i, 0) > 0 for i in ids)
-    return math.exp(-rate * age_s) if held else 1.0 - math.exp(-rate * age_s)
-
-MATERIAL_STEPS = ("gather", "mine", "hunt")
-
-
-def take_stored(steps, cost, already=()):
-    """Material steps replaced, wholly or in part, by withdrawing from a known container where cheaper."""
-    import copy
-    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
-    if mem is None or snap is None:
-        return steps
-    taken = {}
-    for w in already:
-        if w.kind == "withdraw":
-            key = (tuple(w.detail.get("pos") or ()), mid(w.token))
-            taken[key] = taken.get(key, 0) + int(w.count)
-    rate, now, out = mem.container_change_rate(), time.time(), []
-    for st in steps:
-        stored = mem.stored(st.token, snap.dimension) if st.kind in MATERIAL_STEPS and st.count > 0 else []
-        left, per = int(st.count), (st.est / st.count if st.count else 0)
-        for pos, item, have in sorted(stored, key=lambda r: math.dist(r[0], snap.feet)):
-            free = have - taken.get((tuple(pos), mid(item)), 0)
-            if left <= 0 or free <= 0:
-                continue
-            take = _action("withdraw", item, cost, pos=list(pos))
-            take.count = min(left, free)
-            rec = mem.container_record(pos)
-            p = container_p(rec, set(members(st.token)), now - rec.get("at", now), rate) if rec else 1.0
-            if p > 0 and take.est / p < per * take.count:
-                out.append(take)
-                taken[(tuple(pos), mid(item))] = taken.get((tuple(pos), mid(item)), 0) + take.count
-                left -= take.count
-        if left == st.count:
-            out.append(st)
-        elif left > 0:
-            rest = copy.deepcopy(st)
-            scale = left / st.count
-            rest.count = left
-            for key in ("breaks", "kills"):
-                if key in rest.detail:
-                    rest.detail[key] = max(1, math.ceil(rest.detail[key] * scale))
-            rest.est = cost.estimate(rest)
-            out.append(rest)
-    return out
-
+def solve_needs(inv, needs, cost, pending=None, jobs=None):
+    """Steps that make `needs` held (the one planner). `pending`: counted as held (planned sources' and jobs'
+    outputs); `jobs`: of it, what running jobs make (awaited when used)."""
+    return plan_needs(inv, needs, cost, pending, jobs)
 
 def p_unknown(k, n):
     """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
     succession: 1/2 before any is opened)."""
     return (k + 1) / (n + 2)
 
-def from_containers(inv, needs, cost, solver=None, pending=None):
-    """Take what containers hold where that is cheaper than making it, each record weighed by the chance it still
-    holds it (memory.container_p); when the records cannot cover a need, look in the unopened home container whose
-    expected saving pays its walk and open best (p_unknown × the make it saves − the look): (steps, pending)."""
+def look_first(inv, needs, cost, pending=None):
+    """Before planning a need the containers seen cannot cover: the look into the unopened home container whose
+    expected saving pays its walk and open best (p_unknown × the make it saves − the look) — what it holds decides
+    the rest, planned again once it is seen; [] when none pays."""
 
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
-    extra = dict(pending or {})
-    if mem is None or snap is None or not hasattr(mem, "stored"):
-        return [], extra
-    steps = []
-    rate = mem.container_change_rate()
-    now = time.time()
+    if mem is None or snap is None or not hasattr(mem, "home_containers"):
+        return []
     for need in needs:
-        if need[0] == "tool":
+        if need[0] in ("tool", "fact"):
             continue
         token, n = need[0], int(need[1])
-        ids = set(members(token))
-        on_way = {token: sum(v for k, v in extra.items() if k in ids)}
-        short = goals.have_remainder(inv, [[token, n]], on_way).get(token, 0)
-
-        def make_s(k):
-            try:
-                return cost.plan_s(solve_needs(inv, [(token, k)], cost, solver, extra)) * TICKS_PER_S
-            except Unplannable:
-                return math.inf
-
-        for pos, item, have in sorted(mem.stored(token, snap.dimension), key=lambda r: math.dist(r[0], snap.feet)):
-            if short <= 0:
-                break
-            take = min(short, have)
-            step = _action("withdraw", item, cost, pos=list(pos))
-            step.count = take
-            rec = mem.container_record(pos)
-            p = container_p(rec, ids, now - rec.get("at", now), rate) if rec else 1.0
-            if p > 0 and step.est / p < make_s(take):
-                steps.append(step)
-                extra[item] = extra.get(item, 0) + take
-                short -= take
-        if short > 0:
-            look = _best_look(mem, ids, snap, cost, make_s(short))
-            if look is not None:
-                steps.append(look)
-                break                      # what it holds decides the rest: planned again once it is seen
-    return steps, extra
+        held = {token: sum(have for _p, _i, have, _pr in cost.stored(token))}
+        short = goals.have_remainder(inv, [[token, n]], {**(pending or {}), **held}).get(token, 0)
+        if short <= 0:
+            continue
+        try:
+            make = cost.plan_s(solve_needs(inv, [(token, short)], cost, pending)) * TICKS_PER_S
+        except Unplannable:
+            make = math.inf
+        look = _best_look(mem, set(members(token)), snap, cost, make)
+        if look is not None:
+            return [look]
+    return []
 
 def _best_look(mem, ids, snap, cost, make_ticks):
     """The look into an unopened home container that pays best (p_unknown from the opened ones × the make it saves −
@@ -187,8 +70,8 @@ def effect_detail(kind, token, count):
     if kind == "mine" and mid(token) in knowledge.MINE:
         blocks, tier = knowledge.MINE[mid(token)]
         return {"blocks": list(blocks), "tier": tier}
-    if kind == "take" and token in TAKEABLE:
-        return {"blocks": list(TAKEABLE[token]["blocks"])}
+    if kind == "take" and token in knowledge.TAKEABLE:
+        return {"blocks": list(knowledge.TAKEABLE[token]["blocks"])}
     if kind == "craft":
         return {"times": count, "inputs": {}}
     return {}
@@ -260,7 +143,7 @@ SOURCES = {
                    "needs": sorted(blueprints.materials(blueprints.SHELTER).items()), "extra_s": ("wait_s",)}],
 }
 
-def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=None, priced=False):
+def cheapest(key, amount, default, inv, cost, extra=None, facts=None, priced=False):
     """The cheapest way to `key` × amount: the solver's steps, or a SOURCES[key] source's runs plus their needs;
     (steps, name), with its seconds (extras included) when `priced`."""
 
@@ -299,8 +182,7 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
         runs = math.ceil(amount / src["yields"])
         try:
             needs = [n if n[0] == "tool" or n[0].endswith("_helmet") else (n[0], n[1] * runs) for n in src["needs"]]
-            sourced, got = from_sources(inv, needs, cost, solver, extra)
-            pre = sourced + solve_needs(inv, needs, cost, solver, got)     # the way _decompose plans a goal
+            pre = solve_needs(inv, needs, cost, extra)
         except Unplannable as e:
             why.append(f"{src['name']}: {e}")
             continue
@@ -319,80 +201,31 @@ def cheapest(key, amount, default, inv, cost, solver=None, extra=None, facts=Non
         raise Unplannable(f"no way to {key}: " + "; ".join(why))
     return (best_steps, name, best) if priced else (best_steps, name)
 
-# Milestones that end in doing, not holding: after their items, these steps (run once — goals.done says None).
-THEN = {"end portal": [("seek", "stronghold", {}), ("seek", "portal_room", {}), ("activate", "end_portal", {})]}
-
-def from_sources(inv, needs, cost, solver=None, pending=None):
-    """For each need with other sources (SOURCES), the cheapest way from this bag (`cheapest`)."""
-
-    extra, steps = dict(pending or {}), []
-    for need in needs:
-        if need[0] == "tool" or need[0] not in SOURCES:
-            continue
-        token, n = need[0], int(need[1])
-        short = goals.have_remainder(inv, [[token, n]], extra).get(token, 0)
-        if short <= 0:
-            continue
-        chosen, name = cheapest(token, short, lambda: solve_needs(inv, [(token, short)], cost, solver, extra),
-                                inv, cost, solver, extra)
-        if chosen is not None:
-            steps += chosen
-            # Counted as on its way under the item it brings (a group like "building" is counted by its items).
-            gives = next(src.get("gives", token) for src in SOURCES[token] if src["name"] == name)
-            extra[gives] = extra.get(gives, 0) + short
-    return steps, extra
-
-def portal_known(mem, dimension):
-    """Pure over memory: a portal remembered in `dimension` (a built one or a site) — what a portal step is priced by."""
-    return bool(mem.machines(dimension, "portal") or mem.sites(dimension, kinds=["portal"]))
-
-def where_it_lives(steps, cost):
-    """Put the way to where a thing lives before the step that gets it (blaze rods: portal, fortress, then collect)."""
-
-    snap, mem = getattr(cost, "snap", None), getattr(cost, "mem", None)
-    out = []
-    for step in steps:
-        for kind, token, detail in LIVES_IN.get((step.kind, step.token), ()):
-            if kind == "portal" and snap is not None and getattr(snap, "dimension", None) == token:
-                continue
-            if kind == "portal" and mem is not None and snap is not None and not portal_known(mem, snap.dimension) \
-                    and not any((s.kind, s.token) == ("cast", "nether_portal") for s in out):
-                out.append(_action("cast", "nether_portal", cost))     # no portal known here: cast one first
-            if kind == "seek" and mem is not None and mem.sites(None, kinds=[token]):
-                continue
-            if any((s.kind, s.token) == (kind, token) for s in out):
-                continue
-            out.append(_action(kind, token, cost, **detail))
-        out.append(step)
-    return out
-
 def _action(kind, token, cost, **detail):
     step = Step(kind, token, 1, detail)
     step.est = cost.estimate(step)
     return step
 
-def decompose(inv, goal, cost, solver=None, pending=None) -> list[Step]:
+def decompose(inv, goal, cost, pending=None) -> list[Step]:
     """Ordered steps for `goal` from this bag."""
 
-    steps = _decompose(inv, goal, cost, solver, pending)
+    steps = _decompose(inv, goal, cost, pending)
     missing = [s for s in steps if not skill.handles(s)]
     if missing:
         raise Unplannable(f"no skill provides {missing[0].kind} {missing[0].token}")
     return steps
 
-def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
+# Milestones that end in doing, not holding: after their items, the fact their last step leaves.
+THEN = {"end portal": ("state:end_portal_open", True)}
+
+def _decompose(inv, goal, cost, pending) -> list[Step]:
     template, args = goal["goal"], goal.get("args", {})
     jobs = dict(pending or {})           # what the caller passed: running jobs' outputs (memory.pending_outputs)
     if template in goals.ITEM_GOALS:
         needs = goals.needs(goal, inv)
-        taken, pending = from_containers(inv, needs, cost, solver, pending)
-        sourced, pending = from_sources(inv, needs, cost, solver, pending)
-        mem = getattr(cost, "mem", None)
-        then = [_action(k, t, cost, **d) for k, t, d in (THEN.get(args.get("name"), ()) if template == "milestone"
-                                                         else ())
-                if not (k == "seek" and mem is not None and mem.sites(None, kinds=[t]))]    # already found
-        made = solve_needs(inv, needs, cost, solver, pending, jobs, taken)
-        return where_it_lives(taken + sourced + made + then, cost)
+        then = THEN.get(args.get("name")) if template == "milestone" else None
+        look = look_first(inv, needs, cost, pending)
+        return look or solve_needs(inv, needs + ([("fact",) + then] if then else []), cost, pending, jobs)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":
@@ -402,19 +235,13 @@ def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
         bp = args["bp"]
         if bp != "shelter" and bp not in blueprints.REGISTRY:
             raise Unplannable(f"no blueprint {bp!r} to build")
-        materials = blueprints.materials(blueprints.SHELTER if bp == "shelter" else blueprints.REGISTRY[bp])
         if bp == "nether_portal":
-            materials = dict(materials, **{"minecraft:flint_and_steel": 1})
-        def carry_and_build():
-            return (solve_needs(inv, [(t, n) for t, n in materials.items()], cost, solver, pending, jobs)
-                    + [_action("build", bp, cost, at=args.get("at"))])
-        chosen, _name = cheapest(f"build:{bp}", 1, carry_and_build, inv, cost, solver, pending)
-        return where_it_lives(chosen if chosen is not None else carry_and_build(), cost)
+            return solve_needs(inv, [("fact", "portal", True)], cost, pending, jobs)   # built, or cast in place
+        return _prepared(inv, Step("build", bp, 1, {"at": args.get("at")}), cost, pending)
     if template == "sleep":
-        return _prepared(inv, _action("sleep", "bed", cost), cost, solver, pending)
+        return _prepared(inv, Step("sleep", "bed", 1, {}), cost, pending)
     if template == "skill":
-        return _prepared(inv, _action("skill", args["name"], cost, args=list(args.get("args", []))), cost, solver,
-                         pending)
+        return _prepared(inv, Step("skill", args["name"], 1, {"args": list(args.get("args", []))}), cost, pending)
     if template == "effect":
         # any effect a skill provides, by name ("repair:pickaxe" → Step("repair", "pickaxe")); refused when nobody provides it
         kind, _, token = args["effect"].partition(":")
@@ -424,15 +251,12 @@ def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
         missing = missing_detail(step)
         if missing:
             raise Unplannable(f"effect {args['effect']} needs {missing} in its detail")
-        step.est = cost.estimate(step)
-        return _prepared(inv, step, cost, solver, pending)
+        return _prepared(inv, step, cost, pending)
     raise Unplannable(f"no way to decompose a {template!r} goal")
 
-def _prepared(inv, step, cost, solver, pending):
-    """The steps that get `step`'s skill needs held for its call, then the step (planner.before's rule for decompose's steps)."""
-
-    needs = knowledge.step_call(step)
-    return solve_needs(inv, [tuple(r) for r in knowledge.needs_rows(needs)], cost, solver, pending) + [step]
+def _prepared(inv, step, cost, pending):
+    """`step` and what its call needs first (its contract's needs and facts), planned as one."""
+    return solve_needs(inv, [("do", step)], cost, pending)
 
 def to_dict(step: Step) -> dict:
     return {"kind": step.kind, "token": step.token, "count": step.count, "detail": step.detail, "est": step.est}
@@ -441,7 +265,7 @@ def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
 def night_left_s(snap):
-    """Seconds of night still ahead, or None when it is not night."""
+    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / 20 at night, a whole night before dusk (None)."""
     t = int(snap.time) % DAY_TICKS
     return (NIGHT_END - t) / TICKS_PER_S if is_night(t, getattr(snap, "dimension", "minecraft:overworld")) else None
 

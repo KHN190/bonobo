@@ -284,17 +284,24 @@ class SafeDepth(unittest.TestCase):
 
 
 class PickSeed(unittest.TestCase):
-    """gather.pick_seed: the vein whose way is cheapest, not the nearest (§12 A4)."""
+    """gather.pick_seed: the vein whose way is cheapest, not the nearest (§12 A4); an unpriced one by the least its
+    way can take (gather.least_way_s: the straight walk), never ranked after the priced (V1)."""
 
     def test_rows(self):
         from bonobo import gather
         near, far = (1, 50, 0), (6, 60, 0)
-        # (situation, [(cell, way seconds, distance)]) → the chosen
-        rows = [("must fail: a buried near vein (40 s of digging) over an open one 6 off (5 s walk)",
-                 [(near, 40.0, 3.0), (far, 5.0, 6.0)], far),
-                ("the near one is also the cheapest", [(near, 2.0, 3.0), (far, 5.0, 6.0)], near),
-                ("an unpriced one (too far to read) after every priced one", [(near, None, 3.0), (far, 50.0, 6.0)], far),
-                ("none priced: the nearest", [(far, None, 6.0), (near, None, 3.0)], near),
+        start = (0, 50, 0)
+        lb = {c: gather.least_way_s(c, start) for c in (near, far)}
+        # (situation, [(cell, way seconds, the least its way takes)]) → the chosen
+        rows = [("must fail: a buried near vein (40 s of digging) over an open one (5 s walk)",
+                 [(near, 40.0, lb[near]), (far, 5.0, lb[far])], far),
+                ("the near one is also the cheapest", [(near, 2.0, lb[near]), (far, 5.0, lb[far])], near),
+                ("an unpriced one whose least beats every priced way", [(near, None, lb[near]), (far, 50.0, lb[far])],
+                 near),
+                ("must fail: an unpriced one whose least is dearer than a priced way", [(far, None, lb[far]),
+                                                                                       (near, lb[far] / 2, lb[near])],
+                 near),
+                ("none priced: the least first", [(far, None, lb[far]), (near, None, lb[near])], near),
                 ("none", [], None)]
         for name, priced, want in rows:
             with self.subTest(name):

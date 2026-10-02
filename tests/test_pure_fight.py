@@ -252,66 +252,6 @@ def steps_of(steps):
     return [(s.kind, s.token, s.count, s.detail) for s in steps]
 
 
-class Register(unittest.TestCase):
-    def setUp(self):
-        self.saved = (dict(decompose.SOLVERS), list(decompose.ORDER))
-
-    def tearDown(self):
-        decompose.SOLVERS.clear()
-        decompose.SOLVERS.update(self.saved[0])
-        decompose.ORDER[:] = self.saved[1]
-
-    def test_table(self):
-        def a(*_):
-            return "a"
-
-        def b(*_):
-            return "b"
-        # each row registers on top of the previous ones: (name, fn, ORDER tail, SOLVERS[name])
-        rows = [
-            ("new name appended", "t_one", a, ["t_one"], a),
-            ("second name after it", "t_two", b, ["t_one", "t_two"], b),
-            # must-fail: registering again replaces the solver but never duplicates it in the order
-            ("re-register replaces, no duplicate", "t_one", b, ["t_one", "t_two"], b),
-            ("third", "t_three", a, ["t_one", "t_two", "t_three"], a),
-        ]
-        base = len(self.saved[1])
-        for name, key, fn, tail, want in rows:
-            with self.subTest(name):
-                decompose.register(key, fn)
-                self.assertEqual((decompose.ORDER[base:], decompose.SOLVERS[key]), (tail, want))
-
-
-class FromContainers(unittest.TestCase):
-    D = "minecraft:diamond"
-
-    def cost(self, stored, est=7):
-        mem = SimpleNamespace(stored=lambda token, dim: list(stored), container_change_rate=lambda: 0.0,
-                              container_record=lambda pos: None, home_containers=lambda dim: [])
-        snap = SimpleNamespace(dimension="minecraft:overworld", feet=(0, 0, 0))
-        return SimpleNamespace(mem=mem, snap=snap, estimate=lambda step: est, plan_s=lambda steps: 0.0)
-
-    def test_table(self):
-        D = self.D
-        two = [((10, 0, 0), D, 3), ((1, 0, 0), D, 4)]
-        rows = [
-            ("no memory", Inv(), [(D, 5)], SimpleNamespace(), {"a": 1}, [], {"a": 1}),
-            ("nearest chest first, then the next", Inv(), [(D, 5)], self.cost(two), None,
-             [("withdraw", D, 4, {"pos": [1, 0, 0]}), ("withdraw", D, 1, {"pos": [10, 0, 0]})], {D: 5}),
-            ("pending counts against the need", Inv(), [(D, 5)], self.cost(two), {D: 3},
-             [("withdraw", D, 2, {"pos": [1, 0, 0]})], {D: 5}),
-            ("already held", Inv(**{D: 5}), [(D, 5)], self.cost(two), None, [], {}),
-            ("tool needs skipped", Inv(), [("tool", "pickaxe", 1)], self.cost(two), None, [], {}),
-            # must-fail: a withdrawal that costs no less than making it is not taken
-            ("must fail: fetching never cheaper", Inv(), [(D, 5)], self.cost(two, est=math.inf), None, [], {}),
-        ]
-        for name, inv, needs, cost, pending, want_steps, want_extra in rows:
-            with self.subTest(name):
-                steps, extra = decompose.from_containers(inv, needs, cost, solver="t_no_such_solver",
-                                                         pending=pending)
-                self.assertEqual((steps_of(steps), extra), (want_steps, want_extra))
-
-
 class EffectDetail(unittest.TestCase):
     def test_table(self):
         rows = [
@@ -326,35 +266,6 @@ class EffectDetail(unittest.TestCase):
         for name, args, want in rows:
             with self.subTest(name):
                 self.assertEqual(decompose.effect_detail(*args), want)
-
-
-class FromSources(unittest.TestCase):
-    def test_table(self):
-        dirt = Step("mine", "minecraft:dirt", 1, {})
-        pearl = Step("barter", "piglin", 1, {})
-        P = "minecraft:ender_pearl"
-        # (needs, inv, pending, cheapest answer, steps, extra, cheapest asked (token, short))
-        rows = [
-            ("group counted under what it gives", [("building", 5)], Inv(), None, ([dirt], "dig by hand"),
-             [dirt], {"minecraft:dirt": 5}, [("building", 5)]),
-            ("item counted as itself", [(P, 2)], Inv(), None, ([pearl], "barter"), [pearl], {P: 2}, [(P, 2)]),
-            ("pending shortens the need", [(P, 3)], Inv(), {P: 1}, ([pearl], "barter"), [pearl], {P: 3}, [(P, 2)]),
-            ("must fail: held: not asked", [(P, 2)], Inv(**{P: 2}), None, ([pearl], "barter"), [], {}, []),
-            ("no other source", [("minecraft:stick", 4), ("tool", "pickaxe", 1)], Inv(), None,
-             ([pearl], "barter"), [], {}, []),
-            # must-fail: when no source is cheapest nothing is planned or counted
-            ("nothing chosen", [(P, 2)], Inv(), None, (None, None), [], {}, [(P, 2)]),
-        ]
-        for name, needs, inv, pending, answer, want_steps, want_extra, want_asked in rows:
-            with self.subTest(name):
-                asked = []
-
-                def fake(key, amount, default, *a, answer=answer, **kw):
-                    asked.append((key, amount))
-                    return answer
-                with mock.patch.object(decompose, "cheapest", fake):
-                    steps, extra = decompose.from_sources(inv, needs, SimpleNamespace(), pending=pending)
-                self.assertEqual((steps, extra, asked), (want_steps, want_extra, want_asked))
 
 
 # ------------------------------------------------------------------------------------------------ dispatch

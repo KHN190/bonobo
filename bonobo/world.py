@@ -257,6 +257,13 @@ def nearest(kinds, feet, dimension, radius=48, union=(), skip=None):
         got = [near[n] for n in names if near.get(n) is not None and near[n] <= radius]
     return min(got) if got else None
 
+def sight_pos(kinds, skip=None):
+    """The cell of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of
+    its own."""
+    got = [(h["distance"], (h["x"], h["y"], h["z"])) for k in kinds for h in _SIGHT.get("hits", {}).get(bare(k), ())
+           if skip is None or (h["x"], h["y"], h["z"]) not in skip]
+    return min(got)[1] if got else None
+
 def sight_y(kinds, skip=None):
     """The y of the nearest of `kinds` the last look saw (`nearest`; `skip`: cells not there), or None: no read of its
     own."""

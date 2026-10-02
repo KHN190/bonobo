@@ -7,6 +7,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, nav, skillcore
 from . import combat_model
 from .game import EYE_HEIGHT
+from .data import NETHER
 from .api import McError, NotAvailable
 from .skill import budget_end, skill
 from .world import Inventory, cell_add, entities
@@ -49,10 +50,10 @@ BLAZE_QUIET_S = 30      # no blaze and no rod in sight for this long: this is no
 def _rods_on_floor():
     return [e for e in entities(16, ["minecraft:item"]) if (e.get("item") or {}).get("id") == "minecraft:blaze_rod"]
 
-@skill(gives=["state:rods_held"], remaining=_k.more_than_at_start(lambda c: "minecraft:blaze_rod", lambda c: c.args[1]), needs={"tool:sword:1": 1}, pre=[skillcore.in_dimension("minecraft:the_nether")], fights=lambda c: ["minecraft:blaze"], start=lambda c: Inventory().count("minecraft:blaze_rod"),
+@skill(gives=["state:rods_held"], remaining=_k.more_than_at_start(lambda c: "minecraft:blaze_rod", lambda c: c.args[1]), needs={"tool:sword:1": 1}, pre=[skillcore.in_dimension(NETHER)], fights=lambda c: ["minecraft:blaze"], start=lambda c: Inventory().count("minecraft:blaze_rod"),
        done=lambda c: Inventory().count("minecraft:blaze_rod") >= c.base + c.args[1],
        budget=900, stall=180, units=lambda c: c.args[1], key=lambda c: "collect_blaze_rods",
-       provides={"hunt:minecraft:blaze_rod": lambda ctx, s: (s.count,)})
+       provides={"hunt:minecraft:blaze_rod": lambda ctx, s: (s.count,)}, when=lambda s, f: _k.lives_in(["minecraft:blaze"]))
 def collect_blaze_rods(ctx, rods):
     """The rod-collecting step of "have blaze_rod" (L2 puts the fortress first: decompose)."""
 

@@ -82,15 +82,16 @@ class SleepGate(unittest.TestCase):
 
 class LightBox(unittest.TestCase):
     def test_cover(self):
-        # (dark spots) → torches: one torch lights 14 blocks around (15 − manhattan)
-        rows = [("none dark: none", [], 0), ("a 9×9 dark floor: one torch at its middle", 
+        # (dark spots) → torches: a torch lights a cell data.TORCH_LIGHT − manhattan (the game's torch light)
+        from bonobo.data import TORCH_LIGHT
+        rows = [("none dark: none", [], 0), ("a 9×9 dark floor: one torch at its middle",
                  [(x, 64, z) for x in range(-4, 5) for z in range(-4, 5)], 1),
                 ("two patches 40 apart: two", [(0, 64, 0), (40, 64, 0)], 2)]
         for name, dark, n in rows:
             with self.subTest(name):
                 torches = survive.torch_cover(dark)
                 self.assertEqual(len(torches), n)
-                self.assertTrue(all(any(15 - sum(abs(t[i] - c[i]) for i in range(3)) > 0 for t in torches)
+                self.assertTrue(all(any(TORCH_LIGHT - sum(abs(t[i] - c[i]) for i in range(3)) > 0 for t in torches)
                                     for c in dark))
 
     def test_pays(self):

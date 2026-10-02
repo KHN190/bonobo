@@ -128,6 +128,13 @@ def weapon_hit(item):
         return float(HAND_DAMAGE), float(HAND_ATTACKS_PER_S)
     return float(WEAPON_DAMAGE[kind][material]), float(ATTACKS_PER_S[kind][material])
 # The tiers a tool is crafted at, and its material: the inverse of TIER_OF_MATERIAL over the craftable materials.
+# piglin bartering (data/minecraft/loot_table/gameplay/piglin_bartering.json, 1.21.11): item → (weight, the pool's
+# total weight, count min, count max) — one gold ingot a barter
+PIGLIN_BARTER = {"minecraft:ender_pearl": (10, 469, 2, 4)}
+# what a built machine provides, by the tag its blueprint carries
+MACHINE_PROVIDES = {"smelting": "minecraft:furnace", "crafting": "minecraft:crafting_table"}
+# the dimensions by the game's ids
+OVERWORLD, NETHER, THE_END = "minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"
 TOOL_MATERIAL_FOR_TIER = {TIER_OF_MATERIAL[m]: m for m in MATERIAL_TOKEN}
 ANIMALS = {"minecraft:cow": "beef", "minecraft:pig": "porkchop", "minecraft:sheep": "mutton",
            "minecraft:chicken": "chicken", "minecraft:rabbit": "rabbit"}

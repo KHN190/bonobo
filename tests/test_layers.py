@@ -29,7 +29,6 @@ MAY_IMPORT_TOP = {"brain", "review"}
 # table was introduced: one leaf module that genuinely belongs in every closure raises them all by one.
 # 重构后基线（refactor 1–5 之后的当前值），只降不升。
 CLOSURE = {
-    "actions": 16,
     "api": 9,
     "arbiter": 2,            # arbiter no longer imports api: api wires its message and /stop in (arbiter.WIRE)
     "bag": 12,
@@ -82,7 +81,6 @@ CLOSURE = {
     "skill": 14,
     "skillcore": 13,
     "skills": 28,
-    "solve": 2,              # + lifecycle (its memos registered for reset)
     "store": 23,
     "survive": 24,
     "tape": 2,

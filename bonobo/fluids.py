@@ -8,7 +8,7 @@ from . import world
 from . import knowledge as _k
 from . import api, blueprints, nav, skillcore
 from .api import McError, NotAvailable, log
-from .data import GROUPS, bare
+from .data import GROUPS, WORK_REACH, bare
 from .game import EYE_HEIGHT
 from .skill import skill
 from .skillcore import body_state, gained
@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .shapes import Task
 
-REACH = nav.WORK_REACH        # the reach holds uses: the jar's range less its margin
+REACH = WORK_REACH        # the reach holds uses: the jar's range less its margin
 
 def _eye(cell):
     return cell[0] + 0.5, cell[1] + EYE_HEIGHT, cell[2] + 0.5

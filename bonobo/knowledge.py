@@ -1,9 +1,11 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
+import functools
 import math
 
 from .game import COVERED_SKY, DAYLIT_SKY, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
 from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
 from .data import TAKEABLE
+from .data import COLORS, WOODS, ATTACKS_PER_S, HAND_ATTACKS_PER_S, HAND_DAMAGE, NETHER, PIGLIN_BARTER
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -13,15 +15,24 @@ GROUP_RECIPES = {
     "bed": (["wool", "wool", "wool", "planks", "planks", "planks", None, None, None], 1),
 }
 
-# seconds a speed tool saves per unit of work; it is made only when that beats making it
 # fn(step) → the needs of what carries out a planned step; wired by skill.py so knowledge stays below the skills
 STEP_CALL = None
+STEP_WHEN = None       # fn(step, facts) → [(fact, value)] it needs first, or why it cannot run (skill.when_of_step)
+STEP_SETS = None       # fn(step) → {fact: value} its run leaves (skill.sets_of_step)
+STEP_USES = None       # fn(step) → {item: n} of its needs its run uses up (skill.step_uses)
+FIGHT_LINE = None      # fn(contract, args, state, inv) → (ok, why): S5's one judge (brain.fight_line_holds)
+FACT_STEPS = None      # fn(fact, value) → [(kind, token)] of the steps that set it (skill.steps_for_fact)
 
 def step_call(step):
     """The needs of what carries out `step`, skill modules loaded first; {} when none is wired in."""
 
     producers()
     return STEP_CALL(step) if STEP_CALL is not None else {}
+
+def fact_steps(fact, value):
+    """[(kind, token)] of the steps that set `fact` to `value` ([] when none is wired in)."""
+    producers()
+    return FACT_STEPS(fact, value) if FACT_STEPS is not None else []
 
 # item → (blocks to break, minimum pickaxe tier or None)
 MINE = {
@@ -64,9 +75,7 @@ def takeable_blocks():
 # Stations are required by a step but not consumed.
 STATIONS = {"minecraft:crafting_table", "minecraft:furnace"}
 
-# Cooked food the planner may choose from (cheapest reachable animal wins).
-COOKABLE_FOOD = ["minecraft:cooked_porkchop", "minecraft:cooked_beef", "minecraft:cooked_mutton",
-                 "minecraft:cooked_chicken", "minecraft:cooked_rabbit"]
+# Every food, by item id (the planner prices each way to any of them).
 ALL_FOOD = [mid(f) for f in FOOD]
 # Raw meat: food that wants cooking — eaten raw only when starving, counted as the next meal while cooked is short.
 RAW_MEAT = [mid(f) for f in RAW]
@@ -128,10 +137,8 @@ def members(token):
     return GROUPS.get(token, [mid(token)])
 
 # -- where a token comes from: the skills' `gives` in the registry, one place; rank settles a token two skills make
-RANK = {"gather": 0, "craft_group": 10, "hunt": 20, "smelt": 30, "trade": 35, "craft": 40, "mine": 50, "fill": 60,
+RANK = {"gather": 0, "craft_group": 10, "hunt": 20, "smelt": 30, "trade": 35, "craft": 40, "barter": 45, "mine": 50, "fill": 60,
         "farm": 70, "take": 90}
-# Tokens that are another token's source by definition: "stone"/"building" are what cobblestone is used as.
-ALIASES = {"stone": "minecraft:cobblestone", "building": "minecraft:cobblestone", "coal": "minecraft:coal"}
 
 class Produces:
     """What one skill produces: `get(token)` → the source tuple (`source`'s shape) or None, `keys()` → every token."""
@@ -172,6 +179,42 @@ GIVES_FARM = _one("farm", "minecraft:wheat", ("minecraft:wheat_seeds", PLOT_CELL
 GIVES_TRADE = _one("trade", "minecraft:emerald", ["minecraft:villager"], ("trade", ["minecraft:villager"]))
 GIVES_TAKE = _table("take", TAKEABLE, lambda t, row: ("take", row["blocks"]))
 
+def barter_yield(item):
+    """Pure: the expected count of `item` one bartered gold ingot brings (data.PIGLIN_BARTER: its share of the
+    pool's weight × its mean count)."""
+    weight, total, lo, hi = PIGLIN_BARTER[item]
+    return weight / total * (lo + hi) / 2
+
+GIVES_BARTER = _table("barter", PIGLIN_BARTER, lambda t, row: ("barter", ["minecraft:piglin"], barter_yield(t)))
+
+# where a mob lives, by the game's spawning rules: the facts a hunt of it needs first (the planner's `when`)
+LIVES_IN = {"minecraft:blaze": [("dimension", NETHER), ("state:fortress_found", True)],
+            "minecraft:piglin": [("dimension", NETHER)]}
+
+def lives_in(types):
+    """Pure: [(fact, value)] a hunt of `types` needs first — where the first of them lives (LIVES_IN)."""
+    return list(LIVES_IN.get(types[0], [])) if types else []
+
+# -- the body as facts: what work where it stands asks of it, and what the snapshot says it has
+DROWNING_TICKS = 100     # ~5 s of air: below this a breath comes before any work
+FALL_TAKES_HANDS = 2.0   # blocks: a fall longer than this takes the hands (the fall is under way)
+
+def body_facts(state):
+    """Pure: {"footing": standing on something, "hands_free": hands for work} from the snapshot's body — a body with
+    no readings is a standing one."""
+    state = state or {}
+    swimming = bool(state.get("inWater")) and not state.get("onGround", False)
+    falling = float(state.get("fallDistance", 0) or 0) > FALL_TAKES_HANDS
+    held = bool((state.get("control") or {}).get("paused"))
+    drowning = float(state.get("air", AIR_FULL) or 0) <= DROWNING_TICKS
+    return {"footing": not swimming and bool(state.get("onGround", True)),
+            "hands_free": not (falling or held or drowning)}
+
+def body_when(footing=True):
+    """A contract's `when` for work done with the hands (and, `footing`, standing): the body facts it needs."""
+    need = [("hands_free", True)] + ([("footing", True)] if footing else [])
+    return lambda step, facts: list(need)
+
 PRODUCERS = []  # the registered skills' producing tables, filled by the `skill` decorator
 # loaded by name before the tables are read (a string, not an import: knowledge stays below the skills)
 SKILL_MODULES = ("brewing", "building", "combat", "dragon", "end", "explore", "farming", "fluids", "loot", "needs", "nether",
@@ -189,16 +232,18 @@ def produced(kind):
     """[(token, table row)] of every registered producer of this kind — what the solver builds its columns from."""
     return [row for g in producers() if g.kind == kind for row in g.rows()]
 
-def source(token):
-    """How a token is produced (a source tuple by kind), the first by rank of the registered skills that give it, or None."""
+def sources(token):
+    """Every way a token is produced: [(the token made, its source tuple)], the registered skills' in rank order — a
+    group's own and each member's (any of them is the group)."""
 
-    token = ALIASES.get(token, token)
-    item = mid(token)
-    for g in producers():
-        src = g.get(token) or (g.get(item) if item != token else None)
-        if src is not None:
-            return src
-    return None
+    out = []
+    for made in [token] + [m for m in GROUPS.get(token, ()) if m != token]:
+        item = mid(made)
+        for g in producers():
+            src = g.get(made) or (g.get(item) if item != made else None)
+            if src is not None and (made if made in GROUPS or made == "food" else item, src) not in out:
+                out.append((made if made in GROUPS or made == "food" else item, src))
+    return out
 
 # -- tool wear, one reading each
 TOOL_USABLE = 2       # the jar's rule (InvUtil.java:109, Pathfinder:188/220: remaining > 1): a tool with 1 use left is never held
@@ -234,6 +279,7 @@ SHOVEL_BLOCKS = ("dirt", "sand", "gravel", "grass_block", "clay", "snow", "snow_
 HAND_BLOCKS = ("leaves", "wool", "torch", "_bed", "air", "water", "lava", "short_grass", "tall_grass", "fern", "wheat",
                "carpet", "flower", "sapling", "vine")
 
+@functools.cache
 def tool_kind(block):
     """Pure: the tool kind that breaks `block` fastest — "axe", "shovel", "pickaxe", or None (the hand does)."""
     name = bare(block or "")
@@ -310,6 +356,7 @@ def drop_need(block):
         return None
     return ("pickaxe",), next((tier for blocks, tier in MINE.values() if name in blocks), 0)
 
+@functools.cache
 def break_ticks(block, item):
     """Pure: whole ticks `item` (or "hand") takes to break `block` (Minecraft Wiki, Breaking: speed / hardness /
     30 when right for the drop, else 100, per tick; 0 when that reaches a whole block in one)."""
@@ -738,6 +785,23 @@ def dawn_s(state):
         return NIGHT_S
     t = int(state["timeOfDay"]) % DAY_TICKS
     return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / TICKS_PER_S)
+
+
+def dig_to_ticks(breaks, step, held, tps):
+    """Pure: ticks the breaks of `breaks` beyond the step's own (`own_work`) take — the digging to its work — with the
+    best of the hand and `held` ({tool kind: tier}) for each."""
+    own, _kills = own_work(step)
+    reach = list(breaks)[len(own):]
+    return round(work_s(reach, [], held, tps) * tps) if reach else 0
+
+
+def prior_work_ticks(step, held, tps):
+    """Pure: the prior (`prior_ticks`, the hand's) less what `held` ({tool kind: tier}) saves on the step's own work,
+    never below the game's own time for that work with those tools (`tps`: the game's ticks a second)."""
+    breaks, kills = own_work(step)
+    with_tools = work_s(breaks, kills, held, tps)
+    saved = work_s(breaks, kills, {}, tps) - with_tools
+    return max(round(with_tools * tps), prior_ticks(step) - round(saved * tps))
 
 
 def prior_ticks(step):

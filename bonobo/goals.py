@@ -8,8 +8,6 @@ from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_coun
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")
 ITEM_GOALS = ("have", "craft", "milestone")
-# combined goals (a milestone) go to the column solver, which orders them together; either falls back to every solver
-SOLVER_FOR = {"milestone": "solve"}
 # Goals whose "done" is that their plan ran: nothing in the world says a skill was run or a road walked.
 RUN_ONCE = ("road", "skill", "effect")
 # Milestones whose plan goes on past holding things (decompose.THEN): done when that plan has run.

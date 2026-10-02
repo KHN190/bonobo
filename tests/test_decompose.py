@@ -1,12 +1,12 @@
-"""The decomposition contract: what the planner (planner.Planner) and the column solver (solve over actions.table)
-may assume about the knowledge they plan from, and what every plan they return must do when replayed.
+"""The decomposition contract: what the one planner (planner.plan_needs over the skills' producing tables) may
+assume about the knowledge it plans from, and what every plan it returns must do when replayed.
 
 Four properties, each a list of violations that must be empty (or exactly the gaps named below):
-  1. every column and recipe declares what it does (an effect; a pattern and an output);
-  2. closure: everything a column consumes or requires is made by some column, or is a bag-only variant of a group
-     that is made;
-  3. replay: every goal, from an empty bag, through both planners, replayed by bag arithmetic alone — inputs held
-     before each step, the goal held after the last, within a step bound;
+  1. every way and recipe declares what it does (a step that makes the token; a pattern and an output);
+  2. closure: everything a way consumes, and every need of its call, is made by some way, or is a bag-only variant
+     of a group that is made;
+  3. replay: every goal, from an empty bag, replayed by bag arithmetic alone — inputs held before each step, the
+     goal held after the last, within a step bound;
   4. a source removed makes the goal unplannable — an answer, not a hang and not a partial plan.
 """
 import os
@@ -16,40 +16,58 @@ from collections import Counter
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, data, knowledge  # noqa: E402
+from bonobo import brain  # noqa: E402,F401  (every skill module registers)
+from bonobo import data, knowledge  # noqa: E402
 from bonobo.data import GROUPS, TOOL_MATERIAL_FOR_TIER, mid  # noqa: E402
-from bonobo.planner import NullCost, Planner, Unplannable  # noqa: E402
-from bonobo.solve import Action, Unsolvable, solve  # noqa: E402
-from tests.world import places  # noqa: E402
+from bonobo.planner import NullCost, Unplannable, plan_needs, way  # noqa: E402
+from tests.world import bag, inventory  # noqa: E402
 
-START = {"bag_free": 20}
-STEP_BOUND = 20          # fixture: planner steps from an empty bag, at most (the iron pickaxe: 11)
-SOLVE_BOUND = 50         # fixture: solver columns run from an empty bag, at most (seeks included; a dispenser: 45)
+STEP_BOUND = 30          # fixture: planner steps from an empty bag, at most (blaze powder: 23, the Nether trip in it)
 
 
+def plan(needs, cost=None, items=()):
+    """The one planner from a bag of `items` (empty by default), offline."""
+    return plan_needs(bag(inventory(*items)), needs, cost or NullCost())
 
-def real_table():
-    return actions.table(places(20.0), dict(START))
+
+def source(token):
+    """The first way a token is made (knowledge.sources), or None."""
+    got = knowledge.sources(token)
+    return got[0][1] if got else None
+
+
+def ways():
+    """[(token, the step, its inputs)] of every way the producing tables give: what the planner chooses among."""
+    out = []
+    for g in knowledge.producers():
+        for token in g.keys():
+            for made, src in knowledge.sources(token):
+                got = way(src, made, 1)
+                if got is not None:
+                    out.append((made, got[0], [t for t, _n in got[1]]))
+    return out
 
 
 # ---------------------------------------------------------------------------------------------- the checks (pure)
-def undeclared(columns, recipes):
-    """Columns with no effect, recipes with an empty pattern or no output: by name."""
-    out = [a.name for a in columns if not any(v for v in a.effect.values())]
+def undeclared(made, recipes):
+    """Ways whose step makes another token than the one it is for, recipes with an empty pattern or no output."""
+    out = [f"{t}: {s.kind} {s.token}" for t, s, _ins in made if s.token != t and s.kind not in ("take", "barter")]
     out += [name for name, (pattern, n) in recipes.items() if not any(pattern) or n < 1]
     return out
 
 
 def variant_of_made_group(dim, made):
-    """A variant (minecraft:oak_log) whose group (log) some column makes: held stock only, by design."""
+    """A variant (minecraft:oak_log) whose group (log) some way makes: held stock only, by design."""
     return any(g in made and dim in (mid(m) for m in members) for g, members in GROUPS.items())
 
 
-def unclosed(columns):
-    """Dims consumed or required that no column makes and no made group covers."""
-    made = {d for a in columns for d, v in a.effect.items() if v > 0}
-    used = {d for a in columns for d, v in a.effect.items() if v < 0} | {d for a in columns for d in a.requires}
-    return {d for d in used - made if not variant_of_made_group(d, made)}
+def unclosed(made_ways):
+    """Inputs, and the needs of each way's call, that no way makes and no made group covers."""
+    made = {t for t, _s, _ins in made_ways} | {g for g, ms in GROUPS.items()
+                                               if any(mid(m) in {t for t, _s, _i in made_ways} for m in ms)}
+    used = {i for _t, _s, ins in made_ways for i in ins}
+    used |= {d for _t, s, _ins in made_ways for d in knowledge.step_call(s) if not d.startswith("tool:")}
+    return {d for d in used - made if not variant_of_made_group(d, made) and mid(d) not in made}
 
 
 def ungrounded(tokens, source):
@@ -97,8 +115,8 @@ def replay_steps(steps, goal):
     bag, tools, bad = Counter(), [], []
     for st in steps:
         need = dict(st.detail.get("inputs", {}))
-        src = knowledge.source(st.token)
-        if st.kind == "craft" and src and src[0] == "craft" and len(src[1]) == 9:
+        src = next((s for _m, s in knowledge.sources(st.token) if s[0] == "craft"), None)
+        if st.kind == "craft" and src and len(src[1]) == 9:
             need.setdefault("minecraft:crafting_table", 0)
             if bag["minecraft:crafting_table"] < 1:
                 bad.append((str(st), "minecraft:crafting_table"))
@@ -108,29 +126,32 @@ def replay_steps(steps, goal):
                 not any(k == "pickaxe" and t >= st.detail["tier"] for k, t in tools):
             bad.append((str(st), f"pickaxe tier {st.detail['tier']}"))
         for tok, n in need.items():
-            if n and bag[tok] < n:
+            if n and held(bag, tok) < n:
                 bad.append((str(st), tok))
-            bag[tok] -= n
+            take(bag, tok, n)
         bag[st.token] += st.count
         mat_kind = st.token.split(":")[-1].split("_", 1)
         if len(mat_kind) == 2 and mat_kind[0] in TIER:
             tools.append((mat_kind[1], TIER[mat_kind[0]]))
     if goal[0] == "tool":
-        held = any(k == goal[1] and t >= goal[2] for k, t in tools)
+        done = any(k == goal[1] and t >= goal[2] for k, t in tools)
     else:
-        held = bag[goal[0]] >= goal[1]
-    return bad, held
+        done = held(bag, goal[0]) >= goal[1]
+    return bad, done
 
 
-def replay_plan(plan, start, target):
-    """Bag arithmetic over a solve plan: [(action, dim)] run before it held, and whether the target is held."""
-    held, early = dict(start), []
-    for action, times in plan.steps():
-        early += [(action.name, d) for d, need in action.requires.items() if held.get(d, 0) < need]
-        early += [(action.name, d) for d, v in action.effect.items() if v < 0 and held.get(d, 0) < -v * times]
-        for d, v in action.effect.items():
-            held[d] = held.get(d, 0) + v * times
-    return early, all(held.get(d, 0) >= n for d, n in target.items())
+def held(bag, token):
+    """What the replayed bag holds of `token`: itself and, for a group, its members."""
+    return bag[token] + sum(bag[mid(m)] for m in GROUPS.get(token, ()) if mid(m) != token)
+
+
+def take(bag, token, n):
+    """Use `n` of `token` from the replayed bag: itself first, then a group's members."""
+    for t in [token] + [mid(m) for m in GROUPS.get(token, ())]:
+        k = min(n, max(0, bag[t]))
+        bag[t] -= k
+        n -= k
+    bag[token] -= n
 
 
 def goals():
@@ -144,43 +165,43 @@ def goals():
 # ------------------------------------------------------------------------------------------------------ the tests
 class Declared(unittest.TestCase):
     def test_the_checker_names_what_is_undeclared(self):
-        real = real_table()
-        rows = [("the real table and recipes", real, dict(data.RECIPES), []),
-                ("must fail: a column that does nothing", real + [Action("craft:nothing", {}, 1.0)], {}, ["craft:nothing"]),
-                ("a column whose effect is all zero", [Action("x", {"a": 0}, 1.0)], {}, ["x"]),
+        real = ways()
+        step = real[0][1]
+        rows = [("the real ways and recipes", real, dict(data.RECIPES), []),
+                ("must fail: a way that makes something else", [("minecraft:thing", step, [])], {},
+                 [f"minecraft:thing: {step.kind} {step.token}"]),
                 ("a recipe with no pattern", [], {"minecraft:thing": ([None] * 4, 1)}, ["minecraft:thing"]),
                 ("a recipe with no output", [], {"minecraft:thing": (["log", None, None, None], 0)},
                  ["minecraft:thing"])]
-        for name, columns, recipes, want in rows:
+        for name, made, recipes, want in rows:
             with self.subTest(name):
-                self.assertEqual(undeclared(columns, recipes), want)
+                self.assertEqual(undeclared(made, recipes), want)
 
 
 class Closed(unittest.TestCase):
-    def test_every_dim_used_is_made(self):
-        real = real_table()
-        rows = [("the real table: every dim made", real, set()),
-                ("a broken chain: an input nothing makes", [Action("craft:a", {"a": 1, "b": -1}, 1.0)], {"b"}),
-                ("a requirement nothing makes", [Action("work", {"a": 1}, 1.0, requires={"key": 1})], {"key"}),
-                ("must fail: a variant of a made group is held stock, not a gap",
-                 [Action("gather:log", {"log": 1}, 1.0), Action("craft:p", {"p": 1, "minecraft:oak_log": -1}, 1.0)],
+    def test_every_input_is_made(self):
+        from bonobo.planner import Step
+        real = ways()
+        log = Step("gather", "log", 1, {})
+        rows = [("the real ways: every input made", real, set()),
+                ("must fail: a broken chain: an input nothing makes", [("a", log, ["b"])], {"b"}),
+                ("a variant of a made group is held stock, not a gap", [("log", log, []), ("p", log, ["minecraft:oak_log"])],
                  set())]
-        for name, columns, want in rows:
+        for name, made, want in rows:
             with self.subTest(name):
-                self.assertEqual(unclosed(columns), want)
+                self.assertEqual(unclosed(made), want)
 
     def test_every_token_is_grounded_in_a_base(self):
         roots = [g[0] for g in goals() if g[0] != "tool"] + ["minecraft:iron_pickaxe"]
         cyclic = {"a": ("craft", ["b"], 1), "b": ("craft", ["a"], 1)}
-        rows = [("the real knowledge", knowledge.source, roots, set()),
+        rows = [("the real knowledge", source, roots, set()),
                 ("must fail: a cycle with no base entry", lambda t: cyclic.get(t), ["a"], {"a", "b"}),
                 ("a craft from nothing known", lambda t: {"a": ("craft", ["zzz"], 1)}.get(t), ["a"], {"a", "zzz"}),
                 ("a chain down to a mine", lambda t: {"a": ("craft", ["b"], 1), "b": ("mine", ["x"], 0)}.get(t),
                  ["a"], set())]
-        for name, source, rs, want in rows:
+        for name, src, rs, want in rows:
             with self.subTest(name):
-                self.assertEqual(ungrounded(all_tokens(source, rs), source) & (want | {"a", "b", "zzz"} | set(rs)),
-                                 want)
+                self.assertEqual(ungrounded(all_tokens(src, rs), src) & (want | {"a", "b", "zzz"} | set(rs)), want)
 
 
 class Replayed(unittest.TestCase):
@@ -189,7 +210,7 @@ class Replayed(unittest.TestCase):
         for goal in goals():
             need = [goal] if goal[0] == "tool" else [(goal[0], goal[1])]
             try:
-                steps = Planner({}, [], NullCost()).plan(need)
+                steps = plan(need)
             except Unplannable:
                 failed.add(goal[0])
                 continue
@@ -198,24 +219,9 @@ class Replayed(unittest.TestCase):
                 ([(goal, f"{len(steps)} steps")] if len(steps) > STEP_BOUND else [])
         self.assertEqual((bad, failed), ([], set()))
 
-    def test_the_solver_from_an_empty_bag(self):
-        table, bad, failed = real_table(), [], set()
-        for goal in goals():
-            target = {actions.tool_dim(goal[1], goal[2]): 1} if goal[0] == "tool" else {goal[0]: goal[1]}
-            try:
-                plan = solve(table, dict(START), target)
-            except Unsolvable:
-                failed.add(goal[0])
-                continue
-            early, held = replay_plan(plan, START, target)
-            steps = plan.steps()
-            bad += [(goal, e) for e in early] + ([(goal, "not held at the end")] if not held else []) + \
-                ([(goal, f"{len(steps)} steps")] if len(steps) > SOLVE_BOUND else [])
-        self.assertEqual((bad, failed), ([], set()))
-
     def test_the_replay_catches_a_step_out_of_order(self):
         """The replay itself: a plan whose steps are swapped fails it (else a green replay proves nothing)."""
-        steps = Planner({}, [], NullCost()).plan([("tool", "pickaxe", 0)])
+        steps = plan([("tool", "pickaxe", 0)])
         rows = [("as planned", steps, True), ("the pickaxe before its sticks", [steps[-1]] + steps[:-1], False),
                 ("must fail: the table missing", [s for s in steps if s.token != "minecraft:crafting_table"], False),
                 ("the last step dropped", steps[:-1], False)]
@@ -241,43 +247,47 @@ def skill_need_keys():
     return keys
 
 
-def unmade_needs(keys, columns):
-    """Pure: the need dimensions no column makes and no made group covers."""
-    made = {d for a in columns for d, v in a.effect.items() if v > 0}
-    return {k for k in keys if k not in made and not variant_of_made_group(k, made)}
+def unmade_needs(keys, made_ways):
+    """Pure: the need dimensions no way makes and no made group covers (a tool dimension: its tool item)."""
+    made = {t for t, _s, _ins in made_ways}
+    made |= {g for g, ms in GROUPS.items() if any(mid(m) in made for m in ms)}
+
+    def item(k):
+        return knowledge.tool_item(k.split(":")[1], int(k.split(":")[2])) if k.startswith("tool:") else k
+    return {k for k in keys if item(k) not in made and mid(item(k)) not in made and not variant_of_made_group(k, made)}
 
 
 class SkillNeeds(unittest.TestCase):
-    """Every skill's hard needs close over the columns (something makes each), and each can be had from an empty
-    bag by the solver, the plan replayed by bag arithmetic."""
+    """Every skill's hard needs close over the ways (something makes each), and each can be had from an empty bag,
+    the plan replayed by bag arithmetic."""
 
     def test_needs_are_made(self):
-        real = real_table()
+        from bonobo.planner import Step
+        real = ways()
         rows = [("every registered skill: every need made", skill_need_keys(), real, set()),
                 ("must fail: a need nothing makes", {"minecraft:unobtainium": 1}, real, {"minecraft:unobtainium"}),
                 ("a tool dimension is made", {"tool:pickaxe:2": 1}, real, set()),
                 ("a variant of a made group is held stock", {"minecraft:oak_log": 1},
-                 [Action("gather:log", {"log": 1}, 1.0)], set())]
-        for name, keys, columns, want in rows:
+                 [("log", Step("gather", "log", 1, {}), [])], set())]
+        for name, keys, made, want in rows:
             with self.subTest(name):
-                self.assertEqual(unmade_needs(keys, columns), want)
+                self.assertEqual(unmade_needs(keys, made), want)
 
     def test_every_need_from_an_empty_bag(self):
-        table, bad, failed = real_table(), [], set()
+        bad, failed = [], set()
         for key, n in sorted(skill_need_keys().items()):
+            goal = ("tool", key.split(":")[1], int(key.split(":")[2])) if key.startswith("tool:") else (key, n)
             try:
-                plan = solve(table, dict(START), {key: n})
-            except Unsolvable:
+                steps = plan([goal])
+            except Unplannable:
                 failed.add(key)
                 continue
-            early, held = replay_plan(plan, START, {key: n})
-            bad += [(key, e) for e in early] + ([(key, "not held at the end")] if not held else []) + \
-                ([(key, f"{len(plan.steps())} steps")] if len(plan.steps()) > SOLVE_BOUND else [])
+            early, held = replay_steps(steps, goal)
+            bad += [(key, e) for e in early] + ([(key, "not held at the end")] if not held else [])
         self.assertEqual((bad, failed), ([], set()))
 
     def test_a_dropped_producer_leaves_no_source(self):
-        """The producer tables are the skills' `gives`: take one away and its token has no source — for the planner
-        (Unplannable) and the solver (no column makes it)."""
+        """The producer tables are the skills' `gives`: take one away and its token has no source (Unplannable)."""
         rows = [("nothing dropped: the bucket is filled", None, "minecraft:water_bucket", True),
                 ("must fail: no filling skill, no water bucket", knowledge.GIVES_FILL, "minecraft:water_bucket", False),
                 ("must fail: no farm, no wheat (so no bread)", knowledge.GIVES_FARM, "minecraft:bread", False),
@@ -288,17 +298,15 @@ class SkillNeeds(unittest.TestCase):
                 kept = [g for g in knowledge.PRODUCERS if g is not dropped]
                 with mock.patch.object(knowledge, "PRODUCERS", kept):
                     try:
-                        Planner({}, [], NullCost()).plan([(token, 1)])
+                        plan([(token, 1)])
                         planned = True
                     except Unplannable:
                         planned = False
-                    made = {d for a in real_table() for d, v in a.effect.items() if v > 0}
-                self.assertEqual((planned, token in made or token == "minecraft:bread"),
-                                 (want, want or token == "minecraft:bread"))
+                self.assertEqual(planned, want)
 
     def test_the_empty_bag_replay_fails_a_need_nothing_makes(self):
-        with self.assertRaises(Unsolvable):
-            solve(real_table(), dict(START), {"minecraft:unobtainium": 1})
+        with self.assertRaises(Unplannable):
+            plan([("minecraft:unobtainium", 1)])
 
 
 def given_tokens():
@@ -325,46 +333,33 @@ def chain_faults(steps, token, handles):
     return faults + ([] if steps[-1].token == token else [f"ends at {steps[-1].token}"])
 
 
-# Given tokens the solver cannot reach from an empty bag with the fixture's places, noted: a new one must be noted.
-UNREACHED = {"minecraft:bookshelf": "taken only, and no container in the fixture holds one",
-             "minecraft:hay_block": "taken only, and no container in the fixture holds one"}
-
-
 class EveryProduct(unittest.TestCase):
     """Every item a producing skill gives is reachable from an empty bag: the planner's chain is whole (every step a
-    skill's, in an order the bag allows, ending at the token) and the solver's replays. A taken-only item is the
-    solver's alone (the planner plans no take); a variant of a group recipe (oak planks, a red bed) may be held stock
-    only — but any chain planned for it is whole too."""
+    skill's, in an order the bag allows, ending at the token). A taken-only item is planned only where one is known
+    (none is, offline); a variant of a group recipe (oak planks, a red bed) may be held stock only — but any chain
+    planned for it is whole too."""
 
     def test_every_given_token_from_an_empty_bag(self):
         from bonobo.skill import handles
         variants = {mid(m) for g in knowledge.GROUP_RECIPES for m in GROUPS.get(g, ())}
-        table, faults, unreached, kinds = real_table(), [], set(), Counter()
+        faults, kinds = [], Counter()
         for token, by in sorted(given_tokens().items()):
             kind = ("held stock" if token in variants else
-                    "taken" if (knowledge.source(token) or ("",))[0] == "take" else "planned")
+                    "taken" if all(src[0] == "take" for _m, src in knowledge.sources(token)) else "planned")
             kinds[kind] += 1
             try:
-                steps = Planner({}, [], NullCost()).plan([(token, 1)])
+                steps = plan([(token, 1)])
                 faults += [(token, sorted(by), f) for f in chain_faults(steps, token, handles)]
             except Unplannable as e:
                 if kind == "planned":
                     faults.append((token, sorted(by), str(e)))
-            try:
-                plan = solve(table, dict(START), {token: 1})
-                early, held = replay_plan(plan, START, {token: 1})
-                faults += [(token, "solve", e) for e in early] + ([] if held else [(token, "solve", "not held")])
-            except Unsolvable:
-                if kind != "held stock":
-                    unreached.add(token)
         self.assertEqual(faults, [])
-        self.assertEqual(unreached, set(UNREACHED))
         self.assertTrue(all(kinds[k] >= 1 for k in ("held stock", "taken", "planned")), kinds)
 
     def test_a_broken_chain_is_caught(self):
         from bonobo.skill import handles
         from bonobo.planner import Step
-        steps = Planner({}, [], NullCost()).plan([("minecraft:stone_pickaxe", 1)])
+        steps = plan([("minecraft:stone_pickaxe", 1)])
         rows = [("as planned", steps, []),
                 ("must fail: nothing planned", [], ["no steps"]),
                 ("must fail: the last step dropped", steps[:-1], ["not held at the end", f"ends at {steps[-2].token}"]),
@@ -403,7 +398,8 @@ def skill_calls():
     return out
 
 
-ASKED_TOO = {"trade": ["minecraft:bread"]}      # a villager sells it: paid in emeralds
+ASKED_TOO = {"trade": ["minecraft:bread"],      # a villager sells it: paid in emeralds
+             "build_blueprint": ["nether_portal"]}      # a machine by its blueprint's name
 
 
 def _holds(bag, tools, dim, n):
@@ -447,7 +443,7 @@ class CallNeeds(unittest.TestCase):
         for name, what, args in calls:
             needs = needs_of(REGISTRY[name], args)
             try:
-                steps = Planner({}, [], NullCost()).plan(as_rows(needs))
+                steps = plan(as_rows(needs))
             except Unplannable as e:
                 faults.append((name, what, str(e)))
                 continue
@@ -460,9 +456,9 @@ class CallNeeds(unittest.TestCase):
         from bonobo.skill import REGISTRY
         diamond = [("minecraft:diamond", 1)]
         with mock.patch.object(REGISTRY["mine"], "needs_fn", None):      # planned from the no-tier default only
-            blind = Planner({}, [], NullCost()).plan(diamond)
-        iron = Planner({}, [], NullCost()).plan([("minecraft:raw_iron", 1)])
-        rows = [("the diamonds as planned", Planner({}, [], NullCost()).plan(diamond), False),
+            blind = plan(diamond)
+        iron = plan([("minecraft:raw_iron", 1)])
+        rows = [("the diamonds as planned", plan(diamond), False),
                 ("must fail: mine's needs_fn ignored (no-tier needs only)", blind, True),
                 ("must fail: a tier-1 chain, then a diamond", iron + [Step("mine", "minecraft:diamond", 1, {
                     "blocks": ["diamond_ore"], "tier": 2})], True),
@@ -498,7 +494,7 @@ class CallNeeds(unittest.TestCase):
                 patch = mock.patch.object(c, field, value) if value is not None else mock.patch.object(c, "prefer",
                                                                                                         c.prefer)
                 with patch:
-                    steps = Planner({}, [], NullCost()).plan([(goal, 1)])
+                    steps = plan([(goal, 1)])
                 self.assertEqual(any(s.token == craft for s in steps), has, [str(s) for s in steps])
 
 
@@ -541,17 +537,18 @@ class CallSpeed(unittest.TestCase):
 
 
 class RipeFirst(unittest.TestCase):
-    """A crop already grown is harvested (a take step) before a plot is sown (the farm step): the known-first rule."""
+    """A crop already grown is harvested (a take step) or a plot sown (the farm step), by price: harvesting what
+    stands costs a take's work, sowing a plot a farm's (knowledge.prior_ticks)."""
+
+    KIT = [("wheat_seeds", 8), ("water_bucket", 1), ("iron_hoe", 1)]
 
     class Cost(NullCost):
         def __init__(self, ripe):
+            super().__init__()
             self._n = ripe
 
         def ripe(self, token):
             return self._n if token == "minecraft:wheat" else 0
-
-        def estimate(self, step):
-            return 100
 
     def test_pricing_touches_no_world(self):
         """An estimate reads memory only: with nothing remembered, pricing wheat asks the game nothing (every
@@ -572,20 +569,22 @@ class RipeFirst(unittest.TestCase):
                 mem = Memory(os.path.join(tempfile.mkdtemp(prefix="ripe"), "notes.json"))
                 mem.data["jobs"] = [dict(j, dimension="minecraft:overworld") for j in jobs]
                 cost = Cost(snapshot(), mem=mem, known=lambda kinds: None, finds={})
-                steps = Planner({"minecraft:wheat_seeds": 8, "minecraft:water_bucket": 1, "minecraft:iron_hoe": 1},
-                                [], cost).plan([("minecraft:wheat", n)])
+                steps = plan([("minecraft:wheat", n)], cost, self.KIT)
                 self.assertEqual([s.kind for s in steps if s.token == "minecraft:wheat"], want)
 
-    def test_ripe_before_sowing(self):
+    def test_ripe_or_sown_by_price(self):
+        from bonobo.planner import Step
+        take = knowledge.prior_ticks(Step("take", "minecraft:wheat", 1, {}))
+        farm = knowledge.prior_ticks(Step("farm", "minecraft:wheat", 1, {}))
+        cheaper = "take" if take < farm else "farm"
         # (situation, ripe wheat cells known, wheat wanted) → the step kinds for the wheat
-        rows = [("nine ripe cells, one wanted: harvest, no sowing", 9, 1, ["take"]),
-                ("nine ripe, nine wanted (the boundary): harvest", 9, 9, ["take"]),
+        rows = [("nine ripe cells, one wanted: the cheaper of harvest and sowing", 9, 1, [cheaper]),
+                ("nine ripe, nine wanted (the boundary): the cheaper", 9, 9, [cheaper]),
                 ("two ripe, three wanted: not enough grown, sow a plot", 2, 3, ["farm"]),
                 ("must fail to harvest: none ripe, sow", 0, 1, ["farm"])]
         for name, ripe, n, want in rows:
             with self.subTest(name):
-                steps = Planner({"minecraft:wheat_seeds": 8, "minecraft:water_bucket": 1, "minecraft:iron_hoe": 1},
-                                [], self.Cost(ripe)).plan([("minecraft:wheat", n)])
+                steps = plan([("minecraft:wheat", n)], self.Cost(ripe), self.KIT)
                 self.assertEqual([s.kind for s in steps if s.token == "minecraft:wheat"], want)
 
 class BreadFromTheBag(unittest.TestCase):
@@ -615,7 +614,9 @@ class SourceRemoved(unittest.TestCase):
 
     def test_the_planner(self):
         rows = [("nothing removed: planned", {}, {}, ("bed", 1), True),
-                ("must fail: no wool from sheep: no bed", {"HUNT": ["wool"]}, {}, ("bed", 1), False),
+                ("no wool from sheep: the spiders' string makes it", {"HUNT": ["wool"]}, {}, ("bed", 1), True),
+                ("must fail: no wool from sheep, no string recipe: no bed", {"HUNT": ["wool"]},
+                 {"minecraft:white_wool": None}, ("bed", 1), False),
                 ("no stick recipe: no pickaxe", {}, {"minecraft:stick": None}, ("tool", "pickaxe", 0), False),
                 ("no iron ore: no iron ingot", {"MINE": ["minecraft:raw_iron"]}, {}, ("minecraft:iron_ingot", 1),
                  False),
@@ -635,7 +636,7 @@ class SourceRemoved(unittest.TestCase):
                         del knowledge.RECIPES[k]
                     need = [goal] if goal[0] == "tool" else [goal]
                     try:
-                        steps = Planner({}, [], NullCost()).plan(need)
+                        steps = plan(need)
                         got = replay_steps(steps, goal)[1]
                     except Unplannable:
                         got = False
@@ -643,28 +644,6 @@ class SourceRemoved(unittest.TestCase):
                 finally:
                     for p in reversed(patches):
                         p.stop()
-
-    def test_the_solver(self):
-        table = real_table()
-
-        def without(pred):
-            return [a for a in table if not pred(a)]
-        rows = [("nothing removed: solved", table, {"bed": 1}, True),
-                ("must fail: no column makes wool, no bed to take: no bed",
-                 without(lambda a: a.effect.get("wool", 0) > 0 or a.name == "take:bed"), {"bed": 1}, False),
-                ("no stick column: no stone pickaxe", without(lambda a: a.name == "craft:minecraft:stick"),
-                 {"minecraft:stone_pickaxe": 1}, False),
-                ("no iron mined, none taken: no ingot",
-                 without(lambda a: a.effect.get("minecraft:raw_iron", 0) > 0 or a.effect.get("minecraft:iron_ingot", 0) > 0
-                         and not a.name.startswith("smelt:")), {"minecraft:iron_ingot": 1}, False)]
-        for name, columns, target, ok in rows:
-            with self.subTest(name):
-                try:
-                    plan = solve(columns, dict(START), target)
-                    got = replay_plan(plan, START, target)[1]
-                except Unsolvable:
-                    got = False
-                self.assertEqual(got, ok)
 
 
 if __name__ == "__main__":

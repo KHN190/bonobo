@@ -8,7 +8,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import api, blueprints, lifecycle, nav, world, fluids
 from .beliefs import CONFIG as _PLAY
 from .api import McError, NotAvailable, log, swallowed
-from .data import GROUPS, bare, mid
+from .data import GROUPS, NETHER, bare, mid
 from .knowledge import members
 from .skill import ANCHORS, skill
 from .skillcore import body_state, snapshot, mine_cell, opened, place
@@ -372,11 +372,30 @@ def by_layer(tasks):
         chunks.append(cur)
     return chunks
 
+def blueprint_parts(name):
+    """Pure: the items a blueprint's build places (blueprints.materials): used up by the build."""
+    return blueprints.materials(blueprints.REGISTRY[name]) if name in blueprints.REGISTRY else {}
+
+def build_needs(name):
+    """Pure: what a blueprint's build holds at its call — its parts (blueprints.materials), and the portal's lighter."""
+    if name not in blueprints.REGISTRY:
+        return {}
+    out = blueprint_parts(name)
+    return {**out, "minecraft:flint_and_steel": 1} if "portal" in blueprints.REGISTRY[name].tags else out
+
+def _cast_when(facts):
+    """Pure: what casting a frame in place asks of where it is — water poured outside the Nether, lava to pour."""
+    if facts.get("dimension") == NETHER:
+        return "water cannot be poured in the Nether"
+    return [] if facts.get("lava") else "no lava known and no lava bucket"
+
 def _build_args(ctx, s):
     """(blueprint, near) for a build step: where it asked, else home (never for a portal), else here."""
     at = s.detail.get("at")
     if at:
         return s.token, tuple(at)
+    if ctx is None:
+        return s.token, None                 # asked without a world (the planner reading its needs)
     home = ctx.mem.home()
     return s.token, tuple(home["pos"]) if home and s.token != "nether_portal" else feet()
 
@@ -443,7 +462,9 @@ def _shelter_commands_for(state, args):
     origin, turns = state["spot"]
     return blueprint_commands(state, (blueprints.SHELTER, origin, turns))
 
-@skill(gives=["state:built"], remaining=_k.built(lambda c: c.args[1]), needs={}, pre=[_mod_at_least("0.1.14")], verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
+@skill(gives=["state:built"], remaining=_k.built(lambda c: c.args[1]), needs=lambda a: build_needs(a[1]), pre=[_mod_at_least("0.1.14")],
+       sets={"nether_portal": {"portal": True}}, uses=lambda a: blueprint_parts(a[1]),
+       verify=lambda c: c.result is not None and _machine_built(c.args[0], c.result),
        commands=_blueprint_commands_for, budget=900, stall=120, provides={"build": lambda ctx, s: _build_args(ctx, s)})
 def build_blueprint(ctx, name, near):
     """Build a machine from blueprints.REGISTRY near `near`: clear spot, bottom-up, oriented, verified, remembered."""
@@ -503,7 +524,8 @@ def _portal_cast(c):
     return _CAST.get("origin") is not None and fluids.portal_lit(_CAST["origin"])
 
 @skill(gives=["state:portal_frame"], remaining=_k.blocks_there("obsidian", least=10), needs={"minecraft:water_bucket": 1, "minecraft:bucket": 1, "minecraft:flint_and_steel": 1, "building": 16},
-       verify=_portal_cast, budget=900, stall=240, provides={"cast:nether_portal": lambda ctx, s: ()})
+       verify=_portal_cast, budget=900, stall=240, provides={"cast:nether_portal": lambda ctx, s: ()},
+       when=lambda s, f: _cast_when(f), sets={"nether_portal": {"portal": True}})
 def cast_portal(ctx):
     """Cast a Nether portal frame in place (no obsidian, no diamond pickaxe): mould each cell, lava in, water on, then light it."""
 

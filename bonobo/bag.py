@@ -263,9 +263,23 @@ def mineable(cells, feet, region=None, drop=None):
           and (region is None or stand_spot(region, tuple(c), drop))]
     if region is None:
         return ok
-    # open-faced first, buried only when nothing open is left (else a batch undermined its own floor)
-    open_ = [c for c in ok if not buried(region, c)]
-    return open_ or ok
+    return exposed_order(region, ok)
+
+def exposed_order(region, cells):
+    """Pure: `cells` in an order each can be broken in — a cell goes once one of its faces is open, read or opened by
+    a cell broken before it in the batch; one no break in the batch opens (buried) goes last, its way planned by the
+    door's stand gate (nav.gate): a feasibility, not a preference."""
+    out, gone, todo = [], set(), list(cells)
+    while todo:
+        ready = [c for c in todo if any(not (region.inside(f) and region.solid(f)) or f in gone
+                                        for f in (cell_add(c, d) for d in FACES))]
+        if not ready:
+            return out + todo
+        for c in ready:
+            out.append(c)
+            gone.add(c)
+            todo.remove(c)
+    return out
 
 def refused(cells, refused_before):
     """Pure: of the cells a mine_many broke none of, (asked again after making a way, dropped)."""

@@ -1,4 +1,4 @@
-"""Pure tables for the build / actions group: one table per function, every row a subTest.
+"""Pure tables for the build group: one table per function, every row a subTest.
 
 Expected values are worked out by hand from the rule each function states (geometry, arithmetic, group membership);
 the config constants they read (pit geometry, slot_fill_s, UNPRICED_S) are named, not re-derived. Nothing here talks
@@ -9,10 +9,9 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, api, bag, beliefs, blueprints, building, estimate, threat  # noqa: E402
+from bonobo import api, bag, beliefs, blueprints, building  # noqa: E402
 from bonobo.api import Interrupted, NotAvailable  # noqa: E402
 from bonobo.blueprints import Blueprint, Part  # noqa: E402
-from bonobo.solve import Action  # noqa: E402
 from tests.world import FakeRegion  # noqa: E402
 
 SLOT_S = float(beliefs.CONFIG["plan"]["slot_fill_s"])
@@ -44,143 +43,6 @@ class EmptyHow(unittest.TestCase):
                 except NotAvailable as e:
                     got = want if want in str(e) else str(e)
                 self.assertEqual(got, want)
-
-
-class GroupsOf(unittest.TestCase):
-    TABLE = [
-        # token                      expected groups           why
-        ("minecraft:oak_planks",     ("planks",),              "full id is a member"),
-        ("oak_planks",               ("planks",),              "short id matches through mid()"),
-        ("minecraft:cobblestone",    ("stone", "building"),    "member of two groups, in GROUPS order"),
-        ("minecraft:cooked_beef",    ("food",),                "food lists bare ids: matched through bare()"),
-        ("planks",                   (),                       "negative: a group is not a member of itself"),
-        ("minecraft:diamond",        (),                       "negative: in no group"),
-    ]
-
-    def test_table(self):
-        for token, want, why in self.TABLE:
-            with self.subTest(token=token, why=why):
-                self.assertEqual(actions.groups_of(token), want)
-
-
-class ProduceConsume(unittest.TestCase):
-    TABLE = [
-        # token, n                       produce                                                         why
-        ("minecraft:diamond", 2,         {"minecraft:diamond": 2},                                        "no group: item only"),
-        ("minecraft:oak_log", 3,         {"minecraft:oak_log": 3, "log": 3},                              "member counts toward its group"),
-        ("minecraft:cobblestone", 1,     {"minecraft:cobblestone": 1, "stone": 1, "building": 1},         "two groups both credited"),
-        ("minecraft:oak_planks", 0,      {"minecraft:oak_planks": 0, "planks": 0},                        "boundary: zero still names the dims"),
-        ("planks", 4,                    {"planks": 4},                                                    "negative: a group token is not double-counted"),
-    ]
-
-    def test_produce(self):
-        for token, n, want, why in self.TABLE:
-            with self.subTest(token=token, n=n, why=why):
-                self.assertEqual(actions.produce(token, n), want)
-
-    def test_consume(self):
-        for token, n, want, why in self.TABLE:
-            with self.subTest(token=token, n=n, why=why):
-                self.assertEqual(actions.consume(token, n), {d: -v for d, v in want.items()})
-
-
-class BodyDims(unittest.TestCase):
-    BOTH = {"footing": 1, "hands_free": 1}
-    TABLE = [
-        # state                                          expected                 why
-        ({"inWater": True, "onGround": False},            {"hands_free": 1},       "swimming: no footing, hands still ours"),
-        ({"inWater": True, "onGround": True},             BOTH,                    "wading on the bottom is footing"),
-        ({"onGround": False},                             {"hands_free": 1},       "in the air: no footing"),
-        ({"fallDistance": 2.0},                           BOTH,                    "boundary: 2.0 is not yet falling"),
-        ({"fallDistance": 3},                             {"footing": 1},          "falling takes the hands"),
-        ({"air": 101},                                    BOTH,                    "boundary: one tick above drowning"),
-        ({"air": 100},                                    {"footing": 1},          "boundary: at DROWNING_TICKS is drowning"),
-        ({"air": None},                                   {"footing": 1},          "negative: unknown air reads as none left"),
-        ({"control": {"paused": True}},                   {"footing": 1},          "player holds the controls"),
-    ]
-
-    def test_table(self):
-        for state, want, why in self.TABLE:
-            with self.subTest(state=state, why=why):
-                self.assertEqual(actions.body_dims(state), want)
-
-
-class TargetOf(unittest.TestCase):
-    TABLE = [
-        # needs                                          expected                         why
-        (None,                                            {},                              "boundary: no needs"),
-        ([("log", 3)],                                    {"log": 3},                      "token and count"),
-        ([("torch",)],                                    {"torch": 1},                    "count defaults to one"),
-        ([("log", 5), ("log", 3)],                        {"log": 5},                      "repeats take the max, not the sum"),
-        ([("log", 3), ("log", 5)],                        {"log": 5},                      "order does not matter"),
-        ([("tool", "pickaxe", 2)],                        {"tool:pickaxe:2": 1},           "tool shape becomes a tool dim"),
-        ([("tool", 5)],                                   {"tool": 5},                     "negative: two-long 'tool' is a plain token"),
-    ]
-
-    def test_table(self):
-        for needs, want, why in self.TABLE:
-            with self.subTest(needs=needs, why=why):
-                self.assertEqual(actions.target_of(needs), want)
-
-
-class ExposureOf(unittest.TestCase):
-    HERE = (0.0, 64.0, 0.0)
-    ZOMBIE = estimate.row((2.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie")
-
-    def state(self, hazards, prot=0.0):
-        return {"here": self.HERE, "hazards": hazards, "protection": prot}
-
-    def test_zero_without_threat(self):
-        mine = Action("mine:coal", {"minecraft:coal": 1}, 3.0, tag=("mine", "coal"))
-        rows = [
-            ({"here": self.HERE},                                      "no hazards key"),
-            (self.state([]),                                           "empty hazards"),
-            (self.state([((2.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "not:a_mob", 1.0, 5.0)]),
-             "negative: a kind the threat layer does not know is dropped"),
-            (self.state([((1.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "not:a_mob", 1.0, 9.0)]),
-             "negative: unknown kind even adjacent and hard-hitting"),
-        ]
-        for st, why in rows:
-            with self.subTest(why=why):
-                self.assertEqual(actions.exposure_of(mine, st), 0.0)
-
-    def test_shape(self):
-        press = estimate.pressure_hp_s(self.HERE, [self.ZOMBIE], 0.0)
-        press_half = estimate.pressure_hp_s(self.HERE, [self.ZOMBIE], 0.5)
-        self.assertNotEqual(press, 0.0)      # fixture: an adjacent zombie must press, or the rows below prove nothing
-        rows = [
-            # tag                      cost  prot  expected                              why
-            (("mine", "coal"),         3.0,  0.0,  press * 3.0,                          "standing work: full duration"),
-            (None,                     2.0,  0.0,  press * 2.0,                          "untagged is standing work"),
-            (("threat",),              2.0,  0.0,  press * 2.0,                          "boundary: bare threat tag is standing"),
-            (("threat", "evade"),      3.0,  0.0,  round(press * 3.0 * 0.5, 2),          "leaving: half the integral"),
-            (("threat", "wall_in"),    4.0,  0.0,  round(press * 4.0 * 0.5, 2),          "wall_in is leaving too"),
-            (("threat", "fight"),      3.0,  0.0,  press * 3.0,                          "negative: fight is not leaving"),
-            (("mine", "coal"),         3.0,  0.5,  press_half * 3.0,                     "protection passed through"),
-        ]
-        for tag, cost, prot, want, why in rows:
-            with self.subTest(tag=tag, why=why):
-                a = Action("a", {"x": 1}, cost, tag=tag)
-                self.assertAlmostEqual(actions.exposure_of(a, self.state([self.ZOMBIE], prot)), want, places=9)
-
-    def test_with_exposure(self):
-        st = self.state([self.ZOMBIE])
-        rows = [
-            # wrap?  tag                     why
-            (True,   ("mine", "coal"),       "wrapped: the action prices itself"),
-            (True,   ("threat", "evade"),    "wrapped: leaving shape kept"),
-            (False,  ("mine", "coal"),       "negative: unwrapped action has no exposure"),
-            (False,  ("threat", "evade"),    "negative: unwrapped leaving has none either"),
-        ]
-        for wrap, tag, why in rows:
-            with self.subTest(why=why):
-                a = Action("a", {"x": 1}, 3.0, tag=tag)
-                if wrap:
-                    self.assertIs(actions.with_exposure(a), a)
-                    want = float(actions.exposure_of(a, st))
-                else:
-                    want = 0.0
-                self.assertEqual(a.exposure(st), want)
 
 
 # ---------------------------------------------------------------------------------------------------------- api

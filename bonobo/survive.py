@@ -140,7 +140,7 @@ def _on_land():
     return not swimming(api.get("/state"))
 
 @skill(gives=["state:footing"], remaining=_k.standing, needs={"building": 1}, done=lambda c: bool(api.get("/state").get("onGround")), budget=30, stall=20,
-       provides={"reach:footing": lambda ctx, s: ()})
+       provides={"reach:footing": lambda ctx, s: ()}, sets={"*": {"footing": True}})
 def stand_on_a_block(ctx):
     """Footing, made rather than travelled to: one block under the feet."""
 
@@ -207,7 +207,8 @@ def bridge_toward(ctx, target):
     api.run_chain(tasks, stop_on_failure=True, before_segment=ctx.policy.before_segment)
     return feet()
 
-@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()})
+@skill(gives=["state:ashore"], remaining=_k.on_dry_ground, needs={}, done=lambda c: _on_land(), budget=180, stall=45, provides={"reach:land": lambda ctx, s: ()},
+       sets={"*": {"footing": True}})
 def reach_land(ctx):
     """Night in the water: swim (or boat) to the nearest dry standing spot first; shelters are made from land."""
 
@@ -374,7 +375,7 @@ def _breathing_now():
     return not head_underwater(s) and s.get("air", AIR_FULL) >= AIR_FULL
 
 @skill(gives=["state:air"], remaining=_k.breathing, needs={}, done=lambda c: _breathing_now(), verify=lambda c: _breathed(), budget=45, stall=12,
-       provides={"reach:air": lambda ctx, s: ()})
+       provides={"reach:air": lambda ctx, s: ()}, sets={"*": {"hands_free": True}})
 def find_air(ctx):
     """Out of breath underwater: swim to the nearest dry cell (surfacing in place sank back), else a block at the surface, else dig the cap."""
 

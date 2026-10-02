@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
 from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
 from .knowledge import food_count, food_points, FIND_AT
-from .planner import NullCost, Planner, Unplannable
+from .planner import Unplannable, craftable_tier
 from .skill import skill
 from .skillcore import lost
 from .world import Inventory
@@ -130,11 +130,6 @@ def working_tiers(inv):
         if tiers:
             out[kind] = max(tiers)
     return out
-
-def craftable_tier(inv, kind, reserved=()):
-    """The best tier of `kind` this bag crafts outright, or 0."""
-
-    return Planner.from_inventory(inv, NullCost(), reserved=reserved).craftable_tier(kind)
 
 def falls(step, known_y=None):
     """Pure: does this plan step put the body where a fall can happen (FALL_RISK, or ore dug down to)? The ore's
