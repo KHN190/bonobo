@@ -21,7 +21,7 @@ import re
 import sys
 import time
 from .. import core, runner
-from ...data import DAY_END, DAY_TICKS, POD_BLOCKS  # noqa: F401
+from ...data import DAY_END, DAY_TICKS, POD_BLOCKS, TICKS_PER_S  # noqa: F401
 from ...survive import DIG_IN_DEPTH, SLEEP_FROM_TICKS
 from .checks import BASE, FIRST, INTERRUPTS, RESUMED_LEFT, _all, _base_count, _gain, _inv_now, _skill, _start
 from .fight import _cells
@@ -250,7 +250,7 @@ def drain_plan(food, saturation, level, exhaustion=0.0):
         return None
     # the game takes a point only past 4.0, never at it; what is carried counts toward the first
     need = max(DRAIN_OVER, EXHAUSTION_PER_POINT * points + DRAIN_OVER - float(exhaustion))
-    per_s = HUNGER_PER_TICK * 20
+    per_s = HUNGER_PER_TICK * TICKS_PER_S
     secs = max(1, math.ceil(need / (per_s * (HUNGER_MAX_AMP + 1))))
     return secs, min(HUNGER_MAX_AMP, max(0, math.ceil(need / (per_s * secs)) - 1))
 

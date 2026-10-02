@@ -367,6 +367,10 @@ SLEEP_BLOCKERS_ANGRY = {"minecraft:zombified_piglin"}
 BED_BOX = (8.0, 5.0, 8.0)        # trySleep's monster box: the bed's bottom centre ± these
 BED_REACH = (3.0, 2.0, 3.0)      # trySleep's isBedWithinRange: the player within these of the bed's bottom centre
 TORCH_LIGHT = 15                 # a torch's block light; one less per block away
+SPAWN_BLOCK_LIGHT = 0            # hostiles spawn only at this block light or less (1.18+)
+DAYLIT_SKY = 7                   # sky light above this by day: daylight reaches the cell (no spawns)
+OPEN_SKY = 14                    # sky light at least this: open to the sky overhead
+REPAIR_BONUS_PARTS = 20          # combining two tools adds 1/this of the max durability
 DEEPSLATE_TOP = 0        # below this y the overworld's rock is deepslate
 # overworld soil over the rock, in blocks, where the column under the feet is not read (knowledge.soil_depth):
 # a prior — worldgen's surface rule lays dirt under the grass a few blocks deep — not a measurement
@@ -379,6 +383,7 @@ BAN_MAX_S = 600          # the longest any cell stays banned, however often it f
 TASK_WAIT_S = 900
 NAV_NODES = 6000
 WALK_BLOCKS_PER_TICK = 0.12   # measured on real routes (hills, water, re-plans)
+WALK_BLOCKS_PER_S = WALK_BLOCKS_PER_TICK * TICKS_PER_S
 ROUTE_FACTOR = 1.5            # real route length / straight line
 
 

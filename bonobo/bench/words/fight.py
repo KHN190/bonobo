@@ -13,7 +13,7 @@ from typing import Any
 
 from ... import beliefs, estimate, paths  # noqa: F401
 from ..core import bag_now
-from ...data import MAX_HP
+from ...data import MAX_HP, TICKS_PER_S
 import importlib
 import json
 import math
@@ -1399,7 +1399,7 @@ _deflect_lifecycle.in_place(__name__, "DEFLECT")     # a row's own record
 
 # -- line: an archer's draw cut off by a wall (B4): the shield stays down for a shot that cannot be fired
 LINE = {}               # the running row: the wall's time, /state `blocking` sampled after it, why setup failed
-UNSEEN_DRAW_S = 60 / 20  # BowAttackGoal: a draw held unseen this long (targetSeeingTicker < -60) is dropped, never fired
+UNSEEN_DRAW_S = 60 / TICKS_PER_S  # BowAttackGoal: a draw held unseen this long (targetSeeingTicker < -60) is dropped, never fired
 LINE_SAMPLE_S = 0.05
 ARCHER = "minecraft:skeleton"
 

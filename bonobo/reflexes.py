@@ -7,7 +7,7 @@ from typing import Any
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, fluids, nav, nether, skillcore, store, survive, tape, world, jobs
 from .api import McError, NotAvailable, log, swallowed
-from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_TICK
+from .data import BASE_MARKERS, FULL_BAR, MAX_HP, OPEN_SKY, WALK_BLOCKS_PER_S
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
 from .skill import skill
@@ -189,7 +189,7 @@ class Maintain:
             bed = b.mem.home_part("beds", snap.dimension, snap.feet, anywhere=True)
             # bed_reach: a home bed with no "no way there" verdict on it (the reach verdict, brain.failed)
             reach = bed is not None and not skillcore.banned(b.blacklist, bed)
-            home_s = math.dist(bed, snap.feet) / (WALK_BLOCKS_PER_TICK * 20) if reach and bed is not None else None
+            home_s = math.dist(bed, snap.feet) / WALK_BLOCKS_PER_S if reach and bed is not None else None
             return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_s,
                                                        night_left_s(snap)),
                                      bed_too=False)
@@ -212,7 +212,7 @@ class Maintain:
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
             # a hole open to the sky, deeper than a jump (travel's shaft, a dug pit): read only under open sky
-            "in_pit": lambda: s.get("skyLight", 0) >= 14 and not fluids.swimming(s)
+            "in_pit": lambda: s.get("skyLight", 0) >= OPEN_SKY and not fluids.swimming(s)
             and _once(reads, "in_pit", lambda: self.in_pit(snap.feet))(),
         }, snap=snap, ctx=ctx, food=s.get("food", 20), hp=s.get("health", MAX_HP), night=snap.night, overworld=over,
             bed_carried=inv.count("bed") > 0, used_slots=inv.used_slots(), blocked=blocked is not None,
@@ -315,7 +315,7 @@ class Maintain:
                  and math.dist(s["pos"], snap.feet) <= 96]
         if not sites:
             return None
-        return min(math.dist(s["pos"], snap.feet) for s in sites) / (WALK_BLOCKS_PER_TICK * 20)
+        return min(math.dist(s["pos"], snap.feet) for s in sites) / WALK_BLOCKS_PER_S
 
     # -- stuck
     def in_pit(self, feet):

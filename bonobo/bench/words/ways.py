@@ -6,6 +6,7 @@ import math
 
 from ..bench_bases import TARGET_SLACK
 from .scene import _row, items, limit, nest
+from ...data import TICKS_PER_S
 
 PICK = "stone_pickaxe"
 SHOVEL_KIT = [("oak_planks", 8), ("stick", 4), ("crafting_table", 1)]       # what a wooden shovel is made from, carried
@@ -95,7 +96,7 @@ def way_est_s(spec, give):
     steps, _why, seconds = nav.plan_way(region, (0, 0, 0), target, "mine", inv, ())
     walk = math.dist((0, 0, 0), target) / nav.PLAYER_SPEED if steps is None else (seconds or 0.0)
     block = spec_blocks(spec)[target]
-    return walk + dig_ticks([block], inv) / 20.0
+    return walk + dig_ticks([block], inv) / TICKS_PER_S
 
 
 def shovel_break_even():
@@ -134,7 +135,7 @@ def dirt_tool_row(name, pays, doc):
     n = dirt_counts()[0 if pays else 1]
     _be, make_s = shovel_break_even()
     tool = _bag([("wooden_shovel", 1)] if pays else [])
-    est = (make_s if pays else 0.0) + dig_ticks(["dirt"] * n, tool) / 20.0
+    est = (make_s if pays else 0.0) + dig_ticks(["dirt"] * n, tool) / TICKS_PER_S
     check = ("all", ("!gain", "minecraft:dirt", n),
              ("!count", "minecraft:wooden_shovel", ">=" if pays else "==", 1 if pays else 0))
     return _row(name, f"{doc} ({n} dirt; the shovel pays from {shovel_break_even()[0]})", "skills",

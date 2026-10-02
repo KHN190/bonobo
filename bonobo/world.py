@@ -179,14 +179,6 @@ class Snapshot:
     def ticks_until_dusk(self):
         return ticks_until_dusk(self.time)
 
-    @property
-    def dark_here(self):
-        s = self.state
-        if "blockLight" not in s:
-            return False
-        underground_or_night = s["skyLight"] <= 7 or self.night
-        return underground_or_night and s["blockLight"] < 8
-
     def get(self, key, default=None):
         return self.state.get(key, default)
 

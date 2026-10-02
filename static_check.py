@@ -167,7 +167,7 @@ def _registry_key(k):
 
 def r5(trees):
     """[(kind, path:line)] outside data.py: a 20 multiplying or dividing (ticks↔seconds); a number compared with a
-    light reading; a dict of numbers keyed by registry ids (a game table)."""
+    light reading; a constant table of numbers keyed by registry ids (a game table)."""
     out = []
     for path, (tree, _src) in trees.items():
         if path == DATA:
@@ -179,10 +179,22 @@ def r5(trees):
             elif isinstance(n, ast.Compare) and _reads_light(n) \
                     and any(_number(x) is not None for x in [n.left, *n.comparators]):
                 out.append(("light", f"{path}:{n.lineno}"))
-            elif isinstance(n, ast.Dict) and n.keys and all(k is not None and _registry_key(k) for k in n.keys) \
-                    and all(_number(v) is not None for v in n.values):
-                out.append(("table", f"{path}:{n.lineno}"))
+        out += [("table", f"{path}:{d.lineno}") for d in _tables(tree)
+                if d.keys and all(k is not None and _registry_key(k) for k in d.keys)
+                and all(_number(v) is not None for v in d.values)]
     return sorted(out)
+
+
+def _tables(tree):
+    """Dict literals a module holds as constant tables: bound at module level to an UPPER name no function changes
+    (a skill's `needs` argument is a declaration, a counter a function bumps is state)."""
+    changed = {name for fn in ast.walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+               for _l, name in _mutations(fn, _containers(tree))}
+    for n in tree.body:
+        if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None:
+            names = [t.id for t in (n.targets if isinstance(n, ast.Assign) else [n.target]) if isinstance(t, ast.Name)]
+            if names and all(x.isupper() and x not in changed for x in names):
+                yield from (d for d in ast.walk(n.value) if isinstance(d, ast.Dict))
 
 
 # -- R6 dead code ---------------------------------------------------------------------------------------------------
@@ -281,13 +293,18 @@ def r6(trees, production=None):
 
 
 # -- R7 swallowed exceptions ------------------------------------------------------------------------------------------
+EMPTY_MAKERS = ("set", "dict", "list", "tuple", "frozenset")    # `return set()`: an empty container too
+
+
 def _quiet(stmt):
     if isinstance(stmt, (ast.Pass, ast.Continue, ast.Break)):
         return True
     if isinstance(stmt, ast.Return):
         v = stmt.value
         return v is None or isinstance(v, (ast.Constant, ast.Name)) or (
-            isinstance(v, (ast.List, ast.Tuple, ast.Set)) and not v.elts) or (isinstance(v, ast.Dict) and not v.keys)
+            isinstance(v, (ast.List, ast.Tuple, ast.Set)) and not v.elts) or (isinstance(v, ast.Dict) and not v.keys) or (
+            isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id in EMPTY_MAKERS
+            and not v.args and not v.keywords)
     return False
 
 
@@ -601,6 +618,8 @@ ROWS = [
     ("R5", {"a.py": "dark = s.get('skyLight', 15) <= DARK"}, False),
     ("R5", {"a.py": "T = {'minecraft:cow': 3, 'minecraft:pig': 2}"}, True),         # must fail: a game table
     ("R5", {"a.py": "T = {'keep': 3, 'spare': 2}"}, False),                         # a policy table, by token
+    ("R5", {"a.py": "@skill(needs={'minecraft:bucket': 1})\ndef f(): pass"}, False),  # a declaration, not a table
+    ("R5", {"a.py": "FINDS = {'diamond': 0}\ndef f():\n FINDS['diamond'] += 1"}, False),   # state a function bumps
     ("R5", {"a.py": "T = {'iron': 250, 'stone': 131}"}, True),                      # must fail: by material,
     ("R6", {"a.py": "def f(): pass", "b.py": "from .a import f\nf()"}, False),
     ("R6", {"a.py": "def f(): pass"}, True),                                        # must fail: never named
@@ -611,6 +630,8 @@ ROWS = [
     ("R6", {"a.py": "@register\ndef f(): pass"}, False),
     ("R7", {"a.py": "try:\n x()\nexcept KeyError:\n pass"}, True),                 # must fail
     ("R7", {"a.py": "def f():\n try:\n  x()\n except OSError:\n  return []"}, True),   # must fail: a default
+    ("R7", {"a.py": "def f():\n try:\n  x()\n except OSError:\n  return set()"}, True),  # must fail: an empty set
+    ("R7", {"a.py": "def f():\n try:\n  x()\n except OSError:\n  return set(y)"}, False),
     ("R7", {"a.py": "try:\n x()\nexcept KeyError as e:\n raise Bad() from e"}, False),
     ("R7", {"a.py": "try:\n x()\nexcept KeyError:\n events.anomaly('x')\n raise"}, False),
     ("R7", {"a.py": "def f():\n try:\n  x()\n except KeyError:\n  events.anomaly('x')\n  return None"}, False),

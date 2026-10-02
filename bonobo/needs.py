@@ -15,7 +15,7 @@ from .cost import Cost
 from .decompose import cooled_ways, night_facts, night_left_s, way_key  # noqa: F401
 if TYPE_CHECKING:
     from .shapes import BagState, CraftTask
-from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS
+from .data import DAY_END, NIGHT_WORK, TOOL_KINDS, memo_ttl, mid, FOOD, NUTRITION, DAY_TICKS, TICKS_PER_S, REPAIR_BONUS_PARTS
 from .knowledge import food_count, food_points, FIND_AT
 from .planner import NullCost, Planner, Unplannable
 from .skill import skill
@@ -39,10 +39,10 @@ FALL_RISK = {("portal", None), ("seek", "fortress"), ("seek", "stronghold"), ("s
 DEEP_Y = 40                # a mine step whose ore is richest below this is reached by digging down
 
 def dusk_s(snap):
-    """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / 20, 0 once
+    """Seconds until dusk (data.DAY_END, the one dusk: LEAD is the only margin): (DAY_END − timeOfDay) / TICKS_PER_S, 0 once
     it is dark."""
     t = int(snap.time) % DAY_TICKS
-    return max(0.0, (DAY_END - t) / 20.0) if t < DAY_END else 0.0
+    return max(0.0, (DAY_END - t) / TICKS_PER_S) if t < DAY_END else 0.0
 
 def cover(ctx, state):
     """The cheapest shelter that can run here now — every skill providing a "shelter:" way, priced by the one cost
@@ -303,7 +303,7 @@ def repair_pair(slots, kind):
             continue
         a, b = sorted(stacks, key=lambda s: s["maxDamage"] - s.get("damage", 0))[:2]
         left = lambda s: s["maxDamage"] - s.get("damage", 0)   # noqa: E731
-        combined = min(a["maxDamage"], left(a) + left(b) + a["maxDamage"] // 20)
+        combined = min(a["maxDamage"], left(a) + left(b) + a["maxDamage"] // REPAIR_BONUS_PARTS)
         if combined > max(left(s) for s in stacks) and (best is None or combined > best[0]):
             best = (combined, item, a["slot"], b["slot"])
     return None if best is None else best[1:]

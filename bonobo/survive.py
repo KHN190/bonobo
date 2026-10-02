@@ -9,7 +9,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
 from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
-                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_TICK, MAX_HP, critical_hp)
+                   DAY_TICKS, DAYLIT_SKY, EYE_HEIGHT, SPAWN_BLOCK_LIGHT, WALK_BLOCKS_PER_S, MAX_HP, critical_hp)
 from .knowledge import RAW_MEAT, ALL_FOOD
 from .world import Inventory, Region, add, dark_spots, entities, find
 from .bag import throw_direction
@@ -53,7 +53,8 @@ def require_pickaxe_ok():
 
 def dark_here(s):
     """Pure over /state: standing where mobs spawn — block light 0, and not under open sky by day."""
-    return "blockLight" in s and s["blockLight"] <= 0 and not (s["skyLight"] > 7 and 0 < s["timeOfDay"] < 12500)
+    return "blockLight" in s and s["blockLight"] <= SPAWN_BLOCK_LIGHT and \
+        not (s["skyLight"] > DAYLIT_SKY and 0 < s["timeOfDay"] < DAY_END)
 
 LIGHT_R = 4                # blocks round the feet a lighting looks over
 LIGHT_FIRST = 4            # torches placed where we start work in the dark: lit first, then one a segment
@@ -693,7 +694,7 @@ def night_ground():
     x, y, z = feet()
     region = Region((x - SOFT_RADIUS, y - DIG_IN_DEPTH - 2, z - SOFT_RADIUS), (x + SOFT_RADIUS, y + 3, z + SOFT_RADIUS))
     spot = nearest_soft(region, (x, y, z), DIG_IN_DEPTH)
-    return (None if spot is None else spot[1] / (WALK_BLOCKS_PER_TICK * 20)), dig_in_site(region, (x, y, z))
+    return (None if spot is None else spot[1] / WALK_BLOCKS_PER_S), dig_in_site(region, (x, y, z))
 
 @skill(gives=["state:sheltered"], needs={}, remaining=lambda st, c: dug_in_left(st, c), start=lambda c: feet(), verify=lambda c: feet()[1] < c.base[1] and enclosed(), commands=dig_in_commands,
        provides={"state:sheltered": lambda ctx, s: () if require_pickaxe_ok() else None,
