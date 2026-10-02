@@ -1407,3 +1407,30 @@ class EatingInAFight(unittest.TestCase):
             with self.subTest(name):
                 got = threat.eat_options(st, st["hp"], press, 0.0)
                 self.assertEqual([(o.kind, o.target, o.heals) for o in got], want)
+
+
+class FallbackTableSpent(unittest.TestCase):
+    """threat.fallback: a melee follower closing and nothing that saves — never ignore while an answer exists: once
+    the table (shape, flight from the slower, fight) is spent, flight even from a follower as fast as us."""
+
+    def test_rows(self):
+        from bonobo.beliefs import MOBS, PLAYER
+        fast = next(k for k, m in MOBS.items() if not m.get("ranged") and not m.get("burst")
+                    and float(m.get("notice_r", 0)) > 0 and float(m.get("speed", 2.5)) >= float(PLAYER["speed"]))
+        slow = "minecraft:zombie"
+        self.assertLess(float(MOBS[slow].get("speed", 2.5)), float(PLAYER["speed"]))
+
+        def opt(kind):
+            return threat.Option(kind, None, 1.0, 1.0, kind)
+        # (situation, the follower, the answers on offer) → the forced answer
+        rows = [("a slower follower: flight", slow, ["ignore", "evade"], "evade"),
+                ("must fail: a follower as fast as us, no shape, no fight: flight, not ignore (a provoked enderman,"
+                 " fists: S1)", fast, ["ignore", "evade"], "evade"),
+                ("a shape on offer comes first", fast, ["ignore", "evade", "reshape"], "reshape"),
+                ("a fight before flight from a fast follower", fast, ["ignore", "evade", "fight"], "fight"),
+                ("nothing but ignore: none", fast, ["ignore"], None)]
+        for name, kind, kinds, want in rows:
+            with self.subTest(name):
+                state = {"here": HERE, "protection": 0.0, "hazards": [row(kind, 2, 0)]}
+                got = threat.fallback([opt(k) for k in kinds], state)
+                self.assertEqual(got.kind if got else None, want)

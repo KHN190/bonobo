@@ -532,7 +532,8 @@ FALLBACK = (("reshape", "cover", "wall_in"), ("evade",), ("fight", "fight_shield
 def fallback(opts, state):
     """Pure: the answer when nothing saves but a melee follower is closing and would hurt us — never ignore: a
     shape if one is on offer, else flight while every follower is slower than us, else the fight; the least costly
-    of the first group there is. None when nothing melee closes (ignore stands)."""
+    of the first group there is; the table spent, flight even from a follower as fast as us. None only when nothing
+    melee closes, or no answer exists at all (ignore stands)."""
     here, grid = tuple(state["here"]), state.get("field")
     melee = [h for h in state.get("hazards", ()) if h[3] in MOBS and not MOBS[h[3]].get("ranged")
              and not MOBS[h[3]].get("burst")]
@@ -545,7 +546,10 @@ def fallback(opts, state):
         group = [o for o in opts if o.kind in kinds]
         if group:
             return min(group, key=lambda o: float(o.hp) + float(o.seconds))
-    return None
+    # the table spent and a follower as fast as us: flight only buys distance, still better than standing under it
+    # (a provoked enderman, fists: no fight offered, evade skipped — ignore stood, S1)
+    flight = [o for o in opts if o.kind == "evade"]
+    return min(flight, key=lambda o: float(o.hp) + float(o.seconds)) if flight else None
 
 
 class Field:
