@@ -2063,16 +2063,18 @@ class OneArbiter(unittest.TestCase):
                 self.assertLess(arbiter.plan_rank(first), arbiter.plan_rank(then))
 
     # (situation, night, dimension) → surface work closed
-    CLOSED = [("day in the Overworld: open", False, "minecraft:overworld", False),
-              ("must fail: night in the Overworld, in the open (the shelter row failed): closed", True, "minecraft:overworld",
-               True),
-              ("night in the Nether: no sun to wait for, open", True, "minecraft:the_nether", False),
-              ("night by the clock in the End: open", True, "minecraft:the_end", False)]
+    # the surface is closed exactly when it is night (data.is_night: the Overworld's only), sheltered or not
+    CLOSED = [("day in the Overworld: open", 6000, "minecraft:overworld", False),
+              ("must fail: night in the Overworld, in the open (the shelter row failed): closed", 18000,
+               "minecraft:overworld", True),
+              ("night in the Nether: no sun to wait for, open", 18000, "minecraft:the_nether", False),
+              ("night by the clock in the End: open", 18000, "minecraft:the_end", False)]
 
     def test_surface_closed_over_the_table(self):
-        for name, night, dim, want in self.CLOSED:
+        from bonobo.data import is_night
+        for name, t, dim, want in self.CLOSED:
             with self.subTest(name):
-                self.assertIs(brainmod.surface_closed(night, dim), want)
+                self.assertIs(is_night(t, dim), want)
 
     def test_night_in_the_open_does_not_chop(self):
         """Night, exposed, empty bag, a tree in the queue: the round waits for day, it does not walk to the tree."""
@@ -2125,7 +2127,7 @@ class Overnight(unittest.TestCase):
               "dig in by hand", ["shelter"]),
              ("on stone, cobblestone carried: walled in", [("cobblestone", 16)], False, "wall in", ["shelter"]),
              ("on stone, a pickaxe: dig in", [("stone_pickaxe", 1)], False, "dig in", ["shelter"]),
-             ("on stone, an empty bag: a pickaxe first — its tree waits for day (brain.surface_closed)", [], False,
+             ("on stone, an empty bag: a pickaxe first — its tree waits for day (snap.night closes the surface)", [], False,
               "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
              ("the ground unread (the dusk lead): no dig by hand assumed", [], None, "dig in",
               ["gather", "craft", "craft", "craft", "craft", "shelter"]),

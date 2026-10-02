@@ -9,7 +9,7 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import ANCHORS, skill, current as current_call
 from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TORCH_LIGHT, BASE_MARKERS, FULL_BAR, GROUPS, NUTRITION, PLACEABLE_AS, POD_BLOCKS, bare, mid, DAY_END, NIGHT_END,
-                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_S, MAX_HP, critical_hp)
+                   DAY_TICKS, EYE_HEIGHT, WALK_BLOCKS_PER_S, MAX_HP, critical_hp, is_night)
 from .game import DAYLIT_SKY, SPAWN_BLOCK_LIGHT
 from .knowledge import RAW_MEAT, ALL_FOOD
 from .world import Inventory, Region, add, dark_spots, entities, find
@@ -509,8 +509,8 @@ def can_sleep(state):
     return "a bed only works at night (or in a thunderstorm)"
 
 def _day_now():
-    t = int(api.get("/state")["timeOfDay"]) % DAY_TICKS
-    return not DAY_END <= t <= NIGHT_END
+    s = api.get("/state")
+    return not is_night(int(s["timeOfDay"]), s.get("dimension", "minecraft:overworld"))
 
 DAY_WAIT_TICKS = 200      # one wait while sitting the night out
 
