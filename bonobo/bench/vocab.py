@@ -50,7 +50,7 @@ _BEFORE = set(globals())
 # real structures in the test world (seed 1234): no box; /locate gives the truth
 LEG_START = (10400, 200, 10400)
 
-LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
+STRONGHOLD_LEG = 200        # nether.locate_stronghold's sideways leg between the two throws
 
 LEG_PAD = 12     # the eye's reading is a few degrees off /locate's: the plane is wider than the line
 
@@ -58,7 +58,7 @@ def _leg_box(start, stronghold):
     """Pure: (x0, z0, x1, z1) around the leg the skill walks, perpendicular to the line to the stronghold, padded."""
     x, z = start
     d = math.dist(stronghold, start) or 1.0
-    ex, ez = round(x - (stronghold[1] - z) / d * LEG), round(z + (stronghold[0] - x) / d * LEG)
+    ex, ez = round(x - (stronghold[1] - z) / d * STRONGHOLD_LEG), round(z + (stronghold[0] - x) / d * STRONGHOLD_LEG)
     return (min(x, ex) - LEG_PAD, min(z, ez) - LEG_PAD, max(x, ex) + LEG_PAD, max(z, ez) + LEG_PAD)
 
 def _stronghold_leg(ctx):

@@ -5,9 +5,10 @@ from typing import Any
 
 from . import beliefs, estimate, kernel, lifecycle
 from . import formulas, game
+from .beliefs import MOBS, protection
+from .estimate import row
 from .game import ARROWS
 
-MOBS = beliefs.MOBS
 ENGAGE = beliefs.CONFIG["engage"]
 # the account's length is `estimate.horizon_s`, only one (two horizons measured over 4 s and charged over 20)
 
@@ -171,8 +172,6 @@ def ids_by_row(near, hazards):
     return [by_pos.get(h[0]) for h in hazards]
 
 # names for `estimate`'s quantities: aliases, never copies; this module adds only columns and shapes
-protection = beliefs.protection       # one definition, in the belief table
-row = estimate.row
 arrival = estimate.arrival_s
 pressure = estimate.pressure_hp_s
 burst_damage = estimate.burst_hp
@@ -266,12 +265,12 @@ def _sealed_off(ground, h, here=None):
     side = ground.side_of(here, h[0]) if here is not None and hasattr(ground, "side_of") else None
     return ground.slowdown(bool(MOBS[h[3]].get("squeezes")), side) == float("inf")
 
-DETOUR_BLOCKS = 2.0     # a block that seals nothing is walked round: about two blocks more of the mob's walk
+DETOUR_WALK_BLOCKS = 2.0     # a block that seals nothing is walked round: about two blocks more of the mob's walk
 
 def delayed_pressure(here, hazards, prot, before, after, work_s):
     """Pure: hp/s over the work that the mobs still coming put on us once `after` delays them: each one's rate now
     (over `before`), for the share of the work left after its new arrival. A block that seals nothing costs a mob
-    its detour round it (DETOUR_BLOCKS at its speed), not a multiple of its whole walk: 1.8^4 read four blocks on
+    its detour round it (DETOUR_WALK_BLOCKS at its speed), not a multiple of its whole walk: 1.8^4 read four blocks on
     open ground as a 30 s wall and the walker as never coming (escape__walker_open_blocks walled in the open)."""
     added = (after.blocks - before.blocks) if after is not None and before is not None else 0
     total = 0.0
@@ -282,7 +281,7 @@ def delayed_pressure(here, hazards, prot, before, after, work_s):
         t = arrival(here, h, ground=before, horizon=work_s)
         if t == float("inf"):
             continue
-        t += added * DETOUR_BLOCKS / float(MOBS[h[3]].get("speed", 2.5))
+        t += added * DETOUR_WALK_BLOCKS / float(MOBS[h[3]].get("speed", 2.5))
         total += rate * max(0.0, work_s - t) / work_s
     return total
 

@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import threat as sv  # noqa: E402  (the price of health lives in threat now)
-from bonobo import threat  # noqa: E402
+from bonobo import beliefs, estimate, threat  # noqa: E402
 
 HERE = (0.0, 64.0, 0.0)      # fixture: where we stand
 STILL = (0.0, 0.0, 0.0)      # fixture: a mob at rest
@@ -20,7 +20,7 @@ STILL = (0.0, 0.0, 0.0)      # fixture: a mob at rest
 def row(kind, x, z, vel=STILL, aware=1.0, dps=None):
     """Through the one constructor, like everything else: a row built by hand here is a second definition of a
     row, and it was exactly such a hand-built row that let a missing field go unnoticed."""
-    return threat.row((float(x), 64.0, float(z)), threat.MOBS[kind]["reach"], vel, kind, aware=aware, dps=dps)
+    return estimate.row((float(x), 64.0, float(z)), beliefs.MOBS[kind]["reach"], vel, kind, aware=aware, dps=dps)
 
 
 def dig_fits_at(kind="minecraft:zombie"):
@@ -123,7 +123,7 @@ class OneComparison(unittest.TestCase):
 
     def state(self, **kw):
         s = dict(here=(0, 0, 0), hp=20.0, sword="minecraft:stone_sword", protection=0.0, night=True, blocks=64,
-                 hazards=[threat.row((4, 0, 0), 2.0, (-1.0, 0, 0), "minecraft:zombie")], work_s=20.0)
+                 hazards=[estimate.row((4, 0, 0), 2.0, (-1.0, 0, 0), "minecraft:zombie")], work_s=20.0)
         s.update(kw)
         return s
 
@@ -144,10 +144,10 @@ class PricesForTheOtherPlanner(unittest.TestCase):
 
 
     # (the threat) → the circle not to walk into: its reach plus a margin
-    NO_GO = [("a zombie, reach 2", threat.row((10, 0, 0), 2.0, (0, 0, 0), "minecraft:zombie"), [((10, 0, 0), 4.0)]),
-             ("a skeleton, reach 15", threat.row((10, 0, 0), 15.0, (0, 0, 0), "minecraft:skeleton"),
+    NO_GO = [("a zombie, reach 2", estimate.row((10, 0, 0), 2.0, (0, 0, 0), "minecraft:zombie"), [((10, 0, 0), 4.0)]),
+             ("a skeleton, reach 15", estimate.row((10, 0, 0), 15.0, (0, 0, 0), "minecraft:skeleton"),
               [((10, 0, 0), 17.0)]),
-             ("a creeper, reach 3", threat.row((10, 0, 0), 3.0, (0, 0, 0), "minecraft:creeper"), [((10, 0, 0), 5.0)]),
+             ("a creeper, reach 3", estimate.row((10, 0, 0), 3.0, (0, 0, 0), "minecraft:creeper"), [((10, 0, 0), 5.0)]),
              ("must fail: nothing: no circle", None, [])]
 
     def test_no_go_over_the_table(self):
@@ -1053,8 +1053,8 @@ class WhoIsAfterUs(unittest.TestCase):
                      "minecraft:phantom", "minecraft:drowned", "minecraft:spider", "minecraft:enderman",
                      "minecraft:piglin"):
             with self.subTest(kind):
-                self.assertIn(kind, threat.MOBS)
-        self.assertTrue(threat.MOBS["minecraft:ghast"].get("ranged"))
+                self.assertIn(kind, beliefs.MOBS)
+        self.assertTrue(beliefs.MOBS["minecraft:ghast"].get("ranged"))
 
 
 class DodgeThePredictedImpact(unittest.TestCase):
@@ -1088,7 +1088,7 @@ class DodgeThePredictedImpact(unittest.TestCase):
 
     def test_hold_against_a_fireball(self):
         """ghast_fireball: evade walked into the fireball — no walk unless a dodge clears it in time."""
-        fb = [threat.row((6.0, 64.0, 0.0), 6.0, (-12.0, 0.0, 0.0), "minecraft:fireball")]
+        fb = [estimate.row((6.0, 64.0, 0.0), 6.0, (-12.0, 0.0, 0.0), "minecraft:fireball")]
         rows = [("must fail: 0.5 s to impact, 7 blocks to clear — no evade, hold", [((0.0, 64.0, 0.0), 0.5, 6.0)], False),
                 ("5 s to impact: a dodge out of it", [((0.0, 64.0, 0.0), 5.0, 6.0)], True),
                 ("no prediction (an old jar): hold", [], False)]
@@ -1117,7 +1117,7 @@ class MeleeOnlyWhatWeCanReach(unittest.TestCase):
 
     @staticmethod
     def up(kind, x, dy):
-        return threat.row((float(x), HERE[1] + dy, 0.0), threat.MOBS[kind]["reach"], STILL, kind)
+        return estimate.row((float(x), HERE[1] + dy, 0.0), beliefs.MOBS[kind]["reach"], STILL, kind)
 
     def test_columns_over_the_table(self):
         # (situation, hazards, a bow carried) → (a fight offered?, a shot offered?)
@@ -1177,7 +1177,7 @@ class ACreeperIsStruckOnlyWhileItWalks(unittest.TestCase):
         inside it (AttackTask keepoff; the reflex skips a lit one) — out first, strike again once it walks."""
         from bonobo import fight_loop
         from tests.world import bag, inventory
-        keep = float(threat.MOBS["minecraft:creeper"]["keep_out"])
+        keep = float(beliefs.MOBS["minecraft:creeper"]["keep_out"])
         creeper = row("minecraft:creeper", 4, 0)
         st = {"feet": (0, 64, 0), "inv": bag(inventory(("iron_sword", 1))), "threats": [creeper],
               "threat_ids": [0], "protected": set()}
@@ -1191,7 +1191,7 @@ class ACreeperIsStruckOnlyWhileItWalks(unittest.TestCase):
         self.assertTrue(any(o.kind == "reshape" and o.target[0] in ("between", "down") for o in opts))
 
     def test_keep_out_is_the_fuse_constant(self):
-        self.assertEqual(threat.MOBS["minecraft:creeper"]["keep_out"], float(threat.ENGAGE["fuse_stop_blocks"]) + 0.5)
+        self.assertEqual(beliefs.MOBS["minecraft:creeper"]["keep_out"], float(threat.ENGAGE["fuse_stop_blocks"]) + 0.5)
 
     def test_fuse_lit(self):
         rows = [("lit", {"ignited": True, "fuse_ticks": 12}, True), ("walking", {"ignited": False}, False),

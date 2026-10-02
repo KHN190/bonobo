@@ -41,3 +41,4 @@ MOB_CADENCE_TICKS = {"minecraft:zombie": MELEE_TICKS, "minecraft:husk": MELEE_TI
 # a hit pushes its target 0.4 blocks/tick, slowed ×0.6×0.91 a tick on the ground (LivingEntity.knockback, travel)
 HIT_KNOCKBACK = 0.4
 GROUND_DRAG = 0.6 * 0.91
+TICKS_PER_S = 20                 # the game clock: ticks in one second

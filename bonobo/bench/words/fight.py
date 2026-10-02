@@ -307,7 +307,7 @@ def blind_s(looks, seconds):
 
 def _threat_kinds():
     from ... import threat
-    return set(threat.MOBS)
+    return set(beliefs.MOBS)
 
 BLIND_SHARE = 0.1      # a cell blind for more of its window than this measured nothing
 

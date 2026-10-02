@@ -10,8 +10,8 @@ from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest, route_key, sight_y
 from .skill import MIN_SAMPLES
 from .planner import Planner, Unplannable
+from .game import TICKS_PER_S
 
-TICKS_PER_S = 20
 DOOR_ROUTE = None      # mechanisms.route_s, wired by the brain: seconds through a taught door, or None
 
 WALK_TICKS_PER_BLOCK = ROUTE_FACTOR / WALK_BLOCKS_PER_TICK     # ~12.5 ticks a block, walking with detours

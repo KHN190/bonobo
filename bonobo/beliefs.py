@@ -4,8 +4,8 @@ import os
 import tomllib
 
 from . import formulas, game
+from .game import TICKS_PER_S
 
-TICKS_PER_S = 20.0      # the game's clock, in one place
 
 CONFIG_PATH = os.environ.get("MC_PLAY_CONFIG", os.path.join(os.path.dirname(__file__), "play.toml"))
 

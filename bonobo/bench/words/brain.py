@@ -267,7 +267,7 @@ def gamerule_value(lines):
 
 
 FOOD_KEYS = ("foodLevel", "foodSaturationLevel", "foodExhaustionLevel")    # the server's bar (the client's lags)
-DRAIN_TRIES = 3             # re-planned from fresh server reads while short, at most this often
+DRAIN_REPLANS = 3             # re-planned from fresh server reads while short, at most this often
 HUNGER_ON = 'execute if entity @p[nbt={active_effects:[{id:"minecraft:hunger"}]}]'
 
 
@@ -302,7 +302,7 @@ def _drain_to(level, max_s=LOW_FOOD_MAX_S, window=None):
         try:
             _chat("effect clear @p minecraft:saturation")      # a refill still running would undo the drain
             _chat("effect clear @p minecraft:hunger")
-            for _ in range(DRAIN_TRIES):
+            for _ in range(DRAIN_REPLANS):
                 f = server_food()
                 food_, sat_, exh_ = (f[k] for k in FOOD_KEYS)
                 if food_ is None or sat_ is None or exh_ is None:

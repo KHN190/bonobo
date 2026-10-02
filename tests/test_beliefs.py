@@ -20,9 +20,6 @@ class OneTable(unittest.TestCase):
             ("reach and keep-out are two questions in one row", (archer["reach"], archer["keep_out"]), (15.0, 3.0)),
             ("the End's entities are in the one table",
              {"minecraft:ender_dragon", "minecraft:enderman", "minecraft:area_effect_cloud"} - set(beliefs.MOBS), set()),
-            ("armour: none", threat.protection(0, False, hit=3.0), beliefs.protection(0, False, hit=3.0)),
-            ("armour: 8 and a shield", threat.protection(8, True, hit=3.0), beliefs.protection(8, True, hit=3.0)),
-            ("armour: 20, no shield", threat.protection(20, False, hit=7.0), beliefs.protection(20, False, hit=7.0)),
             ("armour through the price state", threat._protection(threat.price_state(armor=8, shield=True)),
              beliefs.protection(8, True, hit=beliefs.hardest_hit([threat._R["reference_mob"]]))),
         ]

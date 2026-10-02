@@ -125,7 +125,7 @@ class TargetOf(unittest.TestCase):
 
 class ExposureOf(unittest.TestCase):
     HERE = (0.0, 64.0, 0.0)
-    ZOMBIE = threat.row((2.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie")
+    ZOMBIE = estimate.row((2.0, 64.0, 0.0), 3.0, (0.0, 0.0, 0.0), "minecraft:zombie")
 
     def state(self, hazards, prot=0.0):
         return {"here": self.HERE, "hazards": hazards, "protection": prot}

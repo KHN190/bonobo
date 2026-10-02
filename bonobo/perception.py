@@ -10,7 +10,7 @@ from typing import Any
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
 from .data import memo_ttl, is_night
 from .game import EYE_HEIGHT
-from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG, hardest_hit
+from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG, MOBS, hardest_hit, protection
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
@@ -141,7 +141,7 @@ def reaches_us(here, now):
         cell = tuple(int(math.floor(c)) for c in pos)
         if len(STATE.reach) > REACH_KEPT:
             STATE.reach.clear()          # the mobs round us change: old pairs are no answer to keep
-        if threat.MOBS.get(kind, {}).get("ranged"):
+        if MOBS.get(kind, {}).get("ranged"):
             return memo_ttl(STATE.reach, (body, cell), READ_TTL_S,
                             lambda: world.line_of_fire((pos[0], pos[1] + EYE_HEIGHT, pos[2]), eye), now)
         climber = kind in threat.CLIMBERS
@@ -318,7 +318,7 @@ class Watcher(threading.Thread):
                 self._ttd = None
             else:
                 from . import estimate
-                prot = threat.protection(s.get("armor", 0), False, hit=hardest_hit(r[3] for r in rows))
+                prot = protection(s.get("armor", 0), False, hit=hardest_hit(r[3] for r in rows))
                 self._ttd = estimate.time_to_die_s(
                     s.get("health", 20), pressure_now(here, rows, prot, horizon=interrupt_within_s()))
         except (api.McError, KeyError):

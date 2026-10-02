@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import (combat_model, fight_loop, nav, perception, threat)  # noqa: E402
+from bonobo import (beliefs, combat_model, estimate, fight_loop, nav, perception, threat)  # noqa: E402
 
 INF = float("inf")
 
@@ -56,7 +56,7 @@ class TheSafeStepIsTheModels(unittest.TestCase):
 
 
 def _row(kind, x):
-    return threat.row((x, 64.0, 0.0), threat.MOBS[kind]["reach"], (0.0, 0.0, 0.0), kind)
+    return estimate.row((x, 64.0, 0.0), beliefs.MOBS[kind]["reach"], (0.0, 0.0, 0.0), kind)
 
 
 class PerceptionBidsThreats(unittest.TestCase):

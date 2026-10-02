@@ -1,5 +1,5 @@
 """The recipe data has no cycle: no item is, through its recipes and smelts, an ingredient of itself. The planners'
-depth guards (planner.MAX_DEPTH, solve.MAX_DEPTH) stand in for this invariant; held here on the data instead."""
+depth guards (planner.MAX_DEPTH, solve.EXPAND_MAX_DEPTH) stand in for this invariant; held here on the data instead."""
 import os
 import sys
 import unittest

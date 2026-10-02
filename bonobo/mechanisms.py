@@ -15,12 +15,11 @@ from typing import NoReturn
 from . import api, paths
 from .knowledge import left
 from .skill import skill
-from .data import home_box_of
+from .data import DOOR_NEAR, home_box_of
 from .game import EYE_HEIGHT
 from .world import Region, to_segment
 
 FILE = paths.data("mechanisms.json")
-DOOR_NEAR = 2.0           # an opens cell this near the straight way from here to there puts the door on the way
 PRESS_S = 1.0             # the use itself, once in reach
 
 

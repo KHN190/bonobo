@@ -5,6 +5,7 @@ import time
 from . import api
 from .beliefs import CONFIG as _CONFIG
 from .data import MAX_HP, critical_hp
+from .game import TICKS_PER_S
 from .api import log
 from .skillcore import head_buried
 
@@ -13,7 +14,6 @@ SKILLS = {}
 
 KINDS = ("lava", "burning", "drowning", "suffocating", "critical", "threat", "swimming", "falling")
 
-TICKS_PER_S = 20.0
 REFLEX_SLACK_S = 2.0      # between tasks: surface while there is still room, rather than at the last moment
 BURNING_HP = 8            # a blaze fight sets you on fire every few seconds: burning only counts once it really hurt
 FALL_BLOCKS = 4.0         # falling this far with nothing under us: the work under way is moot

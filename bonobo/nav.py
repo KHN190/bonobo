@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import DOOR_NEAR, STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT
 from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
@@ -671,7 +671,6 @@ def _long_trip(here, pos, policy, min_hp, purpose, _from, _began):
 # -- doors a walk meets: never dug. A block with an `open` state opens and shuts; a hand opens all but these two
 # (vanilla: redstone only) — the jar's /blocks gives names and states, no tags
 LOCKED = ("iron_door", "iron_trapdoor")
-DOOR_NEAR = 2.0          # a door this near the straight way here → there is on the way
 DOOR_PAD = 2             # the bounded read round the way: its box, this much wider
 
 

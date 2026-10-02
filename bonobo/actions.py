@@ -2,21 +2,22 @@
 
 import math
 
-from .data import GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare, mid, seen_class
+from .data import STATION_R, GROUPS, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare, mid, seen_class
 from .knowledge import working, BREED_FOOD, HUNT, MINE, PLOT_CELLS, RECIPES, STATIONS, produced, under_rock, dawn_s
 from . import estimate, threat
+from .beliefs import MOBS
 from .solve import Action
 from .planner import Step
+from .game import TICKS_PER_S
 from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_USES
 
-TICKS_PER_S = 20.0
 
 FIGHTERS = {"minecraft:spider", "minecraft:enderman", "minecraft:blaze", "minecraft:slime"}
 
 def exposure_of(action, state):
     """Seconds of damage an action's shape implies, priced by the threat layer."""
 
-    hazards = [h for h in state.get("hazards", ()) if h[3] in threat.MOBS]
+    hazards = [h for h in state.get("hazards", ()) if h[3] in MOBS]
     if not hazards:
         return 0.0
     here = tuple(state["here"])
@@ -131,8 +132,6 @@ def state_of(snap, mem, reachable=None):
 
 # Close enough to work on it without walking: the skills' own reach.
 ARRIVED_R = 5.0
-# Close enough to walk over and use: a station a few steps away is one we have.
-STATION_R = 8.0
 # What a built machine provides, by the tag the blueprint carries. One table, so a new machine kind is one line.
 MACHINE_PROVIDES = {"smelting": "minecraft:furnace", "crafting": "minecraft:crafting_table"}
 

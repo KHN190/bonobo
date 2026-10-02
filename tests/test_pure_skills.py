@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, craft, fluids as fluids_mod, gather, knowledge, solve, survive, tape, threat  # noqa: E402
+from bonobo import api, beliefs, craft, estimate, fluids as fluids_mod, gather, knowledge, solve, survive, tape, threat  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
 from bonobo.world import connected  # noqa: E402
@@ -757,7 +757,7 @@ HERE = (0.0, 64.0, 0.0)
 
 
 def zrow(pos, vel=(0.0, 0.0, 0.0)):
-    return (tuple(pos), float(threat.MOBS[Z]["reach"]), tuple(vel), Z, 1.0, float(threat.MOBS[Z]["dps"]))
+    return (tuple(pos), float(beliefs.MOBS[Z]["reach"]), tuple(vel), Z, 1.0, float(beliefs.MOBS[Z]["dps"]))
 
 
 class HostileRows(unittest.TestCase):
@@ -768,8 +768,8 @@ class HostileRows(unittest.TestCase):
         ("boundary: memory 2 s old is too stale for velocity", ([{"type": Z, "id": 7, "x": 2, "y": 64, "z": 0}],
                                                                {7: ((0, 64, 0), 8.0)}, 10.0), [zrow((2, 64, 0))]),
         ("an angry neutral counts", ([{"type": "minecraft:enderman", "angry": True, "x": 0, "y": 64, "z": 3}], {}, 0.0),
-         [((0, 64, 3), float(threat.MOBS["minecraft:enderman"]["reach"]), (0.0, 0.0, 0.0), "minecraft:enderman", 1.0,
-           float(threat.MOBS["minecraft:enderman"]["dps"]))]),
+         [((0, 64, 3), float(beliefs.MOBS["minecraft:enderman"]["reach"]), (0.0, 0.0, 0.0), "minecraft:enderman", 1.0,
+           float(beliefs.MOBS["minecraft:enderman"]["dps"]))]),
         ("nothing near", ([], {}, 0.0), []),
         ("must fail: a calm neutral is no row", ([{"type": "minecraft:enderman", "x": 0, "y": 64, "z": 3}], {}, 0.0),
          []),
@@ -814,10 +814,10 @@ class EvadeCost(unittest.TestCase):
         ("no threats: free", (HERE, (10.0, 64.0, 0.0), [], 0.0), 0.0),
         ("boundary: no walk, no cost", (HERE, HERE, [zrow((1.0, 64.0, 0.0))], 0.0), 0.0),
         ("a creeper's blast is not pressure", (HERE, (10.0, 64.0, 0.0),
-                                               [threat.row((1.0, 64.0, 0.0), 3.0, (0, 0, 0), "minecraft:creeper")],
+                                               [estimate.row((1.0, 64.0, 0.0), 3.0, (0, 0, 0), "minecraft:creeper")],
                                                0.0), 0.0),
         ("must fail: an unknown kind presses nothing", (HERE, (10.0, 64.0, 0.0),
-                                                        [threat.row((1.0, 64.0, 0.0), 3.0, (0, 0, 0), "minecraft:pig")],
+                                                        [estimate.row((1.0, 64.0, 0.0), 3.0, (0, 0, 0), "minecraft:pig")],
                                                         0.0), 0.0),
     ]
 

@@ -5,7 +5,7 @@ EPS = 1e-9               # zero tolerance: these matrices are small integers, so
 MAX_NODES = 4000  # branch-and-bound budget: 400 ran out before finding the good plan (a bed for 318 s when 78 s was available)
 BIG = 64                 # indicator scale when an action has no explicit limit
 KEEP_PER_DIM = 4         # cheapest producers kept per dimension; the rest cannot be in a sensible plan
-MAX_DEPTH = 12           # recipe chains are shallow; deeper than this is a cycle in the action table
+EXPAND_MAX_DEPTH = 12           # recipe chains are shallow; deeper than this is a cycle in the action table
 
 class Unsolvable(Exception):
     """No combination of the known actions reaches the target. Carries what was still missing."""
@@ -177,7 +177,7 @@ def solve(actions, state, target, integral=True):
 
 def _expand(actions, have, need, price, integral, depth):
     """Depth-first: buy the inputs, then run the actions of this layer. `have` is updated as the plan proceeds."""
-    if depth > MAX_DEPTH:
+    if depth > EXPAND_MAX_DEPTH:
         raise Unsolvable(dict(need))
     outstanding = {d: v for d, v in need.items() if have.get(d, 0) < v}
     if not outstanding:

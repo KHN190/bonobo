@@ -7,7 +7,7 @@ from typing import Any
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, nav, nether, skillcore, store, survive, tape, world, jobs
 from .api import McError, NotAvailable, log, swallowed
-from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
+from .data import STATION_R, BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_S
 from .game import OPEN_SKY
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
@@ -34,7 +34,6 @@ STUCK_LIMIT = 60           # seconds in the same block with the same bag → uns
 BLOCKED_FOR_S = 120        # a path failure this recent, here, is "the path is blocked"
 
 FUELS = ("coal", "charcoal", "planks", "log")
-STATION_R = 8          # a furnace of ours this near counts as one to cook in
 
 def can_cook(inv, furnace_near):
     """Pure: raw meat can be cooked from here — fuel, and a furnace carried, near, or eight cobblestone for one."""

@@ -3,7 +3,7 @@ copied). A fact that comes with another agent's merge is in PENDING, with the in
 from types import MappingProxyType, SimpleNamespace
 
 from bonobo import knowledge
-from bonobo.actions import STATION_R
+from bonobo.data import STATION_R
 from bonobo.data import FULL_BAR, MAX_HP, POD_BLOCKS, critical_hp, home_box_of
 from bonobo.reflexes import EAT_BELOW, STARVE
 from bonobo.threat import aggro, context_of

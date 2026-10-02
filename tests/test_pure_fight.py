@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import combat_model as cm  # noqa: E402
-from bonobo import combat_tape, decompose, dispatch, estimate, field, fight_loop, fight_plan  # noqa: E402
+from bonobo import beliefs, combat_tape, decompose, dispatch, estimate, field, fight_loop, fight_plan  # noqa: E402
 from bonobo.api import McError, NavFailed, NotAvailable  # noqa: E402
 from bonobo.planner import Step, Unplannable  # noqa: E402
 
@@ -709,7 +709,7 @@ class Footwork(unittest.TestCase):
     @staticmethod
     def rows(*kinds):
         from bonobo import threat
-        return [threat.row((float(3 + i), 64.0, 0.0), threat.MOBS[k]["reach"], (0.0, 0.0, 0.0), k)
+        return [estimate.row((float(3 + i), 64.0, 0.0), beliefs.MOBS[k]["reach"], (0.0, 0.0, 0.0), k)
                 for i, k in enumerate(kinds)]
 
     def test_over_the_table(self):
