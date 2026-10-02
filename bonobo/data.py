@@ -115,6 +115,14 @@ WEAPON_DAMAGE = {"sword": {"wooden": 4, "golden": 4, "stone": 5, "iron": 6, "dia
 ATTACKS_PER_S = {"sword": {m: 1.6 for m in TOOL_SPEED},
                  "axe": {"wooden": 0.8, "golden": 1.0, "stone": 0.8, "iron": 0.9, "diamond": 1.0, "netherite": 1.0}}
 HAND_DAMAGE, HAND_ATTACKS_PER_S = 1, 4.0
+
+def weapon_hit(item):
+    """Pure: (damage per hit, hits per second) of attacking with `item` — a sword or axe by its material, anything
+    else (None, "hand", a pickaxe) the hand. The one reading of the weapon tables: costs and weapon choice share it."""
+    material, _, kind = ("" if item in (None, "hand") else bare(item)).rpartition("_")
+    if kind not in WEAPON_DAMAGE or material not in WEAPON_DAMAGE[kind]:
+        return float(HAND_DAMAGE), float(HAND_ATTACKS_PER_S)
+    return float(WEAPON_DAMAGE[kind][material]), float(ATTACKS_PER_S[kind][material])
 # The tiers a tool is crafted at, and its material: the inverse of TIER_OF_MATERIAL over the craftable materials.
 TOOL_MATERIAL_FOR_TIER = {TIER_OF_MATERIAL[m]: m for m in MATERIAL_TOKEN}
 ANIMALS = {"minecraft:cow": "beef", "minecraft:pig": "porkchop", "minecraft:sheep": "mutton",

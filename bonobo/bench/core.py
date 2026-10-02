@@ -34,7 +34,7 @@ RESTORE_ALSO = ("forceload remove all",)        # the site chunks the rows force
 
 def fight_line_hp(mob, sword, armor=0, shield=False):
     """Pure: the health an optional fight with `mob` starts from at least (S5) — critical plus its loss's quantile
-    at this sword tier and armour: the production line (estimate.fight_line_ok), never a typed hp."""
+    with this sword (item id, None = the hand) and armour: the production line (estimate.fight_line_ok), never a typed hp."""
     from .. import beliefs, estimate
     from ..data import critical_hp
     mean, hit = estimate.melee_loss([mob], sword, beliefs.protection(armor, shield))

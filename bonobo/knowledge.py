@@ -5,7 +5,7 @@ from .game import COVERED_SKY
 from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
                    HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
                    DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
-                   SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS)
+                   SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit)
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -417,12 +417,7 @@ def held_tiers(inv, min_left=TOOL_MIN_DURABILITY):
 
 def kill_s(item, hp):
     """Pure: seconds `item` (or "hand") takes to deal `hp` (whole hits × one attack's cooldown, no crits)."""
-    name = "hand" if item == "hand" else bare(item)
-    kind, material = name.rpartition("_")[2], name.rpartition("_")[0]
-    if kind not in WEAPON_DAMAGE or material not in WEAPON_DAMAGE[kind]:
-        damage, rate = HAND_DAMAGE, HAND_ATTACKS_PER_S
-    else:
-        damage, rate = WEAPON_DAMAGE[kind][material], ATTACKS_PER_S[kind][material]
+    damage, rate = weapon_hit(item)
     return math.ceil(hp / damage) / rate
 
 def weapon_for(inv, hp):
