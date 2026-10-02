@@ -62,16 +62,12 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.melee_loss(kinds, _k.best_sword(inv),           # the threat's kit reads the same sword
+    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),   # what the attack holds
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
         return True, None
     return False, f"health {hp:.0f} under the fight line for {kinds} ({floor:.0f} + {estimate.loss_q(mean, hit):.0f})"
-
-def surface_closed(night, dimension):
-    """Pure: surface work waits for morning at night in the Overworld, sheltered or not (caught in the open, it walked out to chop)."""
-    return bool(night) and dimension == "minecraft:overworld"
 
 def act_on_surface(act):
     """Pure: does this act's step walk the surface (arbiter.on_surface)? An act with no step (a chain, a whole
@@ -501,7 +497,7 @@ class Brain:
         # where proposed, never intents)
         def facts_of(intents):
             return {"cooling": {i.key for i in intents if i.key and not self.ready(i.key)},
-                    "surface_closed": surface_closed(snap.night, snap.dimension)}
+                    "surface_closed": snap.night}
 
         def timed(name, ask):
             def run():
@@ -524,7 +520,7 @@ class Brain:
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
-        closed = surface_closed(snap.night, snap.dimension)
+        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
         self.just_finished = False
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
@@ -562,7 +558,7 @@ class Brain:
         except Unplannable as e:
             self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
             return None
-        closed = surface_closed(snap.night, snap.dimension)
+        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
         step = next((st for st in steps if self.valid(st, snap, ctx) and not (closed and arbiter.on_surface(st.kind))),
                     None)
         if step is None:

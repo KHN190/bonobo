@@ -58,8 +58,9 @@ def pit_due(v):
     return bool(v["in_pit"]) if known else False
 
 def open_night(v):
-    """Pure: night under the Overworld's sky — a row that walks or works out in the open waits for the shelter (S4)."""
-    return v["overworld"] and v["night"]
+    """Pure: night (data.is_night) with no cover here (knowledge.sheltered) — a row that walks or works from here
+    waits (S4)."""
+    return v["night"] and not v["sheltered"]
 
 
 TABLE = [
@@ -213,8 +214,9 @@ class Maintain:
             "night_way": night_way,
             "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
                                                                         lambda: b.needs.bed_tonight(snap))()
-            and not self.sheltered(snap, enclosed) and view["night_way"][0] is not None
+            and not view["sheltered"] and view["night_way"][0] is not None
             and all(st.kind == "shelter" for st in view["night_way"][2]),
+            "sheltered": lambda: self.sheltered(snap, enclosed),
             "job_ready": lambda: self.ready_job(snap) is not None,
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
