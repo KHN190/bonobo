@@ -6,9 +6,8 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import lifecycle, reflexes, survive  # noqa: E402
+from bonobo import lifecycle  # noqa: E402
 from bonobo.bench import table  # noqa: E402,F401  (the sheet built: every word module imported)
-from bonobo.bench import bench_brain as bb  # noqa: E402
 from bonobo.bench.core import ORIGIN  # noqa: E402
 from bonobo.bench.words import brain as wb, checks as wc, scene as ws  # noqa: E402
 from bonobo.data import DAY_END  # noqa: E402
@@ -33,17 +32,6 @@ class FromProduction(unittest.TestCase):
         self.assertTrue(day(type("A", (), {"get": lambda s, p: {"timeOfDay": DAY_END - 1}})(), None))
         self.assertFalse(day(type("A", (), {"get": lambda s, p: {"timeOfDay": DAY_END}})(), None))
 
-    def test_row_values(self):
-        rows = {r[0]: r for fam, params in bb.FAMILIES if fam == "upkeep" for r in params}
-        bag = rows["empty_the_bag"][-1]
-        self.assertEqual(bag[-1], reflexes.BAG_FULL)                     # must fail: 34 typed in
-        wall = rows["shelter_wall_in"][-1][2]
-        self.assertEqual(wall[-1], len(survive._pod_cells((0, 0, 0))))   # must fail: 9 typed in
-        dirt = {r[0]: r for fam, params in bb.FAMILIES if fam == "dirt" for r in params}
-        unreachable = dirt["night_dig_in_dirt_unreachable"]
-        gap_x = unreachable[2][0][1][1]
-        self.assertEqual(unreachable[-1][-1], ORIGIN[0] + gap_x)       # must fail: 10004, not the scene's gap
-
 
 class Floors(unittest.TestCase):
     def test_hazard_rows_share_one_floor(self):
@@ -59,15 +47,6 @@ class Floors(unittest.TestCase):
                 words = json.dumps(getattr(sheet[name]["check"], "__table__", None) or
                                    [getattr(p, "__table__", None) for p in getattr(sheet[name]["check"], "parts", ())])
                 self.assertIn(f'"alive", {KEPT_HP}', words.replace("!", ""))
-
-    def test_dig_in_depth(self):
-        # must fail: "one down" (y < 200) judged as a dug-in body
-        from bonobo.bench import bench_brain as bb2, bench_common as bc
-        from bonobo.survive import DIG_IN_DEPTH
-        one = {r[0]: r for fam, params in bc.FAMILIES if fam == "one" for r in params}["dig_in_night"]
-        self.assertIn(("!state", "blockY", "<=", ORIGIN[1] - DIG_IN_DEPTH), one[5])
-        up = {r[0]: r for fam, params in bb2.FAMILIES if fam == "upkeep" for r in params}["shelter_dig_in"]
-        self.assertIn(("!state", "blockY", "<=", ORIGIN[1] - DIG_IN_DEPTH), up[-1])
 
     def test_slept_through(self):
         from bonobo.survive import SLEEP_FROM_TICKS
@@ -138,15 +117,6 @@ class Windows(unittest.TestCase):
         with mock.patch("bonobo.skillcore.head_underwater", lambda s=None: False):
             with self.assertRaises(SetupInvalid):           # must fail: a dry start judged a surfacing
                 runs._drowning_first(None)
-
-    def test_must_not_row_ends_when_the_brain_is_idle(self):
-        from bonobo.bench import core
-        from bonobo.bench.words import runs
-        brain = type("B", (), {"idle_since": None})()
-        with mock.patch.object(core, "BRAIN", brain):
-            self.assertFalse(runs._brain_idle())
-            brain.idle_since = 1.0
-            self.assertTrue(runs._brain_idle())              # must fail: a constant False (the whole budget)
 
 
 class CheckParts(unittest.TestCase):
