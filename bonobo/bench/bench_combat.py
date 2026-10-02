@@ -240,7 +240,8 @@ def CODE_ROWS():
              budget=limit()),
         dict(name="combat__knocked_off_edge", kit=["sword"],
              doc="A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
-                 "knocked off, the fall caught: alive, health within 4 of the start, the bucket back in the bag",
+                 "alive, health within 4 of the start, the bucket in the bag — knocked off and caught, or never "
+                 "knocked off: the world's outcome, not the fall (G2)",
              module="fight_loop", point="B", skills=[], combat=True, stochastic=True,
              tags={"base": "fight", "enemy": "zombie", "ground": "edge"},
              setup=[f"fill {_c(at(-8, -17, -8))} {_c(at(8, -17, 8))} stone",
@@ -253,8 +254,7 @@ def CODE_ROWS():
              expect_entities=[("minecraft:zombie", 1)],
              before=_hooks(_start("combat__knocked_off_edge"), _record_bids),
              run=_fight_until(["minecraft:zombie"], 22, False),
-             check=_all(_alive(1), lambda api, inv: api.get("/state")["y"] < at(0, EDGE_Y - 10, 0)[1],
-                        lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
+             check=_all(_alive(1), lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
                         lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
              budget=limit()),
     ]

@@ -715,4 +715,17 @@ CODE_ROWS = [
          check=_all(lambda api, inv: inv.count("minecraft:water_bucket") >= 1,
                     lambda api, inv: api.get("/state")["blockY"] >= at(0, 0, 0)[1]),
          budget=limit()),
+    dict(name="no_bucket_for_a_shallow_dig",
+         doc="The twin: the same bag and water, the queue's head needs cobblestone at the surface (no fall in its "
+             "plan: needs.falls) → no bucket filled, the stone mined",
+         module="needs", point="C", skills=["mine"], tier_fixed="exception", tags={"base": "upkeep"},
+         setup=_floor(depth=4) + [f"setblock {_c(at(2, -1, 0))} water", _tp(), "clear @p", "give @p bucket",
+                                  "give @p stone_pickaxe", "give @p cooked_beef 8", "give @p white_bed"],
+         before=_hooks(_start("no_bucket_for_a_shallow_dig"), _queue(__import__("bonobo.goals", fromlist=["have"]).have(
+             ("minecraft:cobblestone", 1)))),
+         run=_brain_rounds(22, lambda: _inv_now().count("minecraft:cobblestone") >= 1),
+         # must fail when the bucket is filled for a dig that cannot fall
+         check=_all(lambda api, inv: inv.count("minecraft:cobblestone") >= 1,
+                    lambda api, inv: inv.count("minecraft:water_bucket") == 0),
+         budget=limit()),
 ]
