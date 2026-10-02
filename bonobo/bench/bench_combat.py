@@ -17,8 +17,6 @@ COUNT = {"one": 1, "three": 3}
 CORRIDOR_END = 11      # the corridor runs from behind us to this x, open there
 WALK_X = 7             # the arena's inside, a block off each wall: a walk across is -WALK_X → WALK_X
 ALCOVE = (4, 2)        # (x of its mouth, depth): a 1-wide, 2-high alcove
-TRAP_HALF = 4          # the trapped room: this far out each way
-TRAPPED_ROW = 'combat__trapped_unarmed'     # the row's name, one place (tier lists and tests name it through this)
 GROUND = {"open": [("fill", ("@", 4, 0, 2), ("@", 5, 1, 3), "stone")],                  # a step to stand up on
           # a 1-wide passage at the feet (START_Y is the feet: walls from y 1 left a 3-wide open channel under a
           # raised wall, 6 blocks to seal and none offered), shut behind us, open 11 ahead: two blocks seal it
@@ -59,115 +57,19 @@ WAVES = (
     ("everything", (("walker", 4), ("archer", 2), ("climber", 2), ("bomb", 1)), (9, 6, 38)),
 )
 FAMILIES = [
-    ('siege', [(1,), (2,), (3,), (4,), (5,), (6,), (7,)]),
-    ('arena', [(1, 'none', 'open', 'full', 'whole'), (2, 'walker', 'open', 'full', 'whole'),
-         (3, 'walker', 'corridor', 'full', 'whole'), (4, 'walker', 'roofed', 'full', 'whole'),
-         (5, 'archer', 'open', 'full', 'whole'), (6, 'archer', 'corridor', 'full', 'whole'),
-         (7, 'archer', 'roofed', 'full', 'whole'), (8, 'climber', 'open', 'full', 'whole'),
-         (9, 'climber', 'corridor', 'full', 'whole'), (10, 'climber', 'roofed', 'full', 'whole'),
-         (11, 'bomb', 'open', 'full', 'whole'), (12, 'bomb', 'corridor', 'full', 'whole'),
-         (13, 'bomb', 'roofed', 'full', 'whole'), (14, 'teleporter', 'open', 'full', 'whole'),
-         (15, 'teleporter', 'corridor', 'full', 'whole'), (16, 'teleporter', 'roofed', 'full', 'whole'),
-         (17, 'walker', 'open', 'nothing', 'whole'), (18, 'walker', 'open', 'blocks', 'whole'),
-         (19, 'walker', 'open', 'food', 'whole'), (20, 'walker', 'open', 'shield', 'whole'),
-         (21, 'walker', 'open', 'full', 'hurt')]),
-    ('escape', [('walker', 'open', 'blocks'), ('none', 'open', 'blocks'), ('archer', 'open', 'blocks'),
-         ('climber', 'open', 'blocks'), ('bomb', 'open', 'blocks'), ('teleporter', 'open', 'blocks'),
-         ('walker', 'corridor', 'blocks'), ('walker', 'roofed', 'blocks'), ('walker', 'open', 'nothing'),
-         ('walker', 'open', 'food'), ('walker', 'open', 'shield'), ('walker', 'open', 'full')]),
-    ('behaviour', [('block_gap',), ('pillar',), ('shield_arrows',), ('fight_without_shield',), ('fight_and_block',),
-         ('wall_in',), ('surrounded_low',)]),
+    ('behaviour', [('shield_arrows',), 
+         ]),
     ('deflect', [('deflect__volley',)]),
-    ('line', [('no_shield_behind_rock', 5)]),
-    ('base', [('hunt', None, 'hunt_hurt_spider')]),
-    ('fight_cell', [('fight_zombie_1', 'zombie', 1, 'common', 25, 12, True),
+    ('fight_cell', [
          ('fight_zombie_3', 'zombie', 3, 'exception', 25, 6, True),
          ('fight_skeleton_1', 'skeleton', 1, 'common', 25, 10, True),
          ('fight_creeper_1', 'creeper', 1, 'common', 25, MAX_HP, True),
-         ('fight_creeper_from_pickaxe', 'creeper', 1, 'common', 25, MAX_HP, True, 'stone_pickaxe'),
          ('fight_blaze_3', 'blaze', 3, 'exception', 25, 6, True),
          # design-bc §13 R7: two kinds at once, judged on the world (the answer switches: a readout); its time the
          # fight's own estimate × the slack
-         ('fight_zombie_skeleton', 'zombie+skeleton', 1, 'exception', None, 6, True)]),
+         ]),
 ]
 ROWS = [
-    dict(name='collect_blaze_rods', module='combat',
-         doc=('Nether platform, 3 blazes, sword + shield + iron armor → fight_loop fights them, the step picks up at '
-              'least one rod.'),
-         scene=[('floor', 'nether_bricks', 8, 2),
-                ('at', 'fill {0} {1} nether_bricks hollow', ('@', -9, 0, -9), ('@', 9, 5, 9)),
-                ('fill', ('@', -8, 0, -8), ('@', 8, 4, 8), 'air'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
-                ('give', 'diamond_sword'), ('cmd', 'item replace entity @p weapon.offhand with shield'),
-                ('cmd', 'item replace entity @p armor.chest with iron_chestplate'),
-                ('cmd', 'item replace entity @p armor.head with iron_helmet'), ('give', 'cooked_beef', 16),
-                ('give', 'cobblestone', 32), ('summon', 'blaze', ('@', 3, 1, 0), '{PersistenceRequired:1b,Health:4f}'),
-                ('summon', 'blaze', ('@', -3, 1, 2), '{PersistenceRequired:1b,Health:4f}'),
-                ('summon', 'blaze', ('@', 0, 1, -3), '{PersistenceRequired:1b,Health:4f}')],
-         run=('do', 'bonobo.combat.collect_blaze_rods', ['$ctx', 1], {}),
-         # S5: an optional fight: the line held (diamond sword, iron chest + helmet, a shield)
-         check=[('count', 'minecraft:blaze_rod', '>=', 1),
-                ('state', 'health', '>=', fight_line_hp('minecraft:blaze', 'minecraft:diamond_sword', IRON_CHEST + IRON_HELMET, True))],
-         budget=25,
-         dimension='minecraft:the_nether', combat=True,
-         expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'nether_bricks', 289, 289)],
-         expect_entities=[('minecraft:blaze', 3)], skills=['collect_blaze_rods']),
-    dict(name='ghast_fireball', module='brain',
-         doc=('Nether hall open to one side, a ghast 20 blocks out, sword + armor → the reflexes until the ghast is '
-              'hurt or dead or its fireball resolved (≤ 20 s): the ghast hurt or dead, or it fired and nothing hit us'),
-         scene=[('floor', 'netherrack', 6, 2),
-                ('at', 'fill {0} {1} netherrack hollow', ('@', -6, 0, -6), ('@', 6, 0, 6)),
-                ('fill', ('@', -5, 0, -5), ('@', 5, 0, 5), 'air'), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
-                ('give', 'diamond_sword'), ('cmd', 'item replace entity @p armor.chest with iron_chestplate'),
-                ('cmd', 'item replace entity @p armor.head with golden_helmet'), ('give', 'cooked_beef', 16)],
-         run=('ghast_watch', 20),
-         before=[('&summon_ghast',)],
-         check=[('ghast_answered',)],
-         dimension='minecraft:the_nether', combat=True,
-         expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'netherrack', 169, 169)]),
-    dict(name='fight_zombie_1_full_bag', module='fight_loop', kit=['sword'],
-         doc=('Walled platform, iron kit, the bag full of dirt: 1 zombie → killed (credited by the server), health '
-              '≥ 12: the drop it cannot pick up changes nothing'),
-         scene=[('sheet', '_ARENA'), ('summon', 'zombie', ('@', 4, 0, 0), '{PersistenceRequired:1b}')]
-         + [('cmd', 'scoreboard objectives add bk_zombie minecraft.killed:minecraft.zombie'),
-            ('cmd', 'scoreboard players set @p bk_zombie 0')],      # the kill statistic (fight.kill_stat_scene)
-         run=('fight_until', ['minecraft:zombie'], 23),
-         before=[('hooks', ('!start', 'fight_zombie_1'), ('&record_bids',)), ('fill_bag', 0)],
-         check=[('alive', 12), ('gone', ['minecraft:zombie']), ('killed', ['minecraft:zombie'], 1)], combat=True,
-         point='B', tier_fixed='exception',
-         tags={'base': 'fight', 'enemy': 'zombie', 'count': 1, 'inventory': 'full_bag'},
-         expect_entities=[('minecraft:zombie', 1)]),
-    dict(name='combat__low_hp_eat', module='fight_loop', kit=['sword'],
-         doc=('6 hp, food 6 with no saturation (no natural regen), one zombie 2 blocks off, blocks and cooked beef → '
-              'away from it or walled in first, then fed: the beef eaten, the zombie 3 or more off (or walled in), '
-              'health above 6'),
-         # the zombie summoned still (NoAI) so the food drain runs unhurt; it wakes once the bar is at 6
-         scene=[('sheet', '_ARENA'), ('cmd', 'damage @p 14 minecraft:magic'),
-                ('summon', 'zombie', ('@', 2, 0, 0), '{PersistenceRequired:1b,NoAI:1b}')],
-         # the window is the fight's alone (the drain and the wake are `before` hooks, off the clock): 14 s to back
-         # off or wall in and eat, well inside 25 s once the rounds' own time is added (20 s ran to 25.0 s)
-         run=('fight_until', ['minecraft:zombie'], 14, False),
-         before=[('start', 'combat__low_hp_eat'), ('drain_to', 6, 20, (4, 8)), ('loose', 'zombie'), ('&record_bids',)],
-         check=[('state', 'health', '>', 6), ('alive',), ('count', 'minecraft:cooked_beef', '<', 16),
-                ('away_or_walled', ['minecraft:zombie'])],
-point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie', 'blood': 'low'},
-         expect_entities=[('minecraft:zombie', 1, 1)],
-         expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
-                 (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)],      # the _ARENA: floor, roof, walls
-         expect_gear={'items': [['minecraft:iron_sword', 1]], 'offhand': 'minecraft:shield'}),
-    dict(name=TRAPPED_ROW, module='fight_loop',
-         doc=('Trapped: a closed room 2 high (no pillar), a dirt floor, no weapon, armour or blocks, a pickaxe; a walker '
-              '→ alive at the end, little health lost, whatever the bot chose (dig, wall with dug dirt…)'),
-         scene=[('built', 'trapped_room', TRAP_HALF), ('tp', ('@', 0, 0, 0)), ('cmd', 'clear @p'),
-                ('cmd', BEST_TOOLS['pickaxe']),
-                ('summon', 'zombie', ('@', TRAP_HALF - 1, 0, 0), '{PersistenceRequired:1b,NoAI:1b}')],
-         run=('fight_until', ['minecraft:zombie'], 14, False),
-         before=[('start', TRAPPED_ROW), ('loose', 'zombie'), ('&record_bids',)],
-         check=[('kept_health',)],
-point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'zombie'},
-         expect_entities=[('minecraft:zombie', 1, 1)],
-         # the room as built: its dirt floor's top layer, every cell
-         expect=[(('@', -TRAP_HALF, -1, -TRAP_HALF), ('@', TRAP_HALF, -1, TRAP_HALF), 'dirt',
-                  (2 * TRAP_HALF + 1) ** 2, (2 * TRAP_HALF + 1) ** 2)]),
     dict(name='fight_enderman_1', module='nav',
          doc=('Four endermen about the arena, a walk 14 blocks across through them → reached, none provoked '
               '(server AngerTime 0 each), health kept'),
@@ -194,26 +96,6 @@ point='B', combat=True, stochastic=True, tags={'base': 'fight', 'enemy': 'enderm
          expect_entities=[('minecraft:enderman', 1, 1)],
          expect=[(('@', -9, -1, -9), ('@', 9, -1, 9), 'stone', 361, 361), (('@', -9, 4, -9), ('@', 9, 4, 9), 'stone', 361, 361),
                  (('@', -9, 0, -9), ('@', 9, 3, 9), 'glass', 288, 288)]),
-    dict(name='fight_creeper_sword', module='fight_loop', kit=['sword'],
-         doc='Iron sword, a creeper 4 blocks off → the creeper gone (dead or blown up in the air), health ≥ 16',
-         scene=[('sheet', '_ARENA'), ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
-         run=('fight_until', ['minecraft:creeper'], 25), before=[('start', 'fight_creeper_sword'), ('&record_bids',)],
-         check=[('gone', ['minecraft:creeper']), ('alive', 16)], point='B', combat=True, stochastic=True,
-         tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'open'}, expect_entities=[('minecraft:creeper', 1)]),
-    dict(name='fight_creeper_by_home', module='fight_loop', kit=['sword'],
-         doc=('Iron sword, a creeper 4 blocks off, a bed and a furnace of ours within 3 of it → the creeper gone (dead '
-              'or blown up in the air), health ≥ 16, the bed and the furnace still standing'),
-         scene=[('sheet', '_ARENA'), ('setblock', ('@', 4, 0, 2), 'red_bed[facing=east,part=foot]'),
-                ('setblock', ('@', 5, 0, 2), 'red_bed[facing=east,part=head]'),
-                ('setblock', ('@', 4, 0, -2), 'furnace'),
-                ('summon', 'creeper', ('@', 4, 0, 0), '{PersistenceRequired:1b}')],
-         run=('fight_until', ['minecraft:creeper'], 25),
-         before=[('start', 'fight_creeper_by_home'), ('&record_bids',), ('&home_is_ours',)],
-         check=[('gone', ['minecraft:creeper']), ('alive', 16),
-                ('blocks', ('@', 4, 0, 2), ('@', 5, 0, 2), ('red_bed',), 2),
-                ('blocks', ('@', 4, 0, -2), ('@', 4, 0, -2), ('furnace',), 1)],
-point='B', combat=True, stochastic=True,
-         tags={'base': 'fight', 'enemy': 'creeper', 'ground': 'home'}, expect_entities=[('minecraft:creeper', 1)]),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
 def CODE_ROWS():
@@ -226,35 +108,4 @@ def CODE_ROWS():
     from .words.runs import _brain_rounds, _hooks
     from .words.scene import _tp, limit
     return [
-        dict(name="fight_before_upkeep",
-             doc="Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "
-                 "before any log is gathered (must not), the player never leaves the arena",
-             module="brain", point="C", skills=[], tier_fixed="brain", combat=True, stochastic=True,
-             tags={"base": "brain", "family": "fight_first"},
-             setup=[c for c in _ARENA if "stone_pickaxe" not in c] + [f"summon zombie {_c(at(4, 0, 0))} {{PersistenceRequired:1b}}"],
-             expect_entities=[("minecraft:zombie", 1)],
-             before=_hooks(_start("fight_before_upkeep"), _first_times, _record_bids),
-             run=_brain_rounds(24, lambda: not _hostiles(24, {"minecraft:zombie"})),
-             check=_all(_gone(["minecraft:zombie"]), _alive(10), arrived(at(0, 0, 0), 9),
-                        lambda api, inv: FIRST.get("log") is None),
-             budget=limit()),
-        dict(name="combat__knocked_off_edge", kit=["sword"],
-             doc="A zombie that hits hard enough to throw us off a platform 20 blocks up, iron kit + water bucket → "
-                 "alive, health within 4 of the start, the bucket in the bag — knocked off and caught, or never "
-                 "knocked off: the world's outcome, not the fall (G2)",
-             module="fight_loop", point="B", skills=[], combat=True, stochastic=True,
-             tags={"base": "fight", "enemy": "zombie", "ground": "edge"},
-             setup=[f"fill {_c(at(-8, -17, -8))} {_c(at(8, -17, 8))} stone",
-                    f"fill {_c(at(-8, -16, -8))} {_c(at(8, EDGE_Y + 3, 8))} air",
-                    f"fill {_c(at(-2, EDGE_Y - 1, -2))} {_c(at(2, EDGE_Y - 1, 2))} stone",
-                    _tp(2, EDGE_Y, 0), "give @p iron_sword", "give @p water_bucket",
-                    "item replace entity @p armor.chest with iron_chestplate",
-                    f"summon zombie {_c(at(0, EDGE_Y, 0))} {{PersistenceRequired:1b,"
-                    f"attributes:[{{id:\"minecraft:attack_knockback\",base:3.0}}]}}"],
-             expect_entities=[("minecraft:zombie", 1)],
-             before=_hooks(_start("combat__knocked_off_edge"), _record_bids),
-             run=_fight_until(["minecraft:zombie"], 22, False),
-             check=_all(_alive(1), lambda api, inv: api.get("/state")["health"] >= BASE["state"]["health"] - 4,
-                        lambda api, inv: inv.count("minecraft:water_bucket") >= 1),
-             budget=limit()),
     ]

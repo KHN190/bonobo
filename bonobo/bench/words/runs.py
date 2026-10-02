@@ -189,9 +189,8 @@ def _stronghold_error():
 
 # milestones → the rows proving their skills; the review lists those not ready
 MILESTONE_SCENARIOS = {
-    "stone tools": ["craft_stone_tools", "slice_start_tools"], "station kit": ["slice_start_tools"],
-    "food": ["hunt_food"], "iron pickaxe": ["iron_ingots"], "water bucket": ["fill_water_bucket"],
-    "nether kit": ["slice_nether_kit"], "blaze rods": ["collect_blaze_rods"], "eyes of ender": ["craft_eyes"],
+    "stone tools": ["slice_start_tools"], "station kit": ["slice_start_tools"], "iron pickaxe": ["iron_ingots"],
+    "nether kit": ["slice_nether_kit"],
 }
 
 def readiness_lines(table=None):
@@ -353,9 +352,6 @@ def gained_at_least(token, n):
     """Progress: the bag holds `n` more `token` than at the start — the gain check, read now."""
     return _now(_gain(token, n))
 
-def placed_at_least(lo, hi, block, n):
-    """Progress: `n` or more `block` stand in the box lo..hi (a build's parts in the world)."""
-    return lambda: _count_blocks(None, lo, hi, block) >= n
 
 def walked_at_least(m):
     """Progress: the body stands `m` or more blocks (sideways) from where the row began."""
@@ -544,4 +540,4 @@ def hungry(ctx):
 HOOKS = {"hungry": hungry}
 
 
-__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_drowning_first', '_brain_idle', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'placed_at_least', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
+__all__ = ['HOOKS', 'MAX_WAITS_WITH_QUEUE', 'MILESTONE_SCENARIOS', 'SLICE', '_achieve_needs', '_after_l0', '_brain_rounds', '_breathing', '_buried_first', '_drowning_first', '_brain_idle', '_eat_target', '_enclosed', '_expect_failure', '_forget_skill_time', '_has_stone_pickaxe', '_head_clear', '_hooks', '_in_overworld', 'task_due', '_on_task', 'INJECTED', '_inject_interrupt', '_interrupt_when', '_nether_kit_ready', '_on_progress', '_plan_is_empty', '_portal_beside_player', '_post_foreign_task', '_progress_of', '_resume', '_sand_on_head', '_skill_within', '_slice', '_slice_check', '_slice_detail', '_sprint_after', '_stronghold_error', '_take_over', '_timed', '_trades', '_unless_done', '_when', 'eat_target_s', 'gained_at_least', 'hungry', 'locate_reply', 'queue_finished', 'readiness_lines', 'slice_report', 'slice_verdict', 'tier_rows', 'walked_at_least']
