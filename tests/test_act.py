@@ -81,12 +81,12 @@ class AFightExactly(unittest.TestCase):
             # 2.5 × 3k + 3 × (2.6 − 0.25 arrival) + its 4 hits after 3 sweeps (17 hp) 2.5 × 3k = 19.34
             ("two zombies: the second from its arrival, swept", [mob("zombie", 2), mob("zombie", 4)], STONE,
              0.0, (6.13, 19.34)),
-            # (0.1 + 7/4.3) × 4/3 + 2.5 × 4/3 = 5.64
-            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.69, 5.64)),
+            # chased at 5.612 − 1.349 (its retreat): (0.1 + 7/4.263) × 4/3 + 2.5 × 4/3 = 5.66
+            ("a skeleton 10 away: shot at while seen and on the walk", [mob("skeleton", 10)], STONE, 0.0, (4.71, 5.66)),
             # must fail when the pickup is charged the skeleton's arrows after it is dead, or not at all
-            # (0.1×4/3 + 2.5×3k + 0.6×4/3 (arrives at 2.0) + 0.47×4/3 + (0.1 + 5/4.3)×4/3 + 2.5×4/3) × 0.5 = 6.36
+            # (0.1×4/3 + 2.5×3k + 0.6×4/3 (arrives at 2.0) + 0.47×4/3 + (0.1 + 5/4.263)×4/3 + 2.5×4/3) × 0.5 = 6.37
             ("zombie then skeleton, half armoured off; shot at on the zombie's pickup", [mob("zombie", 2),
-             mob("skeleton", 10)], STONE, 0.5, (7.29, 6.36))]
+             mob("skeleton", 10)], STONE, 0.5, (7.3, 6.37))]
 
     def test_fight_cost_over_the_table(self):
         for name, rows, sword, prot, want in self.ROWS:

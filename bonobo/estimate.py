@@ -182,7 +182,7 @@ def _under(start, length, own, others, cap):
         total += min(cap, own + sum(r for t, r in others if t <= a)) * (b - a)
     return total
 
-def fight_cost(here, hazards, sword, prot, speed=None, shapes=()):
+def fight_cost(here, hazards, sword, prot, speed=None, shapes=(), shield=False):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
     whole of what the fight loop does for it: see it (one read of the game, `api.READ_EVERY_S`), walk into reach,
     swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6).
@@ -198,9 +198,12 @@ def fight_cost(here, hazards, sword, prot, speed=None, shapes=()):
     arrivals = {id(r): arrival_s(here, r) for r in order}     # the rest hit only once they have come
     left = {id(r): float(beliefs.MOBS[r[3]]["hp"]) for r in order}
     sweeps = bool(sword) and str(sword).endswith("_sword")
+    shield_block = float(ENGAGE["shield_arrow_block"]) if shield else 0.0
     for i, hazard in enumerate(order):
         mob = beliefs.MOBS[hazard[3]]
-        walk = max(0.0, math.dist(pos, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
+        gap = max(0.0, math.dist(pos, hazard[0]) - float(beliefs.PLAYER["melee_reach"]))
+        retreat = game.BOW_RETREAT.get(hazard[3])     # an archer backs off as we close: the chase is the difference
+        walk = gap / (game.PLAYER_SPRINT - retreat) if retreat else gap / speed
         hits = max(1, math.ceil(left[id(hazard)] / per_hit))
         kill = hits / rate
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
@@ -209,7 +212,7 @@ def fight_cost(here, hazards, sword, prot, speed=None, shapes=()):
         start = seconds + READ_EVERY_S + walk
         under_everything = _under(start, kill, reaches[id(hazard)] * (1.0 - _knocked_off(mob, rate)),
                                   [(arrivals[id(r)], reaches[id(r)]) for r in order[i + 1:]], cap)
-        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:], shapes) + under_everything
+        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:], shapes) * (1.0 - shield_block) + under_everything
                  + pickup * _ranged_dps(order[i + 1:], shapes)) * (1.0 - prot)
         if sweeps:      # the melee ones already beside us take each blow's sweep
             for r in order[i + 1:]:
