@@ -19,7 +19,7 @@ def valid(value, f):
     so do the home's walls when it stands far, outside them (place home/enclosed, range far) — the layer sees
     nothing, so it holds nothing."""
     from bonobo.beliefs import MOBS
-    walled = f["ground"] == "hole" or (f["range"] == "far" and f["place"] in ("home", "enclosed"))
+    walled = f["ground"] in ("hole", "walled") or (f["range"] in ("far", "outside") and f["place"] in ("home", "enclosed"))
     return value == "none" or not (MOBS[f"minecraft:{f['mob']}"].get("ranged") and walled)
 
 

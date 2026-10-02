@@ -4,7 +4,7 @@ from types import MappingProxyType, SimpleNamespace
 
 from bonobo import knowledge
 from bonobo.actions import STATION_R
-from bonobo.data import FULL_BAR, POD_BLOCKS, critical_hp, home_box_of
+from bonobo.data import FULL_BAR, MAX_HP, POD_BLOCKS, critical_hp, home_box_of
 from bonobo.reflexes import EAT_BELOW, STARVE
 from bonobo.threat import aggro, context_of
 from bonobo.world import Region, is_enclosed
@@ -13,7 +13,7 @@ from bonobo.world import Region, is_enclosed
 DOMAINS = {
     "dimension": ("minecraft:overworld", "minecraft:the_nether"),
     "night": (False, True),                 # world.Snapshot.night (data.DAY_END..NIGHT_END)
-    "hp": ("ok", "crit"),                   # data.critical_hp
+    "hp": ("ok", "crit", "low"),            # data.critical_hp; low: above it, at most half (data.MAX_HP / 2)
     "place": ("open", "enclosed", "home"),  # data.home_box_of, world.is_enclosed, knowledge.under_rock
     "bed": ("none", "carried", "home"),     # inv.count("bed"), memory.home_part("beds")
     "pickaxe": (-1, 0, 1, 2),               # knowledge.held_tiers
@@ -74,6 +74,12 @@ def threat_entities(snap, world):
                    and e["distance"] <= float(MOBS[e["type"]].get("notice_r", 16))), key=lambda e: e["distance"])
 
 
+def hp_of(s):
+    """crit at data.critical_hp, low up to half the bar (below a fight's comfort, above the floor), else ok."""
+    hp = float(s.get("health", MAX_HP))
+    return "crit" if hp <= critical_hp(s) else "low" if hp <= MAX_HP / 2 else "ok"
+
+
 def hunger_of(food):
     return "starve" if food <= STARVE else "low" if food < EAT_BELOW else "full"
 
@@ -112,7 +118,7 @@ def alpha(snap, mem, world, brain):
     a = SimpleNamespace(snap=snap, mem=mem, world=world, ready=ready, region=region, threats=threats, brain=brain)
     return MappingProxyType({
         **{d.NAME: d.alpha(a) for d in DIMS},
-        "dimension": snap.dimension, "night": bool(snap.night), "hp": "crit" if float(s.get("health", 20)) <= critical_hp(s) else "ok",
+        "dimension": snap.dimension, "night": bool(snap.night), "hp": hp_of(s),
         "place": place, "bed": "carried" if inv.count("bed") else "home" if home_bed is not None else "none",
         "pickaxe": knowledge.held_tiers(inv).get("pickaxe", -1), "building": inv.count("building") >= POD_BLOCKS,
         "food": knowledge.food_count(inv) > 0,
