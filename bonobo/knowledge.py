@@ -760,18 +760,17 @@ def sheltered(sky_light, enclosed, in_site=lambda: False):
 PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 60, "gather_each": 60,
                "hunt_each": 300, "fill": 20, "goto": 0, "build": 2400, "sleep": 400, "skill": 1200, "take": 200,
                "withdraw": 100, "look": 40, "cast": 3000,       # cast: a portal frame, ten cells of lava and water
-               "farm": 1200, "trade": 600,         # farm: tilling and sowing a plot (its growth: GROW_S); trade: one sale
-               "reach": 200,                       # reach: up for air, to land, a block underfoot
-               "breed": 400,                       # breed: feeding the pair (the young's growth: GROW_S, then a kill)
-               "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,      # the night's shelters, built
-               "room:tidy": 300, "room:deposit": 1200}                               # bag room: tidy, or a trip to store
-GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # a wheat plot to ripe; a bred animal to grown (jobs.DURATION)
-NIGHT_S = 420.0               # a night, when the clock cannot say how much of it is left
-MIN_FIND_P = 0.02             # a floor keeps a rare find a price, not a wall
+               "farm": 1200, "trade": 600,         # farm: without the growth (GROW_S)
+               "reach": 200, "breed": 400,
+               "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
+               "room:tidy": 300, "room:deposit": 1200}
+GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # jobs.DURATION
+NIGHT_S = 420.0               # a night, when the clock is not read
+MIN_FIND_P = 0.02
 
 
 def dawn_s(state):
-    """Pure: seconds until the sun is up again, from the /state clock; a whole night when it cannot say."""
+    """Pure: seconds until sunrise from the /state clock."""
     if "timeOfDay" not in (state or {}):
         return NIGHT_S
     t = int(state["timeOfDay"]) % DAY_TICKS

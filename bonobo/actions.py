@@ -5,7 +5,7 @@ import math
 from .data import (DAY_TICKS, GROUPS, NIGHT_END, is_night, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
                    mid, seen_class)
 from .knowledge import (working, BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
-                        under_rock, dawn_s, NIGHT_S, MIN_FIND_P)  # noqa: F401  (NIGHT_S, MIN_FIND_P: re-exported)
+                        under_rock, dawn_s, NIGHT_S, MIN_FIND_P)  # noqa: F401
 from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
 from . import estimate, threat
 from .solve import Action
@@ -145,7 +145,6 @@ def _is_night(snap):
     return is_night(int(state.get("timeOfDay", 0)), state.get("dimension", "minecraft:overworld"))
 
 def _dawn_s(snap):
-    """Seconds until the sun is up again, from the snapshot's clock (knowledge.dawn_s)."""
     return dawn_s(getattr(snap, "state", None) or {})
 
 # Close enough to work on it without walking: the skills' own reach.
@@ -450,16 +449,14 @@ def target_of(needs):
 # -- execution
 
 def priced(cost, name, effect, tag, requires=None, limit=None):
-    """A column priced by the one cost model (D6, K6: one price per step): a unit of it is its step (_shape) as
-    `Cost.work_ticks` prices that step's work — the walks to where it happens are the seek columns'."""
+    """A column priced per unit by Cost.work_ticks (walks are the seek columns')."""
     from types import SimpleNamespace
-    # a tick at least: nothing the game does takes less, and a free column makes every plan infinite (solve.Action)
+    # at least one tick: solve.Action refuses a free column
     seconds = max(1, cost.work_ticks(_shape(SimpleNamespace(tag=tag, name=name), 1))) / TICKS_PER_S
     return Action(name, effect, seconds, requires=requires, limit=limit, tag=tag)
 
 def to_step(action, times, cost=None):
-    """A solver column as an executor Step, priced by the cost model as every planned step is (`Cost.estimate`: its
-    work and the walk to it); without a cost model, the column's own seconds."""
+    """A solver column as a Step, priced by Cost.estimate when a cost is given."""
 
     step = _shape(action, times)
     step.est = int(cost.estimate(step)) if cost is not None else int(round(action.cost_s * times * TICKS_PER_S))

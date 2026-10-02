@@ -178,9 +178,7 @@ class Cost:
         return self.work_ticks(step) + self._walk(step)
 
     def work_ticks(self, step):
-        """Ticks of the step's own work, without the walk to it: measured when there is enough of it, else the prior
-        less what the carried tools save. The column solver prices a column per unit by this (the walks are its seek
-        columns); a planned step's price is `estimate`."""
+        """Ticks of the step's own work, without the walk."""
         measured = self.measured(step)
         return measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
 
@@ -205,8 +203,6 @@ class Cost:
         return breaks, kills
 
     def _prior_work(self, step):
-        """The step's work before anything is measured: a seek is the search (to where one is, over the chance it is
-        found: seek_s / find_p), a wait for day the night left on the clock, the rest the PRIOR_TICKS table."""
         if step.kind == "seek":
             kinds = list(step.detail.get("kinds") or [step.token])
             return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
@@ -273,7 +269,18 @@ class Cost:
         """Seconds a whole plan takes: Σ Step.est."""
         return sum(s.est for s in steps) / TICKS_PER_S
 
-    # -- what the column solver asks (actions.table), in seconds: its columns' work is `work_ticks`
+    # -- what the column solver asks (actions.table), in seconds
+    def _route(self, where):
+        """(found, seconds) of the game's walk to `where` when asked this round (nav's route cache), else (None, None)."""
+        return ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))
+
+    def reachable(self, kinds):
+        """False only when the game's route to the nearest known one was asked and not found."""
+        where = self.where(kinds)
+        if where is None:
+            return True
+        return self._route(where)[0] is not False
+
     def where(self, kinds):
         """The position of the nearest known one, or None: what "on the way" is judged by."""
         hit = self._nearest(kinds)
@@ -300,7 +307,7 @@ class Cost:
         through = self.door_s(where)
         if through is not None:
             return through
-        found, seconds = ROUTES.get(route_key(where, 2.0, NAV_NODES), (None, None))
+        found, seconds = self._route(where)
         return seconds if found else None
 
     def find_p(self, kinds):
