@@ -203,9 +203,16 @@ class Maintain:
             # bed_reach: a home bed with no "no way there" verdict on it (the reach verdict, brain.failed)
             reach = bed is not None and not skillcore.banned(b.blacklist, bed)
             home_s = math.dist(bed, snap.feet) / WALK_BLOCKS_PER_S if reach and bed is not None else None
-            return b.needs.overnight(snap, night_facts(soft_ground(), cooled_ways(b.ready), dig_site(), home_s,
-                                                       night_left_s(snap)),
-                                     bed_too=False)
+
+            def priced(cooled):
+                return b.needs.overnight(snap, night_facts(soft_ground(), cooled, dig_site(), home_s, night_left_s(snap)),
+                                         bed_too=False)
+            cooled = cooled_ways(b.ready)
+            got = priced(cooled)
+            if got[0] is None and cooled:      # S1 over D5: a cooled way beats the open night
+                log(f"   the night: every way cooled here ({', '.join(sorted(cooled))}): the cheapest taken again")
+                got = priced(())
+            return got
         view = View({
             "died_recently": lambda: worth_recovering(b, snap),
             "meal": lambda: meal(s.get("food", 20), inv, lambda: can_cook(inv, any(

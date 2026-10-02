@@ -11,7 +11,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import estimate, threat  # noqa: E402
+from bonobo import estimate, formulas, game, threat  # noqa: E402
 from tests.world import AWARENESS, dangers, unaware  # noqa: E402
 
 
@@ -108,16 +108,17 @@ class TheGroundAndTheShape(unittest.TestCase):
 
 
 class ABlastExactly(unittest.TestCase):
-    """`burst_hp` on hand-placed rows: a creeper's 28.67 once, while it can reach us before the fuse; nothing for
-    what does not explode or cannot arrive; armour takes its share off."""
+    """`burst_hp` on hand-placed rows: a creeper's blast at its distance (formulas.explosion_damage), while it can
+    reach us before the fuse; nothing for what does not explode or cannot arrive; armour takes its share off."""
 
     @staticmethod
     def mob(kind, x):
         return ((x, 64, 0), 3.0, (0.0, 0.0, 0.0), f"minecraft:{kind}")
 
-    ROWS = [("a creeper beside us", [("creeper", 1)], 0.0, 28.666666666666668),
-            ("a creeper beside us, half armoured off", [("creeper", 1)], 0.5, 14.333333333333334),
-            ("two creepers beside us", [("creeper", 1), ("creeper", 2)], 0.0, 57.333333333333336),
+    BLAST = staticmethod(lambda d: formulas.explosion_damage(game.EXPLOSION_POWER["minecraft:creeper"], d))
+    ROWS = [("a creeper beside us", [("creeper", 1)], 0.0, BLAST(1)),
+            ("a creeper beside us, half armoured off", [("creeper", 1)], 0.5, BLAST(1) * 0.5),
+            ("two creepers beside us", [("creeper", 1), ("creeper", 2)], 0.0, BLAST(1) + BLAST(2)),
             ("must fail: a creeper 40 blocks out: cannot arrive before the fuse", [("creeper", 40)], 0.0, 0.0),
             ("a zombie beside us: a rate, not a blast", [("zombie", 1)], 0.0, 0.0),
             ("nothing", [], 0.0, 0.0)]

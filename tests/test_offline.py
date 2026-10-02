@@ -140,6 +140,9 @@ class _Inv:
     def __init__(self, slots):
         self.slots, self.equipment = slots, {}
 
+    def tools(self, kind):
+        return []
+
 
 class LInv:
     def __init__(self, counts, slots_used=0, head=None):
