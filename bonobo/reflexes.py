@@ -57,17 +57,23 @@ def pit_due(v):
     known = "in_pit" in v or "in_pit" in getattr(v, "providers", ())
     return bool(v["in_pit"]) if known else False
 
+def open_night(v):
+    """Pure: night under the Overworld's sky — a row that walks or works out in the open waits for the shelter (S4)."""
+    return v["overworld"] and v["night"]
+
+
 TABLE = [
-    ("recover items", lambda v: v["died_recently"], lambda m, v: recover_items(v["ctx"])),
     ("eat", lambda v: eat_due(v["food"], v.get("hp", MAX_HP), EAT_BELOW, MAX_HP, FULL_BAR) and v["meal"] is not None,
      lambda m, v: survive.eat(raw_ok=v["meal"])),
     ("reach land", lambda v: v["swimming"], lambda m, v: survive.reach_land(v["ctx"])),
-    ("leave the pit", pit_due, lambda m, v: m.leave_pit(v["snap"], v["ctx"])),
     ("leave the Nether", lambda v: v["nether_bad"], lambda m, v: nether.use_portal(v["ctx"], "minecraft:overworld")),
     ("dig out", lambda v: not v["night"] and v["enclosed"], lambda m, v: survive.dig_out(v["ctx"])),
     ("sleep", lambda v: v["overworld"] and v["night"] and v["bed_works"] and (v["bed_carried"] or v["bed_near"]),
      lambda m, v: survive.sleep(v["ctx"], m.brain.policy(v["snap"], True))),
     ("shelter", lambda v: v["shelter_ready"], lambda m, v: m.shelter(v["snap"], v["ctx"], v["night_way"])),
+    # after the shelter, and not under the open night sky: a walk back to the drops, a step out of a pit
+    ("recover items", lambda v: not open_night(v) and v["died_recently"], lambda m, v: recover_items(v["ctx"])),
+    ("leave the pit", lambda v: not open_night(v) and pit_due(v), lambda m, v: m.leave_pit(v["snap"], v["ctx"])),
     ("collect job", lambda v: v["job_ready"], lambda m, v: m.collect_job(v["snap"], v["ctx"])),
     ("collect machine", lambda v: v["machine_ready"],
      lambda m, v: craft.collect_machine(v["ctx"], m.ready_machine(v["snap"]))),
