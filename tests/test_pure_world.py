@@ -624,22 +624,24 @@ class Perception(unittest.TestCase):
             perception.answered_since(0).clear()
             self.assertEqual(len(perception.STATE.answered), 3)
 
-    def test_best_sword(self):
-        from bonobo.data import weapon_hit
-        from bonobo.knowledge import best_sword
+    def test_attack_weapon(self):
+        """The priced weapon is the held one: knowledge.weapon_for at the common foe's health (its choice is
+        test_tool_choice's), the hand as None."""
+        from bonobo.beliefs import COMMON_FOE_HP as hp
+        from bonobo.knowledge import attack_weapon, weapon_for
         from tests.world import bag, inventory, slot
-        hits = lambda i: weapon_hit(i)[0] * weapon_hit(i)[1]     # noqa: E731  (the data's own ranking)
-        rows = [  # (why, swords carried (item, damage taken), expected: the hardest-hitting usable one)
-            ("must fail: no sword: the hand (None)", [], None),
-            ("a wooden sword", [("wooden_sword", 0)], "minecraft:wooden_sword"),
-            ("several: the one the weapon tables rank first",
-             [("wooden_sword", 0), ("iron_sword", 0), ("stone_sword", 0)],
-             max(("minecraft:wooden_sword", "minecraft:iron_sword", "minecraft:stone_sword"), key=hits)),
-            ("an iron one worn out (unusable) and a stone one: the stone", [("iron_sword", 250), ("stone_sword", 3)],
-             "minecraft:stone_sword")]
-        for why, swords, want in rows:
+        rows = [  # (why, weapons carried (item, damage taken))
+            ("no weapon: the hand", []),
+            ("a wooden sword", [("wooden_sword", 0)]),
+            ("must fail: stone and iron swords: the lowest that kills as soon (not the hardest hitter)",
+             [("stone_sword", 0), ("iron_sword", 0)]),
+            ("must fail: a wooden sword and a diamond axe: the axe", [("wooden_sword", 0), ("diamond_axe", 0)]),
+            ("an iron one worn out and a stone one", [("iron_sword", 250), ("stone_sword", 3)])]
+        for why, weapons, in rows:
             with self.subTest(why):
-                self.assertEqual(best_sword(bag(inventory(*[slot(i, 1, d) for i, d in swords]))), want)
+                inv = bag(inventory(*[slot(i, 1, d) for i, d in weapons]))
+                held = weapon_for(inv, hp)
+                self.assertEqual(attack_weapon(inv, hp), None if held == "hand" else held)
 
 
 # ---------------------------------------------------------------- planner

@@ -37,12 +37,14 @@ class SwordPrice(unittest.TestCase):
     """B5/B6: a fight is priced at the sword actually carried — its item's damage and attack cooldown from the game's
     weapon data (data.weapon_hit), no level, no second dps table."""
 
-    def test_the_brain_prices_the_best_sword_carried(self):
+    def test_the_brain_prices_the_weapon_held(self):
         # (carried, the sword melee_loss must be asked with); must fail: a wooden sword (tool tier 0) asked as a fist
         rows = [("a wooden sword is a wooden sword, not a fist", inventory(("wooden_sword", 1)), "minecraft:wooden_sword"),
                 ("nothing carried is the hand", inventory(), None),
                 ("stone is stone, not wood", inventory(("stone_sword", 1)), "minecraft:stone_sword"),
-                ("the best of several", inventory(("wooden_sword", 1), ("iron_sword", 1)), "minecraft:iron_sword"),
+                ("must fail: of several, the one the attack holds (knowledge.attack_weapon), not the hardest hitter",
+                 inventory(("stone_sword", 1), ("iron_sword", 1)),
+                 knowledge.attack_weapon(bag(inventory(("stone_sword", 1), ("iron_sword", 1))), beliefs.COMMON_FOE_HP)),
                 ("netherite (tier 4, not craftable) is still carried", inventory(("netherite_sword", 1)),
                  "minecraft:netherite_sword")]
         args = (None, "minecraft:spider_eye", 1, ["minecraft:spider"], False)

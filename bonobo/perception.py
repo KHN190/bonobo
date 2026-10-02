@@ -9,11 +9,11 @@ from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
 from .data import EYE_HEIGHT, memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
-from .beliefs import CONFIG as _CONFIG
+from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
-from .knowledge import best_sword, food_count, sheltered, usable
+from .knowledge import attack_weapon, food_count, sheltered, usable
 from .skill import HEARTBEAT
 
 WATCH_S = 0.2     # how often perception reads the world outside a fight (5 Hz)
@@ -564,7 +564,7 @@ def kit(signature):
         return STATE.kit
     from .world import Inventory
     inv = Inventory()
-    got = {"sword": best_sword(inv),            # the item (knowledge.best_sword), None: the hand
+    got = {"sword": attack_weapon(inv, COMMON_FOE_HP),       # what an attack holds (knowledge.attack_weapon), None: the hand
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": food_count(inv),              # knowledge's one food table
             "blocks": inv.count("building"),

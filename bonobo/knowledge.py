@@ -255,13 +255,6 @@ def usable(left):
     return left >= TOOL_USABLE
 
 
-def best_sword(inv):
-    """Pure given the bag: the usable sword that hits hardest (data.weapon_hit: damage × hits a second), its item id;
-    None: the hand. The one choice of the sword — the fight line (brain) and the threat's kit (perception) read it."""
-    swords = [i for _t, d, i in inv.tools("sword") if usable(d)]
-    return max(swords, key=lambda i: weapon_hit(i)[0] * weapon_hit(i)[1], default=None)
-
-
 def working(left):
     """Pure: does a tool with `left` uses still count as working for planning (TOOL_WORKING, a margin above usable)?"""
     return left >= TOOL_WORKING
@@ -432,6 +425,12 @@ def weapon_for(inv, hp):
     that deals `hp` (the mob's health) soonest (cheapest_equal over kill_s)."""
     weapons = [i for i in _carried_tools(inv, 2) if bare(i).rpartition("_")[2] in WEAPON_DAMAGE]
     return cheapest_equal(["hand"] + weapons, lambda i: kill_s(i, hp), item_tier)
+
+def attack_weapon(inv, foe_hp):
+    """Pure: the weapon an attack holds (weapon_for at `foe_hp`: beliefs.COMMON_FOE_HP), None: the hand. The one
+    choice — skillcore.arm holds it; the fight line (brain) and the threat's kit (perception) price it."""
+    w = weapon_for(inv, foe_hp)
+    return None if w == "hand" else w
 
 def held(inv, token):
     """How many of `token` the bag holds, groups and "food" (cooked meals) included."""
