@@ -288,7 +288,7 @@ class SheetMerge(unittest.TestCase):
 
     def test_every_table_row_is_a_scenario(self):
         self.assertEqual(sorted(set(sc.sheet()) ^ set(sc.SCENARIOS)), [])
-        self.assertIn("search_night_resume", sc.SCENARIOS)
+        self.assertIn("night_first__low", sc.SCENARIOS)
 
     def test_a_row_made_twice_is_refused(self):
         # must fail: two rows of one name in a tier's table are an error at build, never one silently dropped
