@@ -14,7 +14,6 @@ KEPT = {
     ("bonobo/brain.py", "Brain.attempt"): "any step failure is the failure policy's to count",
     ("bonobo/brain.py", "autoplay"): "the main loop must not die on a bug in one round",
     ("bonobo/arbiter.py", "Motion.holder"): "a release check that raises must end the lease, not hold the body",
-    ("bonobo/tape.py", "_extras"): "a registered snapshot that raises must not stop the tape",
     ("bonobo/tools/incidents.py", "main"): "one unreplayable incident must not stop the listing",
     ("bonobo/bench/runner.py", "prebuild.work"): "a prebuild thread's failure must not kill the bench",
     ("bonobo/bench/runner.py", "_run_row"): "the skill's failure is a result the bench records",

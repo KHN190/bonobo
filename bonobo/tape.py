@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import time
-import traceback
 from . import paths
 
 FILE = paths.data("rounds.jsonl", env="MC_TAPE")
@@ -52,27 +51,6 @@ def store_mem(data):
             f.write(blob)
     return h
 
-# what else a decision line carries, registered from the top (brain), so the recorder imports nothing above `paths`
-SOURCES = {}
-FILES = {}
-
-def register_snapshot(name, snapshot=None, file_path=None):
-    """`snapshot()` → JSON-able extra for each row, or `file_path()` → a path whose text is recorded."""
-    if snapshot is not None:
-        SOURCES[name] = snapshot
-    if file_path is not None:
-        FILES[name] = file_path
-
-def _extras():
-    out = {}
-    for name, fn in SOURCES.items():
-        try:
-            out[name] = fn()
-        except Exception:  # guard: a registered snapshot that raises must not stop the tape; its frames go on the tape
-            out[name] = None
-            out[f"{name}_error"] = traceback.format_exc(limit=3)
-    return out
-
 _events = paths.session("tape._events", list)
 _readings = paths.session("tape._readings", list)
 SKILL = None           # the skill running now (skill.py sets it): whose readings these are
@@ -95,7 +73,6 @@ def row_for(brain, act, snap, now=None):
     held = brain.held.get(task["id"]) if task else None
     return {
         "t": now or time.time(), "calls": dict(_calls or {}), "mem": store_mem(brain.mem.data),
-        **_extras(),
         "snap": {"state": snap.state, "slots": snap.inv.slots, "equipment": snap.inv.equipment} if snap else None,
         "task": task, "plan": [str(s) for s in held["steps"]] if held else None,
         "act": repr(act) if act else None, "step": str(act.step) if act is not None and act.step else None,
