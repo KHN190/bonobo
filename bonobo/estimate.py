@@ -4,7 +4,7 @@ import math
 
 from . import beliefs, combat_model
 from .data import READ_EVERY_S     # the fight loop's poll: a target is acted on one read after it is there
-from .data import HAND_ATTACKS_PER_S, HAND_DAMAGE, TIER_OF_MATERIAL, WEAPON_DAMAGE, ATTACKS_PER_S
+from .data import weapon_hit
 
 ENGAGE = beliefs.CONFIG["engage"]
 
@@ -141,23 +141,13 @@ def shoot_cost(here, hazards, prot, speed=None):
                 for h in hazards if h[3] in beliefs.MOBS)
     return round(shots * float(ENGAGE["shot_s"]), 2)
 
-def sword_hit(level):
-    """(damage per hit, hits per second) of a sword level (perception.sword_level: 0 = fist, else the clipped tier
-    max(1, min(3, tier))), from the game's weapon data with its attack cooldown. A level holds several swords (wood,
-    gold and stone are all 1); it is priced as the weakest of them, never as a better sword than the one carried."""
-    level = min(3, int(level))
-    if level <= 0:
-        return float(HAND_DAMAGE), float(HAND_ATTACKS_PER_S)
-    held = [m for m, t in TIER_OF_MATERIAL.items() if max(1, min(3, t)) == level]
-    weakest = min(held, key=lambda m: WEAPON_DAMAGE["sword"][m])
-    return float(WEAPON_DAMAGE["sword"][weakest]), float(ATTACKS_PER_S["sword"][weakest])
-
 def keepoff_cost(here, hazard, sword, prot, speed=None):
-    """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat."""
+    """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat.
+    `sword` is the item held (None = the hand): each hit is data.weapon_hit's, one per attack cooldown."""
 
     speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
     mob = beliefs.MOBS[hazard[3]]
-    per_hit, rate = sword_hit(sword)
+    per_hit, rate = weapon_hit(sword)
     swing = 1.0 / rate
     hits = math.ceil(float(mob["hp"]) / per_hit)
     walk = max(0.0, math.dist(here, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
@@ -175,10 +165,11 @@ def _ranged_dps(rows):
 def fight_cost(here, hazards, sword, prot, speed=None):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
     whole of what the fight loop does for it: see it (one read of the game, `api.READ_EVERY_S`), walk into reach,
-    swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6)."""
+    swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6).
+    `sword` is the item held (None = the hand), priced by data.weapon_hit: whole hits, one per attack cooldown."""
 
     speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
-    per_hit, rate = sword_hit(sword)
+    per_hit, rate = weapon_hit(sword)
     order = sorted((h for h in hazards if h[3] in beliefs.MOBS), key=lambda h: math.dist(here, h[0]))
     pickup = max(0.0, float(beliefs.PLAYER["melee_reach"]) - float(beliefs.PLAYER["pickup_r"])) / speed
     seconds = lost = 0.0

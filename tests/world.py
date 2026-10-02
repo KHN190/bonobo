@@ -391,7 +391,8 @@ GROUND = {"open": ("open", 0), "cave": ("underground", 0), "corridor": ("enclose
 # The body, as four dimensions rather than four bundles. A bundle cannot state a relation: "armed beats bare" used
 # to move the weapon, the armour, the blocks, the food AND the health at once, so the baseline moved with it and
 # no single-variable claim could be made about anything.
-WEAPON = {"fist": 0, "stone": 1, "iron": 2, "diamond": 3}
+WEAPON = {"fist": None, "stone": "minecraft:stone_sword", "iron": "minecraft:iron_sword",
+          "diamond": "minecraft:diamond_sword"}     # the item held (None = the hand): data.weapon_hit prices it
 ARMOUR = {"skin": 0.0, "leather": 0.2, "iron": 0.4, "diamond": 0.7}
 BLOOD = {"whole": 20.0, "half": 10.0, "low": 6.0, "dregs": 2.0}
 KIT = {                                      # what is in the bag, other than a weapon

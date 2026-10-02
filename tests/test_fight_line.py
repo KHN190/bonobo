@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import beliefs, brain, combat, data, estimate, gather, knowledge, perception  # noqa: E402
+from bonobo import beliefs, brain, combat, data, estimate, gather, knowledge  # noqa: E402
 from bonobo.data import critical_hp  # noqa: E402
 from tests.world import bag, inventory, state  # noqa: E402
 
@@ -34,15 +34,17 @@ class LossQuantile(unittest.TestCase):
 
 
 class SwordPrice(unittest.TestCase):
-    """B5/B6: a fight is priced at the sword level perception reads (wood is not a fist), each hit from the game's
-    weapon data at its attack cooldown — no second dps table."""
+    """B5/B6: a fight is priced at the sword actually carried — its item's damage and attack cooldown from the game's
+    weapon data (data.weapon_hit), no level, no second dps table."""
 
-    def test_the_brain_prices_the_sword_level_not_the_tool_tier(self):
-        # (carried, the level melee_loss must be asked at); must fail: a wooden sword (tool tier 0) asked as a fist
-        rows = [("a wooden sword is level 1, not a fist", inventory(("wooden_sword", 1)), 1),
-                ("nothing carried is a fist", inventory(), 0),
-                ("stone is level 1", inventory(("stone_sword", 1)), 1),
-                ("netherite (tier 4) is level 3", inventory(("netherite_sword", 1)), 3)]
+    def test_the_brain_prices_the_best_sword_carried(self):
+        # (carried, the sword melee_loss must be asked with); must fail: a wooden sword (tool tier 0) asked as a fist
+        rows = [("a wooden sword is a wooden sword, not a fist", inventory(("wooden_sword", 1)), "minecraft:wooden_sword"),
+                ("nothing carried is the hand", inventory(), None),
+                ("stone is stone, not wood", inventory(("stone_sword", 1)), "minecraft:stone_sword"),
+                ("the best of several", inventory(("wooden_sword", 1), ("iron_sword", 1)), "minecraft:iron_sword"),
+                ("netherite (tier 4, not craftable) is still carried", inventory(("netherite_sword", 1)),
+                 "minecraft:netherite_sword")]
         args = (None, "minecraft:spider_eye", 1, ["minecraft:spider"], False)
         for name, inv, want in rows:
             with self.subTest(name):
@@ -53,29 +55,36 @@ class SwordPrice(unittest.TestCase):
                     brain.fight_line_holds(gather.hunt.contract, args, state(health=20.0), bag(inv))
                 self.assertEqual(seen, [want])
 
-    def test_a_wooden_sword_costs_less_than_a_fist(self):
-        fist = estimate.melee_loss(["minecraft:zombie"], 0, 0.0)[0]
-        wood = estimate.melee_loss(["minecraft:zombie"], 1, 0.0)[0]
-        self.assertLess(wood, fist, "must fail: a sword priced as bare hands")
+    def test_each_sword_costs_its_own(self):
+        loss = {s: estimate.melee_loss(["minecraft:zombie"], s, 0.0)[0]
+                for s in (None, "minecraft:wooden_sword", "minecraft:stone_sword")}
+        self.assertLess(loss["minecraft:wooden_sword"], loss[None], "must fail: a sword priced as bare hands")
+        self.assertLess(loss["minecraft:stone_sword"], loss["minecraft:wooden_sword"],
+                        "must fail: a stone sword priced as a wooden one (one level, two swords)")
 
     def test_hits_come_from_the_weapon_data(self):
         self.assertNotIn("dps", beliefs.PLAYER, "must fail: a second, hand-written dps table")
-        rows = [(0, (data.HAND_DAMAGE, data.HAND_ATTACKS_PER_S)),
-                (1, (data.WEAPON_DAMAGE["sword"]["wooden"], data.ATTACKS_PER_S["sword"]["wooden"])),
-                (2, (data.WEAPON_DAMAGE["sword"]["iron"], data.ATTACKS_PER_S["sword"]["iron"])),
-                (3, (data.WEAPON_DAMAGE["sword"]["diamond"], data.ATTACKS_PER_S["sword"]["diamond"]))]
-        for level, want in rows:
-            with self.subTest(level=level):
-                self.assertEqual(estimate.sword_hit(level), tuple(float(x) for x in want))
-        # must fail when the cost reads anything but the data: harder level-1 hits kill the zombie sooner
-        before = estimate.melee_loss(["minecraft:zombie"], 1, 0.0)[0]
-        with mock.patch.dict(data.WEAPON_DAMAGE["sword"], {"wooden": 10, "golden": 10, "stone": 10}):
-            self.assertLess(estimate.melee_loss(["minecraft:zombie"], 1, 0.0)[0], before)
+        rows = [(None, (data.HAND_DAMAGE, data.HAND_ATTACKS_PER_S)),
+                ("hand", (data.HAND_DAMAGE, data.HAND_ATTACKS_PER_S)),
+                ("minecraft:iron_pickaxe", (data.HAND_DAMAGE, data.HAND_ATTACKS_PER_S)),
+                ("minecraft:stone_sword", (data.WEAPON_DAMAGE["sword"]["stone"], data.ATTACKS_PER_S["sword"]["stone"])),
+                ("minecraft:netherite_sword",
+                 (data.WEAPON_DAMAGE["sword"]["netherite"], data.ATTACKS_PER_S["sword"]["netherite"])),
+                ("minecraft:iron_axe", (data.WEAPON_DAMAGE["axe"]["iron"], data.ATTACKS_PER_S["axe"]["iron"]))]
+        for item, want in rows:
+            with self.subTest(item=item):
+                self.assertEqual(data.weapon_hit(item), tuple(float(x) for x in want))
+        # must fail when the cost reads anything but the data: a harder stone hit kills the zombie sooner
+        before = estimate.melee_loss(["minecraft:zombie"], "minecraft:stone_sword", 0.0)[0]
+        with mock.patch.dict(data.WEAPON_DAMAGE["sword"], {"stone": 10}):
+            self.assertLess(estimate.melee_loss(["minecraft:zombie"], "minecraft:stone_sword", 0.0)[0], before)
+        # and knowledge.kill_s (the weapon choice) reads the same lookup
+        self.assertEqual(knowledge.kill_s("minecraft:stone_sword", 20), math.ceil(20 / 5) / 1.6)
 
 
 class FightLine(unittest.TestCase):
     def test_rows(self):
-        mean, hit = estimate.melee_loss(["minecraft:blaze"], 3, beliefs.protection(0))
+        mean, hit = estimate.melee_loss(["minecraft:blaze"], "minecraft:diamond_sword", beliefs.protection(0))
         line = critical_hp({}) + estimate.loss_q(mean, hit)
         rows = [("exactly the line: ok", line, True),
                 ("must fail: one under the line: refused", line - 1, False),
@@ -88,7 +97,7 @@ class FightLine(unittest.TestCase):
         # each optional fight's contract declares its mobs (fights=); brain.fight_line_holds judges them where the
         # step is offered; a skill without a fight passes
         carried = bag(inventory(("iron_sword", 1)))
-        sword = perception.sword_level([t for t, d, _ in carried.tools("sword") if knowledge.usable(d)])
+        sword = "minecraft:iron_sword"
         cases = [(gather.hunt, (None, "minecraft:spider_eye", 1, ["minecraft:spider"], False), "minecraft:spider"),
                  (combat.collect_blaze_rods, (None, 1), "minecraft:blaze")]
         for fn, args, mob in cases:

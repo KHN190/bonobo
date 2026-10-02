@@ -106,7 +106,7 @@ ROWS = [
          run=('do', 'bonobo.combat.collect_blaze_rods', ['$ctx', 1], {}),
          # S5: an optional fight: the line held (diamond sword, iron chest + helmet, a shield)
          check=[('count', 'minecraft:blaze_rod', '>=', 1),
-                ('state', 'health', '>=', fight_line_hp('minecraft:blaze', 3, IRON_CHEST + IRON_HELMET, True))],
+                ('state', 'health', '>=', fight_line_hp('minecraft:blaze', 'minecraft:diamond_sword', IRON_CHEST + IRON_HELMET, True))],
          budget=25,
          dimension='minecraft:the_nether', combat=True,
          expect=[(('@', -8, -1, -8), ('@', 8, -1, 8), 'nether_bricks', 289, 289)],

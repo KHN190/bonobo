@@ -1120,9 +1120,9 @@ def behaviour_row(name, behaviour):
 SPOTS = {"creeper": [(7, 0, 0)], "skeleton": [(7, 0, 7)], None: [(4, 0, 0), (-3, 0, 3), (1, 0, -4)]}
 
 
-def fight_est_s(mobs, n, sword=2):
+def fight_est_s(mobs, n, sword="minecraft:iron_sword"):
     """Pure: the production estimate of the fight (estimate.fight_cost: walks and kills, nearest first) of `n` of each
-    of `mobs` placed at SPOTS, the iron sword's tier."""
+    of `mobs` placed at SPOTS, with an iron sword."""
     hazards = [estimate.row(spot, float(beliefs.MOBS[f"minecraft:{m}"].get("reach", 3.0)), (0.0, 0.0, 0.0),
                             f"minecraft:{m}") for m in mobs for spot in SPOTS.get(m, SPOTS[None])[:n]]
     return estimate.fight_cost((0.0, 0.0, 0.0), hazards, sword, 0.0)[0]
