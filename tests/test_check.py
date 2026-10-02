@@ -94,6 +94,30 @@ class KnownViolations(unittest.TestCase):
                 self.assertIn(inv, [k for k, _m in oracle.violations(facts, d, facts, ctx)], d.name)
 
 
+class FinishedRound(unittest.TestCase):
+    """D1 on the production round: the round that finishes the queue's last task proposes nothing on purpose (brain
+    just_finished) — the task it finished is the reason; a queue empty before the round, nothing proposed, no reason
+    stated, is a violation."""
+
+    def test_rows(self):
+        from check import oracle, round as rnd
+        from unittest import mock
+        from bonobo import brain
+        # (facts, the round's own decision kept?, D1 fires?)
+        rows = [("the last task finished this round: its finishing is the reason", of(task="tool", pickaxe=2), True,
+                 False),
+                ("must fail: nothing queued, nothing proposed, no reason", of(), False, True)]
+        for why, f, real, fires in rows:
+            with self.subTest(why):
+                if real:
+                    d, _got, ctx = rnd.decide(f, fail_then_again=False)
+                else:
+                    with mock.patch.object(brain.Brain, "decide", lambda self, snap, ctx: None):
+                        d, _got, ctx = rnd.decide(f, fail_then_again=False)
+                self.assertIsNone(d.kind)
+                self.assertEqual(oracle.D1(f, d, f, ctx) is not None, fires, d.reason)
+
+
 class GammaRoundTrip(unittest.TestCase):
     def test_every_value_of_every_fact(self):
         from check import round as rnd
