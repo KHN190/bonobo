@@ -284,8 +284,8 @@ def _on_progress(name, base, action, times=1):
                         action()
                         k += 1
                         continue
-                except api.McError:
-                    pass
+                except api.McError as e:
+                    api.swallowed("runs.watch", e)
                 time.sleep(0.05)
         _threading.Thread(target=watch, daemon=True).start()
     return hook
@@ -319,8 +319,8 @@ def _on_task(name, action, times=1):
                         fired_ids.add(task.get("id"))
                         fired += 1
                         continue
-                except api.McError:
-                    pass
+                except api.McError as e:
+                    api.swallowed("runs.watch", e)
                 time.sleep(0.05)
         _threading.Thread(target=watch, daemon=True).start()
     return hook
@@ -380,8 +380,8 @@ def _when(progress, act, limit_s=120):
                     if progress():
                         act()
                         return
-                except api.McError:
-                    pass
+                except api.McError as e:
+                    api.swallowed("runs.watch", e)
                 time.sleep(0.05)
         _threading.Thread(target=watch, daemon=True).start()
     return hook

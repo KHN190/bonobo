@@ -202,7 +202,8 @@ def _per_block_ok():
         import re
         try:
             v = tuple(int(x) for x in re.findall(r"\d+", str(api.game_status().get("version", "0")))[:3])
-        except api.McError:
+        except api.McError as e:
+            api.swallowed("world._per_block_ok", e)
             return False
         _PER_BLOCK.append(v >= (0, 1, 55))
     return _PER_BLOCK[0]

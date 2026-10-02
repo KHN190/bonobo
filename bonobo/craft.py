@@ -6,7 +6,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import bag as _bag
 from . import knowledge as K
 from . import api, nav, world
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable, log, swallowed
 from .skill import skill
 from .data import HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, GROUPS, LOG_TO_PLANKS, RECIPES, bare, mid
 from .knowledge import GROUP_RECIPES, members
@@ -111,7 +111,8 @@ class Station:
         for _ in range(3):
             try:
                 r = api.run({"type": "use", "x": self.pos[0], "y": self.pos[1], "z": self.pos[2]}, wait=60, awaits="the station's screen open")
-            except api.Unreachable:
+            except api.Unreachable as e:
+                swallowed("craft.__enter__", e)
                 break                      # behind a wall or a fence: the station is not usable from here
             if opened(r):
                 return self

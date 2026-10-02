@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 
-from ..api import McError, READ_EVERY_S
+from ..api import McError, READ_EVERY_S, swallowed
 from .core import bag_now
 from .core import (BENCH, BENCH_WORLD, BOX, WORLD_NORMAL, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
@@ -75,8 +75,8 @@ def _watchdog(limit, fired):
         from .. import api
         try:
             api.post("/stop")
-        except api.McError:
-            pass
+        except api.McError as e:
+            swallowed("runner.fire", e)
         _thread.interrupt_main()
     t = threading.Timer(limit, fire)
     t.daemon = True
@@ -207,7 +207,8 @@ def _mod_version():
     from .. import api
     try:
         return str(api.get("/status").get("version") or "unknown")
-    except api.McError:
+    except api.McError as e:
+        swallowed("runner._mod_version", e)
         return "unknown"
 
 def jar_matches_source():

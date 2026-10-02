@@ -33,7 +33,7 @@ import sys
 import time
 from . import core, runner
 from .core import bag_now
-from ..api import McError
+from ..api import McError, swallowed
 from ..data import DAY_TICKS, POD_BLOCKS
 import threading as _threading
 from .words.checks import ACCEPTANCE_D
@@ -457,8 +457,8 @@ def _growing(run):
                     if find(["water"], radius=10, limit=1):
                         _checked(f"execute in minecraft:overworld run gamerule random_tick_speed {FARM_TICK_SPEED}", [])
                         return
-                except (McError, SetupInvalid):
-                    pass
+                except (McError, SetupInvalid) as e:
+                    swallowed("vocab.watered", e)
                 stop.wait(0.25)
         _threading.Thread(target=watered, daemon=True).start()
         try:

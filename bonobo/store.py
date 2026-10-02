@@ -4,7 +4,7 @@ import math
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import bag as _bag
 from . import api, nav, world
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable, log, swallowed
 from .skill import skill
 from .data import BASE_MARKERS, GROUPS, MARKER_WEIGHT, PLACEABLE_AS, bare, mid
 from .world import BAG_SLOTS, Inventory, Region, add, find
@@ -94,7 +94,8 @@ def _place_cache_chest(ctx):
             place("minecraft:chest", spot)
         except api.INTERRUPTIONS:
             raise              # an interruption is not a failure to shrug off here
-        except McError:
+        except McError as e:
+            swallowed("store._place_cache_chest", e)
             continue
         site = ctx.mem.add_site("cache", spot, ctx.dimension)
         log(f"placed cache chest {site['name']} at {spot}")

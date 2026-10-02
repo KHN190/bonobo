@@ -6,6 +6,7 @@ from ... import lifecycle as _lifecycle
 from ..core import SetupInvalid
 from .checks import BASE, _skill
 from .scene import _row
+from ...api import swallowed
 
 # every door the bench builds: cells relative to the door's foot `at` (one copy each). `door`: the door's own blocks
 # per cell (an iron door), None for a piston door (its cells built air, pushed in by the pistons); `blocks` in build
@@ -126,8 +127,8 @@ def teach(presses, cells, close):
                 try:
                     if not all(mech.solid_map(cells).values()):
                         DOOR_SEEN[name] = True
-                except McError:
-                    pass
+                except McError as e:
+                    swallowed("door.watch", e)
                 time.sleep(0.1)
         _threading.Thread(target=watch, daemon=True).start()
     return hook
@@ -140,7 +141,8 @@ def walk(goal, range_, back=None):
         try:
             got = _skill("travel_to")(ctx, goal, range_)
             return got if back is None else _skill("travel_to")(ctx, back, range_)
-        except McError:
+        except McError as e:
+            swallowed("door.run", e)
             return None
     return run
 

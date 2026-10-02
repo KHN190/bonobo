@@ -7,7 +7,7 @@ import re
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, blueprints, lifecycle, nav, world, fluids
 from .beliefs import CONFIG as _PLAY
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable, log, swallowed
 from .data import GROUPS, bare, mid
 from .knowledge import members
 from .skill import ANCHORS, skill
@@ -431,7 +431,8 @@ def _blueprint_commands_for(state, args):
              for kind, c in prepare if kind == "break" or filler]
     try:
         return level + blueprint_commands(state, (bp, origin, turns))
-    except NotAvailable:
+    except NotAvailable as e:
+        swallowed("building._blueprint_commands_for", e)
         return []
 
 def _shelter_left(state, call=None):

@@ -5,7 +5,7 @@ import math
 from . import api, explore, gather, nav, retry, skillcore
 from . import world
 from . import skill as skillkit
-from .api import GameUnreachable, McError, NotAvailable, log
+from .api import GameUnreachable, McError, NotAvailable, log, swallowed
 from .data import GROUPS, bare, mid, seen_class
 from .knowledge import FIND_AT
 
@@ -52,7 +52,8 @@ def still_there(blocks, spot):
     from .world import Region
     try:
         name = bare(Region(spot, spot).name(tuple(spot)))
-    except McError:
+    except McError as e:
+        swallowed("dispatch.still_there", e)
         return False
     return name in {bare(b) for b in blocks}
 
@@ -96,19 +97,20 @@ def go_find(ctx, step):
     if depth is not None and abs(here[1] - depth) > 6 and dim == "minecraft:overworld":
         try:
             return nav.arrive((here[0], depth, here[2]), ctx.policy, range_=3)
-        except api.NavFailed:
-            pass
+        except api.NavFailed as e:
+            swallowed("dispatch.go_find", e)
     if step.kind == "mine" and depth is not None and dim == "minecraft:overworld":
         try:                                    # at the richest depth and nothing in sight: tunnel to reveal ore
             gather.strip_mine_step(ctx)
             return True
-        except NotAvailable:
-            pass
+        except NotAvailable as e:
+            swallowed("dispatch.go_find", e)
     try:           # a search that found nothing fails its verify: that is "nowhere new", not a crash
         if step.kind == "hunt":
             return bool(explore.explore_for(ctx, list(step.detail["types"])))
         return bool(explore.seek_blocks(ctx, GROUPS["log"] if step.kind == "gather" else blocks))
     except api.INTERRUPTIONS:
         raise
-    except McError:
+    except McError as e:
+        swallowed("dispatch.go_find", e)
         return False

@@ -6,7 +6,7 @@ from typing import Any
 
 from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledge's readers)
 from . import api, building, craft, fluids, nav, nether, skillcore, store, survive, tape, world, jobs
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable, log, swallowed
 from .data import BASE_MARKERS, FULL_BAR, MAX_HP, WALK_BLOCKS_PER_TICK
 from .estimate import eat_due
 from .knowledge import RAW_MEAT, food_count
@@ -272,7 +272,8 @@ class Maintain:
         def walled():
             try:
                 return (enclosed or survive.enclosed)()
-            except (tape.ReplayMiss, McError):
+            except (tape.ReplayMiss, McError) as e:
+                swallowed("reflexes.walled", e)
                 return False
         return _k.sheltered(snap.get("skyLight", 15), walled, lambda: self.in_site(snap.feet, snap.dimension))
 
@@ -324,7 +325,8 @@ class Maintain:
         x, y, z = feet
         try:
             return nav.in_pit(Region((x - 1, y, z - 1), (x + 1, y + 2, z + 1)), feet)
-        except McError:
+        except McError as e:
+            swallowed("reflexes.in_pit", e)
             return False
 
     def leave_pit(self, snap, ctx):
@@ -352,7 +354,8 @@ class Maintain:
         x, y, z = snap.feet
         try:
             region = Region((x - 1, y - 1, z - 1), (x + 1, y + 2, z + 1))
-        except McError:
+        except McError as e:
+            swallowed("reflexes.situation", e)
             return "open"
         return stuck_situation(survive.is_enclosed(region, snap.feet), nav.in_pit(region, snap.feet),
                                on_column(region, snap.feet), _k.under_rock(snap.state.get("skyLight", 15)))

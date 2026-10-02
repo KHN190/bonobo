@@ -32,7 +32,7 @@ from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_
                            module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
-from ...api import McError, READ_EVERY_S
+from ...api import McError, READ_EVERY_S, swallowed
 from ..bench_combat import (ARMED, ARMOUR, BLOOD, COUNT, DIMS, DISTANCE, ENEMY, GROUND, KIT, NEEDS,  # noqa: F401
                             UNARMED, WAVES, WEAPON, CORRIDOR_END)     # combat's dimensions: data in its table
 
@@ -131,8 +131,8 @@ def _revive():
         if _api.get("/state").get("dead"):
             _api.post("/respawn")
             time.sleep(1.0)
-    except McError:
-        pass
+    except McError as e:
+        swallowed("fight._revive", e)
     return ["gamemode survival @p", "effect clear @p"]
 
 def _columns_possible(cell):
@@ -155,8 +155,8 @@ def _combat_intent(state: dict[str, Any]):
         state = dict(state, field=perception.field_around(state),
                      **perception.kit(str(state.get("selected", "")) + str(state.get("screen"))))
         state["dig_ok"] = perception.dig_ok(state["field"], state.get("pick_tier"))     # as the live answer reads it
-    except McError:
-        pass
+    except McError as e:
+        swallowed("fight._combat_intent", e)
     sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
     price = lambda dhp: threat.hp_seconds(sstate, dhp)
     # the entity ids with the rows, as perception bids: without them every fight option named no target, and the
@@ -185,7 +185,8 @@ def reflex_last(api_):
     """The jar's last reflex act from GET /reflex (`last` / `lastAct`), or None when this jar doesn't say."""
     try:
         r = api_.get("/reflex")
-    except McError:
+    except McError as e:
+        swallowed("fight.reflex_last", e)
         return None
     return r.get("last") or r.get("lastAct")
 
@@ -208,8 +209,8 @@ def _sampler(stop, out, began):
                         "task": [task.get("type"), task.get("status"), str(task.get("message") or "")[:60]]
                         if task else None,
                         "reflex": reflex_last(_api)})
-        except McError:
-            pass
+        except McError as e:
+            swallowed("fight._sampler", e)
         stop.wait(TRACE_EVERY_S)
 
 def _restock(cell):
@@ -665,8 +666,8 @@ def _sample_alive(kinds, stop):
                 alive = _hostiles(24, set(kinds))
                 FIGHT_LOG["alive"].append((time.time(), [(e.get("id"), float(e.get("health", 0)),
                                                           round(float(e.get("distance", 99)), 2)) for e in alive]))
-            except McError:
-                pass
+            except McError as e:
+                swallowed("fight.sample", e)
             stop.wait(TRACE_EVERY_S)
     sampler = _threading.Thread(target=sample, daemon=True, name="fight-samples")
     sampler.start()

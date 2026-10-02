@@ -33,7 +33,7 @@ from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_
                            module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
-from ...api import McError
+from ...api import McError, swallowed
 from ...skillcore import SETTLE_POLL_S
 
 # -- the full bag: filled after the base's kit, leaving exactly `free` slots
@@ -108,14 +108,16 @@ def _first_times(ctx):
     def furnace_beef():
         try:
             return _furnace_holds(("minecraft:beef", "minecraft:cooked_beef"))    # beef in a furnace, read from the world
-        except McError:
+        except McError as e:
+            swallowed("brain.furnace_beef", e)
             return False
 
     def morning():
         try:
             from ... import api
             return slept_through(BASE["state"]["timeOfDay"], api.get("/state")["timeOfDay"])
-        except McError:
+        except McError as e:
+            swallowed("brain.morning", e)
             return False
 
     def watch():
@@ -712,8 +714,8 @@ def _interrupt_once_loaded(ctx):
                 if _inv_now().count("minecraft:raw_iron") < _base_count("minecraft:raw_iron"):
                     _inject_interrupt()
                     return
-            except McError:
-                pass
+            except McError as e:
+                swallowed("brain.watch", e)
             time.sleep(0.05)
     _threading.Thread(target=watch, daemon=True).start()
 

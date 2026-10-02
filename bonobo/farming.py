@@ -9,7 +9,7 @@ from . import knowledge as _k  # noqa: E402  (skills' world remainders: knowledg
 from . import knowledge as K
 from . import api, jobs, nav, skillcore
 from . import world
-from .api import McError, NotAvailable, log
+from .api import McError, NotAvailable, log, swallowed
 from .data import BAN_MAX_S, EYE_HEIGHT, bare
 from .skill import skill
 from .skillcore import body_state, gained
@@ -342,8 +342,8 @@ def centre_holds(pos, block):
             said = probe(pos, block)
             if said is not None:               # no answer from the server: the client's held read decides
                 return said
-        except McError:
-            pass
+        except McError as e:
+            swallowed("farming.centre_holds", e)
     got = skillcore.settle(lambda: Region(pos, pos).name(pos), lambda n: n == bare(block), timeout=2.0, stable_s=HOLD_S)
     return got == bare(block)
 

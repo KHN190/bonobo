@@ -18,7 +18,8 @@ def available():
     try:
         frames(1 << 30)
         return True
-    except (api.McError, OSError):
+    except (api.McError, OSError) as e:
+        api.swallowed("combat_tape.available", e)
         return False
 
 class Tape:
@@ -96,7 +97,8 @@ class EventStream:
         """The events since the last call, oldest first. Empty on a timeout — that is a keep-alive, not an error."""
         try:
             data = events(self.seq, timeout_ms)
-        except (api.McError, OSError):
+        except (api.McError, OSError) as e:
+            api.swallowed("combat_tape.poll", e)
             return []
         oldest = data.get("oldest", 0)
         if self.seq and oldest > self.seq + 1:
