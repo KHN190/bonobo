@@ -153,8 +153,7 @@ class FinishedRound(unittest.TestCase):
 
 
 class NightWayOnlyUnsheltered(unittest.TestCase):
-    """R3's night way is asked as production asks it: only for a body the shelter row would move
-    (reflexes.Maintain.sheltered) — walled in or at home, the night is already spent under cover."""
+    """R3's night way is asked only of an unsheltered body."""
 
     def test_rows(self):
         from check import round as rnd

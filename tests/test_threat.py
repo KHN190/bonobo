@@ -170,9 +170,7 @@ class TheFastLane(unittest.TestCase):
         state = {"x": 0, "y": 64, "z": 0, "health": hp, "armor": armor, "sword": sword, "blocks": 64}
         return self.fight_loop.bid(state, rows, lambda dhp: self.sv.hp_seconds(ss, dhp))
 
-    # (rows in sight) → the answer bid for, or None: no bid. Its worth is never typed here: it is what that answer
-    # saves over the others (threat.saves) in the state the bid reads, priced by the production tables (D6: the
-    # fight charges its see, walk, whole hits at the weapon's cooldown, pickup).
+    # (rows in sight) → the answer bid for; its worth is threat.saves of that answer
     BIDS = [("must fail: nothing near", [], None),
             ("a zombie 5 away", [row("minecraft:zombie", 5, 0)], "fight"),
             ("a zombie 60 away: not worth the body", [row("minecraft:zombie", 60, 0)], None),

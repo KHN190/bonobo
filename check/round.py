@@ -187,9 +187,7 @@ def decide(facts, fail_then_again=True):
             if not ok:
                 ctx["fight_line"] = why
         if snap.night:
-            # the night's way as production asks it (needs.propose): the ground's readings, what cools, the night left —
-            # only for a body not yet sheltered (reflexes.Maintain.sheltered, the shelter row's own test): sheltered,
-            # the night is already spent under cover
+            # asked only of an unsheltered body, as the shelter row asks it
             from bonobo.decompose import cooled_ways, night_facts, night_left_s
             from bonobo.reflexes import ground
             enclosed, soft, site = ground(None)

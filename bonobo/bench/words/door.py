@@ -7,7 +7,7 @@ from ..core import SetupInvalid
 from .checks import BASE, _skill
 from .scene import _row
 from ...api import swallowed
-from ...mechanisms import CROSS_RANGE     # through the door = within the crossing's own end range (one success)
+from ...mechanisms import CROSS_RANGE
 
 # every door the bench builds: cells relative to the door's foot `at` (one copy each). `door`: the door's own blocks
 # per cell (an iron door), None for a piston door (its cells built air, pushed in by the pistons); `blocks` in build

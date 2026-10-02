@@ -1069,8 +1069,7 @@ class Nightfall(unittest.TestCase):
 
 
 class NightIsTheOverworlds(unittest.TestCase):
-    """data.is_night, the one night predicate (M7): the Nether and the End report the Overworld's clock but have no
-    night; Snapshot.night and the planner's state vector (actions._is_night) read it."""
+    """data.is_night: the Nether and the End have no night."""
 
     def test_rows(self):
         from bonobo import actions, survive

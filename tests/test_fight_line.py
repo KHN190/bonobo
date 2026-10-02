@@ -34,8 +34,7 @@ class LossQuantile(unittest.TestCase):
 
 
 class SwordPrice(unittest.TestCase):
-    """B5/B6: a fight is priced at the sword actually carried — its item's damage and attack cooldown from the game's
-    weapon data (data.weapon_hit), no level, no second dps table."""
+    """A fight is priced at the sword carried (data.weapon_hit)."""
 
     def test_the_brain_prices_the_weapon_held(self):
         # (carried, the sword melee_loss must be asked with); must fail: a wooden sword (tool tier 0) asked as a fist

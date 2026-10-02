@@ -117,8 +117,7 @@ ATTACKS_PER_S = {"sword": {m: 1.6 for m in TOOL_SPEED},
 HAND_DAMAGE, HAND_ATTACKS_PER_S = 1, 4.0
 
 def weapon_hit(item):
-    """Pure: (damage per hit, hits per second) of attacking with `item` — a sword or axe by its material, anything
-    else (None, "hand", a pickaxe) the hand. The one reading of the weapon tables: costs and weapon choice share it."""
+    """Pure: (damage, hits/s) of `item`; not a sword or axe: the hand."""
     material, _, kind = ("" if item in (None, "hand") else bare(item)).rpartition("_")
     if kind not in WEAPON_DAMAGE or material not in WEAPON_DAMAGE[kind]:
         return float(HAND_DAMAGE), float(HAND_ATTACKS_PER_S)
@@ -361,8 +360,7 @@ DAY_END = 12500               # beds usable, hostiles spawn
 NIGHT_END = 23400
 
 def is_night(time_of_day, dimension="minecraft:overworld"):
-    """Pure: night — the Overworld's only: the Nether and the End have no day and night, though the clock the game
-    reports there is still the Overworld's (it runs on). The one night predicate (Snapshot.night reads it)."""
+    """Pure: night; the Overworld's only."""
     return dimension == "minecraft:overworld" and DAY_END <= time_of_day % DAY_TICKS <= NIGHT_END
 
 REACH = 4.5            # the jar's block interaction range (survival: getBlockInteractionRange)
