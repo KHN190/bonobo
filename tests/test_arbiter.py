@@ -194,15 +194,14 @@ class APreemptionIsNotAnIntruder(unittest.TestCase):
 # -- the arbiter over the brain's real inputs: reflexes.due (the MAINTAIN rows) and PLAN kinds --------------------
 import itertools                                    # noqa: E402
 
-from bonobo import fluids, reflexes, retry as retry_mod   # noqa: E402
+from bonobo import hazard, knowledge, reflexes, retry as retry_mod   # noqa: E402
 
 # A calm round: nothing fires. Every key a reflexes.TABLE trigger reads.
-CALM = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False, "night": False,
+CALM = {"died_recently": False, "food": 20, "meal": False, "nether_bad": False, "night": False,
         "enclosed": False, "overworld": True, "sheltered": False, "bed_works": True, "bed_carried": False, "bed_near": False,
         "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 5, "blocked": False,
-        "building": 64, "stuck": False, "feet": (0, 64, 0), "on_land_s": 5.0}
+        "building": 64, "stuck": False, "feet": (0, 64, 0)}
 HUNGRY = {"food": reflexes.EAT_BELOW - 1}
-IN_WATER = {"swimming": True}
 BAG_FULL = {"used_slots": reflexes.BAG_FULL}
 
 
@@ -369,13 +368,13 @@ def chosen_with(intents, facts):
 
 class Crowded(unittest.TestCase):
     # (situation: reflex view changes, a fight, a hazard, PLAN kinds) → what drives the body
-    ROWS = [("hungry, in water, dusk, fighting: the fight", {**HUNGRY, **IN_WATER}, True, False, ["night prep"], "fight"),
-            ("hungry, in water, dusk, a hazard too: the hazard", {**HUNGRY, **IN_WATER}, True, True, ["night prep"],
-             "hazard"),
+    ROWS = [("hungry, dusk, fighting: the fight", HUNGRY, True, False, ["night prep"], "fight"),
+            ("hungry, in water (SAFETY's hazard swimming), dusk, fighting: ashore first", HUNGRY, True, True,
+             ["night prep"], "hazard"),
             ("bag full, hungry, a task: eat before emptying, both before the task", {**BAG_FULL, **HUNGRY}, False,
              False, ["queue"], "eat"),
-            ("night, no pickaxe, in water: out of the water before any plan", {**IN_WATER, "night": True}, False,
-             False, ["broken tool", "night stock"], "reach land"),
+            ("night, no pickaxe, in water: out of the water before any plan", {"night": True}, False,
+             True, ["broken tool", "night stock"], "hazard"),
             ("bag full, a task, no food on hand: empty the bag", {**BAG_FULL, **HUNGRY, "meal": None}, False,
              False, ["queue", "food stock"], "empty the bag"),
             ("nothing fires, plans only: the plan's order", {}, False, False, ["idle", "food stock", "queue"],
@@ -389,11 +388,11 @@ class Crowded(unittest.TestCase):
 
 
 class Flicker(unittest.TestCase):
-    """What stops a shore reading from toggling reach land: `swimming` is in water AND off the ground, so standing in
-    a shore block's water is not swimming. The trigger's boundary, and hunger's."""
+    """What stops a shore reading from toggling the swimming rescue: `swimming` is in water AND off the ground, so
+    standing in a shore block's water is not swimming. The trigger's boundary, and hunger's."""
 
     def test_in_the_water_boundary(self):
-        # (inWater, onGround, air) → swimming (reach land fires)
+        # (inWater, onGround, air) → swimming (hazard "swimming" due)
         rows = [("treading water", True, False, 300, True), ("standing in shore water", True, True, 300, False),
                 ("on the bottom of a flooded shaft, head under", True, True, 120, True),
                 ("edge: one tick of breath gone, standing in water", True, True, 299, True),
@@ -401,9 +400,9 @@ class Flicker(unittest.TestCase):
                 ("on land", False, True, 300, False), ("falling through air", False, False, 300, False)]
         for name, wet, ground, air, want in rows:
             with self.subTest(name):
-                swim = fluids.swimming({"inWater": wet, "onGround": ground, "air": air})
-                self.assertEqual((swim, "reach land" in [n for _s, n in reflexes.due(dict(CALM, swimming=swim))]),
-                                 (want, want))
+                swim = knowledge.swimming({"inWater": wet, "onGround": ground, "air": air})
+                due = hazard.kind({}, afloat=reflexes.afloat(swim, False, 0.0)) == "swimming"
+                self.assertEqual((swim, due), (want, want))
 
     def test_hurt_eats_to_regenerate(self):
         # (hp, food) → the eat row fires (something edible, cooked)
@@ -427,29 +426,23 @@ class Flicker(unittest.TestCase):
 
 
 class Hysteresis(unittest.TestCase):
-    """reach land: in on swimming, out only after reflexes.LAND_EXIT_S on something that is not water; every other
-    row exits with its trigger. Rounds fed through reflexes.due / latched, as Maintain.proposals does."""
+    """reflexes.afloat: in on swimming, out only after reflexes.LAND_EXIT_S on something that is not water. Rounds fed
+    as Maintain.observe does."""
     OUT = reflexes.LAND_EXIT_S
-    # (situation, rounds of (swimming, on_land_s), row) → whether the row fires in each round
-    ROWS = [("deep water: in", [(True, 0.0)], "reach land", [True]),
+    # (situation, rounds of (swimming, on_land_s)) → afloat each round
+    ROWS = [("deep water: in", [(True, 0.0)], [True]),
             ("shore flicker: swimming off for a tick, still on the way out", [(True, 0.0), (False, 0.1), (True, 0.0),
-                                                                                (False, 0.2)], "reach land",
-             [True, True, True, True]),
-            ("really ashore: out once the exit holds", [(True, 0.0), (False, 0.5), (False, OUT)], "reach land",
-             [True, True, False]),
-            ("must fail: never in the water: never in", [(False, 0.0), (False, 0.0)], "reach land", [False, False]),
-            ("a row without an exit leaves with its trigger", [(True, 0.0), (False, 0.0)], "eat", [True, False])]
+                                                                                (False, 0.2)], [True, True, True, True]),
+            ("really ashore: out once the exit holds", [(True, 0.0), (False, 0.5), (False, OUT)], [True, True, False]),
+            ("must fail: never in the water: never in", [(False, 0.0), (False, 0.0)], [False, False])]
 
     def test_rounds(self):
-        for name, rounds, row, want in self.ROWS:
+        for name, rounds, want in self.ROWS:
             with self.subTest(name):
-                active, got = frozenset(), []
-                for n, (swim, land) in enumerate(rounds):
-                    food = reflexes.EAT_BELOW - 1 if (row == "eat" and n == 0) else 20
-                    v = dict(CALM, swimming=swim, on_land_s=land, food=food)
-                    fired = [x for _s, x in reflexes.due(v, active=active)]
-                    active = reflexes.latched(fired, v)
-                    got.append(row in fired)
+                was, got = False, []
+                for swim, land in rounds:
+                    was = reflexes.afloat(swim, was, land)
+                    got.append(was)
                 self.assertEqual(got, want)
 
 
@@ -457,16 +450,15 @@ def simulate(view_of, plan, cause_for, rounds):
     """Rounds of the MAINTAIN layer over the real retry policy, as Maintain.proposals runs them: what fired, the
     last run judged (`stalled`), cooling rows skipped, the arbiter's pick. `view_of(n)` is round n's view;
     `cause_for(name)` is how a run fails (None: it returns fine). Returns the picks."""
-    r, active, last, picks = retry_mod.Retry(), frozenset(), None, []
+    r, last, picks = retry_mod.Retry(), None, []
     for n in range(rounds):
         now, v = float(n) * 10, view_of(n)
-        fired = [x for _s, x in reflexes.due(v, active=active)]
+        fired = [x for _s, x in reflexes.due(v)]
         if last is not None:
             name, before = last
             last = None
             if reflexes.stalled(name in fired, before, reflexes.progress_of(name, v)):
                 r.failed(name, reflexes.NO_PROGRESS, "changed nothing", now, "here")
-        active = reflexes.latched(fired, v)
         intents = [arbiter.Intent("maintain", lambda: None, x, at=now, kind=x, seq=reflexes.NAMES.index(x), key=x)
                    for x in fired if r.ready(x, now, "here")]
         intents += [arbiter.Intent("plan", lambda: None, k, at=now, kind=k, key=k) for k in plan]

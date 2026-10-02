@@ -38,7 +38,7 @@ from .world import Inventory, Snapshot
 # wired from the top so lower layers never import the skill library
 hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx),
                      cover=lambda ctx, s: needs.cover(ctx, s), eat=lambda ctx: survive.eat(ctx),
-                     dig_in=lambda ctx: survive.dig_in(ctx))
+                     dig_in=lambda ctx: survive.dig_in(ctx), reach_land=lambda ctx: survive.reach_land(ctx))
 from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],
                 region=survive._pod_region)
@@ -511,11 +511,12 @@ class Brain:
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
             unanswered = threat.THREAT_UNANSWERED       # the threat layer's "no answer": SAFETY's (hazard "threat")
-            k = hazard.rescue_due(snap.state, unanswered=unanswered)
+            afloat = self.reflexes.afloat       # in the water, not yet ashore (reflexes.afloat): SAFETY's
+            k = hazard.rescue_due(snap.state, unanswered=unanswered, afloat=afloat)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
                     ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
-                    unanswered=unanswered)),
+                    unanswered=unanswered, afloat=afloat)),
                     key=f"rescue {k}"))
             return out
 

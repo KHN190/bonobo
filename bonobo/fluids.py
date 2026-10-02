@@ -296,10 +296,3 @@ def contain_lava(ctx, radius=4):
         log(f"covered {covered} exposed lava cells")
     return covered
 
-def swimming(state):
-    """The one "in the water" test: in water and not standing, or standing with the head under (breath below full)."""
-
-    return bool(state.get("inWater")) and (not state.get("onGround", False)
-                                            or float(state.get("air", AIR_FULL) or 0) < AIR_FULL)
-
-AIR_FULL = 300          # the air meter's top, in ticks

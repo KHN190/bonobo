@@ -1,6 +1,6 @@
-"""Water and lava: the body swimming (fluids.swimming: the reach-land reflex), or lava open beside the feet
+"""Water and lava: the body swimming (knowledge.swimming: hazard "swimming"), or lava open beside the feet
 (fluids.lava_within, the box the round reads)."""
-from bonobo import fluids
+from bonobo import fluids, knowledge
 
 NAME = "fluid"
 VALUES = ("none", "swimming", "lava")
@@ -14,7 +14,7 @@ def domain():
 
 
 def alpha(a):
-    if fluids.swimming(a.snap.state):
+    if knowledge.swimming(a.snap.state):
         return "swimming"
     return "lava" if fluids.lava_within(a.region, a.snap.feet, NEAR) else "none"
 

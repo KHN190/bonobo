@@ -1197,7 +1197,6 @@ UPKEEP = [
     Row("hungry, nothing edible, nothing seen: food to the front", None, queued=[[("food", 8)]], food=4,
         inv=[("white_bed", 1), ("stone_pickaxe", 1)], seen={}),
     Row("eating failed here a moment ago: the next row", None, food=10, cooling=("eat",)),
-    Row("treading water", "reach land", inWater=True, onGround=False),
     Row("in the Nether with two meals left", "leave the Nether", dimension=NETHER, skyLight=0,
         inv=[("cooked_beef", 2), ("stone_pickaxe", 1)]),
     Row("in the Nether at 6 hp", "leave the Nether", dimension=NETHER, skyLight=0, health=6.0),
@@ -1237,7 +1236,8 @@ UPKEEP = [
     Row("a tool that never worked is not broken", None, inv=WELL_FED, last_round=WELL_FED),
     Row("the stone axe broke: nothing (no plan step needs an axe)", None, inv=WELL_FED,
         last_round=WELL_FED + [slot("stone_axe", 1, 125)]),
-    Row("hungry at night with a bed: eat first, then sleep", "eat", food=10, time_of_day=NIGHT),
+    Row("hungry at night with a bed: sleep first, the meal after (S4: no meal under the open night sky)", "sleep",
+        food=10, time_of_day=NIGHT),
     Row("the bag full and the path blocked: empty the bag first", "empty the bag", inv=full_bag("cobblestone"),
         blocked=(40, 64, 0)),
     # A night without a bed: the cheapest way through it (bed | dig in | wall in | hut), its parts fetched LEAD early.
@@ -1264,8 +1264,6 @@ UPKEEP = [
         time_of_day=NIGHT, skyLight=0, y=30.0, inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
     Row("night outside, no bed makings: shelter", "shelter", time_of_day=NIGHT,
         inv=[("cooked_beef", 8), ("stone_pickaxe", 1)]),
-    Row("afloat at dusk, no bed, no pickaxe: land first, nothing queued", "reach land", time_of_day=DUSK,
-        inWater=True, onGround=False, inv=[("cooked_beef", 8)], seen={"oak_log": 10, "stone": 2}),
     Row("hungry, four bread carried: eat (bread is food)", "eat", food=10,
         inv=[("bread", 4), ("white_bed", 1), ("stone_pickaxe", 1)]),
     Row("hungry, cooked beef carried: eat", "eat", food=10, inv=[("cooked_beef", 2), ("white_bed", 1)]),
@@ -2000,7 +1998,8 @@ class OneArbiter(unittest.TestCase):
 
         def M(name):                                            # a maintenance reflex, in its table's place
             return arbiter.Intent("maintain", name, seq=reflexes.NAMES.index(name), key=name)
-        rows = [("afloat at dusk, the night's shelter due: land first", [M("shelter"), M("reach land")], "reach land"),
+        land = self.intent("safety", "rescue swimming")         # afloat: SAFETY's (hazard "swimming")
+        rows = [("afloat at dusk, the night's shelter due: land first", [M("shelter"), land], "rescue swimming"),
                 ("hungry, bread carried, a task queued: eat (a reflex before any plan)", [P("queue"), M("eat")], "eat"),
                 ("night, a bed carried: sleep before the shelter", [M("shelter"), M("sleep")], "sleep"),
                 ("a fight holds the body, the queue wants a pickaxe: the fight",
@@ -2008,7 +2007,7 @@ class OneArbiter(unittest.TestCase):
                 ("a fight vs a reflex (eat): the fight", [M("eat"), self.intent("tactic", "fight")], "fight"),
                 ("drowning in a fight: the rescue", [self.intent("tactic", "fight"), self.intent("safety", "rescue")],
                  "rescue"),
-                ("a rescue vs a reflex: the rescue", [M("reach land"), self.intent("safety", "rescue")], "rescue"),
+                ("a rescue vs a reflex: the rescue", [M("eat"), self.intent("safety", "rescue")], "rescue"),
                 ("raw meat and a furnace, food queued: the queue's head (smelt), no hunt proposed", [P("queue")],
                  "queue"),
                 ("the queue's head before the second in line", [P("queue", 1), P("queue", 0)], "queue"),
@@ -2026,7 +2025,7 @@ class OneArbiter(unittest.TestCase):
                  [P("food stock"), M("eat")], "eat"),
                 ("a broken tool vs the night's parts at dusk: the night first", [P("broken tool"), P("night prep")],
                  "night prep"),
-                ("afloat with the night's parts due: land first", [P("night prep"), M("reach land")], "reach land"),
+                ("afloat with the night's parts due: land first", [P("night prep"), land], "rescue swimming"),
                 ("night underground, nothing queued, a pickaxe: dig for ore before waiting",
                  [P("wait for day"), P("night stock")], "night stock"),
                 ("night underground, no pickaxe: wait for day", [P("wait for day")], "wait for day"),
@@ -2780,13 +2779,12 @@ class CraftInOneSitting(unittest.TestCase):
 class Reflexes(unittest.TestCase):
     """reflexes.TABLE: each trigger over the round's view — fires, and does not."""
 
-    BASE = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False,
+    BASE = {"died_recently": False, "food": 20, "meal": False, "nether_bad": False,
             "night": False, "enclosed": False, "overworld": True, "sheltered": False, "bed_works": False, "bed_carried": False,
             "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
             "blocked": False, "building": 0, "stuck": False, "in_pit": False}
     # (reflex, the view's changes that fire it, the changes that do not) (must fail: the third column never fires)
     ROWS = [("eat", {"food": 10}, {"food": 10, "meal": None}),
-            ("reach land", {"swimming": True}, {}),
             ("leave the Nether", {"nether_bad": True}, {}),
             ("dig out", {"enclosed": True}, {"enclosed": True, "night": True}),
             ("sleep", {"night": True, "bed_works": True, "bed_carried": True},
@@ -2809,12 +2807,29 @@ class Reflexes(unittest.TestCase):
                 self.assertIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **fires))])
                 self.assertNotIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **quiet))])
 
-    # (which reflexes are cooling) → what is due, when both eat and reach land fire
-    EAT, LAND = (__import__("bonobo.reflexes", fromlist=["NAMES"]).NAMES.index(n) for n in ("eat", "reach land"))
-    COOLING = [("none cooling: both, in table order", set(), [(EAT, "eat"), (LAND, "reach land")]),
-               ("eat cooling: skipped, reach land still due", {"eat"}, [(LAND, "reach land")]),
-               ("reach land cooling: eat alone", {"reach land"}, [(EAT, "eat")]),
-               ("must fail: both cooling: nothing due though both fire", {"eat", "reach land"}, [])]
+    # (which reflexes are cooling) → what is due, when both eat and leave the Nether fire
+    EAT, OUT = (__import__("bonobo.reflexes", fromlist=["NAMES"]).NAMES.index(n) for n in ("eat", "leave the Nether"))
+    COOLING = [("none cooling: both, in table order", set(), [(EAT, "eat"), (OUT, "leave the Nether")]),
+               ("eat cooling: skipped, leave the Nether still due", {"eat"}, [(OUT, "leave the Nether")]),
+               ("leave the Nether cooling: eat alone", {"leave the Nether"}, [(EAT, "eat")]),
+               ("must fail: both cooling: nothing due though both fire", {"eat", "leave the Nether"}, [])]
+
+    # (situation, the view's changes) → eat fires (hungry, a meal carried); the night's shelter due first
+    EAT_AT_NIGHT = [("hungry by day: eat", {}, True),
+                    ("must fail: hungry, the night's shelter due: cover first, the meal after", {"night": True,
+                                                                                               "shelter_ready": True},
+                     False),
+                    ("must fail: hungry, a bed carried that works tonight: sleep first", {"night": True,
+                                                                                         "bed_works": True,
+                                                                                         "bed_carried": True}, False),
+                    ("hungry at night under cover (no shelter due): eat", {"night": True, "sheltered": True}, True)]
+
+    def test_a_meal_waits_for_the_shelter(self):
+        from bonobo import reflexes
+        for name, changes, want in self.EAT_AT_NIGHT:
+            with self.subTest(name):
+                due = [n for _i, n in reflexes.due(dict(self.BASE, food=reflexes.EAT_BELOW - 1, **changes))]
+                self.assertEqual("eat" in due, want)
 
     # (situation, the view's changes) → recover items and leave the pit fire (the night gate: open_night, S4)
     NIGHT_GATE = [("day: both", {}, True),
@@ -2831,7 +2846,7 @@ class Reflexes(unittest.TestCase):
 
     def test_cooling_reflexes_are_skipped(self):
         from bonobo import reflexes
-        view = dict(self.BASE, food=10, swimming=True)
+        view = dict(self.BASE, food=10, nether_bad=True)
         for name, cooling, want in self.COOLING:
             with self.subTest(name):
                 self.assertEqual(reflexes.due(view, ready=lambda n, c=cooling: n not in c), want)

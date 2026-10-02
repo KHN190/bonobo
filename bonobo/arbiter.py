@@ -86,8 +86,9 @@ RESUME_RULES: dict[Rule, tuple[bool, str | None]] = {
 }
 RESUME_OF: dict[str, Rule] = {      # every key a shapes.Source (tests/test_types)
     **{f"layer:{k}": "same" for k in ("reflex", "safety", "maintain", "plan")}, "layer:tactic": "fight",
-    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "critical", "threat", "falling")},
-    **{f"row:{k}": "same" for k in ("eat", "reach land", "dig out", "sleep", "shelter", "collect job",
+    **{f"hazard:{k}": "same" for k in ("lava", "burning", "drowning", "suffocating", "critical", "threat", "swimming",
+                                       "falling")},
+    **{f"row:{k}": "same" for k in ("eat", "dig out", "sleep", "shelter", "collect job",
                                     "collect machine", "path blocked", "unstuck", "recover items",
                                     "leave the pit")},
     "row:empty the bag": "recheck", "row:leave the Nether": "dimension",

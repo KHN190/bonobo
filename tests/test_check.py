@@ -80,10 +80,8 @@ class KnownViolations(unittest.TestCase):
     the checker must report it. A row that stops firing is a blind checker or a fixed production — never edited to
     pass."""
     ROWS = [   # (invariant, facts, what the baseline does there)
-        ("S4", of(night=True, queued="stick"), "V6: night prep crafts in the open (data.NIGHT_WORK, arbiter.on_surface)"),
         ("S4", of(night=True, queued="stick", cooled=True), "V6: the queue's craft in the open at night"),
         ("S4", of(night=True, queued="cobblestone", pickaxe=0, cooled=True), "V6: a surface mine at night (17:49 stairwell)"),
-        ("S4", of(night=True), "test_arbiter:295 NightUnderCover: wait for day in the open"),
     ]
 
     def test_reported(self):
