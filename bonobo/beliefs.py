@@ -3,7 +3,7 @@
 import os
 import tomllib
 
-from . import game
+from . import formulas, game
 
 TICKS_PER_S = 20.0      # the game's clock, in one place
 
@@ -50,11 +50,14 @@ def keep_out():
     """{kind: radius} movement refuses to plan inside (a view of the table, not a copy)."""
     return {kind: m["keep_out"] for kind, m in MOBS.items() if m.get("keep_out")}
 
-def protection(armor_points, shield=False):
-    """Fraction of incoming damage removed: armour points (0–20, as /state reports them) and a shield in hand."""
+def hardest_hit(kinds):
+    """The largest hit among these mob kinds (0 for none known)."""
+    return max((float(MOBS[k]["attack"]) for k in kinds if k in MOBS), default=0.0)
 
+def protection(armor_points, shield=False, *, hit, toughness=0.0):
+    """Fraction of a hit of `hit` removed: the game's armour formula, and a shield in hand."""
     return min(PLAYER["protection_cap"],
-               armor_points * PLAYER["protection_per_point"] + (PLAYER["shield"] if shield else 0.0))
+               formulas.armor_reduction(armor_points, toughness, hit) + (PLAYER["shield"] if shield else 0.0))
 
 def slot_cost_s(bag_free):
     """Seconds one more occupied inventory slot costs, given how many are still free."""

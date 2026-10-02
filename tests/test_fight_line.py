@@ -86,7 +86,7 @@ class SwordPrice(unittest.TestCase):
 
 class FightLine(unittest.TestCase):
     def test_rows(self):
-        mean, hit = estimate.melee_loss(["minecraft:blaze"], "minecraft:diamond_sword", beliefs.protection(0))
+        mean, hit = estimate.melee_loss(["minecraft:blaze"], "minecraft:diamond_sword", beliefs.protection(0, hit=0.0))
         line = critical_hp({}) + estimate.loss_q(mean, hit)
         rows = [("exactly the line: ok", line, True),
                 ("must fail: one under the line: refused", line - 1, False),
@@ -103,7 +103,7 @@ class FightLine(unittest.TestCase):
         cases = [(gather.hunt, (None, "minecraft:spider_eye", 1, ["minecraft:spider"], False), "minecraft:spider"),
                  (combat.collect_blaze_rods, (None, 1), "minecraft:blaze")]
         for fn, args, mob in cases:
-            mean, hit = estimate.melee_loss([mob], sword, beliefs.protection(0))
+            mean, hit = estimate.melee_loss([mob], sword, beliefs.protection(0, hit=0.0))
             line = critical_hp({}) + estimate.loss_q(mean, hit)
             for hp, want in ((line - 1, False), (line, True)):
                 with self.subTest(f"{fn.__name__} at {hp}"):

@@ -71,7 +71,6 @@ use_order = [["pickaxe"], ["axe", "sword"], ["shovel", "hoe"]]  # most used firs
 speed = 4.3                 # sprinting, blocks per second
 melee_reach = 3.0
 eye_height = 1.62
-protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
 protection_cap = 0.8
 pickup_r = 1.0              # the game picks an item up within one block of the body (the box grown by 1): a kill's drops are that much short of a walk away

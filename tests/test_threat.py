@@ -1222,7 +1222,7 @@ class BaitACreeper(unittest.TestCase):
                 self.assertEqual(("bait" in kinds, "fight" in kinds), want)
 
     def test_blast(self):
-        rows = [("at 6: nothing", 6.0, 0.0), ("at 3: a quarter", 3.0, 10.75), ("at 0: all", 0.0, 43.0),
+        rows = [("at 6: nothing", 6.0, 0.0), ("at 3: the game's falloff (formulas.explosion_damage)", 3.0, 16.75), ("at 0: all", 0.0, 43.0),
                 ("past 6: nothing", 9.0, 0.0)]
         for name, d, want in rows:
             with self.subTest(name):

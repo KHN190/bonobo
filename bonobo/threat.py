@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 from . import beliefs, estimate, kernel, lifecycle
+from . import formulas, game
 from .game import ARROWS
 
 MOBS = beliefs.MOBS
@@ -124,7 +125,7 @@ def bait_spot(here, creeper, lit, clear):
 
 def bait_blast(d, attack, prot):
     """Pure: a creeper's blast at `d` blocks (falls off to nothing at 6)."""
-    return round(float(attack) * max(0.0, 1.0 - d / 6.0) ** 2 * (1.0 - prot), 2)
+    return round(formulas.explosion_damage(game.EXPLOSION_POWER["minecraft:creeper"], d) * (1.0 - prot), 2)
 
 def bait_option(here, hazards, ids, creepers, lit, clear, prot):
     first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
@@ -641,7 +642,7 @@ def price_state(**kw):
 def _protection(s):
     """This state's damage reduction, from the belief table."""
 
-    return beliefs.protection(s["armor"], s["shield"])
+    return beliefs.protection(s["armor"], s["shield"], hit=beliefs.hardest_hit([_R["reference_mob"]]))
 
 def encounter_damage(s):
     """(seconds, health) one ordinary encounter costs at this weapon and armour."""

@@ -2,7 +2,7 @@
 
 import math
 
-from . import beliefs, combat_model
+from . import beliefs, combat_model, formulas, game
 from .data import READ_EVERY_S     # the fight loop's poll: a target is acted on one read after it is there
 from .data import weapon_hit
 
@@ -92,7 +92,9 @@ def burst_hp(spot, hazards, prot=0.0, fuse_s=None):
     """Damage from one-shot threats that can still reach `spot` before their fuse runs out."""
 
     fuse_s = float(ENGAGE["fuse_s"] if fuse_s is None else fuse_s)
-    total = sum(float(beliefs.MOBS[h[3]]["dps"]) for h in hazards
+    total = sum(formulas.explosion_damage(game.EXPLOSION_POWER[h[3]], min(math.dist(spot, h[0]), game.DETONATES_WITHIN[h[3]]))
+                if h[3] in game.EXPLOSION_POWER
+                else float(beliefs.MOBS[h[3]]["dps"]) for h in hazards
                 if beliefs.MOBS.get(h[3], {}).get("burst") and arrival_s(spot, h) <= fuse_s)
     return total * (1.0 - prot)
 
