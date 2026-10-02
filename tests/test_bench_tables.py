@@ -74,7 +74,7 @@ class Equivalence(unittest.TestCase):
 
     def test_every_row_is_its_record(self):
         rec = recorded()
-        self.assertEqual(len(rec), 65)           # the minimal bench (bench-a06, bench-a46): 178 rows out
+        self.assertEqual(len(rec), 69)           # the minimal bench (bench-a06, bench-a46) + a must-fail row each for nav, chop, craft, smelt
         for tier, rows in tables().items():
             for name, row in rows.items():
                 with self.subTest(name):

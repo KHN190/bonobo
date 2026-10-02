@@ -152,6 +152,19 @@ CONDITIONS = {
                    bases=['chop', 'craft', 'hunt', 'mine_iron', 'mine_stone', 'smelt'], goal_met=True),
 }
 SURPRISES = {
+    'nav_sealed_in': dict(base='nav', doc='the body sealed in bedrock: no way out, and it says so', replace_setup=True,
+                        scene=[('floor',), ('fill', ('@', -1, -1, -1), ('@', 1, 2, 1), 'bedrock'),
+                               ('fill', ('@', 0, 0, 0), ('@', 0, 1, 0), 'air'), ('stand',)],
+                        fails='no route|no path|unreachable|could not get|not reach',
+                        check=('all', ('!same_bag',), ('!arrived', ('@', 0, 0, 0), 2))),
+    'craft_short_of_planks': dict(base='craft', doc='two planks and no sticks for a pickaxe: missing, named',
+                                replace_setup=True,
+                                scene=[('floor',), ('stand',), ('give', 'oak_planks', 2), ('give', 'crafting_table')],
+                                fails='missing|short|not enough', check=('same_bag',)),
+    'smelt_without_fuel': dict(base='smelt', doc='a furnace and raw iron, nothing to burn: no fuel, named',
+                             replace_setup=True,
+                             scene=[('floor',), ('stand',), ('give', 'furnace'), ('give', 'raw_iron', 1)],
+                             fails='no coal|fuel|burn', check=('gain', 'minecraft:iron_ingot', 0, 0)),
     'bed_in_nether': dict(base='sleep', doc='night in the Nether, a bed carried: must refuse (it explodes)',
                         dimension='minecraft:the_nether', replace_setup=True,
                         scene=[('floor', 'netherrack'), ('stand',), ('give', 'white_bed'), ('time', 18000)],
@@ -178,6 +191,12 @@ SURPRISES = {
                             scene=[('fill', ('@', -4, -1, -4), ('@', 4, -1, 4), 'smooth_stone_slab[type=bottom]'),
                                    ('stand',)],
                             check=('all', ('!gain', 'minecraft:iron_ingot', 1, 1), ('!gain', 'minecraft:furnace', 0, 0))),
+    'eat_with_nothing': dict(base='eat', doc='hungry, nothing edible carried: nothing to eat, named', replace_setup=True,
+                           scene=[('floor',), ('stand',)], fails='nothing edible', check=('same_bag',)),
+    'empty_chest': dict(base='loot', doc='the only chest is empty', replace_setup=True,
+                      scene=[('floor',), ('chest', ('@', 5, 0, 1)), ('stand', -1)],
+                      fails='empty|nothing|worth|no unlooted',
+                      check=('all', ('!same_bag',), ('!blocks', ('@', 5, 0, 1), ('@', 5, 0, 1), ('chest',), 1, 1))),
 }
 TARGET_S = {'chop': 10.0, 'mine_stone': 8.0, 'craft': 8.0, 'eat': 2.0, 'find_air': 5.0}     # a base's own speed target (s), × TARGET_SLACK
 TARGET_SLACK = 1.5

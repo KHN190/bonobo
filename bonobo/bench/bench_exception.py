@@ -14,12 +14,15 @@ FAMILIES = [
          ('chop', 'lava_edge'), 
          
          ('mine_iron', 'tool_one_use'),
+         ('chop', 'valuables_full'), ('nav', None, 'nav_sealed_in'), ('craft', None, 'craft_short_of_planks'),
+         ('smelt', None, 'smelt_without_fuel'),
          
          
          
          
          
-         ('nav', None, 'start_cell_on_a_fence'), ]),
+         ('nav', None, 'start_cell_on_a_fence'),
+         ('hunt', 'valuables_full'), ('loot', None, 'empty_chest'), ('eat', None, 'eat_with_nothing'), ]),
     ('one', [
          ('tidy_full_bag', ['room:tidy'], 'a full bag of junk → slots free',
           [('floor',), ('stand',), ('give', 'dirt', 2304)], ('skill', 'tidy_inventory'), ('free_slots', 2), 25),
