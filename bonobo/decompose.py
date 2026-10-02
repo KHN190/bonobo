@@ -42,9 +42,11 @@ def _solve(inv, needs, cost, pending=None, jobs=None):
 
 register("solve", _solve)
 
-def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None):
+def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None, taken=()):
     """Steps that make `needs` held. The named solver, else each registered one in turn until one plans. `pending`:
-    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used)."""
+    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used).
+    Whatever solver plans it, a material a container here holds is taken where that is cheaper (take_stored; `taken`:
+    the withdraws already planned beside these steps)."""
     if not needs:
         return []
     names = [solver] if solver else list(ORDER)
@@ -55,7 +57,7 @@ def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None):
             last = Unplannable(f"no solver named {name!r}")
             continue
         try:
-            return fn(inv, needs, cost, pending, **({"jobs": jobs} if jobs else {}))
+            return take_stored(fn(inv, needs, cost, pending, **({"jobs": jobs} if jobs else {})), cost, taken)
         except Unplannable as e:
             last = e
     raise last or Unplannable("no solver could plan this")
@@ -386,7 +388,7 @@ def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
         then = [_action(k, t, cost, **d) for k, t, d in (THEN.get(args.get("name"), ()) if template == "milestone"
                                                          else ())
                 if not (k == "seek" and mem is not None and mem.sites(None, kinds=[t]))]    # already found
-        made = take_stored(solve_needs(inv, needs, cost, solver, pending, jobs), cost, taken)
+        made = solve_needs(inv, needs, cost, solver, pending, jobs, taken)
         return where_it_lives(taken + sourced + made + then, cost)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
