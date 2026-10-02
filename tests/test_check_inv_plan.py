@@ -69,6 +69,16 @@ class Plan(unittest.TestCase):
         ("R2", {"plan": [step("gather", "minecraft:oak_log", 80, 4)], "price": price,
                 "mem": Mem([((3, 64, 3), "minecraft:oak_log", 8)]), "dimension": "minecraft:overworld",
                 "feet": (0, 64, 0)}, True),
+        # the chest's logs already taken by the same plan: none left to take instead
+        ("R2", {"plan": [step("withdraw", "minecraft:oak_log", 40, 8, pos=[3, 64, 3]),
+                         step("gather", "minecraft:oak_log", 80, 4)], "price": price,
+                "mem": Mem([((3, 64, 3), "minecraft:oak_log", 8)]), "dimension": "minecraft:overworld",
+                "feet": (0, 64, 0)}, False),
+        # must fail: only some taken, the rest still there
+        ("R2", {"plan": [step("withdraw", "minecraft:oak_log", 40, 2, pos=[3, 64, 3]),
+                         step("gather", "minecraft:oak_log", 80, 4)], "price": price,
+                "mem": Mem([((3, 64, 3), "minecraft:oak_log", 8)]), "dimension": "minecraft:overworld",
+                "feet": (0, 64, 0)}, True),
         ("R4", {"way": (3.0, 5.0, 3.0)}, False),
         ("R4", {"way": (6.0, 5.0, 3.0)}, True),          # must fail: a dug way taken over a cheaper walk
         ("R4", {"way": (None, 5.0, None)}, True),        # must fail: a way exists, none taken
