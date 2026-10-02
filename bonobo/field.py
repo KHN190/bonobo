@@ -2,7 +2,7 @@
 
 import math
 
-from .game import COVERED_SKY
+from .game import COVERED_SKY, MELEE_INFLATE, MOB_WIDTH, PLAYER_WIDTH
 
 BUCKETS = ("open", "underground", "enclosed")
 PRIOR = 1.6
@@ -114,9 +114,9 @@ def seal_at(region, here):
             return 2
     return None
 
-ATTACK_RANGE = math.sqrt(2.04) - 0.6    # vanilla MobEntity.ATTACK_RANGE: the attack box = body box grown this, sideways only
-PLAYER_HALF = 0.3                        # half the player's width
-TALL_WIDTH = 0.6                         # an enderman's width (the one tall mob)
+ATTACK_RANGE = MELEE_INFLATE             # the attack box = body box grown this, sideways only (game.py)
+PLAYER_HALF = PLAYER_WIDTH / 2
+TALL_WIDTH = MOB_WIDTH["minecraft:enderman"]     # the one tall mob
 
 
 def reached_from(offset, mob_width=TALL_WIDTH):

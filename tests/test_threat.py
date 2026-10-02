@@ -787,8 +787,8 @@ class EvadeOnlyPostpones(unittest.TestCase):
             # 2.5 s × 3 × (1 − 0.88/4 × 1.6) = 4.86 > 5 − 1
             ("a zombie 3 off, a stone sword, 5 hp: the fight would cost it all, leave", [row("minecraft:zombie", 3, 0)],
              dict(sword="minecraft:stone_sword", hp=5), "evade"),
-            # 20/2 s × 3 × (1 − 0.88/4 × 2) = 16.78 < 19 (the target's hurt immunity: 2 hits/s)
-            ("a zombie 3 off, bare hands, full health: fight", [row("minecraft:zombie", 3, 0)], dict(sword=None), "fight"),
+            # 20 hits at 2/s (hurt immunity) = 10 s × 3 × (1 − 0.22/1.22) = 24.6 > 19: a fist loses to a zombie
+            ("a zombie 3 off, bare hands, full health: leave", [row("minecraft:zombie", 3, 0)], dict(sword=None), "evade"),
             ("a zombie 3 off, bare hands, 12 hp: 16.78 > 11, leave", [row("minecraft:zombie", 3, 0)], dict(sword=None, hp=12),
              "evade")]
 
