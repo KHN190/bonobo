@@ -187,12 +187,16 @@ def decide(facts, fail_then_again=True):
             if not ok:
                 ctx["fight_line"] = why
         if snap.night:
-            # the night's way as production asks it (needs.propose): the ground's readings, what cools, the night left
+            # the night's way as production asks it (needs.propose): the ground's readings, what cools, the night left —
+            # only for a body not yet sheltered (reflexes.Maintain.sheltered, the shelter row's own test): sheltered,
+            # the night is already spent under cover
             from bonobo.decompose import cooled_ways, night_facts, night_left_s
             from bonobo.reflexes import ground
-            _enclosed, soft, site = ground(None)
-            ctx["night_way"] = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
-                                                                   night_left_s=night_left_s(snap)), bed_too=False)[0]
+            enclosed, soft, site = ground(None)
+            if not b.reflexes.sheltered(snap, enclosed):
+                way, _s, steps = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
+                                                                     night_left_s=night_left_s(snap)), bed_too=False)
+                ctx["night_way"], ctx["night_steps"] = way, [st.key() for st in steps]
         ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
         chosen = seen.get("chosen")
         if fail_then_again and act is not None and chosen is not None:

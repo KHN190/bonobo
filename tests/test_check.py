@@ -34,7 +34,8 @@ class Oracle(unittest.TestCase):
         ("S4", of(night=True, place="enclosed"), dec(), {"step_kind": "gather"}, False),
         ("S4", of(night=True), dec(), {"step_kind": "craft"}, True),       # must fail: the sky is the cover, not the kind
         ("S4", of(night=True, place="enclosed"), dec(), {"step_kind": "craft"}, False),
-        ("S4", of(night=True), dec(layer="maintain", name="eat"), {}, False),
+        ("S4", of(night=True), dec(layer="maintain", name="eat"), {}, True),     # must fail: a row is not exempt by its name
+        ("S4", of(night=True), dec(layer="safety", name="rescue drowning"), {}, False),   # the body's layers come first
         ("S4", of(night=True), dec(name="food stock: have food×8"), {"step_kind": "hunt"}, True),
         ("S6", of(takeover=True), NOTHING, {}, False),
         ("S6", of(takeover=True), dec(), {}, False),                       # the jar refuses work while paused
@@ -50,6 +51,8 @@ class Oracle(unittest.TestCase):
         ("R3", of(night=True), dec(name="shelter: dig in"), {"night_way": "dig in", "step_kind": "shelter"}, False),
         ("R3", of(night=True), dec(layer="maintain", name="shelter"), {"night_way": "dig in"}, False),
         ("R3", of(night=True), dec(name="wait for day"), {"night_way": "dig in"}, True),
+        ("R3", of(night=True, bed="carried"), dec(layer="maintain", name="eat"), {}, True),   # must fail: no name exempt
+        ("R3", of(night=True, bed="carried"), dec(layer="safety", name="rescue drowning"), {}, False),
         ("S5", of(hp="crit"), dec(name="food stock"), {"step_kind": "hunt",
                                                         "fight_line": "health 8 under the line"}, True),
         ("S5", of(), dec(name="food stock"), {"step_kind": "hunt"}, False),     # the line holds (or no fight)
@@ -116,6 +119,24 @@ class FinishedRound(unittest.TestCase):
                         d, _got, ctx = rnd.decide(f, fail_then_again=False)
                 self.assertIsNone(d.kind)
                 self.assertEqual(oracle.D1(f, d, f, ctx) is not None, fires, d.reason)
+
+
+class NightWayOnlyUnsheltered(unittest.TestCase):
+    """R3's night way is asked as production asks it: only for a body the shelter row would move
+    (reflexes.Maintain.sheltered) — walled in or at home, the night is already spent under cover."""
+
+    def test_rows(self):
+        from check import round as rnd
+        rows = [("must fail: walled in, the night is spent here: no way asked", of(night=True, place="enclosed",
+                                                                                    pickaxe=1), False),
+                ("at home: no way asked", of(night=True, place="home", pickaxe=1), False),
+                ("in the open: the way is asked", of(night=True, place="open", pickaxe=1), True)]
+        for why, f, asked in rows:
+            with self.subTest(why):
+                _d, _got, ctx = rnd.decide(f, fail_then_again=False)
+                self.assertEqual("night_way" in ctx, asked, ctx.get("night_way"))
+                if asked:
+                    self.assertTrue(ctx["night_steps"])
 
 
 class GammaRoundTrip(unittest.TestCase):
