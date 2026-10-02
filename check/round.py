@@ -58,6 +58,17 @@ def step_failures(first):
     return out + [at, unreachable] + rest + [Interrupted("check: interrupted")]
 
 
+def pressed(st):
+    """Something reaches us or can shoot us: threat.pressure or threat.burst_damage above zero on the threat state
+    (the test threat.options makes before it offers anything but ignoring)."""
+    from bonobo import threat
+    from bonobo.beliefs import MOBS
+    here, prot, grid = tuple(st["here"]), float(st.get("protection", 0.0)), st.get("field")
+    hazards = [h for h in st.get("hazards", ()) if h[3] in MOBS]
+    return bool(hazards) and (threat.pressure(here, hazards, prot, ground=grid) > 0.0
+                              or threat.burst_damage(here, hazards, prot) > 0.0)
+
+
 def decide(facts, fail_then_again=True):
     """(Decision, alpha of the γ world, ctx): the production round's choice on the concrete world of `facts`. ctx:
     the step's kind, whether its target lies in the home, the night's cheapest way (needs.overnight), and the
@@ -124,11 +135,20 @@ def decide(facts, fail_then_again=True):
         def offer(option, worth, key, now, release, held, seen_at):
             offered.append((option, worth))
             return ("tactic", key), None, {}
-        with mock.patch.object(fight_loop, STUBBED[0].partition(".")[2], offer):
+        bids = []
+        real_bid = fight_loop.bid
+
+        def bid(state, rows, price, work_s=None, now=None, ids=()):
+            bids.append((state, rows, ids))          # what the threat layer was shown: S1 judges its pressure
+            return real_bid(state, rows, price, work_s=work_s, now=now, ids=ids)
+        with mock.patch.object(fight_loop, STUBBED[0].partition(".")[2], offer), mock.patch.object(fight_loop, "bid", bid):
             w = perception.Watcher()
             w._look(snap.state)
             got = alpha(snap, mem, world, b)       # the state judged, read before anything answers it
             w._answer_threats(snap.state)          # the threat layer's answer: TACTIC preempts the plan (K3)
+        # danger as production judges it (S1 = R5's threat): the threat model's own pressure and blast on the state the
+        # threat layer was shown (threat.options' test, not its answer: a wrong "ignore" is not taken as no danger)
+        ctx["pressed"] = any(pressed(fight_loop.threat_state(s, rows, ids=ids)) for s, rows, ids in bids)
         act = b.decide(snap, bctx)
         if offered:
             option, worth = offered[-1]

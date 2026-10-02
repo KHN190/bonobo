@@ -18,7 +18,9 @@ def _name(d):
 
 
 def S1(b, d, a, ctx):
-    danger = b["threat"] or b["hp"] == "crit"
+    """Danger preempts: a threat that reaches us or can shoot us (ctx["pressed"]: the threat model's pressure and blast
+    on the state the threat layer saw — R5's threat), or critical health."""
+    danger = (b["threat"] and ctx.get("pressed", True)) or b["hp"] == "crit"
     if danger and not b["takeover"] and d.layer not in DANGER_LAYERS:
         return f"danger ({'threat' if b['threat'] else 'critical hp'}) answered by layer {d.layer}: {d.name}"
     return None
