@@ -36,6 +36,13 @@ class Oracle(unittest.TestCase):
         ("S4", of(night=True, place="enclosed"), dec(), {"step_kind": "craft"}, False),
         ("S4", of(night=True), dec(layer="maintain", name="eat"), {}, True),     # must fail: a row is not exempt by its name
         ("S4", of(night=True), dec(layer="safety", name="rescue drowning"), {}, False),   # the body's layers come first
+        ("S4", of(night=True), dec(layer="maintain", name="shelter", token="minecraft:wooden_pickaxe"),
+         {"step_kind": "craft", "night_steps": [("craft", "minecraft:wooden_pickaxe"), ("shelter", "dig_in")]}, False),
+        ("S4", of(night=True), dec(layer="maintain", name="shelter", token="minecraft:torch"),       # must fail: not its way's
+         {"step_kind": "craft", "night_steps": [("craft", "minecraft:wooden_pickaxe")]}, True),
+        ("S4", of(night=True), dec(name="night prep: have pickaxe tier 0", token="minecraft:wooden_pickaxe"),  # must fail:
+         {"step_kind": "craft", "night_steps": [("craft", "minecraft:wooden_pickaxe")]}, True),   # the plan's, not the row's
+        ("S4", of(night=True), dec(name="shelter: dig in"), {"step_kind": "shelter"}, False),
         ("S4", of(night=True), dec(name="food stock: have food×8"), {"step_kind": "hunt"}, True),
         ("S6", of(takeover=True), NOTHING, {}, False),
         ("S6", of(takeover=True), dec(), {}, False),                       # the jar refuses work while paused
@@ -106,7 +113,8 @@ class KnownViolations(unittest.TestCase):
     the checker must report it. A row that stops firing is a blind checker or a fixed production — never edited to
     pass."""
     ROWS = [   # (invariant, facts, what the baseline does there)
-        ("S4", of(night=True, queued="stick"), "V6: night prep crafts in the open (data.NIGHT_WORK, arbiter.on_surface)"),
+        ("S4", of(night=True, queued="stick", cooled=True, pickaxe=1),
+         "V6: an ordinary task crafts in the open at night (no night way's step: data.NIGHT_WORK, arbiter.on_surface)"),
         ("S4", of(night=True, queued="stick", cooled=True), "V6: the queue's craft in the open at night"),
         ("S4", of(night=True, queued="cobblestone", pickaxe=0, cooled=True), "V6: a surface mine at night (17:49 stairwell)"),
         ("S4", of(night=True), "test_arbiter:295 NightUnderCover: wait for day in the open"),
