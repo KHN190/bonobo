@@ -305,7 +305,7 @@ def threat_state(state, rows, work_s=None, ids=()):
     """The threat model's state vector, read off a player state and the rows the watcher last saw."""
 
     st = {"here": (state["x"], state["y"], state["z"]), "hp": float(state.get("health", 20)),
-          "sword": int(state.get("sword_tier", 0)),
+          "sword": state.get("sword"),        # the sword item carried (perception.kit), None: the hand
           # a shield in the offhand is protection: the jar's reflex raises it for every predicted hit (`reflex`)
           "protection": threat.protection(state.get("armor", 0), bool(state.get("shield"))),
           "night": False, "blocks": int(state.get("blocks", 0)), "hazards": rows,

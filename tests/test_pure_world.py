@@ -624,19 +624,22 @@ class Perception(unittest.TestCase):
             perception.answered_since(0).clear()
             self.assertEqual(len(perception.STATE.answered), 3)
 
-    def test_sword_level(self):
-        rows = [  # (why, tiers, expected)
-            ("must fail: no sword: fist", [], 0),
-            ("wooden/golden (tier 0) is level 1", [0], 1),
-            ("stone", [1], 1),
-            ("iron", [2], 2),
-            ("diamond", [3], 3),
-            ("netherite capped at 3", [4], 3),
-            ("best of several", [0, 2, 1], 2),
-        ]
-        for why, tiers, want in rows:
+    def test_best_sword(self):
+        from bonobo.data import weapon_hit
+        from bonobo.knowledge import best_sword
+        from tests.world import bag, inventory, slot
+        hits = lambda i: weapon_hit(i)[0] * weapon_hit(i)[1]     # noqa: E731  (the data's own ranking)
+        rows = [  # (why, swords carried (item, damage taken), expected: the hardest-hitting usable one)
+            ("must fail: no sword: the hand (None)", [], None),
+            ("a wooden sword", [("wooden_sword", 0)], "minecraft:wooden_sword"),
+            ("several: the one the weapon tables rank first",
+             [("wooden_sword", 0), ("iron_sword", 0), ("stone_sword", 0)],
+             max(("minecraft:wooden_sword", "minecraft:iron_sword", "minecraft:stone_sword"), key=hits)),
+            ("an iron one worn out (unusable) and a stone one: the stone", [("iron_sword", 250), ("stone_sword", 3)],
+             "minecraft:stone_sword")]
+        for why, swords, want in rows:
             with self.subTest(why):
-                self.assertEqual(perception.sword_level(tiers), want)
+                self.assertEqual(best_sword(bag(inventory(*[slot(i, 1, d) for i, d in swords]))), want)
 
 
 # ---------------------------------------------------------------- planner

@@ -415,13 +415,13 @@ def options(state):
                   + (f" and a {blast_here:.0f} hp blast" if blast_here else ""),
                   leaves=press, blast_after=blast_here)]
     # fight: kill them and nothing is coming; a creeper with a sword is fought hit-and-back first (walking away only postpones it)
-    sword = int(state.get("sword", 0))
+    sword = state.get("sword")       # the sword item carried, None: the hand (data.weapon_hit prices it)
     creepers = [i for i, h in enumerate(hazards) if MOBS[h[3]].get("burst") and h[3] == "minecraft:creeper"]
     clear = float(MOBS["minecraft:creeper"]["keep_out"])
     lit = set(state.get("lit") or ())
     # armed, lit or not: hit-and-back — the jar's keepoff steps out past keep_out while it swells and strikes again
     # once it stops (a baited creeper blows up: no kill, fight_creeper_1 05:07)
-    if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
+    if creepers and sword and all(MOBS[h[3]].get("burst") is None or i in creepers
                                        for i, h in enumerate(hazards)):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
         t_c, lost_c = estimate.keepoff_cost(here, hazards[first], sword, prot)
@@ -431,7 +431,7 @@ def options(state):
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
     # bait: no sword, no timed hit — it fuses out away from us
-    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and sword < 1 else None
+    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and not sword else None
     if bait is not None:
         out.append(bait)
     # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)
@@ -628,7 +628,7 @@ def bag_loss(s):
 def price_state(**kw):
     """The survival state health and time are priced in (`hp_seconds`); unknown keys are refused."""
     s = {"night": False, "ticks_until_dusk": 6000, "hp": 20, "food": 20, "bed": False, "sheltered": False,
-         "torches": False, "sword": 0, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
+         "torches": False, "sword": None, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
          "shield": False, "bag_free": 36,
          # dark where we stand, where mobs come from — not the same as night
          "dark": False}
@@ -678,7 +678,7 @@ def night_loss(s):
     if s["bed"]:
         return 0.0 if s["sheltered"] else _R["night_bed_open"] * (1.0 - _protection(s)) * _T["death_cost_s"]
     p = _R["night_sheltered"] if s["sheltered"] else _R["night_open"]
-    if s["sword"] == 0:
+    if not s["sword"]:
         p += _R["no_sword_night"]
     if s["nights_missed"] >= 3:
         p += _R["phantom_night_death"]

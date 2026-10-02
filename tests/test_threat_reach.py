@@ -16,7 +16,7 @@ NEAR = dict(CREEPER, x=HERE[0] + 4, y=HERE[1], z=HERE[2])      # 4 off on our fl
 def options_from(near, reaches):
     rows = threat.hostile_rows(perception.read_combat(near), {}, 1.0, here=HERE, reaches=reaches)
     ids = threat.ids_by_row(perception.read_combat(near), rows)
-    st = {"here": HERE, "hp": 20, "sword": 0, "protection": 0.0, "blocks": 0, "hazards": rows, "ids": ids, "lit": set()}
+    st = {"here": HERE, "hp": 20, "sword": None, "protection": 0.0, "blocks": 0, "hazards": rows, "ids": ids, "lit": set()}
     return rows, {o.kind for o in threat.options(st)} if rows else set()
 
 

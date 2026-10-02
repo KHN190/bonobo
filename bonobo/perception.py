@@ -13,7 +13,7 @@ from .beliefs import CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
-from .knowledge import food_count, sheltered, usable
+from .knowledge import best_sword, food_count, sheltered, usable
 from .skill import HEARTBEAT
 
 WATCH_S = 0.2     # how often perception reads the world outside a fight (5 Hz)
@@ -557,10 +557,6 @@ def kit_signature(state, now):
 
     return (state.get("selectedSlot"), state.get("screen"), state.get("armor"), int(now // READ_TTL_S))
 
-def sword_level(tiers):
-    """Pure: the dps table's sword level from working sword tiers: 0 = fist, wood/gold = 1, at most 3."""
-
-    return min(3, max(1, max(tiers))) if tiers else 0
 
 def kit(signature):
     """What we are carrying, re-read only when `kit_signature` changes: this runs at 5 Hz."""
@@ -568,7 +564,7 @@ def kit(signature):
         return STATE.kit
     from .world import Inventory
     inv = Inventory()
-    got = {"sword_tier": sword_level([t for t, d, _ in inv.tools("sword") if usable(d)]),
+    got = {"sword": best_sword(inv),            # the item (knowledge.best_sword), None: the hand
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": food_count(inv),              # knowledge's one food table
             "blocks": inv.count("building"),

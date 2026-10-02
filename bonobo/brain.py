@@ -51,7 +51,7 @@ TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
-from .data import critical_hp, weapon_hit  # noqa: E402
+from .data import critical_hp  # noqa: E402
 
 
 def fight_line_holds(contract, args, state, inv):
@@ -62,9 +62,7 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    swords = [i for _t, d, i in inv.tools("sword") if _k.usable(d)]     # perception.kit's own read of the sword
-    best = max(swords, key=lambda i: weapon_hit(i)[0] * weapon_hit(i)[1], default=None)
-    mean, hit = estimate.melee_loss(kinds, best,
+    mean, hit = estimate.melee_loss(kinds, _k.best_sword(inv),           # the threat's kit reads the same sword
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):

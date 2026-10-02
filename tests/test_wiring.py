@@ -62,7 +62,7 @@ def _row(kind, x):
 class PerceptionBidsThreats(unittest.TestCase):
     """fight_loop.bid: what perception offers the body for the rows it sees (threat.options → decide)."""
 
-    STATE = {"x": 0.0, "y": 64.0, "z": 0.0, "health": 20, "armor": 15, "sword_tier": 2, "blocks": 0,
+    STATE = {"x": 0.0, "y": 64.0, "z": 0.0, "health": 20, "armor": 15, "sword": "minecraft:iron_sword", "blocks": 0,
              "food_items": 0}
     ROWS = [("must fail: nothing seen: nothing offered", [], None),
             ("a zombie 4 off, an iron sword: fight it", [_row("minecraft:zombie", 4.0)], "fight"),
