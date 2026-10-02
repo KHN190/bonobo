@@ -37,7 +37,8 @@ from .world import Inventory, Snapshot
 
 # wired from the top so lower layers never import the skill library
 hazard.SKILLS.update(find_air=lambda ctx: survive.find_air(ctx), unbury=lambda ctx: survive.unbury(ctx),
-                     cover=lambda ctx, s: needs.cover(ctx, s), eat=lambda ctx: survive.eat(ctx))
+                     cover=lambda ctx, s: needs.cover(ctx, s), eat=lambda ctx: survive.eat(ctx),
+                     dig_in=lambda ctx: survive.dig_in(ctx))
 from . import fight_loop  # noqa: E402
 fight_loop.lend("wall_in", lambda option, state: survive.pod_commands(state) if state.get("region") is not None else [],
                 region=survive._pod_region)
@@ -51,7 +52,7 @@ TRACK_FILE = paths.data("track.jsonl")
 # Step kinds a night under cover can carry on with (data.NIGHT_WORK). Everything else (a tree, an animal, a plan's wait for day) waits for morning while these are done — the night is not sat out while ore lies below.
 from .data import NIGHT_WORK  # noqa: E402
 from . import beliefs, estimate  # noqa: E402
-from .data import critical_hp, weapon_hit  # noqa: E402
+from .data import critical_hp  # noqa: E402
 
 
 def fight_line_holds(contract, args, state, inv):
@@ -62,9 +63,7 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    swords = [i for _t, d, i in inv.tools("sword") if _k.usable(d)]     # perception.kit's own read of the sword
-    best = max(swords, key=lambda i: weapon_hit(i)[0] * weapon_hit(i)[1], default=None)
-    mean, hit = estimate.melee_loss(kinds, best,
+    mean, hit = estimate.melee_loss(kinds, _k.best_sword(inv),           # the threat's kit reads the same sword
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
@@ -475,10 +474,12 @@ class Brain:
             out = []
             if arbiter.BODY.holder() is not None or api.mode() == "survival":
                 out.append(arbiter.Intent("tactic", Act("L0", "yield", lambda: time.sleep(0.5)), key="yield"))
-            k = hazard.rescue_due(snap.state)
+            unanswered = threat.THREAT_UNANSWERED       # the threat layer's "no answer": SAFETY's (hazard "threat")
+            k = hazard.rescue_due(snap.state, unanswered=unanswered)
             if k is not None and self.ready(f"rescue {k}"):
                 out.append(arbiter.Intent("safety", Act("L0", f"rescue {k}", lambda: hazard.handle(
-                    ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]))),
+                    ctx, snap.state, self.attempt, self.ready, threatened=bool(threat.threats_seen()[0]),
+                    unanswered=unanswered)),
                     key=f"rescue {k}"))
             return out
 

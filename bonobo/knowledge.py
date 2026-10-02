@@ -255,6 +255,13 @@ def usable(left):
     return left >= TOOL_USABLE
 
 
+def best_sword(inv):
+    """Pure given the bag: the usable sword that hits hardest (data.weapon_hit: damage × hits a second), its item id;
+    None: the hand. The one choice of the sword — the fight line (brain) and the threat's kit (perception) read it."""
+    swords = [i for _t, d, i in inv.tools("sword") if usable(d)]
+    return max(swords, key=lambda i: weapon_hit(i)[0] * weapon_hit(i)[1], default=None)
+
+
 def working(left):
     """Pure: does a tool with `left` uses still count as working for planning (TOOL_WORKING, a margin above usable)?"""
     return left >= TOOL_WORKING

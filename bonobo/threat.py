@@ -415,13 +415,13 @@ def options(state):
                   + (f" and a {blast_here:.0f} hp blast" if blast_here else ""),
                   leaves=press, blast_after=blast_here)]
     # fight: kill them and nothing is coming; a creeper with a sword is fought hit-and-back first (walking away only postpones it)
-    sword = int(state.get("sword", 0))
+    sword = state.get("sword")       # the sword item carried, None: the hand (data.weapon_hit prices it)
     creepers = [i for i, h in enumerate(hazards) if MOBS[h[3]].get("burst") and h[3] == "minecraft:creeper"]
     clear = float(MOBS["minecraft:creeper"]["keep_out"])
     lit = set(state.get("lit") or ())
     # armed, lit or not: hit-and-back — the jar's keepoff steps out past keep_out while it swells and strikes again
     # once it stops (a baited creeper blows up: no kill, fight_creeper_1 05:07)
-    if creepers and sword >= 1 and all(MOBS[h[3]].get("burst") is None or i in creepers
+    if creepers and sword and all(MOBS[h[3]].get("burst") is None or i in creepers
                                        for i, h in enumerate(hazards)):
         first = min(creepers, key=lambda i: math.dist(here, hazards[i][0]))
         t_c, lost_c = estimate.keepoff_cost(here, hazards[first], sword, prot)
@@ -431,7 +431,7 @@ def options(state):
                           f"kill the creeper hit-and-back in ~{t_c}s"
                           + (f", then {len(rest)} more" if rest else "")))
     # bait: no sword, no timed hit — it fuses out away from us
-    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and sword < 1 else None
+    bait = bait_option(here, hazards, ids, creepers, lit, clear, prot) if creepers and not sword else None
     if bait is not None:
         out.append(bait)
     # melee only what we can reach (ghast_fireball: swung at a ghast 6 up, hit)
@@ -532,7 +532,8 @@ FALLBACK = (("reshape", "cover", "wall_in"), ("evade",), ("fight", "fight_shield
 def fallback(opts, state):
     """Pure: the answer when nothing saves but a melee follower is closing and would hurt us — never ignore: a
     shape if one is on offer, else flight while every follower is slower than us, else the fight; the least costly
-    of the first group there is. None when nothing melee closes (ignore stands)."""
+    of the first group there is; the table spent, flight even from a follower as fast as us. None only when nothing
+    melee closes, or no answer exists at all (ignore stands)."""
     here, grid = tuple(state["here"]), state.get("field")
     melee = [h for h in state.get("hazards", ()) if h[3] in MOBS and not MOBS[h[3]].get("ranged")
              and not MOBS[h[3]].get("burst")]
@@ -545,7 +546,10 @@ def fallback(opts, state):
         group = [o for o in opts if o.kind in kinds]
         if group:
             return min(group, key=lambda o: float(o.hp) + float(o.seconds))
-    return None
+    # the table spent and a follower as fast as us: flight only buys distance, still better than standing under it
+    # (a provoked enderman, fists: no fight offered, evade skipped — ignore stood, S1)
+    flight = [o for o in opts if o.kind == "evade"]
+    return min(flight, key=lambda o: float(o.hp) + float(o.seconds)) if flight else None
 
 
 class Field:
@@ -624,7 +628,7 @@ def bag_loss(s):
 def price_state(**kw):
     """The survival state health and time are priced in (`hp_seconds`); unknown keys are refused."""
     s = {"night": False, "ticks_until_dusk": 6000, "hp": 20, "food": 20, "bed": False, "sheltered": False,
-         "torches": False, "sword": 0, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
+         "torches": False, "sword": None, "pickaxe": 0, "food_items": 0, "nights_missed": 0, "armor": 0,
          "shield": False, "bag_free": 36,
          # dark where we stand, where mobs come from — not the same as night
          "dark": False}
@@ -674,7 +678,7 @@ def night_loss(s):
     if s["bed"]:
         return 0.0 if s["sheltered"] else _R["night_bed_open"] * (1.0 - _protection(s)) * _T["death_cost_s"]
     p = _R["night_sheltered"] if s["sheltered"] else _R["night_open"]
-    if s["sword"] == 0:
+    if not s["sword"]:
         p += _R["no_sword_night"]
     if s["nights_missed"] >= 3:
         p += _R["phantom_night_death"]
@@ -746,17 +750,30 @@ THREAT_LIT: set = set()     # ids of creepers whose fuse the last reading shows 
 # seconds until the soonest hit on the body lands, as the JAR predicts it (/entities tti_ticks: every projectile and
 # melee mob stepped as the game ticks them, anaka combat.Impact), or None: no hit coming. Never re-derived here.
 THREAT_HIT_S = None
+# why the threat layer's last bid had no answer while something closing would hurt us (the table spent: unanswered),
+# or None — the fact handed to SAFETY (hazard kind "threat"), which runs its recovery
+THREAT_UNANSWERED = None
+
+
+def unanswered(field_model):
+    """Pure: why this reading leaves us under a threat with no answer — carrying on still costs health and the
+    fallback table (a shape, flight, a fight) offers nothing — or None."""
+    idle = field_model.idle.option
+    if field_model.default is not field_model.idle or (idle.leaves <= 0.0 and idle.blast_after <= 0.0):
+        return None
+    return f"no answer to the threats: {idle.why}, and no shape, flight or fight on offer"
 
 
 def _forget_threats():
     """The last life's threats (their ids, their rows, the hit it predicted) are nobody's now."""
     global THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S, THREAT_LIT
+    global THREAT_UNANSWERED
     THREAT_ROWS, THREAT_IDS, THREAT_AT, THREAT_ALIVE, THREAT_IMPACTS, THREAT_HIT_S = [], [], 0.0, set(), [], None
-    THREAT_LIT = set()
+    THREAT_LIT, THREAT_UNANSWERED = set(), None
 
 
 lifecycle.on_reset(_forget_threats, covers=("THREAT_ROWS", "THREAT_IDS", "THREAT_AT", "THREAT_ALIVE",
-                                            "THREAT_IMPACTS", "THREAT_HIT_S", "THREAT_LIT"))
+                                            "THREAT_IMPACTS", "THREAT_HIT_S", "THREAT_LIT", "THREAT_UNANSWERED"))
 
 def alive_ids(near):
     """Pure: the ids of the entities a reading lists alive (a dying one, health 0, is gone)."""

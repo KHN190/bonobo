@@ -2034,9 +2034,9 @@ class OneArbiter(unittest.TestCase):
                 ("a finished furnace job vs the queue: collect it (reflex)", [P("queue"), M("collect job")],
                  "collect job"),
                 ("nothing to do but stock up: idle", [P("idle")], "idle"),
-                ("died a minute ago: recover the items before anything else of its layer", [M("eat"),
-                                                                                         M("recover items")],
-                 "recover items"),
+                # re-judged (M8c): recover items walks off, so it comes after the shelter and the body's own rows
+                ("died a minute ago, hungry: eat before the walk back to the drops", [M("eat"), M("recover items")],
+                 "eat"),
                 ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
                                                                 P("queue")], "queue"),
                 ("must fail: nothing proposed: nothing", [], None)]
@@ -2736,15 +2736,16 @@ class Reflexes(unittest.TestCase):
             "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
             "blocked": False, "building": 0, "stuck": False, "in_pit": False}
     # (reflex, the view's changes that fire it, the changes that do not) (must fail: the third column never fires)
-    ROWS = [("recover items", {"died_recently": True}, {}),
-            ("eat", {"food": 10}, {"food": 10, "meal": None}),
+    ROWS = [("eat", {"food": 10}, {"food": 10, "meal": None}),
             ("reach land", {"swimming": True}, {}),
-            ("leave the pit", {"in_pit": True}, {}),
             ("leave the Nether", {"nether_bad": True}, {}),
             ("dig out", {"enclosed": True}, {"enclosed": True, "night": True}),
             ("sleep", {"night": True, "bed_works": True, "bed_carried": True},
              {"night": True, "bed_works": True, "overworld": False, "bed_carried": True}),
             ("shelter", {"shelter_ready": True}, {}),
+            # must fail: under the open night sky they wait (the shelter first, S4)
+            ("recover items", {"died_recently": True}, {"died_recently": True, "night": True}),
+            ("leave the pit", {"in_pit": True}, {"in_pit": True, "night": True}),
             ("collect job", {"job_ready": True}, {}),
             ("collect machine", {"machine_ready": True}, {}),
             ("empty the bag", {"used_slots": 34}, {"used_slots": 33}),
@@ -2760,9 +2761,10 @@ class Reflexes(unittest.TestCase):
                 self.assertNotIn(name, [n for _i, n in reflexes.due(dict(self.BASE, **quiet))])
 
     # (which reflexes are cooling) → what is due, when both eat and reach land fire
-    COOLING = [("none cooling: both, in table order", set(), [(1, "eat"), (2, "reach land")]),
-               ("eat cooling: skipped, reach land still due", {"eat"}, [(2, "reach land")]),
-               ("reach land cooling: eat alone", {"reach land"}, [(1, "eat")]),
+    EAT, LAND = (__import__("bonobo.reflexes", fromlist=["NAMES"]).NAMES.index(n) for n in ("eat", "reach land"))
+    COOLING = [("none cooling: both, in table order", set(), [(EAT, "eat"), (LAND, "reach land")]),
+               ("eat cooling: skipped, reach land still due", {"eat"}, [(LAND, "reach land")]),
+               ("reach land cooling: eat alone", {"reach land"}, [(EAT, "eat")]),
                ("must fail: both cooling: nothing due though both fire", {"eat", "reach land"}, [])]
 
     def test_cooling_reflexes_are_skipped(self):

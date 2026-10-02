@@ -485,7 +485,7 @@ WORSE = {                                    # left to right: better to worse
     "nights_missed": (0, 1, 3), "dark": (False, True), "night": (False, True),
 }
 DUSK = (11000, 6000, 500)                    # ticks until dusk: far off, midday, nearly dark
-DAY = dict(hp=14, food=14, food_items=3, sword=1, pickaxe=1, armor=0, shield=False, bed=False, sheltered=False,
+DAY = dict(hp=14, food=14, food_items=3, sword="minecraft:stone_sword", pickaxe=1, armor=0, shield=False, bed=False, sheltered=False,
            torches=False, bag_free=36, nights_missed=0, dark=False, night=False, ticks_until_dusk=6000)
 
 

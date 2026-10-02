@@ -75,12 +75,12 @@ class Perceived(unittest.TestCase):
     def test_the_kit_does_not_wait_on_the_ground(self):
         def boom(_state):
             raise AttributeError("a reader failed (injected)")
-        kit = {"sword_tier": 2, "armor": 7}
+        kit = {"sword": "minecraft:iron_sword", "armor": 7}
         flat = floor(R, R)
-        rows = [  # (why, ground read, kit read) → (sword tier, the field's bucket or None)
+        rows = [  # (why, ground read, kit read) → (the sword item, the field's bucket or None)
             ("both read", lambda st: perception.field_around(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)),
-             lambda st: kit, (2, "open")),
-            ("the ground raises: the kit is still merged", boom, lambda st: kit, (2, None)),
+             lambda st: kit, ("minecraft:iron_sword", "open")),
+            ("the ground raises: the kit is still merged", boom, lambda st: kit, ("minecraft:iron_sword", None)),
             ("the kit raises: the ground is still read",
              lambda st: perception.field_around(st, now=0.0, region_of=lambda lo, hi: FakeRegion(lo, hi, flat)), boom,
              (None, "open")),
@@ -93,7 +93,7 @@ class Perceived(unittest.TestCase):
                 fresh()
                 got = perception.perceived(dict(HERE), 0.0, ground_of=ground_of, kit_of=kit_of)
                 ground = got.get("field")
-                self.assertEqual((got.get("sword_tier"), ground.bucket if ground is not None else None), want)
+                self.assertEqual((got.get("sword"), ground.bucket if ground is not None else None), want)
 
 
 if __name__ == "__main__":

@@ -105,7 +105,7 @@ class Hazards(unittest.TestCase):
 class HostilesAreNotL0(unittest.TestCase):
     # every danger kind perception can name, and the family that answers it
     FAMILY = {"lava": "L0", "burning": "L0", "drowning": "L0", "suffocating": "L0", "falling": "L0",
-              "critical": "L0", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
+              "critical": "L0", "threat": "L0", "breath": "fight", "enderman": "fight", "hostiles": "fight"}
 
     def test_each_danger_has_exactly_one_family(self):
         self.assertEqual(set(hazard.KINDS) | {k for k, f in self.FAMILY.items() if f == "fight"}, set(self.FAMILY),

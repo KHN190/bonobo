@@ -281,7 +281,8 @@ Cause = Literal["error", "game", "unavailable", "nav", "stuck", "tool", "replan"
 # an interrupt source (EXCEPTIONS' second column, every key of arbiter.RESUME_OF; tests/test_types keeps them equal)
 Source = Literal[
     "layer:reflex", "layer:safety", "layer:maintain", "layer:plan", "layer:tactic",
-    "hazard:lava", "hazard:burning", "hazard:drowning", "hazard:suffocating", "hazard:critical", "hazard:falling",
+    "hazard:lava", "hazard:burning", "hazard:drowning", "hazard:suffocating", "hazard:critical", "hazard:threat",
+    "hazard:falling",
     "row:eat", "row:reach land", "row:dig out", "row:sleep", "row:shelter", "row:collect job", "row:collect machine",
     "row:path blocked", "row:unstuck", "row:recover items", "row:leave the pit", "row:empty the bag",
     "row:leave the Nether",
