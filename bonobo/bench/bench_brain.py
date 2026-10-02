@@ -3,8 +3,8 @@ FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). 
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
 FAMILIES = [
-    # food low: food before the task, cooking counted (the food source a plan picks by price)
-    ('cell', [('plenty', 'low', 'fresh', 'surface', 'none', 'room')]),
+    # food low: food before the task, cooking counted (the food source a plan picks by price); the base: no bed (must not)
+    ('cell', [('plenty', 'full', 'fresh', 'surface', 'none', 'room'), ('plenty', 'low', 'fresh', 'surface', 'none', 'room')]),
 ]
 ROWS = []
 CODE_ROWS = []
