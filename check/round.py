@@ -115,6 +115,9 @@ def decide(facts, fail_then_again=True):
             w._look(snap.state)
             got = alpha(snap, mem, world, b)       # the state judged, read before anything answers it
             w._answer_threats(snap.state)          # the threat layer's answer: TACTIC preempts the plan (K3)
+        # danger as production judges it (S1 = R5): the threat model offered an answer besides ignoring — it does only
+        # when something reaches us or can shoot us (threat.options: no pressure and no blast → ignore alone)
+        ctx["pressed"] = any(o[0] != "ignore" for o in fight_loop.LAST_LOOK.get("options", ()))
         act = b.decide(snap, bctx)
         if offered:
             option, worth = offered[-1]

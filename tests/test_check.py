@@ -19,6 +19,9 @@ class Oracle(unittest.TestCase):
     ROWS = [
         ("S1", of(threat=True), dec(layer="tactic", name="threat:evade"), {}, False),
         ("S1", of(threat=True), dec(), {}, True),                         # must fail: a threat answered by the plan
+        ("S1", of(threat=True), dec(), {"pressed": True}, True),          # must fail: a pursuer that reaches us
+        ("S1", of(threat=True, ground="hole"), dec(), {"pressed": False}, False),   # walled off in a pit: no danger
+        ("S1", of(threat=True, range="far"), dec(), {"pressed": False}, False),     # far: nothing reaches us yet
         ("S1", of(hp="crit"), dec(), {}, True),
         ("S2", of(place="home"), dec(), {"step_kind": "mine", "target_in_home": False}, False),
         ("S2", of(place="home"), dec(), {"step_kind": "mine", "target_in_home": True}, True),
