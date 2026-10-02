@@ -56,7 +56,7 @@ ROWS = [
               0.4, None, [{'goal': 'milestone', 'args': {'name': 'nether kit'}}]),
          before=[('do', 'portal_beside_player', ['$ctx'], {})],
          check=[('slice_check', ('!now', ('!all', ('!call', 'nether_kit_ready', []), ('!call', 'in_overworld', []))))],
-         detail=('&slice_detail',), budget=25, expect=[(('@', 1, 0, -1), ('@', 1, 1, 1), 'stone', 6, 6)],
+         detail=('&slice_detail',), expect=[(('@', 1, 0, -1), ('@', 1, 1, 1), 'stone', 6, 6)],
          expect_entities=[('minecraft:cow', 1)], point='C', chain=2),
     dict(name='eat_while_walking', module='skills',
          doc=('Hungry, cooked beef carried, a walk east until fed → fed on the way without an eat task, still walking '

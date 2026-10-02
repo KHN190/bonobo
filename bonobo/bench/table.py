@@ -184,12 +184,31 @@ def _slot(items, wrap):
     made = [make_word(i) for i in items]
     return made[0] if len(made) == 1 else wrap(made)
 
+def row_budget(row):
+    """A row without its own budget: production's estimate of its run × the bench's slack; a row judging a state: the limit."""
+    import math
+    from .. import nav
+    from .words.fight import fight_budget
+    from .words.ways import budget
+    run = row["run"]
+    kind = run[0] if isinstance(run, (tuple, list)) else None
+    if kind == "fight_until":
+        mobs = [k.removeprefix("minecraft:") for k in run[1]]
+        counts = {e[0]: e[1] for e in row.get("expect_entities") or ()}
+        return fight_budget(mobs, max(counts.get(f"minecraft:{m}", 1) for m in mobs))
+    if kind == "trek":
+        return budget(math.hypot(run[1], run[2]) / nav.PLAYER_SPEED)
+    if kind in ("brain_rounds", "ghast_watch"):
+        return budget(run[1])          # the run's own seconds
+    return words_scene.limit()
+
+
 def build(row, tier):
     """A table row → the runner's row dict."""
     from .runner import ROW_LIMIT_S
     setup = list(row["setup"]) if "scene" not in row else words_scene.scene(row["scene"])    # a one-off row: its commands
     out = {"doc": row["doc"], "module": row["module"], "setup": setup,
-           "run": make_word(row["run"]), "budget": row["budget"], "tier": tier}
+           "run": make_word(row["run"]), "budget": row.get("budget") or row_budget(row), "tier": tier}
     if "why" in row and not callable(row["check"]):
         out["check"] = resolve("_named_all")([(make_word(c), w) for c, w in zip(row["check"], row["why"])])
     else:

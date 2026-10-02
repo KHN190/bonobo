@@ -26,7 +26,7 @@ ROWS = [
          before=[('scene_now', [('stand', 0, 30)])],
          check=[('alive', KEPT_HP),
                 ('count', 'minecraft:water_bucket', '>=', 1)],
-         budget=15, stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)],
+stochastic=False, expect=[(('@', -6, -1, -6), ('@', 6, -1, 6), 'stone', 169, 169)],
          mod=['nets', 'use'], point='B'),
     dict(name='slice_start_tools', module='brain',
          doc=('Slice: the whole cerebellum, a crafting table beside it, planks, sticks and 3 cobblestone carried, a '
@@ -37,7 +37,7 @@ ROWS = [
                 ('give', 'cobblestone', 3)],
          run=('slice', ('&has_stone_pickaxe',), 0.5, None,
               [{'goal': 'have', 'args': {'needs': [['tool', 'pickaxe', 1]]}}]),
-         check=[('slice_check', ('&has_stone_pickaxe',))], detail=('&slice_detail',), budget=25,
+         check=[('slice_check', ('&has_stone_pickaxe',))], detail=('&slice_detail',),
          expect=[(('@', 1, 0, 1), ('@', 1, 0, 1), 'crafting_table', 1, 1)], point='C', chain=0),
     dict(name='lava_edge_walk', module='nav',
          doc='A 1-wide stone path between two lava pools to a target 12 blocks on → there, not burnt',
@@ -55,7 +55,7 @@ ROWS = [
                  ('scene_now', [('fill', ('@', -1, 0, -1), ('@', 1, 1, 1), 'stone'),
                                 ('fill', ('@', 0, 0, 0), ('@', 0, 3, 0), 'sand')]),
                  ('&buried_first',)],
-         check=[('call', 'head_clear', []), ('alive', KEPT_HP)], budget=20, point='B', skills=['unbury'],
+         check=[('call', 'head_clear', []), ('alive', KEPT_HP)], point='B', skills=['unbury'],
          tags={'base': 'l0', 'hazard': 'suffocating'}),
     dict(name='drowning_in_a_pit', module='brain',
          doc=('Deep in a flooded shaft with little air → L0 surfaces (find_air / surface) before anything else: on the '
@@ -65,6 +65,6 @@ ROWS = [
                 ('fill', ('@', -1, 4, -1), ('@', 1, 4, 1), 'water'), ('fill', ('@', -4, 5, -4), ('@', 4, 7, 4), 'air'),
                 ('stand', 0, -3)],
          run=('brain_rounds', 28, ('!now_api', ('!surfaced', 4, 0))), before=[('start', 'drowning_in_a_pit'), ('&drowning_first',)],
-         check=[('alive', KEPT_HP), ('surfaced', 4)], budget=25, point='B', skills=['reach:air'],
+         check=[('alive', KEPT_HP), ('surfaced', 4)], point='B', skills=['reach:air'],
          tags={'base': 'l0', 'hazard': 'drowning'}),
 ]

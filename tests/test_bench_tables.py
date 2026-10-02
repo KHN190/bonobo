@@ -217,7 +217,8 @@ class TierRules(unittest.TestCase):
                 if tier != "acceptance":
                     with self.subTest(name):
                         self.assertLessEqual(table.build(row, tier)["budget"], runner.ROW_LIMIT_S)
-                        self.assertLessEqual(row["budget"], runner.ROW_LIMIT_S)
+                        if "budget" in row:
+                            self.assertLessEqual(row["budget"], runner.ROW_LIMIT_S)
         # must fail: a row over the limit is cut to it by the interpreter, not kept
         over = dict(table.rows("core")["iron_ingots"], budget=runner.ROW_LIMIT_S + 5)
         self.assertEqual(table.build(over, "core")["budget"], runner.ROW_LIMIT_S)

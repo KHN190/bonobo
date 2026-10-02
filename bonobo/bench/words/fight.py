@@ -1120,6 +1120,12 @@ def behaviour_row(name, behaviour):
 SPOTS = {"creeper": [(7, 0, 0)], "skeleton": [(7, 0, 7)], None: [(4, 0, 0), (-3, 0, 3), (1, 0, -4)]}
 
 
+def fight_budget(mobs, n):
+    """A fight row's budget: its estimate × the bench's slack, the hold that judges it resolved, within the limit."""
+    from ..bench_bases import TARGET_SLACK
+    return min(limit(), math.ceil(fight_est_s(mobs, n) * TARGET_SLACK) + RESOLVE_HOLD_S + 2)
+
+
 def fight_est_s(mobs, n, sword="minecraft:iron_sword"):
     """Pure: the production estimate of the fight (estimate.fight_cost: walks and kills, nearest first) of `n` of each
     of `mobs` placed at SPOTS, with an iron sword."""
@@ -1136,7 +1142,7 @@ def fight_cell_row(name, mob, n, tier, secs, hp, clear, held=None):
     mobs = mob.split("+")
     kinds = [f"minecraft:{m}" for m in mobs]
     if secs is None:
-        secs = min(limit(), math.ceil(fight_est_s(mobs, n) * TARGET_SLACK) + RESOLVE_HOLD_S + 2)
+        secs = fight_budget(mobs, n)
     nbt = "{PersistenceRequired:1b,Health:10f}" if mob == "blaze" and n > 1 else "{PersistenceRequired:1b}"
     verdict = {True: "all dead", False: "left alone (neutral)",
                "resolved": f"dead, or kept off and not following for {RESOLVE_HOLD_S:.0f} s"}[clear]
@@ -1389,7 +1395,7 @@ def deflect_row(name):
         ("stand",), ("cmd", "clear @p"), ("cmd", "effect clear @p"), ("give", "diamond_sword")]
     return _row(name, f"{SHOTS} fireballs down a 1-wide corridor from {SHOT_DIST} out, the next while the last "
                       "resolves, a sword: each punched back by the reflex, unhurt", "fight_loop",
-                scene, ("deflect_watch",), [("deflected",)], budget=25, before=[("&deflect_volley",)], combat=True,
+                scene, ("deflect_watch",), [("deflected",)], before=[("&deflect_volley",)], combat=True,
                 tier_fixed="exception", tags={"base": "deflect"})
 
 

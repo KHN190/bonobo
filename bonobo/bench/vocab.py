@@ -651,7 +651,7 @@ def place_row(name, item, asked, want, tier):
     return _row(name, f"Place {item.split(':')[1]} asking facing={asked} (the jar turns the body by the block's own "
                       f"rule) → the block reports facing={want}", "building",
                 [("floor",), ("stand",), ("give", item.split(":")[1], 2)], ("place_facing", item, p, asked),
-                [("placed_facing", p, want, item)], budget=20, skills=[], tier_fixed=tier, tags={"base": "place"},
+                [("placed_facing", p, want, item)], skills=[], tier_fixed=tier, tags={"base": "place"},
                 variant=(item, asked))
 
 def lava_strip_row(name, width, budget, point="A"):
