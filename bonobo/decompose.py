@@ -44,9 +44,8 @@ register("solve", _solve)
 
 def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None, taken=()):
     """Steps that make `needs` held. The named solver, else each registered one in turn until one plans. `pending`:
-    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used).
-    Whatever solver plans it, a material a container here holds is taken where that is cheaper (take_stored; `taken`:
-    the withdraws already planned beside these steps)."""
+    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used);
+    `taken`: withdraws already planned."""
     if not needs:
         return []
     names = [solver] if solver else list(ORDER)
@@ -68,15 +67,11 @@ def container_p(record, ids, age_s, rate):
     held = any(record["items"].get(i, 0) > 0 for i in ids)
     return math.exp(-rate * age_s) if held else 1.0 - math.exp(-rate * age_s)
 
-MATERIAL_STEPS = ("gather", "mine", "hunt")      # steps that make a material a container may already hold
+MATERIAL_STEPS = ("gather", "mine", "hunt")
 
 
 def take_stored(steps, cost, already=()):
-    """M3/B1: a material a container here holds is taken rather than made at every level of the plan, not only for
-    the goal's own needs (from_containers): each gather, mine or hunt step whose output a remembered container holds
-    gives way — wholly or in part — to withdrawing it where the withdraw (its walk and take, priced by the cost model,
-    over the chance the container still holds it: container_p) costs less than making that many (the step's own
-    price per unit). `already`: withdraw steps the plan has, whose items are no longer there to take."""
+    """Material steps replaced, wholly or in part, by withdrawing from a known container where cheaper."""
     import copy
     mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
     if mem is None or snap is None:
@@ -438,8 +433,7 @@ def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
 def night_left_s(snap):
-    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / TICKS_PER_S at night (data.is_night: the Overworld's
-    only), else None (a whole night before dusk; none at all in the Nether or the End)."""
+    """Seconds of night still ahead, or None when it is not night."""
     t = int(snap.time) % DAY_TICKS
     return (NIGHT_END - t) / TICKS_PER_S if is_night(t, getattr(snap, "dimension", "minecraft:overworld")) else None
 

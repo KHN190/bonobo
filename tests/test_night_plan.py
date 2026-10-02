@@ -127,7 +127,7 @@ class TakeBed(unittest.TestCase):
 
 
 class NightLeft(unittest.TestCase):
-    """decompose.night_left_s reads the one night predicate (data.is_night): the Nether and the End have none."""
+    """night_left_s: no night outside the Overworld."""
 
     ROWS = [("the Overworld at midnight: the rest of the night", "minecraft:overworld", 18000, (23400 - 18000) / 20),
             ("the Overworld by day: none ahead yet", "minecraft:overworld", 6000, None),

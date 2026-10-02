@@ -276,12 +276,10 @@ class Planner:
             return missing, "food"
         return missing, self.cheapest_food(missing, depth)
 
-    FOODS = tuple(COOKABLE_FOOD) + ("minecraft:bread",)     # what a food need is made as: meat cooked, or bread
+    FOODS = tuple(COOKABLE_FOOD) + ("minecraft:bread",)
 
     def cheapest_food(self, missing, depth):
-        """The food `missing` is made as, by price (M3/B2): each of FOODS planned from here on a probe of this plan,
-        the one whose steps cost least (Σ est by the cost model); Unplannable, with each food's reason, when none can
-        be planned."""
+        """The food whose probe plan costs least."""
         import copy
         priced, why = [], []
         for food in self.FOODS:

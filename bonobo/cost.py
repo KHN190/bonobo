@@ -178,9 +178,7 @@ class Cost:
         return self.work_ticks(step) + self._walk(step)
 
     def work_ticks(self, step):
-        """Ticks of the step's own work, without the walk to it: measured when there is enough of it, else the prior
-        less what the carried tools save. The column solver prices a column per unit by this (the walks are its seek
-        columns); a planned step's price is `estimate`."""
+        """Ticks of the step's own work, without the walk."""
         measured = self.measured(step)
         return measured if measured is not None else max(0, self._prior_work(step) - self._sped_up(step))
 
@@ -205,8 +203,6 @@ class Cost:
         return breaks, kills
 
     def _prior_work(self, step):
-        """The step's work before anything is measured: a seek is the search (to where one is, over the chance it is
-        found: seek_s / find_p), a wait for day the night left on the clock, the rest the PRIOR_TICKS table."""
         if step.kind == "seek":
             kinds = list(step.detail.get("kinds") or [step.token])
             return round(self.seek_s(kinds) / max(MIN_FIND_P, self.find_p(kinds)) * TICKS_PER_S)
@@ -273,7 +269,7 @@ class Cost:
         """Seconds a whole plan takes: Σ Step.est."""
         return sum(s.est for s in steps) / TICKS_PER_S
 
-    # -- what the column solver asks (actions.table), in seconds: its columns' work is `work_ticks`
+    # -- what the column solver asks (actions.table), in seconds
     def where(self, kinds):
         """The position of the nearest known one, or None: what "on the way" is judged by."""
         hit = self._nearest(kinds)

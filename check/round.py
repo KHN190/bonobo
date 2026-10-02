@@ -208,8 +208,6 @@ def decide(facts, fail_then_again=True):
             for err in step_failures(failure):
                 b.failed(act.name, err)
                 # an interruption (brain.outcome_of: resumed, never counted) cools nothing: only a failure must
-                # ... and the act itself not cooled: an intent whose key stays ready offers another act next round when
-                # this one's own key cools (brain.need_act asks self.ready(name): the raise of a fight line, M1b)
                 reselected = reselected or (brain.outcome_of(err)[0] == "failed" and b.ready(chosen.key)
                                             and b.ready(act.name))
             ctx["reselected"] = reselected
@@ -224,8 +222,7 @@ def plan_ctx(b, act, snap, mem, world):
     held = b.held.get(task["id"]) if task is not None else None
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache)
     for st in held["steps"] if held is not None else ():
-        cost.estimate(st)          # read now, while the stub is the transport: the oracle prices after the round
-        #                            ends, when a world read (/entities, /find) would reach no world (C13)
+        cost.estimate(st)          # warm the cache while the stub answers
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,

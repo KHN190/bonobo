@@ -1,5 +1,4 @@
-"""check/dims: each dimension's declared effects (step) on a holding row and a must-fail row. Their alpha/gamma
-round trip is test_check.GammaRoundTrip (every value of every fact, the dimensions' included)."""
+"""check/dims step effects."""
 import unittest
 
 from check.dims import dusk, task

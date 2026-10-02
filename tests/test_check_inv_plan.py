@@ -1,5 +1,4 @@
-"""check/inv/plan.py: each plan invariant on a holding row and a must-fail row, over hand-made ctx (the round fills
-the same keys from production: check/round.plan_ctx)."""
+"""check/inv/plan.py oracles over hand-made ctx."""
 import unittest
 
 from bonobo.planner import Step
@@ -19,7 +18,7 @@ def step(kind, token, est, count=1, **detail):
 
 
 class Bag:
-    """A bag with tools: (kind, tier, durability) rows (world.Inventory's tools())."""
+    """A bag with tools: (kind, tier, durability)."""
 
     def __init__(self, tools=()):
         self.rows = list(tools)
@@ -100,9 +99,7 @@ class Plan(unittest.TestCase):
 
 
 class RoundPrices(unittest.TestCase):
-    """The round's price of a held step (ctx["price"]) is asked after the round, when the stub no longer answers world
-    reads: it must still be the price the plan was made at (C13: a hunt priced after the round lost the mob's
-    distance and read the unknown walk)."""
+    """C13: a held step's price read after the round equals its est."""
 
     def test_a_hunt_priced_after_the_round(self):
         import contextlib

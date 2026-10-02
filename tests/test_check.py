@@ -86,8 +86,7 @@ class Oracle(unittest.TestCase):
 
 
 class RoundReselection(unittest.TestCase):
-    """D5 on the production round: a failed act whose own key cools is not offered again, even under an intent key that
-    stays ready (the fight line's kit, M1b: brain.need_act asks self.ready(name))."""
+    """D5: a failed act whose own key cools is not reselected."""
 
     def test_rows(self):
         import contextlib
@@ -103,8 +102,7 @@ class RoundReselection(unittest.TestCase):
 
 class NightIsTheOverworlds(unittest.TestCase):
     def test_no_night_fact_off_the_overworld(self):
-        """The Nether and the End have no night (data.is_night): a state asking one reads as day (must fail: 277
-        round-trip mismatches when night was free of the dimension)."""
+        """No night outside the Overworld."""
         self.assertFalse(of(dimension="minecraft:the_nether", night=True)["night"])
         self.assertTrue(of(night=True)["night"])
 

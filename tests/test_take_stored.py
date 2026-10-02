@@ -1,6 +1,4 @@
-"""M3: what the world already holds is a source at every level of a plan, by price — a container's logs or raw iron
-taken instead of gathered or mined (decompose.take_stored, B1), and a food need made as the food that costs least
-from here, not the first on a list (planner.cheapest_food, B2)."""
+"""M3: containers as sources at every level (B1); food by price (B2)."""
 import os
 import tempfile
 import unittest
@@ -12,7 +10,7 @@ from tests.world import cost, inventory, snapshot, state
 
 
 def memory_with(*chests):
-    """A memory whose containers hold `chests`: (pos, {item: count})."""
+    """A memory with these containers."""
     mem = Memory(os.path.join(tempfile.mkdtemp(prefix="stored"), "notes.json"))
     for pos, items in chests:
         mem.note_container(pos, "minecraft:overworld", [{"id": i, "count": n, "owner": "container"} for i, n in items.items()])
@@ -62,7 +60,7 @@ class CheapestFood(unittest.TestCase):
         return [(s.kind, s.token) for s in p.merged()]
 
     def test_wheat_carried_makes_bread(self):
-        """Must fail on the first-on-the-list rule: wheat in the bag is a table and a craft away from bread; no hunt."""
+        """Must fail on the first-on-the-list rule."""
         got = self.food_of(**{"minecraft:wheat": 3})
         self.assertEqual(got[-1], ("craft", "minecraft:bread"), got)
         self.assertFalse(any(k == "hunt" for k, _t in got), got)

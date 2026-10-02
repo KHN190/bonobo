@@ -1,6 +1,4 @@
-"""S5 as a precondition (M1b): an optional fight under the fight line names the kit that would put it inside —
-brain.line_raisers — and the queue plans that kit instead of dropping the task (brain.raise_line). Each row: a body,
-a bag, the mob; what the raisers are, each checked against the line it claims to meet."""
+"""M1b: kit that clears the fight line (brain.line_raisers)."""
 import unittest
 
 from bonobo import beliefs, brain, estimate
@@ -17,7 +15,7 @@ def body(health=20.0, armor=0, items=(), **worn):
 
 
 def inside(kinds, snap, rows):
-    """The line with `rows` added to the bag and worn: an independent check of what a raiser claims."""
+    """Independent check of the line with `rows` added."""
     from bonobo.data import ARMOR_POINTS, TOOL_MATERIAL_FOR_TIER
     tiers = [r[2] for r in rows if r[0] == "tool"]
     sword = f"minecraft:{TOOL_MATERIAL_FOR_TIER[max(tiers)]}_sword" if tiers else \
