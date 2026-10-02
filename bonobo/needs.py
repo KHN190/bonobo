@@ -50,7 +50,10 @@ def cover(ctx, state):
     from .planner import Step
     from .world import Snapshot
     from . import skill as skillkit
-    cost = Cost(Snapshot.from_readings(state, Inventory()), getattr(ctx, "mem", None))
+    # priced as the brain prices (brain.py's Cost: memory, the targets banned here, the movement policy): a banned
+    # entity or block is no shelter's way (W3)
+    cost = Cost(Snapshot.from_readings(state, Inventory()), getattr(ctx, "mem", None), getattr(ctx, "blacklist", None),
+                policy=getattr(ctx, "policy", None))
     ways = []
     for c in skillkit.REGISTRY.values():
         for effect in c.provides:
