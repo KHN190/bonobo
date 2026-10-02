@@ -34,7 +34,15 @@ class Oracle(unittest.TestCase):
         ("S4", of(night=True, place="enclosed"), dec(), {"step_kind": "gather"}, False),
         ("S4", of(night=True), dec(), {"step_kind": "craft"}, True),       # must fail: the sky is the cover, not the kind
         ("S4", of(night=True, place="enclosed"), dec(), {"step_kind": "craft"}, False),
-        ("S4", of(night=True), dec(layer="maintain", name="eat"), {}, False),
+        ("S4", of(night=True), dec(layer="maintain", name="eat"), {}, True),     # must fail: a row is not exempt by its name
+        ("S4", of(night=True), dec(layer="safety", name="rescue drowning"), {}, False),   # the body's layers come first
+        ("S4", of(night=True), dec(layer="maintain", name="shelter", token="minecraft:wooden_pickaxe"),
+         {"step_kind": "craft", "night_steps": [("craft", "minecraft:wooden_pickaxe"), ("shelter", "dig_in")]}, False),
+        ("S4", of(night=True), dec(layer="maintain", name="shelter", token="minecraft:torch"),       # must fail: not its way's
+         {"step_kind": "craft", "night_steps": [("craft", "minecraft:wooden_pickaxe")]}, True),
+        ("S4", of(night=True), dec(name="night prep: have pickaxe tier 0", token="minecraft:wooden_pickaxe"),  # must fail:
+         {"step_kind": "craft", "night_steps": [("craft", "minecraft:wooden_pickaxe")]}, True),   # the plan's, not the row's
+        ("S4", of(night=True), dec(name="shelter: dig in"), {"step_kind": "shelter"}, False),
         ("S4", of(night=True), dec(name="food stock: have food×8"), {"step_kind": "hunt"}, True),
         ("S6", of(takeover=True), NOTHING, {}, False),
         ("S6", of(takeover=True), dec(), {}, False),                       # the jar refuses work while paused
@@ -50,6 +58,8 @@ class Oracle(unittest.TestCase):
         ("R3", of(night=True), dec(name="shelter: dig in"), {"night_way": "dig in", "step_kind": "shelter"}, False),
         ("R3", of(night=True), dec(layer="maintain", name="shelter"), {"night_way": "dig in"}, False),
         ("R3", of(night=True), dec(name="wait for day"), {"night_way": "dig in"}, True),
+        ("R3", of(night=True, bed="carried"), dec(layer="maintain", name="eat"), {}, True),   # must fail: no name exempt
+        ("R3", of(night=True, bed="carried"), dec(layer="safety", name="rescue drowning"), {}, False),
         ("S5", of(hp="crit"), dec(name="food stock"), {"step_kind": "hunt",
                                                         "fight_line": "health 8 under the line"}, True),
         ("S5", of(), dec(name="food stock"), {"step_kind": "hunt"}, False),     # the line holds (or no fight)
@@ -75,11 +85,36 @@ class Oracle(unittest.TestCase):
         self.assertNotIn("S4", got)                                         # must fail: a judged one said unchecked
 
 
+class RoundReselection(unittest.TestCase):
+    """D5 on the production round: a failed act whose own key cools is not offered again, even under an intent key that
+    stays ready (the fight line's kit, M1b: brain.need_act asks self.ready(name))."""
+
+    def test_rows(self):
+        import contextlib
+        import io
+        from check import round as rnd
+        rows = [("the fight line's kit fails: its key cools, the task's stays", of(quarry="enderman", kit="sword"), False)]
+        for name, f, want in rows:
+            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()):
+                d, _got, ctx = rnd.decide(f)
+                self.assertTrue((d.name or "").startswith("fight line"), d.name)
+                self.assertEqual(ctx["reselected"], want)            # must fail when only the intent key is asked
+
+
+class NightIsTheOverworlds(unittest.TestCase):
+    def test_no_night_fact_off_the_overworld(self):
+        """The Nether and the End have no night (data.is_night): a state asking one reads as day (must fail: 277
+        round-trip mismatches when night was free of the dimension)."""
+        self.assertFalse(of(dimension="minecraft:the_nether", night=True)["night"])
+        self.assertTrue(of(night=True)["night"])
+
 class KnownViolations(unittest.TestCase):
     """The baseline's known breaches (docs/refactor.md V list, scratchpad audits), each one on the production round:
     the checker must report it. A row that stops firing is a blind checker or a fixed production — never edited to
     pass."""
     ROWS = [   # (invariant, facts, what the baseline does there)
+        ("S4", of(night=True, queued="stick", cooled=True, pickaxe=1),
+         "V6: an ordinary task crafts in the open at night (no night way's step: data.NIGHT_WORK, arbiter.on_surface)"),
         ("S4", of(night=True, queued="stick", cooled=True), "V6: the queue's craft in the open at night"),
         ("S4", of(night=True, queued="cobblestone", pickaxe=0, cooled=True), "V6: a surface mine at night (17:49 stairwell)"),
     ]
@@ -114,6 +149,24 @@ class FinishedRound(unittest.TestCase):
                         d, _got, ctx = rnd.decide(f, fail_then_again=False)
                 self.assertIsNone(d.kind)
                 self.assertEqual(oracle.D1(f, d, f, ctx) is not None, fires, d.reason)
+
+
+class NightWayOnlyUnsheltered(unittest.TestCase):
+    """R3's night way is asked as production asks it: only for a body the shelter row would move
+    (reflexes.Maintain.sheltered) — walled in or at home, the night is already spent under cover."""
+
+    def test_rows(self):
+        from check import round as rnd
+        rows = [("must fail: walled in, the night is spent here: no way asked", of(night=True, place="enclosed",
+                                                                                    pickaxe=1), False),
+                ("at home: no way asked", of(night=True, place="home", pickaxe=1), False),
+                ("in the open: the way is asked", of(night=True, place="open", pickaxe=1), True)]
+        for why, f, asked in rows:
+            with self.subTest(why):
+                _d, _got, ctx = rnd.decide(f, fail_then_again=False)
+                self.assertEqual("night_way" in ctx, asked, ctx.get("night_way"))
+                if asked:
+                    self.assertTrue(ctx["night_steps"])
 
 
 class GammaRoundTrip(unittest.TestCase):

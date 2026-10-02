@@ -126,5 +126,22 @@ class TakeBed(unittest.TestCase):
                 self.assertEqual(len(taken), 1, "must fail: the bed left behind")
 
 
+class NightLeft(unittest.TestCase):
+    """decompose.night_left_s reads the one night predicate (data.is_night): the Nether and the End have none."""
+
+    ROWS = [("the Overworld at midnight: the rest of the night", "minecraft:overworld", 18000, (23400 - 18000) / 20),
+            ("the Overworld by day: none ahead yet", "minecraft:overworld", 6000, None),
+            # must fail on the clock-only reading: the Nether reports the Overworld's midnight, and has no night
+            ("the Nether at the Overworld's midnight: no night", "minecraft:the_nether", 18000, None),
+            ("the End likewise", "minecraft:the_end", 18000, None)]
+
+    def test_rows(self):
+        from types import SimpleNamespace
+        from bonobo import decompose
+        for name, dim, t, want in self.ROWS:
+            with self.subTest(name):
+                self.assertEqual(decompose.night_left_s(SimpleNamespace(time=t, dimension=dim)), want)
+
+
 if __name__ == "__main__":
     unittest.main()

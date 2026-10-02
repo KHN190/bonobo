@@ -197,12 +197,16 @@ def decide(facts, fail_then_again=True):
             if not ok:
                 ctx["fight_line"] = why
         if snap.night:
-            # the night's way as production asks it (needs.propose): the ground's readings, what cools, the night left
+            # the night's way as production asks it (needs.propose): the ground's readings, what cools, the night left —
+            # only for a body not yet sheltered (reflexes.Maintain.sheltered, the shelter row's own test): sheltered,
+            # the night is already spent under cover
             from bonobo.decompose import cooled_ways, night_facts, night_left_s
             from bonobo.reflexes import ground
-            _enclosed, soft, site = ground(None)
-            ctx["night_way"] = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
-                                                                   night_left_s=night_left_s(snap)), bed_too=False)[0]
+            enclosed, soft, site = ground(None)
+            if not b.reflexes.sheltered(snap, enclosed):
+                way, _s, steps = b.needs.overnight(snap, night_facts(soft(), cooled_ways(b.ready), site(),
+                                                                     night_left_s=night_left_s(snap)), bed_too=False)
+                ctx["night_way"], ctx["night_steps"] = way, [st.key() for st in steps]
         ctx.update(plan_ctx(b, act, snap, mem, world), switches=weighed, holds=held_log)
         chosen = seen.get("chosen")
         if fail_then_again and act is not None and chosen is not None:
@@ -214,7 +218,10 @@ def decide(facts, fail_then_again=True):
             for err in step_failures(failure):
                 b.failed(act.name, err)
                 # an interruption (brain.outcome_of: resumed, never counted) cools nothing: only a failure must
-                reselected = reselected or (brain.outcome_of(err)[0] == "failed" and b.ready(chosen.key))
+                # ... and the act itself not cooled: an intent whose key stays ready offers another act next round when
+                # this one's own key cools (brain.need_act asks self.ready(name): the raise of a fight line, M1b)
+                reselected = reselected or (brain.outcome_of(err)[0] == "failed" and b.ready(chosen.key)
+                                            and b.ready(act.name))
             ctx["reselected"] = reselected
     return d, got, ctx
 
@@ -226,6 +233,9 @@ def plan_ctx(b, act, snap, mem, world):
     task = getattr(act, "task", None)
     held = b.held.get(task["id"]) if task is not None else None
     cost = Cost(snap, mem, b.blacklist, policy=b.policy_cache)
+    for st in held["steps"] if held is not None else ():
+        cost.estimate(st)          # read now, while the stub is the transport: the oracle prices after the round
+        #                            ends, when a world read (/entities, /find) would reach no world (C13)
     out = {"plan": list(held["steps"]) if held is not None else None, "price": cost.estimate, "inv": snap.inv,
            "mem": mem, "dimension": snap.dimension, "feet": snap.feet,
            "task_goal": task.get("goal") and {"goal": task["goal"], "args": task.get("args", {})} if task else None,

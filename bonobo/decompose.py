@@ -6,7 +6,7 @@ import time
 from . import beliefs, blueprints, goals, knowledge, actions as act, skill
 from .api import McError
 from .cost import TICKS_PER_S
-from .data import DAY_END, DAY_TICKS, NIGHT_END, POD_BLOCKS, mid
+from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
 from .planner import Planner, Step, Unplannable
 from .solve import Unsolvable, solve
 from .knowledge import members
@@ -42,9 +42,11 @@ def _solve(inv, needs, cost, pending=None, jobs=None):
 
 register("solve", _solve)
 
-def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None):
+def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None, taken=()):
     """Steps that make `needs` held. The named solver, else each registered one in turn until one plans. `pending`:
-    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used)."""
+    counted as held (planned sources' and jobs' outputs); `jobs`: of it, what running jobs make (awaited when used).
+    Whatever solver plans it, a material a container here holds is taken where that is cheaper (take_stored; `taken`:
+    the withdraws already planned beside these steps)."""
     if not needs:
         return []
     names = [solver] if solver else list(ORDER)
@@ -55,7 +57,7 @@ def solve_needs(inv, needs, cost, solver=None, pending=None, jobs=None):
             last = Unplannable(f"no solver named {name!r}")
             continue
         try:
-            return fn(inv, needs, cost, pending, **({"jobs": jobs} if jobs else {}))
+            return take_stored(fn(inv, needs, cost, pending, **({"jobs": jobs} if jobs else {})), cost, taken)
         except Unplannable as e:
             last = e
     raise last or Unplannable("no solver could plan this")
@@ -65,6 +67,54 @@ def container_p(record, ids, age_s, rate):
     over the record's age; not held then, the chance it changed since (an unopened one: p_unknown)."""
     held = any(record["items"].get(i, 0) > 0 for i in ids)
     return math.exp(-rate * age_s) if held else 1.0 - math.exp(-rate * age_s)
+
+MATERIAL_STEPS = ("gather", "mine", "hunt")      # steps that make a material a container may already hold
+
+
+def take_stored(steps, cost, already=()):
+    """M3/B1: a material a container here holds is taken rather than made at every level of the plan, not only for
+    the goal's own needs (from_containers): each gather, mine or hunt step whose output a remembered container holds
+    gives way — wholly or in part — to withdrawing it where the withdraw (its walk and take, priced by the cost model,
+    over the chance the container still holds it: container_p) costs less than making that many (the step's own
+    price per unit). `already`: withdraw steps the plan has, whose items are no longer there to take."""
+    import copy
+    mem, snap = getattr(cost, "mem", None), getattr(cost, "snap", None)
+    if mem is None or snap is None:
+        return steps
+    taken = {}
+    for w in already:
+        if w.kind == "withdraw":
+            key = (tuple(w.detail.get("pos") or ()), mid(w.token))
+            taken[key] = taken.get(key, 0) + int(w.count)
+    rate, now, out = mem.container_change_rate(), time.time(), []
+    for st in steps:
+        stored = mem.stored(st.token, snap.dimension) if st.kind in MATERIAL_STEPS and st.count > 0 else []
+        left, per = int(st.count), (st.est / st.count if st.count else 0)
+        for pos, item, have in sorted(stored, key=lambda r: math.dist(r[0], snap.feet)):
+            free = have - taken.get((tuple(pos), mid(item)), 0)
+            if left <= 0 or free <= 0:
+                continue
+            take = _action("withdraw", item, cost, pos=list(pos))
+            take.count = min(left, free)
+            rec = mem.container_record(pos)
+            p = container_p(rec, set(members(st.token)), now - rec.get("at", now), rate) if rec else 1.0
+            if p > 0 and take.est / p < per * take.count:
+                out.append(take)
+                taken[(tuple(pos), mid(item))] = taken.get((tuple(pos), mid(item)), 0) + take.count
+                left -= take.count
+        if left == st.count:
+            out.append(st)
+        elif left > 0:
+            rest = copy.deepcopy(st)
+            scale = left / st.count
+            rest.count = left
+            for key in ("breaks", "kills"):
+                if key in rest.detail:
+                    rest.detail[key] = max(1, math.ceil(rest.detail[key] * scale))
+            rest.est = cost.estimate(rest)
+            out.append(rest)
+    return out
+
 
 def p_unknown(k, n):
     """Pure: the chance an unopened container holds the item, from what the opened ones held: k of n (the rule of
@@ -338,7 +388,8 @@ def _decompose(inv, goal, cost, solver, pending) -> list[Step]:
         then = [_action(k, t, cost, **d) for k, t, d in (THEN.get(args.get("name"), ()) if template == "milestone"
                                                          else ())
                 if not (k == "seek" and mem is not None and mem.sites(None, kinds=[t]))]    # already found
-        return where_it_lives(taken + sourced + solve_needs(inv, needs, cost, solver, pending, jobs) + then, cost)
+        made = solve_needs(inv, needs, cost, solver, pending, jobs, taken)
+        return where_it_lives(taken + sourced + made + then, cost)
     if template == "goto":
         return [_action("goto", "pos", cost, pos=list(args["pos"]), range=float(args.get("range", 2)))]
     if template == "road":
@@ -387,9 +438,10 @@ def from_dict(d) -> Step:
     return Step(d["kind"], d["token"], int(d["count"]), dict(d.get("detail") or {}), int(d.get("est", 0)))
 
 def night_left_s(snap):
-    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / 20 at night, a whole night before dusk (None)."""
+    """Seconds of night still ahead: (NIGHT_END − timeOfDay) / TICKS_PER_S at night (data.is_night: the Overworld's
+    only), else None (a whole night before dusk; none at all in the Nether or the End)."""
     t = int(snap.time) % DAY_TICKS
-    return (NIGHT_END - t) / 20.0 if DAY_END <= t < NIGHT_END else None
+    return (NIGHT_END - t) / TICKS_PER_S if is_night(t, getattr(snap, "dimension", "minecraft:overworld")) else None
 
 def night_facts(soft, cooled=(), dig_site=True, home_walk_s=None, night_left_s=None):
     """The place facts the night's pricing reads: the soft-ground reading (seconds to hand-diggable ground, or None),

@@ -31,7 +31,9 @@ DOMAINS = {
     "mob": ("zombie", "skeleton", "creeper", "spider", "enderman", "blaze"),
 }
 # a fact read only while (pred, the facts that turn it on) holds: else its first value (one state, not many)
-DEPENDS = {"mob": (lambda f: f["threat"], {"threat": True})}
+DEPENDS = {"mob": (lambda f: f["threat"], {"threat": True}),
+           # night is the Overworld's only (data.is_night): the Nether and the End report its clock and have none
+           "night": (lambda f: f["dimension"] == "minecraft:overworld", {"dimension": "minecraft:overworld"})}
 # facts the decision reads that come with another agent's merge: the interface this checker wires to, fixed now
 PENDING = {
     "F1": "F1 priced candidates: the round's alternatives [(name, seconds, steps)] from the planner "
