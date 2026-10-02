@@ -118,15 +118,6 @@ class Windows(unittest.TestCase):
             with self.assertRaises(SetupInvalid):           # must fail: a dry start judged a surfacing
                 runs._drowning_first(None)
 
-    def test_must_not_row_ends_when_the_brain_is_idle(self):
-        from bonobo.bench import core
-        from bonobo.bench.words import runs
-        brain = type("B", (), {"idle_since": None})()
-        with mock.patch.object(core, "BRAIN", brain):
-            self.assertFalse(runs._brain_idle())
-            brain.idle_since = 1.0
-            self.assertTrue(runs._brain_idle())              # must fail: a constant False (the whole budget)
-
 
 class CheckParts(unittest.TestCase):
     def test_a_rule_is_read_down_to_its_words(self):

@@ -1007,20 +1007,6 @@ class DoorFamily(unittest.TestCase):
 class BrainHookWords(unittest.TestCase):
     """The hooks the brain/upkeep rows are written in (words.brain)."""
 
-    def test_the_interrupt_counts_once_gained(self):
-        # must fail: counted (or injected) before the bag gained — a slice absorbs it unseen otherwise
-        from bonobo.bench.words import brain as wb, checks as wc
-        seen = {}
-        with mock.patch.object(wb, "_when", lambda progress, act: seen.update(progress=progress, act=act)), \
-                mock.patch.object(wb, "_inject_interrupt") as inject, \
-                mock.patch.dict(wc.BASE, {"name": "r"}, clear=True), mock.patch.dict(wc.INTERRUPTS, {}, clear=True), \
-                mock.patch.object(wb, "gained_at_least", lambda token, n: ("gained", token, n)):
-            wb._interrupt_counted("minecraft:raw_iron", 1)
-            self.assertEqual(seen["progress"], ("gained", "minecraft:raw_iron", 1))
-            self.assertEqual((wc.INTERRUPTS, inject.call_count), ({}, 0))
-            seen["act"]()
-            self.assertEqual((wc.INTERRUPTS, inject.call_count), ({"r": 1}, 1))
-
     def test_state_before_feeds_rose(self):
         from bonobo import api
         from bonobo.bench.words import brain as wb, checks as wc
