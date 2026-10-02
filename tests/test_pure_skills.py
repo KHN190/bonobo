@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import api, craft, fluids as fluids_mod, gather, solve, survive, tape, threat  # noqa: E402
+from bonobo import api, craft, fluids as fluids_mod, gather, knowledge, solve, survive, tape, threat  # noqa: E402
 from bonobo.api import McError, NotAvailable  # noqa: E402
 from bonobo.bag import pickup_whitelist  # noqa: E402
 from bonobo.world import connected  # noqa: E402
@@ -677,7 +677,7 @@ class DarkHere(unittest.TestCase):
     ]
 
     def test_table(self):
-        run_table(self, survive.dark_here, self.TABLE)
+        run_table(self, knowledge.dark_here, self.TABLE)
 
 
 class PendingReady(unittest.TestCase):

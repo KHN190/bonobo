@@ -63,7 +63,7 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.melee_loss(kinds, _k.best_sword(inv),           # the threat's kit reads the same sword
+    mean, hit = estimate.melee_loss(kinds, _k.attack_weapon(inv, beliefs.COMMON_FOE_HP),   # what the attack holds
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):
@@ -279,7 +279,7 @@ class Brain:
             craft.shield_to_offhand()
         # an open dark area underground: lit first where work starts, then a torch a segment (never the surface,
         # a short shaft or a sealed night hole)
-        if time.time() - self.last_light > 5 and _k.under_rock(s.get("skyLight", 15)) and survive.dark_here(s) \
+        if time.time() - self.last_light > 5 and _k.under_rock(s.get("skyLight", 15)) and _k.dark_here(s) \
                 and not survive.enclosed():
             self.last_light = time.time()
             try:
@@ -556,7 +556,7 @@ class Brain:
         if tasks.expire(items):
             tasks.save(items)
         live = [t for t in items if t["state"] in tasks.LIVE]
-        closed = snap.night
+        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
         self.just_finished = False
         for seq, task in enumerate(live):
             if not self.ready(f"task {task['id']}"):
@@ -594,7 +594,7 @@ class Brain:
         except Unplannable as e:
             self.__dict__.setdefault("unplannable", {})[name] = str(e)     # why this need offers no step (readout)
             return None
-        closed = snap.night
+        closed = snap.night      # surface work walks out, sheltered here or not (data.is_night)
         step = next((st for st in steps if self.valid(st, snap, ctx) and not (closed and arbiter.on_surface(st.kind))),
                     None)
         if step is None:

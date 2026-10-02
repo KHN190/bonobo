@@ -8,13 +8,13 @@ from dataclasses import dataclass, field as _dc_field
 from typing import Any
 
 from . import api, arbiter, events, fight_loop, hazard, lifecycle, paths, estimate, field as _field, nav, threat, world
-from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS
+from .data import memo_ttl, DAY_END, NIGHT_END, DAY_TICKS, is_night
 from .game import EYE_HEIGHT
-from .beliefs import CONFIG as _CONFIG
+from .beliefs import COMMON_FOE_HP, CONFIG as _CONFIG
 from .hazard import REFLEX_SLACK_S, TICKS_PER_S, drowning, drowning_in  # noqa: F401  (re-exported)
 from .threat import ENGAGE as _ENGAGE, seen_at, threats_seen
 from .combat_model import hazards, note_hazards  # noqa: F401  (the store lives with the points it holds)
-from .knowledge import best_sword, food_count, sheltered, usable
+from .knowledge import attack_weapon, dark_here, food_count, sheltered, usable
 from .skill import HEARTBEAT
 
 WATCH_S = 0.2     # how often perception reads the world outside a fight (5 Hz)
@@ -197,12 +197,33 @@ def nightfall(state, enclosed, in_site=lambda: False):
     """Pure given its readers: the soft boundary request for surface work at dusk or night — "night" in the
     Overworld between DAY_END and NIGHT_END unless sheltered by the night way's own judgement (knowledge.sheltered:
     under rock, walled in, inside a site); None by day or in another dimension."""
-    if state.get("dimension", "minecraft:overworld") != "minecraft:overworld":
-        return None
-    t = int(state.get("timeOfDay", 0)) % DAY_TICKS
-    if not DAY_END <= t < NIGHT_END or sheltered(state.get("skyLight", 15), enclosed, in_site):
+    if not is_night(int(state.get("timeOfDay", 0)), state.get("dimension", "minecraft:overworld")) \
+            or sheltered(state.get("skyLight", 15), enclosed, in_site):
         return None
     return NIGHTFALL
+
+
+def in_site_here(s):
+    """The feet inside one of our sites' interiors (IN_SITE, set by the brain); False before a brain is built."""
+    return IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]), s.get("dimension"))
+
+
+# the kit's readings the survival price takes as they are (threat.price_state's keys)
+KIT_PRICED = ("sword", "shield", "food_items", "bed", "torches", "bag_free")
+
+
+def price_inputs(state):
+    """Pure given IN_SITE: the survival state health is priced in (threat.price_state), every key read from the
+    perceived state (the kit merged; a kit not read leaves its keys at price_state's). Walls are not read: a body a
+    mob reaches is not walled in. nights_missed has no reading anywhere: price_state's."""
+    t, dim = int(state["timeOfDay"]), state.get("dimension", "minecraft:overworld")
+    tier = state.get("pick_tier")
+    return threat.price_state(
+        night=is_night(t, dim), ticks_until_dusk=world.ticks_until_dusk(t), hp=max(1, int(state.get("health", 20))),
+        food=int(state.get("food", 20)), armor=int(state.get("armor", 0)), dark=dark_here(state),
+        sheltered=sheltered(state.get("skyLight", 15), lambda: False, lambda: in_site_here(state)),
+        pickaxe=0 if tier is None else max(1, tier),       # threat.tool_loss: 0 none, 1 stone-class, 2+ iron
+        **{k: state[k] for k in KIT_PRICED if k in state})
 
 
 def _enclosed_now(state):
@@ -328,7 +349,7 @@ class Watcher(threading.Thread):
             # no rows after our own fresh read means quiet, an answer; only a failed read is blindness
             return observe(now, "stale" if threat.THREAT_ROWS else "quiet", seen_at=seen_at())
         state = perceived(state, now)
-        sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
+        sstate = price_inputs(state)
         price = lambda dhp: threat.hp_seconds(sstate, dhp)
         chosen = fight_loop.bid(state, rows, price, ids=threat.THREAT_IDS)
         # each look carries the bid's detail: the field's shape and read time, our height, the options with their
@@ -429,9 +450,7 @@ class Watcher(threading.Thread):
             # the brain then takes the night's way and resumes the same target (arbiter.RESUME_OF "night")
             told = getattr(self, "_night_told", False)
             running = (s.get("control") or {}).get("task")
-            night = nightfall(s, lambda: running and not told and _enclosed_now(s),
-                              lambda: IN_SITE is not None and IN_SITE((s["blockX"], s["blockY"], s["blockZ"]),
-                                                                      s.get("dimension")))
+            night = nightfall(s, lambda: running and not told and _enclosed_now(s), lambda: in_site_here(s))
             if night is None:
                 self._night_told = False        # day, or sheltered: asked again when exposed next
             elif not told and running:
@@ -565,9 +584,12 @@ def kit(signature):
         return STATE.kit
     from .world import Inventory
     inv = Inventory()
-    got = {"sword": best_sword(inv),            # the item (knowledge.best_sword), None: the hand
+    got = {"sword": attack_weapon(inv, COMMON_FOE_HP),       # what an attack holds (knowledge.attack_weapon), None: the hand
             "shield": inv.offhand() == "minecraft:shield",
             "food_items": food_count(inv),              # knowledge's one food table
+            "bed": inv.count("bed") > 0,
+            "torches": inv.count("minecraft:torch") > 0,
+            "bag_free": world.BAG_SLOTS - inv.used_slots(),
             "blocks": inv.count("building"),
             "pick_tier": max((t for t, d, _ in inv.tools("pickaxe") if usable(d)), default=None),
             "golden_apples": inv.count("minecraft:golden_apple") + inv.count("minecraft:enchanted_golden_apple"),

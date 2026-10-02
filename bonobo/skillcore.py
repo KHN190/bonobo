@@ -287,7 +287,6 @@ def snapshot(center, half=2, down=1, up=2):
             "blocks": {f"{x},{y},{z}": n for (x, y, z), n in region.blocks.items() if region.solid((x, y, z))}}
 
 
-COMMON_FOE = "minecraft:zombie"     # an attack names its mob by id only: the weapon is chosen by this one's health
 ARM_REGION_MAX = 4096       # cells one read may cover to name what a chain's mines break; larger: a read per cell
 
 def arm(tasks, inv=None, read_blocks=True):
@@ -323,6 +322,6 @@ def arm(tasks, inv=None, read_blocks=True):
         elif kind == "mine":
             out.append({**t, "item": _know.tool_for(inv, names.get((t["x"], t["y"], t["z"])))})
         else:
-            out.append({**t, "item": _know.weapon_for(inv, beliefs.mob(COMMON_FOE)["hp"])})
+            out.append({**t, "item": _know.attack_weapon(inv, beliefs.COMMON_FOE_HP) or "hand"})
     return out
 

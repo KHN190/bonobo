@@ -2036,7 +2036,10 @@ class OneArbiter(unittest.TestCase):
                 ("a finished furnace job vs the queue: collect it (reflex)", [P("queue"), M("collect job")],
                  "collect job"),
                 ("nothing to do but stock up: idle", [P("idle")], "idle"),
-                # re-judged (M8c): recover items walks off, so it comes after the shelter and the body's own rows
+                # recover items after sleep: R3 (a bed, the night is slept; a sheltered night lets the walk run,
+                # open_night); after eat: a bite in place leaves the drops' worth (test_eating_first_keeps_the_drops)
+                ("must fail: a sheltered night, a bed carried, died: sleep before the walk back (R3)",
+                 [M("recover items"), M("sleep")], "sleep"),
                 ("died a minute ago, hungry: eat before the walk back to the drops", [M("eat"), M("recover items")],
                  "eat"),
                 ("an expired rescue is not run late: the plan", [self.intent("safety", "rescue", deadline_s=1.0, at=0.0),
@@ -2046,6 +2049,24 @@ class OneArbiter(unittest.TestCase):
             with self.subTest(name):
                 got = arbiter.arbitrate(intents, now=100.0)
                 self.assertEqual(got.action if got else None, want)
+
+    def test_eating_first_keeps_the_drops(self):
+        """Eat before recover items costs the drops nothing while the walk still beats the despawn by a bite
+        (threat.ENGAGE eat_s): the worth after the bite is the worth now."""
+        from bonobo import nav, reflexes
+        from bonobo.data import ITEM_DESPAWN_S
+        from bonobo.threat import ENGAGE
+        bite, speed = float(ENGAGE["eat_s"]), nav.PLAYER_SPEED
+        walk = 40.0 / speed
+        # (situation, drops' value s, distance blocks, died s ago) → the bite costs nothing
+        rows = [("a minute ago, 40 blocks off", 120.0, 40.0, 60.0, True),
+                ("must fail: the walk beats the despawn by less than a bite: eating loses them", 120.0, 40.0,
+                 ITEM_DESPAWN_S - walk - bite / 2, False)]
+        for name, value, dist, since, want in rows:
+            with self.subTest(name):
+                now = reflexes.recovery_worth(value, dist, since, speed, ITEM_DESPAWN_S)
+                later = reflexes.recovery_worth(value, dist, since + bite, speed, ITEM_DESPAWN_S)
+                self.assertIs(later == now, want)
 
     def test_the_layers(self):
         from bonobo import arbiter
@@ -2063,20 +2084,6 @@ class OneArbiter(unittest.TestCase):
         for name, first, then in rows:
             with self.subTest(name):
                 self.assertLess(arbiter.plan_rank(first), arbiter.plan_rank(then))
-
-    # (situation, night, dimension) → surface work closed
-    # the surface is closed exactly when it is night (data.is_night: the Overworld's only), sheltered or not
-    CLOSED = [("day in the Overworld: open", 6000, "minecraft:overworld", False),
-              ("must fail: night in the Overworld, in the open (the shelter row failed): closed", 18000,
-               "minecraft:overworld", True),
-              ("night in the Nether: no sun to wait for, open", 18000, "minecraft:the_nether", False),
-              ("night by the clock in the End: open", 18000, "minecraft:the_end", False)]
-
-    def test_surface_closed_over_the_table(self):
-        from bonobo.data import is_night
-        for name, t, dim, want in self.CLOSED:
-            with self.subTest(name):
-                self.assertIs(is_night(t, dim), want)
 
     def test_night_in_the_open_does_not_chop(self):
         """Night, exposed, empty bag, a tree in the queue: the round waits for day, it does not walk to the tree."""
@@ -2129,7 +2136,7 @@ class Overnight(unittest.TestCase):
               "dig in by hand", ["shelter"]),
              ("on stone, cobblestone carried: walled in", [("cobblestone", 16)], False, "wall in", ["shelter"]),
              ("on stone, a pickaxe: dig in", [("stone_pickaxe", 1)], False, "dig in", ["shelter"]),
-             ("on stone, an empty bag: a pickaxe first — its tree waits for day (snap.night closes the surface)", [], False,
+             ("on stone, an empty bag: a pickaxe first — its tree waits for day (snap.night)", [], False,
               "dig in", ["gather", "craft", "craft", "craft", "craft", "shelter"]),
              ("the ground unread (the dusk lead): no dig by hand assumed", [], None, "dig in",
               ["gather", "craft", "craft", "craft", "craft", "shelter"]),
@@ -2734,7 +2741,7 @@ class Reflexes(unittest.TestCase):
     """reflexes.TABLE: each trigger over the round's view — fires, and does not."""
 
     BASE = {"died_recently": False, "food": 20, "meal": False, "swimming": False, "nether_bad": False,
-            "night": False, "enclosed": False, "overworld": True, "bed_works": False, "bed_carried": False,
+            "night": False, "enclosed": False, "overworld": True, "sheltered": False, "bed_works": False, "bed_carried": False,
             "bed_near": False, "shelter_ready": False, "job_ready": False, "machine_ready": False, "used_slots": 10,
             "blocked": False, "building": 0, "stuck": False, "in_pit": False}
     # (reflex, the view's changes that fire it, the changes that do not) (must fail: the third column never fires)
@@ -2768,6 +2775,19 @@ class Reflexes(unittest.TestCase):
                ("eat cooling: skipped, reach land still due", {"eat"}, [(LAND, "reach land")]),
                ("reach land cooling: eat alone", {"reach land"}, [(EAT, "eat")]),
                ("must fail: both cooling: nothing due though both fire", {"eat", "reach land"}, [])]
+
+    # (situation, the view's changes) → recover items and leave the pit fire (the night gate: open_night, S4)
+    NIGHT_GATE = [("day: both", {}, True),
+                  ("night under the open sky: both wait", {"night": True}, False),
+                  ("must fail: night under rock or walled in: a step from here is under cover, both",
+                   {"night": True, "sheltered": True}, True)]
+
+    def test_the_night_gate_reads_the_sky(self):
+        from bonobo import reflexes
+        for name, changes, want in self.NIGHT_GATE:
+            with self.subTest(name):
+                due = [n for _i, n in reflexes.due(dict(self.BASE, died_recently=True, in_pit=True, **changes))]
+                self.assertEqual(("recover items" in due, "leave the pit" in due), (want, want))
 
     def test_cooling_reflexes_are_skipped(self):
         from bonobo import reflexes

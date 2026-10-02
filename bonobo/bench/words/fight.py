@@ -157,7 +157,7 @@ def _combat_intent(state: dict[str, Any]):
         state["dig_ok"] = perception.dig_ok(state["field"], state.get("pick_tier"))     # as the live answer reads it
     except McError as e:
         swallowed("fight._combat_intent", e)
-    sstate = threat.price_state(hp=max(1, int(state.get("health", 20))), armor=int(state.get("armor", 0)))
+    sstate = perception.price_inputs(state)
     price = lambda dhp: threat.hp_seconds(sstate, dhp)
     # the entity ids with the rows, as perception bids: without them every fight option named no target, and the
     # held decision this seeds posted attack(entity=None) into the live fight (combat__dig_in 01:03:09, a 500 ×3)
