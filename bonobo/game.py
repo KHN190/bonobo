@@ -42,3 +42,4 @@ MOB_CADENCE_TICKS = {"minecraft:zombie": MELEE_TICKS, "minecraft:husk": MELEE_TI
 HIT_KNOCKBACK = 0.4
 GROUND_DRAG = 0.6 * 0.91
 TICKS_PER_S = 20                 # the game clock: ticks in one second
+SWEEP_DAMAGE = 1.0              # a sword's sweep: each mob beside the one struck (on the ground, not sprinting)

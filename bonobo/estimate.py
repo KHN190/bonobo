@@ -167,11 +167,20 @@ def _ranged_dps(rows, shapes=()):
                         if beliefs.MOBS[r[3]].get("ranged")))
 
 def _knocked_off(mob, hits_s):
-    """Share of the time the mob we hit is pushed out of its own reach (a ranged one shoots on)."""
+    """Share of its hits the mob we strike loses: each of its blows waits the re-close after our last push."""
     if mob.get("ranged") or not mob.get("speed"):
         return 0.0
-    push = game.HIT_KNOCKBACK / (1.0 - game.GROUND_DRAG)
-    return min(1.0, push / float(mob["speed"]) * hits_s)
+    every, back = float(mob["attack_s"]), game.HIT_KNOCKBACK / (1.0 - game.GROUND_DRAG) / float(mob["speed"])
+    delay = back * min(1.0, hits_s * every)
+    return delay / (every + delay)
+
+def _under(start, length, own, others, cap):
+    """Health taken over [start, start + length]: the target's `own` rate, each other's from its arrival, at most `cap`."""
+    marks = sorted({start, start + length} | {t for t, _r in others if start < t < start + length})
+    total = 0.0
+    for a, b in zip(marks, marks[1:]):
+        total += min(cap, own + sum(r for t, r in others if t <= a)) * (b - a)
+    return total
 
 def fight_cost(here, hazards, sword, prot, speed=None, shapes=()):
     """(seconds, hp lost) to kill every threat in melee, nearest first, while the rest keep hitting. Each kill is the
@@ -186,17 +195,26 @@ def fight_cost(here, hazards, sword, prot, speed=None, shapes=()):
     pickup = max(0.0, float(beliefs.PLAYER["melee_reach"]) - float(beliefs.PLAYER["pickup_r"])) / speed
     seconds = lost = 0.0
     pos = here
+    arrivals = {id(r): arrival_s(here, r) for r in order}     # the rest hit only once they have come
+    left = {id(r): float(beliefs.MOBS[r[3]]["hp"]) for r in order}
+    sweeps = bool(sword) and str(sword).endswith("_sword")
     for i, hazard in enumerate(order):
         mob = beliefs.MOBS[hazard[3]]
         walk = max(0.0, math.dist(pos, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
-        kill = math.ceil(float(mob["hp"]) / per_hit) / rate
+        hits = max(1, math.ceil(left[id(hazard)] / per_hit))
+        kill = hits / rate
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
         cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
         reaches = {id(r): _row_dps(r) * share_of(shapes, beliefs.MOBS[r[3]]) for r in order[i:]}
-        under_everything = min(cap, sum(reaches[id(r)] for r in order[i + 1:])
-                               + reaches[id(hazard)] * (1.0 - _knocked_off(mob, rate)))
-        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:], shapes) + kill * under_everything
+        start = seconds + READ_EVERY_S + walk
+        under_everything = _under(start, kill, reaches[id(hazard)] * (1.0 - _knocked_off(mob, rate)),
+                                  [(arrivals[id(r)], reaches[id(r)]) for r in order[i + 1:]], cap)
+        lost += ((READ_EVERY_S + walk) * _ranged_dps(order[i:], shapes) + under_everything
                  + pickup * _ranged_dps(order[i + 1:], shapes)) * (1.0 - prot)
+        if sweeps:      # the melee ones already beside us take each blow's sweep
+            for r in order[i + 1:]:
+                if not beliefs.MOBS[r[3]].get("ranged"):
+                    left[id(r)] -= game.SWEEP_DAMAGE * sum(1 for k in range(hits) if start + k / rate >= arrivals[id(r)])
         seconds += READ_EVERY_S + walk + kill + pickup
         pos = hazard[0]
     return round(seconds, 2), round(lost, 2)

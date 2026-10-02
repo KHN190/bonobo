@@ -1,5 +1,6 @@
 """The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
 
+from . import lifecycle
 from .world import cell_add, screen_slot
 from .knowledge import ALL_FOOD, RAW_MEAT, members
 from .api import NotAvailable
@@ -9,6 +10,7 @@ PICKUP_FILTER_AT = 28
 
 # item ids the committed plan will consume: never thrown or stored (tidy once threw a plan's fresh planks every 8 s)
 RESERVED = set()
+lifecycle.in_place(__name__, "RESERVED")     # the held plans' items: a life's, reset with it
 
 def reserved_stacks(slots):
     """Pure: the biggest stack of each reserved item id (reserving every stack would make the bag untidyable)."""
