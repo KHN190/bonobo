@@ -4,8 +4,8 @@ import math
 
 from .api import McError
 from .beliefs import CONFIG as _PLAY
-from .data import DEEPSLATE_TOP, SOIL_DEPTH, STAIR_BELOW, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
-from .knowledge import dig_ticks, held_tiers, own_work, work_s, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
+from .data import DEEPSLATE_TOP, STAIR_BELOW, STAIR_CELLS, FIND_P, GROUPS, NAV_NODES, ROUTE_FACTOR, WALK_BLOCKS_PER_TICK, bare
+from .knowledge import soil_depth, dig_ticks, held_tiers, own_work, work_s, FIND_AT, PRIOR_TICKS, prior_ticks, step_call, tool_ok, HUNT, SOURCE_BLOCKS, under_rock  # noqa: F401  (PRIOR_TICKS: re-exported)
 from .skillcore import banned
 from .world import ROUTES, entities, job_ready, nearest, route_key, sight_y
 from .skill import MIN_SAMPLES
@@ -26,10 +26,10 @@ def walk_ticks(distance):
     """Ticks to walk `distance` straight-line blocks, detours included: the one walk-time estimate."""
     return int(float(distance) * WALK_TICKS_PER_BLOCK)
 
-def dig_blocks(feet_y, y, ore):
+def dig_blocks(feet_y, y, ore, soil):
     """Pure: the blocks dug to reach y from the feet, expected — a buried surface kind straight down through the soil
-    over it; an ore deeper than STAIR_BELOW by a staircase (STAIR_CELLS a step), its first SOIL_DEPTH steps soil, the
-    rest rock (deepslate below DEEPSLATE_TOP)."""
+    over it; an ore a level stand holds (STAIR_BELOW: no region read here) nothing, deeper by a staircase
+    (STAIR_CELLS a step), its first `soil` steps soil (knowledge.soil_depth), the rest rock (deepslate below DEEPSLATE_TOP)."""
     if not ore:
         return ["dirt"] * max(0, feet_y - 1 - y)
     if y >= feet_y - STAIR_BELOW:
@@ -38,7 +38,7 @@ def dig_blocks(feet_y, y, ore):
     for k in range(1, feet_y - y):
         level = feet_y - k
         rock = "deepslate" if level < DEEPSLATE_TOP else "stone"
-        out += ["dirt" if k <= SOIL_DEPTH else rock] * STAIR_CELLS
+        out += ["dirt" if k <= soil else rock] * STAIR_CELLS
     return out
 
 class _Gone:
@@ -201,7 +201,8 @@ class Cost:
         if reach and step.kind == "mine" and self.snap is not None:
             y = sight_y(step.detail.get("blocks") or (), self.not_there(True))
             if y is not None:
-                breaks = breaks + dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None)
+                breaks = breaks + dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None,
+                                             self.soil())
         return breaks, kills
 
     def _prior_work(self, step):
@@ -240,6 +241,10 @@ class Cost:
                 walk_ticks(math.dist(self.snap.feet, tuple(step.detail["pos"])))
         return 0
 
+    def soil(self):
+        """The soil under the feet (knowledge.soil_depth): no column is read here, so the prior."""
+        return soil_depth(None, tuple(self.snap.feet))
+
     def _overburden_ticks(self, step):
         """The digging to the nearest one in sight (dig_blocks), each break by the tool the bag holds for it."""
         if self.snap is None:
@@ -247,7 +252,7 @@ class Cost:
         y = sight_y(step.detail.get("blocks", ()), self.not_there(True))
         if y is None:
             return 0
-        blocks = dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None)
+        blocks = dig_blocks(int(self.snap.feet[1]), int(y), FIND_AT.get(step.token) is not None, self.soil())
         return dig_ticks(blocks, getattr(self.snap, "inv", None))
 
     def door_s(self, where):

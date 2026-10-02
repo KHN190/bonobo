@@ -51,6 +51,38 @@ class Shaft(unittest.TestCase):
 PICK = {"id": "minecraft:diamond_pickaxe", "count": 1, "damage": 0, "maxDamage": 1561}
 
 
+class SoilDepth(unittest.TestCase):
+    """knowledge.soil_depth: the soil under the feet as read (shovel blocks down to the rock); the prior SOIL_DEPTH only
+    where the column is not read through — and the staircase's soil steps follow it (cost.dig_blocks)."""
+
+    def test_rows(self):
+        from bonobo.knowledge import soil_depth
+
+        def column(names, bottom=None):
+            lo = FEET[1] - len(names) if bottom is None else bottom
+            blocks = {(0, FEET[1] - 1 - i, 0): n for i, n in enumerate(names) if n != "air"}
+            return FakeRegion((-1, lo, -1), (1, FEET[1] + 2, 1), blocks)
+        # (situation, region) → soil cells
+        rows = [("not read: the prior", None, SOIL_DEPTH),
+                ("must fail: grass over two dirt, then stone: three, not the prior",
+                 column(["grass_block", "dirt", "dirt", "stone"]), 3),
+                ("six dirt over stone: six", column(["dirt"] * 6 + ["stone"]), 6),
+                ("two dirt, the read ends: at least the prior", column(["dirt", "dirt"]), max(2, SOIL_DEPTH)),
+                ("a hole under the feet: none", column(["air", "dirt", "stone"]), 0)]
+        for name, region, want in rows:
+            with self.subTest(name):
+                self.assertEqual(soil_depth(region, FEET), want)
+
+    def test_the_staircase_follows_it(self):
+        deep = FEET[1] - 10
+        steps = FEET[1] - deep - 1
+        for soil in (1, SOIL_DEPTH):
+            with self.subTest(soil):
+                got = costmod.dig_blocks(FEET[1], deep, True, soil)
+                # must fail: the soil steps fixed whatever was read
+                self.assertEqual(got.count("dirt"), min(soil, steps) * STAIR_CELLS)
+
+
 class Overburden(unittest.TestCase):
     """cost._overburden_ticks: the digging to the nearest in sight, each break by the tool held for it
     (knowledge.break_ticks: dirt 15 ticks by hand, stone 150 by hand, 6 with a diamond pickaxe)."""

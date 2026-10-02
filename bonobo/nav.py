@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 
 from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
-from .data import STAIR_BELOW, STAIR_CELLS, is_falling, GROUPS, FOOD, EYE_HEIGHT, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
+from .data import STAIR_CELLS, is_falling, GROUPS, FOOD, EYE_HEIGHT, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .world import NEIGHBOURS6, Inventory, Region, add, bag, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
 from .beliefs import TICKS_PER_S
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -241,6 +242,10 @@ def safe_destination(pos, hazards=None, clear=1.0, standable=None):
 
 PLAYER_SPEED = 4.3
 
+def least_way_s(cell, start):
+    """Pure: seconds no way to `cell` can beat: the straight walk."""
+    return math.dist(cell, start) / PLAYER_SPEED
+
 def _arrived(start, target, began, ok, closer=False):
     """Feed one walk back into the terrain estimate, and say what the leg achieved."""
 
@@ -273,7 +278,6 @@ LEGS = 6
 # task types sent only from a stand the jar's own check holds (I4: gate); the jar's approach then has nothing to do
 APPROACHING = ("mine", "place", "use")
 WAY_TRIES = 3            # ways plan_way is asked for one stand (a staircase comes a segment at a time)
-WAY_FACES = 3            # stand candidates a way's walks are asked for (/plan, break off)
 
 def use_holds(region, feet_at, cell, reach=REACH):
     """Pure: the jar's UseBlockTask sight — the block's centre or a face centre the first hit from the eye, in reach."""
@@ -382,19 +386,19 @@ def unplanned(before, tasks, done):
         if api.ANOMALY is not None:
             api.ANOMALY("unplanned change", f"{c}: {was} → {now}")
 
-def stand_candidates(region, target, kind, most=WAY_FACES):
+def stand_candidates(region, target, kind):
     """Pure: floored cells round `target` where a `kind` task on it holds, nearest first."""
     r = int(REACH)
     cells = [(target[0] + dx, target[1] + dy, target[2] + dz) for dx in range(-r, r + 1) for dy in range(-r, r + 1)
              for dz in range(-r, r + 1)]
     ok = [c for c in cells if region.inside(c) and region.solid(add(c, (0, -1, 0))) and not region.solid(c)
           and not region.solid(add(c, (0, 1, 0))) and stands_for(kind, region, c, target)]
-    return sorted(ok, key=lambda c: math.dist(c, target))[:most]
+    return sorted(ok, key=lambda c: math.dist(c, target))
 
 def reach_stand(task, policy, faces=None):
-    """The way to a stand for `task` (I4): read the box, ask the game's walk (break off) to the stand candidates
-    (`faces`, else stand_candidates), plan_way (a88's: explicit mine/place/goto steps), send them through the door,
-    and again until the stand holds; plan_way's None → NavFailed with its why."""
+    """The way to a stand for `task` (I4): read the box, plan_way (a88's: explicit mine/place/goto steps) over the
+    game's walks (break off) to the stand candidates (`faces`, else stand_candidates), each asked as plan_way reads
+    it, send them through the door, and again until the stand holds; plan_way's None → NavFailed with its why."""
     kind = "stand" if task.get("type") == "goto" else task["type"]
     target = _cell_of(task)
     for _ in range(WAY_TRIES):
@@ -403,7 +407,7 @@ def reach_stand(task, policy, faces=None):
         if kind != "stand" and stands_for(kind, region, here, target, task.get("down", False)):
             return
         cands = faces if faces is not None else stand_candidates(region, target, kind)
-        walks = {c: _plan_reply(c, False, False, 0.5) for c in cands}
+        walks = plan_walks(cands, 0.5)
         steps, why, seconds = plan_way(region, here, target, kind, bag(), policy.protected, walks)
         if steps is None:
             raise api.NavFailed(f"no way to {kind} {target}: {why}")
@@ -823,9 +827,9 @@ def dig_down_region(feet, depth):
     x, y, z = feet
     return Region((x - 1, y - depth - 2, z - 1), (x + 1, y + 2, z + 1))
 
-def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=None):
-    """Pure: (tasks, depth that is safe) for digging straight down from `feet`, stopping above caves, lava and water."""
-
+def safe_depth(region, feet, depth, protected=(), dug_to=None):
+    """Pure: how many of the `depth` cells straight down from `feet` are safe to dig (0: none), stopping above caves,
+    lava and water, the unbreakable and the protected."""
     x, y, z = feet
     safe = 0
     for i in range(1, depth + 1):
@@ -833,10 +837,17 @@ def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=
         # down to where the body stands (`dug_to`, a resumed dig), the open cell under is our own shaft, not a cave
         shaft = dug_to is not None and i < depth and below[1] >= dug_to
         if (region.unbreakable(cell) or region.hazard(cell) or not (region.solid(below) or shaft)
-                or (x, y - i, z) in protected
+                or cell in protected
                 or any(region.hazard(add(cell, d)) for d in NEIGHBOURS6)):
             break
         safe = i
+    return safe
+
+def dig_down_tasks(region, feet, depth, protected=(), use_ladders=False, dug_to=None):
+    """Pure: (tasks, depth that is safe) for digging straight down from `feet` (safe_depth)."""
+
+    x, y, z = feet
+    safe = safe_depth(region, feet, depth, protected, dug_to)
     if safe == 0:
         raise NotAvailable("unsafe to dig down here")
     tasks = []
@@ -922,9 +933,26 @@ def climbs_back(start_y, steps, step_up=MOB_STEP_UP):
     ys = [start_y] + [s["y"] for s in steps]
     return all(a - b <= step_up for a, b in zip(ys, ys[1:]))
 
+class Walks(Mapping):
+    """{cell: the game's walk (/plan, nothing dug or built)} for each of `cells` — plan_way's `walks` — each asked the
+    first time it is read: plan_way reads them least first and stops once none can beat its best."""
+
+    def __init__(self, cells, range_):
+        self.cells, self.range_, self.asked = [tuple(c) for c in cells], range_, {}
+
+    def __getitem__(self, cell):
+        if cell not in self.asked:
+            self.asked[cell] = _plan_reply(cell, False, False, self.range_)
+        return self.asked[cell]
+
+    def __iter__(self):
+        return iter(self.cells)
+
+    def __len__(self):
+        return len(self.cells)
+
 def plan_walks(cells, range_):
-    """{cell: the game's walk (/plan, nothing dug or built)} for each of `cells` — plan_way's `walks`."""
-    return {tuple(c): _plan_reply(c, False, False, range_) for c in cells}
+    return Walks(cells, range_)
 
 def walks_to(cell, range_=None, climber=False, start_y=None):
     """Can a walking mob at `cell` come to the body: the game's walk from our side (nothing dug, nothing built),
@@ -1112,30 +1140,38 @@ def way_s(region, feet, steps, inv):
     return dig_ticks(mined, inv) / TICKS_PER_S + places * PLACE_S + walk / PLAYER_SPEED
 
 def plan_way(region, feet, target, kind, inv, protected, walks=None):
-    """Pure: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of `target` can be
-    done: a walk the game found (`walks`: {cell: its /plan reply, break off}, asked by the caller), else the dug
-    way of named steps: a staircase down when deeper than STAIR_BELOW, a staircase up when above the feet (the climb
-    out), then a level way (dug through, its missing treads placed: a bridge over a gap or a fluid). Steps name cells,
-    never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
-    ways = [([{"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5}], None,
-             float(r["seconds"]) if r.get("seconds") is not None else math.dist(feet, c) / PLAYER_SPEED)
-            for c, r in (walks or {}).items() if r and r.get("found")]
+    """Pure given `walks`: (steps | None, why, seconds) — the cheapest way to where `kind` (mine|place|use|stand) of
+    `target` can be done, by seconds: the dug ways of named steps — a level way (dug through, its missing treads
+    placed: a bridge over a gap or a fluid) and, off the feet's level, a staircase down (or up: the climb out) to the
+    target's level then along it — and the walks the game found (`walks`: {cell: its /plan reply, break off}), read
+    least first (least_way_s) until none can beat the best. A way stopped short (its why: blocked, off the read) is
+    taken only when no other is left; a staircase's segment is not stopped (the region is read again for the next).
+    Steps name cells, never items (the door's ARM/HOLD do); a protected cell refuses the way (why "home at …")."""
     places = [building_of(inv)] * place_budget(inv.count("building")) if building_of(inv) else []
     done = lambda here: stands_at(kind, region, here, target)     # noqa: E731
     if done(tuple(feet)):
         return [], None, 0.0                       # standing where it can be done: nothing to plan
-    steps, why, end = [], None, tuple(feet)
-    if target[1] < feet[1] - STAIR_BELOW or target[1] > feet[1]:
+    dug = [tunnel_steps(region, feet, target, protected, places, done)]
+    if target[1] != feet[1]:
         # down (or up) to the target's own level (a buried target is held from beside it), then along it
         steps, why, end = stair_steps(region, feet, target, protected, places, stop_y=target[1])
-    if why is None and (not steps or end[1] == target[1]):
-        more, why = tunnel_steps(region, end, target, protected, places, done)
-        steps = steps + more
-    if steps:
-        ways.append((steps, None, way_s(region, feet, steps, inv)))
+        if why is None and end[1] == target[1]:
+            steps = steps + tunnel_steps(region, end, target, protected, places, done)[0]     # read again on the way
+        dug.append((steps, why))
+    ways = [(steps, why, way_s(region, feet, steps, inv)) for steps, why in dug if steps]
+    best = min((w[2] for w in ways if w[1] is None), default=math.inf)
+    walks = walks or {}
+    for c in sorted(walks, key=lambda c: least_way_s(c, feet)):
+        if least_way_s(c, feet) >= best:
+            break                                  # no farther stand is walked to sooner
+        r = walks[c]
+        if r and r.get("found"):
+            secs = float(r["seconds"]) if r.get("seconds") is not None else least_way_s(c, feet)
+            ways.append(([{"type": "goto", "x": c[0], "y": c[1], "z": c[2], "range": 0.5}], None, secs))
+            best = min(best, secs)
     if not ways:
-        return None, why or f"no way to {tuple(target)}", None
-    return min(ways, key=lambda w: w[2])
+        return None, next((why for _s, why in dug if why), None) or f"no way to {tuple(target)}", None
+    return min(ways, key=lambda w: (w[1] is not None, w[2]))
 
 def in_pit(region, feet):
     """Pure: the body stands in a hole it cannot jump out of — on every side the cell at head height is solid (a 1-deep

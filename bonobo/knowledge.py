@@ -1,7 +1,7 @@
 """Where things come from: the requirement graph the planner resolves (recipes, smelting, mining, hunting)."""
 import math
 
-from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
+from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, EYE_HEIGHT, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
                    HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
                    DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
                    SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS)
@@ -285,6 +285,17 @@ def tool_kind(block):
     if any(name.endswith(sv) for sv in SHOVEL_BLOCKS):
         return "shovel"
     return "pickaxe"
+
+def soil_depth(region, feet):
+    """Pure: the soil (shovel blocks, tool_kind) straight under `feet` down to the rock, as read; where the
+    column is not read through, at least the prior SOIL_DEPTH."""
+    x, y, z = feet
+    n = 0
+    while region is not None and region.inside((x, y - 1 - n, z)):
+        if tool_kind(region.name((x, y - 1 - n, z))) != "shovel":
+            return n
+        n += 1
+    return max(n, SOIL_DEPTH)
 
 UNBREAKABLE = ("bedrock", "barrier", "end_portal_frame", "end_portal", "nether_portal")
 NEEDS_DIAMOND = ("obsidian", "crying_obsidian", "ancient_debris", "respawn_anchor")

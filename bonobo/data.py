@@ -368,8 +368,12 @@ BED_BOX = (8.0, 5.0, 8.0)        # trySleep's monster box: the bed's bottom cent
 BED_REACH = (3.0, 2.0, 3.0)      # trySleep's isBedWithinRange: the player within these of the bed's bottom centre
 TORCH_LIGHT = 15                 # a torch's block light; one less per block away
 DEEPSLATE_TOP = 0        # below this y the overworld's rock is deepslate
-SOIL_DEPTH = 4          # overworld soil over the rock, in blocks: a staircase's first steps cut soil, the rest rock
-STAIR_BELOW = 2         # a target deeper than this below the feet is reached by a staircase, not a walk
+# overworld soil over the rock, in blocks, where the column under the feet is not read (knowledge.soil_depth):
+# a prior — worldgen's surface rule lays dirt under the grass a few blocks deep — not a measurement
+SOIL_DEPTH = 4
+# the deepest an open block beside a level stand is held from it (nav.holds over an open shaft: the rim hides a
+# deeper one; test_plan_way.LevelReach) — where no region is read (cost, gather), deeper is a staircase
+STAIR_BELOW = 2
 STAIR_CELLS = 3          # cells one staircase step clears: feet, head and the head room the walk down passes
 BAN_MAX_S = 600          # the longest any cell stays banned, however often it failed
 TASK_WAIT_S = 900

@@ -680,15 +680,11 @@ def soft_spot():
 
 
 def dig_in_site(region, feet_at, protected=()):
-    """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.dig_down_tasks, from
+    """Pure: can a dig-in finish here — DIG_IN_DEPTH cells safe to dig under the column (nav.safe_depth, from
     where a started dig began: dig_in_start), so its lid sits below the ground line? A 3-thick floor over air
     gives 2: not offered (search_night_resume chose it, then 'only 2 of 3 safe')."""
     start = dig_in_start(region, tuple(feet_at))
-    try:
-        _tasks, safe = nav.dig_down_tasks(region, start, DIG_IN_DEPTH, protected, False, dug_to=feet_at[1])
-    except NotAvailable:
-        return False
-    return safe >= DIG_IN_DEPTH
+    return nav.safe_depth(region, start, DIG_IN_DEPTH, protected, dug_to=feet_at[1]) >= DIG_IN_DEPTH
 
 def night_ground():
     """One region read around the feet for the night's pricing: (seconds' walk to hand-diggable ground or None,

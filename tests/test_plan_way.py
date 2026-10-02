@@ -196,6 +196,93 @@ class PlanWay(unittest.TestCase):
                     self.assertIsNone(seconds)
 
 
+class WalkOrStair(unittest.TestCase):
+    """plan_way chooses the level way or the staircase by seconds, at any depth (no threshold of its own)."""
+
+    def test_rows(self):
+        inv = bag(inventory(PICK))
+        wall = {(x, y, z): "stone" for x in range(6, 8) for y in range(64, 70) for z in range(-2, 3)}
+        # (situation, region, target) → (any block dug, why)
+        rows = [("must fail: a block one up in a wall ahead, no tread to climb: walked to on the level, nothing dug",
+                 ground(wall), (6, 65, 0), False, None),
+                ("5 down: the staircase", ground(), TARGET, True, None)]
+        for name, region, target, dug, why in rows:
+            with self.subTest(name):
+                steps, got_why, _s = nav.plan_way(region, FEET, target, "mine", inv, (), {})
+                self.assertIsNotNone(steps, got_why)
+                self.assertEqual(bool(mined(steps)), dug)
+                self.assertEqual(got_why, why)
+
+
+class LevelReach(unittest.TestCase):
+    """data.STAIR_BELOW (the prior where no region is read: cost, gather) is holds' own geometry: an open block beside
+    a level stand is held down to it, not one deeper (the rim hides it)."""
+
+    def test_rows(self):
+        from bonobo.data import STAIR_BELOW
+
+        def shaft(d):
+            blocks = {(x, y, z): "stone" for x in range(-3, 4) for z in range(-3, 4) for y in range(50, 64)}
+            for y in range(64 - d + 1, 64):
+                blocks.pop((1, y, 0))
+            return FakeRegion((-3, 50, -3), (3, 70, 3), blocks)
+        # (situation, depth below the feet) → held from the level stand
+        rows = [("STAIR_BELOW down: held", STAIR_BELOW, True),
+                ("must fail: one deeper: the rim hides it", STAIR_BELOW + 1, False)]
+        for name, d, want in rows:
+            with self.subTest(name):
+                self.assertIs(nav.holds(shaft(d), FEET, (1, FEET[1] - d, 0)), want)
+
+
+class WalksAsked(unittest.TestCase):
+    """plan_way reads the walks least first (least_way_s) and asks none that cannot beat its best; every stand
+    candidate is offered (no cap)."""
+
+    class Asked(dict):
+        def __init__(self, replies):
+            super().__init__(replies)
+            self.read = []
+
+        def __getitem__(self, cell):
+            self.read.append(cell)
+            return super().__getitem__(cell)
+
+    def test_rows(self):
+        inv = bag(inventory(PICK))
+        dug_s = nav.plan_way(ground(), FEET, TARGET, "mine", inv, (), {})[2]
+        near, far, beyond = (1, 64, 0), (4, 64, 0), (0, 64, 2 + int(dug_s * nav.PLAYER_SPEED))
+        quick = {"found": True, "seconds": nav.least_way_s(near, FEET)}
+        # (situation, replies) → the cells asked, in order
+        rows = [("must fail: a quick walk to the nearest: none farther asked",
+                 {far: {"found": True, "seconds": 1.0}, near: quick}, [near]),
+                ("no walk to the nearest: the next asked", {far: {"found": False}, near: {"found": False}}, [near, far]),
+                ("must fail: one farther than the staircase takes: never asked", {beyond: {"found": True}}, [])]
+        for name, replies, want in rows:
+            with self.subTest(name):
+                walks = self.Asked(replies)
+                nav.plan_way(ground(), FEET, TARGET, "mine", inv, (), walks)
+                self.assertEqual(walks.read, want)
+
+    def test_every_candidate(self):
+        region, target = ground(), (4, 63, 0)
+        # must fail: capped at three (a cheaper fourth never priced)
+        self.assertGreater(len(nav.stand_candidates(region, target, "mine")), 3)
+
+
+class SafeDepth(unittest.TestCase):
+    """nav.safe_depth: the cells safe to dig straight down, a number — never an exception (dig_in_site is pure)."""
+
+    def test_rows(self):
+        lava = ground({(0, 61, 0): "lava"})
+        # (situation, region, protected) → safe cells of 3
+        rows = [("deep stone", ground(), (), 3),
+                ("must fail: lava in the third cell: the second beside it, one", lava, (), 1),
+                ("must fail: the cell under the feet protected: none, no raise", ground(), {(0, 63, 0)}, 0)]
+        for name, region, protected, want in rows:
+            with self.subTest(name):
+                self.assertEqual(nav.safe_depth(region, FEET, 3, protected), want)
+
+
 class PickSeed(unittest.TestCase):
     """gather.pick_seed: the vein whose way is cheapest, not the nearest (§12 A4)."""
 
