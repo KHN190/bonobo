@@ -1,12 +1,12 @@
 # static_check.py known hits: "RULE COUNT"; counts only fall (gate.sh)
 # R10 47: skill/do/achieve_needs rows (and the acceptance slice) wait for F1p: a skill run priced by the F1 estimate
-R1 25
+R1 0
 R2 0
-R3 3
-R4 8
-R5 24
+R3 0
+R4 0
+R5 0
 R6 1
 R7 0
-R8 5
-R9 2
+R8 0
+R9 0
 R10 47
