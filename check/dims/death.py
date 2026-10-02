@@ -21,3 +21,8 @@ def alpha(a):
 def gamma(value, f, g):
     if value != "none":
         g.mem.log_death(SPOTS[value], f["dimension"], CARRIED)
+
+
+def step(facts, d, ctx):
+    """Recovering the drops (reflexes' "recover items") retires the death (memory.forget_death)."""
+    return {NAME: "none"} if "recover items" in (d.name or "").lower() else {}

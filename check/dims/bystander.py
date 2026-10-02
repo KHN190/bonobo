@@ -15,8 +15,8 @@ def domain():
 def valid(value, f):
     """A spider is calm by day only — the Overworld's day (threat.context_of); a piglin only while gold is worn."""
     if value == "spider":
-        return not f["night"] and f["dimension"] == "minecraft:overworld"
-    return value != "piglin" or f["kit"] == "gold"
+        return not f["night"] and not f["dusk"] and f["dimension"] == "minecraft:overworld"   # dusk is past 12000
+    return value != "piglin" or f["armour"] == "gold"
 
 
 def alpha(a):

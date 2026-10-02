@@ -111,6 +111,7 @@ class Model(unittest.TestCase):
                 # a dimension's declared effect (check/dims/ground.step): must fail — the pit left, still in it (D7)
                 (of(ground="hole"), dec(layer="maintain", name="leave the pit"), {}, "ground", "open"),
                 (of(job="due"), dec(layer="maintain", name="collect job"), {}, "job", "none"),
+                (of(death="near"), dec(layer="maintain", name="recover items"), {}, "death", "none"),
                 (of(bag="full"), dec(layer="maintain", name="empty the bag"), {}, "bag", "room")]
         for facts, d, ctx, k, want in rows:
             with self.subTest(d=d.name):
@@ -165,13 +166,13 @@ class Ungated(unittest.TestCase):
     def test_rows(self):
         from check import round as rnd
         from check.facts import DIMS
-        rows = [(d.NAME, v) for d in DIMS if getattr(d, "DEPENDS", None) is None for v in d.domain()]
+        # a value its own `valid` refuses alone (a piglin calm only beside gold worn) needs other facts: not alone
+        rows = [(d.NAME, v) for d in DIMS if getattr(d, "DEPENDS", None) is None for v in d.domain()
+                if of(**{d.NAME: v})[d.NAME] == v]
         self.assertIn(("kit", "sword"), rows)             # must fail: kit gated on a threat again
         for name, v in rows:
             with self.subTest(fact=name, value=v):
-                f = of(**{name: v})
-                self.assertEqual(f[name], v)
-                self.assertEqual(rnd.decide(f, fail_then_again=False)[1][name], v)
+                self.assertEqual(rnd.decide(of(**{name: v}), fail_then_again=False)[1][name], v)
 
 
 class Queued(unittest.TestCase):

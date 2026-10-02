@@ -2,10 +2,12 @@
 raw iron and coal (a smelt), logs (planks without a tree). None of it is a base fact (food is cooked food, building
 is blocks)."""
 NAME = "carried"
-VALUES = ("none", "raw_meat", "raw_iron", "logs", "iron_planks")
+VALUES = ("none", "raw_meat", "raw_iron", "logs", "iron_planks", "meat_fuel")
 
 # iron_planks: raw iron with planks and no coal (planner._smelt's other fuel); checked first, it holds no coal
-ITEMS = {"iron_planks": (("raw_iron", 3), ("oak_planks", 8)), "raw_meat": (("beef", 6),),
+# meat_fuel: raw meat with fuel (reflexes.can_cook: cooked rather than eaten raw), checked before raw_meat
+ITEMS = {"iron_planks": (("raw_iron", 3), ("oak_planks", 8)), "meat_fuel": (("beef", 6), ("coal", 2)),
+         "raw_meat": (("beef", 6),),
          "raw_iron": (("raw_iron", 3), ("coal", 2)), "logs": (("oak_log", 4),)}
 
 

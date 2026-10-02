@@ -15,10 +15,12 @@ def domain():
 
 
 def valid(value, f):
-    """A ranged mob is a threat row only by a line of fire (perception.reaches_us); a hole's walls (ground) cut it:
-    the layer sees nothing, so it holds nothing."""
+    """A ranged mob is a threat row only by a line of fire (perception.reaches_us): a hole's walls (ground) cut it, and
+    so do the home's walls when it stands far, outside them (place home/enclosed, range far) — the layer sees
+    nothing, so it holds nothing."""
     from bonobo.beliefs import MOBS
-    return value == "none" or not (MOBS[f"minecraft:{f['mob']}"].get("ranged") and f["ground"] == "hole")
+    walled = f["ground"] == "hole" or (f["range"] == "far" and f["place"] in ("home", "enclosed"))
+    return value == "none" or not (MOBS[f"minecraft:{f['mob']}"].get("ranged") and walled)
 
 
 def _reading(state):

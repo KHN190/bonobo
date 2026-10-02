@@ -1,17 +1,19 @@
-"""Background work in memory near the feet: a furnace job still cooking, or due (world.job_ready: the collect row
-and the plan's await read it); a crop job growing (memory.jobs kind crop: cost.ripe, the await); an auto smelter
-whose loaded order is due (memory.machines pending: craft.pending_ready, the collect-machine row)."""
+"""Background work in memory (one fact: memory.jobs and memory.machines): none; a furnace job still running — meat
+cooking (food) or iron smelting (iron): memory.pending_outputs, needs.food_on_its_way, the planner's awaited outputs;
+a furnace job due (world.job_ready: the collect row); a crop job growing (kind crop: cost.ripe, the await); an auto
+smelter whose loaded order is due (craft.pending_ready: the collect-machine row)."""
 import time
 
 from bonobo.craft import pending_ready
 from bonobo.world import job_ready
 
 NAME = "job"
-VALUES = ("none", "cooking", "due", "growing", "machine_due")
-FURNACE = (6, 64, -6)               # near the feet (reflexes.JOB_RANGE), outside the home box (not one of its stations)
+VALUES = ("none", "food", "iron", "due", "growing", "machine_due")
+FURNACE = (20, 64, -20)      # out of the home and past actions.STATION_R: the base `station` fact stays its own
 FIELD = (-6, 64, -6)                # the plot the crop job names
 SMELTER = (-8, 64, 8)               # the machine's origin
 SMELTER_BLUEPRINT, SMELTER_TAGS = "auto_smelter", ("smelting",)
+JOB = {"food": ("minecraft:cooked_beef", 4), "iron": ("minecraft:iron_ingot", 3), "due": ("minecraft:cooked_beef", 4)}
 LATER_S = 10 ** 9                   # ready long after any round
 
 
@@ -23,12 +25,12 @@ def alpha(a):
     if any(pending_ready(m) for m in a.mem.machines(a.snap.dimension)):
         return "machine_due"
     jobs = a.mem.jobs(a.snap.dimension)
-    if not jobs:
-        return "none"
-    tick = a.snap.state.get("gameTime")
     if any(j["kind"] == "crop" for j in jobs):
         return "growing"
-    return "due" if any(job_ready(j, tick) for j in jobs) else "cooking"
+    if any(job_ready(j, a.snap.state.get("gameTime")) for j in jobs):
+        return "due"
+    out = a.mem.pending_outputs(a.snap.dimension)
+    return next((k for k in ("food", "iron") if out.get(JOB[k][0])), "none")
 
 
 def gamma(value, f, g):
@@ -41,9 +43,9 @@ def gamma(value, f, g):
     elif value == "growing":
         g.mem.add_job("crop", FIELD, dim, "minecraft:wheat", 3, time.time() + LATER_S, False)
     else:
+        item, n = JOB[value]
         g.blocks[FURNACE] = "furnace"
-        g.mem.add_job("furnace", FURNACE, dim, "minecraft:cooked_beef", 4,
-                      0.0 if value == "due" else time.time() + LATER_S, False)
+        g.mem.add_job("furnace", FURNACE, dim, item, n, 0.0 if value == "due" else time.time() + LATER_S, False)
 
 
 def step(facts, d, ctx):

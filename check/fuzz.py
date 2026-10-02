@@ -72,6 +72,7 @@ def run(seconds, save=False, stall=None, log=print):
     of CHUNK examples until SECONDS × SEARCH_SHARE is spent or `stall` seconds pass with no new branch arm; each
     chunk logged as it ends (a long run is watched, not waited on)."""
     from hypothesis import HealthCheck, Phase, find, given, settings, target
+    from hypothesis.errors import NoSuchExample
     t0, gate = time.time(), Gate()
     kept, found, examples = [], {}, [0]
     with gate:
@@ -107,9 +108,12 @@ def run(seconds, save=False, stall=None, log=print):
         for inv in sorted(found):
             if seconds - (time.time() - t0) <= 0:
                 break
-            found[inv] = find(states(), lambda f, inv=inv: inv in judged(f)[1],
-                              settings=settings(max_examples=SHRINK_EXAMPLES, deadline=None, database=None,
-                                                suppress_health_check=[HealthCheck.too_slow]))
+            try:
+                found[inv] = find(states(), lambda f, inv=inv: inv in judged(f)[1],
+                                  settings=settings(max_examples=SHRINK_EXAMPLES, deadline=None, database=None,
+                                                    suppress_health_check=[HealthCheck.too_slow]))
+            except NoSuchExample:
+                pass                     # the shrink drew no violating state in its tries: the one the search saw stands
             log(f"fuzz: {inv} shrunk to {off_default(found[inv])}")
     hit, total, _unhit = gate.report()
     return {"examples": examples[0], "kept": len(kept), "new_arms": new_arms, "found": found, "hit": hit,
