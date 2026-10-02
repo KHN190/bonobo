@@ -66,7 +66,8 @@ class Oracle(unittest.TestCase):
 
     def test_unchecked_ones_are_named(self):
         got = oracle.unchecked(of(), dec())
-        self.assertEqual({k for k, why in got.items() if why == PENDING["F1"]}, {"D4", "D6", "R1", "R2", "R4"})
+        self.assertEqual({k for k, why in got.items() if why == PENDING["F1"]}, set())   # check/inv/plan.py judges them
+        self.assertTrue({"D4", "D6", "R1", "R2", "R4"} <= set(got))         # no plan in an empty ctx: said, not passed
         self.assertNotIn("S5", got)                                         # judged: brain.fight_line_holds
         self.assertNotIn("S4", got)                                         # must fail: a judged one said unchecked
 
