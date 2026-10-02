@@ -28,7 +28,7 @@ DOMAINS = {
     "hunger": ("full", "low", "starve"),    # /state food against reflexes.EAT_BELOW, reflexes.STARVE
     "station": ("none", "crafting_table", "furnace"),   # memory.stations within actions.STATION_R
     # the threat's kind (its first value when there is no threat); a neutral one provoked (threat.aggro)
-    "mob": ("zombie", "skeleton", "creeper", "spider", "enderman"),
+    "mob": ("zombie", "skeleton", "creeper", "spider", "enderman", "blaze"),
 }
 # a fact read only while (pred, the facts that turn it on) holds: else its first value (one state, not many)
 DEPENDS = {"mob": (lambda f: f["threat"], {"threat": True})}
