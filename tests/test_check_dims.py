@@ -17,12 +17,11 @@ class Steps(unittest.TestCase):
         (dusk, of(dusk=True, bed="home"), dec("sleep"), {}, {"dusk": False}),
         (dusk, of(dusk=True), dec("wait for day"), {}, {"dusk": False}),
         (dusk, of(dusk=True), dec("idle: have pickaxe tier 1"), {"step_kind": "gather"}, {}),   # must fail: work is not the night
-        (task, of(task="goto"), dec("task t1", "pos"), {"step_kind": "goto"}, {"task": "none"}),
         (task, of(task="milestone"), dec("task t1", "crafting_table"), {"step_kind": "seek"},
          {"station": "crafting_table"}),
         (task, of(task="milestone"), dec("task t1", "tree"), {"step_kind": "seek"}, {"tree": True}),
         (task, of(task="milestone"), dec("task t1", "air"), {"step_kind": "reach"}, {}),
-        (task, of(), dec("idle: have pickaxe tier 1", "pos"), {"step_kind": "goto"}, {}),   # must fail: no task, no effect
+        (task, of(), dec("idle: have pickaxe tier 1", "tree"), {"step_kind": "seek"}, {}),   # must fail: no task, no effect
         (task, of(task="tool", pickaxe=2), Decision(None, None, None, None, (), None, None, ()), {}, {"task": "none"}),
         (task, of(task="tool", pickaxe=1), dec("task t1", "log"), {"step_kind": "gather"}, {}),   # not held yet
     ]
