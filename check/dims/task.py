@@ -7,7 +7,19 @@ FAR = [40, 64, 0]    # a place to go: off the γ floor's cells, a walk away
 # value → (the goal, how it is queued): a template each (milestone: iron tools, which no bag here holds; end: the end
 # portal milestone, its THEN steps), a blueprint, and three task states over the tool goal
 VALUES = ("none", "milestone", "tool", "build", "portal", "goto", "road", "skill", "effect", "end", "expired",
-          "planned", "cooling", "solver", "food", "bed", "torches", "blocks", "blaze", "pearls", "second")
+          "planned", "cooling", "solver", "food", "bed", "torches", "blocks", "blaze", "pearls", "second",
+          "effect_hunt", "effect_mine", "effect_take", "effect_craft", "effect_bare", "build_unknown",
+          "logs", "iron", "fill", "farm")
+# effect goals of each kind decompose fills a detail for (decompose.effect_detail: hunt, mine, take, craft) and one
+# whose step lacks the detail its provider reads (missing_detail: refused, Unplannable)
+EFFECTS = {"effect": "light", "effect_hunt": "hunt:minecraft:beef", "effect_mine": "mine:minecraft:coal",
+           "effect_take": "take:minecraft:crafting_table", "effect_craft": "craft:minecraft:stick",
+           "effect_bare": "goto"}
+# one-item `have`s outside the base `queued` fact: a material a container may hold (logs, iron: from_containers, B1),
+# a bucket of water (a fill column), wheat (a farm column)
+HAVE = {"logs": ("minecraft:oak_log", 16), "iron": ("minecraft:iron_ingot", 3),
+        "fill": ("minecraft:water_bucket", 1), "farm": ("minecraft:wheat", 8)}
+UNKNOWN_BP = "check-none"    # a blueprint nobody registered (decompose._decompose refuses it)
 # the column solver's milestones with their own branches: a meal (planner._food, cooked_from_carried), a bed (wool: a
 # hunt or a shear), torches (coal or charcoal: a smelt), building blocks (a mine at a tier)
 # blaze rods: a hunt in FALL_RISK (needs.needs_water_bucket); pearls: a hunt of a fighter (actions._hunt's FIGHTERS)
@@ -34,7 +46,9 @@ def goal(value):
             "goto": lambda: goals.make("goto", pos=FAR, range=2),
             "road": lambda: goals.make("road", a=[0, 64, 0], b=FAR),
             "skill": lambda: goals.make("skill", name="chop", args=[4]),
-            "effect": lambda: goals.make("effect", effect="light", count=1),
+            **{v: (lambda e=e: goals.make("effect", effect=e, count=1)) for v, e in EFFECTS.items()},
+            **{v: (lambda r=r: goals.have(r)) for v, r in HAVE.items()},
+            "build_unknown": lambda: goals.make("build", bp=UNKNOWN_BP),
             }[value]()
 
 
@@ -47,7 +61,8 @@ def _of(t):
     g, args = t["goal"], t.get("args", {})
     if g == "have":
         if args["needs"][0][0] != "tool":
-            return None
+            item = args["needs"][0][0]
+            return next((v for v, (i, _n) in HAVE.items() if i == item), None)
         if t.get("expires") is not None:
             return "expired"
         if t.get("solver"):
@@ -59,7 +74,9 @@ def _of(t):
         named = {n: v for v, n in MILESTONES.items()}
         return "end" if args.get("name") == "end portal" else named.get(args.get("name"), "milestone")
     if g == "build":
-        return "portal" if args.get("bp") == "nether_portal" else "build"
+        return {"nether_portal": "portal", UNKNOWN_BP: "build_unknown"}.get(args.get("bp"), "build")
+    if g == "effect":
+        return next((v for v, e in EFFECTS.items() if e == args.get("effect")), None)
     return g if g in VALUES else None
 
 
