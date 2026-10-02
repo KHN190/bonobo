@@ -11,7 +11,7 @@ from .skillcore import head_buried
 # rescue skills lent by skills.py at import, so readers of a hazard never drag in the skill library
 SKILLS = {}
 
-KINDS = ("lava", "burning", "drowning", "suffocating", "critical", "falling")
+KINDS = ("lava", "burning", "drowning", "suffocating", "critical", "threat", "falling")
 
 TICKS_PER_S = 20.0
 REFLEX_SLACK_S = 2.0      # between tasks: surface while there is still room, rather than at the last moment
@@ -40,8 +40,9 @@ def falling(state, fallen):
         return False
     return fallen >= FALL_BLOCKS
 
-def kind(state, buried=False, fallen=0.0):
-    """Pure: the environmental hazard on the body now (one of KINDS), or None."""
+def kind(state, buried=False, fallen=0.0, unanswered=None):
+    """Pure: the hazard on the body now (one of KINDS), or None. `unanswered`: why the threat layer has no answer to
+    what is closing (threat.THREAT_UNANSWERED) — handed here, SAFETY's like the environment's."""
 
     if state.get("inLava"):
         return "lava"
@@ -53,6 +54,8 @@ def kind(state, buried=False, fallen=0.0):
         return "suffocating"
     if not state.get("dead") and state.get("health", MAX_HP) <= critical_hp(state):
         return "critical"           # health at the floor is a danger of its own, threat or not (SAFETY's, S1)
+    if unanswered:
+        return "threat"
     if falling(state, fallen):
         return "falling"
     return None
@@ -132,13 +135,19 @@ def _into_cover(ctx, s):
     """Into cover: the cheapest shelter that can run here now (needs.cover, lent like the other rescues)."""
     SKILLS["cover"](ctx, s)
 
+def _dig_in(ctx, s):
+    """Down out of reach: dig in where we stand (survive.dig_in, lent)."""
+    SKILLS["dig_in"](ctx)
+
 # each hazard's recovery, in order (S1): its rescue first, then the next way that answers the same hazard when one
 # is spent (over its budget, or refused); the list spent → the reasons. The suffocation rescue may break a home block
 # at critical hp (survive.unbury): a life before a build. Water poured on lava sets it: the lava's second way.
 RECOVERY = {"lava": [_leave_lava, _extinguish], "drowning": [_surface, _into_cover], "suffocating": [_unbury],
             "burning": [_extinguish, _into_cover],
             # critical health: under a threat out of its reach first (a meal under blows is never finished); calm, eat
-            "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]}}
+            "critical": {"threatened": [_into_cover, _meal], "calm": [_meal, _into_cover]},
+            # a threat the threat layer has no answer to (threat.THREAT_UNANSWERED): out of its reach
+            "threat": [_into_cover, _dig_in]}
 
 
 def ways(k, threatened=False):
@@ -164,8 +173,8 @@ def recover(ctx, k, state, threatened=False):
 STOP_ONLY = ("falling",)
 assert set(RECOVERY) | set(STOP_ONLY) == set(KINDS), "every hazard kind is recovered or declared stop-only"
 
-def rescue_due(state, buried=None):
-    """The hazard the brain must answer before anything else this round, or None."""
+def rescue_due(state, buried=None, unanswered=None):
+    """The hazard the brain must answer before anything else this round, or None (`unanswered`: kind's)."""
 
     if state.get("inWater") and drowning_in(state) <= REFLEX_SLACK_S:
         return "drowning"
@@ -174,13 +183,13 @@ def rescue_due(state, buried=None):
             buried = head_buried(state)
         except api.McError:
             buried = False
-    k = kind(state, buried=buried)
+    k = kind(state, buried=buried, unanswered=unanswered)
     return k if k in RECOVERY else None
 
-def handle(ctx, state, attempt, ready, threatened=False):
+def handle(ctx, state, attempt, ready, threatened=False, unanswered=None):
     """Run the rescue for the hazard on the body, if there is one."""
 
-    k = rescue_due(state)
+    k = rescue_due(state, unanswered=unanswered)
     if k is None or not ready(f"rescue {k}"):
         return False
     log(f"L0: {k} → rescue")

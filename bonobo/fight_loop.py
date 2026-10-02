@@ -344,6 +344,7 @@ def _note_look(t, st, field_model, price, horizon, keeper, option, worth, why):
 def bid(state, rows, price, work_s=None, now=None, ids=()):
     """(the answer, seconds it saves) the held decision stands behind now, or None when nothing pays."""
     if not rows:
+        threat.THREAT_UNANSWERED = None
         return None
     STATE.last_bid.update(state=state, price=price)
     st = threat_state(state, rows, work_s, ids)
@@ -357,6 +358,8 @@ def bid(state, rows, price, work_s=None, now=None, ids=()):
                          holds=lambda c, _s: still_worth(c, field_model, price, horizon_now))
     option = choice.action.option if choice.action is not None else None
     t = now if now is not None else time.time()
+    # nothing to do and it still hurts: the fact goes to SAFETY (hazard "threat"), never left to the plan
+    threat.THREAT_UNANSWERED = threat.unanswered(field_model) if option is None or option.kind == "ignore" else None
     if option is None or option.kind == "ignore":
         _note_look(t, st, field_model, price, horizon_now, keeper, option, None,
                    "no action" if option is None else "ignore is the best")

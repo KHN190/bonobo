@@ -1409,6 +1409,33 @@ class EatingInAFight(unittest.TestCase):
                 self.assertEqual([(o.kind, o.target, o.heals) for o in got], want)
 
 
+class NoAnswerGoesToSafety(unittest.TestCase):
+    """threat.unanswered: carrying on still hurts and the fallback has nothing — the fact handed to SAFETY (hazard
+    kind "threat", recovered by cover then dig in), never left to the plan (S1)."""
+
+    def test_rows(self):
+        from bonobo import hazard
+        nowhere = (lambda spot: None)  # noqa: E731
+        # (situation, threats, our state) → handed over (a reason) or not
+        rows = [("must fail: a zombie closing, nowhere to go, nothing to build, no fight to live: handed to SAFETY",
+                 [row("minecraft:zombie", 3, 0)], dict(sword=0, footing=nowhere), True),
+                ("open ground, fists: flight answers it", [row("minecraft:zombie", 3, 0)], dict(sword=0), False),
+                ("a sword: the fight answers it", [row("minecraft:zombie", 3, 0)], dict(sword=2), False),
+                ("nothing closing: nothing to hand over", [row("minecraft:zombie", 40, 0)], dict(sword=0), False)]
+        for name, hazards, kw, handed in rows:
+            with self.subTest(name):
+                state = {"here": HERE, "hp": 20, "sword": 0, "protection": 0.0, "blocks": 0, "hazards": hazards,
+                         "ids": list(range(len(hazards))), **kw}
+                why = threat.unanswered(threat.Field(state))
+                self.assertEqual(why is not None, handed, why)
+        with self.subTest("handed over, it is SAFETY's: hazard kind threat, below critical health"):
+            s = {"health": 20.0, "food": 20, "onGround": True}
+            self.assertEqual(hazard.kind(s, unanswered="no answer"), "threat")
+            self.assertIsNone(hazard.kind(s))
+            self.assertEqual(hazard.kind({**s, "health": 1.0}, unanswered="no answer"), "critical")
+            self.assertEqual([w.__name__ for w in hazard.ways("threat")], ["_into_cover", "_dig_in"])
+
+
 class FallbackTableSpent(unittest.TestCase):
     """threat.fallback: a melee follower closing and nothing that saves — never ignore while an answer exists: once
     the table (shape, flight from the slower, fight) is spent, flight even from a follower as fast as us."""
