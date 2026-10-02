@@ -223,7 +223,7 @@ class CrossingFails(unittest.TestCase):
 class DoorwayIsNotInside(unittest.TestCase):
     def test_the_rows_reach(self):
         # the bench row's target and reach, one test for run, check and travel_to's verify (nav.there)
-        from bonobo.bench.vocab import pos
+        from bonobo.bench.core import pos
         from bonobo.bench.words import door as dw
 
         def at(cell):

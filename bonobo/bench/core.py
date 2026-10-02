@@ -135,7 +135,12 @@ def shift(cmd, offset=SITE_B, origin=ORIGIN, box=BOX, margin=8):
 def at(dx, dy, dz, origin=ORIGIN):
     return origin[0] + dx, origin[1] + dy, origin[2] + dz
 
+def pos(p):
+    """("@", dx, dy, dz) → the absolute position; anything else unchanged."""
+    return at(*p[1:]) if isinstance(p, tuple) and len(p) == 4 and p[0] == "@" else p
+
 def _c(p):
+    p = pos(p)
     return f"{p[0]} {p[1]} {p[2]}"
 
 BRAIN = None     # set by `mc.py scenario`: plan-driven scenarios execute steps exactly as the brain does

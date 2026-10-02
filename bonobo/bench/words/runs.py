@@ -22,16 +22,13 @@ import sys
 import time
 from .. import core, runner
 from ...data import DAY_TICKS, POD_BLOCKS  # noqa: F401
-from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
+from .checks import BASE, FAILED_AS_EXPECTED, INTERRUPTS, _base_count, _gain, _inv_now, _now
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
-from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from ..core import SWEEP, _platform  # noqa: F401
-from .scene import *  # noqa: F401,F403
-from .checks import *  # noqa: F401,F403
 
 # -- slices: the cerebellum itself over a private task queue; measures scheduling and chaining (loops, idle holds, wrong-way unstucks)
 SLICE = {}

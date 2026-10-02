@@ -542,7 +542,17 @@ ROWS = [
          skills=['craft_chain'], tier_fixed='exception', tags={'base': 'craft'}),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
-from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
+import threading as _threading
+import time
+from . import core
+from .core import NOTES, _c, _chat, _count_blocks, _drain, at
+from .vocab import PORTAL_8_OF_10, ROAD_TIMES, _queue, _road_reuse, _worn_head, one_row, real_row
+from .words.brain import _container_noted, _fill_bag, _forget_all, _remembered_any
+from .words.checks import _alive, _all, _base_count, _free_slots, _gain, _inv_now, _skill, _start
+from .words.fight import NETHER_LAVA
+from .words.runs import (_achieve_needs, _brain_rounds, _forget_skill_time, _hooks, _interrupt_when, _resume,
+    _skill_within, _timed)
+from .words.scene import _floor, _grove, _scene_params, _tp, limit, scene
 
 def _scene_of(name):
     """A tabled row's scene here, for a one-off row built on it."""

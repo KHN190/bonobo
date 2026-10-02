@@ -76,7 +76,14 @@ ROWS = [
          tags={'base': 'mine_stone', 'state': 'hungry'}),
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
-from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
+from . import core
+from .bench_bases import BASES
+from .core import _achieve, _c, at
+from .vocab import base_row
+from .words.brain import SMELT_FURNACES, _interrupt_once_loaded, _iron_in_furnaces, _load_the_rest
+from .words.checks import INTERRUPTS, RESUMED_LEFT, _all, _inv_now, _skill, _start
+from .words.runs import _hooks, _resume
+from .words.scene import CHOP_TREE, _floor, _tp
 CODE_ROWS = [
     base_row("chest_or_tree", "chop", surprise=dict(
         base="chop", doc="4 logs in a chest by the body, a tree 12 away: the brain takes the cheaper (plan-driven, "

@@ -15,6 +15,7 @@ import os
 import sys
 
 from bonobo.bench import table, vocab
+from bonobo.bench.words import checks as words_checks, scene as words_scene
 from bonobo.bench.core import ORIGIN
 
 NEAR = 256           # a triple within this of ORIGIN on every axis is a bench position ("@", dx, dy, dz)
@@ -61,7 +62,8 @@ def enc(v, depth=0):
 
 
 def _scen():
-    return sys.modules.get("bonobo.bench.vocab") or __import__("bonobo.bench.vocab", fromlist=["x"])
+    """The word registry rows resolve names in (vocab.REGISTRY)."""
+    return vocab.REGISTRY
 
 
 def name_of(f):
@@ -69,11 +71,11 @@ def name_of(f):
     q = f.__name__
     scen = _scen()
     short = q.lstrip("_")
-    if short and short not in vocab.PREDICATES and short not in vocab.LOGIC and short not in table.RUNS \
+    if short and short not in words_checks.PREDICATES and short not in words_checks.LOGIC and short not in table.RUNS \
             and short not in table.WORDS \
-            and not hasattr(scen, short) and getattr(scen, q, None) is f:
+            and short not in scen and scen.get(q) is f:
         return short
-    if getattr(scen, q, None) is f:
+    if scen.get(q) is f:
         return q
     return f"{f.__module__}:{q}"
 
@@ -514,7 +516,7 @@ def _one(cmd):
         item = item or ("at", tmpl) + tuple(rel)
     for cand in (item, ("cmd", cmd)):
         try:
-            if vocab.scene([cand]) == [cmd]:
+            if words_scene.scene([cand]) == [cmd]:
                 return cand
         except Exception:     # noqa: BLE001
             pass
@@ -535,8 +537,8 @@ def _sheet_lists():
     import bonobo.bench.core as core_mod
     scen = _scen()
     out = {}
-    for mod, prefix in ((scen, ""), (core_mod, "bonobo.bench.core:")):
-        for k, v in vars(mod).items():
+    for names, prefix in ((scen, ""), (vars(core_mod), "bonobo.bench.core:")):
+        for k, v in names.items():
             if isinstance(v, list) and len(v) >= 2 and all(isinstance(c, str) for c in v) and k.isupper() or \
                     isinstance(v, list) and len(v) >= 2 and k.startswith("_") and k[1:].isupper() \
                     and all(isinstance(c, str) for c in v):
@@ -544,7 +546,7 @@ def _sheet_lists():
                                                                                 "clear", "summon", "kill", "item")
                                                              for c in v):
                     name = k if prefix == "" else prefix + k
-                    if getattr(scen, k, None) is v:
+                    if scen.get(k) is v:
                         name = k
                     out.setdefault(name, v)
     return sorted(out.items(), key=lambda kv: -len(kv[1]))
@@ -556,13 +558,13 @@ def _groups(cmds, i):
         if cmds[i:i + len(lst)] == lst:
             return ("sheet", name), len(lst)
     first = _one(cmds[i])
-    if vocab.scene([first]) == vocab.scene([("grove",)]):
+    if words_scene.scene([first]) == words_scene.scene([("grove",)]):
         spots, j, wood = [], i + 1, "oak"
         while j + 2 < len(cmds) + 0 and j + 2 <= len(cmds) - 1:
             log = _one(cmds[j + 2])
             if log[0] == "fill" and log[3].endswith("_log") and log[1][2] == 0:
                 cand = ("tree", log[1][1], log[1][3], log[3][:-4])
-                if vocab.scene([cand]) == cmds[j:j + 3]:
+                if words_scene.scene([cand]) == cmds[j:j + 3]:
                     spots.append((log[1][1], log[1][3]))
                     wood = log[3][:-4]
                     j += 3
@@ -571,14 +573,14 @@ def _groups(cmds, i):
         word = ("grove",) + tuple(spots)
         if wood != "oak":
             raise NotExpressible("a grove of another wood")
-        if vocab.scene([word]) == cmds[i:j]:
+        if words_scene.scene([word]) == cmds[i:j]:
             return word, j - i
     if first[0] == "fill" and first[3] == "oak_fence":
         half = first[2][1]
         for n in range(6, -1, -1):
             for mob in ("cow", "sheep", "pig", "chicken"):
                 cand = ("pen", mob, n, half)
-                out = vocab.scene([cand])
+                out = words_scene.scene([cand])
                 if cmds[i:i + len(out)] == out:
                     return _trim(cand, (7,)), len(out)
     if first[0] == "setblock" and first[2] == "chest":
@@ -592,7 +594,7 @@ def _groups(cmds, i):
                 continue
             break
         cand = ("chest", p) + tuple(items)
-        if vocab.scene([cand]) == cmds[i:j]:
+        if words_scene.scene([cand]) == cmds[i:j]:
             return cand, j - i
     if first[0] in ("fill", "floor") and i + 4 < len(cmds):
         f = _one(cmds[i])
@@ -603,7 +605,7 @@ def _groups(cmds, i):
                     for wt in [None] + list(range(fy + 1, top + 1)):
                         for side in (None, "north", "south", "west", "east"):
                             cand = ("tank", x0, x1, z0, z1, top, wt, fy, wall, side)
-                            out = vocab.scene([cand])
+                            out = words_scene.scene([cand])
                             if cmds[i:i + len(out)] == out:
                                 return _trim(cand, (None, -4, "glass", None)), len(out)
     return None, 0
@@ -620,11 +622,11 @@ def scene_of(setup):
                 log = _one(setup[i + 2])
                 if log[0] == "fill" and log[3].endswith("_log") and log[1][2] == 0:
                     cand = _trim(("tree", log[1][1], log[1][3], log[3][:-4], log[2][2] + 1), ("oak", 5))
-                    if vocab.scene([cand]) == setup[i:i + 3]:
+                    if words_scene.scene([cand]) == setup[i:i + 3]:
                         word, n = cand, 3
         out.append(word)
         i += n
-    if vocab.scene(out) != list(setup):
+    if words_scene.scene(out) != list(setup):
         raise NotExpressible("the scene does not render back")
     return out
 

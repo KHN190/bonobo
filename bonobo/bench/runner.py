@@ -842,9 +842,9 @@ def _row_verdict(sc, seconds, crashed, fired, exc, note):
             except McError as e:
                 CHECK_READOUT["reflex"] = f"{type(e).__name__}: {e}"
         # a crash of ours is never a pass
-        from . import vocab as _rows
-        ok, why = judge(reached, seconds, sc["budget"], crashed, _rows.BASE.get("run_s"),
-                        _rows.BASE.get("target_s") or sc.get("target_s"),    # a row's own, measured at start
+        from .words.checks import BASE
+        ok, why = judge(reached, seconds, sc["budget"], crashed, BASE.get("run_s"),
+                        BASE.get("target_s") or sc.get("target_s"),    # a row's own, measured at start
                         raised=(note or type(exc).__name__) if exc is not None else None)
         ok = ok and not fired.is_set()
         if reached and not ok:

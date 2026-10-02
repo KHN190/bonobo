@@ -17,6 +17,8 @@ from bonobo import arbiter, bag as BG, blueprints as B, brewing as BW, combat as
 from bonobo import dragon as DR, end as END, farming as FM, fluids as FL, loot as LT, nav, needs as UK, nether as NT  # noqa: E402
 from bonobo import explore as EX, review as RV, roads as ROADS, store as ST, survive as SV, terrain as TN, ui as UI, world as WD  # noqa: E402
 from bonobo.bench import table as SC  # noqa: E402
+from bonobo.bench import core  # noqa: E402
+from bonobo.bench.words import runs as words_runs  # noqa: E402
 from bonobo.api import NavFailed  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
 from bonobo.data import RECIPES  # noqa: E402
@@ -671,21 +673,21 @@ def _record(*runs, name="s", code="c"):
     t = {}
     for ok, s, *cls in runs:
         if cls:
-            SC.record(t, name, code, ok, s, "SETUP_INVALID" if cls[0] == "setup" else "", cls=cls[0])
+            runner.record(t, name, code, ok, s, "SETUP_INVALID" if cls[0] == "setup" else "", cls=cls[0])
         else:
-            SC.record(t, name, code, ok, s)
+            runner.record(t, name, code, ok, s)
     return t
 
 
 def _mod_hashes():
     src = tempfile.mkdtemp(prefix="bonobo-modsrc-")
     try:
-        for rel in SC.MOD_CORE + [f for fs in SC.MOD_FILES.values() for f in fs]:
+        for rel in runner.MOD_CORE + [f for fs in runner.MOD_FILES.values() for f in fs]:
             p = os.path.join(src, rel)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w") as fh:
                 fh.write(rel)
-        return SC.mod_hash(["craft"], java=src), SC.mod_hash(["craft"], java=src), SC.mod_hash(None, java=src)
+        return runner.mod_hash(["craft"], java=src), runner.mod_hash(["craft"], java=src), runner.mod_hash(None, java=src)
     finally:
         shutil.rmtree(src, ignore_errors=True)
 
@@ -694,13 +696,13 @@ def _waits(*chosen):
     picks = collections.Counter()
     for k in chosen:
         arbiter.note_pick(picks, arbiter.Intent("plan", lambda: None, k, at=0.0, kind=k, key=k) if k else None)
-    return SC.slice_report([], [], None, 0, picks)["waits"]
+    return words_runs.slice_report([], [], None, 0, picks)["waits"]
 
 
 def _refused_without_flag():
     with mock.patch.object(runner, "FLAG", os.path.join(tempfile.mkdtemp(prefix="noflag"), "test-world")):
         try:
-            SC.run_named("gather_logs", None)
+            runner.run_named("gather_logs", None)
         except RuntimeError:
             return True
     return False
@@ -715,34 +717,34 @@ class Bench(unittest.TestCase):
                         name="fill_water_bucket", code="h")
         stable = _record((True, 10), (True, 11), name="activate_end_portal", code="old")
         unsettled = _record((True, 10), (True, 11), name="activate_end_portal", code="old")
-        SC.record(unsettled, "activate_end_portal", "new-jar", False, 60)
+        runner.record(unsettled, "activate_end_portal", "new-jar", False, 60)
         table(self, [
-            ("2 of the last 3 passed: ready, the median of passes", lambda: SC.status(cast, "cast_obsidian", "abc"),
+            ("2 of the last 3 passed: ready, the median of passes", lambda: runner.status(cast, "cast_obsidian", "abc"),
              ("scenario", 50)),
-            ("a new code hash starts untested", lambda: SC.status(cast, "cast_obsidian", "new")[0], "untested"),
-            ("must fail: recent failures demote it", lambda: SC.status(demoted, "cast_obsidian", "abc")[0], "failing"),
-            ("setup failures don't count against a skill", lambda: SC.status(setup, "fill_water_bucket", "h"),
+            ("a new code hash starts untested", lambda: runner.status(cast, "cast_obsidian", "new")[0], "untested"),
+            ("must fail: recent failures demote it", lambda: runner.status(demoted, "cast_obsidian", "abc")[0], "failing"),
+            ("setup failures don't count against a skill", lambda: runner.status(setup, "fill_water_bucket", "h"),
              ("scenario", 3)),
             ("must fail: one pass of a chance row is no verdict yet (run again)",
-             lambda: SC.verdict(_record((True, 1)), "s", "c"), None),
-            ("two passes of a chance row: a pass", lambda: SC.verdict(_record((True, 1), (True, 1)), "s", "c"), "pass"),
-            ("one failure is no verdict yet", lambda: SC.verdict(_record((False, 1)), "s", "c"), None),
+             lambda: runner.verdict(_record((True, 1)), "s", "c"), None),
+            ("two passes of a chance row: a pass", lambda: runner.verdict(_record((True, 1), (True, 1)), "s", "c"), "pass"),
+            ("one failure is no verdict yet", lambda: runner.verdict(_record((False, 1)), "s", "c"), None),
             ("must fail: two counted fails, setup ignored",
-             lambda: SC.verdict(_record((False, 1, "setup"), (False, 1), (False, 1)), "s", "c"), "fail"),
+             lambda: runner.verdict(_record((False, 1, "setup"), (False, 1), (False, 1)), "s", "c"), "fail"),
             ("a stable pass stays settled across code/jar changes",
-             lambda: (SC.settled(stable, "activate_end_portal"), SC.verdict(stable, "activate_end_portal", "new-jar")),
+             lambda: (runner.settled(stable, "activate_end_portal"), runner.verdict(stable, "activate_end_portal", "new-jar")),
              (True, None)),
-            ("must fail: a failure un-settles it", lambda: SC.settled(unsettled, "activate_end_portal"), False),
+            ("must fail: a failure un-settles it", lambda: runner.settled(unsettled, "activate_end_portal"), False),
             ("one pass settles a non-fight row",
-             lambda: SC.settled(_record((True, 22), name="cave_escape"), "cave_escape"), True),
+             lambda: runner.settled(_record((True, 22), name="cave_escape"), "cave_escape"), True),
             ("must fail: fights never settle",
-             lambda: SC.settled(_record((True, 10), (True, 11), name="collect_blaze_rods"), "collect_blaze_rods"),
+             lambda: runner.settled(_record((True, 10), (True, 11), name="collect_blaze_rods"), "collect_blaze_rods"),
              False),
             ("a crafting-only row's key ignores pathfinder sources, and is stable",
              _mod_hashes, lambda h: h[0] == h[1] != h[2]),
             ("with no mod sources the key is the jar version, never a constant",
-             lambda: SC.mod_hash(["craft"], java=""), lambda k: k.startswith("jar-")),
-            ("keyed by the skill's transitive modules", lambda: SC.module_deps("fluids"),
+             lambda: runner.mod_hash(["craft"], java=""), lambda k: k.startswith("jar-")),
+            ("keyed by the skill's transitive modules", lambda: runner.module_deps("fluids"),
              lambda d: "nav" in d and "api" in d and "scenarios" not in d),
         ])
 
@@ -750,7 +752,7 @@ class Bench(unittest.TestCase):
         feedback = ["Set the time to 1000", "No entity was found", "That position is not loaded",
                     "Incorrect argument for command", "gamerule doMobSpawning false<--[HERE]",
                     "Target has no effects to remove", "No blocks were filled"]
-        lava = {SC.at(dx, -1, dz): "lava" for dx in range(-2, 3) for dz in range(-2, 3)}
+        lava = {core.at(dx, -1, dz): "lava" for dx in range(-2, 3) for dz in range(-2, 3)}
         stronghold = [{"cmd": "execute in minecraft:overworld run locate structure minecraft:stronghold",
                        "reply": ["The nearest minecraft:stronghold is at [10456, ~, 9832] (484 blocks away)"]}]
         table(self, [
@@ -760,30 +762,30 @@ class Bench(unittest.TestCase):
                                                                   and (s.get("expect") or s.get("raw")))], []),
             ("must fail: never run without the test-world flag", _refused_without_flag, True),
             # real case 03:38: every /fill answered "That position is not loaded"
-            ("feedback errors caught, harmless replies not", lambda: SC.feedback_errors(feedback), feedback[2:5]),
-            ("the exact signature matches the lava box", lambda: SC.setup_mismatches(
-                lava, [(SC.at(-2, -1, -2), SC.at(2, -1, 2), "lava", 25, 25)]), lambda m: not m),
-            ("must fail: natural terrain in the box is a mismatch", lambda: SC.setup_mismatches(
-                {SC.at(3, 0, 1): "grass_block"}, [(SC.at(-6, 0, -6), SC.at(6, 4, 6), "*", 0, 0)]), lambda m: bool(m)),
-            ("failure classes", lambda: (SC.classify(SC.SetupInvalid("x"), False), SC.classify(NavFailed("x"), False),
-                                         SC.classify(ValueError("x"), False), SC.classify(None, True)),
+            ("feedback errors caught, harmless replies not", lambda: runner.feedback_errors(feedback), feedback[2:5]),
+            ("the exact signature matches the lava box", lambda: runner.setup_mismatches(
+                lava, [(core.at(-2, -1, -2), core.at(2, -1, 2), "lava", 25, 25)]), lambda m: not m),
+            ("must fail: natural terrain in the box is a mismatch", lambda: runner.setup_mismatches(
+                {core.at(3, 0, 1): "grass_block"}, [(core.at(-6, 0, -6), core.at(6, 4, 6), "*", 0, 0)]), lambda m: bool(m)),
+            ("failure classes", lambda: (runner.classify(core.SetupInvalid("x"), False), runner.classify(NavFailed("x"), False),
+                                         runner.classify(ValueError("x"), False), runner.classify(None, True)),
              ("setup", "nav", "skill", "pass")),
             ("slice waits: a wait for day chosen", lambda: _waits("wait for day"), 1),
             ("slice waits: two waits beside idle stocking", lambda: _waits("wait for day", "idle", "wait for day"), 2),
             ("must fail: idle stocking and a task are work, not waits", lambda: _waits("idle", "queue", "idle"), 0),
             ("boundary: nothing chosen, nothing counted", lambda: (_waits(None), _waits()), (0, 0)),
             ("the server-side entity count",
-             lambda: (SC.server_count(["Test passed. Count: 3"]), SC.server_count(["Test failed"])), (3, 0)),
-            ("a /locate reply", lambda: SC.locate_reply(stronghold), (10456, 9832)),
+             lambda: (core.server_count(["Test passed. Count: 3"]), core.server_count(["Test failed"])), (3, 0)),
+            ("a /locate reply", lambda: words_runs.locate_reply(stronghold), (10456, 9832)),
             # real case 03:43: go_to returned False after 3 "target unreachable" travels, classed "skill"
-            ("a silent failure after a failed travel is a nav failure", lambda: type(SC.silent_failure(
+            ("a silent failure after a failed travel is a nav failure", lambda: type(runner.silent_failure(
                 ["03:43:31", "  travel    failed    target unreachable; stopped at the closest"], False)).__name__,
              "NavFailed"),
-            ("any other silent failure is the skill's", lambda: type(SC.silent_failure(
+            ("any other silent failure is the skill's", lambda: type(runner.silent_failure(
                 ["  mine_many failed    5 of 6 steps failed"], None)).__name__, "McError"),
             ("the lava variants keep the far platform inside the box",
              lambda: [n for n in ("cross_lava_3", "cross_lava_8", "cross_lava_lake")
-                      if SC.SCENARIOS[n]["expect"][2][1][0] > SC.at(*SC.BOX[1])[0]], []),
+                      if SC.SCENARIOS[n]["expect"][2][1][0] > core.at(*core.BOX[1])[0]], []),
         ])
 
 

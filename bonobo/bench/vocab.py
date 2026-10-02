@@ -35,21 +35,16 @@ from . import core, runner
 from .core import bag_now
 from ..api import McError
 from ..data import DAY_TICKS, POD_BLOCKS
-from .core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
+import threading as _threading
+from .words.checks import ACCEPTANCE_D
+from .words.runs import _breathing, locate_reply
+from .words.scene import REGISTRY, _progress, _row, items, nest
 from .core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
-from .runner import *        # noqa: F403
 from .runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from .bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
 from .words import brain, checks, door, fight, runs, ways, scene as _scene_words
-from .words.scene import *  # noqa: F401,F403
-from .words.checks import *  # noqa: F401,F403
-from .words.runs import *  # noqa: F401,F403
-from .words.fight import *  # noqa: F401,F403
-from .words.brain import *  # noqa: F401,F403
-from .words.door import *  # noqa: F401,F403
-from .words.ways import *  # noqa: F401,F403
 
 _BEFORE = set(globals())
 # real structures in the test world (seed 1234): no box; /locate gives the truth
@@ -729,17 +724,10 @@ TEMPLATES = merged([fight.TEMPLATES, brain.TEMPLATES, door.TEMPLATES, ways.TEMPL
 NAMES = merged([fight.NAMES, brain.NAMES, door.NAMES, ways.NAMES, NAMES], "template names")
 _OWN = set(globals()) - _BEFORE - {"TEMPLATES", "NAMES", "NAMED", "WORD_MODULES", "merged", "_BEFORE"}
 merged([dict.fromkeys(m.__all__) for m in WORD_MODULES] + [dict.fromkeys(_OWN)], "words")    # one home each
-# pyright's view of the words: a static __all__ it can follow; at run time every name here is a word (below)
-__all__ = ["BASES", "FLAG", "MAX_RUNS", "NEXT_ROW", "NOTES", "PORTAL_8_OF_10", "ROAD_TIMES", "SCENARIOS", "_achieve", "_c",
-           "_chat", "_count_blocks", "_drain", "_queue", "_road_reuse", "_worn_head", "at", "base_row",
-           "cached_timeout", "code_for", "core", "diff_hunks", "failed_last", "jar_matches_source", "load_table",
-           "one_row", "pending", "real_row", "fresh_row", "reset_brain", "run_named", "save_table", "select", "set_brain", "skill_spans",
-           "status", "tier_of", "time", "touched_skills", "verdict"]
-__all__ += _scene_words.__all__
-__all__ += checks.__all__
-__all__ += runs.__all__
-__all__ += fight.__all__
-__all__ += brain.__all__
-__all__ += door.__all__
-globals()["__all__"] = [n for n in dir() if not n.startswith("__")]      # the tables write in every word here
-REGISTRY.update({n: globals()[n] for n in globals()["__all__"]})
+# the one registry rows find their words in (scene.resolve): the bench's primitives (core, runner: every public
+# name), every word module's own (__all__), then this sheet's names — a later home overrides an earlier one
+for _m in (core, runner):
+    REGISTRY.update({n: v for n, v in vars(_m).items() if not n.startswith("_")})
+for _m in WORD_MODULES:
+    REGISTRY.update({n: getattr(_m, n) for n in _m.__all__})
+REGISTRY.update({n: v for n, v in globals().items() if not n.startswith("__") and n != "_m"})

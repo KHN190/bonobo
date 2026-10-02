@@ -21,10 +21,9 @@ import sys
 import time
 from .. import core, runner
 from ...data import DAY_TICKS, POD_BLOCKS, bare  # noqa: F401
-from ..core import *          # noqa: F403  (the bench's primitives are this module's own vocabulary)
+from ..core import TREE_HEIGHT, pos
 from ..core import (BOX, FLAG, NOTES, ORIGIN, SCENARIOS, SetupInvalid, _achieve, _c, _chat, _checked,
                          _command, _count_blocks, _drain, at, server_count, set_brain)
-from ..runner import *        # noqa: F403
 from ..runner import (LAST_FEEDBACK, LAST_LINES, _setup, _trace, classify, code_for, feedback_errors, load_table,
                            module_deps, record, run_named, save_table, setup_mismatches, silent_failure, status)
 from ..bench_bases import BASES, CONDITIONS, SURPRISES, TARGET_S, TARGET_SLACK   # the bases' data: one home
@@ -72,14 +71,6 @@ def _tank(x0, x1, z0, z1, top, water_top=None, floor_y=-4, wall="glass", open_si
     return out
 
 # -- positions ----------------------------------------------------------------------------------------------------
-def pos(p):
-    """("@", dx, dy, dz) → the absolute position; anything else unchanged."""
-    return at(*p[1:]) if isinstance(p, tuple) and len(p) == 4 and p[0] == "@" else p
-
-def _c(p):
-    p = pos(p)
-    return f"{p[0]} {p[1]} {p[2]}"
-
 SCENE = {
     "cmd": lambda text: [text],                                                   # a command with no position
     "fill": lambda lo, hi, block: [f"fill {_c(lo)} {_c(hi)} {block}"],
@@ -231,4 +222,4 @@ def resolve(name):
         return getattr(importlib.import_module(mod), attr)
     raise KeyError(f"no word {name!r}")
 
-__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'scene_expect', 'CHOP_TREE', 'SCENE', '_c', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'pos', 'scene', 'top']
+__all__ = ['REGISTRY', 'WORDS', 'resolve', 'scene_now', 'scene_expect', 'CHOP_TREE', 'SCENE', '_chest', '_floor', '_grove', '_pen', '_progress', '_row', '_scene_params', '_tank', '_tp', '_tree', 'items', 'limit', 'nest', 'scene', 'top']

@@ -24,6 +24,9 @@ from bonobo import brain, fight_loop  # noqa: E402,F401
 from bonobo.bench import table as sc  # noqa: E402,F401  (brain/fight_loop: every skill module)
 from bonobo import skill as skillkit  # noqa: E402
 from bonobo.bench import runner  # noqa: E402
+from bonobo.bench import bench_bases, core, vocab  # noqa: E402
+from bonobo.bench.words import brain as words_brain, checks as words_checks  # noqa: E402
+from bonobo.bench.words import runs as words_runs, scene as words_scene  # noqa: E402
 
 CHAIN_C = ("slice_start_tools", "iron_ingots", "slice_nether_kit")    # test point C, in this order
 
@@ -71,8 +74,8 @@ class EveryRow(unittest.TestCase):
     def test_boxed_rows_stay_in_the_box(self):
         """A row the runner resets (not raw) builds inside the bench box: what it leaves outside survives the reset
         and becomes the next row's surprise."""
-        (x0, y0, z0), (x1, y1, z1) = sc.BOX
-        ox, oy, oz = sc.ORIGIN
+        (x0, y0, z0), (x1, y1, z1) = core.BOX
+        ox, oy, oz = core.ORIGIN
         for name, row in sorted(sc.SCENARIOS.items()):
             if row.get("raw"):
                 continue
@@ -125,43 +128,43 @@ class TheCoverIsWhole(unittest.TestCase):
     of an axis at least once in it — each such row present and tagged with its condition."""
 
     def test_every_base_and_condition(self):
-        for base in sc.BASES:
+        for base in bench_bases.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", sc.SCENARIOS)
-        pairs = sc.cover(sc.CONDITIONS, sc.BASES, [("night", "chop")])
-        for cond, spec in sc.CONDITIONS.items():
-            self.assertEqual(set(spec["bases"]) - set(sc.BASES), set(), cond)
+        pairs = vocab.cover(bench_bases.CONDITIONS, bench_bases.BASES, [("night", "chop")])
+        for cond, spec in bench_bases.CONDITIONS.items():
+            self.assertEqual(set(spec["bases"]) - set(bench_bases.BASES), set(), cond)
             with self.subTest(condition=cond):
                 self.assertIn(cond, {c for c, _b in pairs})
         for cond, base in pairs:
             with self.subTest(condition=cond, base=base):
                 row = sc.SCENARIOS[f"{base}__{cond}"]
-                self.assertEqual(row["tags"][sc.CONDITIONS[cond]["axis"]], cond)
-        for surprise in sc.SURPRISES:
+                self.assertEqual(row["tags"][bench_bases.CONDITIONS[cond]["axis"]], cond)
+        for surprise in bench_bases.SURPRISES:
             with self.subTest(surprise=surprise):
                 self.assertIn(surprise, sc.SCENARIOS)
 
     def test_every_axis_is_covered(self):
-        axes = {spec["axis"] for spec in sc.CONDITIONS.values()}
+        axes = {spec["axis"] for spec in bench_bases.CONDITIONS.values()}
         self.assertEqual(axes, {"terrain", "timing", "inventory", "hazard"})
-        self.assertTrue({"buried_by_sand", "lava_edge"} <= {c for c, s in sc.CONDITIONS.items() if s["axis"] == "hazard"})
-        terrains = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "terrain"}
+        self.assertTrue({"buried_by_sand", "lava_edge"} <= {c for c, s in bench_bases.CONDITIONS.items() if s["axis"] == "hazard"})
+        terrains = {c for c, s in bench_bases.CONDITIONS.items() if s["axis"] == "terrain"}
         self.assertTrue({"canopy", "cave", "underwater", "pillar", "cliff_edge", "nether", "night", "rain"} <= terrains)
-        timing = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "timing"}
+        timing = {c for c, s in bench_bases.CONDITIONS.items() if s["axis"] == "timing"}
         self.assertTrue({"pickup_lag", "interrupt_mid_work", "interrupt_twice", "interrupt_at_success",
                          "player_takeover"} <= timing)
-        inventory = {c for c, s in sc.CONDITIONS.items() if s["axis"] == "inventory"}
+        inventory = {c for c, s in bench_bases.CONDITIONS.items() if s["axis"] == "inventory"}
         self.assertTrue({"full_bag", "tool_one_use", "wrong_tool", "goal_met"} <= inventory)
         self.assertIn("inventory_lag", timing)
         self.assertIn("dead_flicker_on_respawn", sc.SCENARIOS)
         self.assertTrue({"leaves_block_trunk", "floating_logs", "empty_chest", "bed_in_nether",
-                         "lava_under_ore", "falling_gravel"} <= set(sc.SURPRISES))
+                         "lava_under_ore", "falling_gravel"} <= set(bench_bases.SURPRISES))
 
     def test_interrupted_rows_resume_and_count(self):
         for name, row in sorted(sc.SCENARIOS.items()):
-            if sc.CONDITIONS.get(row.get("tags", {}).get("timing"), {}).get("interrupt"):
+            if bench_bases.CONDITIONS.get(row.get("tags", {}).get("timing"), {}).get("interrupt"):
                 with self.subTest(name):
-                    self.assertEqual(row["budget"], sc.BASES[row["tags"]["base"]]["budget"],
+                    self.assertEqual(row["budget"], bench_bases.BASES[row["tags"]["base"]]["budget"],
                                      "an interrupted run keeps the base's time: the base is small enough to resume")
 
     def test_every_timing_row_runs(self):
@@ -170,8 +173,8 @@ class TheCoverIsWhole(unittest.TestCase):
             if row.get("tags", {}).get("timing"):
                 with self.subTest(name):
                     self.assertNotIn("hook", row)
-                    self.assertTrue(sc.CONDITIONS[row["tags"]["timing"]].get("interrupt")
-                                    or sc.CONDITIONS[row["tags"]["timing"]].get("tick_rate"), name)
+                    self.assertTrue(bench_bases.CONDITIONS[row["tags"]["timing"]].get("interrupt")
+                                    or bench_bases.CONDITIONS[row["tags"]["timing"]].get("tick_rate"), name)
 
 
 class Unique(unittest.TestCase):
@@ -222,12 +225,12 @@ class Tiers(unittest.TestCase):
         for name, row in rows():
             with self.subTest(name):
                 self.assertIn(row.get("tier"), sc.TIERS)
-                self.assertEqual(row["tier"], sc.tier_of(name, row))
+                self.assertEqual(row["tier"], vocab.tier_of(name, row))
 
     def test_core_is_small_and_whole(self):
         core = [n for n, r in rows() if r["tier"] == "core"]
         self.assertLessEqual(len(core), 17, "core runs on every change: keep it small")
-        for base in sc.BASES:
+        for base in bench_bases.BASES:
             with self.subTest(base=base):
                 self.assertIn(f"{base}__base", core)
         for name in ("lava_edge_walk", "drowning_in_a_pit", "buried_by_sand", CHAIN_C[0], CHAIN_C[1]):
@@ -236,15 +239,15 @@ class Tiers(unittest.TestCase):
 
     def test_common_is_core_under_everyday_conditions(self):
         for name, row in rows():
-            if row["tier"] == "common" and name not in sc.COMMON and not row.get("tier_fixed"):
+            if row["tier"] == "common" and name not in vocab.COMMON and not row.get("tier_fixed"):
                 with self.subTest(name):
-                    self.assertIn(row["tags"]["base"], sc.BASES)
-                    self.assertTrue(set(row["tags"].values()) & set(sc.COMMON_CONDITIONS))
+                    self.assertIn(row["tags"]["base"], bench_bases.BASES)
+                    self.assertTrue(set(row["tags"].values()) & set(vocab.COMMON_CONDITIONS))
 
     # (row, tier it must be in): the rules the tiers exist for, stated per row.
     PLACED = [("bed_in_nether", "core"), ("slice_start_tools", "core"), ("dig_in_night", "common"), ("reach_land_swim", "common"),
               ("chest_or_tree", "common"), ("water_clutch", "core"), ("cross_lava_8", "common"),
-              ("cave_escape", "common"), ("slice_nether_kit", "common"), (sc.ACCEPTANCE_D, "acceptance"),
+              ("cave_escape", "common"), ("slice_nether_kit", "common"), (words_checks.ACCEPTANCE_D, "acceptance"),
               
               ("plan_repair_on_event", "brain"), ("brain__tight", "brain"), ("seen_store__noted", "brain"),
               ("ban_then_other_source", "brain"),
@@ -262,7 +265,7 @@ class Tiers(unittest.TestCase):
     def test_no_tier_run_includes_acceptance(self):
         for tier in ("core", "common", "brain", "exception"):
             with self.subTest(tier):
-                self.assertNotIn(sc.ACCEPTANCE_D, sc.select(sc.SCENARIOS, tier))
+                self.assertNotIn(words_checks.ACCEPTANCE_D, vocab.select(sc.SCENARIOS, tier))
 
 
 # Rows that still take longer than the tier's limit: real-world searches and whole boss fights (the fight bench's
@@ -385,7 +388,7 @@ class Changed(unittest.TestCase):
     def test_selection(self):
         for tier, changed, want in SELECT:
             with self.subTest(tier=tier, changed=changed):
-                self.assertEqual(sc.select(SHEET, tier, changed, REGISTRY), want)
+                self.assertEqual(vocab.select(SHEET, tier, changed, REGISTRY), want)
 
     # (situation, git diff -U0 text) → changed lines per file → skills whose spans they touch
     DIFFS = [("one hunk in chop, one elsewhere in the file", DIFF, {"bonobo/wood.py": [40, 41, 42, 201]}, {"chop"}),
@@ -398,11 +401,11 @@ class Changed(unittest.TestCase):
     def test_diff_to_skills(self):
         for name, diff, hunks, touched in self.DIFFS:
             with self.subTest(name):
-                self.assertEqual(sc.diff_hunks(diff), hunks)
-                self.assertEqual(sc.touched_skills(hunks, SPANS), touched)
+                self.assertEqual(vocab.diff_hunks(diff), hunks)
+                self.assertEqual(vocab.touched_skills(hunks, SPANS), touched)
 
     def test_real_registry_spans(self):
-        spans = sc.skill_spans(skillkit.REGISTRY, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        spans = vocab.skill_spans(skillkit.REGISTRY, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.assertEqual(set(spans), set(skillkit.REGISTRY))
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for name, (path, lo, hi) in spans.items():
@@ -433,21 +436,21 @@ class Changed(unittest.TestCase):
                 ("not reached and raised: no pass", False, "TaskStuck", False)]
         for name, reached, raised, want in rows:
             with self.subTest(name):
-                self.assertEqual(sc.judge(reached, 5, 45, False, raised=raised)[0], want)
+                self.assertEqual(runner.judge(reached, 5, 45, False, raised=raised)[0], want)
 
     def test_budget_and_crash_judgment(self):
         for reached, seconds, budget, crashed, ok, why in self.JUDGE:
             with self.subTest(reached=reached, seconds=seconds, crashed=crashed):
-                got_ok, got_why = sc.judge(reached, seconds, budget, crashed)
+                got_ok, got_why = runner.judge(reached, seconds, budget, crashed)
                 self.assertEqual(got_ok, ok)
                 if why:
                     self.assertIn(why, got_why)
-                    self.assertFalse(sc.generic_failure(f"McError: {got_why}"), "an over-budget note says why")
+                    self.assertFalse(runner.generic_failure(f"McError: {got_why}"), "an over-budget note says why")
 
     def test_generic_failure_notes(self):
         for note, want in self.NOTES:
             with self.subTest(note=note):
-                self.assertEqual(sc.generic_failure(note), want)
+                self.assertEqual(runner.generic_failure(note), want)
 
     def test_run_verdicts(self):
         """A chance row: never decided by one run; three at most; ≥ 2 of 3 passes."""
@@ -456,12 +459,12 @@ class Changed(unittest.TestCase):
                           ([False, True, False], "fail"), ([True, False, False], "fail"),
                           ([False, False, True, True, True], "pass"),
                           # stopped at the limit: slow every time, never re-run
-                          ([sc.TIMEOUT], "fail"), ([False, sc.TIMEOUT], "fail"), ([sc.TIMEOUT, True], None),
+                          ([runner.TIMEOUT], "fail"), ([False, runner.TIMEOUT], "fail"), ([runner.TIMEOUT, True], None),
                           # must fail: one lucky pass is not a verdict — run again
                           ([True, False], None)):
             with self.subTest(oks=oks):
-                self.assertEqual(sc.verdict_of(oks), want)
-        self.assertEqual(sc.MAX_RUNS, 3)
+                self.assertEqual(runner.verdict_of(oks), want)
+        self.assertEqual(runner.MAX_RUNS, 3)
 
 
 class ThePoints(unittest.TestCase):
@@ -488,7 +491,7 @@ class ThePoints(unittest.TestCase):
               ("its own tier", lambda r: r["tier"] == "acceptance")]
 
     def test_d_acceptance(self):
-        row = sc.SCENARIOS[sc.ACCEPTANCE_D]
+        row = sc.SCENARIOS[words_checks.ACCEPTANCE_D]
         for what, holds in self.ACCEPT:
             with self.subTest(what):
                 self.assertEqual(holds(row), True)
@@ -515,13 +518,13 @@ class Cover(unittest.TestCase):
     def test_cover(self):
         for name, conds, bases, pinned, want in self.ROWS:
             with self.subTest(name):
-                self.assertEqual(sc.cover(conds, list(bases), pinned), want)
+                self.assertEqual(vocab.cover(conds, list(bases), pinned), want)
 
     def test_real_sheet_covers_every_condition_and_axis_base(self):
-        pairs = sc.cover(sc.CONDITIONS, sc.BASES, [("night", "chop")])
-        self.assertEqual({c for c, _ in pairs}, set(sc.CONDITIONS))
-        self.assertEqual({(sc.CONDITIONS[c]["axis"], b) for c, b in pairs},
-                         {(v["axis"], b) for v in sc.CONDITIONS.values() for b in v["bases"] if b in sc.BASES})
+        pairs = vocab.cover(bench_bases.CONDITIONS, bench_bases.BASES, [("night", "chop")])
+        self.assertEqual({c for c, _ in pairs}, set(bench_bases.CONDITIONS))
+        self.assertEqual({(bench_bases.CONDITIONS[c]["axis"], b) for c, b in pairs},
+                         {(v["axis"], b) for v in bench_bases.CONDITIONS.values() for b in v["bases"] if b in bench_bases.BASES})
 
 
 class SliceAndSelection(unittest.TestCase):
@@ -535,7 +538,7 @@ class SliceAndSelection(unittest.TestCase):
     def test_queue_finished(self):
         for name, states, want in self.QUEUES:
             with self.subTest(name):
-                self.assertEqual(sc.queue_finished([{"state": st} for st in states]), want)
+                self.assertEqual(words_runs.queue_finished([{"state": st} for st in states]), want)
 
     ROWS = {"b": {"tier": "brain"}, "c": {"tier": "combat"}, "m": {"tier": "common"}, "a": {"tier": "acceptance"}}
     # (tier asked, named on the command line) → the rows --failed / --pending may pick from
@@ -548,7 +551,7 @@ class SliceAndSelection(unittest.TestCase):
     def test_tier_rows(self):
         for name, tier, named, want in self.TIERS:
             with self.subTest(name):
-                self.assertEqual(sorted(sc.tier_rows(self.ROWS, tier, named)), want)
+                self.assertEqual(sorted(words_runs.tier_rows(self.ROWS, tier, named)), want)
 
 
 class FedAsNeeded(unittest.TestCase):
@@ -565,13 +568,13 @@ class FedAsNeeded(unittest.TestCase):
     def test_rows(self):
         for name, fb, cb, fa, ca, want in self.ROWS:
             with self.subTest(name):
-                self.assertIs(sc.fed_as_needed(fb, {self.B: cb}, fa, {self.B: ca}), want)
+                self.assertIs(words_checks.fed_as_needed(fb, {self.B: cb}, fa, {self.B: ca}), want)
 
 class EndgameBuilt(unittest.TestCase):
     # (row, what its setup must build so the job fits 30 s)
     ROWS = [("activate_end_portal", lambda r: "give @p ender_eye 3" in r["setup"]
              and sum("eye=true" in c for c in r["setup"]) == 3),
-            ("find_portal_room_fresh", lambda r: r["before"] is sc._built_stronghold),
+            ("find_portal_room_fresh", lambda r: r["before"] is vocab._built_stronghold),
             ("locate_stronghold", lambda r: not any(c.startswith("spreadplayers") for c in r["setup"])),
             ("seek_blocks_real", lambda r: any("oak_log" in c for c in r["setup"])),
             ("explore_for_animals_real", lambda r: any("summon cow" in c for c in r["setup"]) and r["stochastic"])]
@@ -597,7 +600,7 @@ class EndgameBuilt(unittest.TestCase):
     def test_leg_box(self):
         for start, sh, want in self.LEGS:
             with self.subTest(sh):
-                self.assertEqual(sc._leg_box(start, sh), want)
+                self.assertEqual(vocab._leg_box(start, sh), want)
 
     # (rectangle) → every fill under 32768 blocks, together covering it
     FLATS = [(0, 0, 200, 200), (-12, -12, 212, 12), (0, 0, 0, 0), (0, 0, 300, 300),
@@ -607,7 +610,7 @@ class EndgameBuilt(unittest.TestCase):
         for x0, z0, x1, z1 in self.FLATS:
             with self.subTest((x0, z0, x1, z1)):
                 xs = []
-                for cmd in sc._flat(x0, z0, x1, z1, 5, "stone"):
+                for cmd in vocab._flat(x0, z0, x1, z1, 5, "stone"):
                     a, _, _, b = (int(v) for v in cmd.split()[1:5])
                     self.assertLessEqual((b - a + 1) * (z1 - z0 + 1), 32768)
                     xs += range(a, b + 1)
@@ -639,7 +642,7 @@ class ResetBrain(unittest.TestCase):
         for name, dirty, read, clean in rows:
             with self.subTest(name):
                 dirty()
-                sc.reset_brain(br, Memory(os.path.join(os.environ["MC_DATA"], "reset.json")))
+                core.reset_brain(br, Memory(os.path.join(os.environ["MC_DATA"], "reset.json")))
                 self.assertEqual(read(), clean)
 
 
@@ -654,7 +657,7 @@ class TimeoutSticks(unittest.TestCase):
             return runner._code_for("x")
 
     def test_timeout_is_cached_per_key(self):
-        stopped = {"ok": False, "note": f"{sc.TIMEOUT}: stopped at the 30s limit", "cls": "skill"}
+        stopped = {"ok": False, "note": f"{runner.TIMEOUT}: stopped at the 30s limit", "cls": "skill"}
         table = {"x": {self.key(self.ROW): [stopped]}}
         rows = [  # (what changed since the TIMEOUT, the key now, cached?)
             ("nothing: skipped, reported FAIL", self.key(self.ROW), True),
@@ -665,21 +668,21 @@ class TimeoutSticks(unittest.TestCase):
         ]
         for name, key, cached in rows:
             with self.subTest(name):
-                got = sc.cached_timeout(table, "x", key)
-                self.assertEqual(got is not None and got.startswith(f"{sc.TIMEOUT} (cached)"), cached)
+                got = runner.cached_timeout(table, "x", key)
+                self.assertEqual(got is not None and got.startswith(f"{runner.TIMEOUT} (cached)"), cached)
 
     def test_only_a_timeout_sticks(self):
         rows = [("must fail: an ordinary failure is re-run", [{"ok": False, "note": "NavFailed: no route", "cls": "skill"}], None),
                 ("a pass after the timeout clears it",
-                 [{"ok": False, "note": f"{sc.TIMEOUT}: x", "cls": "skill"}, {"ok": True, "note": "", "cls": "skill"}],
+                 [{"ok": False, "note": f"{runner.TIMEOUT}: x", "cls": "skill"}, {"ok": True, "note": "", "cls": "skill"}],
                  None),
                 ("no runs", [], None),
                 ("the latest is the timeout", [{"ok": True, "note": "", "cls": "skill"},
-                                              {"ok": False, "note": f"{sc.TIMEOUT}: x", "cls": "skill"}],
-                 f"{sc.TIMEOUT} (cached): {sc.TIMEOUT}: x")]
+                                              {"ok": False, "note": f"{runner.TIMEOUT}: x", "cls": "skill"}],
+                 f"{runner.TIMEOUT} (cached): {runner.TIMEOUT}: x")]
         for name, runs, want in rows:
             with self.subTest(name):
-                self.assertEqual(sc.cached_timeout({"x": {"k": runs}}, "x", "k"), want)
+                self.assertEqual(runner.cached_timeout({"x": {"k": runs}}, "x", "k"), want)
 
 
 class BrainGrid(unittest.TestCase):
@@ -688,14 +691,14 @@ class BrainGrid(unittest.TestCase):
     (the decision and its boundary or must-not), every cell ≤ 60 s."""
 
     def test_families(self):
-        for fam, (grid, _queue, rule) in sc.BRAIN_FAMILIES.items():
+        for fam, (grid, _queue, rule) in words_brain.BRAIN_FAMILIES.items():
             with self.subTest(fam):
                 grid = list(grid)
                 whys = {rule(c)[1] for c in grid}
-                cells = sc._grid_cells()
-                names = [sc.grid_name(cells[tuple(c[d] for d in sc.BRAIN_DIMS)]["families"], c) for c in grid]
+                cells = words_brain._grid_cells()
+                names = [words_brain.grid_name(cells[tuple(c[d] for d in words_brain.BRAIN_DIMS)]["families"], c) for c in grid]
                 self.assertEqual((len(grid) >= 2, len(whys) >= 2, len(set(names)) == len(names)), (True, True, True))
-                self.assertEqual([n for n in names if sc.SCENARIOS[n]["budget"] > 60 or sc.tier_of(n, sc.SCENARIOS[n]) != "brain"],
+                self.assertEqual([n for n in names if sc.SCENARIOS[n]["budget"] > 60 or vocab.tier_of(n, sc.SCENARIOS[n]) != "brain"],
                                  [])
 
     def test_rules(self):
@@ -713,7 +716,7 @@ class BrainGrid(unittest.TestCase):
                 ("seen_store", {}, "not noted: found anyway, by scanning")]
         for fam, moved, want in rows:
             with self.subTest(fam, **moved):
-                self.assertEqual(sc.BRAIN_FAMILIES[fam][2](dict(sc.BRAIN_BASE, **moved))[1], want)
+                self.assertEqual(words_brain.BRAIN_FAMILIES[fam][2](dict(words_brain.BRAIN_BASE, **moved))[1], want)
 
 
 class FoodFirstFromTheWorld(unittest.TestCase):
@@ -723,7 +726,7 @@ class FoodFirstFromTheWorld(unittest.TestCase):
 
     def test_over_the_table(self):
         from types import SimpleNamespace
-        check = sc.BRAIN_FAMILIES["night_first"][2](dict(sc.BRAIN_BASE, dusk="night", food="low"))[0]
+        check = words_brain.BRAIN_FAMILIES["night_first"][2](dict(words_brain.BRAIN_BASE, dusk="night", food="low"))[0]
         rows = [("beef in a furnace at 2 s, logs at 9 s, food kept", {"furnace_beef": 2.0, "log": 9.0}, 12, True),
                 ("cooked beef in the bag before logs", {"minecraft:cooked_beef": 3.0, "log": 9.0}, 12, True),
                 ("must fail: logs first, nothing in a furnace", {"log": 4.0}, 12, False),
@@ -733,17 +736,17 @@ class FoodFirstFromTheWorld(unittest.TestCase):
         for name, first, food_end, want in rows:
             with self.subTest(name):
                 fake = SimpleNamespace(get=lambda path, _f=food_end: {"food": _f})
-                saved_first, saved_base = dict(sc.FIRST), dict(sc.BASE)
+                saved_first, saved_base = dict(words_checks.FIRST), dict(words_checks.BASE)
                 try:
-                    sc.FIRST.clear()
-                    sc.FIRST.update(first)
-                    sc.BASE["food_drained"] = 10
+                    words_checks.FIRST.clear()
+                    words_checks.FIRST.update(first)
+                    words_checks.BASE["food_drained"] = 10
                     self.assertIs(bool(check(fake, None)), want)
                 finally:
-                    sc.FIRST.clear()
-                    sc.FIRST.update(saved_first)
-                    sc.BASE.clear()
-                    sc.BASE.update(saved_base)
+                    words_checks.FIRST.clear()
+                    words_checks.FIRST.update(saved_first)
+                    words_checks.BASE.clear()
+                    words_checks.BASE.update(saved_base)
 
 
 class FurnaceSlots(unittest.TestCase):
@@ -763,7 +766,7 @@ class FurnaceSlots(unittest.TestCase):
                 ("not a furnace answer", ["Found no elements matching Items"], {})]
         for name, reply, want in rows:
             with self.subTest(name):
-                self.assertEqual(sc.furnace_slots(reply), want)
+                self.assertEqual(words_brain.furnace_slots(reply), want)
 
 
 class Drain(unittest.TestCase):
@@ -774,9 +777,9 @@ class Drain(unittest.TestCase):
     def after(food, sat, plan, carried=0.0):
         """The bar after the effect, stepped as the game takes exhaustion (saturation first, then food)."""
         secs, amp = plan
-        ex = carried + sc.HUNGER_PER_TICK * (amp + 1) * 20 * secs
-        while ex > sc.EXHAUSTION_PER_POINT:
-            ex -= sc.EXHAUSTION_PER_POINT
+        ex = carried + words_brain.HUNGER_PER_TICK * (amp + 1) * 20 * secs
+        while ex > words_brain.EXHAUSTION_PER_POINT:
+            ex -= words_brain.EXHAUSTION_PER_POINT
             if sat > 0:
                 sat = max(0.0, sat - 1)
             else:
@@ -789,16 +792,16 @@ class Drain(unittest.TestCase):
                 ("partial saturation", 18, 3.4, 10)]
         for name, food, sat, level in rows:
             with self.subTest(name):
-                plan = sc.drain_plan(food, sat, level)
-                self.assertLessEqual(plan[1], sc.HUNGER_MAX_AMP)
+                plan = words_brain.drain_plan(food, sat, level)
+                self.assertLessEqual(plan[1], words_brain.HUNGER_MAX_AMP)
                 self.assertEqual(self.after(food, sat, plan), level + 1)
                 self.assertIn(self.after(food, sat, plan, carried=3.9), (level, level + 1))
                 # the carried exhaustion read off the server: planned for, exact again
-                self.assertEqual(self.after(food, sat, sc.drain_plan(food, sat, level, 3.9), carried=3.9), level + 1)
+                self.assertEqual(self.after(food, sat, words_brain.drain_plan(food, sat, level, 3.9), carried=3.9), level + 1)
         with self.subTest("at level + 1 already: nothing to drain"):
-            self.assertIsNone(sc.drain_plan(7, 0.0, 6))
+            self.assertIsNone(words_brain.drain_plan(7, 0.0, 6))
         with self.subTest("must fail: a plan short of the need leaves the bar high"):
-            secs, amp = sc.drain_plan(20, 20.0, 6)
+            secs, amp = words_brain.drain_plan(20, 20.0, 6)
             self.assertGreater(self.after(20, 20.0, (secs, max(0, amp - 20))), 7)
 
 
@@ -806,7 +809,7 @@ class EatTarget(unittest.TestCase):
     """vocab.eat_target_s: per bite × the bites the gap takes (a flat 3 s failed a 4-bite meal at 7.2 s)."""
 
     def test_table(self):
-        per = sc.TARGET_S["eat"] * sc.TARGET_SLACK
+        per = bench_bases.TARGET_S["eat"] * bench_bases.TARGET_SLACK
         rows = [("food 4, bread: 16 points of gap, 4 bites", 4, {"minecraft:bread": 8}, 4 * per),
                 ("food 10, bread: 2 bites", 10, {"minecraft:bread": 8}, 2 * per),
                 ("food 16, cooked beef: one bite", 16, {"minecraft:cooked_beef": 4}, 1 * per),
@@ -814,7 +817,7 @@ class EatTarget(unittest.TestCase):
                 ("nothing carried: no target", 6, {}, None)]
         for name, food, carried, want in rows:
             with self.subTest(name):
-                self.assertEqual(sc.eat_target_s(food, carried), want)
+                self.assertEqual(words_runs.eat_target_s(food, carried), want)
 
 
 class Chance(unittest.TestCase):
@@ -828,7 +831,7 @@ class Chance(unittest.TestCase):
                 ("a trade roll (barter)", {"setup": [], "doc": "barter with piglins"}, True),
                 ("marked deterministic over a summon", {"setup": ["summon cow 1 2 3"], "doc": "", "stochastic": False},
                  False),
-                ("a built tree (_grove)", {"setup": sc._grove((3, 0)), "doc": ""}, False)]
+                ("a built tree (_grove)", {"setup": words_scene._grove((3, 0)), "doc": ""}, False)]
         for name, row, want in rows:
             with self.subTest(name):
                 self.assertEqual(runner.stochastic(row), want)
@@ -843,11 +846,11 @@ class Chance(unittest.TestCase):
                 self.assertEqual(runner.needs_clock(row), want)
 
     def test_one_run_decides_a_deterministic_row(self):
-        rows = [([True], False, "pass"), ([False], False, "fail"), ([sc.TIMEOUT], False, "fail"),
+        rows = [([True], False, "pass"), ([False], False, "fail"), ([runner.TIMEOUT], False, "fail"),
                 ([False], True, None), ([False, True], True, None), ([], False, None)]  # must fail: one failure of a chance row decides nothing
         for oks, chance, want in rows:
             with self.subTest(oks=oks, chance=chance):
-                self.assertEqual(sc.verdict_of(oks, chance=chance), want)
+                self.assertEqual(runner.verdict_of(oks, chance=chance), want)
 
 
 class InterruptByProgress(unittest.TestCase):
@@ -861,11 +864,11 @@ class InterruptByProgress(unittest.TestCase):
                 ("must fail: neither: nothing to trigger on", {}, None)]
         for name, base, want in rows:
             with self.subTest(name):
-                self.assertEqual(sc._progress_of(base), want)
+                self.assertEqual(words_runs._progress_of(base), want)
 
     def test_every_triggered_row_has_progress(self):
-        kinds = {k: c for k, c in sc.CONDITIONS.items() if c.get("interrupt") or c.get("hazard") == "sand"}
-        missing = sorted(f"{b}__{k}" for k, c in kinds.items() for b in c["bases"] if sc._progress_of(sc.BASES[b]) is None)
+        kinds = {k: c for k, c in bench_bases.CONDITIONS.items() if c.get("interrupt") or c.get("hazard") == "sand"}
+        missing = sorted(f"{b}__{k}" for k, c in kinds.items() for b in c["bases"] if words_runs._progress_of(bench_bases.BASES[b]) is None)
         self.assertEqual(missing, [])
 
 
@@ -977,7 +980,7 @@ class SkillsAreTimed(unittest.TestCase):
     def test_quick_over_the_table(self):
         for name, took, target, want, why in self.QUICK:
             with self.subTest(name):
-                ok, got_why = sc.judge(True, 5, 45, False, took, target)
+                ok, got_why = runner.judge(True, 5, 45, False, took, target)
                 self.assertIs(ok, want)
                 if why:
                     self.assertIn(why, got_why)
@@ -989,8 +992,8 @@ class SkillsAreTimed(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(sc.SCENARIOS[name]["run"].__qualname__ == "_timed.<locals>.go", want)
                 self.assertEqual("target_s" in sc.SCENARIOS[name], want)
-        sc.BASE.pop("run_s", None)
-        self.assertEqual((sc._timed(lambda ctx: "done")(None), sc.BASE["run_s"] < 1.0), ("done", True))
+        words_checks.BASE.pop("run_s", None)
+        self.assertEqual((words_runs._timed(lambda ctx: "done")(None), words_checks.BASE["run_s"] < 1.0), ("done", True))
 
 
 class EveryPartHasAMustFail(unittest.TestCase):
@@ -1002,13 +1005,13 @@ class EveryPartHasAMustFail(unittest.TestCase):
         return [n for n, r in rows if r.get("fails") or "(must not" in r.get("doc", "")]
 
     def test_every_base(self):
-        for base in sc.BASES:
+        for base in bench_bases.BASES:
             with self.subTest(base):
                 rows = [(n, r) for n, r in sc.SCENARIOS.items() if r.get("tags", {}).get("base") == base]
                 self.assertNotEqual(self.controls(rows), [], f"{base}: no must-fail row")
 
     def test_every_brain_family(self):
-        families = set(sc.BRAIN_FAMILIES) | {"fight_first"}
+        families = set(words_brain.BRAIN_FAMILIES) | {"fight_first"}
         for fam in sorted(families):
             with self.subTest(fam):
                 rows = [(n, r) for n, r in sc.SCENARIOS.items() if fam in r.get("tags", {}).get("family", "").split("+")]
@@ -1042,7 +1045,7 @@ class EatingOnTheWay(unittest.TestCase):
     def test_ate_on_the_way(self):
         for name, frames, want in self.ROWS:
             with self.subTest(name):
-                self.assertIs(sc.ate_on_the_way(frames), want)
+                self.assertIs(words_brain.ate_on_the_way(frames), want)
 
     def test_the_walk_is_done_once_fed(self):
         """fed_up: the walk stops once the bar rose to the autoeat's level, not at the walk's full length."""
@@ -1055,7 +1058,7 @@ class EatingOnTheWay(unittest.TestCase):
                 ("must fail: no frames", [], False)]
         for name, frames, want in rows:
             with self.subTest(name):
-                self.assertIs(vocab.fed_up(frames, 18), want)
+                self.assertIs(words_brain.fed_up(frames, 18), want)
 
     def test_the_row_reads_the_walk_it_ran(self):
         """The row's check word (`call walk_ate`) reads the walk's frames when the check runs: a word that took
@@ -1066,9 +1069,9 @@ class EatingOnTheWay(unittest.TestCase):
                 ("must fail: no walk ran", None, False),
                 ("must fail: never fed", walk_frames(rise_at=None), False)]
         for name, frames, want in rows:
-            with self.subTest(name), mock.patch.dict(vocab.WALK, {} if frames is None else {"frames": frames},
+            with self.subTest(name), mock.patch.dict(words_brain.WALK, {} if frames is None else {"frames": frames},
                                                      clear=True):
-                self.assertIs(vocab.call(None, None, "walk_ate", [], resolve=vocab.resolve), want)
+                self.assertIs(words_checks.call(None, None, "walk_ate", [], resolve=words_scene.resolve), want)
 
 
 def work_frames(food0=8, rise_at=2.0, gap=None, task_type="mine_many", end_food=None):
@@ -1099,15 +1102,15 @@ class EatingWhileWorking(unittest.TestCase):
         from bonobo.bench import vocab
         for name, frames, want in self.ROWS:
             with self.subTest(name):
-                self.assertIs(vocab.worked_fed(frames), want)
+                self.assertIs(words_brain.worked_fed(frames), want)
 
     def test_the_row_reads_the_mine_it_ran(self):
         from bonobo.bench import vocab
         for name, frames, want in [("traced mine, fed inside it", work_frames(), True),
                                    ("must fail: no mine traced", None, False)]:
-            with self.subTest(name), mock.patch.dict(vocab.WALK, {} if frames is None else {"mine": frames},
+            with self.subTest(name), mock.patch.dict(words_brain.WALK, {} if frames is None else {"mine": frames},
                                                      clear=True):
-                self.assertIs(vocab.call(None, None, "mine_fed", [], resolve=vocab.resolve), want)
+                self.assertIs(words_checks.call(None, None, "mine_fed", [], resolve=words_scene.resolve), want)
 
 
 class HungryRowsTarget(unittest.TestCase):
@@ -1125,11 +1128,11 @@ class HungryRowsTarget(unittest.TestCase):
         for name, row, want in self.ROWS:
             with self.subTest(name), contextlib.ExitStack() as quiet, mock.patch.object(vocab.time, "sleep"), \
                     mock.patch.object(api, "get", side_effect=lambda path, *a, **k: world[path.split("?")[0]]), \
-                    mock.patch.dict(vocab.BASE, clear=True):
+                    mock.patch.dict(words_checks.BASE, clear=True):
                 for m in [m for m in (vocab,) + vocab.WORD_MODULES if hasattr(m, "_chat")]:     # every home that sends one
                     quiet.enter_context(mock.patch.object(m, "_chat"))
                 sc.SCENARIOS[row]["before"](None)
-                self.assertIs("target_s" in vocab.BASE, want)
+                self.assertIs("target_s" in words_checks.BASE, want)
 
 
 class DecisionOrderWatch(unittest.TestCase):
@@ -1150,10 +1153,10 @@ class DecisionOrderWatch(unittest.TestCase):
                 ("must fail: a stale watcher (a later row started) writes nothing", 1, logs_at_start, True, {}, False),
                 ("must fail: tokens at their start count are not stamped", 0, all_at_start, False, {}, True)]
         for name, behind, start, beef, want, going in rows:
-            with self.subTest(name), mock.patch.dict(vocab.FIRST_WATCH, {"gen": 5}), \
-                    mock.patch.dict(vocab.FIRST, {}, clear=True):
-                got = vocab.first_step(5 - behind, 100.0, bag, lambda t: start.get(t, 0), lambda: beef, 103.0)
-                self.assertEqual((dict(vocab.FIRST), got), (want, going))
+            with self.subTest(name), mock.patch.dict(words_brain.FIRST_WATCH, {"gen": 5}), \
+                    mock.patch.dict(words_checks.FIRST, {}, clear=True):
+                got = words_brain.first_step(5 - behind, 100.0, bag, lambda t: start.get(t, 0), lambda: beef, 103.0)
+                self.assertEqual((dict(words_checks.FIRST), got), (want, going))
 
 
 class BuriedFirst(unittest.TestCase):
@@ -1172,9 +1175,9 @@ class BuriedFirst(unittest.TestCase):
                     mock.patch.object(vocab.time, "sleep"):
                 if raises:
                     with self.assertRaises(raises):
-                        vocab._buried_first(None)
+                        words_runs._buried_first(None)
                 else:
-                    self.assertIsNone(vocab._buried_first(None))
+                    self.assertIsNone(words_runs._buried_first(None))
 
 
 class PlacedFacing(unittest.TestCase):
@@ -1217,7 +1220,7 @@ class SleptBefore(unittest.TestCase):
                 ("must fail: began in daylight", 1000, 1200, False)]
         for name, start, now, want in rows:
             with self.subTest(name):
-                self.assertIs(vocab.slept_through(start, now), want)
+                self.assertIs(words_brain.slept_through(start, now), want)
 
     def test_slept_before(self):
         from bonobo.bench import vocab
@@ -1226,18 +1229,18 @@ class SleptBefore(unittest.TestCase):
                 ("must fail: logs rose while still night", {"log": 2.0, "morning": 8.0}, False, False),
                 ("must fail: never slept", {"log": 2.0}, False, False)]
         for name, first, or_never, want in rows:
-            with self.subTest(name), mock.patch.dict(vocab.FIRST, first, clear=True):
-                self.assertIs(vocab.slept_before("log", or_never)(None, None), want)
+            with self.subTest(name), mock.patch.dict(words_checks.FIRST, first, clear=True):
+                self.assertIs(words_brain.slept_before("log", or_never)(None, None), want)
 
     def test_the_watcher_stamps_morning(self):
         from bonobo.bench import vocab
         from bonobo.world import Inventory
         from tests.world import inventory
         for name, turned, want in [("the day turned", True, {"morning": 2.0}), ("must fail: still night", False, {})]:
-            with self.subTest(name), mock.patch.dict(vocab.FIRST_WATCH, {"gen": 1}), \
-                    mock.patch.dict(vocab.FIRST, {}, clear=True):
-                vocab.first_step(1, 10.0, Inventory(inventory()), lambda t: 0, lambda: False, 12.0, lambda: turned)
-                self.assertEqual(dict(vocab.FIRST), want)
+            with self.subTest(name), mock.patch.dict(words_brain.FIRST_WATCH, {"gen": 1}), \
+                    mock.patch.dict(words_checks.FIRST, {}, clear=True):
+                words_brain.first_step(1, 10.0, Inventory(inventory()), lambda t: 0, lambda: False, 12.0, lambda: turned)
+                self.assertEqual(dict(words_checks.FIRST), want)
 
 
 class ServerProbe(unittest.TestCase):
@@ -1272,7 +1275,7 @@ class DiamondScan(unittest.TestCase):
                 ("must fail: not a find", "/state", False)]
         for name, path, want in rows:
             with self.subTest(name):
-                self.assertIs(vocab.is_diamond_scan(path), want)
+                self.assertIs(words_brain.is_diamond_scan(path), want)
 
 
 class SliceVerdict(unittest.TestCase):
@@ -1289,7 +1292,7 @@ class SliceVerdict(unittest.TestCase):
                 ("waited with nothing queued: passes", True, dict(ok, waits=2), False, {}, True, "waits=2/-")]
         for name, finished, rep, queued, picks, want, says in rows:
             with self.subTest(name):
-                got, why = sc.slice_verdict(finished, rep, queued, 15, 0, picks)
+                got, why = words_runs.slice_verdict(finished, rep, queued, 15, 0, picks)
                 self.assertIs(got, want)
                 self.assertIn(says, why)
 

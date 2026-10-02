@@ -1,6 +1,14 @@
 {
-  "include": ["bonobo", "mc.py"],
-  "exclude": ["**/__pycache__", ".claude"],
+  "include": [
+    "bonobo",
+    "mc.py",
+    "check",
+    "static_check.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".claude"
+  ],
   "pythonVersion": "3.14",
   "typeCheckingMode": "basic"
 }

@@ -6,19 +6,19 @@ import importlib
 from typing import Any
 from . import core, vocab
 from .core import bag_now, kit_jobs
-from .vocab import *  # noqa: F401,F403  (the sheet's names: the runner's, the primitives', the helpers')
+from .words.scene import resolve
+from .words import checks as words_checks, runs as words_runs, scene as words_scene
 TIERS = ("core", "common", "brain", "combat", "exception", "acceptance")
 TABLES = {t: f"bonobo.bench.bench_{t}" for t in TIERS}
 RUNS = ("skill", "skill_bare", "do", "seq", "remember", "pause")          # the run words a lambda was written in (the rest: sheet factories)
 WORDS = ("hooks", "named_all", "interrupt_when", "iter", "constant", "now_api", "thunk", "api_only")    # the interpreter's own words
-resolve = vocab.resolve
 
 # -- values -------------------------------------------------------------------------------------------------------
 def dec(v) -> Any:
     """Data → value: positions, nested callables ("!kind", ...), containers."""
     if isinstance(v, tuple) and v and isinstance(v[0], str):
         if v[0] == "@" and len(v) == 4:
-            return vocab.pos(v)
+            return core.pos(v)
         if v[0] == "$set" and len(v) == 2:
             return set(dec(v[1]))
         if v[0] == "$data" and len(v) == 2:
@@ -70,8 +70,8 @@ def _pred(kind, args):
             return p(api, None)
         return now_api
     if kind == "now":
-        return vocab._now(dec(args[0]))
-    f = vocab.PREDICATES[kind]
+        return words_checks._now(dec(args[0]))
+    f = words_checks.PREDICATES[kind]
     vals = [dec(a) for a in args]
     if kind == "call":
         return lambda api, inv: f(api, inv, *vals, resolve=resolve)
@@ -145,8 +145,8 @@ def make(item):
         return item
     if item[0].startswith("&"):
         return resolve(item[0][1:])            # the function itself, not a call
-    if item[0] in vocab.WORDS:
-        return vocab.WORDS[item[0]](*[dec(a) for a in item[1:]])     # the old sheet's own callable, as it made it
+    if item[0] in words_scene.WORDS:
+        return words_scene.WORDS[item[0]](*[dec(a) for a in item[1:]])     # the old sheet's own callable, as it made it
     f = _make(item)
     try:
         f.__table__ = tuple(item)
@@ -156,11 +156,11 @@ def make(item):
 
 def _make(item):
     kind, args = item[0], item[1:]
-    if kind in vocab.HOOKS:
-        return vocab.HOOKS[kind]
-    if kind in vocab.WORDS:
-        return vocab.WORDS[kind](*[dec(a) for a in args])
-    if kind in vocab.PREDICATES or kind in vocab.LOGIC or kind in ("now_api", "thunk", "api_only"):
+    if kind in words_runs.HOOKS:
+        return words_runs.HOOKS[kind]
+    if kind in words_scene.WORDS:
+        return words_scene.WORDS[kind](*[dec(a) for a in args])
+    if kind in words_checks.PREDICATES or kind in words_checks.LOGIC or kind in ("now_api", "thunk", "api_only"):
         return _pred(kind, args)
     if kind in RUNS:
         return _run(kind, args)
@@ -189,7 +189,7 @@ def _slot(items, wrap):
 def build(row, tier):
     """A table row → the runner's row dict."""
     from .runner import ROW_LIMIT_S
-    setup = list(row["setup"]) if "scene" not in row else vocab.scene(row["scene"])    # a one-off row: its commands
+    setup = list(row["setup"]) if "scene" not in row else words_scene.scene(row["scene"])    # a one-off row: its commands
     out = {"doc": row["doc"], "module": row["module"], "setup": setup,
            "run": make(row["run"]), "budget": row["budget"], "tier": tier}
     if "why" in row and not callable(row["check"]):
@@ -209,7 +209,7 @@ def build(row, tier):
         if k not in out and k not in ("name", "scene", "why", "no_detail", "kit"):
             out[k] = dec(v)
     if "expect" not in out and not out.get("raw"):
-        out["expect"] = vocab.scene_expect(out["setup"])     # what its own scene built, the one signature
+        out["expect"] = words_scene.scene_expect(out["setup"])     # what its own scene built, the one signature
     out.setdefault("skills", [])            # a row that proves no one skill carries an empty list
     out.setdefault("point", "A")
     if tier != "acceptance":

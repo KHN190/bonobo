@@ -2,16 +2,12 @@
 FAMILIES: (template, [params, ...]) — one entry, many rows (vocab.TEMPLATES). ROWS: the one-off rows, each in words.
 CODE_ROWS: the one-off rows no word earns its place for, written in code with vocab's helpers."""
 
-from typing import TYPE_CHECKING
 
 from ..data import MAX_HP
 
 IRON_CHEST, IRON_HELMET = 6, 2           # armour points the game gives them (/state "armor")
 from .core import BEST_TOOLS, fight_line_hp
 
-if TYPE_CHECKING:   # CODE_ROWS pulls vocab's words in at run time; pyright reads them here
-    from .vocab import (BASE, EDGE_Y, FIRST, _ARENA, _alive, _all, _brain_rounds, _c, _fight_until,
-                        _first_times, _gone, _hooks, _hostiles, _record_bids, _start, _tp, arrived, at, limit)
 # -- the dimensions of a fight cell (the combat table's own data; vocab's `_build` turns a cell into commands) -------
 # enemies named by what they do ("pack" is walker × count=three: the same world under another name)
 ENEMY = {"none": None, "walker": "minecraft:zombie", "archer": "minecraft:skeleton", "climber": "minecraft:spider",
@@ -223,8 +219,12 @@ ROWS = [
 def CODE_ROWS():
     """The one-off rows, built when the sheet is (they are written in vocab's words, and vocab reads this table's
     dimensions at its own import: no import-time cycle)."""
-    from . import vocab
-    globals().update({k: getattr(vocab, k) for k in vocab.__all__ if k not in globals()})
+    from .core import _c, at
+    from .words.brain import EDGE_Y, _first_times
+    from .words.checks import BASE, FIRST, _alive, _all, _start, arrived
+    from .words.fight import _ARENA, _fight_until, _gone, _hostiles, _record_bids
+    from .words.runs import _brain_rounds, _hooks
+    from .words.scene import _tp, limit
     return [
         dict(name="fight_before_upkeep",
              doc="Arena, iron sword and armour but no pickaxe, a zombie 4 blocks off, nothing queued → the zombie dead "

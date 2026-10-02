@@ -244,6 +244,7 @@ UNBREAKABLE = {"bedrock", "end_portal_frame", "barrier", "spawner"}
 PLAYER_MADE_SUFFIX = ("_bed", "_door", "_trapdoor", "chest", "barrel", "furnace", "crafting_table", "torch", "ladder",
                       "hopper", "piston", "observer", "repeater", "comparator", "dispenser", "dropper", "lever")
 DAY_TICKS = 24000
+TICKS_PER_S = 20               # the game clock: ticks in one second
 # what memory keeps of a sighting, by how fast it changes (game ticks): static, slow (ttl), mobile (coarse area), hostile (never), here (two minutes, for at:<kind>), never; `merge` joins close notes, `absent` is how long "looked, none here" holds
 VOLATILITY = {
     "static": {"ttl": None, "merge": 1, "area": None, "absent": 2 * DAY_TICKS},

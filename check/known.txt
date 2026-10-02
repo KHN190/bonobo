@@ -1,0 +1,3 @@
+# check.run known violations on integrate/inv (eb37acb): "INVARIANT COUNT"; counts only fall (gate.sh)
+R3 34
+S4 24

@@ -149,15 +149,16 @@ def cmd_scenario(a):
     """Scenario bench (test world only): enable | disable | list | run NAME... | all | table."""
     import os
     from bonobo.bench import table as sheet
+    from bonobo.bench import core, runner
     from bonobo.brain import Brain
     from bonobo.world import Snapshot
     if a.action == "enable":
-        open(sheet.FLAG, "w").write("test world confirmed by the user\n")
+        open(core.FLAG, "w").write("test world confirmed by the user\n")
         print("scenario commands enabled for this world — never enable in the real world")
         return
     if a.action == "disable":
-        if os.path.exists(sheet.FLAG):
-            os.remove(sheet.FLAG)
+        if os.path.exists(core.FLAG):
+            os.remove(core.FLAG)
         print("scenario commands disabled")
         return
     point = getattr(a, "point", None)
@@ -172,10 +173,10 @@ def cmd_scenario(a):
         _scenario_migrate(sheet)
         return
     if a.action == "table":
-        table = sheet.load_table()
+        table = runner.load_table()
         for name in sheet.SCENARIOS:
-            code = sheet.code_for(name)
-            st, med = sheet.status(table, name, code)
+            code = runner.code_for(name)
+            st, med = runner.status(table, name, code)
             print(f"{name:20} {code} {st:9} {'' if med is None else f'median {med}s'}")
         return
     from bonobo import perception
@@ -188,9 +189,9 @@ def cmd_scenario(a):
         names = [n for n in names if sheet.SCENARIOS[n].get("point", "A") == point]
     api.take_control()       # the bench's start takes the body (the pause menu closed, the player's toggle lifted)
     brain = Brain()
-    sheet.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
+    core.set_brain(brain)   # plan-driven scenarios execute steps the way the brain does
     perception.start_watching()   # same danger interrupts as a real run
-    same, running, built = sheet.jar_matches_source()
+    same, running, built = runner.jar_matches_source()
     if not same:
         raise McError(f"game runs mod {running} but the sources are {built}: install the jar and restart first")
     # A scenario that SWEEPS (the arena) is its own sample: one pass writes dozens of rows, and running it three
@@ -202,30 +203,30 @@ def cmd_scenario(a):
         _scenario_idle(sheet, names, brain)
         return
     runs = [(name, attempt) for name in names
-            for attempt in range(1 if sheet.SCENARIOS[name].get("sweep") else sheet.MAX_RUNS)]
+            for attempt in range(1 if sheet.SCENARIOS[name].get("sweep") else runner.MAX_RUNS)]
     for i, (name, attempt) in enumerate(runs):
         # The row after this one, so its world is built at site B while this one runs (runner.prebuild).
-        sheet.NEXT_ROW[0] = next((n for n, _a in runs[i + 1:] if n != name), None)
-        table = sheet.load_table()
-        code = sheet.code_for(name)
-        cached = sheet.cached_timeout(table, name, code)
+        runner.NEXT_ROW[0] = next((n for n, _a in runs[i + 1:] if n != name), None)
+        table = runner.load_table()
+        code = runner.code_for(name)
+        cached = runner.cached_timeout(table, name, code)
         if cached and not (a.force and attempt == 0):
             if attempt == 0:
                 print(f"FAIL {name} 0s {cached}")      # stopped at its limit last time, nothing changed since
             continue
-        decided = sheet.verdict(table, name, code)
+        decided = runner.verdict(table, name, code)
         if decided and not (a.force and attempt == 0):
             continue
         # Fresh memory per scenario: the real world's remembered pools/builds must not steer the test, and the
         # test must not write into the real world's notes.
-        sheet.fresh_row(brain)
+        core.fresh_row(brain)
         def make_ctx():
             snap = Snapshot.from_readings(api.get("/state"), Inventory())
             # Prices too: a skill that asks what a thing is worth (the looter) gets the same table the round uses.
             # Without it the bench reproduced the live bug — "looted 0 stacks" — for the wrong reason.
             return skillcore.Context(brain.mem, brain.policy(snap, snap.night), snap.dimension, brain.blacklist,
                                   prices=brain.price_table)
-        ok, seconds, note, cls, code = sheet.run_named(name, make_ctx)
+        ok, seconds, note, cls, code = runner.run_named(name, make_ctx)
         print(f"{'PASS' if ok else 'FAIL'} {name} {seconds:.0f}s {note}")
 
 
@@ -241,18 +242,19 @@ def _idle_ctx(brain):
 def _scenario_idle(sheet, names, brain):
     """Idle mode: each row set up as normal, then a body that does nothing for its budget, then its check — once,
     no retries, no cache. INVALID: an idle body passes it (it tests nothing). Written to runner.IDLE_TABLE only."""
+    from bonobo.bench import core, runner
     out = {}
     for i, name in enumerate(names):
-        sheet.NEXT_ROW[0] = names[i + 1] if i + 1 < len(names) else None
-        sheet.fresh_row(brain)
-        verdict, note, _code = sheet.run_idle(name, _idle_ctx(brain))
+        runner.NEXT_ROW[0] = names[i + 1] if i + 1 < len(names) else None
+        core.fresh_row(brain)
+        verdict, note, _code = runner.run_idle(name, _idle_ctx(brain))
         out.setdefault(verdict, []).append(name)
         print(f"IDLE {verdict} {name} {note}", flush=True)
     print("idle: " + ", ".join(f"{v} {len(n)}" for v, n in sorted(out.items())))
-    if out.get(sheet.INVALID):
-        print("INVALID (an idle body passes them): " + " ".join(out[sheet.INVALID]))
-    if out.get(sheet.DIED_ONLY):
-        print("DIED_ONLY (the idle check passed; only the death failed them): " + " ".join(out[sheet.DIED_ONLY]))
+    if out.get(runner.INVALID):
+        print("INVALID (an idle body passes them): " + " ".join(out[runner.INVALID]))
+    if out.get(runner.DIED_ONLY):
+        print("DIED_ONLY (the idle check passed; only the death failed them): " + " ".join(out[runner.DIED_ONLY]))
 
 
 MIGRATE_KEYS = r"""
@@ -279,12 +281,12 @@ def _scenario_migrate(sheet):
     import os
     import subprocess
     import tempfile
-    from bonobo.bench import runner
+    from bonobo.bench import runner, vocab
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
     here = os.path.dirname(os.path.abspath(__file__))
     rowkey = os.path.join(here, "bonobo", "bench", "rowkey.py")
     rel = os.path.relpath(here, root)
-    current = {n: sheet.code_for(n) for n in sheet.SCENARIOS}
+    current = {n: runner.code_for(n) for n in sheet.SCENARIOS}
     if any(k.endswith("jar-unknown") for k in current.values()):
         # The game is down: the mod part is the version the sources build (the bench demands jar == source).
         props = os.path.expanduser("~/minecraft-claude-bridge/anaka/gradle.properties")
@@ -317,13 +319,13 @@ def _scenario_migrate(sheet):
                 subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=root, capture_output=True)
         return keys_at[commit].get(name)
 
-    table = sheet.load_table()
+    table = runner.load_table()
     moved = runner.migrate(table, current, key_then)
-    sheet.save_table(table)
+    runner.save_table(table)
     pend = set(runner.pending(table, current))
     by = {}
     for n, sc in sheet.SCENARIOS.items():
-        tier = sc.get("tier") or sheet.tier_of(n, sc)
+        tier = sc.get("tier") or vocab.tier_of(n, sc)
         total, left = by.get(tier, (0, 0))
         by[tier] = (total + 1, left + (n in pend))
     print(f"migrated {len(moved)} rows over {len(keys_at)} commits; pending: "
@@ -334,12 +336,14 @@ def _scenario_selection(a, sheet):
     """The rows `--tier` / `--changed` name (sheet.select): the diff against the merge-base with main, mapped to
     the skills whose functions it touched."""
     import subprocess
+    from bonobo.bench import runner, vocab
+    from bonobo.bench.words import runs as words_runs
     # Acceptance is its own run; a tier narrows --failed and --pending alike when one is named.
-    in_tier = set(sheet.tier_rows(sheet.SCENARIOS, a.tier, "--tier" in sys.argv))
+    in_tier = set(words_runs.tier_rows(sheet.SCENARIOS, a.tier, "--tier" in sys.argv))
     if getattr(a, "failed", False):
-        return [n for n in sheet.failed_last(sheet.load_table()) if n in in_tier]
+        return [n for n in runner.failed_last(runner.load_table()) if n in in_tier]
     if getattr(a, "pending", False):
-        return sheet.pending(sheet.load_table(), {n: sheet.code_for(n) for n in sheet.SCENARIOS
+        return runner.pending(runner.load_table(), {n: runner.code_for(n) for n in sheet.SCENARIOS
                                                            if n in in_tier})
     changed = None
     if getattr(a, "changed", False):
@@ -348,12 +352,12 @@ def _scenario_selection(a, sheet):
         root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
         base = subprocess.run(["git", "merge-base", "HEAD", "main"], capture_output=True, text=True).stdout.strip()
         diff = subprocess.run(["git", "diff", "-U0", base or "HEAD"], capture_output=True, text=True, cwd=root).stdout
-        changed = sheet.touched_skills(sheet.diff_hunks(diff), sheet.skill_spans(REGISTRY, root))
+        changed = vocab.touched_skills(vocab.diff_hunks(diff), vocab.skill_spans(REGISTRY, root))
         print(f"changed skills: {', '.join(sorted(changed)) or 'none (core rows)'}")
         from bonobo.skill import REGISTRY as registry
     else:
         registry = None
-    return sheet.select(sheet.SCENARIOS, getattr(a, "tier", "core") or "core", changed, registry)
+    return vocab.select(sheet.SCENARIOS, getattr(a, "tier", "core") or "core", changed, registry)
 
 
 def cmd_interrupt(a):
@@ -373,7 +377,8 @@ def cmd_review(a):
         state, inv = None, None
     try:
         from bonobo.bench import table as sheet
-        readiness = sheet.readiness_lines()
+        from bonobo.bench.words import runs as words_runs
+        readiness = words_runs.readiness_lines()
     except Exception as e:      # the review must never fail because of the bench table
         readiness = [f"  unavailable: {e}"]
     print(review.packet(a.minutes, state, inv, Memory(), readiness=readiness))

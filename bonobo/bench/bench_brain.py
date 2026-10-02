@@ -165,7 +165,11 @@ ROWS = [
 
 ]
 # -- one-off rows written in code (no word earns its place): kept as the old sheet wrote them ------------------------
-from .vocab import *  # noqa: E402,F401,F403  (the words and helpers a one-off row is written in)
+from .core import _c
+from .words.brain import SEARCH_ARENA, SEARCH_FLAGS, SEARCH_ORE, _count_finds, _have, _no_scan, _seen, _set_time
+from .words.checks import _all, _gain, _now, _start, count
+from .words.runs import _enclosed, _hooks, _slice, _when, walked_at_least
+from .words.scene import limit
 CODE_ROWS = [
     # a search interrupted mid-way (for the night) and taken up again: no section searched twice, no ore scanned again
     dict(name="search_night_resume",

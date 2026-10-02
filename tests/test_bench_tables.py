@@ -14,6 +14,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo.bench import core, runner, table, vocab  # noqa: E402
+from bonobo.bench.words import fight as words_fight, scene as words_scene  # noqa: E402
 from bonobo.bench import table as sc  # noqa: E402  (the sheet: its helpers and its one SCENARIOS)
 from tests import bench_words as words  # noqa: E402
 
@@ -64,7 +65,7 @@ def record_of(name, row):
 
 def built(tier, name, row, seed=None):
     if name.startswith("escape__"):              # the same cell, the recorded seed
-        row = vocab.escape_row(name, *name[8:].split("_", 2), seed=seed)
+        row = words_fight.escape_row(name, *name[8:].split("_", 2), seed=seed)
     return table.build(row, tier)
 
 
@@ -142,7 +143,7 @@ class Words(unittest.TestCase):
         self.assertGreater(len(used), 20)
         for w in sorted(used):
             with self.subTest(w):
-                vocab.resolve(w)
+                words_scene.resolve(w)
 
     def test_an_ambiguous_word_is_refused(self):
         f, g = (lambda: 1), (lambda: 2)
@@ -155,11 +156,11 @@ class Words(unittest.TestCase):
             with self.subTest(name), mock.patch.dict(vocab.REGISTRY, defs):
                 if want is KeyError:
                     with self.assertRaises(KeyError) as e:
-                        vocab.resolve(word)
+                        words_scene.resolve(word)
                     if defs:
                         self.assertIn("_t_w", str(e.exception))
                 else:
-                    self.assertIs(vocab.resolve(word), want)
+                    self.assertIs(words_scene.resolve(word), want)
 
 
 class Coverage(unittest.TestCase):
@@ -223,14 +224,14 @@ class TierRules(unittest.TestCase):
 
     def test_fight_rows_only_in_combat(self):
         out = sorted(n for t, rows in tables().items() for n, r in rows.items()
-                     if t != "combat" and n not in self.EXEMPT and fights(vocab.scene(r["scene"]) if "scene" in r else r["setup"], r))
+                     if t != "combat" and n not in self.EXEMPT and fights(words_scene.scene(r["scene"]) if "scene" in r else r["setup"], r))
         self.assertEqual(out, [])
 
     def test_the_fight_check_sees_a_fight(self):
-        rows = [("a zombie in the scene", vocab.scene([("summon", "zombie", ("@", 1, 0, 0))]), {}, True),
+        rows = [("a zombie in the scene", words_scene.scene([("summon", "zombie", ("@", 1, 0, 0))]), {}, True),
                 ("a ghast in a hook", [], {"before": [("do", "chat", ["summon ghast 1 2 3"], {})]}, True),
                 ("the dragon slain", [], {"run": ("do", "bonobo.end.slay_dragon", ["$ctx"], {})}, True),
-                ("must fail: cows only", vocab.scene([("pen", "cow", 3)]), {}, False)]
+                ("must fail: cows only", words_scene.scene([("pen", "cow", 3)]), {}, False)]
         for why, setup, row, want in rows:
             with self.subTest(why):
                 self.assertEqual(fights(setup, row), want)
@@ -483,7 +484,7 @@ NOT_ROW_TESTED = {
 def run_word(word, state=None, inv=None, sheet=None):
     api = Api(state, inv)
     from bonobo.world import Inventory
-    patches = [mock.patch.dict(getattr(sc, k) if hasattr(sc, k) else getattr(core, k), v, clear=True)
+    patches = [mock.patch.dict(vocab.REGISTRY[k], v, clear=True)
                for k, v in (sheet or {}).items()]
     for p in patches:
         p.start()
@@ -595,11 +596,11 @@ class LineRules(unittest.TestCase):
 
 class Scene(unittest.TestCase):
     ROWS = [(("fill", ("@", -8, -2, -8), ("@", 8, -1, 8), "grass_block"), ["fill 9992 198 9992 10008 199 10008 grass_block"]),
-            (("floor",), sc._floor()), (("floor", "netherrack", 6, 2), sc._floor("netherrack", 6, 2)),
-            (("stand", -1, 0, 2), [sc._tp(-1, 0, 2)]), (("grove", (2, 0), (3, 3)), sc._grove((2, 0), (3, 3))),
-            (("pen", "cow", 3, 5), sc._pen("cow", 3, half=5)),
-            (("chest", ("@", 2, 0, 1), "iron_ingot 5", "bread 4"), sc._chest(sc.at(2, 0, 1), "iron_ingot 5", "bread 4")),
-            (("tank", -5, 5, -5, 5, 8, 7, -4, "glass", "east"), sc._tank(-5, 5, -5, 5, 8, 7, -4, "glass", "east")),
+            (("floor",), words_scene._floor()), (("floor", "netherrack", 6, 2), words_scene._floor("netherrack", 6, 2)),
+            (("stand", -1, 0, 2), [words_scene._tp(-1, 0, 2)]), (("grove", (2, 0), (3, 3)), words_scene._grove((2, 0), (3, 3))),
+            (("pen", "cow", 3, 5), words_scene._pen("cow", 3, half=5)),
+            (("chest", ("@", 2, 0, 1), "iron_ingot 5", "bread 4"), words_scene._chest(core.at(2, 0, 1), "iron_ingot 5", "bread 4")),
+            (("tank", -5, 5, -5, 5, 8, 7, -4, "glass", "east"), words_scene._tank(-5, 5, -5, 5, 8, 7, -4, "glass", "east")),
             (("tp", ("@", 0.5, 0, 0.5)), ["tp @p 10000.5 200 10000.5"]),
             (("give", "cobblestone", 16), ["give @p cobblestone 16"]),
             (("summon", "zombie", ("@", 3, 0, 0), "{PersistenceRequired:1b}"),
@@ -613,14 +614,14 @@ class Scene(unittest.TestCase):
     def test_templates_render(self):
         for item, want in self.ROWS:
             with self.subTest(item[0]):
-                self.assertEqual(vocab.scene([item]), want)
+                self.assertEqual(words_scene.scene([item]), want)
         with self.subTest("must fail: a word no template defines"), self.assertRaises(KeyError):
-            vocab.scene([("teleport", 1)])
+            words_scene.scene([("teleport", 1)])
 
     def test_setup_reads_back(self):
         for item, want in self.ROWS:
             with self.subTest(item[0]):
-                self.assertEqual(vocab.scene(words.scene_of(want)), want)
+                self.assertEqual(words_scene.scene(words.scene_of(want)), want)
         # must fail: a position off the bench is not written relative to it
         self.assertEqual(words.scene_of(["tp @p 0 64 0"]), [("cmd", "tp @p 0 64 0")])
 
