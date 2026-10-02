@@ -204,7 +204,10 @@ def decide(facts, fail_then_again=True):
             for err in step_failures(failure):
                 b.failed(act.name, err)
                 # an interruption (brain.outcome_of: resumed, never counted) cools nothing: only a failure must
-                reselected = reselected or (brain.outcome_of(err)[0] == "failed" and b.ready(chosen.key))
+                # ... and the act itself not cooled: an intent whose key stays ready offers another act next round when
+                # this one's own key cools (brain.need_act asks self.ready(name): the raise of a fight line, M1b)
+                reselected = reselected or (brain.outcome_of(err)[0] == "failed" and b.ready(chosen.key)
+                                            and b.ready(act.name))
             ctx["reselected"] = reselected
     return d, got, ctx
 
