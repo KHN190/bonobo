@@ -20,20 +20,25 @@ def step(kind, token, est, count=1, **detail):
 class Bag:
     """A bag with tools: (kind, tier, durability)."""
 
-    def __init__(self, tools=()):
+    def __init__(self, tools=(), items=None):
         self.rows = list(tools)
+        self.items = items or {}
 
     def tools(self, kind):
         from bonobo.data import TOOL_MATERIAL_FOR_TIER
         return [(t, d, f"minecraft:{TOOL_MATERIAL_FOR_TIER[t]}_{k}") for k, t, d in self.rows if k == kind]
 
-    def count(self, _item):
-        return 0
+    def count(self, item):
+        return self.items.get(item, 0)
 
 
 class Mem:
-    def __init__(self, stored=()):
+    def __init__(self, stored=(), stations=()):
         self.rows = list(stored)
+        self.station_rows = list(stations)
+
+    def stations(self, dimension=None):
+        return [{"block": b} for b in self.station_rows]
 
     def stored(self, token, dimension):
         return [r for r in self.rows if r[1].endswith(token.removeprefix("minecraft:"))]
@@ -48,6 +53,14 @@ def price(s):
 
 def fires(got):
     return got is not None and not isinstance(got, oracle.Unchecked)
+
+
+TWO_BEEF = {"minecraft:beef": 2, "coal": 4}
+BEEF_IN_ORDER = [step("smelt", "minecraft:cooked_beef", 35, 2, inputs={"minecraft:beef": 2, "coal": 1}),
+                 step("hunt", "minecraft:beef", 45, 6, types=["minecraft:cow"]),
+                 step("smelt", "minecraft:cooked_beef", 75, 6, inputs={"minecraft:beef": 6, "coal": 1})]
+BEEF_MERGED = [step("smelt", "minecraft:cooked_beef", 95, 8, inputs={"minecraft:beef": 8, "coal": 2}),
+               step("hunt", "minecraft:beef", 45, 6, types=["minecraft:cow"])]
 
 
 class Plan(unittest.TestCase):
@@ -85,6 +98,14 @@ class Plan(unittest.TestCase):
         ("D4", {"switches": [(4.0, 2.0, 3.0, 1.0, True)], "holds": [("a", "b", "better")]}, True),   # must fail
         ("D4", {"switches": [], "holds": [("a", "b", "better")]}, True),     # must fail: changed without weighing
         ("D4", {"switches": [], "holds": [("a", "b", "assumption")]}, False),
+        ("P2", {"plan": BEEF_IN_ORDER, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
+                "dimension": "minecraft:overworld"}, False),
+        # must fail: the two smelts merged before the hunt that feeds them (night_first__low 055858)
+        ("P2", {"plan": BEEF_MERGED, "inv": Bag(items=TWO_BEEF), "mem": Mem(stations=["furnace"]),
+                "dimension": "minecraft:overworld"}, True),
+        # must fail: a smelt with no furnace held, made or remembered
+        ("P2", {"plan": BEEF_IN_ORDER[:1], "inv": Bag(items=TWO_BEEF), "mem": Mem(),
+                "dimension": "minecraft:overworld"}, True),
     ]
 
     def test_rows(self):

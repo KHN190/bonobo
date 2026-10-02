@@ -130,4 +130,55 @@ def D4(b, d, a, ctx):
     return None
 
 
-CHECKS = {"D4": D4, "D6": D6, "R1": R1, "R2": R2, "R4": R4}
+def _station(st):
+    """The station a step works at, or None."""
+    if st.kind == "smelt":
+        return "minecraft:furnace"
+    if st.kind == "craft":
+        from bonobo.knowledge import source
+        src = source(st.token)
+        if src and src[0] == "craft" and len(src[1]) == 9:
+            return "minecraft:crafting_table"
+    return None
+
+
+def P2(b, d, a, ctx):
+    """The plan runs in its order: each step's inputs, tools and station are there when it starts — in the bag, made
+    by an earlier step, or (a station) remembered in this dimension."""
+    plan, inv = _plan(ctx), ctx.get("inv")
+    if plan is None or inv is None:
+        return Unchecked("no held plan this round (the act is not the queue's)")
+    from collections import Counter
+    from bonobo.data import TIER_OF_MATERIAL, bare, mid
+    from bonobo.knowledge import members, step_call, tool_ok
+    ids = lambda tok: {mid(m) for m in (tok, *members(tok))}                        # noqa: E731
+    made, used, tools = Counter(), Counter(), {}
+
+    def have(tok):
+        own = ids(tok)
+        return (inv.count(tok) + sum(n for k, n in made.items() if ids(k) & own)
+                - sum(n for k, n in used.items() if ids(k) & own))
+
+    mem, dim = ctx.get("mem"), ctx.get("dimension")
+    for i, st in enumerate(plan):
+        for tok, n in st.detail.get("inputs", {}).items():
+            if have(tok) < n:
+                return f"step {i + 1} {st} needs {n} {bare(tok)}, {max(0, have(tok))} there by then"
+            used[tok] += n
+        for need in step_call(st):
+            if need.startswith("tool:"):
+                _, kind, tier = need.split(":")
+                if not tool_ok(inv, kind, int(tier)) and tools.get(kind, -1) < int(tier):
+                    return f"step {i + 1} {st} needs a tier-{tier} {kind}, none held or made before it"
+        station = _station(st)
+        if station and have(station) <= 0 and (mem is None or not any(
+                s.get("block") in (station, bare(station)) for s in mem.stations(dim))):
+            return f"step {i + 1} {st} works at a {bare(station)}, none held, made before it or remembered"
+        made[st.token] += int(st.count)
+        material, _, kind = bare(st.token).rpartition("_")
+        if st.kind == "craft" and material in TIER_OF_MATERIAL:
+            tools[kind] = max(tools.get(kind, -1), TIER_OF_MATERIAL[material])
+    return None
+
+
+CHECKS = {"D4": D4, "D6": D6, "P2": P2, "R1": R1, "R2": R2, "R4": R4}
