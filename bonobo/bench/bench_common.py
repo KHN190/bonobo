@@ -63,18 +63,20 @@ from .vocab import base_row
 from .words.brain import SMELT_FURNACES, _interrupt_once_loaded, _iron_in_furnaces, _load_the_rest
 from .words.checks import INTERRUPTS, RESUMED_LEFT, _all, _inv_now, _skill, _start
 from .words.runs import _hooks, _resume
-from .words.scene import CHOP_TREE, _floor, _tp
+from .words.scene import _floor, _tp
 CODE_ROWS = [
     base_row("chest_or_tree", "chop", surprise=dict(
         base="chop", doc="4 logs in a chest by the body, a tree 12 away: the brain takes the cheaper (plan-driven, "
-                         "test point C)", point="C", scene=[("chest", ("@", 1, 0, 1), "oak_log 4")],
+                         "test point C)", point="C", replace_setup=True,
+        # the tree 12 away as the doc says (the chop base's own oak stands 2 off: chopping it is the cheaper)
+        scene=[("grove", (12, 0)), ("fill", ("@", 9, -1, -3), ("@", 15, -1, 3), "grass_block"), ("stand",),
+               ("chest", ("@", 1, 0, 1), "oak_log 4")],
         # the planner takes from containers as last seen open (memory.note_container): opened once
         before=lambda ctx: core.BRAIN.mem.note_container(
             at(1, 0, 1), "minecraft:overworld", [{"id": "minecraft:oak_log", "count": 4}]),
         run=lambda ctx: _achieve(ctx, [("log", 4)], lambda: _inv_now().count("log") >= 4),
         # 4 logs gained, the base's tree left whole (its trunk, where the base built it)
-        check=("all", ("!gain", "log", 4), ("!blocks", ("@", CHOP_TREE[0], 0, CHOP_TREE[1]),
-                                            ("@", CHOP_TREE[0], 6, CHOP_TREE[1]), ("oak_log",), 3)))),
+        check=("all", ("!gain", "log", 4), ("!blocks", ("@", 12, 0, 0), ("@", 12, 6, 0), ("oak_log",), 3)))),
     dict(name="smelt_job_interrupted",
          doc="Three furnaces, 6 raw iron and coal; interrupted once the first furnace took its share → resumed by what "
              "is left in the bag: all 6 in the furnaces, none twice, the bag empty of raw iron",
