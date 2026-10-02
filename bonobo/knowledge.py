@@ -436,6 +436,17 @@ def attack_weapon(inv, foe_hp):
     w = weapon_for(inv, foe_hp)
     return None if w == "hand" else w
 
+def planned_bag(inv, held):
+    """Pure: the bag as a plan has it when a step runs — its tools those the plan holds by then ({kind: tier}, each
+    fresh), everything else the bag's."""
+    from .data import TOOL_USES
+    from .world import Inventory
+    slots = [s for s in getattr(inv, "slots", ()) if bare(s["id"]).rpartition("_")[2] not in TOOL_KINDS]
+    for kind, tier in held.items():
+        slots.append({"id": tool_item(kind, tier), "count": 1, "damage": 0,
+                      "maxDamage": TOOL_USES[TOOL_MATERIAL_FOR_TIER[tier]], "slot": len(slots)})
+    return Inventory({"slots": slots, "equipment": dict(getattr(inv, "equipment", {}) or {})})
+
 def held_count(inv, token):
     """How many of `token` the bag holds, groups and "food" (cooked meals) included."""
     if token == "food":
