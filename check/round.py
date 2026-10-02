@@ -41,7 +41,21 @@ def step_failures(first):
     at.pos = TARGET
     # a bare mod failure whose text says the target is out of reach (retry.cause_of: counted as nav by its text)
     unreachable = McError(f"check: {UNREACHABLE[0]} {TARGET[0]}, {TARGET[1]}, {TARGET[2]}")
-    return out + [at, unreachable, Interrupted("check: interrupted")]
+    # every other exception data.EXCEPTIONS names, once each (a replan's count, a missing need or station built
+    # from what it misses): retry.Retry.failed's replan and not-a-failure arms
+    from .dims.failure import _classes
+    seen = {type(e) for e in out} | {NotAvailable, McError, Interrupted}
+    rest = []
+    for cls in _classes().values():
+        if cls in seen:
+            continue
+        for arg in ("check: the step failed here", {"minecraft:crafting_table": 1}):
+            try:
+                rest.append(cls(arg))
+                break
+            except (TypeError, AttributeError):
+                continue
+    return out + [at, unreachable] + rest + [Interrupted("check: interrupted")]
 
 
 def decide(facts, fail_then_again=True):
@@ -165,7 +179,8 @@ def decide(facts, fail_then_again=True):
             reselected = chosen.key is None
             for err in step_failures(failure):
                 b.failed(act.name, err)
-                reselected = reselected or (not isinstance(err, api.Interrupted) and b.ready(chosen.key))
+                # an interruption (brain.outcome_of: resumed, never counted) cools nothing: only a failure must
+                reselected = reselected or (brain.outcome_of(err)[0] == "failed" and b.ready(chosen.key))
             ctx["reselected"] = reselected
     return d, got, ctx
 
