@@ -7,6 +7,7 @@ import math
 from ..bench_bases import TARGET_SLACK
 from .scene import _row, items, limit, nest
 from ...data import TICKS_PER_S
+from ...data import TOOL_USES
 
 PICK = "stone_pickaxe"
 SHOVEL_KIT = [("oak_planks", 8), ("stick", 4), ("crafting_table", 1)]       # what a wooden shovel is made from, carried
@@ -72,7 +73,7 @@ def _region(spec):
 
 
 def _bag(items):
-    from ...actions import TOOL_USES
+    from ...data import TOOL_USES
     from ...world import Inventory
     slots = []
     for item, n in items:

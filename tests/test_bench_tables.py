@@ -489,7 +489,7 @@ def run_word(word, state=None, inv=None, sheet=None):
     for p in patches:
         p.start()
     try:
-        return bool(table.make(word)(api, Inventory(api.inv)))
+        return bool(table.make_word(word)(api, Inventory(api.inv)))
     finally:
         for p in reversed(patches):
             p.stop()
@@ -542,7 +542,7 @@ class Predicates(unittest.TestCase):
         fake = Api(inv=LOG2)
         for why, word, want in rows:
             with self.subTest(why), mock.patch.object(api, "get", fake.get):
-                self.assertEqual(table.make(word)(), want)
+                self.assertEqual(table.make_word(word)(), want)
 
     def test_every_check_word_is_row_tested_or_named(self):
         tested = {w[0] for _y, w, *_ in PRED_ROWS} | {w[0] for _y, w, *_ in WORLD_ROWS} | {"now", "now_api",

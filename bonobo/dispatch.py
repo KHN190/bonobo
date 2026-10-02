@@ -87,7 +87,7 @@ def go_find(ctx, step):
         if ctx.blocked(spot) or math.dist(spot, here) <= 4:
             continue
         tried += 1
-        if not nav.arrived(spot, ctx.policy, range_=4 if seen_class(kind) != "mobile" else 8):
+        if not nav.arrived_near(spot, ctx.policy, range_=4 if seen_class(kind) != "mobile" else 8):
             ctx.ban(spot)
             continue
         if seen_class(kind) == "mobile" or mem.confirm(kind, spot, dim, still_there(mem.blocks_of(kind), spot)):

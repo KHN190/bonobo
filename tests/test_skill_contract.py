@@ -303,9 +303,9 @@ class Arrive(_Clean):
                 api.STATE.interrupt = None
                 if want is api.Interrupted:
                     with self.assertRaises(api.Interrupted):       # not getting there is False; being stopped is not
-                        self.run_legs(nav.arrived, legs, **kw)
+                        self.run_legs(nav.arrived_near, legs, **kw)
                 else:
-                    self.assertIs(self.run_legs(nav.arrived, legs, **kw), want is True)
+                    self.assertIs(self.run_legs(nav.arrived_near, legs, **kw), want is True)
 
 
 # ----------------------------------------------------------------------------------------------------- outcomes
@@ -383,7 +383,7 @@ class AWalkCutShortIsNotAFailure(unittest.TestCase):
                 body.engaged = engaged
                 with mock.patch.object(arbiter, "BODY", body):
                     with self.assertRaises(want) as got:
-                        nav.arrived((5, 64, 5), nav.Policy(), range_=1.5)
+                        nav.arrived_near((5, 64, 5), nav.Policy(), range_=1.5)
                 self.assertEqual(retry.cause_of(got.exception), "interrupt")
 
     def test_free_body_is_asked_normally(self):
@@ -392,7 +392,7 @@ class AWalkCutShortIsNotAFailure(unittest.TestCase):
         with mock.patch.object(arbiter, "BODY", body), \
                 mock.patch.object(api, "api", side_effect=api.GameUnreachable("offline")):
             with self.assertRaises(api.GameUnreachable):
-                nav.arrived((5, 64, 5), nav.Policy(), range_=1.5)
+                nav.arrived_near((5, 64, 5), nav.Policy(), range_=1.5)
 
 
 class DigInSeals(unittest.TestCase):
@@ -506,7 +506,7 @@ class WaitsEndByTime(unittest.TestCase):
                     mock.patch.object(api, "get", w.get), \
                     mock.patch.object(end, "portal_centre", lambda cells: (0, 64, 0)), \
                     mock.patch.object(end, "find", lambda *a, **k: [{"x": 0, "y": 64, "z": 0}]), \
-                    mock.patch.object(end.nav, "arrived", lambda *a, **k: True):
+                    mock.patch.object(end.nav, "arrived_near", lambda *a, **k: True):
                 self.assertEqual(self.drive(end.enter_end.__wrapped__(ctx)), want)
                 if want is not None:
                     self.assertGreaterEqual(w.s, end.PORTAL_ARRIVE_S)

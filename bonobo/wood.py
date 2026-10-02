@@ -73,7 +73,7 @@ def chop(ctx, n):
         base = min(trunk, key=lambda t: t["y"])
         if math.dist(feet(), (base["x"], base["y"], base["z"])) > 2.5:   # stand beside the trunk (3.5 m was too far)
             # get to the trunk with the navigator first (the walker can't climb or tunnel), then chop within reach
-            if not nav.arrived((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
+            if not nav.arrived_near((base["x"], base["y"], base["z"]), ctx.policy, range_=2, attempts=2):
                 # the walker giving up is not "no way": the game's pathfinder decides whether digging or bridging gets there
                 if nav.way_to(ctx, [(base["x"], base["y"], base["z"])]):
                     pass                         # a way was made and checked: chop from where we now stand

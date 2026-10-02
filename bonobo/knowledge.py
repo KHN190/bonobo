@@ -2,10 +2,8 @@
 import math
 
 from .game import COVERED_SKY, DAYLIT_SKY, EYE_HEIGHT, SPAWN_BLOCK_LIGHT
-from .data import (ANIMAL_HP, BASE_MARKERS, COLORS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, WOODS,
-                   HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, ATTACKS_PER_S, BREAK_DIVISOR,
-                   DEEPSLATE_ORE_HARDNESS, HAND_ATTACKS_PER_S, HAND_DAMAGE, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS,
-                   SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit)
+from .data import ANIMAL_HP, BASE_MARKERS, DAY_END, DAY_TICKS, NIGHT_END, TICKS_PER_S, SOIL_DEPTH, FOOD, GROUPS, NUTRITION, RAW, RECIPES, SMELTS, HAND_MINEABLE_SUFFIX, TIER_OF_MATERIAL, bare, mid, BREAK_DIVISOR, DEEPSLATE_ORE_HARDNESS, HARDNESS, HARDNESS_SUFFIX, HOE_BLOCKS, SPECIAL_SPEED, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, TOOL_SPEED, UNLISTED_HARDNESS, WEAPON_DAMAGE, DROP_KINDS, weapon_hit
+from .data import TAKEABLE
 
 # group recipes: the output follows the input variant; the craft skill picks one owned member with enough
 GROUP_RECIPES = {
@@ -46,10 +44,6 @@ MINE = {
     "minecraft:nether_wart": (["nether_wart"], None),     # grows in fortress soul sand gardens
     "minecraft:sugar_cane": (["sugar_cane"], None),       # by water: paper → books → enchanting table
 }
-# items per block broken (average)
-MINE_YIELD = {"minecraft:flint": 0.12, "minecraft:redstone": 4.5, "minecraft:lapis_lazuli": 6,
-              "minecraft:wheat_seeds": 0.125}
-
 HUNT = {
     "minecraft:beef": ["minecraft:cow"], "minecraft:porkchop": ["minecraft:pig"],
     "minecraft:mutton": ["minecraft:sheep"], "minecraft:chicken": ["minecraft:chicken"],
@@ -63,45 +57,6 @@ BREED_FOOD = {"minecraft:cow": "minecraft:wheat", "minecraft:sheep": "minecraft:
               "minecraft:pig": "minecraft:carrot", "minecraft:chicken": "minecraft:wheat_seeds"}
 # A wheat plot (farming.plant_farm): 8 cells sown around one water source; what one harvest brings.
 PLOT_CELLS = 8
-HUNT_YIELD = {"minecraft:beef": 2, "minecraft:porkchop": 2, "minecraft:mutton": 1.5, "minecraft:chicken": 1,
-              "minecraft:rabbit": 1, "wool": 1, "minecraft:leather": 1, "minecraft:feather": 1,
-              "minecraft:string": 1, "minecraft:ender_pearl": 0.5, "minecraft:blaze_rod": 0.5}
-
-# finished goods the world already holds (village beds, furnaces…), so "take that one" competes with "craft one"; no theft price — the game has none
-TAKEABLE = {
-    "bed": {"blocks": [f"{c}_bed" for c in COLORS], "gives": {"bed": 1}, "tool": None, "break_s": 1.0},
-    "wool": {"blocks": [f"{c}_wool" for c in COLORS], "gives": {"wool": 1}, "tool": None, "break_s": 1.2},
-    "minecraft:crafting_table": {"blocks": ["crafting_table"], "gives": {"minecraft:crafting_table": 1},
-                                 "tool": None, "break_s": 2.5},
-    "minecraft:furnace": {"blocks": ["furnace", "blast_furnace", "smoker"],
-                          "gives": {"minecraft:furnace": 1}, "tool": ("pickaxe", 0), "break_s": 5.5},
-    "minecraft:chest": {"blocks": ["chest", "barrel"], "gives": {"minecraft:chest": 1}, "tool": None,
-                        "break_s": 3.0},
-    "minecraft:cauldron": {"blocks": ["cauldron"], "gives": {"minecraft:cauldron": 1}, "tool": ("pickaxe", 0),
-                           "break_s": 6.0},
-    "door": {"blocks": [f"{w}_door" for w in WOODS], "gives": {"door": 1}, "tool": None, "break_s": 3.0},
-    "minecraft:ladder": {"blocks": ["ladder"], "gives": {"minecraft:ladder": 1}, "tool": None, "break_s": 0.6},
-    "minecraft:torch": {"blocks": ["torch", "wall_torch"], "gives": {"minecraft:torch": 1}, "tool": None,
-                        "break_s": 0.3},
-    "minecraft:bookshelf": {"blocks": ["bookshelf"], "gives": {"minecraft:book": 3}, "tool": None, "break_s": 2.3},
-    "minecraft:smithing_table": {"blocks": ["smithing_table"], "gives": {"minecraft:smithing_table": 1},
-                                 "tool": None, "break_s": 3.8},
-    "minecraft:stonecutter": {"blocks": ["stonecutter"], "gives": {"minecraft:stonecutter": 1},
-                              "tool": ("pickaxe", 0), "break_s": 5.5},
-    "minecraft:hay_block": {"blocks": ["hay_block"], "gives": {"minecraft:wheat": 9}, "tool": None,
-                            "break_s": 1.2},
-    "minecraft:wheat": {"blocks": ["wheat"], "gives": {"minecraft:wheat": 1, "minecraft:wheat_seeds": 1},
-                        "tool": None, "break_s": 0.4},
-    "minecraft:carrot": {"blocks": ["carrots"], "gives": {"minecraft:carrot": 3}, "tool": None, "break_s": 0.4},
-    "minecraft:potato": {"blocks": ["potatoes"], "gives": {"minecraft:potato": 3}, "tool": None, "break_s": 0.4},
-    "minecraft:beetroot": {"blocks": ["beetroots"], "gives": {"minecraft:beetroot": 1}, "tool": None,
-                           "break_s": 0.4},
-    "minecraft:pumpkin": {"blocks": ["pumpkin", "carved_pumpkin"], "gives": {"minecraft:pumpkin": 1},
-                          "tool": None, "break_s": 1.5},
-    "minecraft:melon_slice": {"blocks": ["melon"], "gives": {"minecraft:melon_slice": 5}, "tool": None,
-                              "break_s": 1.5},
-}
-
 def takeable_blocks():
     """Every block worth walking over to break, flat — one list for the travel scan and the resource map."""
     return sorted({b for row in TAKEABLE.values() for b in row["blocks"]})
@@ -431,7 +386,7 @@ def attack_weapon(inv, foe_hp):
     w = weapon_for(inv, foe_hp)
     return None if w == "hand" else w
 
-def held(inv, token):
+def held_count(inv, token):
     """How many of `token` the bag holds, groups and "food" (cooked meals) included."""
     if token == "food":
         return food_count(inv)
@@ -451,7 +406,7 @@ def have_remainder(inv, rows, pending=None):
 
     pending = pending or {}
     items = {r[0]: int(r[1]) for r in rows if r[0] != "tool"}
-    out = reconcile(items, {t: held(inv, t) + pending.get(t, 0) for t in items})
+    out = reconcile(items, {t: held_count(inv, t) + pending.get(t, 0) for t in items})
     for r in rows:
         if r[0] == "tool" and not tool_ok(inv, r[1], int(r[2])):
             out[f"tool:{r[1]}"] = int(r[2])
@@ -479,7 +434,7 @@ def body(st):
     return st.get("state") or {}
 
 # -- where the body is
-def in_dimension(dimension_of):
+def is_in_dimension(dimension_of):
     """In the dimension `dimension_of(call)` names."""
     def fn(st, c):
         want = dimension_of(c)
@@ -564,8 +519,8 @@ def less_than_at_start(token_of, n_of=lambda c: 1):
     """`n_of(call)` fewer of `token_of(call)` in the bag than at the start (handed over: into a furnace, a chest)."""
     def fn(st, c):
         base = getattr(c, "base", None)
-        base = base if isinstance(base, int) else held(st["inv"], token_of(c))
-        now = held(st["inv"], token_of(c))
+        base = base if isinstance(base, int) else held_count(st["inv"], token_of(c))
+        now = held_count(st["inv"], token_of(c))
         return left(now <= base - n_of(c), f"to hand over:{token_of(c)}", now - (base - n_of(c)))
     return fn
 
@@ -585,7 +540,7 @@ def worn(item_of, below=0.25):
     return fn
 
 # -- what moves around us
-def entities(st):
+def entity_kinds(st):
     return st.get("entities")
 
 def none_of(*types, within=24.0):
@@ -593,7 +548,7 @@ def none_of(*types, within=24.0):
     want = {mid(t) for t in types}
 
     def fn(st, c):
-        rows = entities(st)
+        rows = entity_kinds(st)
         if rows is None:
             return {f"unread:{'|'.join(sorted(bare(t) for t in want))}": 1}
         n = sum(1 for e in rows if e.get("type") in want and e.get("distance", 0) <= within)
@@ -604,14 +559,14 @@ def some_of(types_of, within=48.0):
     """One of `types_of(call)` in sight (the /entities rows read)."""
     def fn(st, c):
         want = {mid(t) for t in types_of(c)}
-        rows = entities(st) or []
+        rows = entity_kinds(st) or []
         return left(any(e.get("type") in want and e.get("distance", 0) <= within for e in rows),
                     f"seen:{'|'.join(sorted(bare(t) for t in want))}")
     return fn
 
 def dragon_phase(phases):
     def fn(st, c):
-        rows = entities(st) or []
+        rows = entity_kinds(st) or []
         dragon = next((e for e in rows if e.get("type") == "minecraft:ender_dragon"), None)
         return left(dragon is not None and dragon.get("phase") in phases, "state:dragon_perched")
     return fn
@@ -636,7 +591,7 @@ def bartered(st, c):
 def window_over(perch_phases):
     """The attack window closed: the dragon no longer perched (or gone)."""
     def fn(st, c):
-        rows = entities(st)
+        rows = entity_kinds(st)
         if rows is None:
             return {"unread:dragon": 1}
         dragon = next((e for e in rows if e.get("type") == "minecraft:ender_dragon"), None)
@@ -644,7 +599,7 @@ def window_over(perch_phases):
     return fn
 
 def babies(st, c):
-    rows = entities(st)
+    rows = entity_kinds(st)
     if rows is None:
         return {"unread:animals": 1}
     n = sum(1 for e in rows if e.get("baby"))
@@ -716,7 +671,7 @@ def found(kinds_of):
     """One of `kinds_of(call)` in sight: a block of it in the region read, or an entity of it."""
     def fn(st, c):
         want = {bare(k) for k in kinds_of(c)}
-        seen = any(b in want for b in names(st)) or any(bare(e.get("type", "")) in want for e in (entities(st) or []))
+        seen = any(b in want for b in names(st)) or any(bare(e.get("type", "")) in want for e in (entity_kinds(st) or []))
         return left(seen, f"seen:{'|'.join(sorted(want))}")
     return fn
 
@@ -724,7 +679,7 @@ def tunnelled(length_of):
     """A strip-mine step: stone won (the tunnel's own yield) — half its length's worth over the start."""
     def fn(st, c):
         base = getattr(c, "base", None) or (0, 0)
-        stone = held(st["inv"], "stone") + held(st["inv"], "minecraft:cobbled_deepslate")
+        stone = held_count(st["inv"], "stone") + held_count(st["inv"], "minecraft:cobbled_deepslate")
         need = base[1] + max(1, length_of(c) // 2)
         return left(stone >= need, "stone", need - stone)
     return fn
@@ -769,7 +724,7 @@ PRIOR_TICKS = {"craft": 60, "smelt_each": 200, "smelt_setup": 300, "mine_each": 
                "reach": 200, "breed": 400,
                "shelter:dig_in": 500, "shelter:pod": 800, "shelter:hut": 2400,
                "room:tidy": 300, "room:deposit": 1200}
-GROW_S = {"crop": 15 * 60, "animal": 20 * 60}     # jobs.DURATION
+GROW_S = {"crop": 900, "animal": 1200}     # seconds (jobs.DURATION)
 NIGHT_S = 420.0               # a night, when the clock is not read
 MIN_FIND_P = 0.02
 
@@ -779,7 +734,7 @@ def dawn_s(state):
     if "timeOfDay" not in (state or {}):
         return NIGHT_S
     t = int(state["timeOfDay"]) % DAY_TICKS
-    return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / 20.0)
+    return max(1.0, ((NIGHT_END - t) % DAY_TICKS) / TICKS_PER_S)
 
 
 def prior_ticks(step):

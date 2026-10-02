@@ -83,6 +83,6 @@ def drop_done(path=None):
 def goal_of(task):
     return {"goal": task["goal"], "args": task.get("args", {})}
 
-def describe(task):
+def describe_task(task):
     extra = f" ({task['reason']})" if task.get("reason") else ""
     return f"{task['id']} [{task['state']}] {goals.describe(goal_of(task))}{extra}"

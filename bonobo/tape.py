@@ -56,7 +56,7 @@ def store_mem(data):
 SOURCES = {}
 FILES = {}
 
-def register(name, snapshot=None, file_path=None):
+def register_snapshot(name, snapshot=None, file_path=None):
     """`snapshot()` → JSON-able extra for each row, or `file_path()` → a path whose text is recorded."""
     if snapshot is not None:
         SOURCES[name] = snapshot

@@ -3,7 +3,7 @@
 import math
 
 from .data import bare
-from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held, kit_needs, reconcile,  # noqa: F401
+from .knowledge import (DRAGON_BEDS, blocks_remainder, have_remainder, held_count, kit_needs, reconcile,  # noqa: F401
                         tool_ok)
 
 TEMPLATES = ("have", "craft", "milestone", "goto", "road", "build", "sleep", "skill", "effect")

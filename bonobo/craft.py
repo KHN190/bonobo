@@ -10,7 +10,7 @@ from .api import McError, NotAvailable, log, swallowed
 from .skill import skill
 from .data import HAND_MINEABLE_SUFFIX, ARMOR_RANK, ARMOR_SLOTS, GROUPS, LOG_TO_PLANKS, RECIPES, bare, mid
 from .knowledge import GROUP_RECIPES, members
-from .world import BAG_SLOTS, Inventory, Region, screen_slot, add, find
+from .world import BAG_SLOTS, Inventory, Region, screen_slot, cell_add, find
 from .bag import free_slots_plan
 from .skillcore import StationMissing, close_screen, free_spots_here, place, mine_cell, gained, opened
 from .world import feet
@@ -29,11 +29,11 @@ def make_room(ctx):
         if not region.solid(floor) or region.hazard(floor) or cell in ctx.policy.protected:
             continue
         if region.solid(cell) and (region.unbreakable(cell) or region.player_made(cell)
-                                   or any(region.hazard(add(cell, d)) for d in nav.NEIGHBOURS6)):
+                                   or any(region.hazard(cell_add(cell, d)) for d in nav.NEIGHBOURS6)):
             continue
-        above = add(cell, (0, 1, 0))
+        above = cell_add(cell, (0, 1, 0))
         if region.solid(above) and (region.unbreakable(above) or region.player_made(above)
-                                    or any(region.hazard(add(above, d)) for d in nav.NEIGHBOURS6)):
+                                    or any(region.hazard(cell_add(above, d)) for d in nav.NEIGHBOURS6)):
             continue
         # the cell and the one above (a chest under a block won't open), in one chain
         dig = [nav.mine_task(c) for c in (cell, above) if region.solid(c)]
@@ -80,7 +80,7 @@ class Station:
         home = mem.home_part("stations", self.ctx.dimension, feet(), self.block) if mem else None
         if home is not None and not near:
             # inside the home: its own station, walked to — never a new one placed there
-            nav.arrived(home, self.ctx.policy, range_=3, attempts=1)
+            nav.arrived_near(home, self.ctx.policy, range_=3, attempts=1)
             near = [{"x": home[0], "y": home[1], "z": home[2]}]
         if near:
             self.pos = (near[0]["x"], near[0]["y"], near[0]["z"])
@@ -353,7 +353,7 @@ def _sitting(ctx, recipes, keep_table=False):
         home = mem.home_part("stations", ctx.dimension, feet(), "crafting_table") if mem else None
         if home is not None and not near:
             # inside the home: its table, walked to — never a new one placed (nor taken back: not placed)
-            nav.arrived(home, ctx.policy, range_=3, attempts=1)
+            nav.arrived_near(home, ctx.policy, range_=3, attempts=1)
             near = [{"x": home[0], "y": home[1], "z": home[2]}]
         if near:
             state["table"] = (near[0]["x"], near[0]["y"], near[0]["z"])
@@ -558,7 +558,7 @@ def collect_job(ctx, job):
         # Picked back up, broken or never placed there: the job is stale, not a navigation problem.
         ctx.mem.finish_job(job["id"])
         raise NotAvailable(f"no furnace at {pos} any more; job dropped")
-    if not nav.arrived(pos, ctx.policy, range_=3, attempts=2):
+    if not nav.arrived_near(pos, ctx.policy, range_=3, attempts=2):
         raise api.NavFailed(f"furnace job at {pos} not reachable")
     before = Inventory().count(job["item"])
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=40, awaits="the furnace's slots read on its screen")

@@ -78,11 +78,11 @@ def level_seed(path):
 ID_KIND = "seed"          # what the id after the folder is; a record without it holds the old `folder:created`
 
 
-def record():
+def record_world():
     return paths.read_json(FILE, {})
 
 def known():
-    return record().get("world")
+    return record_world().get("world")
 
 def remember(world):
     paths.save_json(FILE, {"world": world, "id": ID_KIND, "at": time.time()})
@@ -109,7 +109,7 @@ def check(instance=None):
     world = world_id(instance)
     if world is None:
         return None, []
-    rec = record()
+    rec = record_world()
     was = rec.get("world")
     if was == world:
         return world, []

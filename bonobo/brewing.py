@@ -42,12 +42,12 @@ def fill_bottles(ctx, count=3):
     hits = sorted(find(["water"], radius=32, limit=30), key=lambda h: h["distance"])
     for h in hits[:4]:
         c = (h["x"], h["y"], h["z"])
-        from .world import Region, add
-        spot = fluids.fill_spot(Region(add(c, (-5, -3, -5)), add(c, (5, 3, 5)), props=True), here)
+        from .world import Region, cell_add
+        spot = fluids.fill_spot(Region(cell_add(c, (-5, -3, -5)), cell_add(c, (5, 3, 5)), props=True), here)
         if spot is None:
             continue
         stand, source = spot
-        if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
+        if not nav.arrived_near(stand, ctx.policy, range_=0.6, attempts=1):
             continue
         api.run_chain(bottle_commands({"inv": Inventory(), "source": source}, (count,)), stop_on_failure=True)
         yield None

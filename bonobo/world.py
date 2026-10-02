@@ -51,7 +51,7 @@ def line_of_fire(a, b):
     except api.McError as e:
         return api.swallowed("world.line_of_fire", e)      # unread: unknown (None), the mob still counts
 
-def add(p, d) -> Cell:
+def cell_add(p, d) -> Cell:
     return p[0] + d[0], p[1] + d[1], p[2] + d[2]
 
 
@@ -345,7 +345,7 @@ READS: dict = {}
 lifecycle.in_place(__name__, "READS")
 
 
-def bag():
+def inventory_now():
     """The bag, read once while nothing was sent since (ARM's read serves HOLD)."""
     got = READS.get("bag")
     if got is not None and got[0] == api.STATE.posts:
@@ -381,7 +381,7 @@ def connected(region, seed: Cell, ids) -> set[Cell]:
         if p in out or region.name(p) not in names:
             continue
         out.add(p)
-        todo.extend(add(p, d) for d in NEIGHBOURS6)
+        todo.extend(cell_add(p, d) for d in NEIGHBOURS6)
     return out
 
 def job_ready(job, tick=None, now=None):

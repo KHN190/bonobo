@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bonobo import actions, memory  # noqa: E402
+from bonobo import actions, data, memory  # noqa: E402
 from bonobo.solve import Action, Unsolvable, reach_cost, solve  # noqa: E402
 from tests.world import inventory, places, slot, snapshot  # noqa: E402
 
@@ -110,10 +110,10 @@ class RealPlans(unittest.TestCase):
 
 # (column name, part of what it requires, part of what it does): the real table, exactly
 COLUMNS = [
-    ("mine:minecraft:cobblestone", {"bag_free": 1, actions.at("stone"): 1}, {}),
+    ("mine:minecraft:cobblestone", {"bag_free": 1, actions.at_dim("stone"): 1}, {}),
     ("mine:minecraft:raw_iron", {actions.tool_dim("pickaxe", 1): 1}, {actions.uses_dim("pickaxe"): -1}),
-    ("craft:minecraft:stone_pickaxe", {}, {actions.uses_dim("pickaxe"): actions.TOOL_USES["stone"]}),
-    ("craft:minecraft:iron_pickaxe", {}, {actions.uses_dim("pickaxe"): actions.TOOL_USES["iron"]}),
+    ("craft:minecraft:stone_pickaxe", {}, {actions.uses_dim("pickaxe"): data.TOOL_USES["stone"]}),
+    ("craft:minecraft:iron_pickaxe", {}, {actions.uses_dim("pickaxe"): data.TOOL_USES["iron"]}),
     ("gather:log", {actions.DAY_DIM: 1, "hands_free": 1}, {}),
     ("take:bed", {}, {"bed": 1}),
 ]

@@ -168,7 +168,7 @@ class Brain:
         nav.DOORS = mechanisms.doors_on_way   # taught doors: pressed on the way, never dug
         mechanisms.WALK_TO = nav.go_to
         nav.HOME_DOOR = mechanisms.home_exit
-        nav.DOOR_ROUTE = costmod.DOOR_ROUTE = mechanisms.route_s     # and priced through, not as rock
+        nav.DOOR_ROUTE = costmod.DOOR_ROUTE = mechanisms.taught_route_s     # and priced through, not as rock
         nav.ROAD_MEM = self.mem       # travelled legs become a road network (roads.py) for later trips
         self.retry = retry.Retry()
         self.planning = True                    # False for a round without the plan layer (Brain.round(plan=False))
@@ -663,7 +663,7 @@ class Brain:
                 return None
             waiting = goals.short(snap.inv, goals.needs(goal, snap.inv))
             if self.mem.jobs(snap.dimension):
-                self.hold_log(f"{tasks.describe(task)}: waiting on a furnace for {waiting}")
+                self.hold_log(f"{tasks.describe_task(task)}: waiting on a furnace for {waiting}")
                 return None
             self.fail_task(task, f"nothing left to plan, still short of {waiting}")
             return None
@@ -733,7 +733,7 @@ class Brain:
         self._write(task, state="running", plan=[decompose.to_dict(s) for s in steps])
         tape.event(f"task {task['id']}", "plan", " → ".join(map(str, steps)))
         if steps:
-            api.detail(f"   plan for {tasks.describe(task)}: " + " → ".join(map(str, steps)))
+            api.detail(f"   plan for {tasks.describe_task(task)}: " + " → ".join(map(str, steps)))
         return held
 
     def after_step(self, act, outcome, bag_now):
@@ -765,7 +765,7 @@ class Brain:
 
     def fail_task(self, task, reason):
         """Fail the task with its reason; the cerebrum decides what next."""
-        log(f"?? task {tasks.describe(task)} failed: {reason}")
+        log(f"?? task {tasks.describe_task(task)} failed: {reason}")
         self.finish(task, "failed", reason)
 
     def finish(self, task, state, reason):
@@ -774,7 +774,7 @@ class Brain:
         self.held.pop(task["id"], None)
         self.retry.succeeded(f"task {task['id']}")
         if state == "done":
-            log(f"task done: {tasks.describe(task)}")
+            log(f"task done: {tasks.describe_task(task)}")
 
     # -- nothing queued
     def prepare(self, snap, ctx):
@@ -815,7 +815,7 @@ class Brain:
         if now - self.last_track < 60:
             return
         self.last_track = now
-        live = [tasks.describe(t) for t in tasks.load() if t["state"] in tasks.LIVE][:6]
+        live = [tasks.describe_task(t) for t in tasks.load() if t["state"] in tasks.LIVE][:6]
         try:
             with open(TRACK_FILE, "a") as f:
                 f.write(json.dumps({"t": int(now), "pos": list(snap.feet), "tasks": live,
@@ -914,7 +914,7 @@ def registrations(homes, mechs):
 def say_registrations(brain):
     """The start says what it read (memory's homes, mechanisms' lessons): never a silent start without them."""
     dim = api.get("/state")["dimension"]
-    line = registrations(brain.mem.homes(dim), mechanisms.in_dimension(dim))
+    line = registrations(brain.mem.homes(dim), mechanisms.door_in_dimension(dim))
     log(f"start: {line}")
     events.emit("start", line)
 

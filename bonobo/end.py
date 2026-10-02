@@ -58,10 +58,10 @@ def activate_end_portal(ctx):
     if stand is None:
         return
     if floor is not None:
-        nav.arrived(outside_spot(min(frames, key=lambda f: math.dist(f, world.feet())), centre), ctx.policy,
+        nav.arrived_near(outside_spot(min(frames, key=lambda f: math.dist(f, world.feet())), centre), ctx.policy,
                     range_=1.0, attempts=1)
         place(block, floor)
-    if not nav.arrived(stand, ctx.policy, range_=0.5, attempts=1):
+    if not nav.arrived_near(stand, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"the ring's middle at {stand} is not reachable")
     # every eye in one chain: the last opens the portal under the feet
     done = api.run_chain([{"type": "use_item", "item": "minecraft:ender_eye", "x": f[0] + 0.5, "y": f[1] + 0.8125,
@@ -122,7 +122,7 @@ def find_portal_room(ctx):
             for _ in range(4):
                 if math.dist(world.feet(), pos) <= ROOM_REACH:
                     return True
-                nav.arrived(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
+                nav.arrived_near(pos, ctx.policy, range_=ROOM_REACH - 4, attempts=1)
                 yield world.feet()
             if math.dist(world.feet(), pos) > ROOM_REACH:
                 raise api.NavFailed(f"portal room at {pos} spotted but not reached", pos=pos)
@@ -137,7 +137,7 @@ def find_portal_room(ctx):
             break
         visited.append(target)
         log(f"   portal room search: heading to {target}")
-        nav.arrived(target, ctx.policy, range_=3, attempts=1)
+        nav.arrived_near(target, ctx.policy, range_=3, attempts=1)
         yield target
     raise NotAvailable("no end portal frame around the stronghold estimate")
 
@@ -150,7 +150,7 @@ def _frame_region():
 
 PORTAL_ARRIVE_S = 10.0     # standing in the portal this long without a dimension change: it did not take us
 
-@skill(gives=["state:in_the_end"], remaining=_k.in_dimension(lambda c: "minecraft:the_end"), needs={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
+@skill(gives=["state:in_the_end"], remaining=_k.is_in_dimension(lambda c: "minecraft:the_end"), needs={}, done=lambda c: api.get("/state")["dimension"] == "minecraft:the_end", budget=120, stall=60)
 def enter_end(ctx):
     """Jump into the activated end portal (the centre of the frame ring)."""
     centre = portal_centre([(h["x"], h["y"], h["z"]) for h in find(["end_portal_frame"], radius=32, limit=12)])
@@ -158,7 +158,7 @@ def enter_end(ctx):
         raise NotAvailable("no end portal nearby")
     if not find(["end_portal"], radius=32, limit=1):
         raise NotAvailable("the end portal isn't active yet")
-    nav.arrived(centre, ctx.policy, range_=0.6, attempts=1)
+    nav.arrived_near(centre, ctx.policy, range_=0.6, attempts=1)
     end = time.time() + PORTAL_ARRIVE_S
     while time.time() < end:
         api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the dimension change after stepping in")

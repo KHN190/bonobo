@@ -13,6 +13,7 @@ import time
 
 from .. import paths
 from ..api import McError, READ_EVERY_S, swallowed
+from ..data import TICKS_PER_S
 from .core import bag_now
 from .core import (BENCH, BENCH_WORLD, BOX, WORLD_NORMAL, body_reset, FLAG, PKG, SCENARIOS, TABLE, UNCOUNTED, SetupInvalid, _batch, _c, _checked,
                   _command, at, server_count)
@@ -917,7 +918,7 @@ def run_named(name, make_ctx):
     from .. import api as _api
     # a wait on the game's clock alone (a furnace cooking, api.waiting_for_clock) runs the clock ahead: the row's
     # work and checks stay the same, only the real-time wait for the furnace goes (smelting is 10 s an item)
-    _api.CLOCK_HOOK = lambda s: _command(f"tick sprint {max(20, int(s * 20))}", feedback)
+    _api.CLOCK_HOOK = lambda s: _command(f"tick sprint {max(TICKS_PER_S, int(s * TICKS_PER_S))}", feedback)
     try:
         if rate:
             # waiting-heavy rows run the game faster: skills wait in ticks, only wall time shrinks; reset below
@@ -985,7 +986,7 @@ def idle_done(reached, died, over, hold):
     return not reached if hold else reached
 
 
-def holds(check):
+def row_holds(check):
     """Does this check hold a state over the window (any of its words in judged.HOLD)?"""
     from .judged import HOLD, callable_words
     return bool(callable_words(check) & HOLD)
@@ -1041,7 +1042,7 @@ def run_idle(name, make_ctx):
             from .words.checks import BASE, FAILED_AS_EXPECTED
             if sc.get("fails"):
                 FAILED_AS_EXPECTED[BASE.get("name", name)] = "idle: the expected failure granted"
-            hold = holds(sc["check"])
+            hold = row_holds(sc["check"])
             while True:                  # ends on what decides it (idle_done): never idles past it, never before it
                 inv = bag_now()
                 try:

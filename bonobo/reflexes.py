@@ -488,10 +488,10 @@ def recover_items(ctx):
         raise NotAvailable("no recent death to recover from")
     pos = tuple(death["pos"])
     log(f"   recovering items at the death spot {pos}")
-    if not nav.arrived(pos, ctx.policy, range_=2, attempts=1):
+    if not nav.arrived_near(pos, ctx.policy, range_=2, attempts=1):
         raise api.NavFailed(f"death spot {pos} not reachable", pos=pos)
     before = Inventory().used_slots()
-    nav.sweep(ctx, radius=10, wait=60)
+    nav.walk_sweep(ctx, radius=10, wait=60)
     yield Inventory().used_slots()
     got = gained(lambda: Inventory().used_slots(), before) - before
     # the note is spent either way: retire it on arrival, or the same walk looks worth it again

@@ -141,7 +141,7 @@ def packet(minutes=5, state=None, inventory=None, memory=None, lines=None, readi
         slow = sorted(((v["per"], k) for k, v in durs.items() if v.get("n", 0) >= 3), reverse=True)[:6]
         out.append("## Slowest skills (s/unit)\n" + ("\n".join(f"- {k}: {p:.1f}" for p, k in slow) or "- none"))
     items = tasks.load()
-    out.append("## Tasks\n" + ("\n".join(f"- {tasks.describe(t)}" for t in items[-8:]) or "- none"))
+    out.append("## Tasks\n" + ("\n".join(f"- {tasks.describe_task(t)}" for t in items[-8:]) or "- none"))
     out.append("## For the cerebrum\n- Distil repeated failures into skill/rule fixes + an offline test.\n"
                "- Record lessons in SKILL.md.\n- Queue tasks for the long-term plan (mc.py task add ...).")
     return "\n".join(out)

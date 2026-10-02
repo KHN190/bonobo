@@ -9,15 +9,17 @@ from . import api, beliefs, nav
 from .api import McError, NotAvailable, log
 from .skill import skill
 from .data import LEVEL_SIGHT_DEPTH, BAN_MAX_S, TASK_WAIT_S, cannot_reach, bare, mid
-from .knowledge import FIND_AT, members, MINE_YIELD
+from .knowledge import FIND_AT, members
+from .data import MINE_YIELD
 from .bag import mineable, opener, pickup_whitelist, refused
-from .world import Inventory, Region, add, connected, entities, find, region_around, ripe_near
+from .world import Inventory, Region, cell_add, connected, entities, find, region_around, ripe_near
 from .skillcore import ToolMissing, mine_cell, gained
 from .world import feet
 from .explore import surface_first, explore_for, approach_policy
 from .fluids import CAVE_AIR, fluid_faces, seal_plan
 from .knowledge import swimming
 from typing import TYPE_CHECKING
+from .data import MINE_YIELD, TAKEABLE
 
 if TYPE_CHECKING:
     from .shapes import Cell
@@ -181,7 +183,7 @@ def _go_way(ctx, region, start, target, faces, drop):
     api.detail(f"  mine {bare(drop)}: way to {target}: {len(steps)} steps, ~{seconds:.0f}s")
     walk = steps[0] if len(steps) == 1 and steps[0]["type"] == "goto" else None
     if walk is not None:
-        return nav.arrived((walk["x"], walk["y"], walk["z"]), approach_policy(ctx.policy), range_=walk["range"],
+        return nav.arrived_near((walk["x"], walk["y"], walk["z"]), approach_policy(ctx.policy), range_=walk["range"],
                            attempts=1)
     api.run_chain(steps, stop_on_failure=True, wait=120)
     return True
@@ -253,7 +255,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
                     continue
         if region is None:
             # too far to read the ground between: walk closer or make a way; only when neither works is the place the problem
-            if not nav.arrived(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
+            if not nav.arrived_near(seed, ctx.policy, range_=12) and not nav.way_to(ctx, {seed}):
                 raise api.NavFailed(f"{blocks[0]} at {seed}: no way there and no tunnel", pos=seed)   # banned by brain.failed
             api.detail(f"  mine {bare(drop)}: {seed} too far to read from {start}, walked closer")
             continue
@@ -298,7 +300,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
             unreachable += 1
             _reach_budget(unreachable, blocks, f"no way to the {blocks[0]} vein at {seed}")
             continue
-        walked = nav.arrived(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
+        walked = nav.arrived_near(near, ctx.policy, range_=3.5, attempts=1) if "travel" in nav.mod_features() else False
         if not walked and not nav.way_to(ctx, vein):
             for p in whole:
                 ctx.ban(p)
@@ -311,7 +313,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         in_reach = reach_cells(vein, here_now)
         if not in_reach:
             near_cell = min(vein, key=lambda p: math.dist(p, here_now))
-            if not nav.arrived(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
+            if not nav.arrived_near(near_cell, ctx.policy, range_=2.0, attempts=1) and not nav.way_to(ctx, {near_cell}):
                 for p in whole:
                     ctx.ban(p)
                 unreachable += 1
@@ -330,7 +332,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         open_faced = open_faced_cells(in_reach, here_now, region, held)
         if not open_faced:
             buried = in_reach[0]
-            if not nav.arrived(buried, ctx.policy, range_=BESIDE, attempts=1):
+            if not nav.arrived_near(buried, ctx.policy, range_=BESIDE, attempts=1):
                 ctx.ban(buried)
                 unreachable += 1
                 _reach_budget(unreachable, blocks, f"{blocks[0]} at {buried}: buried, and no way dug to it")
@@ -361,7 +363,7 @@ def mine(ctx, token, count, blocks, tier, breaks=None):
         except api.Unreachable as out:
             around = {c: region.name(c) for c in out.cells or ()}
             api.detail(f"  mine {bare(drop)} refused by the jar ({out}): feet {feet()}, cells "
-                       + "; ".join(f"{c} {n} faces {[region.name(add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))
+                       + "; ".join(f"{c} {n} faces {[region.name(cell_add(c, d)) for d in nav.NEIGHBOURS6]}" for c, n in around.items()))
             # "cannot hold a stand spot": the jar found no spot that keeps the cell in sight (a top face seen only
             # from a pit's rim, search_night_resume 09:17:19) — open a side face once, then ask again; a ban only
             # when the opened cell is refused too
@@ -468,7 +470,7 @@ def strip_mine_step(ctx, length=16):
     depth = -54 if any(t >= 2 and d >= 20 for t, d, _ in tools) else 16
     if fy < depth - 3:
         # drifted below the band: staircase back up rather than tunnel into bedrock
-        if not nav.arrived((fx, depth, fz), ctx.policy, range_=2, attempts=1):
+        if not nav.arrived_near((fx, depth, fz), ctx.policy, range_=2, attempts=1):
             raise api.NavFailed(f"can't climb back up to mining depth {depth}")
         return "climbed"
     if fy > depth + 4:
@@ -481,7 +483,7 @@ def strip_mine_step(ctx, length=16):
             if not stone:
                 raise NotAvailable("no safe ground to dig down nearby")
             t = stone[0]
-            if not nav.arrived((t["x"], t["y"] + 1, t["z"]), ctx.policy, range_=2, attempts=1):
+            if not nav.arrived_near((t["x"], t["y"] + 1, t["z"]), ctx.policy, range_=2, attempts=1):
                 raise NotAvailable("can't reach safe ground to dig down")
         return
     facing = TUNNEL_DIRS[int(((s["yaw"] % 360) + 45) // 90) % 4]
@@ -551,7 +553,7 @@ def hunt(ctx, token, count, types, night):
             continue
         if e["distance"] > 4:
             # walk and bridge to animals, never tunnel
-            nav.arrived((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
+            nav.arrived_near((math.floor(e["x"]), math.floor(e["y"]), math.floor(e["z"])), approach_policy(ctx.policy),
                       range_=3, attempts=2)
             e = next((n for n in entities(64, types) if n["id"] == e["id"]), None)
             if e is None or e["distance"] > 6:
@@ -564,7 +566,7 @@ def hunt(ctx, token, count, types, night):
             api.detail(f"   hunt: attack {got.get('status')} {got.get('message', '')}; after: {_hunt_seen(types)}")
             bagged = Inventory().count(token)
             # the drop can land where nothing stands: `sweep` makes a way to it before a kill is written off
-            nav.sweep(ctx, radius=6, only=[token], wait=60)
+            nav.walk_sweep(ctx, radius=6, only=[token], wait=60)
             api.detail(f"   hunt: {bare(token)} {before} before, {bagged} after the attack, "
                        f"{Inventory().count(token)} after the sweep")
         except api.TaskStuck:
@@ -590,7 +592,7 @@ def tunnel_run(region, feet_at, d, length, protected=()):
         cells = [(fx + dx * i, fy + 1, fz + dz * i), (fx + dx * i, fy, fz + dz * i)]
         floor = (fx + dx * i, fy - 1, fz + dz * i)
         if (not region.solid(floor) or any(region.unbreakable(c) for c in cells)
-                or any(region.hazard(c) or region.hazard(add(c, n))
+                or any(region.hazard(c) or region.hazard(cell_add(c, n))
                        for c in cells for n in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, 0, 1), (0, 0, -1)])
                 or any(c in protected for c in cells)):
             break
@@ -620,7 +622,7 @@ def plan_tunnel(region, feet_at, length, protected=(), hostiles=(), facing=None)
 
 def _take_needs(token):
     """The tool a take of `token` needs, from the one table (knowledge.TAKEABLE's `tool`, as MINE's tier is mine's)."""
-    tool = K.TAKEABLE.get(token, {}).get("tool")
+    tool = TAKEABLE.get(token, {}).get("tool")
     return {} if tool is None else {f"tool:{tool[0]}:{tool[1]}": 1}
 
 @skill(gives=K.GIVES_TAKE, needs=lambda a: _take_needs(a[1]), start=lambda c: Inventory().count(c.args[1]), verify=lambda c: Inventory().count(c.args[1]) > c.base,
@@ -644,7 +646,7 @@ def take(ctx, token, count, blocks):
         if not hits:
             raise NotAvailable(f"no {bare(blocks[0])} within reach to take")
         cell = (hits[0]["x"], hits[0]["y"], hits[0]["z"])
-        if not nav.arrived(cell, ctx.policy, range_=3, attempts=2):
+        if not nav.arrived_near(cell, ctx.policy, range_=3, attempts=2):
             ctx.ban(cell)
             continue
         mine_cell(ctx.policy, cell, wanted=[token], require_drops=False, wait=60)

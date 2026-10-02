@@ -13,7 +13,7 @@ from .game import EYE_HEIGHT
 from .skill import skill
 from .skillcore import body_state, gained
 from .world import feet
-from .world import Inventory, Region, add, find
+from .world import Inventory, Region, cell_add, find
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ def is_source(region, p, fluid):
     return level is None or str(level) == "0"
 
 def standable(region, p):
-    below, head = add(p, (0, -1, 0)), add(p, (0, 1, 0))
+    below, head = cell_add(p, (0, -1, 0)), cell_add(p, (0, 1, 0))
     return (region.inside(below) and region.solid(below) and not region.hazard(below)
             and not region.solid(p) and not region.hazard(p) and not region.solid(head) and not region.hazard(head))
 
@@ -126,13 +126,13 @@ def fill_water_bucket(ctx):
                   key=lambda h: h["distance"])
     for h in hits[:6]:
         c = (h["x"], h["y"], h["z"])
-        region = Region(add(c, (-5, -3, -5)), add(c, (5, 3, 5)), props=True)
+        region = Region(cell_add(c, (-5, -3, -5)), cell_add(c, (5, 3, 5)), props=True)
         spot = fill_spot(region, here)
         if spot is None:
             ctx.ban(c)
             continue   # planning only (no game action): trying the next water cell is not a retry
         stand, source = spot
-        if not nav.arrived(stand, ctx.policy, range_=0.6, attempts=1):
+        if not nav.arrived_near(stand, ctx.policy, range_=0.6, attempts=1):
             ctx.ban(c)
             raise api.NavFailed(f"stand spot {stand} for water at {source} not reachable", pos=source)
         _use("minecraft:bucket", surface_aim(source), False)     # the same point fill_spot checked
@@ -154,7 +154,7 @@ def cast_frame_plan(bp, origin, turns, solid):
     for c in sorted(obs, key=lambda p: (p[1], p[0], p[2])):
         mould = []
         for d in ((1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, -1, 0)):
-            n = add(c, d)
+            n = cell_add(c, d)
             if n in done or (n in frame and n not in obs):
                 continue           # obsidian already cast, or a corner block of the frame itself
             if not solid(n):
@@ -178,7 +178,7 @@ def _lava_bucket(ctx, here):
         raise NotAvailable("no bucket for lava")
     for h in sorted(find(["lava"], radius=32, limit=40), key=lambda h: h["distance"])[:6]:
         c = (h["x"], h["y"], h["z"])
-        spot = fill_spot(Region(add(c, (-5, -3, -5)), add(c, (5, 3, 5)), props=True), here, fluid="lava")
+        spot = fill_spot(Region(cell_add(c, (-5, -3, -5)), cell_add(c, (5, 3, 5)), props=True), here, fluid="lava")
         if spot is None or ctx.blocked(c):
             continue
         stand, source = spot
@@ -196,7 +196,7 @@ def floor_aim(cell):
 
 def portal_lit(origin):
     """A nether_portal block inside the frame at `origin`: the one proof a portal stands."""
-    return any(n == "nether_portal" for n in Region(add(origin, (-3, 0, -3)), add(origin, (3, 4, 3))).blocks.values())
+    return any(n == "nether_portal" for n in Region(cell_add(origin, (-3, 0, -3)), cell_add(origin, (3, 4, 3))).blocks.values())
 
 def light_portal(ctx, origin, turns):
     """Flint and steel on the inner bottom obsidian; verified by a nether_portal block inside the frame."""
@@ -215,7 +215,7 @@ def _open_lava(region, here):
     x, y, z = here
     return sorted((p for p in region.blocks if region.name(p) == "lava"
                    and math.dist(p, (x, y + 1, z)) <= nav.REACH
-                   and any(region.name(add(p, d)) in ("air", "cave_air") for d in nav.NEIGHBOURS6)),
+                   and any(region.name(cell_add(p, d)) in ("air", "cave_air") for d in nav.NEIGHBOURS6)),
                   key=lambda p: math.dist(p, (x, y, z)))
 
 def _lava_region(here, radius):
@@ -255,7 +255,7 @@ def fluid_faces(region, cell, breaking=(), names=FLUID_NAMES):
 
     out = []
     for d in ((0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0)):
-        n = add(cell, d)
+        n = cell_add(cell, d)
         if n not in breaking and region.inside(n) and bare(region.name(n)) in names:
             out.append(n)
     return out

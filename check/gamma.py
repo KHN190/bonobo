@@ -3,10 +3,8 @@ production constants (data, beliefs): day/night ticks, the critical hp, the pod'
 import functools
 from collections import Counter
 
-from bonobo.actions import TOOL_USES
 from bonobo.beliefs import MOBS
-from bonobo.data import (CRITICAL_HP, DAY_END, DAY_TICKS, FULL_BAR, MAX_HP, NIGHT_END, POD_BLOCKS,
-                         TOOL_MATERIAL_FOR_TIER, recipes)
+from bonobo.data import CRITICAL_HP, DAY_END, DAY_TICKS, FULL_BAR, MAX_HP, NIGHT_END, POD_BLOCKS, TOOL_MATERIAL_FOR_TIER, recipes, TOOL_USES
 from bonobo.reflexes import EAT_BELOW, STARVE
 from bonobo.threat import NEUTRAL_MOBS
 

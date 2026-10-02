@@ -108,7 +108,7 @@ class UsedAsItStands(unittest.TestCase):
                     with mock.patch.object(craft, "Inventory", lambda: inv), \
                             mock.patch.object(craft, "find", lambda *a, **k: []), \
                             mock.patch.object(craft, "feet", lambda: (4, 64, 4) if home else (40, 64, 40)), \
-                            mock.patch.object(craft.nav, "arrived", lambda *a, **k: True), \
+                            mock.patch.object(craft.nav, "arrived_near", lambda *a, **k: True), \
                             mock.patch.object(craft, "free_spots_here", lambda limit=1: [(41, 64, 40)]), \
                             mock.patch.object(craft, "close_screen", lambda: None), \
                             mock.patch.object(craft, "_standing", lambda *a: False), \

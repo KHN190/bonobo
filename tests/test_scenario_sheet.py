@@ -1434,7 +1434,7 @@ class TwoSites(unittest.TestCase):
                 ("a tp: the body", "tp @p 10000.5 200 10000.5", "body")]
         for name, cmd, want in rows:
             with self.subTest(name):
-                self.assertEqual(core.classify(cmd), want)
+                self.assertEqual(core.classify_command(cmd), want)
 
     def test_the_body_reset_leaves_a_hungry_row_hungry(self):
         from bonobo.bench import core

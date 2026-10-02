@@ -8,8 +8,9 @@ from typing import Any
 from .api import McError
 from .data import GROUPS, MATERIAL_TOKEN, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, bare, mid
 from .beliefs import CONFIG, TICKS_PER_S, fights_back
-from .knowledge import (prior_ticks, COOKABLE_FOOD, HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_MIN_DURABILITY,
-                        have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
+from .knowledge import (prior_ticks, COOKABLE_FOOD, TOOL_MIN_DURABILITY, have_remainder, members, needs_rows, own_work, source, step_call, tool_kind, work_s)
+from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
+from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE
 
 MAX_DEPTH = 14
 
@@ -28,7 +29,7 @@ class Step:
         return self.kind, self.token
 
     def __str__(self):
-        return f"{self.kind} {self.count}× {bare(self.token)} (~{self.est // 20}s)"
+        return f"{self.kind} {self.count}× {bare(self.token)} (~{int(self.est // TICKS_PER_S)}s)"
 
 class VirtualInventory:
     """Counts what we'd hold after the planned steps run."""

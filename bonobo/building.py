@@ -13,7 +13,7 @@ from .knowledge import members
 from .skill import ANCHORS, skill
 from .skillcore import body_state, snapshot, mine_cell, opened, place
 from .world import feet
-from .world import Inventory, Region, add
+from .world import Inventory, Region, cell_add
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ def _machine_roles(machine):
 def _go_to_machine(ctx, machine):
     bp = blueprints.REGISTRY[machine["blueprint"]]
     access = blueprints.access_spot(bp, tuple(machine["origin"]), machine["turns"])
-    if not nav.arrived(access, ctx.policy, range_=2, attempts=2):
+    if not nav.arrived_near(access, ctx.policy, range_=2, attempts=2):
         raise NotAvailable(f"{machine['name']} not reachable")
 
 def spot_options(bp, near, region, policy, radius=8, body=None) -> "list[tuple[int, Cell, int, tuple]]":
@@ -142,19 +142,19 @@ def _prepare_for(bp, origin, turns, clearable, standable):
             breaks.append(got)
     bottom = [pos for pos, part, *_ in cells if part.offset[1] == 0] + [c for c in clear if c[1] == origin[1]]
     for pos in bottom:
-        got = standable(add(pos, (0, -1, 0)))
+        got = standable(cell_add(pos, (0, -1, 0)))
         if got is False:
             return None
         if got:
             fills.append(got)
     access = blueprints.access_spot(bp, origin, turns)
-    for c in (access, add(access, (0, 1, 0))):
+    for c in (access, cell_add(access, (0, 1, 0))):
         got = clearable(c)
         if got is False:
             return None
         if got:
             breaks.append(got)
-    got = standable(add(access, (0, -1, 0)))
+    got = standable(cell_add(access, (0, -1, 0)))
     if got is False:
         return None
     if got:
@@ -326,7 +326,7 @@ def _build_parts(ctx, bp, origin, turns):
         if block_matches(done_region.name(pos), part.item):
             continue   # resuming an interrupted build: this part is already in place
         # stay at the build: the place task's approach search is short (6 000 nodes)
-        if math.dist(feet(), pos) > nav.REACH and not nav.arrived(access, ctx.policy, range_=1.5, attempts=1):
+        if math.dist(feet(), pos) > nav.REACH and not nav.arrived_near(access, ctx.policy, range_=1.5, attempts=1):
             raise api.NavFailed(f"can't get back to the {bp.name} build at {origin}")
         if pos[1] - feet()[1] >= 2:
             # the face (top of the part below) must be below the eye (feet + 1.62): pillar until the feet are at pos.y - 1
@@ -462,11 +462,11 @@ def build_blueprint(ctx, name, near):
         builds[name] = {"origin": list(origin), "turns": turns, "dimension": ctx.dimension}
         ctx.mem.save()
     log(f"building {name} at {origin} (rotation {turns})")
-    if not nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
+    if not nav.arrived_near(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
         raise api.NavFailed(f"can't reach the build spot for {name}")
     yield from _build_parts(ctx, bp, origin, turns)
     if "portal" in bp.tags:
-        nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.0, attempts=1)
+        nav.arrived_near(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.0, attempts=1)
         fluids.light_portal(ctx, origin, turns)
     machine = ctx.mem.add_machine(name, origin, turns, ctx.dimension, bp.tags)
     ctx.mem.data.get("builds", {}).pop(name, None)
@@ -485,7 +485,7 @@ def build_shelter(ctx):
     bp = blueprints.SHELTER
     origin, turns, prepare = plan_machine_spot(bp, feet(), ctx.policy, radius=6)
     prepare_spot(ctx, prepare)
-    if not nav.arrived(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
+    if not nav.arrived_near(blueprints.access_spot(bp, origin, turns), ctx.policy, range_=1.5, attempts=2):
         raise api.NavFailed("can't reach the shelter spot")
     log(f"building a shelter at {origin} (rotation {turns})")
     yield from _build_parts(ctx, bp, origin, turns)
@@ -514,7 +514,7 @@ def cast_portal(ctx):
     origin, turns, prepare = plan_machine_spot(bp, here, ctx.policy, body=here)
     prepare_spot(ctx, prepare)
     _CAST.update(origin=origin)
-    region = Region(add(origin, (-5, -2, -5)), add(origin, (5, 6, 5)))
+    region = Region(cell_add(origin, (-5, -2, -5)), cell_add(origin, (5, 6, 5)))
     todo, unlit = portal_todo(bp, origin, turns, region.name)
     for pos, part, *_ in blueprints.placed(bp, origin, turns):
         if todo and part.item != "minecraft:obsidian" and not region.solid(pos):
@@ -531,7 +531,7 @@ def cast_portal(ctx):
             + [fluids.use_task("minecraft:lava_bucket", fluids.floor_aim(cell), True),
                fluids.use_task("minecraft:water_bucket", fluids.floor_aim(cell), True),
                {"type": "wait", "ticks": 10},
-               fluids.use_task("minecraft:bucket", fluids.surface_aim(add(cell, (0, 1, 0))), False)])
+               fluids.use_task("minecraft:bucket", fluids.surface_aim(cell_add(cell, (0, 1, 0))), False)])
         placed += mould
         if Region(cell, cell).name(cell) != "obsidian":
             bad = next((t["message"] for t in done if t["status"] != "succeeded"), "")

@@ -1885,7 +1885,7 @@ class GoalsAsData(unittest.TestCase):
                 self.assertEqual(goals.describe(goal), want)
                 t = tasks.add(goal, path=os.path.join(tmp, "t.json"))
                 self.assertEqual(tasks.goal_of(t), goal)
-                self.assertEqual(tasks.describe(t), f"t1 [pending] {want}")
+                self.assertEqual(tasks.describe_task(t), f"t1 [pending] {want}")
 
 
 class Queue(unittest.TestCase):

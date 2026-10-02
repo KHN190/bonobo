@@ -68,7 +68,7 @@ class Tape:
             json.dump({"name": self.name, "gaps": self.gaps, "frames": self.frames}, f)
         return path
 
-def load(path):
+def load_tape(path):
     """A saved tape, for offline replay: {"name", "gaps", "frames"}."""
     with open(path) as f:
         return json.load(f)

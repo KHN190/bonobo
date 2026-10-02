@@ -22,7 +22,7 @@ def fit(paths):
 
     windows, covered, open_ = [], [], []
     for path in paths:
-        frames = ct.load(path)["frames"]
+        frames = ct.load_tape(path)["frames"]
         for w in cm.windows(frames):
             windows.append(w)
             (covered if w["exposure_s"] <= 1.5 else open_).append(w)
@@ -35,7 +35,7 @@ def fit(paths):
     if open_:
         out["exposure_in_open_s"] = round(sum(w["exposure_s"] for w in open_) / len(open_), 2)
     # death risk needs deaths: without any, the slope stays a declared guess
-    deaths = sum(len(cm.deaths(ct.load(p)["frames"])) for p in paths)
+    deaths = sum(len(cm.deaths(ct.load_tape(p)["frames"])) for p in paths)
     exposed = sum(w["exposure_s"] for w in windows)
     if deaths and exposed:
         out["death_risk_per_exposed_s"] = round(deaths / exposed, 3)
@@ -76,7 +76,7 @@ def main():
     total_frames = 0
 
     for p in paths:
-        frames = ct.load(p)["frames"]
+        frames = ct.load_tape(p)["frames"]
         total_frames += len(frames)
         spans = cm.phase_spans(frames)
         for i, (phase, a, b) in enumerate(spans):

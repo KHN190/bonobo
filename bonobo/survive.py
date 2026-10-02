@@ -12,7 +12,7 @@ from .data import (BED_BOX, BED_REACH, SLEEP_BLOCKERS, SLEEP_BLOCKERS_ANGRY, TOR
                    DAY_TICKS, WALK_BLOCKS_PER_S, MAX_HP, critical_hp, is_night)
 from .game import EYE_HEIGHT
 from .knowledge import AIR_FULL, RAW_MEAT, ALL_FOOD, swimming
-from .world import Inventory, Region, add, dark_spots, entities, find, is_enclosed, openings
+from .world import Inventory, Region, cell_add, dark_spots, entities, find, is_enclosed, openings
 from .bag import throw_direction
 from .terrain import choose_burrow, choose_exit, air_route, find_open_spot, SOFT_RADIUS, nearest_soft
 from .skillcore import free_spots_here, place, mine_cell, settle, body_state, head_buried, head_underwater
@@ -36,7 +36,7 @@ def move_to_open_space(ctx):
     if spot == (x, y, z):
         return spot
     log(f"   moving to open space at {spot} to sort the inventory")
-    if not nav.arrived(spot, ctx.policy, range_=0.8, attempts=2):
+    if not nav.arrived_near(spot, ctx.policy, range_=0.8, attempts=2):
         raise api.NavFailed(f"open space at {spot} not reachable")
     yield feet()
     return spot
@@ -222,7 +222,7 @@ def reach_land(ctx):
     # judged by where the body is: the walker calls a body beside the bank arrived
     if not nav.ashore(api.get("/state"), land) and not nav.climb_out(land):
         # the walker can't climb out: dig or pillar out instead
-        nav.arrived(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
+        nav.arrived_near(land, ctx.policy, range_=nav.ASHORE_RANGE, attempts=1)
         if not nav.ashore(api.get("/state"), land):
             raise api.NavFailed(f"land at {land} not reachable")
     yield feet()
@@ -309,7 +309,7 @@ def unbury(ctx):
     for _ in range(4):
         s = api.get("/state")
         here = (s["blockX"], s["blockY"], s["blockZ"])
-        out = step_out_cell(Region(add(here, (-1, -1, -1)), add(here, (1, 2, 1))), here)
+        out = step_out_cell(Region(cell_add(here, (-1, -1, -1)), cell_add(here, (1, 2, 1))), here)
         if out is not None:
             api.run({"type": "goto", "x": out[0] + 0.5, "y": out[1], "z": out[2] + 0.5, "range": 0.5},
                     wait=10, awaits="the head read again after the step out")
@@ -331,8 +331,8 @@ def step_out_cell(region, feet_at):
     x, y, z = feet_at
     for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         c = (x + dx, y, z + dz)
-        if all(region.inside(p) for p in (c, add(c, (0, 1, 0)), add(c, (0, -1, 0)))) \
-                and not region.solid(c) and not region.solid(add(c, (0, 1, 0))) and region.solid(add(c, (0, -1, 0))):
+        if all(region.inside(p) for p in (c, cell_add(c, (0, 1, 0)), cell_add(c, (0, -1, 0)))) \
+                and not region.solid(c) and not region.solid(cell_add(c, (0, 1, 0))) and region.solid(cell_add(c, (0, -1, 0))):
             return c
     return None
 
@@ -409,7 +409,7 @@ def bed_cells(feet, dist, d, dy):
 def bed_room(region, foot, head):
     """Pure: a bed fits at foot/head — both cells air on a solid floor, neither cell above them burying a head
     (trySleep's isBedObstructed)."""
-    return all(region.name(c) == "air" and region.solid(add(c, (0, -1, 0))) and not region.buries(add(c, (0, 1, 0)))
+    return all(region.name(c) == "air" and region.solid(cell_add(c, (0, -1, 0))) and not region.buries(cell_add(c, (0, 1, 0)))
                for c in (foot, head))
 
 def bed_room_tasks(region, feet, protected, places, inv):
@@ -423,12 +423,12 @@ def bed_room_tasks(region, feet, protected, places, inv):
                 foot, head = bed_cells(feet, dist, d, dy)
                 if foot in protected or head in protected:
                     continue                 # a carried bed is never placed in a home: its own beds are used
-                if region.inside(add(head, (0, 1, 0))) and bed_room(region, foot, head):
+                if region.inside(cell_add(head, (0, 1, 0))) and bed_room(region, foot, head):
                     return [], (foot, head), 0.0, None
-                cells = [foot, head, add(foot, (0, 1, 0)), add(head, (0, 1, 0))]
-                if not all(region.inside(c) for c in cells + [add(foot, (0, -1, 0)), add(head, (0, -1, 0))]):
+                cells = [foot, head, cell_add(foot, (0, 1, 0)), cell_add(head, (0, 1, 0))]
+                if not all(region.inside(c) for c in cells + [cell_add(foot, (0, -1, 0)), cell_add(head, (0, -1, 0))]):
                     continue
-                tasks, got = nav.open_tasks(region, cells, [add(foot, (0, -1, 0)), add(head, (0, -1, 0))], feet,
+                tasks, got = nav.open_tasks(region, cells, [cell_add(foot, (0, -1, 0)), cell_add(head, (0, -1, 0))], feet,
                                             protected, list(places))
                 if tasks is None:
                     why = got
@@ -452,7 +452,7 @@ def sleep_gate(state, foot, head, region, hostiles):
         return why
     if not (within(body, foot, BED_REACH) or within(body, head, BED_REACH)):
         return "too far from the bed"
-    if region.buries(add(foot, (0, 1, 0))) or region.buries(add(head, (0, 1, 0))):
+    if region.buries(cell_add(foot, (0, 1, 0))) or region.buries(cell_add(head, (0, 1, 0))):
         return "the bed is obstructed"
     if why:
         return why
@@ -547,7 +547,7 @@ def _sleep_carried(ctx, bed, s, inv):
     (light_box), the gate read (sleep_gate: a refused sleep places nothing), then placed, lain in, and taken back in
     the morning (take_bed: always, however the night went)."""
     here = (s["blockX"], s["blockY"], s["blockZ"])
-    region = Region(add(here, (-4, -2, -4)), add(here, (4, 3, 4)))
+    region = Region(cell_add(here, (-4, -2, -4)), cell_add(here, (4, 3, 4)))
     places = [nav.building_of(inv)] * nav.place_budget(inv.count("building")) if nav.building_of(inv) else []
     tasks, cells, seconds, why = bed_room_tasks(region, here, ctx.policy.protected, places, inv)
     if tasks is None or cells is None:
@@ -556,8 +556,8 @@ def _sleep_carried(ctx, bed, s, inv):
     if tasks:
         api.detail(f"   bed room at {foot}: {len(tasks)} tasks, ~{seconds or 0:.0f}s")
         api.run_chain(tasks, stop_on_failure=True, wait=60)
-        region = Region(add(here, (-4, -2, -4)), add(here, (4, 3, 4)))
-    light_box(ctx, (foot, head, here, add(foot, (0, 1, 0)), add(head, (0, 1, 0))), s, inv)   # bed and body: no spawn
+        region = Region(cell_add(here, (-4, -2, -4)), cell_add(here, (4, 3, 4)))
+    light_box(ctx, (foot, head, here, cell_add(foot, (0, 1, 0)), cell_add(head, (0, 1, 0))), s, inv)   # bed and body: no spawn
     s = api.get("/state")
     why = sleep_gate(s, foot, head, region, entities(int(max(BED_BOX)) * 2))
     if why:
@@ -617,9 +617,9 @@ def sleep_at_home(ctx):
 
 def _sleep_in(ctx, b, night_policy, label):
     """Walk to the standing bed `b` and sleep in it."""
-    if not nav.arrived(b, night_policy, range_=2.5, attempts=2):
+    if not nav.arrived_near(b, night_policy, range_=2.5, attempts=2):
         raise NotAvailable("bed not walkable tonight")
-    why = sleep_gate(api.get("/state"), b, b, Region(add(b, (-1, -1, -1)), add(b, (1, 2, 1))),
+    why = sleep_gate(api.get("/state"), b, b, Region(cell_add(b, (-1, -1, -1)), cell_add(b, (1, 2, 1))),
                      entities(int(max(BED_BOX)) * 2))
     if why:
         raise NotAvailable(f"the {label}: {why}")          # the refusal named (17:49: 'unavailable', no reason)
@@ -703,7 +703,7 @@ def dig_in(ctx):
             raise NotAvailable("no pickaxe and no ground near that digs by hand")
         # the exact cell (range 0): at 0.5 the dig started a block off
         if tuple(feet()) != tuple(spot[0]):
-            nav.arrived(spot[0], ctx.policy, range_=0, attempts=1)
+            nav.arrived_near(spot[0], ctx.policy, range_=0, attempts=1)
         if tuple(feet()) != tuple(spot[0]):
             raise api.NavFailed(f"not on the soft ground at {spot[0]} (at {feet()})")
     x, y, z = feet()
@@ -789,7 +789,7 @@ def pod_commands(state, args=()) -> "list[Task]":
         return True
 
     def has_support(cell):
-        return any(solid(add(cell, d)) for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)])
+        return any(solid(cell_add(cell, d)) for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)])
 
     for c in todo:
         if solid(c):
@@ -807,11 +807,11 @@ def pod_commands(state, args=()) -> "list[Task]":
                     break
         if not has_support(c):
             # nothing to click against: build a support column up first
-            below = add(c, (0, -1, 0))
+            below = cell_add(c, (0, -1, 0))
             stack = []
             while not solid(below) and below[1] > y - 3:
                 stack.append(below)
-                below = add(below, (0, -1, 0))
+                below = cell_add(below, (0, -1, 0))
             for s_cell in reversed(stack):
                 put(s_cell)
         put(c)

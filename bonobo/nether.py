@@ -50,7 +50,7 @@ def _portal_known(c):
         raise NotAvailable(f"no known portal in {dim}")
 
 
-@skill(gives=["state:crossed"], remaining=_k.in_dimension(lambda c: c.args[1]), needs={}, pre=[_portal_known], done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90,
+@skill(gives=["state:crossed"], remaining=_k.is_in_dimension(lambda c: c.args[1]), needs={}, pre=[_portal_known], done=lambda c: api.get("/state")["dimension"] == c.args[1], budget=180, stall=90,
        provides={"portal": lambda ctx, s: (s.token,)})
 def use_portal(ctx, to_dimension):
     """Walk into the nearest known lit portal and stand in it until the dimension changes."""
@@ -64,10 +64,10 @@ def use_portal(ctx, to_dimension):
     log(f"   heading into the portal at {cell} → {to_dimension}")
     # long trips in legs: one plan over 110 blocks ran out of nodes
     for hop in nav.waypoints(here, cell)[:-1]:
-        if not nav.arrived(hop, ctx.policy, range_=6, attempts=1):
+        if not nav.arrived_near(hop, ctx.policy, range_=6, attempts=1):
             raise api.NavFailed(f"stuck on the way to the portal near {hop}")
         yield hop
-    if not nav.arrived(cell, ctx.policy, range_=0.5, attempts=1):
+    if not nav.arrived_near(cell, ctx.policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"portal at {cell} not reachable", pos=cell)
     # travel counts within 1.5 as arrived: step onto the exact cell
     api.run({"type": "goto", "x": cell[0], "y": cell[1], "z": cell[2], "range": 0.25, "partial": False,
@@ -127,7 +127,7 @@ def find_fortress(ctx, legs=8, leg=48):
     # out of legs or supplies: back to the arrival portal
     home = ctx.mem.sites(NETHER, kinds=["portal"])
     if home:
-        nav.arrived(tuple(home[0]["pos"]), ctx.policy, range_=4, attempts=1)
+        nav.arrived_near(tuple(home[0]["pos"]), ctx.policy, range_=4, attempts=1)
     raise NotAvailable("no fortress found within the explored legs; back at the portal")
 
 EXPLORE_Y = 70
@@ -201,7 +201,7 @@ def barter_piglin(ctx, ingots=8):
             raise NotAvailable("no piglin nearby")
         if piglins[0]["distance"] > 3:
             p = piglins[0]
-            if not nav.arrived((round(p["x"]), round(p["y"]), round(p["z"])), ctx.policy, range_=2.5, attempts=1):
+            if not nav.arrived_near((round(p["x"]), round(p["y"]), round(p["z"])), ctx.policy, range_=2.5, attempts=1):
                 ctx.ban((p["id"], 0, 0), 300)
                 raise api.NavFailed("could not get next to a piglin", pos=(p["id"], 0, 0))
         # an ingot toward every piglin in reach, then one shared wait (they inspect in parallel)
@@ -215,7 +215,7 @@ def barter_piglin(ctx, ingots=8):
         if not Inventory().count("minecraft:gold_ingot") and thrown < ingots:
             thrown = ingots
         api.run({"type": "wait", "ticks": 140}, wait=15, awaits="the barter window (a piglin's inspection) before the sweep")      # a piglin inspects gold for ~6 s
-        nav.sweep(ctx, radius=8, wait=30)
+        nav.walk_sweep(ctx, radius=8, wait=30)
         yield Inventory().count("minecraft:ender_pearl")
     log(f"bartered with piglins: {Inventory().count('minecraft:ender_pearl')} pearls now")
     return True
@@ -273,7 +273,7 @@ def locate_stronghold(ctx):
         if leg == 0:
             side = (-direction[1], direction[0])       # perpendicular leg for a good triangulation angle
             target = (round(here[0] + side[0] * 200), here[1], round(here[2] + side[1] * 200))
-            nav.arrived(target, ctx.policy, range_=12, attempts=1)
+            nav.arrived_near(target, ctx.policy, range_=12, attempts=1)
     spot = triangulate(throws[0][0], throws[0][1], throws[1][0], throws[1][1])
     if spot is None:
         raise McError("the two throws don't intersect (too parallel)")

@@ -10,6 +10,7 @@ from .data import DAY_TICKS, NIGHT_END, POD_BLOCKS, is_night, mid
 from .planner import Planner, Step, Unplannable
 from .solve import Unsolvable, solve
 from .knowledge import members
+from .data import TAKEABLE
 
 SOLVERS = {}          # name -> fn(inv, needs, cost, pending) -> [Step]
 ORDER = []            # fallback order when no solver is named
@@ -186,8 +187,8 @@ def effect_detail(kind, token, count):
     if kind == "mine" and mid(token) in knowledge.MINE:
         blocks, tier = knowledge.MINE[mid(token)]
         return {"blocks": list(blocks), "tier": tier}
-    if kind == "take" and token in knowledge.TAKEABLE:
-        return {"blocks": list(knowledge.TAKEABLE[token]["blocks"])}
+    if kind == "take" and token in TAKEABLE:
+        return {"blocks": list(TAKEABLE[token]["blocks"])}
     if kind == "craft":
         return {"times": count, "inputs": {}}
     return {}

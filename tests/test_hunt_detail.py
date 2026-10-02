@@ -34,7 +34,7 @@ class HuntDetail(unittest.TestCase):
             return {"status": "succeeded", "message": "target not found"}
         with mock.patch.object(gather, "entities", lambda r, types: list(sight[0])), \
                 mock.patch.object(gather, "Inventory", Bag), mock.patch.object(api, "run", attack), \
-                mock.patch.object(nav, "sweep"), mock.patch.object(gather, "gained", lambda f, before: f()), \
+                mock.patch.object(nav, "walk_sweep"), mock.patch.object(gather, "gained", lambda f, before: f()), \
                 mock.patch.object(api, "detail", lambda *p: said.append(" ".join(map(str, p)))):
             with self.assertRaises(NotAvailable):
                 for _ in gather.hunt.__wrapped__(Ctx(), "minecraft:beef", 1, ["minecraft:cow"], False):

@@ -25,7 +25,7 @@ def dec(v) -> Any:
             from .. import paths
             return paths.data(v[1])
         if v[0].startswith("!"):
-            return make((v[0][1:],) + tuple(v[1:]))
+            return make_word((v[0][1:],) + tuple(v[1:]))
         if v[0].startswith("&") and len(v) == 1:
             return resolve(v[0][1:])
     if isinstance(v, list):
@@ -138,7 +138,7 @@ def _run(kind, args):
                                                 **{k: _arg(v, ctx) for k, v in kwargs.items()}))
     return do
 
-def make(item):
+def make_word(item):
     """(kind, *args) → the callable it names, carrying its own data (`__table__`: what the tests read back). A
     one-off row's code is taken as it is."""
     if callable(item):
@@ -181,7 +181,7 @@ def _slot(items, wrap):
     """A slot's list (check, before) → one callable: the item alone, or `wrap` over them."""
     if callable(items):
         return items
-    made = [make(i) for i in items]
+    made = [make_word(i) for i in items]
     return made[0] if len(made) == 1 else wrap(made)
 
 def build(row, tier):
@@ -189,9 +189,9 @@ def build(row, tier):
     from .runner import ROW_LIMIT_S
     setup = list(row["setup"]) if "scene" not in row else words_scene.scene(row["scene"])    # a one-off row: its commands
     out = {"doc": row["doc"], "module": row["module"], "setup": setup,
-           "run": make(row["run"]), "budget": row["budget"], "tier": tier}
+           "run": make_word(row["run"]), "budget": row["budget"], "tier": tier}
     if "why" in row and not callable(row["check"]):
-        out["check"] = resolve("_named_all")([(make(c), w) for c, w in zip(row["check"], row["why"])])
+        out["check"] = resolve("_named_all")([(make_word(c), w) for c, w in zip(row["check"], row["why"])])
     else:
         out["check"] = _slot(row["check"], lambda ps: resolve("_all")(*ps))
     if "before" in row:
@@ -199,7 +199,7 @@ def build(row, tier):
     if "queue" in row:
         out["queue"] = dec(row["queue"])
     if "detail" in row:
-        out["detail"] = make(row["detail"])
+        out["detail"] = make_word(row["detail"])
     jobs = kit_jobs(row)
     if jobs:                                 # the kit rule: the best work tool per job, the sword a fight calls for
         out["setup"] = out["setup"] + resolve("_kit_gives")(out, jobs)
@@ -214,7 +214,7 @@ def build(row, tier):
         out["budget"] = min(out["budget"], ROW_LIMIT_S)
     return out
 
-def expand(families):
+def expand_families(families):
     """[(template, [params, ...])] → {name: row data}: one entry, many rows."""
     out = {}
     for template, params in families:
@@ -226,7 +226,7 @@ def expand(families):
 def rows(tier):
     """{name: row data} of one tier's table: its families expanded, its rows in words, its rows in code."""
     mod = importlib.import_module(TABLES[tier])
-    out = expand(getattr(mod, "FAMILIES", ()))
+    out = expand_families(getattr(mod, "FAMILIES", ()))
     code = getattr(mod, "CODE_ROWS", ())      # a list, or a fn building it
     made = list(code) if isinstance(code, (list, tuple)) else code()
     for r in list(getattr(mod, "ROWS", ())) + made:
@@ -239,11 +239,11 @@ def sheet():
     """{name: runner row} of every table."""
     return {name: build(r, t) for t in TIERS for name, r in rows(t).items()}
 
-def load():
+def load_rows():
     """The one SCENARIOS (bench.core's dict, which the runner reads): every table's rows, built."""
     built = sheet()
     core.SCENARIOS.clear()
     core.SCENARIOS.update(built)
     return core.SCENARIOS
 
-SCENARIOS = load()
+SCENARIOS = load_rows()

@@ -75,7 +75,7 @@ def sweep(**fixed):
     for combination in itertools.product(*values):
         yield Cell(**dict(zip(names, combination)))
 
-def moved(cells, dim, value):
+def cell_moved(cells, dim, value):
     """[(baseline cell, moved cell)] for every cell in `cells` that can move along `dim` to `value`."""
 
     out = []

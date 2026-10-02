@@ -47,7 +47,7 @@ def commitment(action):
         return 0.0
     return float(getattr(action, "commitment_s", getattr(action, "cost_s", 0.0)))
 
-def value(model, state, action):
+def action_value(model, state, action):
     """Seconds this action saves: what the future costs now, minus what it costs after the action has happened."""
 
     return estimate.saved_s(lambda s: estimate.state_price_s(model, s), state, action.effect(state))
@@ -80,7 +80,7 @@ def choose(model, state, floor=0.0):
     if not [a for a in allowed if a is not default]:
         fault.append(("no action", f"every productive action was refused ({len(rejected)})"))
 
-    scored = sorted(((value(model, state, a) - a.cost_s, a) for a in allowed), key=lambda p: -p[0])
+    scored = sorted(((action_value(model, state, a) - a.cost_s, a) for a in allowed), key=lambda p: -p[0])
     best = next(((s, a) for s, a in scored if s > floor), None)
     if best is None:
         return Choice(default, considered=scored, rejected=rejected, fault=fault, assumptions=assumptions,
@@ -142,7 +142,7 @@ class Held:
         if held is not None:
             elapsed = now - self.since
             # the held action re-priced on this state for what is LEFT of it
-            staying = value(model, state, held.action) - max(0.0, held.action.cost_s - elapsed)
+            staying = action_value(model, state, held.action) - max(0.0, held.action.cost_s - elapsed)
             noise = spread(self.seen.get(held.name, [])) + spread(self.seen.get(fresh.name, []))
             if not switches(fresh.score, staying, lost_s(held.action, elapsed), noise):
                 self.because = None

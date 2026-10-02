@@ -153,10 +153,10 @@ class OneReadPerSegment(unittest.TestCase):
         reads = []
         with mock.patch.object(world, "Inventory", lambda *a: reads.append(1) or object()), \
                 mock.patch.object(api.STATE, "posts", 0), mock.patch.dict(world.READS, clear=True):
-            first = world.bag()
-            self.assertIs(world.bag(), first)
+            first = world.inventory_now()
+            self.assertIs(world.inventory_now(), first)
             api.STATE.posts += 1
-            self.assertIsNot(world.bag(), first)
+            self.assertIsNot(world.inventory_now(), first)
         self.assertEqual(len(reads), 2, "must fail: the bag read again with nothing sent between")
 
     def test_box(self):

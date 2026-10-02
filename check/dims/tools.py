@@ -1,6 +1,7 @@
 """tools: the other tools carried — none, a pickaxe worn below knowledge.TOOL_MIN_DURABILITY (repair, a tool that
 breaks under a held plan: needs.tool_kinds), an axe and a shovel (the planner's held tiers, speed_up's kinds).
 Swords are the `kit` dimension's (what the fight carries)."""
+from bonobo.data import TOOL_USES
 NAME = "tools"
 VALUES = ("none", "worn", "axe_shovel")
 
@@ -19,7 +20,7 @@ def alpha(a):
 
 def gamma(value, facts, g):
     if value == "worn":
-        from bonobo.actions import TOOL_USES
+        from bonobo.data import TOOL_USES
         from bonobo.knowledge import TOOL_MIN_DURABILITY
         g.give("iron_pickaxe")
         g.slots[-1]["damage"] = TOOL_USES["iron"] - (TOOL_MIN_DURABILITY - 1)

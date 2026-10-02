@@ -8,7 +8,7 @@ from .api import McError, NotAvailable
 from .bag import pickup_whitelist
 from .data import BAN_MAX_S, REACH, bare
 from .game import EYE_HEIGHT
-from .world import BAG_SLOTS, Inventory, Region, add, bag, box, screen_slot
+from .world import BAG_SLOTS, Inventory, Region, cell_add, inventory_now, box, screen_slot
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -222,7 +222,7 @@ def hold(tasks, price=None):
     item = next((t.get("item") for t in tasks if t.get("type") in api.HELD_TYPES and t.get("item")), None)
     if item is None:
         return
-    inv = bag()                  # ARM's read when nothing was sent since (R-a)
+    inv = inventory_now()                  # ARM's read when nothing was sent since (R-a)
     clicks = hold_clicks(inv.slots, inv.selected, item, price)
     if not clicks:
         return
@@ -260,11 +260,11 @@ def free_spots(region, state, block_under=True, reach=4, avoid=(), limit=5):
                 p = (fx + dx, fy + dy, fz + dz)
                 if p in avoid or region.name(p) != "air":
                     continue
-                if block_under and (not region.solid(add(p, (0, -1, 0))) or region.hazard(add(p, (0, -1, 0)))):
+                if block_under and (not region.solid(cell_add(p, (0, -1, 0))) or region.hazard(cell_add(p, (0, -1, 0)))):
                     continue
                 if p[1] in (fy, fy + 1) and abs(p[0] + 0.5 - s["x"]) < 0.8 and abs(p[2] + 0.5 - s["z"]) < 0.8:
                     continue
-                enclosed = region.solid(add(p, (0, 1, 0)))
+                enclosed = region.solid(cell_add(p, (0, 1, 0)))
                 scored.append(((abs(dy), enclosed, abs(max(abs(dx), abs(dz)) - 2)), p))
     scored.sort()
     return [p for _, p in scored[:limit]]
@@ -297,7 +297,7 @@ def arm(tasks, inv=None, read_blocks=True):
     if not mines and not any(t.get("type") == "attack" and "item" not in t for t in tasks):
         return tasks
     try:
-        inv = inv if inv is not None else bag()
+        inv = inv if inv is not None else inventory_now()
         cells = [(t["x"], t["y"], t["z"]) for t in mines] if read_blocks else []
         names = {}
         if cells:

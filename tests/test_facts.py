@@ -22,7 +22,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bonobo import world  # noqa: E402
-from bonobo import actions, brain, knowledge, loot, memory, nav, skillcore  # noqa: E402
+from bonobo import actions, brain, data, knowledge, loot, memory, nav, skillcore  # noqa: E402
 from bonobo.solve import solve  # noqa: E402
 from tests.world import FakeRegion, bag, flat, inventory, places, places_by  # noqa: E402
 
@@ -66,7 +66,7 @@ class BeingAtSomethingMeansBeingAbleToWorkOnIt(unittest.TestCase):
         for name, reachable, pos, want in self.AT:
             with self.subTest(name):
                 ask = None if reachable is None else (lambda kinds, _r=reachable: _r)
-                self.assertEqual(self.vector(reachable=ask, pos=pos).get(actions.at("stone")), want)
+                self.assertEqual(self.vector(reachable=ask, pos=pos).get(actions.at_dim("stone")), want)
 
     # (where memory has stone, if anywhere) → does the plan for one cobblestone still walk to stone?
     ARRIVALS = [("nothing known", None, True), ("must fail: stone under our feet", (1, 64, 1), False),
@@ -113,7 +113,7 @@ class WhatWasWrittenDownIsReadBack(unittest.TestCase):
                     walks.append(tuple(pos))
                     return arrives
                 with mock.patch.object(world, "feet", return_value=(0, 64, 0)), \
-                        mock.patch.object(dispatch.nav, "arrived", side_effect=arrived), \
+                        mock.patch.object(dispatch.nav, "arrived_near", side_effect=arrived), \
                         mock.patch.object(dispatch, "still_there", return_value=bool(there)), \
                         mock.patch.object(dispatch.explore, "seek_blocks", return_value=[(5, 64, 5)]) as explore:
                     got = dispatch.go_find(ctx, Step("gather", "log", 4))
@@ -170,7 +170,7 @@ class WhatExistsCanBeTaken(unittest.TestCase):
         standing at it, and needs exactly the tool the row names (or none)."""
         from bonobo.data import GROUPS, RECIPES
         table = {a.name: a for a in actions.table(places(20.0), {})}
-        for token, row in knowledge.TAKEABLE.items():
+        for token, row in data.TAKEABLE.items():
             with self.subTest(token):
                 action = table[f"take:{token}"]
                 self.assertEqual(action.cost_s > 0, True)
@@ -196,12 +196,12 @@ class WhatExistsCanBeTaken(unittest.TestCase):
         seen = {r["kind"] for r in m.data["seen"]}
         # Village furniture worth taking and crops are kept; stations, containers and the rest are not memory's (data.seen_class:
         # memory.stations / containers hold ours, /find answers the rest).
-        self.assertEqual(sorted(t for t, row in knowledge.TAKEABLE.items() if set(row["blocks"]) & seen),
+        self.assertEqual(sorted(t for t, row in data.TAKEABLE.items() if set(row["blocks"]) & seen),
                          ["bed", "door", "minecraft:beetroot", "minecraft:carrot", "minecraft:melon_slice",
                           "minecraft:potato", "minecraft:pumpkin", "minecraft:wheat", "wool"])
 
     def test_near_is_taken_and_far_is_made(self):
-        village = set(knowledge.TAKEABLE["bed"]["blocks"])
+        village = set(data.TAKEABLE["bed"]["blocks"])
 
         def plan(village_s):
             cost = places_by(lambda kinds: village_s if village & set(kinds) else 30.0)

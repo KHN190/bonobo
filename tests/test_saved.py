@@ -82,7 +82,7 @@ class EveryLayerSpellsItTheSameWay(unittest.TestCase):
         for cell in fights():
             model, state = cell.model(), cell.fight_state()
             for action in model.actions:
-                self.assertAlmostEqual(kernel.value(model, state, action),
+                self.assertAlmostEqual(kernel.action_value(model, state, action),
                                        estimate.saved_s(model.price, state, action.effect(state)),
                                        places=6, msg=f"{cell}: {action.name}")
 

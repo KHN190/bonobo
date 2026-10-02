@@ -187,7 +187,7 @@ def needs_of(contract: Contract, args: tuple) -> Needs:
     fn = getattr(contract, "needs_fn", None)
     return dict(fn(args)) if fn else dict(contract.needs)
 
-def step_call(step) -> Needs:
+def call_of_step(step) -> Needs:
     """Pure: the needs of what carries out `step`, merged over its providers; a call-dependent need reads the args `provides` builds, without ctx."""
     if step.kind == "skill" and step.token in REGISTRY:
         # a skill asked for by name: that skill with the goal's args
@@ -225,7 +225,7 @@ def _lenient(step):
     return types.SimpleNamespace(kind=step.kind, token=step.token, count=step.count, detail=_Blank(step.detail))
 
 def _wire_planner():
-    knowledge.STEP_CALL = step_call
+    knowledge.STEP_CALL = call_of_step
 
 def declared(name, needs, gives=(), remaining=None):
     """Refuse at import a skill that does not state `needs` and `gives` ({} when none), or leaves a world state without `remaining`."""
@@ -247,12 +247,12 @@ def world_effect(gives):
 
 def wanted(contract, state, args):
     """The bag an item call wants, fixed at its start: {token: held then + count asked}; None when it produces no item."""
-    from .knowledge import held
+    from .knowledge import held_count
     asked = _asked(contract, args)
     if asked is None:
         return None
     token, _at, n = asked
-    return {token: held(state["inv"], token) + n}
+    return {token: held_count(state["inv"], token) + n}
 
 def _asked(contract, args):
     """(token, index of the count in args or None, count) an item skill's call asks for; None for no item."""
@@ -326,7 +326,7 @@ def skill(name=None, **options):
                 except api.FightHolds as e:
                     t0 = time.monotonic()
                     over = fight_over(deadline)
-                    held(contract.name, str(e), time.monotonic() - t0, over)
+                    held_log(contract.name, str(e), time.monotonic() - t0, over)
                     if not over:
                         raise
 
@@ -419,7 +419,7 @@ HELD_KEEP = 50          # the most recent kept
 lifecycle.on_reset(lambda: HELD_WAITS.clear(), covers=("HELD_WAITS",))
 
 
-def held(name, why, waited_s, over):
+def held_log(name, why, waited_s, over):
     """Record one fight wait (the report and detail.log read it)."""
     HELD_WAITS.append({"skill": name, "why": why, "waited_s": round(waited_s, 2), "resumed": over,
                        "t": round(time.time(), 1)})

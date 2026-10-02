@@ -5,7 +5,7 @@ import math
 
 from . import nav
 from .bag import throw_direction
-from .world import add
+from .world import cell_add
 from .data import HAND_MINEABLE_SUFFIX, bare
 from typing import TYPE_CHECKING
 
@@ -42,7 +42,7 @@ def find_open_spot(region, here, radius=12):
 
 def chest_spot_ok(region, spot):
     """Pure: a chest only opens with no solid block directly above it."""
-    return not region.solid(spot) and not region.solid(add(spot, (0, 1, 0)))
+    return not region.solid(spot) and not region.solid(cell_add(spot, (0, 1, 0)))
 
 LAND = ["grass_block", "dirt", "stone", "sand", "gravel", "deepslate", "andesite", "diorite", "granite", "tuff",
         "podzol", "coarse_dirt", "snow_block", "cobblestone", "moss_block", "clay"]
@@ -64,7 +64,7 @@ def choose_burrow(region, inside, protected=()):
         sides = [(x + dx * 2 + dz * s, y + dy, z + dz * 2 + dx * s) for s in (-1, 1) for dy in (0, 1)]
         if not all(region.solid(c) for c in floors + roofs + back + sides):
             continue
-        if any(region.hazard(add(c, d)) for c in cells for d in NEIGHBOURS6_LOCAL):
+        if any(region.hazard(cell_add(c, d)) for c in cells for d in NEIGHBOURS6_LOCAL):
             continue
         depth = sum(region.solid((x + dx * k, y, z + dz * k)) for k in range(1, 6))
         if best is None or depth > best[0]:
@@ -82,12 +82,12 @@ def choose_exit(region, inside, protected=()):
         walls = [(x + dx, y, z + dz), (x + dx, y + 1, z + dz)]
         if any(c in protected or region.unbreakable(c) or region.hazard(c) for c in walls):
             continue
-        if any(region.hazard(add(c, d)) for c in walls for d in nav.NEIGHBOURS6):
+        if any(region.hazard(cell_add(c, d)) for c in walls for d in nav.NEIGHBOURS6):
             continue
         out = walls[0]
-        floor_ok = region.solid(add(out, (0, -1, 0))) and not region.hazard(add(out, (0, -1, 0)))
+        floor_ok = region.solid(cell_add(out, (0, -1, 0))) and not region.hazard(cell_add(out, (0, -1, 0)))
         beyond = (x + 2 * dx, y, z + 2 * dz)
-        open_beyond = not region.solid(beyond) and not region.solid(add(beyond, (0, 1, 0)))
+        open_beyond = not region.solid(beyond) and not region.solid(cell_add(beyond, (0, 1, 0)))
         score = (floor_ok, open_beyond, -sum(region.solid(c) for c in walls))
         if best is None or score > best[0]:
             best = (score, [c for c in walls if region.solid(c)], out)
@@ -145,12 +145,12 @@ def air_route(region, head):
         name = region.name(c)
         if name in ("air", "cave_air") and c != head:
             surface = surface or c
-            if region.name(add(c, (0, -1, 0))) != "water":
+            if region.name(cell_add(c, (0, -1, 0))) != "water":
                 continue                                # only the air lying on the water is swum through
         elif c != head and name != "water":
             continue
         for d in order:
-            n = add(c, d)
+            n = cell_add(c, d)
             if n not in seen and region.inside(n):
                 seen.add(n)
                 frontier.append(n)
@@ -158,6 +158,6 @@ def air_route(region, head):
         return ("pillar", surface, "no land within reach: a block placed underfoot at the surface")
     c = head
     while region.inside(c) and region.name(c) == "water":
-        c = add(c, (0, 1, 0))
+        c = cell_add(c, (0, 1, 0))
     return ("dig", c, "water capped, no air within reach: dig the cap") if region.inside(c) and region.solid(c) \
         else None

@@ -84,7 +84,7 @@ def body_reset(sc):
     return ["effect give @p minecraft:instant_health 1 10 true"] + \
         ([] if hungry else ["effect give @p minecraft:saturation 1 10 true"])
 
-def classify(cmd):
+def classify_command(cmd):
     """Pure: "world" (absolute block build: ahead at site B), "late" (a summon: in the row) or "body" (player, global state, `~`: in the row)."""
 
     inner = cmd
@@ -97,7 +97,7 @@ def classify(cmd):
 
 def split_setup(setup):
     """Pure: (world commands, the rest in their order) — what can be built ahead, and what the row runs itself."""
-    return [c for c in setup if classify(c) == "world"], [c for c in setup if classify(c) != "world"]
+    return [c for c in setup if classify_command(c) == "world"], [c for c in setup if classify_command(c) != "world"]
 
 _TRIPLE = __import__("re").compile(r"(?<![\w.~^-])(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)(?![\w.])")
 

@@ -63,7 +63,7 @@ def awareness(e, here=None, context=None):
         return 1.0
     return max(0.0, 1.0 - (d - notice) / notice)
 
-def rows(near, memory, now, kinds, here=None, context=None, reaches=None):
+def threat_rows(near, memory, now, kinds, here=None, context=None, reaches=None):
     """(centre, reach, velocity, kind, aware, dps) for every entity whose type is in `kinds` ({type: reach}).
     `reaches(pos, reach)` → False when no way leads from there to us: a mob that cannot come, nor is at us already
     (in reach, shooting, charging, provoked), is no threat — behind rock it is only noise."""
@@ -107,7 +107,7 @@ def hostile_rows(near, memory, now, here=None, context=None, reaches=None):
     """Rows for the mobs the table knows."""
 
     kinds = {k: float(m["reach"]) for k, m in MOBS.items()}
-    return rows(near or [], memory, now, kinds, here=here, context=context, reaches=reaches)
+    return threat_rows(near or [], memory, now, kinds, here=here, context=context, reaches=reaches)
 
 BAIT_R = 6.0      # blocks: inside the fuse's range (7), outside most of the blast
 

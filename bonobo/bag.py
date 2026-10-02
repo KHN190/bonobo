@@ -1,6 +1,6 @@
 """The bag: pure decisions about what to carry, throw and store. No game access here — skills.py executes them (tidy_inventory throws, deposit stores). Offline-testable with plain slot dicts."""
 
-from .world import add, screen_slot
+from .world import cell_add, screen_slot
 from .knowledge import ALL_FOOD, RAW_MEAT, members
 from .api import NotAvailable
 from .data import TOOL_KINDS, VALUABLES
@@ -146,7 +146,7 @@ def throw_direction(region, inside):
         room = 0
         for k in (1, 2, 3):
             c = (x + dx * k, y, z + dz * k)
-            if region.solid(c) or region.solid(add(c, (0, 1, 0))):
+            if region.solid(c) or region.solid(cell_add(c, (0, 1, 0))):
                 break
             room += 1
         if room > best_room:
@@ -193,7 +193,7 @@ def floored(region, cell, drop):
 
 def buried(region, cell):
     """Pure: every face of `cell` is solid (read): no way at it but digging."""
-    return all(region.inside(f) and region.solid(f) for f in (add(cell, d) for d in FACES))
+    return all(region.inside(f) and region.solid(f) for f in (cell_add(cell, d) for d in FACES))
 
 def stand_spot(region, cell, drop):
     """Pure: `cell` can be worked at — some open face has a standing place beside it (ground within `drop`), or its
@@ -203,11 +203,11 @@ def stand_spot(region, cell, drop):
     if buried(region, cell):
         return True
     over_a_fall = False
-    for face in (add(cell, d) for d in FACES):
+    for face in (cell_add(cell, d) for d in FACES):
         if region.inside(face) and region.solid(face):
             continue
-        for s in (face, add(face, (0, -1, 0))):
-            head = add(s, (0, 1, 0))
+        for s in (face, cell_add(face, (0, -1, 0))):
+            head = cell_add(s, (0, 1, 0))
             if not all(region.inside(c) for c in (s, head)):
                 return True                     # beyond what was read: not a drop the blocks show
             if not region.solid(s) and not region.solid(head):
@@ -219,11 +219,11 @@ def stand_spot(region, cell, drop):
 def standable_face(region, cell, drop):
     """Pure: some open face of `cell` has a standing place beside it (2 high, ground within `drop`) — a spot the jar's
     mine task can hold while it breaks the cell."""
-    for face in (add(cell, d) for d in FACES):
+    for face in (cell_add(cell, d) for d in FACES):
         if region.inside(face) and region.solid(face):
             continue
-        for s in (face, add(face, (0, -1, 0))):
-            head = add(s, (0, 1, 0))
+        for s in (face, cell_add(face, (0, -1, 0))):
+            head = cell_add(s, (0, 1, 0))
             if not all(region.inside(c) for c in (s, head)):
                 return True
             if not region.solid(s) and not region.solid(head) and floored(region, s, drop):
@@ -246,7 +246,7 @@ def opener(region, cell, feet, drop, forced=False):
     # (the one above would put the body on the cell's own column, which the jar's mine never stands on)
     eye = (feet[0], feet[1] + 1, feet[2])
     floor = supports(feet)
-    options = [f for f in (add(cell, d) for d in FACES)
+    options = [f for f in (cell_add(cell, d) for d in FACES)
                if region.inside(f) and region.solid(f) and f not in floor and not under(feet, f)
                and not (forced and f[1] != cell[1])
                and not getattr(region, "unbreakable", lambda p: False)(f)]

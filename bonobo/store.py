@@ -7,7 +7,7 @@ from . import api, nav, world
 from .api import McError, NotAvailable, log, swallowed
 from .skill import skill
 from .data import BASE_MARKERS, GROUPS, MARKER_WEIGHT, PLACEABLE_AS, bare, mid
-from .world import BAG_SLOTS, Inventory, Region, add, find
+from .world import BAG_SLOTS, Inventory, Region, cell_add, find
 from .bag import let_go, FREE_SLOTS_TARGET, throw_direction, store_plan
 from .terrain import chest_spot_ok
 from .skillcore import close_screen, free_spots_here, opened, place, lost
@@ -16,7 +16,7 @@ from .craft import craft, make_bag_room, make_room
 
 def openable_container(pos):
     """A chest opens only with no solid block right above it (barrels always open)."""
-    above = add(pos, (0, 1, 0))
+    above = cell_add(pos, (0, 1, 0))
     r = Region(pos, above)
     return r.name(pos) == "barrel" or not r.solid(above)
 
@@ -123,7 +123,7 @@ def deposit(ctx, local_only=False):
         if not site_trek_ok(ctx, site):
             continue
         chest = ctx.mem.home_part("chests", ctx.dimension, here, anywhere=True) if site.get("kind") == "home" else None
-        if not nav.arrived(chest or tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
+        if not nav.arrived_near(chest or tuple(site["pos"]), ctx.policy, range_=4, attempts=1):
             ctx.ban(tuple(site["pos"]))      # a failed trek costs a minute of travel replans: not again soon
             # a cache chest unreachable for 3 treks is forgotten
             if site.get("kind") == "cache":
@@ -255,7 +255,7 @@ def repair_site(ctx, site):
         stock[item] = stock.get(item, inv.count(item)) - 1
         blocks.append({"x": pos[0], "y": pos[1], "z": pos[2], "item": item})
     if blocks:
-        if not nav.arrived(tuple(site["pos"]), ctx.policy, range_=3, attempts=2):
+        if not nav.arrived_near(tuple(site["pos"]), ctx.policy, range_=3, attempts=2):
             raise NotAvailable(f"{site['name']} not reachable")
         log(f"repairing {site['name']}: {len(blocks)} blocks")
         nav.run_cells("build", nav.build_batch(blocks, feet()), wait=600)     # the site is read back after

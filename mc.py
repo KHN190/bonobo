@@ -37,13 +37,13 @@ def cmd_plan(_):
             continue
         goal = tasks.goal_of(t)
         if goals.done(goal, snap, mem):
-            print(f"✔ {tasks.describe(t)}")
+            print(f"✔ {tasks.describe_task(t)}")
             continue
         try:
             plan = decompose.decompose(snap.inv, goal, Cost(snap, mem))
-            print(f"· {tasks.describe(t)}: " + (" → ".join(str(s) for s in plan) or "finish"))
+            print(f"· {tasks.describe_task(t)}: " + (" → ".join(str(s) for s in plan) or "finish"))
         except Unplannable as e:
-            print(f"✗ {tasks.describe(t)}: {e}")
+            print(f"✗ {tasks.describe_task(t)}: {e}")
 
 
 def cmd_step(_):
@@ -95,7 +95,7 @@ def cmd_task(a):
     if a.action == "list":
         for t in tasks.load():
             if a.all or t["state"] in tasks.LIVE:
-                print(tasks.describe(t))
+                print(tasks.describe_task(t))
         return
     if a.action == "cancel":
         tasks.cancel(a.args[0] if a.args else None)
@@ -133,7 +133,7 @@ def cmd_task(a):
     else:
         raise McError(f"unknown goal {template}: one of {', '.join(goals.TEMPLATES)}")
     t = tasks.add(goal, expires_s=a.expires_s, front=a.front)
-    print(tasks.describe(t))
+    print(tasks.describe_task(t))
 
 
 def _need_starts(rest):

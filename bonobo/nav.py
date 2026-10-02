@@ -10,7 +10,7 @@ from . import api, tape, arbiter, combat_model, lifecycle, roads
 from .api import McError, NotAvailable, log
 from .data import STAIR_CELLS, is_falling, GROUPS, FOOD, home_box_of, is_door, HOLD_MARGIN, NAV_NODES, REACH, TASK_WAIT_S, WALK_BLOCKS_PER_TICK, WORK_REACH  # noqa: F401  (WORK_REACH: nav.WORK_REACH)
 from .game import EYE_HEIGHT
-from .world import NEIGHBOURS6, Inventory, Region, add, bag, box, feet, route_key, to_segment
+from .world import NEIGHBOURS6, Inventory, Region, cell_add, inventory_now, box, feet, route_key, to_segment
 from .knowledge import dig_ticks
 from .beliefs import TICKS_PER_S
 from collections.abc import Mapping
@@ -290,11 +290,11 @@ def use_holds(region, feet_at, cell, reach=REACH):
 def place_holds(region, feet_at, cell, reach=REACH):
     """Pure: the jar's PlaceTask stand (WorldUtil.findPlacement) — the cell not the body's own, and a solid
     neighbour whose shared face centre is the first hit from the eye, in reach: the click that fills `cell`."""
-    if tuple(cell) in (tuple(feet_at), add(feet_at, (0, 1, 0))):
+    if tuple(cell) in (tuple(feet_at), cell_add(feet_at, (0, 1, 0))):
         return False
     eye = (feet_at[0] + 0.5, feet_at[1] + EYE_HEIGHT, feet_at[2] + 0.5)
     for d in _FACES:
-        n = add(cell, d)
+        n = cell_add(cell, d)
         if region.solid(n) and _ray_hits(region, eye, tuple(cell[i] + 0.5 + d[i] * 0.5 for i in range(3)), n, reach):
             return True
     return False
@@ -392,8 +392,8 @@ def stand_candidates(region, target, kind):
     r = int(REACH)
     cells = [(target[0] + dx, target[1] + dy, target[2] + dz) for dx in range(-r, r + 1) for dy in range(-r, r + 1)
              for dz in range(-r, r + 1)]
-    ok = [c for c in cells if region.inside(c) and region.solid(add(c, (0, -1, 0))) and not region.solid(c)
-          and not region.solid(add(c, (0, 1, 0))) and stands_for(kind, region, c, target)]
+    ok = [c for c in cells if region.inside(c) and region.solid(cell_add(c, (0, -1, 0))) and not region.solid(c)
+          and not region.solid(cell_add(c, (0, 1, 0))) and stands_for(kind, region, c, target)]
     return sorted(ok, key=lambda c: math.dist(c, target))
 
 def reach_stand(task, policy, faces=None):
@@ -409,7 +409,7 @@ def reach_stand(task, policy, faces=None):
             return
         cands = faces if faces is not None else stand_candidates(region, target, kind)
         walks = plan_walks(cands, 0.5)
-        steps, why, seconds = plan_way(region, here, target, kind, bag(), policy.protected, walks)
+        steps, why, seconds = plan_way(region, here, target, kind, inventory_now(), policy.protected, walks)
         if steps is None:
             raise api.NavFailed(f"no way to {kind} {target}: {why}")
         if not steps:
@@ -815,7 +815,7 @@ def arrive(pos, policy, range_=ARRIVE_RANGE, **kw):
     raise api.NavFailed(f"still {math.dist(feet(), pos):.0f} blocks from {tuple(pos)} after {ARRIVE_CALLS} walks",
                         pos=pos)
 
-def arrived(pos, policy, range_=ARRIVE_RANGE, **kw):
+def arrived_near(pos, policy, range_=ARRIVE_RANGE, **kw):
     """`arrive` for a caller that handles failure itself: True or False, never a `Walked`."""
 
     try:
@@ -839,7 +839,7 @@ def safe_depth(region, feet, depth, protected=(), dug_to=None):
         shaft = dug_to is not None and i < depth and below[1] >= dug_to
         if (region.unbreakable(cell) or region.hazard(cell) or not (region.solid(below) or shaft)
                 or cell in protected
-                or any(region.hazard(add(cell, d)) for d in NEIGHBOURS6)):
+                or any(region.hazard(cell_add(cell, d)) for d in NEIGHBOURS6)):
             break
         safe = i
     return safe
@@ -875,7 +875,7 @@ def dig_down(depth, policy, use_ladders):
         raise NotAvailable("digging down stopped: a block couldn't be reached")
     return safe
 
-def sweep(ctx, radius=6, only=(), wait=30, tries=2):
+def walk_sweep(ctx, radius=6, only=(), wait=30, tries=2):
     """Pick up what is lying around; when something lies where nothing can stand, make a way and sweep again."""
 
     for attempt in range(max(1, tries)):
@@ -986,7 +986,7 @@ def reachable(cell, policy, range_=1.5, nodes=NAV_NODES, feet=None):
 
     if DOOR_ROUTE is not None and feet is not None:
         # a taught door on the way: the game sees it shut and solid; we know a press opens it
-        through = DOOR_ROUTE(tuple(feet), tuple(cell), lambda d: d / (WALK_BLOCKS_PER_TICK * 20))
+        through = DOOR_ROUTE(tuple(feet), tuple(cell), lambda d: d / (WALK_BLOCKS_PER_TICK * TICKS_PER_S))
         if through is not None:
             return True, through
     found, seconds = route_s(cell, policy, range_=range_, nodes=nodes)
@@ -1021,10 +1021,10 @@ def stair_dir(feet, target):
 
 def falling_above(region, cell):
     """Pure: the falling blocks stacked on `cell`, lowest first — they drop into it once it is dug."""
-    out, c = [], add(cell, (0, 1, 0))
+    out, c = [], cell_add(cell, (0, 1, 0))
     while region.inside(c) and is_falling(region.name(c)):
         out.append(c)
-        c = add(c, (0, 1, 0))
+        c = cell_add(c, (0, 1, 0))
     return out
 
 def dig_cells(region, cells, start):
@@ -1035,11 +1035,11 @@ def dig_cells(region, cells, start):
         want.update(falling_above(region, c))
     return [c for c in mine_order(want, start) if region.solid(c)]
 
-def _blocked(region, cells, protected, placed=()):
+def _path_blocked(region, cells, protected, placed=()):
     """Pure: why these cells may not be opened — a fluid in or beside one (but a floor the step places: a bridge
     fills it), a protected or unbreakable one — or None."""
     for c in cells:
-        if region.hazard(c) or any(region.hazard(add(c, n)) and add(c, n) not in placed for n in NEIGHBOURS6):
+        if region.hazard(c) or any(region.hazard(cell_add(c, n)) and cell_add(c, n) not in placed for n in NEIGHBOURS6):
             return f"fluid at {c}"
         if c in protected:
             return f"home at {c}"
@@ -1053,7 +1053,7 @@ def open_tasks(region, cells, floors, start, protected, places):
     an unbreakable block or a floor with nothing to place stands in the way."""
     opened = dig_cells(region, cells, start)
     missing = [f for f in floors if not region.solid(f)]       # a gap or a fluid: bridged by a placed block
-    why = _blocked(region, set(cells) | set(opened), protected, placed=set(missing))
+    why = _path_blocked(region, set(cells) | set(opened), protected, placed=set(missing))
     if why:
         return None, why
     tasks = [mine_task(c) for c in opened]
@@ -1088,8 +1088,8 @@ def stair_steps(region, feet, target, protected=(), places=(), max_steps=STAIR_S
     for k in range(1, max_steps + 1):
         stand = (x + d[0] * k, y + dy * k, z + d[1] * k)
         cells = ([(stand[0], stand[1] + i, stand[2]) for i in range(STAIR_CELLS)] if dy < 0 else
-                 [stand, add(stand, (0, 1, 0)), add(end, (0, 2, 0))])
-        tread = add(stand, (0, -1, 0))
+                 [stand, cell_add(stand, (0, 1, 0)), cell_add(end, (0, 2, 0))])
+        tread = cell_add(stand, (0, -1, 0))
         if not all(region.inside(c) for c in cells + [tread]):
             return tasks, None, end
         step, why = _step_tasks(region, cells, tread, stand, feet, protected, left)
@@ -1109,8 +1109,8 @@ def tunnel_steps(region, feet, target, protected=(), places=(), done=None):
     while not done(here):
         d = stair_dir(here, target)
         stand = (here[0] + d[0], y, here[2] + d[1])
-        cells = [stand, add(stand, (0, 1, 0))]
-        tread = add(stand, (0, -1, 0))
+        cells = [stand, cell_add(stand, (0, 1, 0))]
+        tread = cell_add(stand, (0, -1, 0))
         if not all(region.inside(c) for c in cells + [tread]) or stand in been:
             # off the read, or back where it was (over the target: no level stand holds it)
             return tasks, f"no stand reaches {tuple(target)} within the read"

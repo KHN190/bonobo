@@ -129,7 +129,7 @@ class Idle(unittest.TestCase):
 
     def test_a_hold_is_judged_at_the_end(self):
         from bonobo.bench import bench_combat, table as sc
-        trapped = runner.holds(sc.SCENARIOS[bench_combat.TRAPPED_ROW]["check"])
+        trapped = runner.row_holds(sc.SCENARIOS[bench_combat.TRAPPED_ROW]["check"])
         self.assertTrue(trapped, "kept_health holds over the window")
         # (situation, reached, died, over, hold) -> the window ends now
         rows = [("must fail: trapped_unarmed passing at t 0 ends the window", True, False, False, trapped, False),

@@ -61,7 +61,7 @@ class RefusedLeg(unittest.TestCase):
                 mock.patch.object(api, "at_boundary", lambda: None), \
                 mock.patch.object(nav.arbiter.BODY, "owns", lambda *a: True):
             # must fail: the refusal raised out of the walk (the task failed and cooled, no ban)
-            self.assertFalse(nav.arrived((ORE[0] * 3, ORE[1], ORE[2]), nav.Policy(), range_=3.5, attempts=1))
+            self.assertFalse(nav.arrived_near((ORE[0] * 3, ORE[1], ORE[2]), nav.Policy(), range_=3.5, attempts=1))
 
 
 if __name__ == "__main__":

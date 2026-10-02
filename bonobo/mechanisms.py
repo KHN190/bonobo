@@ -51,7 +51,7 @@ def remove(dimension, press, path=None):
 
 
 
-def in_dimension(dimension, path=None):
+def door_in_dimension(dimension, path=None):
     return [m for m in read_lessons(path) if m["dimension"] == dimension]
 
 
@@ -133,7 +133,7 @@ def door_route_s(mechs, here, there, walk_s):
     return walk_s(math.dist(here, press)) + PRESS_S + walk_s(math.dist(press, there))
 
 
-def route_s(here, there, walk_s, dimension=None):
+def taught_route_s(here, there, walk_s, dimension=None):
     """cost's and nav's wire: door_route_s over this save's taught mechanisms — a file read; the dimension read off
     the game only when something is taught and the caller did not say it (cost says it: an estimate reads nothing)."""
     mechs = read_lessons()

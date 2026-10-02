@@ -2,19 +2,14 @@
 
 import math
 
-from .data import (DAY_TICKS, GROUPS, NIGHT_END, is_night, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare,
-                   mid, seen_class)
-from .knowledge import (working, BREED_FOOD, HUNT, HUNT_YIELD, MINE, MINE_YIELD, PLOT_CELLS, RECIPES, STATIONS, TAKEABLE, produced,
-                        under_rock, dawn_s, NIGHT_S, MIN_FIND_P)  # noqa: F401
-from .beliefs import slot_cost_s  # noqa: F401  (one definition, shared with the looter)
+from .data import GROUPS, is_night, TOOL_KINDS, TOOL_MATERIAL_FOR_TIER, VOLATILITY, bare, mid, seen_class
+from .knowledge import working, BREED_FOOD, HUNT, MINE, PLOT_CELLS, RECIPES, STATIONS, produced, under_rock, dawn_s
 from . import estimate, threat
 from .solve import Action
 from .planner import Step
+from .data import HUNT_YIELD, MINE_YIELD, TAKEABLE, TOOL_USES
 
 TICKS_PER_S = 20.0
-
-# fight-back mobs need a weapon (the threat layer refuses the fight without one); TOOL_USES: published durability
-TOOL_USES = {"wooden": 59, "stone": 131, "iron": 250, "diamond": 1561, "netherite": 2031, "golden": 32}
 
 FIGHTERS = {"minecraft:spider", "minecraft:enderman", "minecraft:blaze", "minecraft:slime"}
 
@@ -45,7 +40,7 @@ def uses_dim(kind):
 def tool_dim(kind, tier):
     return f"tool:{kind}:{tier}"
 
-def at(what):
+def at_dim(what):
     return f"at:{what}"
 
 # token → groups never changes: recomputing it cost 21 s of a 129 s replay
@@ -123,7 +118,7 @@ def state_of(snap, mem, extra=None, reachable=None):
     # where we already are, from memory only: being at something means a route to work it, not a radius (a flooded pit's rim is no "at: coal")
     for what, kinds in _findable():
         if _standing_at(kinds, snap, mem) and (reachable is None or reachable(kinds)):
-            x[at(what)] = 1
+            x[at_dim(what)] = 1
     x["sheltered"] = 1 if _sheltered(snap, mem) else 0
     x["bag_free"] = inv.free_slots()
     x["bed"] = x.get("bed", 0)
@@ -221,18 +216,18 @@ def _seek(cost):
 
     out = []
     for what, kinds in _findable():
-        out.append(priced(cost, f"seek:{what}", {at(what): 1}, ("seek", what, kinds, cost.where(kinds)), limit=1,
+        out.append(priced(cost, f"seek:{what}", {at_dim(what): 1}, ("seek", what, kinds, cost.where(kinds)), limit=1,
                           requires={DAY_DIM: 1} if what in _SURFACE else {}))
     return out
 
-def _surface():
+def _surface_finds():
     """Surface finds, where the dark is dangerous: trees, animals, villages."""
     out = {"tree"}
     out |= {types[0] for types in HUNT.values()}
     out |= {row["blocks"][0] for row in TAKEABLE.values()}
     return frozenset(out)
 
-_SURFACE = _surface()
+_SURFACE = _surface_finds()
 
 def _findable():
     """(dimension name, block/entity kinds) for everything worth going to."""
@@ -251,14 +246,14 @@ def _findable():
 
 def _gather(cost):
     return [priced(cost, "gather:log", produce("log", 1), ("gather", "log"),
-                   requires={at("tree"): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1})]
+                   requires={at_dim("tree"): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1})]
 
 def _mine(cost):
     out = []
     for token, (blocks, tier) in produced("mine"):
         per = MINE_YIELD.get(mid(token), 1)
         # room is a requirement so the solver plans "make room" instead of failing at the keeping
-        requires = {at(blocks[0]): 1, "bag_free": 1}
+        requires = {at_dim(blocks[0]): 1, "bag_free": 1}
         effect = produce(token, per)
         if tier is not None:
             requires[tool_dim("pickaxe", tier)] = 1
@@ -274,7 +269,7 @@ def _take(cost):
 
     out = []
     for token, row in produced("take"):
-        requires = {at(row["blocks"][0]): 1, "bag_free": 1}
+        requires = {at_dim(row["blocks"][0]): 1, "bag_free": 1}
         tool = row["tool"]
         effect = {}
         for given, count in row["gives"].items():
@@ -305,27 +300,27 @@ def _farm(cost):
             continue
         per = HUNT_YIELD.get(meat, 1)
         out.append(priced(cost, f"breed:{kind}", dict(produce(meat, per), **{food: -2}), ("breed", kind),
-                          requires={at(kind): 1, "hands_free": 1, DAY_DIM: 1, "bag_free": 1}, limit=2))
+                          requires={at_dim(kind): 1, "hands_free": 1, DAY_DIM: 1, "bag_free": 1}, limit=2))
     return out
 
 def _fill(cost):
     """A container filled at a source (fluids.fill_water_bucket): the empty one in, the full one out, at water."""
     return [priced(cost, f"fill:{token}", {token: 1, container: -1}, ("fill", token, container),
-                   requires={at("water"): 1, "hands_free": 1})
+                   requires={at_dim("water"): 1, "hands_free": 1})
             for token, container in produced("fill")]
 
 def _trade(cost):
     """Sold to someone who buys: the trader names the price; the one requirement is standing at one."""
 
     return [priced(cost, f"trade:{token}", {token: 1}, ("trade", token, types),
-                   requires={at(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1})
+                   requires={at_dim(types[0]): 1, "bag_free": 1, "hands_free": 1, DAY_DIM: 1})
             for token, types in produced("trade")]
 
 def _hunt(cost):
     out = []
     for token, types in produced("hunt"):
         per = HUNT_YIELD.get(token, HUNT_YIELD.get(mid(token), 1))
-        requires = {at(types[0]): 1, "bag_free": 1}
+        requires = {at_dim(types[0]): 1, "bag_free": 1}
         if any(t in FIGHTERS for t in types):
             # It fights back, so it needs a weapon — the same fact the threat layer uses to refuse the fight.
             requires[tool_dim("sword", 1)] = 1
@@ -425,7 +420,7 @@ def _shelter(cost, state):
         priced(cost, "shelter:hut", {"sheltered": 1, "stone": -14, "door": -1, "minecraft:torch": -1}, ("shelter", "hut"),
                limit=1),
     ]
-    out.append(priced(cost, "sleep", {"slept": 1, at("bed"): 0, DAY_DIM: 1}, ("sleep",),
+    out.append(priced(cost, "sleep", {"slept": 1, at_dim("bed"): 0, DAY_DIM: 1}, ("sleep",),
                       requires={"bed": 1, "sheltered": 1}, limit=1))
     if not state.get(DAY_DIM):
         # the other way to morning: priced by what is left of the night

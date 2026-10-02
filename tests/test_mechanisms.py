@@ -317,7 +317,7 @@ class Store(unittest.TestCase):
         self.assertIn(os.path.basename(mech.FILE), fresh.WORLD_SCOPED)
         with tempfile.TemporaryDirectory() as tmp:
             path = taught(tmp)
-            self.assertEqual(len(mech.in_dimension(DIM, path)), 2)
+            self.assertEqual(len(mech.door_in_dimension(DIM, path)), 2)
             self.assertEqual(mech.remove(DIM, OUT_PRESS, path), 1)
             self.assertEqual([tuple(m["press"]) for m in mech.read_lessons(path)], [IN_PRESS])
 

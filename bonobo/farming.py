@@ -15,7 +15,7 @@ from .game import EYE_HEIGHT
 from .skill import skill
 from .skillcore import body_state, gained
 from .knowledge import BREED_FOOD
-from .world import Inventory, Region, add, entities, find, job_ready, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
+from .world import Inventory, Region, cell_add, entities, find, job_ready, ripe_cells, ripe_near  # noqa: F401  (ripe_*: world facts)
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -36,8 +36,8 @@ def farm_plot(region, here, protected=(), radius=8):
         if name not in SOIL or math.dist((x, y, z), here) > radius:
             continue
         cells = [(x, y, z)] + [(x + dx, y, z + dz) for dx, dz in RING]
-        ok = all(region.name(c) in SOIL and c not in protected and region.name(add(c, (0, 1, 0))) in ("air", "short_grass")
-                 and region.name(add(c, (0, 2, 0))) == "air" for c in cells)
+        ok = all(region.name(c) in SOIL and c not in protected and region.name(cell_add(c, (0, 1, 0))) in ("air", "short_grass")
+                 and region.name(cell_add(c, (0, 2, 0))) == "air" for c in cells)
         if ok:
             d = math.dist((x, y, z), here)
             if best is None or d < best[0]:
@@ -68,7 +68,7 @@ def ring_commands(centre, hoe, region=None) -> "list[Task]":
         cell = (centre[0] + dx, centre[1], centre[2] + dz)
         if name(cell) != "farmland":
             out.append(nav.use_on_top(hoe, cell))
-        if name(add(cell, (0, 1, 0))) != "wheat":
+        if name(cell_add(cell, (0, 1, 0))) != "wheat":
             out.append(nav.use_on_top("minecraft:wheat_seeds", cell, top=nav.FARMLAND_TOP))   # tilled: 15/16 high
     return out
 
@@ -92,7 +92,7 @@ def water_task(centre, stand=None, region=None):
     the ring's top: water on the ring, bread_from_a_farm 13268), so the aim is the far inner wall — the ring block past
     the centre on the side away from the stand, its face toward the hole: a bucket used there pours into the hole.
     With the blocks read, the aim must be the first solid thing the stand's eye meets; else the floor's top."""
-    below = add(centre, (0, -1, 0))
+    below = cell_add(centre, (0, -1, 0))
     if stand is None:
         return nav.use_on_top("minecraft:water_bucket", below)
     dx, dz = centre[0] - stand[0], centre[2] - stand[2]
@@ -138,7 +138,7 @@ def started_plot(region, here, radius=8):
             continue
         ring = [(c[0] + dx, c[1], c[2] + dz) for dx, dz in RING]
         if all(region.name(r) in SOIL + ("farmland",) for r in ring) and \
-                (any(region.name(add(r, (0, 1, 0))) != "wheat" for r in ring) or region.name(c) != "water"):
+                (any(region.name(cell_add(r, (0, 1, 0))) != "wheat" for r in ring) or region.name(c) != "water"):
             d = math.dist(c, here)
             if best is None or d < best[0]:
                 best = (d, c)
@@ -208,7 +208,7 @@ def replant(ctx, base):
     if sapling is None:
         return False
     soil = (base[0], base[1] - 1, base[2])
-    region = Region(add(soil, (0, 0, 0)), add(soil, (0, 2, 0)))
+    region = Region(cell_add(soil, (0, 0, 0)), cell_add(soil, (0, 2, 0)))
     if region.name(soil) not in SOIL or region.name(base) != "air":
         return False
     # one task, nothing to chain; its result decides the sapling job
@@ -222,7 +222,7 @@ def replant(ctx, base):
 def check_sapling(ctx, job):
     """A sapling job is due: a grown tree becomes a tree resource point; still a sapling → check again later."""
     pos = tuple(job["pos"])
-    names = Region(pos, add(pos, (0, 1, 0))).blocks
+    names = Region(pos, cell_add(pos, (0, 1, 0))).blocks
     if any(n.endswith("_log") for n in names.values()):
         ctx.mem.note_seen("tree", pos, ctx.dimension)
         ctx.mem.finish_job(job["id"])
@@ -236,7 +236,7 @@ def _plot_growing(centre):
     """Verify farmland and wheat really exist around the centre, not just that the clicks succeeded."""
     if centre is None:
         return False
-    names = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1))).blocks.values()
+    names = Region(cell_add(centre, (-1, 0, -1)), cell_add(centre, (1, 1, 1))).blocks.values()
     return sum(n == "farmland" for n in names) >= 1 and sum(n == "wheat" for n in names) >= 1
 
 def _crop_held():
@@ -261,7 +261,7 @@ def plant_farm(ctx):
     if ripe and _reap(ripe) > 0:
         return REAPED
     here = world.feet()
-    state = body_state(ctx, Region(add(here, (-9, -3, -9)), add(here, (9, 3, 9))))
+    state = body_state(ctx, Region(cell_add(here, (-9, -3, -9)), cell_add(here, (9, 3, 9))))
     region = state["region"]
     centre = started_plot(region, here) or farm_plot(region, here, ctx.policy.protected)
     if centre is None:
@@ -272,7 +272,7 @@ def plant_farm(ctx):
         raise NotAvailable("no hoe")
     # every walk here keeps off the plot's cells (no dig, no floor block: a walk once filled the dug centre)
     policy = dataclasses.replace(ctx.policy, protected=ctx.policy.protected | plot_cells(centre))    # home boxes kept
-    below = add(centre, (0, -1, 0))
+    below = cell_add(centre, (0, -1, 0))
 
     def column():
         r = Region(below, centre)
@@ -280,9 +280,9 @@ def plant_farm(ctx):
 
     # 1. the ring from ON the centre block, turning: every cell within 1.5, no rim between the eye and a top
     on_centre = (centre[0], centre[1] + 1, centre[2])
-    if not nav.arrived(on_centre, policy, range_=0.3, attempts=1):
+    if not nav.arrived_near(on_centre, policy, range_=0.3, attempts=1):
         raise api.NavFailed(f"the plot's centre {centre} not reachable to stand on")
-    ring = ring_commands(centre, hoe, Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1))))
+    ring = ring_commands(centre, hoe, Region(cell_add(centre, (-1, 0, -1)), cell_add(centre, (1, 1, 1))))
     # one send for the whole ring (a segment is a round trip and an idle queue between): its time logged
     t0 = time.time()
     done = api.run_chain(ring, stop_on_failure=False, segment=max(1, len(ring))) if ring else []
@@ -295,7 +295,7 @@ def plant_farm(ctx):
         res = r.get("result") or {}
         hit = (res.get("hitX"), res.get("hitY"), res.get("hitZ"))
         api.detail("  " + click_line(t, r) + f" | hit block now: {Region(hit, hit).name(hit) if None not in hit else '-'}")
-    top = Region(add(centre, (-1, 0, -1)), add(centre, (1, 1, 1)))
+    top = Region(cell_add(centre, (-1, 0, -1)), cell_add(centre, (1, 1, 1)))
     api.detail("  plot ring after: " + ", ".join(
         f"{dx:+d}{dz:+d} {top.name((centre[0] + dx, centre[1], centre[2] + dz))}/"
         f"{top.name((centre[0] + dx, centre[1] + 1, centre[2] + dz))}" for dx, dz in RING))
@@ -303,9 +303,9 @@ def plant_farm(ctx):
         ctx.ban(tuple(int(round(v)) for v in cell), BAN_MAX_S)
 
     # 2. off the plot to the stand, walking; then dig the centre and pour in one send
-    if not nav.arrived(stand, policy, range_=0.5, attempts=1):
+    if not nav.arrived_near(stand, policy, range_=0.5, attempts=1):
         raise api.NavFailed(f"the plot's stand {stand} not reachable")
-    seen = Region(add(centre, (-3, -1, -2)), add(centre, (2, 3, 2)))
+    seen = Region(cell_add(centre, (-3, -1, -2)), cell_add(centre, (2, 3, 2)))
     finish = finish_commands(centre, stand, seen)
     api.detail(f"  plot finish: stand {stand}, feet {world.feet()}, {column()}")
     done += api.run_chain(finish, stop_on_failure=False) if finish else []
@@ -314,14 +314,14 @@ def plant_farm(ctx):
     # 3. one read-back: water held (the server's view when the bench asks it, else a client read that holds)
     if not centre_holds(centre, "water"):
         raise McError(f"could not pour the plot's water: {column()}{server_view(centre)}")
-    after = Region(add(centre, (-1, -1, -1)), add(centre, (1, 1, 1)))
+    after = Region(cell_add(centre, (-1, -1, -1)), cell_add(centre, (1, 1, 1)))
     if not water_contained(after, centre):
         raise McError(f"the plot's water at {centre} is not held by the ring: it runs over the plot")
     # read again until the world shows what the clicks did (a read right after the chain lagged: "a plot of 3")
     clicks = sum(1 for t, r in zip(tasks, done) if t.get("item") == "minecraft:wheat_seeds" and r.get("status") == "succeeded")
 
     def sown_now():
-        top = Region(add(centre, (-1, 1, -1)), add(centre, (1, 1, 1)))
+        top = Region(cell_add(centre, (-1, 1, -1)), cell_add(centre, (1, 1, 1)))
         return sum(1 for dx, dz in RING if top.name((centre[0] + dx, centre[1] + 1, centre[2] + dz)) == "wheat")
     sown = skillcore.settle(sown_now, lambda n: n >= clicks, timeout=2.0, stable_s=0)
     yield sown
@@ -376,7 +376,7 @@ def job_due(job, tick=None):
     ripen by random ticks), anything else by its clock."""
     if job.get("kind") == "crop":
         c = tuple(job["pos"])
-        return bool(ripe_cells(Region(add(c, (-1, 1, -1)), add(c, (1, 1, 1)), props=True)))
+        return bool(ripe_cells(Region(cell_add(c, (-1, 1, -1)), cell_add(c, (1, 1, 1)), props=True)))
     return job_ready(job, tick)
 
 @skill(gives=["state:job_collected"], remaining=_k.more_than_at_start(lambda c: c.args[1], lambda c: c.args[2]),
@@ -430,18 +430,18 @@ def _reap(cells):
 def harvest(ctx, job):
     """A crop job is due: break ripe wheat, collect wheat + seeds, resow, schedule the next harvest."""
     centre = tuple(job["pos"])
-    region = Region(add(centre, (-1, 1, -1)), add(centre, (1, 1, 1)), props=True)
+    region = Region(cell_add(centre, (-1, 1, -1)), cell_add(centre, (1, 1, 1)), props=True)
     ripe = ripe_cells(region)
     if not ripe:
         ctx.mem.postpone_job(job["id"], 5 * 60)
         raise NotAvailable(f"wheat at {centre} not ripe yet")
-    if not nav.arrived((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
+    if not nav.arrived_near((centre[0] - 2, centre[1] + 1, centre[2]), ctx.policy, range_=2.0, attempts=1):
         raise api.NavFailed(f"farm at {centre} not reachable", pos=centre)
     got = _reap(ripe)
     seeds = Inventory().count("minecraft:wheat_seeds")
     if seeds:
         # the resow in one send; a cell the jar cannot sow stays bare
-        api.run_chain(sow_commands([add(p, (0, -1, 0)) for p in ripe][:seeds]), stop_on_failure=False)
+        api.run_chain(sow_commands([cell_add(p, (0, -1, 0)) for p in ripe][:seeds]), stop_on_failure=False)
     ctx.mem.finish_job(job["id"])
     jobs.start(ctx.mem, "crop", centre, ctx.dimension, item="minecraft:wheat", count=len(ripe))
     log(f"harvested {got} wheat at {centre}")

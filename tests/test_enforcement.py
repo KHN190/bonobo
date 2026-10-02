@@ -91,7 +91,7 @@ class RulesAreWired(unittest.TestCase):
             with self.subTest(name):
                 memory = {} if prev is None else {7: (prev[0], now - prev[1])}
                 e = {"id": 7, "type": "minecraft:zombie", "x": pos[0], "y": pos[1], "z": pos[2]}
-                got = threat.rows([e], memory, now, {"minecraft:zombie": 3.0})
+                got = threat.threat_rows([e], memory, now, {"minecraft:zombie": 3.0})
                 self.assertEqual(len(got), 1)
                 self.assertEqual(tuple(round(v, 6) for v in got[0][2]), want)
                 self.assertEqual(memory[7], (pos, now), "this reading is the next round's baseline")

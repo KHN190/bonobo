@@ -122,7 +122,7 @@ def viable(intent, facts):
         return False
     return intent.key not in facts.get("cooling", ())
 
-def gate(intents, facts=None):
+def gate_intents(intents, facts=None):
     """Pure: only the useful proposals — the viable ones, and a waiting kind only when nothing else is left."""
 
     live = [i for i in intents if viable(i, facts or {})]
@@ -150,7 +150,7 @@ def first_live(groups, facts_of):
     for ask in groups:
         intents = ask()
         facts = facts_of(intents)
-        live = gate(intents, facts)
+        live = gate_intents(intents, facts)
         if live:
             return live, facts
     return [], {}
@@ -158,7 +158,7 @@ def first_live(groups, facts_of):
 def arbitrate(intents, now=None, facts=None):
     """Pure: the one intent that may drive the body, or None."""
 
-    live = gate([i for i in intents if not i.expired(now)], facts)
+    live = gate_intents([i for i in intents if not i.expired(now)], facts)
     if not live:
         return None
     return min(live, key=lambda i: (i.scale, plan_rank(i.kind) if i.layer == "plan" else 0, i.seq, -i.at))

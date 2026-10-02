@@ -9,7 +9,7 @@ from . import combat_model
 from .game import EYE_HEIGHT
 from .api import McError, NotAvailable
 from .skill import budget_end, skill
-from .world import Inventory, add, entities
+from .world import Inventory, cell_add, entities
 
 ARROW_SPEED = 3.0          # blocks per tick at full draw
 GRAVITY = 0.05             # blocks per tick² on arrows
@@ -76,7 +76,7 @@ def collect_blaze_rods(ctx, rods):
                 api.run({"type": "collect", "radius": 6, "only": ["minecraft:blaze_rod"]}, wait=20, awaits="rods drop only when a blaze dies; collected per death")
             except api.Unreachable:
                 e = floor[0]
-                nav.arrived((round(e["x"]), round(e["y"]), round(e["z"])), ctx.policy, range_=1.0, attempts=1)
+                nav.arrived_near((round(e["x"]), round(e["y"]), round(e["z"])), ctx.policy, range_=1.0, attempts=1)
                 api.run({"type": "collect", "radius": 3, "only": ["minecraft:blaze_rod"]}, wait=10, awaits="rods drop only when a blaze dies: collected per death")
         else:
             api.run({"type": "wait", "ticks": 20}, wait=5, awaits="the next blaze death (rods on the floor)")

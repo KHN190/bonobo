@@ -49,7 +49,7 @@ def loot_chest(ctx):
     if not chests:
         raise NotAvailable("no unlooted chest within 32 blocks")
     pos = chests[0]
-    if not nav.arrived(pos, ctx.policy, range_=3, attempts=1):
+    if not nav.arrived_near(pos, ctx.policy, range_=3, attempts=1):
         ctx.ban(pos, 1800)
         raise api.NavFailed(f"chest at {pos} not reachable", pos=pos)
     r = api.run({"type": "use", "x": pos[0], "y": pos[1], "z": pos[2]}, wait=30, awaits="the chest's slots (loot_plan) are only readable once its screen is open")
