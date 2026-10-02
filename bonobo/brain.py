@@ -61,7 +61,8 @@ def fight_line_holds(contract, args, state, inv):
     if not kinds:
         return True, None
     shield = (inv.equipment.get("offhand") or {}).get("id") == "minecraft:shield"
-    mean, hit = estimate.melee_loss(kinds, _k.held_tiers(inv).get("sword", 0),
+    tiers = [t for t, d, _ in inv.tools("sword") if _k.usable(d)]     # perception.kit's own read of the sword
+    mean, hit = estimate.melee_loss(kinds, perception.sword_level(tiers),
                                     beliefs.protection(state.get("armor", 0), shield))
     hp, floor = float(state.get("health", 0.0)), critical_hp(state)
     if estimate.fight_line_ok(hp, floor, mean, hit):

@@ -72,7 +72,6 @@ use_order = [["pickaxe"], ["axe", "sword"], ["shovel", "hoe"]]  # most used firs
 speed = 4.3                 # sprinting, blocks per second
 melee_reach = 3.0
 eye_height = 1.62
-dps = { "0" = 3.0, "1" = 12.0, "2" = 18.0, "3" = 24.0 }   # by sword tier: fist, wood/stone, iron, diamond
 protection_per_point = 0.04 # armour points from /state (0–20) → fraction of damage removed
 shield = 0.15
 protection_cap = 0.8
@@ -92,7 +91,6 @@ no_go_margin = 2.0         # blocks added to a mob's reach before ordinary plann
 fuse_s = 1.5               # a creeper's fuse: how long we have to be out of its blast
 fuse_stop_blocks = 7.0     # a lit creeper's fuse runs on while we are this near
 fight_line_q = 0.9         # an optional fight starts only with this quantile of its health loss to spare (S5)
-swing_s = 0.625            # a sword's swing refilling (attack speed 1.6/s): one hit per swing
 keepoff_risk = 0.05        # of a creeper's blast a hit-and-back-off fight still takes, per hit (a late step back)
 eat_s = 1.6                # one bite, and what it heals is regen over the seconds after
 eat_heals = 6.0            # health a bite is worth over the horizon, fed and undisturbed (regen from saturation)

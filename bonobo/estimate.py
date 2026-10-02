@@ -4,6 +4,7 @@ import math
 
 from . import beliefs, combat_model
 from .data import READ_EVERY_S     # the fight loop's poll: a target is acted on one read after it is there
+from .data import HAND_ATTACKS_PER_S, HAND_DAMAGE, TIER_OF_MATERIAL, WEAPON_DAMAGE, ATTACKS_PER_S
 
 ENGAGE = beliefs.CONFIG["engage"]
 
@@ -140,13 +141,24 @@ def shoot_cost(here, hazards, prot, speed=None):
                 for h in hazards if h[3] in beliefs.MOBS)
     return round(shots * float(ENGAGE["shot_s"]), 2)
 
+def sword_hit(level):
+    """(damage per hit, hits per second) of a sword level (perception.sword_level: 0 = fist, else the clipped tier
+    max(1, min(3, tier))), from the game's weapon data with its attack cooldown. A level holds several swords (wood,
+    gold and stone are all 1); it is priced as the weakest of them, never as a better sword than the one carried."""
+    level = min(3, int(level))
+    if level <= 0:
+        return float(HAND_DAMAGE), float(HAND_ATTACKS_PER_S)
+    held = [m for m, t in TIER_OF_MATERIAL.items() if max(1, min(3, t)) == level]
+    weakest = min(held, key=lambda m: WEAPON_DAMAGE["sword"][m])
+    return float(WEAPON_DAMAGE["sword"][weakest]), float(ATTACKS_PER_S["sword"][weakest])
+
 def keepoff_cost(here, hazard, sword, prot, speed=None):
     """(seconds, hp lost) to kill a creeper hit-and-back: swing, back past its blast before the fuse, repeat."""
 
     speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
     mob = beliefs.MOBS[hazard[3]]
-    swing = float(ENGAGE["swing_s"])
-    per_hit = float(beliefs.PLAYER["dps"][str(min(3, max(0, int(sword))))]) * swing
+    per_hit, rate = sword_hit(sword)
+    swing = 1.0 / rate
     hits = math.ceil(float(mob["hp"]) / per_hit)
     walk = max(0.0, math.dist(here, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
     cycle = 2.0 * float(mob.get("keep_out", 3.0)) / speed + swing
@@ -166,7 +178,7 @@ def fight_cost(here, hazards, sword, prot, speed=None):
     swing it dead, walk onto its drops (they lie where it died, `pickup_r` short of it) — no hidden work (D6)."""
 
     speed = float(beliefs.PLAYER["speed"]) if speed is None else float(speed)
-    dps = float(beliefs.PLAYER["dps"][str(min(3, max(0, int(sword))))])
+    per_hit, rate = sword_hit(sword)
     order = sorted((h for h in hazards if h[3] in beliefs.MOBS), key=lambda h: math.dist(here, h[0]))
     pickup = max(0.0, float(beliefs.PLAYER["melee_reach"]) - float(beliefs.PLAYER["pickup_r"])) / speed
     seconds = lost = 0.0
@@ -174,7 +186,7 @@ def fight_cost(here, hazards, sword, prot, speed=None):
     for i, hazard in enumerate(order):
         mob = beliefs.MOBS[hazard[3]]
         walk = max(0.0, math.dist(pos, hazard[0]) - float(beliefs.PLAYER["melee_reach"])) / speed
-        kill = float(mob["hp"]) / dps
+        kill = math.ceil(float(mob["hp"]) / per_hit) / rate
         # The row's own rate (what THIS one hits for, `threat.row`), as pressure reads it — not the table's.
         cap = incoming_cap(max(float(beliefs.MOBS[r[3]].get("attack", 0.0)) for r in order[i:]))
         under_everything = min(cap, sum(_row_dps(r) for r in order[i:]))
