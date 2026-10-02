@@ -91,10 +91,15 @@ class RoundReselection(unittest.TestCase):
     def test_rows(self):
         import contextlib
         import io
+        from unittest import mock
+        from bonobo import brain
         from check import round as rnd
         rows = [("the fight line's kit fails: its key cools, the task's stays", of(quarry="enderman", kit="sword"), False)]
+        # the kit is given: whether the game's numbers leave one for an enderman is test_fight_line_raise's question
+        kit = [[("minecraft:iron_chestplate", 1)]]
         for name, f, want in rows:
-            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()):
+            with self.subTest(name), contextlib.redirect_stdout(io.StringIO()), \
+                    mock.patch.object(brain, "line_raisers", lambda *a, **k: kit):
                 d, _got, ctx = rnd.decide(f)
                 self.assertTrue((d.name or "").startswith("fight line"), d.name)
                 self.assertEqual(ctx["reselected"], want)            # must fail when only the intent key is asked
