@@ -107,7 +107,9 @@ class Model(unittest.TestCase):
                 (of(), dec(name="idle: have pickaxe tier 1"), {}, "pickaxe", 1),
                 (of(threat=True), dec(layer="tactic", name="threat:fight"), {}, "threat", False),
                 (of(night=True), dec(name="shelter: dig in"), {}, "place", "enclosed"),
-                (of(), dec(name="idle: have food"), {}, "night", False)]   # must fail would be: food sets night
+                (of(), dec(name="idle: have food"), {}, "night", False),   # must fail would be: food sets night
+                # a dimension's declared effect (check/dims/ground.step): must fail — the pit left, still in it (D7)
+                (of(ground="hole"), dec(layer="maintain", name="leave the pit"), {}, "ground", "open")]
         for facts, d, ctx, k, want in rows:
             with self.subTest(d=d.name):
                 self.assertEqual(explore.step(facts, d, ctx)[k], want)

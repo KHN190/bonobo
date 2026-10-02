@@ -27,7 +27,8 @@ DOMAINS = {
     "cooled": (False, True),                # every night way cooling after a failure here (decompose.cooled_ways)
     "hunger": ("full", "low", "starve"),    # /state food against reflexes.EAT_BELOW, reflexes.STARVE
     "station": ("none", "crafting_table", "furnace"),   # memory.stations within actions.STATION_R
-    "mob": ("zombie", "skeleton", "creeper"),   # the threat's kind (its first value when there is no threat)
+    # the threat's kind (its first value when there is no threat); a neutral one provoked (threat.aggro)
+    "mob": ("zombie", "skeleton", "creeper", "spider", "enderman"),
 }
 # a fact read only while (pred, the facts that turn it on) holds: else its first value (one state, not many)
 DEPENDS = {"mob": (lambda f: f["threat"], {"threat": True})}
@@ -58,6 +59,14 @@ def _region(world, feet):
     return Region.of(lo, hi, dict(world._cells(lo, hi)))
 
 
+def threat_entities(snap, world):
+    """The mobs after us, nearest first: /entities rows threat.aggro holds hostile, within their notice radius."""
+    from bonobo.beliefs import MOBS
+    ents = world._entities({"radius": "48"})["entities"]
+    return sorted((e for e in ents if aggro(e, {"day": not snap.night}) and e["type"] in MOBS
+                   and e["distance"] <= float(MOBS[e["type"]].get("notice_r", 16))), key=lambda e: e["distance"])
+
+
 def hunger_of(food):
     return "starve" if food <= STARVE else "low" if food < EAT_BELOW else "full"
 
@@ -68,8 +77,8 @@ def _queued(items):
     return "none" if head is None else head["args"]["needs"][0][0].removeprefix("minecraft:")
 
 
-def alpha(snap, mem, world, ready):
-    """Facts of one state (snapshot + memory + the stub's world + the round's retry `ready`), each through its
+def alpha(snap, mem, world, brain):
+    """Facts of one state (snapshot + memory + the stub's world + the round's brain: its retry), each through its
     production predicate."""
     from bonobo import gather, tasks
     from bonobo.decompose import cooled_ways
@@ -83,12 +92,10 @@ def alpha(snap, mem, world, ready):
     exposed = world._find({"blocks": "iron_ore", "radius": "48", "exposed": "true"})["blocks"]
     ore = ("none" if not iron else "exposed" if exposed
            else "deep" if gather.deep_below((iron[0]["x"], iron[0]["y"], iron[0]["z"]), feet) else "buried")
-    ents = world._entities({"radius": "48"})["entities"]
-    from bonobo.beliefs import MOBS
-    threats = [e for e in ents if aggro(e, {"day": not snap.night}) and e["type"] in MOBS
-               and e["distance"] <= float(MOBS[e["type"]].get("notice_r", 16))]
+    threats = threat_entities(snap, world)
     threat = bool(threats)
-    a = SimpleNamespace(snap=snap, mem=mem, world=world, ready=ready, region=region)
+    ready = brain.ready
+    a = SimpleNamespace(snap=snap, mem=mem, world=world, ready=ready, region=region, threats=threats, brain=brain)
     return MappingProxyType({
         **{d.NAME: d.alpha(a) for d in DIMS},
         "dimension": snap.dimension, "night": bool(snap.night), "hp": "crit" if float(s.get("health", 20)) <= critical_hp(s) else "ok",
@@ -116,10 +123,14 @@ def key(facts):
 
 
 def of(**kw):
-    """Facts from keyword values (the rest, and a DEPENDS fact whose condition is off: the domain's first value)."""
+    """Facts from keyword values (the rest, a DEPENDS fact whose condition is off, and a dimension's value its
+    `valid` refuses here: the domain's first value)."""
     out = {k: kw.get(k, d[0]) for k, d in DOMAINS.items()}
     for k, (on, _witness) in DEPENDS.items():
         if not on(out):
             out[k] = DOMAINS[k][0]
+    for d in DIMS:
+        if hasattr(d, "valid") and not d.valid(out[d.NAME], out):
+            out[d.NAME] = DOMAINS[d.NAME][0]
     return MappingProxyType(out)
 

@@ -81,9 +81,9 @@ def decide(facts, fail_then_again=True):
         with mock.patch.object(fight_loop, STUBBED[0].partition(".")[2], offer):
             w = perception.Watcher()
             w._look(snap.state)
+            got = alpha(snap, mem, world, b)       # the state judged, read before anything answers it
             w._answer_threats(snap.state)          # the threat layer's answer: TACTIC preempts the plan (K3)
         act = b.decide(snap, bctx)
-        got = alpha(snap, mem, world, b.ready)
         if offered:
             option, worth = offered[-1]
             d = Decision(layer="tactic", kind="threat", token=option.kind, target=getattr(option, "target", None),

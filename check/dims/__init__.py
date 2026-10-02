@@ -4,10 +4,13 @@ package — a new dimension is a new file here, never an edit to a shared one.
 A dimension module defines:
   NAME                      the fact's name
   domain() -> tuple         its finite values, each a production predicate's answer; the first is the state without it
-  alpha(a) -> value         the fact read back by its production predicate (a: facts.Alpha — snap, mem, world, ready)
+  alpha(a) -> value         the fact read back by its production predicate (a: snap, mem, world, ready, region,
+                            threats — facts.threat_entities, brain — the round's)
   gamma(value, facts, g)    the concrete world for the value (g: gamma.Build — blocks, give(), entities, state, mem)
 optional:
   DEPENDS = (pred, witness) read only while pred(facts) holds, else its first value; witness: facts that turn it on
+  valid(value, facts)       a value that cannot stand with the other facts (a far mob whose notice is short): the
+                            first value instead
   CORE = True               combined in the full product (default: pairwise with the other non-core facts)
   WORLD = True              the world changes it on its own (explore.moves)
   prepare(brain, facts)     after the round's brain is made, before it decides (a failure recorded, a held choice)

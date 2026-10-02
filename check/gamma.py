@@ -8,6 +8,7 @@ from bonobo.beliefs import MOBS
 from bonobo.data import (CRITICAL_HP, DAY_END, DAY_TICKS, FULL_BAR, MAX_HP, NIGHT_END, POD_BLOCKS,
                          TOOL_MATERIAL_FOR_TIER, recipes)
 from bonobo.reflexes import EAT_BELOW, STARVE
+from bonobo.threat import NEUTRAL_MOBS
 
 from .stub import StubWorld
 
@@ -44,6 +45,7 @@ class Build:
 
     def __init__(self, mem):
         self.blocks, self.slots, self.entities, self.state, self.mem = {}, [], [], {}, mem
+        self.equipment = {}          # /inventory equipment: an offhand, armour
 
     def give(self, item, n=1):
         material = item.rpartition("_")[0]
@@ -92,8 +94,9 @@ def gamma(f, mem):
     entities = g.entities
     if f["threat"]:
         mob = f"minecraft:{f['mob']}"
+        # a neutral one provoked (the jar's `angry`): else it is no threat (threat.aggro)
         entities.append({"id": 1, "type": mob, "x": x + 3.5, "y": y, "z": z + 0.5, "health": 20.0,
-                         "notice": MOBS[mob].get("notice_r")})
+                         "notice": MOBS[mob].get("notice_r"), **({"angry": True} if mob in NEUTRAL_MOBS else {})})
     sky = 0 if f["place"] != "open" else 15
     state = {"x": x + 0.5, "y": float(y), "z": z + 0.5, "blockX": x, "blockY": y, "blockZ": z,
              "dimension": f["dimension"], "timeOfDay": (DAY_END + NIGHT_END) // 2 if f["night"] else DAY_TICKS // 4,
@@ -104,7 +107,7 @@ def gamma(f, mem):
     g.state = state
     for d in DIMS:
         d.gamma(f[d.NAME], f, g)
-    world = StubWorld(state, slots, blocks, entities, base=_floor())
+    world = StubWorld(state, slots, blocks, entities, equipment=g.equipment, base=_floor())
     if f["place"] == "home":
         lo, hi = HOME
         mem.add_home("home", [(lo, hi)], f["dimension"], {c: n.split("[")[0] for c, n in blocks.items()

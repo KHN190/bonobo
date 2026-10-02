@@ -1,4 +1,5 @@
-"""python3 -m check.run [limit] [out.md]: explore, judge every edge, gate the coverage, write the violations."""
+"""python3 -m check.run [limit] [out.md] [workers] [--all]: judge the fuzzer's kept states (check/corpus; --all: and the
+explorer's enumeration, minutes), every edge, gate the coverage, write the violations."""
 import sys
 import time
 from collections import defaultdict
@@ -24,12 +25,15 @@ def _shard(keys):
 
 def main(argv):
     import multiprocessing
+    every = "--all" in argv
+    argv = [a for a in argv if a != "--all"]
     limit = int(argv[0]) if argv else 0
     out = argv[1] if len(argv) > 1 else "check-run.md"
     workers = int(argv[2]) if len(argv) > 2 else min(WORKERS, multiprocessing.cpu_count())
     t0 = time.time()
-    todo = [explore.key(f) for f in explore.states()]
-    todo += sorted({explore.key(f) for f in fuzz.corpus()} - set(todo))     # the fuzzer's kept states, every run
+    # the gate judges the fuzzer's kept states (check/corpus); --all adds the explorer's enumeration (offline: minutes)
+    todo = [explore.key(f) for f in explore.states()] if every else []
+    todo += sorted({explore.key(f) for f in fuzz.corpus()} - set(todo))
     todo = todo[:limit] if limit else todo
     shards = [todo[i::workers] for i in range(workers)]
     rows, graph, roundtrip, first = defaultdict(list), {}, [], {}

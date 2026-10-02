@@ -83,13 +83,17 @@ def pairwise(names):
 
 
 def states():
-    """The abstract states judged: CORE's full product × the other facts pairwise. starts() × the world's moves
-    reach the whole product (moves flip each WORLD fact to every value; model.step stays inside it), so this is a
-    reduction of the reachable set, stated: an interaction of three non-CORE facts is not combined."""
+    """The abstract states judged: CORE's full product × the other base facts pairwise, and every fact (the
+    dimensions' too, check/dims) pairwise with every other. starts() × the world's moves reach the whole product
+    (moves flip each WORLD fact to every value; model.step stays inside it), so this is a reduction of the reachable
+    set, stated: an interaction of three non-CORE facts, or of a dimension with two others, is not combined here —
+    check.fuzz searches those, and its kept states (the corpus) are judged beside these."""
     import itertools
-    rest = [k for k in DOMAINS if k not in CORE]
+    dims = {d.NAME for d in DIMS}
+    rest = [k for k in DOMAINS if k not in CORE and k not in dims]
     out = {key(f): f for vals in itertools.product(*(DOMAINS[k] for k in CORE)) for extra in pairwise(rest)
            if (f := of(**dict(zip(CORE, vals)), **extra))}
+    out.update({key(f): f for row in pairwise(list(DOMAINS)) if (f := of(**row))})
     return list(out.values())
 
 

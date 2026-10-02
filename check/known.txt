@@ -1,3 +1,4 @@
-# check.run known violations on integrate/inv + the food_source, fluid, noted dimensions and the fuzz corpus: "INVARIANT COUNT"; counts only fall (gate.sh)
-R3 57
-S4 27
+# check.run known violations over the fuzzer's corpus (check/corpus; --all adds the enumeration): "INVARIANT COUNT"; counts only fall (gate.sh)
+R3 10
+S1 3
+S4 5
