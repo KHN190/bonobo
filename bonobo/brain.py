@@ -172,6 +172,7 @@ class Brain:
         self.needs = needs.Needs(self)
         self.reflexes = reflexes.Maintain(self)
         perception.IN_SITE = self.reflexes.in_site      # nightfall asks the night way's judgement, every Brain built
+        reflexes.STEP_RUN = dispatch.execute             # the shelter row's parts run as the plan's steps do
         self.policy_cache = nav.Policy(before_segment=self.segment_reflexes)
         self.place = None  # what causes are cooled against
         self.idle_since = None

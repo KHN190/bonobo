@@ -2147,6 +2147,34 @@ class Overnight(unittest.TestCase):
                 got, _secs, steps = needs.overnight(snap.inv, cost(snap), facts, bed_too=False)
                 self.assertEqual((got, [st.kind for st in steps]), (way, kinds))
 
+    def test_the_shelter_row_makes_the_parts(self):
+        """Night in the open, on stone, no pickaxe: the night's cheapest way (dig in, its parts first) is the shelter
+        row's — it fires and runs the way's first part as a plan step, not left to a plan the surface gate closes."""
+        rows = [("must fail: an empty bag on stone: dig in, its parts first", [("cooked_beef", 8)]),
+                ("a pickaxe: dig in at once", [("cooked_beef", 8), ("stone_pickaxe", 1)])]
+        for name, carried in rows:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                b = brainmod.Brain.__new__(brainmod.Brain)
+                b.policy_cache = __import__("bonobo.nav", fromlist=["Policy"]).Policy()
+                b.mem, b.retry, b.blacklist, b.place, b.held = Memory(os.path.join(tmp, "n.json")), retry.Retry(), \
+                    {}, PLACE, {}
+                b.needs, b.reflexes = needs.Needs(b), reflexes.Maintain(b)
+                b.context = lambda dim, policy: None
+                b.policy = lambda snap, night: None
+                snap = snapshot(state(timeOfDay=NIGHT), inventory(*carried))
+                c = cost(snap)
+                b.needs.cost = lambda _snap: c
+                way, _secs, steps = needs.overnight(snap.inv, c, needs.night_facts(False), bed_too=False)
+                reads = {"enclosed": False, "bed_near": False, "soft_ground": False, "in_pit": False}
+                ran = []
+                with mock.patch.object(api, "api", side_effect=AssertionError("read the world beyond the row")), \
+                        mock.patch.object(reflexes, "STEP_RUN", lambda ctx, st, night: ran.append(st)), \
+                        mock.patch.dict(reflexes.SHELTER_RUN, {steps[-1].token: lambda ctx: ran.append("shelter")}):
+                    fired = {n: r for _s, n, r in b.reflexes.proposals(snap, None, reads)}
+                    self.assertIn("shelter", fired)
+                    fired["shelter"]()
+                self.assertEqual(ran, [steps[0] if len(steps) > 1 else "shelter"])
+
     def test_a_way_that_failed_here_gives_way_to_the_next(self):
         """A night way that failed here (cooling under needs.way_key) drops out of the pricing: the next way is
         chosen the same night (search_night_resume: dig in refused 'no lid below the ground line', then idling)."""

@@ -90,7 +90,8 @@ EXIT = {"reach land": lambda v: v["on_land_s"] >= LAND_EXIT_S}
 
 # what a reflex's work should move: firing again with it unchanged is a failure, so a useless reflex cannot hold the body
 PROGRESS = {"empty the bag": lambda v: v["used_slots"], "unstuck": lambda v: v["feet"],
-            "reach land": lambda v: v["feet"], "eat": lambda v: v["food"]}
+            "reach land": lambda v: v["feet"], "eat": lambda v: v["food"],
+            "shelter": lambda v: (v["feet"], len(v["night_way"][2]))}     # a part made shortens the way
 NO_PROGRESS = "stuck"          # the retry cause a reflex that changed nothing fails with
 
 def progress_of(name, view):
@@ -158,6 +159,7 @@ def _once(reads, key, read):
     return get
 
 # a shelter step's token → the skill that makes it
+STEP_RUN: Any = None     # (ctx, step, night) → one plan step run (dispatch.execute): set by every Brain built
 SHELTER_RUN = {"dig_in": lambda ctx: survive.dig_in(ctx), "pod": lambda ctx: survive.pod(ctx),
                "hut": lambda ctx: building.build_shelter(ctx), "home": lambda ctx: survive.sleep_at_home(ctx)}
 
@@ -213,8 +215,7 @@ class Maintain:
             "night_way": night_way,
             "shelter_ready": lambda: over and snap.night and not _once(reads, "bed_tonight",
                                                                         lambda: b.needs.bed_tonight(snap))()
-            and not self.sheltered(snap, enclosed) and view["night_way"][0] is not None
-            and all(st.kind == "shelter" for st in view["night_way"][2]),
+            and not self.sheltered(snap, enclosed) and view["night_way"][0] is not None,
             "job_ready": lambda: self.ready_job(snap) is not None,
             "machine_ready": lambda: self.ready_machine(snap) is not None,
             "stuck": lambda: self.stuck_in_place(snap, enclosed),
@@ -256,13 +257,16 @@ class Maintain:
 
     # -- night
     def shelter(self, snap, ctx, night_way):
-        """Night, exposed, no bed, the parts in the bag: the way `overnight` priced cheapest here."""
+        """Night, exposed, no bed: the way `overnight` priced cheapest here, its parts first — one step a round, the
+        way re-priced each round from the bag it left — then the shelter."""
 
         b = self.brain
         ctx = b.context(snap.dimension, b.policy(snap, True))
         way, _secs, steps = night_way
         log(f"   the night: {way} ({' → '.join(map(str, steps))})")
         try:
+            if len(steps) > 1:
+                return STEP_RUN(ctx, steps[0], True)
             return SHELTER_RUN[steps[-1].token](ctx)
         except McError as e:
             if api.interrupted(e):
