@@ -44,7 +44,7 @@ def _with_dims():
     from .dims import DIMS
     for d in DIMS:
         assert d.NAME not in DOMAINS, f"dimension {d.NAME} defined twice"
-        DOMAINS[d.NAME] = tuple(d.DOMAIN)
+        DOMAINS[d.NAME] = tuple(d.domain())
         if getattr(d, "DEPENDS", None) is not None:
             DEPENDS[d.NAME] = d.DEPENDS
     return DIMS

@@ -3,7 +3,7 @@ import sys
 import time
 from collections import defaultdict
 
-from . import explore, oracle
+from . import explore, fuzz, oracle
 from .coverage import Gate
 from .facts import DOMAINS  # noqa: F401
 
@@ -29,6 +29,7 @@ def main(argv):
     workers = int(argv[2]) if len(argv) > 2 else min(WORKERS, multiprocessing.cpu_count())
     t0 = time.time()
     todo = [explore.key(f) for f in explore.states()]
+    todo += sorted({explore.key(f) for f in fuzz.corpus()} - set(todo))     # the fuzzer's kept states, every run
     todo = todo[:limit] if limit else todo
     shards = [todo[i::workers] for i in range(workers)]
     rows, graph, roundtrip, first = defaultdict(list), {}, [], {}

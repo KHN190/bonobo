@@ -56,7 +56,8 @@ def decide(facts, fail_then_again=True):
     ctx = {}
     with mock.patch.object(api, "api", world.api), mock.patch.object(arbiter, "arbitrate", watched), \
             mock.patch.object(api, "detail", lambda *a: None), mock.patch.object(api, "log", lambda *a: None), \
-            mock.patch.object(tape, "REPLAY", None):
+            mock.patch.object(tape, "REPLAY", None), \
+            mock.patch.object(api.STATE, "feet_seen", None):     # the stub's /state stays in the round, not the process
         b = brain.Brain()
         b.mem = mem
         if facts["cooled"]:

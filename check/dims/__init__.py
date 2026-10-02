@@ -3,7 +3,7 @@ package — a new dimension is a new file here, never an edit to a shared one.
 
 A dimension module defines:
   NAME                      the fact's name
-  DOMAIN                    its finite values; the first is the state without it
+  domain() -> tuple         its finite values, each a production predicate's answer; the first is the state without it
   alpha(a) -> value         the fact read back by its production predicate (a: facts.Alpha — snap, mem, world, ready)
   gamma(value, facts, g)    the concrete world for the value (g: gamma.Build — blocks, give(), entities, state, mem)
 optional:

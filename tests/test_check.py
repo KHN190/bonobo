@@ -126,10 +126,10 @@ class Dimensions(unittest.TestCase):
         import types
         from unittest import mock
         from check import dims, facts
-        fresh = types.SimpleNamespace(NAME="check_probe", DOMAIN=(0, 1),
+        fresh = types.SimpleNamespace(NAME="check_probe", domain=lambda: (0, 1),
                                       DEPENDS=(lambda f: f["threat"], {"threat": True}))
         rows = [("a new fact: its domain and its condition joined", fresh, None),
-                ("must fail: a base fact defined again", types.SimpleNamespace(NAME="night", DOMAIN=(0,)),
+                ("must fail: a base fact defined again", types.SimpleNamespace(NAME="night", domain=lambda: (0,)),
                  AssertionError)]
         for name, dim, raises in rows:
             with self.subTest(name), mock.patch.object(dims, "DIMS", [dim]), \
@@ -138,7 +138,7 @@ class Dimensions(unittest.TestCase):
                     self.assertRaises(raises, facts._with_dims)
                 else:
                     facts._with_dims()
-                    self.assertEqual(facts.DOMAINS[dim.NAME], dim.DOMAIN)
+                    self.assertEqual(facts.DOMAINS[dim.NAME], dim.domain())
                     self.assertEqual(facts.of(threat=False)[dim.NAME], 0)   # its condition off: its first value
 
 

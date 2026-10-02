@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": true,
+ "cooled": true,
+ "dimension": "minecraft:the_nether",
+ "fluid": "lava",
+ "food": true,
+ "food_source": "none",
+ "hp": "crit",
+ "hunger": "low",
+ "mob": "skeleton",
+ "night": false,
+ "noted": "iron_ore",
+ "ore": "exposed",
+ "pickaxe": 1,
+ "place": "open",
+ "queued": "none",
+ "station": "furnace",
+ "takeover": false,
+ "threat": true,
+ "tree": false
+}

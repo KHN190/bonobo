@@ -1,0 +1,22 @@
+{
+ "bed": "home",
+ "building": true,
+ "cooled": false,
+ "dimension": "minecraft:overworld",
+ "fluid": "lava",
+ "food": true,
+ "food_source": "crops",
+ "hp": "ok",
+ "hunger": "low",
+ "mob": "creeper",
+ "night": true,
+ "noted": "tree",
+ "ore": "buried",
+ "pickaxe": 1,
+ "place": "home",
+ "queued": "cobblestone",
+ "station": "crafting_table",
+ "takeover": true,
+ "threat": true,
+ "tree": false
+}

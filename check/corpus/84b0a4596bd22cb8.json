@@ -1,0 +1,22 @@
+{
+ "bed": "home",
+ "building": true,
+ "cooled": false,
+ "dimension": "minecraft:the_nether",
+ "fluid": "none",
+ "food": false,
+ "food_source": "none",
+ "hp": "ok",
+ "hunger": "starve",
+ "mob": "creeper",
+ "night": true,
+ "noted": "iron_ore",
+ "ore": "buried",
+ "pickaxe": 2,
+ "place": "home",
+ "queued": "stick",
+ "station": "furnace",
+ "takeover": false,
+ "threat": true,
+ "tree": false
+}

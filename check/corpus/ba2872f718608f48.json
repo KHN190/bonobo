@@ -1,0 +1,22 @@
+{
+ "bed": "carried",
+ "building": true,
+ "cooled": false,
+ "dimension": "minecraft:overworld",
+ "fluid": "lava",
+ "food": false,
+ "food_source": "none",
+ "hp": "ok",
+ "hunger": "low",
+ "mob": "creeper",
+ "night": true,
+ "noted": "iron_ore",
+ "ore": "exposed",
+ "pickaxe": -1,
+ "place": "home",
+ "queued": "none",
+ "station": "crafting_table",
+ "takeover": true,
+ "threat": true,
+ "tree": false
+}

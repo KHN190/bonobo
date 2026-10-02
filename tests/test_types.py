@@ -43,7 +43,8 @@ class Vocabulary(unittest.TestCase):
 @unittest.skipUnless(PYRIGHT, "neither npx nor MC_PYRIGHT: no pyright to run")
 class Ratchet(unittest.TestCase):
     def test_errors_never_grow(self):
-        out = subprocess.run(PYRIGHT + ["--outputjson"], cwd=ROOT, capture_output=True, text=True, timeout=600)
+        # the interpreter running the suite (the venv's: requirements.txt) is the one pyright resolves imports in
+        out = subprocess.run(PYRIGHT + ["--outputjson", "--pythonpath", sys.executable], cwd=ROOT, capture_output=True, text=True, timeout=600)
         with open(BASELINE) as f:
             baseline = int(f.read().split()[0])
         n = error_count(out.stdout)

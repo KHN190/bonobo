@@ -6,20 +6,31 @@
 set -u
 cd "$(dirname "$0")"
 CPUS=6
+FUZZ_S=60          # the fuzzer's budget inside the gate (seconds)
 JAR="${ANAKA:-$HOME/Desktop/code/minecraft-claude-bridge/anaka}"
 OUT="$(mktemp -d)"
 declare -a NAMES=() RESULTS=()
 
 note() { NAMES+=("$1"); RESULTS+=("$2"); }
 
+# the main checkout's venv (requirements.txt), found from any worktree; missing is a failed gate, not a fallback
+VENV="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.venv"
+PY="$VENV/bin/python"
+if [ -x "$PY" ]; then
+    note venv ok
+else
+    note venv "FAIL (missing: $VENV; python3 -m venv .venv && PIP_USER=0 .venv/bin/pip install -r requirements.txt)"
+    PY=python3
+fi
+
 # 1 ∥ 2: the fast ones together
 if [ -f static_check.py ]; then
-    python3 static_check.py >"$OUT/static.txt" 2>&1 &
+    "$PY" static_check.py >"$OUT/static.txt" 2>&1 &
     STATIC=$!
 else
     STATIC=""
 fi
-npx -y pyright@1.1.414 >"$OUT/pyright.txt" 2>&1 &
+npx -y pyright@1.1.414 --pythonpath "$PY" >"$OUT/pyright.txt" 2>&1 &
 PYRIGHT=$!
 
 if [ -n "$STATIC" ]; then
@@ -31,16 +42,16 @@ fi
 if wait "$PYRIGHT"; then note pyright ok; else note pyright FAIL; fi
 
 # 3: every test file, ≤ CPUS processes (runtests.py caps its pool)
-if python3 runtests.py >"$OUT/tests.txt" 2>&1; then note runtests ok; else note runtests FAIL; fi
+if "$PY" runtests.py >"$OUT/tests.txt" 2>&1; then note runtests ok; else note runtests FAIL; fi
 
 # 4: the checker, after the tests (they would fight for the cores)
 if [ -f check/run.py ]; then
-    if python3 -m check.run 0 "$OUT/check-run.md" "$CPUS" >"$OUT/check.txt" 2>&1; then
+    if "$PY" -m check.run 0 "$OUT/check-run.md" "$CPUS" >"$OUT/check.txt" 2>&1; then
         if [ ! -f check/known.txt ]; then
             echo "check/known.txt missing: no baseline to hold the violations to" >>"$OUT/check.txt"
             note check.run "FAIL (no baseline)"
         else
-            python3 - "$OUT/check-run.md" check/known.txt >>"$OUT/check.txt" 2>&1 <<'PY'
+            "$PY" - "$OUT/check-run.md" check/known.txt >>"$OUT/check.txt" 2>&1 <<'PY'
 import re, sys
 got = {m.group(1): int(m.group(2)) for m in re.finditer(r"^\| (\w+) \| (\d+) \|$", open(sys.argv[1]).read(), re.M)}
 known = {k: int(v) for k, v in (ln.split() for ln in open(sys.argv[2]) if ln.strip() and not ln.startswith("#"))}
@@ -56,6 +67,13 @@ PY
 else
     echo "check/run.py not found" >"$OUT/check.txt"
     note check.run "FAIL (missing)"
+fi
+
+# 4b: the coverage-guided fuzzer, bounded (check/fuzz.py: offline it runs longer and keeps its corpus with --save)
+if [ -f check/fuzz.py ]; then
+    if "$PY" -m check.fuzz "$FUZZ_S" "$OUT/fuzz.md" >"$OUT/fuzz.txt" 2>&1; then note fuzz ok; else note fuzz "FAIL (new violations)"; fi
+else
+    note fuzz "FAIL (missing)"
 fi
 
 # 5: the jar, when its tree differs from the integration branch
@@ -87,6 +105,7 @@ if [ "$failed" -ne 0 ]; then
             pyright) grep -E "error|errors" "$OUT/pyright.txt" ;;
             runtests) grep -E "^FAIL|^ERROR|Error:|FAILED" "$OUT/tests.txt" ;;
             check.run) tail -20 "$OUT/check.txt" ;;
+            fuzz) tail -5 "$OUT/fuzz.txt"; cat "$OUT/fuzz.md" ;;
             "jar test") grep -vE "^\s+at " "$OUT/jar.txt" | head -40 ;;
             esac
             ;;
